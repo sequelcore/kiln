@@ -215,6 +215,40 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(result.record.replayResources?.[0]?.text).toContain("doc contents");
   });
 
+  it("reports child runtime tool events through managed invocation progress", async () => {
+    const provider = providerWithResponses([
+      response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),
+      response("Direct child completed."),
+    ]);
+    const readTool = vi.fn(async () => "doc contents");
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", readTool]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await invokeManaged(service, request(), adapter);
+    const snapshot = service.status("inv-direct-1");
+
+    expect(result.status).toBe("completed");
+    expect(snapshot?.progressEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "tool_called",
+        summary: "read called",
+        toolName: "read",
+      }),
+      expect.objectContaining({
+        kind: "tool_result",
+        summary: "read succeeded",
+        toolName: "read",
+        success: true,
+      }),
+    ]));
+  });
+
   it("admits explicit read-only reference roots into the direct child sandbox", async () => {
     const provider = providerWithResponses([
       response("reading reference", [{

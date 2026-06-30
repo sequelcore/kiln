@@ -1,6 +1,7 @@
 import type {
   AuthorityDescriptor,
   Capability,
+  ErrorEvent,
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
@@ -9,12 +10,17 @@ import type {
   ProviderAdapter,
   SandboxConfig,
   ToolDefinition,
+  ToolAuthorizedEvent,
+  ToolCacheHitEvent,
+  ToolCalledEvent,
+  ToolResultEvent,
 } from "@kilnai/core";
 import {
   AllCredentialsExhaustedError,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
+  EventBus,
   extractText,
   SandboxPolicy,
   textParts,
@@ -38,6 +44,7 @@ import {
 import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
+  ManagedAgentRuntimeInvocationProgressEvent,
 } from "./index.js";
 import {
   collectManagedAgentLiveWriteEvidence,
@@ -214,12 +221,20 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         runtimeBuiltinTools,
         createManagedToolSandbox(request),
       );
+      const eventBus = new EventBus();
+      const unsubscribeProgress = attachManagedChildProgressObserver(
+        eventBus,
+        childSessionId,
+        request.invocationId,
+        input.progressObserver,
+      );
       const deps: OrchestratorDeps = {
         provider: this.provider,
         ...(this.model ? { model: this.model } : {}),
         executionEnvelope: this.executionEnvelope,
         tools,
         builtinTools,
+        eventBus,
         ...(capabilityMap ? { capabilityMap } : {}),
       };
       const orchestrator = new RuntimeSessionOrchestrator(deps);
@@ -247,7 +262,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         governedResourceContext,
         builtinTools,
         perCallConfig,
-      );
+      ).finally(unsubscribeProgress);
       const resultText = extractText(result.parts);
       const replayResource = resultReplayResource(request.invocationId, resultText);
       const childExecutionResource = childExecutionReplayResource(request.invocationId, result, resultText);
@@ -352,6 +367,101 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
     };
   }
+}
+
+function attachManagedChildProgressObserver(
+  eventBus: EventBus,
+  childSessionId: string,
+  invocationId: string,
+  observer: ManagedAgentRuntimeInvocationInput["progressObserver"],
+): () => void {
+  if (!observer) {
+    return () => undefined;
+  }
+  const handler = (
+    event: ToolAuthorizedEvent | ToolCalledEvent | ToolResultEvent | ToolCacheHitEvent | ErrorEvent,
+  ): void => {
+    if (event.sessionId !== childSessionId) {
+      return;
+    }
+    const progress = managedChildProgressEvent(invocationId, event);
+    if (progress) {
+      void Promise.resolve(observer(progress)).catch(() => undefined);
+    }
+  };
+  eventBus.on("tool_authorized", handler);
+  eventBus.on("tool_called", handler);
+  eventBus.on("tool_result", handler);
+  eventBus.on("tool_cache_hit", handler);
+  eventBus.on("error", handler);
+  return () => {
+    eventBus.off("tool_authorized", handler);
+    eventBus.off("tool_called", handler);
+    eventBus.off("tool_result", handler);
+    eventBus.off("tool_cache_hit", handler);
+    eventBus.off("error", handler);
+  };
+}
+
+function managedChildProgressEvent(
+  invocationId: string,
+  event: ToolAuthorizedEvent | ToolCalledEvent | ToolResultEvent | ToolCacheHitEvent | ErrorEvent,
+): ManagedAgentRuntimeInvocationProgressEvent {
+  const recordedAt = event.timestamp instanceof Date ? event.timestamp.toISOString() : new Date().toISOString();
+  const base = {
+    eventId: `${invocationId}:progress:${event.type}:${recordedAt}:${"toolName" in event ? event.toolName : "runtime"}`,
+    kind: event.type,
+    recordedAt,
+  };
+  if (event.type === "tool_authorized") {
+    return {
+      ...base,
+      summary: `${event.toolName} authorization ${event.allowed ? "allowed" : "denied"}`,
+      toolName: event.toolName,
+      metadata: {
+        level: event.level,
+        allowed: event.allowed,
+        reason: event.reason,
+      },
+    };
+  }
+  if (event.type === "tool_called") {
+    return {
+      ...base,
+      summary: `${event.toolName} called`,
+      toolName: event.toolName,
+      ...(event.metadata ? { metadata: event.metadata } : {}),
+    };
+  }
+  if (event.type === "tool_result") {
+    return {
+      ...base,
+      summary: `${event.toolName} ${event.success ? "succeeded" : "failed"}`,
+      toolName: event.toolName,
+      success: event.success,
+      ...(event.isError !== undefined ? { isError: event.isError } : {}),
+      durationMs: event.durationMs,
+      ...(event.resultSummary ? { resultSummary: event.resultSummary } : {}),
+      ...(event.metadata ? { metadata: event.metadata } : {}),
+    };
+  }
+  if (event.type === "tool_cache_hit") {
+    return {
+      ...base,
+      summary: `${event.toolName} cache hit`,
+      toolName: event.toolName,
+      metadata: { cacheTtl: event.cacheTtl },
+    };
+  }
+  return {
+    ...base,
+    summary: event.message,
+    isError: true,
+    metadata: {
+      code: event.code,
+      taskId: event.taskId,
+    },
+  };
 }
 
 function filterMap<T>(source: ReadonlyMap<string, T>, allowedNames: ReadonlySet<string>): ReadonlyMap<string, T> {

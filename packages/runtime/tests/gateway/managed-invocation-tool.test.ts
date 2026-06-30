@@ -254,6 +254,31 @@ function makeDeferredAdapter(): {
   return { adapter, terminal };
 }
 
+function makeProgressReportingDeferredAdapter(): {
+  readonly adapter: ManagedAgentRuntimeAdapter;
+  readonly terminal: ReturnType<typeof deferred<ReturnType<typeof defineManagedAgentInvocationRecord>>>;
+} {
+  const terminal = deferred<ReturnType<typeof defineManagedAgentInvocationRecord>>();
+  const adapter: ManagedAgentRuntimeAdapter = {
+    descriptor: makeDescriptor(),
+    invoke: vi.fn(async ({ request, admission, progressObserver }) => {
+      await progressObserver?.({
+        eventId: `${request.invocationId}:progress:tool-called`,
+        kind: "tool_called",
+        recordedAt: "2026-06-30T00:00:00.000Z",
+        summary: "grep called",
+        toolName: "grep",
+      });
+      const record = await terminal.promise;
+      return defineManagedAgentInvocationRecord({
+        ...record,
+        capabilitySnapshot: admission.capabilitySnapshot,
+      });
+    }),
+  };
+  return { adapter, terminal };
+}
+
 function makeRejectingDeferredAdapter(): {
   readonly adapter: ManagedAgentRuntimeAdapter;
   readonly terminal: ReturnType<typeof deferred<void>>;
@@ -482,6 +507,20 @@ describe("managed invocation runtime tool", () => {
         readonly parentTurnId: string;
         readonly timeoutMs?: number;
         readonly timeoutSource?: string;
+        readonly authoritySnapshot?: {
+          readonly toolAuthority?: {
+            readonly allowedToolNames?: readonly string[];
+            readonly writeAllowed?: boolean;
+            readonly networkAllowed?: boolean;
+          };
+          readonly workingDirectory?: {
+            readonly path?: string;
+            readonly mode?: string;
+          };
+          readonly memoryScope?: {
+            readonly access?: string;
+          };
+        };
         readonly sessionEventIds?: readonly string[];
       };
     };
@@ -489,6 +528,13 @@ describe("managed invocation runtime tool", () => {
       readonly parentTurnId?: string;
       readonly timeoutMs?: number;
       readonly timeoutSource?: string;
+      readonly authoritySnapshot?: {
+        readonly toolAuthority?: {
+          readonly allowedToolNames?: readonly string[];
+          readonly writeAllowed?: boolean;
+          readonly networkAllowed?: boolean;
+        };
+      };
     };
 
     expect(started).toMatchObject({
@@ -501,12 +547,33 @@ describe("managed invocation runtime tool", () => {
         parentTurnId: `${session.id}:turn:1`,
         timeoutMs: 120000,
         timeoutSource: "explicit-route",
+        authoritySnapshot: {
+          toolAuthority: {
+            allowedToolNames: ["read", "grep", "glob"],
+            writeAllowed: false,
+            networkAllowed: false,
+          },
+          workingDirectory: {
+            path: "C:/workspace/kiln",
+            mode: "read-only",
+          },
+          memoryScope: {
+            access: "read-only",
+          },
+        },
       },
     });
     expect(startedOutput).toMatchObject({
       parentTurnId: `${session.id}:turn:1`,
       timeoutMs: 120000,
       timeoutSource: "explicit-route",
+      authoritySnapshot: {
+        toolAuthority: {
+          allowedToolNames: ["read", "grep", "glob"],
+          writeAllowed: false,
+          networkAllowed: false,
+        },
+      },
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
@@ -530,11 +597,25 @@ describe("managed invocation runtime tool", () => {
         readonly parentTurnId?: string;
         readonly timeoutMs?: number;
         readonly timeoutSource?: string;
+        readonly authoritySnapshot?: {
+          readonly toolAuthority?: {
+            readonly allowedToolNames?: readonly string[];
+            readonly writeAllowed?: boolean;
+            readonly networkAllowed?: boolean;
+          };
+        };
       };
     };
     const statusOutput = JSON.parse(status.output) as {
       readonly timeoutMs?: number;
       readonly timeoutSource?: string;
+      readonly authoritySnapshot?: {
+        readonly toolAuthority?: {
+          readonly allowedToolNames?: readonly string[];
+          readonly writeAllowed?: boolean;
+          readonly networkAllowed?: boolean;
+        };
+      };
     };
     expect(status).toMatchObject({
       isError: false,
@@ -545,11 +626,25 @@ describe("managed invocation runtime tool", () => {
         parentTurnId: `${session.id}:turn:1`,
         timeoutMs: 120000,
         timeoutSource: "explicit-route",
+        authoritySnapshot: {
+          toolAuthority: {
+            allowedToolNames: ["read", "grep", "glob"],
+            writeAllowed: false,
+            networkAllowed: false,
+          },
+        },
       },
     });
     expect(statusOutput).toMatchObject({
       timeoutMs: 120000,
       timeoutSource: "explicit-route",
+      authoritySnapshot: {
+        toolAuthority: {
+          allowedToolNames: ["read", "grep", "glob"],
+          writeAllowed: false,
+          networkAllowed: false,
+        },
+      },
     });
 
     const listed = await surface.callBuiltinTools.get("managed_agent.list")?.({}, {
@@ -717,6 +812,13 @@ describe("managed invocation runtime tool", () => {
         readonly childTurnId?: string;
         readonly timeoutMs?: number;
         readonly timeoutSource?: string;
+        readonly authoritySnapshot?: {
+          readonly toolAuthority?: {
+            readonly allowedToolNames?: readonly string[];
+            readonly writeAllowed?: boolean;
+            readonly networkAllowed?: boolean;
+          };
+        };
         readonly resultHandoff?: { readonly summary?: string; readonly resourceUris?: readonly string[] };
       };
     };
@@ -725,6 +827,13 @@ describe("managed invocation runtime tool", () => {
       readonly childTurnId?: string;
       readonly timeoutMs?: number;
       readonly timeoutSource?: string;
+      readonly authoritySnapshot?: {
+        readonly toolAuthority?: {
+          readonly allowedToolNames?: readonly string[];
+          readonly writeAllowed?: boolean;
+          readonly networkAllowed?: boolean;
+        };
+      };
     };
 
     expect(joined).toMatchObject({
@@ -737,6 +846,13 @@ describe("managed invocation runtime tool", () => {
         childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
         timeoutMs: 120000,
         timeoutSource: "explicit-route",
+        authoritySnapshot: {
+          toolAuthority: {
+            allowedToolNames: ["read", "grep", "glob"],
+            writeAllowed: false,
+            networkAllowed: false,
+          },
+        },
         resultHandoff: {
           summary: "Child review completed.",
         },
@@ -747,6 +863,13 @@ describe("managed invocation runtime tool", () => {
       childTurnId: `${session.id}:managed:${started.metadata.invocationId}:turn:1`,
       timeoutMs: 120000,
       timeoutSource: "explicit-route",
+      authoritySnapshot: {
+        toolAuthority: {
+          allowedToolNames: ["read", "grep", "glob"],
+          writeAllowed: false,
+          networkAllowed: false,
+        },
+      },
     });
     expect(joined.metadata.resultHandoff?.resourceUris).toContain(
       `kiln://managed-agents/invocations/${started.metadata.invocationId}/resources/result`,
@@ -774,6 +897,116 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_started",
       "agent_invocation_completed",
     ]);
+  });
+
+  it("projects managed child progress events before terminal join", async () => {
+    const { adapter, terminal } = makeProgressReportingDeferredAdapter();
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-progress-bg",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect tool progress.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly metadata: {
+        readonly invocationId: string;
+      };
+    };
+
+    await waitForCondition(() => {
+      const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as
+        | ManagedAgentInvocationRequest
+        | undefined;
+      return request?.invocationId === started.metadata.invocationId;
+    });
+    await flushMicrotasks();
+
+    const status = await surface.callBuiltinTools.get("managed_agent.status")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-progress-status", name: "managed_agent.status", input: {} },
+    }) as {
+      readonly output: string;
+      readonly metadata: {
+        readonly lifecycleState?: string;
+        readonly progressEvents?: readonly {
+          readonly kind?: string;
+          readonly summary?: string;
+          readonly toolName?: string;
+        }[];
+      };
+    };
+    const statusOutput = JSON.parse(status.output) as {
+      readonly progressEvents?: readonly {
+        readonly kind?: string;
+        readonly summary?: string;
+        readonly toolName?: string;
+      }[];
+    };
+
+    expect(status.metadata).toMatchObject({
+      lifecycleState: "running",
+      progressEvents: [{
+        kind: "tool_called",
+        summary: "grep called",
+        toolName: "grep",
+      }],
+    });
+    expect(statusOutput.progressEvents).toEqual(status.metadata.progressEvents);
+
+    const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
+    terminal.resolve(defineManagedAgentInvocationRecord({
+      invocationId: request.invocationId,
+      agentId: request.agentId,
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      profile: request.profile,
+      lifecycleState: "completed",
+      providerRoute: request.providerRoute,
+      adapterKind: request.adapterKind,
+      executionMode: request.executionMode,
+      authority: request.authority,
+      capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, adapter.descriptor, {
+        routeId: "opencode-readonly",
+        routeSource: "explicit-managed-route",
+      }),
+      resultHandoff: {
+        summary: "Progress child completed.",
+        resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    await flushMicrotasks();
+
+    const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-progress-join", name: "managed_agent.join", input: {} },
+    }) as {
+      readonly metadata: {
+        readonly progressEvents?: readonly {
+          readonly kind?: string;
+          readonly toolName?: string;
+        }[];
+      };
+    };
+
+    expect(joined.metadata.progressEvents).toEqual(status.metadata.progressEvents);
   });
 
   it("fails closed before invocation when required read paths are outside route authority", async () => {

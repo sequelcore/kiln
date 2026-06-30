@@ -66,6 +66,7 @@ import {
   managedInvocationFailureReasonFromStatus,
 } from "./phase-recovery.js";
 import {
+  projectManagedInvocationAuthorityResources,
   projectManagedInvocationCapabilitySnapshotResources,
   projectManagedInvocationPublicResourceUri,
   projectManagedInvocationRecordResources,
@@ -1610,6 +1611,7 @@ async function executeManagedInvocationStartTool(
         contextMode: terminalizedSnapshot.decision.capabilitySnapshot.contextMode,
         request: terminalizedSnapshot.request,
         record,
+        progressEvents: terminalizedSnapshot.progressEvents,
         ...(prepared.canonicalizedForbiddenInputFields
           ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
           : {}),
@@ -1688,6 +1690,7 @@ async function executeManagedInvocationStartTool(
     startResult.snapshot.decision.capabilitySnapshot,
     projectManagedInvocationPublicResourceUri,
   );
+  const authoritySnapshot = projectManagedInvocationAuthoritySnapshot(startResult.snapshot.request.authority);
   const timeoutEvidence = projectManagedInvocationTimeoutEvidence(
     startResult.snapshot.decision.capabilitySnapshot.authorityProfile,
   );
@@ -1702,6 +1705,7 @@ async function executeManagedInvocationStartTool(
       parentTurnId: startResult.snapshot.parentTurnId,
       profile: startResult.snapshot.profile,
       ...timeoutEvidence,
+      authoritySnapshot,
     }, null, 2),
     isError: false,
     metadata: {
@@ -1722,6 +1726,7 @@ async function executeManagedInvocationStartTool(
       executionMode: startResult.snapshot.executionMode,
       requestedAuthority: prepared.request.requestedAuthority,
       authorityProfileId: startResult.snapshot.authorityProfileId,
+      authoritySnapshot,
       capabilitySnapshot,
       context: prepared.request.input.context,
       ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
@@ -1870,6 +1875,7 @@ async function executeManagedInvocationJoinTool(
     contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
     request: visibility.snapshot.request,
     record,
+    progressEvents: terminalSnapshot?.progressEvents,
     sessionEventIds: terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value }),
   });
 }
@@ -1922,11 +1928,12 @@ async function executeManagedInvocationCancelTool(
     );
   }
   const record = projectManagedInvocationRecordResources(terminalResult.record, { artifactStore: options.artifactStore });
+  const cancelledSnapshot = service.status(invocationId.value);
   const events = appendManagedInvocationTerminalSessionEvent({
     session: session.context.session,
     request: visibility.snapshot.request,
     record,
-    durationMs: service.status(invocationId.value)?.durationMs,
+    durationMs: cancelledSnapshot?.durationMs,
   });
   await publishManagedInvocationSessionEvents(options, session.context, events);
   return terminalManagedInvocationResult({
@@ -1938,6 +1945,7 @@ async function executeManagedInvocationCancelTool(
     request: visibility.snapshot.request,
     record,
     expectedTerminalLifecycleState: "cancelled",
+    progressEvents: cancelledSnapshot?.progressEvents,
     sessionEventIds: terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value }),
   });
 }
@@ -1999,6 +2007,7 @@ function managedInvocationSnapshotResult(
 
 function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeInvocationSnapshot): Record<string, unknown> {
   const capabilitySnapshot = snapshot.decision.capabilitySnapshot;
+  const authoritySnapshot = projectManagedInvocationAuthoritySnapshot(snapshot.request.authority);
   return {
     invocationId: snapshot.invocationId,
     agentId: snapshot.agentId,
@@ -2013,10 +2022,12 @@ function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeInvocatio
     adapterKind: snapshot.adapterKind,
     executionMode: snapshot.executionMode,
     authorityProfileId: snapshot.authorityProfileId,
+    authoritySnapshot,
     lifecycleState: snapshot.lifecycleState,
     startedAt: snapshot.startedAt,
     ...(snapshot.finishedAt ? { finishedAt: snapshot.finishedAt } : {}),
     ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
+    ...(snapshot.progressEvents && snapshot.progressEvents.length > 0 ? { progressEvents: snapshot.progressEvents } : {}),
     terminalEvidenceAvailable: snapshot.record !== undefined || snapshot.error !== undefined,
   };
 }
@@ -2051,6 +2062,7 @@ function terminalManagedInvocationResult(input: {
   readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
   readonly record: ManagedAgentInvocationRecord;
   readonly expectedTerminalLifecycleState?: ManagedAgentInvocationRecord["lifecycleState"];
+  readonly progressEvents?: ManagedAgentRuntimeInvocationSnapshot["progressEvents"];
   readonly canonicalizedForbiddenInputFields?: readonly string[];
   readonly sessionEventIds: readonly string[];
 }): ManagedInvocationToolResult {
@@ -2077,11 +2089,13 @@ function terminalManagedInvocationResult(input: {
   const resourceLease = input.record.resourceLease ?? input.record.capabilitySnapshot.resourceLease;
   const routeSource = input.record.capabilitySnapshot.routeSource;
   const timeoutEvidence = projectManagedInvocationTimeoutEvidence(input.record.capabilitySnapshot.authorityProfile);
+  const authoritySnapshot = projectManagedInvocationAuthoritySnapshot(input.record.authority);
   const childLineage = projectManagedInvocationChildLineage(input.record);
   const structuredEvidence = input.record.resultHandoff !== undefined
     || input.record.transcript !== undefined
     || resourceLease !== undefined
-    || (input.record.diagnostics !== undefined && input.record.diagnostics.length > 0);
+    || (input.record.diagnostics !== undefined && input.record.diagnostics.length > 0)
+    || (input.progressEvents !== undefined && input.progressEvents.length > 0);
   return {
     output: recovery || handoffRecovery || phaseCompletion || structuredEvidence
       ? JSON.stringify({
@@ -2094,10 +2108,12 @@ function terminalManagedInvocationResult(input: {
           parentTurnId: input.record.parentTurnId,
           ...childLineage,
           ...timeoutEvidence,
+          authoritySnapshot,
           ...(input.record.resultHandoff ? { resultHandoff: input.record.resultHandoff } : {}),
           ...(input.record.transcript ? { transcript: input.record.transcript } : {}),
           ...(resourceLease ? { resourceLease } : {}),
           ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
+          ...(input.progressEvents && input.progressEvents.length > 0 ? { progressEvents: input.progressEvents } : {}),
           ...(recovery ? { recovery } : {}),
           ...(handoffRecovery ? { recovery: handoffRecovery } : {}),
           ...(phaseCompletion ? { phaseCompletion } : {}),
@@ -2123,6 +2139,7 @@ function terminalManagedInvocationResult(input: {
       executionMode: input.record.executionMode,
       requestedAuthority: input.request.requestedAuthority,
       authorityProfileId: input.record.authority.authorityProfileId,
+      authoritySnapshot,
       capabilitySnapshot: input.record.capabilitySnapshot,
       context: input.request.input.context,
       ...(input.canonicalizedForbiddenInputFields
@@ -2131,6 +2148,7 @@ function terminalManagedInvocationResult(input: {
       ...(input.request.input.handoff ? { handoffContract: input.request.input.handoff } : {}),
       resultHandoff: input.record.resultHandoff,
       transcript: input.record.transcript,
+      ...(input.progressEvents && input.progressEvents.length > 0 ? { progressEvents: input.progressEvents } : {}),
       ...(resourceLease ? { resourceLease } : {}),
       ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
@@ -2158,6 +2176,10 @@ function projectManagedInvocationTimeoutEvidence(authority: ManagedAgentAuthorit
     timeoutMs: authority.timeoutMs,
     ...(authority.timeoutSource ? { timeoutSource: authority.timeoutSource } : {}),
   };
+}
+
+function projectManagedInvocationAuthoritySnapshot(authority: ManagedAgentAuthorityProfile): ManagedAgentAuthorityProfile {
+  return projectManagedInvocationAuthorityResources(authority, projectManagedInvocationPublicResourceUri);
 }
 
 function projectManagedInvocationChildLineage(record: ManagedAgentInvocationRecord | undefined): Record<string, unknown> {

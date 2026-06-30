@@ -192,6 +192,7 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly abortSignal: AbortSignal;
   readonly promptDelivery: ManagedAgentRuntimePromptDeliveryCoordinator;
+  readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
   readonly environment?: ManagedAgentEnvironmentVariables;
 }
 
@@ -208,6 +209,23 @@ export interface ManagedAgentRuntimeInvocationTerminalNotification {
   readonly record: ManagedAgentInvocationRecord;
   readonly durationMs?: number;
 }
+
+export interface ManagedAgentRuntimeInvocationProgressEvent {
+  readonly eventId: string;
+  readonly kind: "tool_authorized" | "tool_called" | "tool_result" | "tool_cache_hit" | "error";
+  readonly recordedAt: string;
+  readonly summary: string;
+  readonly toolName?: string;
+  readonly success?: boolean;
+  readonly isError?: boolean;
+  readonly durationMs?: number;
+  readonly resultSummary?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+export type ManagedAgentRuntimeInvocationProgressObserver = (
+  event: ManagedAgentRuntimeInvocationProgressEvent,
+) => void | Promise<void>;
 
 export type ManagedAgentRuntimeInvocationTerminalObserver = (
   notification: ManagedAgentRuntimeInvocationTerminalNotification,
@@ -759,6 +777,7 @@ export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly record?: ManagedAgentInvocationRecord;
+  readonly progressEvents?: readonly ManagedAgentRuntimeInvocationProgressEvent[];
   readonly promptInbox?: readonly ManagedAgentRuntimePromptAdmissionRecord[];
   readonly error?: {
     readonly message: string;
@@ -898,6 +917,7 @@ interface ManagedAgentRuntimeInvocationEntry {
   acquiredLeaseStages: ManagedAgentRuntimeLeaseStage[];
   releasedLeaseStages: ManagedAgentRuntimeLeaseStage[];
   promptInbox: ManagedAgentRuntimePromptAdmissionRecord[];
+  progressEvents: ManagedAgentRuntimeInvocationProgressEvent[];
   adapterStarted: boolean;
   parentAbortCleanup?: () => void;
   leaseFinalization?: Promise<ManagedAgentInvocationRecord>;
@@ -971,6 +991,7 @@ export class RuntimeManagedAgentInvocationService {
       acquiredLeaseStages: [],
       releasedLeaseStages: [],
       promptInbox: [],
+      progressEvents: [],
       adapterStarted: false,
       terminal,
       ...(lifecycleOptions.terminalObserver !== undefined
@@ -1028,6 +1049,7 @@ export class RuntimeManagedAgentInvocationService {
       admission: cloneJson(registeredDecision),
       abortSignal: abortController.signal,
       promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
+      progressObserver: (event) => this.recordProgress(entry, event),
       ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
     }).then(async (record) => {
       if (entry.lifecycleState === "failed" && entry.record) {
@@ -1125,6 +1147,13 @@ export class RuntimeManagedAgentInvocationService {
       decision: cloneJson(registeredDecision),
       snapshot: snapshotInvocation(entry),
     };
+  }
+
+  private recordProgress(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    event: ManagedAgentRuntimeInvocationProgressEvent,
+  ): void {
+    entry.progressEvents = [...entry.progressEvents, cloneJson(event)].slice(-100);
   }
 
   status(invocationId: string): ManagedAgentRuntimeInvocationSnapshot | undefined {
@@ -1436,6 +1465,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly admission: ManagedAgentAdmissionDecision;
     readonly abortSignal?: AbortSignal;
     readonly promptDelivery?: ManagedAgentRuntimePromptDeliveryCoordinator;
+    readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
     readonly environment?: ManagedAgentEnvironmentVariables;
   }): Promise<ManagedAgentInvocationRecord> {
     const admission = this.requireRuntimeAdmission(input);
@@ -1445,6 +1475,7 @@ export class RuntimeManagedAgentInvocationService {
       admission,
       abortSignal: input.abortSignal ?? new AbortController().signal,
       promptDelivery: input.promptDelivery ?? this.promptDeliveryCoordinator(input.request.invocationId),
+      ...(input.progressObserver !== undefined ? { progressObserver: input.progressObserver } : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
     });
     this.assertRecordWithinAdmission(record, input.request, admission);
@@ -2088,6 +2119,7 @@ function invocationEntryFromRecoveryCheckpoint(
     acquiredLeaseStages: [...validated.acquiredLeaseStages],
     releasedLeaseStages: [...validated.releasedLeaseStages],
     promptInbox: [],
+    progressEvents: [],
     adapterStarted: validated.adapterStarted,
     ...(validated.finishedAt !== undefined ? { finishedAt: new Date(validated.finishedAt) } : {}),
     ...(validated.record !== undefined ? { record: cloneJson(validated.record) } : {}),
@@ -2137,6 +2169,7 @@ function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): ManagedA
     request: cloneJson(entry.request),
     decision: cloneJson(entry.decision),
     ...(snapshotRecord(entry) !== undefined ? { record: cloneJson(snapshotRecord(entry)) } : {}),
+    ...(entry.progressEvents.length > 0 ? { progressEvents: cloneJson(entry.progressEvents) } : {}),
     ...(entry.promptInbox.length > 0 ? { promptInbox: cloneJson(entry.promptInbox) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
   };
