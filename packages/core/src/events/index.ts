@@ -720,6 +720,23 @@ export type { EventStore } from "./event-store.js";
 export { createTraceContext, startSpan, endSpan, addSpanEvent } from "./trace.js";
 export type { TraceSpan, SpanEvent, TraceContext } from "./trace.js";
 export { createSessionEvent, compareSessionEvents } from "./session-event.js";
+export {
+  projectCostUpdatedEventToLifecycleLedger,
+  summarizeLifecycleAttributionLedger,
+} from "./session-lifecycle-attribution.js";
+export type {
+  ProjectCostUpdatedEventToLifecycleLedgerOptions,
+  SessionLifecycleAttributedCost,
+  SessionLifecycleAttributionAllocation,
+  SessionLifecycleAttributionLedger,
+  SessionLifecycleAttributionQuality,
+  SessionLifecycleAttributionRecord,
+  SessionLifecycleAttributionSummary,
+  SessionLifecycleExecutionContext,
+  SessionLifecycleSourceKind,
+  SessionLifecycleTokenClass,
+  SessionProviderTokenClass,
+} from "./session-lifecycle-attribution.js";
 export type {
   CanonicalSessionEventKind,
   CanonicalSessionEvent,
