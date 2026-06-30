@@ -1,12 +1,16 @@
 # 06 - Research Turn Token Budgeting
 
-Status: Deferred runtime debt
+Status: Deferred implementation slice governed by roadmap 08
 
 ## Objective
 
 Make research-heavy GUI, CLI, TUI, and managed-agent turns bounded,
 diagnosable, and evidence-efficient without weakening source quality, tool
 traceability, or cross-surface parity.
+
+This file owns the research-turn workload and its acceptance evidence.
+`08-verified-efficiency-control-plane.md` owns the broader efficiency control
+model, lifecycle attribution, actuator contracts, and policy-promotion gates.
 
 ## Trigger
 

@@ -71,6 +71,12 @@ Use these documents as the source of truth before starting roadmap work:
    harness boundaries without projecting unsupported model strings into native
    harness files.
 
+8. [Verified Efficiency Control Plane](./08-verified-efficiency-control-plane.md)
+   Proposed long-term architecture program opened on 2026-06-30. Scope is the
+   provider-neutral control loop that maximizes verified engineering value per
+   token, dollar, second, and agent turn through attributable measurement,
+   bounded efficiency actuators, and evidence-gated policy promotion.
+
 ## Deferred Roadmaps
 
 - [Federated Harness Configuration Plane](./04-federated-harness-configuration-plane.md).
@@ -81,9 +87,16 @@ Use these documents as the source of truth before starting roadmap work:
   Deferred until full-workspace verification or release confidence requires
   diagnosing the `@kilnai/cli test` hang observed on 2026-06-29.
 - [Research Turn Token Budgeting](./06-research-turn-token-budgeting.md).
-  Deferred until live validation, release confidence, or provider quota
+  Deferred research-specific implementation slice governed by roadmap `08`.
+  Promote it when live validation, release confidence, or provider quota
   pressure requires reducing research-turn token volume through measured
   attribution and canonical evidence budgeting.
+- [Native Harness Route Integrity](./09-native-harness-route-integrity.md).
+  Deferred correctness program opened on 2026-06-30 after a valid OpenCode Go
+  credential was misreported as invalid because bare OpenCode execution used an
+  obsolete ambient model fallback. Scope is canonical native default
+  projection, catalog validation, route-aware credential probes, and accurate
+  cross-harness diagnostics.
 - OS-pack packaging for web extraction and browser helpers.
   Deferred until controlled web primitives need platform-specific helper
   binaries or dependencies.
