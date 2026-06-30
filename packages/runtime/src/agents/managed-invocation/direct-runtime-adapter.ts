@@ -161,7 +161,8 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     } else {
       input.abortSignal.addEventListener("abort", abortFromRuntime, { once: true });
     }
-    const execution = this.runChildRuntime(input, childSession, abortController.signal);
+    const progressEvents: ManagedAgentRuntimeInvocationProgressEvent[] = [];
+    const execution = this.runChildRuntime(input, childSession, abortController.signal, progressEvents);
     const timeout = createManagedInvocationTimeout(request.authority.timeoutMs, abortController);
     let raced: ManagedAgentInvocationRecord | typeof TIMEOUT;
     try {
@@ -178,6 +179,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         childSessionId,
         childTurnId,
       });
+      const timeoutResource = childTimeoutReplayResource(request.invocationId, timeoutSummary, progressEvents);
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
         lifecycleState: "timed_out",
@@ -197,6 +199,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           ],
           memoryWriteProposalUris: [],
         },
+        replayResources: [timeoutResource],
       });
     }
 
@@ -207,10 +210,15 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     input: ManagedAgentRuntimeInvocationInput,
     childSession: RuntimeSession,
     abortSignal: AbortSignal,
+    progressEvents: ManagedAgentRuntimeInvocationProgressEvent[],
   ): Promise<ManagedAgentInvocationRecord> {
     const request = input.request;
     const childSessionId = childSession.id;
     const childTurnId = `${childSessionId}:turn:1`;
+    const recordProgress = (event: ManagedAgentRuntimeInvocationProgressEvent): void => {
+      progressEvents.push(event);
+      void Promise.resolve(input.progressObserver?.(event)).catch(() => undefined);
+    };
     try {
       const allowedToolNames = new Set(request.authority.toolAuthority.allowedToolNames);
       const tools = this.tools.filter((tool) => allowedToolNames.has(tool.name));
@@ -226,7 +234,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         eventBus,
         childSessionId,
         request.invocationId,
-        input.progressObserver,
+        recordProgress,
       );
       const deps: OrchestratorDeps = {
         provider: this.provider,
@@ -683,6 +691,19 @@ function childExecutionReplayResource(
   };
 }
 
+function childTimeoutReplayResource(
+  invocationId: string,
+  summary: string,
+  progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
+): ManagedAgentReplayResource {
+  return {
+    uri: managedInvocationUri(invocationId, "timeout"),
+    title: "Managed invocation timeout evidence",
+    mimeType: "text/markdown",
+    text: clipResourceText(formatChildTimeoutEvidence(summary, progressEvents), CHILD_EXECUTION_RESOURCE_LIMIT),
+  };
+}
+
 function formatChildExecutionEvidence(result: OrchestrateResult, resultText: string): string {
   return [
     "# Direct Child Execution Evidence",
@@ -698,6 +719,34 @@ function formatChildExecutionEvidence(result: OrchestrateResult, resultText: str
     `Tool executions: ${result.toolExecutions?.length ?? 0}`,
     "",
     ...formatToolExecutionEvidence(result.toolExecutions ?? []),
+  ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatChildTimeoutEvidence(
+  summary: string,
+  progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
+): string {
+  return [
+    "# Direct Child Timeout Evidence",
+    "",
+    summary,
+    "",
+    `Progress events: ${progressEvents.length}`,
+    progressEvents.length === 0 ? "No child runtime progress events were observed before timeout." : undefined,
+    "",
+    ...progressEvents.flatMap((event, index) => [
+      `## Progress ${index + 1}: ${event.kind}`,
+      "",
+      `Recorded at: ${event.recordedAt}`,
+      `Summary: ${event.summary}`,
+      event.toolName ? `Tool: ${event.toolName}` : undefined,
+      event.success !== undefined ? `Success: ${event.success}` : undefined,
+      event.isError !== undefined ? `Error: ${event.isError}` : undefined,
+      event.durationMs !== undefined ? `Duration ms: ${event.durationMs}` : undefined,
+      event.resultSummary ? `Result summary: ${event.resultSummary}` : undefined,
+      event.metadata ? `Metadata: ${clipResourceText(JSON.stringify(event.metadata), TOOL_OUTPUT_LIMIT)}` : undefined,
+      "",
+    ].filter((line): line is string => line !== undefined)),
   ].filter((line): line is string => line !== undefined).join("\n");
 }
 

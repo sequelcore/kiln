@@ -23,13 +23,14 @@ import {
   resolveGlobalConfigPath,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
-import { listHarnessIntegrationCapabilities } from "../config/harness-integration-capabilities.js";
+import { listHarnessIntegrationCapabilities, HARNESSES_WITH_NATIVE_PROJECTION } from "../config/harness-integration-capabilities.js";
 import {
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "../config/native-projection-state.js";
-import { loadAgentDefinitions } from "./agent-loader.js";
+import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
+import { decideNativeAgentProjection } from "../config/native-agent-projection-decision.js";
 import { projectContextPath } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import {
@@ -48,6 +49,13 @@ export interface ReadConfigStatusOptions {
 interface ConfigLoadState {
   readonly source: KilnConfigSourceSnapshot;
   readonly config: KilnGlobalConfig | KilnYaml | null;
+}
+
+interface NativeAgentProjectionSummary {
+  readonly target: string;
+  readonly status: "projected" | "omitted";
+  readonly nativeModel?: string;
+  readonly reason?: string;
 }
 
 export async function readConfigStatusSnapshot(
@@ -411,13 +419,32 @@ async function readAgentIndexes(projectPath: string): Promise<unknown> {
       id: agent.name,
       displayName: agent.displayName,
       role: agent.role,
-      model: agent.model,
+      providerRoute: agent.providerRoute,
       tools: agent.tools,
       skills: agent.skills,
       taskAffinity: agent.taskAffinity,
       routeId: agent.routeId,
+      nativeProjections: nativeAgentProjectionSummaries(agent),
     })),
   };
+}
+
+function nativeAgentProjectionSummaries(agent: KilnAgentDefinition): readonly NativeAgentProjectionSummary[] {
+  return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
+    const decision = decideNativeAgentProjection({ agent, harness: target });
+    if (decision.kind === "omit") {
+      return {
+        target,
+        status: "omitted",
+        reason: decision.reason,
+      };
+    }
+    return {
+      target,
+      status: "projected",
+      ...(decision.nativeModel ? { nativeModel: decision.nativeModel } : {}),
+    };
+  });
 }
 
 function skillProjectionRecommendations(

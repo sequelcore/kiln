@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:215196c718ed1a5c79c247ab704066cb7caa0ee7efe67ab9e072ee809a784a5b
+contentHash: sha256:a67e5ad2c04c2fd317e6bc9c231dbfe137449dce3e54a848c7da7fae73a04f80
 -->
 # Agents
 
@@ -75,26 +75,26 @@ Follow the resolved Kiln work-governance policy before choosing direct execution
 
 ## Agents
 
-| Name | Display | Role | Tools | Model | Skills | Instruction Profiles |
-|------|---------|------|-------|-------|--------|----------------------|
+| Name | Display | Role | Tools | Provider Route | Skills | Instruction Profiles |
+|------|---------|------|-------|----------------|--------|----------------------|
 | adversarial-reviewer (global) | Herkabe | Adversarial reviewer | read, grep, glob | codex-oauth/codex-auto-review | - | - |
 | architect (global) | Piama | Software architect | read, grep, glob, web | codex-oauth/gpt-5.5 | - | - |
 | architecture-planner (global) | Lloyd | Architecture planner | read, grep, glob | codex-oauth/gpt-5.5 | - | - |
-| backend-coder (global) | DeepSeek | Backend and runtime implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | deepseek-v4-pro | - | - |
+| backend-coder (global) | DeepSeek | Backend and runtime implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | opencode-go/deepseek-v4-pro | - | - |
 | coder (global) | Reese | Coding implementation specialist; tasks: backend-coding, test-writing | read, grep, glob, write, bash | codex-oauth/gpt-5.5 | - | - |
-| ddd-validator (global) | Ida | DDD and Clean Architecture validator | read, grep, glob | opencode-go/deepseek-v4-pro | - | - |
-| fast-coder (global) | Stevie | Fast implementation specialist; tasks: mechanical-edit | read, grep, glob, write, bash | deepseek-v4-flash | - | - |
+| ddd-validator (global) | Ida | DDD and Clean Architecture validator | read, grep, glob | - | - | - |
+| fast-coder (global) | Stevie | Fast implementation specialist; tasks: mechanical-edit | read, grep, glob, write, bash | opencode-go/deepseek-v4-flash | - | - |
 | frontend-coder (global) | Kimi | Frontend implementation specialist; tasks: frontend-design | read, grep, glob, write, bash | opencode-go/kimi-k2.7-code | - | - |
 | opencode (global) | Craig | OpenCode implementation worker; tasks: mechanical-edit | read, grep, glob, write, bash | opencode-go/deepseek-v4-flash | - | - |
 | planner (global) | Hal | Implementation planner | read, grep, glob | codex-oauth/gpt-5.5 | - | - |
-| react-ts-reviewer (global) | Cynthia | React TypeScript reviewer | read, grep, glob | opencode-go/deepseek-v4-pro | - | - |
+| react-ts-reviewer (global) | Cynthia | React TypeScript reviewer | read, grep, glob | - | - | - |
 | refactoring-specialist (global) | Jamie | Refactoring specialist; tasks: mechanical-edit, backend-coding | read, grep, glob, write, bash | opencode-go/glm-5.2 | - | - |
 | research-writer (global) | Qwen | Research documentation implementation specialist; tasks: research | read, grep, glob, write, web | opencode-go/qwen3.7-max | - | - |
 | researcher (global) | Abe | Technical researcher; tasks: research | read, grep, glob, web | opencode-go/qwen3.7-max | - | - |
 | reviewer (global) | Lois | Code quality reviewer | read, grep, glob | codex-oauth/codex-auto-review | - | - |
 | scout (global) | Dewey | Read-only context scout; tasks: research | read, grep, glob | opencode-go/deepseek-v4-flash | - | - |
 | service-coder (global) | GLM | Service and adapter implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | opencode-go/glm-5.2 | - | - |
-| spring-boot-reviewer (global) | Spangler | Spring Boot reviewer | read, grep, glob | opencode-go/deepseek-v4-pro | - | - |
+| spring-boot-reviewer (global) | Spangler | Spring Boot reviewer | read, grep, glob | - | - | - |
 | tdd (global) | Malcolm | TDD guide; tasks: test-writing | read, grep, glob, write, bash | codex-oauth/gpt-5.5 | - | - |
 | visual-researcher (global) | Qwen | Visual reference research specialist; tasks: frontend-design, research | read, grep, glob, web | opencode-go/qwen3.7-max | - | - |
 

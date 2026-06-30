@@ -62,9 +62,11 @@ import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
 import {
   GUI_PROVIDER_DISPLAY_ORDER,
+  buildOperatorToolResultPayload,
   formatPresentationIntentAsText,
   getGuiProviderMetadata,
   isGuiProviderModeless,
+  parseOperatorToolResultEnvelope,
   presentOperatorEventPayload,
   type GuiProviderDiscoveryResult,
 } from "@kilnai/gateway-contracts";
@@ -78,6 +80,7 @@ import {
   type CanonicalSessionEventKind,
   type ContextArtifactCache,
   type DefaultBuiltinToolRegistryOptions,
+  type ExecutionSessionRunOptions,
   type SessionEventSource,
 } from "@kilnai/core";
 import {
@@ -95,10 +98,13 @@ import {
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "@kilnai/runtime";
-import { toManagedInvocationPersistedTranscriptEventDraft } from "../application/managed-invocation-transcript-persistence.js";
+import {
+  managedInvocationPersistedTranscriptEventDrafts,
+  operatorTranscriptKindForType,
+  operatorTranscriptSourceForType,
+} from "../application/operator-transcript-projection.js";
 import type {
   CliSessionFactoryContext,
-  CliSessionRunOptions,
   GovernedTurnOutcomeToolRecord,
   ManagedInvocationToolOptions,
   RuntimeBudgetAdmissionPort,
@@ -293,44 +299,6 @@ function parseProvider(
   throw new Error(`Unknown provider: ${requestedProvider}`);
 }
 
-function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
-  switch (type) {
-    case "user":
-      return "user_message";
-    case "text_delta":
-      return "assistant_delta";
-    case "tool_use":
-      return "tool_call_started";
-    case "tool_result":
-      return "tool_call_completed";
-    case "cost_update":
-      return "cost_updated";
-    case "error":
-      return "error_recorded";
-    default:
-      return "assistant_message";
-  }
-}
-
-function mapTranscriptTypeToSource(type: string, surface: OperatorTranscriptSurface): SessionEventSource {
-  const component = surface === "gui" ? "gui-command" : "tui-command";
-  switch (type) {
-    case "user":
-      return { actor: "user", surface, component };
-    case "text_delta":
-      return { actor: "assistant", surface, component };
-    case "tool_use":
-    case "tool_result":
-      return { actor: "tool", surface, component };
-    case "cost_update":
-      return { actor: "runtime", surface, component };
-    case "error":
-      return { actor: "runtime", surface, component };
-    default:
-      return { actor: "system", surface, component };
-  }
-}
-
 function toPersistedTranscriptEvent(
   sessionId: string,
   sequence: number,
@@ -344,8 +312,8 @@ function toPersistedTranscriptEvent(
     kilnSessionId: sessionId,
     sequence,
     timestamp: new Date().toISOString(),
-    kind: mapTranscriptTypeToKind(type),
-    source: mapTranscriptTypeToSource(type, surface),
+    kind: operatorTranscriptKindForType(type),
+    source: operatorTranscriptSourceForType(type, surface, surface === "gui" ? "gui-command" : "tui-command"),
     ...(turnId ? { turnId } : {}),
     payload,
   };
@@ -368,64 +336,6 @@ function persistedEvent(
     source,
     ...(turnId ? { turnId } : {}),
     payload,
-  };
-}
-
-function managedInvocationEventDrafts(
-  events: readonly CanonicalSessionEvent[],
-): readonly PersistedTranscriptEventDraft[] {
-  return events.flatMap((event) => {
-    const draft = toManagedInvocationPersistedTranscriptEventDraft(event);
-    return draft ? [draft] : [];
-  });
-}
-
-function parseToolResultEnvelope(value: string | undefined): {
-  readonly output: string;
-  readonly isError?: boolean;
-  readonly metadata?: Record<string, unknown>;
-} {
-  if (!value) return { output: "" };
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { output: value };
-    }
-    const record = parsed as Record<string, unknown>;
-    const output = typeof record.output === "string" ? record.output : value;
-    const metadata = record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
-      ? record.metadata as Record<string, unknown>
-      : undefined;
-    return {
-      output,
-      ...(typeof record.isError === "boolean" ? { isError: record.isError } : {}),
-      ...(metadata ? { metadata } : {}),
-    };
-  } catch {
-    return { output: value };
-  }
-}
-
-function buildToolResultPayload(input: {
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly output: string;
-  readonly outputSummary?: string;
-  readonly isError?: boolean;
-}): Record<string, unknown> {
-  const full = parseToolResultEnvelope(input.output);
-  const summary = parseToolResultEnvelope(input.outputSummary);
-  const outputSummary = summary.output || full.output.slice(0, 200);
-  const isError = full.isError ?? input.isError ?? false;
-  return {
-    toolCallId: input.toolCallId,
-    toolName: input.toolName,
-    output: full.output,
-    outputSummary,
-    ...(full.metadata ? { metadata: full.metadata } : {}),
-    status: {
-      state: isError ? "failed" : "succeeded",
-    },
   };
 }
 
@@ -503,7 +413,7 @@ export async function makeMultiProviderSessionFactory(
         await writer.appendManagedInvocationEvents(events);
         return;
       }
-      await transcriptStore.appendManyNext(sessionId, managedInvocationEventDrafts(events));
+      await transcriptStore.appendManyNext(sessionId, managedInvocationPersistedTranscriptEventDrafts(events));
     },
   });
   const managedInvocationWithService = managedInvocationWithTranscriptSink
@@ -543,7 +453,7 @@ export async function makeMultiProviderSessionFactory(
       get providerSessionId() {
         return activeSession?.providerSessionId;
       },
-      run: async function* (options: CliSessionRunOptions) {
+      run: async function* (options: ExecutionSessionRunOptions) {
         const providerForTurn = currentProvider;
         if (!providerForTurn) {
           throw new Error("No provider selected for this turn.");
@@ -652,7 +562,7 @@ export async function makeMultiProviderSessionFactory(
           appendManagedInvocationEvents: async (events) => {
             await transcriptStore.appendManyNext(
               capturedId,
-              managedInvocationEventDrafts(events),
+              managedInvocationPersistedTranscriptEventDrafts(events),
             );
           },
         });
@@ -735,7 +645,7 @@ export async function makeMultiProviderSessionFactory(
                   }, transcriptSurface, turnId),
                 );
               }
-              const toolResultPayload = buildToolResultPayload({
+              const toolResultPayload = buildOperatorToolResultPayload({
                   toolCallId,
                   toolName: event.toolName,
                   output: event.output,
@@ -1072,7 +982,7 @@ function mapSessionEventToTui(
     case "tool_result": {
       const toolName = typeof candidate.toolName === "string" ? candidate.toolName : undefined;
       const presentation = toolName && typeof candidate.output === "string"
-        ? presentOperatorEventPayload("tool_call_completed", buildToolResultPayload({
+        ? presentOperatorEventPayload("tool_call_completed", buildOperatorToolResultPayload({
           toolCallId: typeof candidate.toolCallId === "string" ? candidate.toolCallId : "tool-result",
           toolName,
           output: candidate.output,
@@ -1083,7 +993,7 @@ function mapSessionEventToTui(
       const output = presentation?.toolPresentation?.presentationIntent
         ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
         : typeof candidate.output === "string"
-          ? parseToolResultEnvelope(candidate.output).output
+          ? parseOperatorToolResultEnvelope(candidate.output)?.output ?? candidate.output
           : undefined;
       return {
         type: "activity",

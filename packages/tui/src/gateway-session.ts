@@ -122,6 +122,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
   }
   if (event.kind === "tool_call_completed") {
     const toolName = readString(payload.toolName) ?? "tool";
+    const metadata = asRecord(payload.metadata) ?? undefined;
     return {
       type: "activity",
       activity: "tool_result",
@@ -129,6 +130,9 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       output: presentation.toolPresentation?.presentationIntent
         ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
         : presentation.toolPresentation?.summary ?? readString(payload.outputSummary) ?? readString(payload.output) ?? "",
+      metadata,
+      resourceLinks: presentation.toolPresentation?.resourceLinks,
+      toolUsage: payload.toolUsage,
       toolPresentation: presentation.toolPresentation,
       surfaces: presentation.surfaces,
       ...scoped,

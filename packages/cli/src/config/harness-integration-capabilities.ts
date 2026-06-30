@@ -23,6 +23,8 @@ export interface NativeProjectionCapability {
   readonly managedByInstallState: boolean;
 }
 
+export type NativeAgentModelEncoder = (model: string) => string;
+
 export interface HarnessIntegrationCapability {
   readonly harness: HarnessIntegrationId;
   readonly displayName: "Claude Code" | "Codex" | "OpenCode";
@@ -83,6 +85,21 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
   },
 };
 
+const NATIVE_AGENT_MODEL_ENCODERS: Record<
+  HarnessIntegrationId,
+  Readonly<Record<string, NativeAgentModelEncoder>>
+> = {
+  claude: {},
+  codex: {
+    "codex-oauth": (model) => model,
+  },
+  opencode: {
+    "opencode-go": (model) => `opencode-go/${model}`,
+    "opencode-zen": (model) => `opencode/${model}`,
+    openrouter: (model) => `openrouter/${model}`,
+  },
+};
+
 export function listHarnessIntegrationCapabilities(): readonly HarnessIntegrationCapability[] {
   return HARNESSES_WITH_NATIVE_PROJECTION.map((harness) => HARNESS_INTEGRATION_CAPABILITIES[harness]);
 }
@@ -103,4 +120,13 @@ export function supportsHarnessIntegration(
     return capability.nativeProjection.supported;
   }
   return capability[mechanism];
+}
+
+export function encodeNativeAgentModel(
+  harness: HarnessIntegrationId,
+  providerId: string,
+  model: string,
+): string | undefined {
+  const encoder = NATIVE_AGENT_MODEL_ENCODERS[harness][providerId];
+  return encoder ? encoder(model) : undefined;
 }

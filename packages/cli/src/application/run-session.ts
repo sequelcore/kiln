@@ -1,4 +1,3 @@
-import type { PersistedTranscriptEvent } from "@kilnai/core";
 import type { ReasoningEffort } from "@kilnai/core";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
@@ -22,6 +21,13 @@ import { normalizeMcpSelector } from "../wrapper/mcp-selector.js";
 import { SessionHooks } from "./session-hooks.js";
 import { governSessionContext } from "./context-governance.js";
 import type { RunOutputSink } from "./run-output.js";
+import type { OperatorTranscriptEntryEvent } from "./operator-transcript-projection.js";
+
+export interface RunSessionTranscriptEvent {
+  readonly seq: number;
+  readonly ts: string;
+  readonly event: OperatorTranscriptEntryEvent;
+}
 
 export interface RunSessionOptions {
   readonly registry: SessionRegistry;
@@ -71,7 +77,7 @@ export interface RunSessionResult {
   readonly successfulProviderId?: ProviderId;
   readonly successfulModelId?: string;
   readonly attempts: readonly RunSessionAttemptResult[];
-  readonly transcript: PersistedTranscriptEvent[];
+  readonly transcript: RunSessionTranscriptEvent[];
   readonly providersUsed: readonly string[];
   readonly providerTokenUsage: readonly PersistedProviderTokenUsage[];
   readonly exactArtifacts: readonly string[];
@@ -107,7 +113,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   const providerTokenUsage = new Map<string, PersistedProviderTokenUsage>();
   const providersUsed = new Set<string>();
   const attempts: RunSessionAttemptResult[] = [];
-  const transcript: PersistedTranscriptEvent[] = [];
+  const transcript: RunSessionTranscriptEvent[] = [];
   const exactArtifacts = new Set<string>();
   let submittedPlan: string | undefined;
   let transcriptSeq = 0;
@@ -338,7 +344,14 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             transcript.push({
               seq: ++transcriptSeq,
               ts: new Date().toISOString(),
-              event: { type: "tool_result" },
+              event: {
+                type: "tool_result",
+                toolName: event.toolName,
+                output: event.output,
+                ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
+                ...(event.toolCallId !== undefined ? { toolCallId: event.toolCallId } : {}),
+                ...(event.isError !== undefined ? { isError: event.isError } : {}),
+              },
             });
             isFirstDeltaOfTurn = true;
             awaitingTurnStart = true;

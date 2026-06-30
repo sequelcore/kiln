@@ -8,6 +8,7 @@ import type {
   OperatorExecutionMode,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
+  ToolResultResourceLinkPresentation,
   ToolResultPresentation,
 } from "@kilnai/gateway-contracts";
 
@@ -34,7 +35,7 @@ export type SessionEvent =
   | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; metadata?: Record<string, unknown>; resourceLinks?: readonly ToolResultResourceLinkPresentation[]; toolUsage?: unknown; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent };
 
 /**
  * @internal
@@ -66,7 +67,7 @@ export type SessionEventInternal =
     }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
+  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; metadata?: Record<string, unknown>; resourceLinks?: readonly ToolResultResourceLinkPresentation[]; toolUsage?: unknown; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
 
 /**
  * @description The only session abstraction the TUI depends on.

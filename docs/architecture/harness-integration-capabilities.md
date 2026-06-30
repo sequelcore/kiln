@@ -73,6 +73,18 @@ architecture. Kiln uses native projection when:
 Native projection must remain governed by install-state, drift detection,
 append-only backups, and explicit uninstall behavior.
 
+Native agent projection uses the same capability model. A Kiln agent without
+`providerRoute` is portable and projects to native harnesses without a fixed
+model. A Kiln agent with `providerRoute` is a strict route pin: the native
+projection may emit a harness model only when
+`packages/cli/src/config/harness-integration-capabilities.ts` explicitly
+declares the provider/model encoding for that harness. If the strict route is
+not supported, Kiln omits that agent for the harness and reconciles any
+previously managed native file through install-state, backup, and drift checks.
+This includes future cross-harness adapters: an adapter can make a provider
+usable across harnesses, but only after it is represented as explicit capability
+evidence rather than inferred from model id strings.
+
 ## Native Config Import
 
 Native config import is narrower than native projection. It is allowed only when

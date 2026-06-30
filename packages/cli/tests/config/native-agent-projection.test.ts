@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
 
@@ -11,6 +11,9 @@ vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
   writeFileSync: vi.fn((path: string, content: string) => {
     fsMocks.files.set(path, content);
+  }),
+  unlinkSync: vi.fn((path: string) => {
+    fsMocks.files.delete(path);
   }),
   existsSync: vi.fn((path: string) => fsMocks.files.has(path)),
   readFileSync: vi.fn((path: string) => fsMocks.files.get(path) ?? ""),
@@ -36,6 +39,7 @@ import {
 
 const mkdirSyncMock = mkdirSync as unknown as ReturnType<typeof vi.fn>;
 const writeFileSyncMock = writeFileSync as unknown as ReturnType<typeof vi.fn>;
+const unlinkSyncMock = unlinkSync as unknown as ReturnType<typeof vi.fn>;
 const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
 const readFileSyncMock = readFileSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = os.homedir as unknown as ReturnType<typeof vi.fn>;
@@ -46,6 +50,7 @@ describe("native-agent-projection", () => {
     vi.clearAllMocks();
     mkdirSyncMock.mockReset();
     writeFileSyncMock.mockReset();
+    unlinkSyncMock.mockReset();
     existsSyncMock.mockReset();
     readFileSyncMock.mockReset();
     homedirMock.mockReset();
@@ -56,6 +61,9 @@ describe("native-agent-projection", () => {
     mkdirSyncMock.mockImplementation(() => undefined);
     writeFileSyncMock.mockImplementation((path: string, content: string) => {
       fsMocks.files.set(path, content);
+    });
+    unlinkSyncMock.mockImplementation((path: string) => {
+      fsMocks.files.delete(path);
     });
     existsSyncMock.mockImplementation((path: string) => fsMocks.files.has(path));
     readFileSyncMock.mockImplementation((path: string) => fsMocks.files.get(path) ?? "");
@@ -86,11 +94,10 @@ describe("native-agent-projection", () => {
       goal: "Produce a verified implementation plan",
       tier: "reasoning",
       tools: ["read", "write"],
-      model: "gpt-5.4",
       skills: ["sequel-spring"],
       instructions: "Plan first.",
       scope: "project",
-    });
+    }, "gpt-5.4");
 
     expect(md).toContain("---\n");
     expect(md).toContain("name: planner");
@@ -117,10 +124,9 @@ describe("native-agent-projection", () => {
       description: "Plans implementation work",
       goal: "Produce a verified implementation plan",
       tier: "reasoning",
-      model: "gpt-5.4",
       instructions: "Plan first.",
       scope: "project",
-    });
+    }, "gpt-5.4");
 
     expect(toml).toContain('name = "planner"');
     expect(toml).toContain('description = "Plans implementation work"');
@@ -154,10 +160,9 @@ describe("native-agent-projection", () => {
       description: "Plans implementation work",
       goal: "Produce a verified implementation plan",
       tier: "reasoning",
-      model: "gpt-5.4-mini",
       instructions: "Follow the checklist.",
       scope: "project",
-    });
+    }, "gpt-5.4-mini");
 
     expect(md).toContain("---\n");
     expect(md).toContain("name: planner");
@@ -180,6 +185,105 @@ describe("native-agent-projection", () => {
 
     expect(md).toContain("description: Planning specialist");
     expect(md).not.toContain("model:");
+  });
+
+  it("sync projects a strict Codex route only to compatible native Codex config", async () => {
+    loadAgentDefinitionsMock.mockResolvedValue([
+      {
+        name: "reviewer",
+        role: "Review specialist",
+        goal: "Review implementation quality",
+        tier: "reasoning",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.5",
+        },
+        instructions: "Review only.",
+        scope: "project",
+      },
+    ]);
+
+    const result = await syncNativeAgentProjections("/workspace/project");
+
+    expect(result).toEqual({
+      claude: true,
+      codex: true,
+      opencode: true,
+      synced: 1,
+      errors: [],
+    });
+    expect(fsMocks.files.get(join("/home/tester", ".codex", "agents", "reviewer.toml"))).toContain('model = "gpt-5.5"');
+    expect(fsMocks.files.has(join("/home/tester", ".claude", "agents", "reviewer.md"))).toBe(false);
+    expect(fsMocks.files.has(join("/home/tester", ".config", "opencode", "agents", "reviewer.md"))).toBe(false);
+  });
+
+  it("sync projects a strict OpenCode route only to compatible native OpenCode config", async () => {
+    loadAgentDefinitionsMock.mockResolvedValue([
+      {
+        name: "scout",
+        role: "Context scout",
+        goal: "Map local context",
+        tier: "fast",
+        providerRoute: {
+          providerId: "opencode-go",
+          model: "deepseek-v4-flash",
+        },
+        instructions: "Scout only.",
+        scope: "project",
+      },
+    ]);
+
+    const result = await syncNativeAgentProjections("/workspace/project");
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.synced).toBe(1);
+    expect(fsMocks.files.get(join("/home/tester", ".config", "opencode", "agents", "scout.md"))).toContain(
+      "model: opencode-go/deepseek-v4-flash",
+    );
+    expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "scout.toml"))).toBe(false);
+  });
+
+  it("removes an owned native file when a strict route becomes incompatible with that harness", async () => {
+    loadAgentDefinitionsMock.mockResolvedValueOnce([
+      {
+        name: "scout",
+        role: "Context scout",
+        goal: "Map local context",
+        tier: "fast",
+        instructions: "Scout only.",
+        scope: "project",
+      },
+    ]);
+    const first = await syncNativeAgentProjections("/workspace/project");
+    expect(first.errors).toHaveLength(0);
+    expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "scout.toml"))).toBe(true);
+
+    loadAgentDefinitionsMock.mockResolvedValueOnce([
+      {
+        name: "scout",
+        role: "Context scout",
+        goal: "Map local context",
+        tier: "fast",
+        providerRoute: {
+          providerId: "opencode-go",
+          model: "deepseek-v4-flash",
+        },
+        instructions: "Scout only.",
+        scope: "project",
+      },
+    ]);
+
+    const second = await syncNativeAgentProjections("/workspace/project");
+
+    expect(second.errors).toHaveLength(0);
+    expect(second.synced).toBe(1);
+    expect(unlinkSyncMock).toHaveBeenCalledWith(join("/home/tester", ".codex", "agents", "scout.toml"));
+    expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "scout.toml"))).toBe(false);
+
+    const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
+      targets: Record<string, unknown>;
+    };
+    expect(Object.keys(state.targets).sort()).toEqual(["opencode-agent:scout"]);
   });
 
   it("write failure marks correct target as false and captures error", async () => {

@@ -5,10 +5,10 @@ import {
   CODEX_DEFAULT_MODEL,
   appendExecutionIdentity,
   resolveExecutionIdentity,
+  type ExecutionSessionEvent,
   type ReasoningEffort,
 } from "@kilnai/core";
 import type {
-  SessionEvent,
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
@@ -188,7 +188,7 @@ export class CodexSession implements IKilnSession {
     return this._threadId ?? undefined;
   }
 
-  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this._disposed) return;
 
     const model =
@@ -676,7 +676,7 @@ export class CodexSession implements IKilnSession {
 function normalizeCodexFileChanges(
   item: NonNullable<CodexJsonlLine["item"]>,
   cwd: string,
-): Extract<SessionEvent, { readonly type: "file_changed" }>[] {
+): Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[] {
   if (Array.isArray(item.changes)) {
     if (item.status === "failed") return [];
     return item.changes.flatMap((change) => {

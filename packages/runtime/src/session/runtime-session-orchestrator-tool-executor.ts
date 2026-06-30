@@ -13,6 +13,7 @@ import type {
   ToolResultPayloadPart,
   ResolvedInvocationEffect,
   SessionToolUsageSnapshot,
+  ExecutionSessionToolResultResourceLink,
 } from "@kilnai/core";
 import {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
@@ -117,6 +118,34 @@ function extractToolResultMetadata(resultValue: unknown): Record<string, unknown
   return resultRecord?.metadata && typeof resultRecord.metadata === "object" && !Array.isArray(resultRecord.metadata)
     ? resultRecord.metadata as Record<string, unknown>
     : undefined;
+}
+
+function extractToolResultResourceLinks(
+  metadata: Record<string, unknown> | undefined,
+): readonly ExecutionSessionToolResultResourceLink[] | undefined {
+  const links = metadata?.resourceLinks;
+  if (!Array.isArray(links)) {
+    return undefined;
+  }
+  const parsed = links.flatMap((link): ExecutionSessionToolResultResourceLink[] => {
+    if (!link || typeof link !== "object" || Array.isArray(link)) {
+      return [];
+    }
+    const record = link as Record<string, unknown>;
+    if (typeof record.uri !== "string" || record.uri.trim().length === 0) {
+      return [];
+    }
+    return [{
+      uri: record.uri,
+      ...(typeof record.title === "string" ? { title: record.title } : {}),
+      ...(typeof record.label === "string" ? { label: record.label } : {}),
+      ...(typeof record.sequence === "number" ? { sequence: record.sequence } : {}),
+      ...(typeof record.mimeType === "string" ? { mimeType: record.mimeType } : {}),
+      ...(typeof record.size === "number" ? { size: record.size } : {}),
+      ...(typeof record.relation === "string" ? { relation: record.relation } : {}),
+    }];
+  });
+  return parsed.length > 0 ? parsed : undefined;
 }
 
 function extractToolResultIsError(resultValue: unknown): boolean | undefined {
@@ -500,6 +529,7 @@ export class RuntimeSessionToolExecutor {
         const durationMs = Date.now() - startMs;
         const sanitized = await this.sanitizeToolResult(execution.resultValue);
         const metadata = extractToolResultMetadata(execution.resultValueRaw);
+        const resourceLinks = extractToolResultResourceLinks(metadata);
         const resultOutput = extractToolResultOutput(execution.resultValueRaw);
         const contentParts = sanitized.sanitized ? undefined : extractToolResultContentParts(execution.resultValueRaw);
         const envelopeIsError = extractToolResultIsError(execution.resultValueRaw);
@@ -517,6 +547,7 @@ export class RuntimeSessionToolExecutor {
           execution.retryAttempt,
           sanitized.resultValue,
           metadata,
+          resourceLinks,
           this.recordToolUsage(normalizedToolCall.name),
           resolvedEffect,
           authResult,
@@ -578,6 +609,7 @@ export class RuntimeSessionToolExecutor {
           false,
           errMsg.slice(0, 200),
           true,
+          undefined,
           undefined,
           undefined,
           undefined,
@@ -775,6 +807,7 @@ export class RuntimeSessionToolExecutor {
       false,
       blockMessage.slice(0, 200),
       true,
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -1159,6 +1192,7 @@ export class RuntimeSessionToolExecutor {
     retryAttempt?: number,
     output?: string,
     metadata?: Record<string, unknown>,
+    resourceLinks?: readonly ExecutionSessionToolResultResourceLink[],
     toolUsage?: SessionToolUsageSnapshot,
     resolvedEffect?: ResolvedInvocationEffect,
     authority?: AuthorityDescriptor,
@@ -1175,6 +1209,7 @@ export class RuntimeSessionToolExecutor {
       ...(isError !== undefined ? { isError } : {}),
       ...(retryAttempt !== undefined ? { retryAttempt } : {}),
       ...(metadata ? { metadata } : {}),
+      ...(resourceLinks ? { resourceLinks } : {}),
       ...(toolUsage ? { toolUsage } : {}),
       ...(resolvedEffect ? { resolvedEffect } : {}),
       ...(authority ? { authority } : {}),

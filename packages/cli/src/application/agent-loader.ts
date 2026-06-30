@@ -21,7 +21,6 @@ export interface KilnAgentDefinition {
   readonly backstory?: string;
   readonly tier: AgentTier;
   readonly tools?: readonly string[];
-  readonly model?: string;
   readonly skills?: readonly string[];
   readonly instructionProfiles?: readonly string[];
   readonly taskAffinity?: readonly ModelTaskSuitabilityTask[];
@@ -184,7 +183,6 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const nicknameCandidates = asStringArray(record.nicknameCandidates);
   const backstory = asNonEmptyString(record.backstory);
   const tools = asStringArray(record.tools);
-  const model = asNonEmptyString(record.model);
   const skills = asStringArray(record.skills);
   const instructionProfiles = asStringArray(record.instructionProfiles);
   const taskAffinity = asTaskAffinity(record.taskAffinity);
@@ -215,7 +213,6 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(backstory ? { backstory } : {}),
     tier,
     ...(tools ? { tools } : {}),
-    ...(model ? { model } : {}),
     ...(skills ? { skills } : {}),
     ...(instructionProfiles ? { instructionProfiles } : {}),
     ...(taskAffinity ? { taskAffinity } : {}),

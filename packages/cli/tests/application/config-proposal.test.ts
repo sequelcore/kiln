@@ -119,6 +119,28 @@ describe("config proposals", () => {
     ]));
   }));
 
+  it("fails closed for legacy top-level agent model", () => withProject((projectPath) => {
+    const proposal = createConfigChangeProposal({
+      projectPath,
+      operation: "agent.upsert",
+      payload: {
+        name: "worker",
+        role: "Implementation worker",
+        goal: "Apply scoped code changes.",
+        tier: "coding",
+        model: "codex-oauth/gpt-5.5",
+      },
+    });
+
+    expect(proposal.status).toBe("invalid");
+    expect(proposal.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        field: "model",
+        message: "Agent model is not a canonical top-level field. Use providerRoute for strict execution routing.",
+      }),
+    ]));
+  }));
+
   it("attaches skills only to an existing valid project agent", () => withProject((projectPath) => {
     const agentsDir = join(projectPath, ".kiln", "agents");
     mkdirSync(agentsDir, { recursive: true });

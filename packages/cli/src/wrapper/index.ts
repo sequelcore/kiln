@@ -123,8 +123,6 @@ export { CodexSession } from "./codex-session.js";
 export { SessionManager } from "./session-manager.js";
 export type { KilnAppConfig, SystemPromptOptions } from "../config.js";
 export type {
-  CostTrackingMode,
-  SessionEvent,
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,

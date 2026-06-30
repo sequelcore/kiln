@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
+  buildOperatorToolResultPayload,
   isGuiProviderModeless,
   type GuiAuthorityStatus,
   type GuiInboundFrame,
@@ -34,7 +35,8 @@ import {
   type VoiceConfig,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
-import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
+import type { CliSessionFactory } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
 import type { RuntimeSessionHydrator } from "./message-pipeline.js";
@@ -1262,7 +1264,7 @@ class TuiActivityStreamer {
     this.capture = null;
   }
 
-  forward(event: CliSessionEvent): void {
+  forward(event: ExecutionSessionEvent): void {
     if (!this.ws) return;
 
     if (event.type === "text_delta") {
@@ -1336,17 +1338,16 @@ class TuiActivityStreamer {
       this.emitSessionEvent({
         kind: "tool_call_completed",
         timestamp: new Date().toISOString(),
-        payload: {
+        payload: buildOperatorToolResultPayload({
           toolCallId,
           toolName: event.toolName ?? "unknown",
-          output: event.output ?? "",
-          outputSummary: event.outputSummary ?? event.output ?? "",
-          ...(event.metadata ? { metadata: event.metadata } : {}),
-          ...(event.toolUsage ? { toolUsage: event.toolUsage } : {}),
-          status: {
-            state: event.isError ? "failed" : "succeeded",
-          },
-        },
+          output: event.output,
+          outputSummary: event.outputSummary,
+          isError: event.isError,
+          metadata: event.metadata,
+          resourceLinks: event.resourceLinks,
+          toolUsage: event.toolUsage,
+        }),
       });
       this.emitActivityPhase({ phase: "idle" });
     } else if (event.type === "file_changed") {
@@ -1398,7 +1399,7 @@ class TuiActivityStreamer {
       });
     }
     // completed/error are handled by the gateway's done/error frames.
-    // approval_requested/approval_received come via eventBus, not CliSessionEvent.
+    // approval_requested/approval_received come via eventBus, not execution session events.
   }
 }
 

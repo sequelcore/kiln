@@ -548,5 +548,5 @@ export { verifyHmacSha256 } from "./utils/hmac.js";
 
 // Execution Backends
 export { CliSubscriptionExecutor } from "./execution/cli-subscription-executor.js";
-export type { CliSessionFactory, CliSessionFactoryContext, CliSession, CliSessionEvent, CliSessionRunOptions } from "./execution/cli-subscription-executor.js";
+export type { CliSessionFactory, CliSessionFactoryContext, CliSession } from "./execution/cli-subscription-executor.js";
 

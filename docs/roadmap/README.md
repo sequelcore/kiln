@@ -65,6 +65,12 @@ Use these documents as the source of truth before starting roadmap work:
    must not publish with a fake context percentage or an unavailable state
    presented as authoritative.
 
+7. [Cross-Harness Provider Adapter Layer](./07-cross-harness-provider-adapter-layer.md)
+   Urgent active roadmap opened on 2026-06-29. Scope is the explicit adapter
+   layer that lets Kiln invoke governed agents and provider routes across
+   harness boundaries without projecting unsupported model strings into native
+   harness files.
+
 ## Deferred Roadmaps
 
 - [Federated Harness Configuration Plane](./04-federated-harness-configuration-plane.md).

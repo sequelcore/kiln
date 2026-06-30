@@ -85,16 +85,15 @@ import {
   admitManagedAgentOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
   createSessionBuiltinToolOptions,
-  type CanonicalSessionEventKind,
   type ManagedAgentOrchestrationAdmissionLimits,
   type ReasoningEffort,
-  type SessionEventSource,
   VerificationResult,
   formatProviderModelRouteCooldown,
   mapProviderModelRouteErrorToOutcome,
   scoreComplexity,
 } from "@kilnai/core";
 import {
+  attachManagedInvocationSessionEventSink,
   ProviderModelRouteHealthStore,
   discoverGuiCliOperatorModels,
   discoverGuiDirectProviderModelDiscovery,
@@ -104,6 +103,11 @@ import {
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
 } from "@kilnai/runtime";
+import {
+  managedInvocationPersistedTranscriptEventDrafts,
+  operatorTranscriptSourceForEntry,
+  projectOperatorTranscriptEntryToDraft,
+} from "../application/operator-transcript-projection.js";
 import type { ContextArtifactCache } from "@kilnai/core";
 import type {
   ManagedAgentFanOutBudgetAdmissionInput,
@@ -812,17 +816,22 @@ export async function runCommand(
     text: task,
     agentTaskAffinity: resolvedAgent?.taskAffinity,
   });
-  const configuredRouteCandidates = resolveProviderRouteCandidates({
+  const agentProviderRouteCandidate: RunSessionRouteCandidate | undefined = resolvedAgent?.providerRoute
+    ? {
+      provider: resolvedAgent.providerRoute.providerId as ProviderId,
+      ...(resolvedAgent.providerRoute.model ? { model: resolvedAgent.providerRoute.model } : {}),
+    }
+    : undefined;
+  const configuredRouteCandidates = [
+    ...(agentProviderRouteCandidate && !flags.provider && !flags.model ? [agentProviderRouteCandidate] : []),
+    ...resolveProviderRouteCandidates({
     globalConfig,
     flagProvider: flags.provider,
     flagModel: flags.model,
     taskText: task,
     agentTaskAffinity: resolvedAgent?.taskAffinity,
-  }).map((candidate) => (
-    candidate.model || !resolvedAgent?.model
-      ? candidate
-      : { ...candidate, model: resolvedAgent.model }
-  ));
+    }),
+  ];
   const preferredProvider = configuredRouteCandidates[0]?.provider;
   if (
     flags.requestedAuthority
@@ -845,8 +854,7 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
   const effectiveModel = configuredRouteCandidates[0]?.model
-    ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig))
-    ?? resolvedAgent?.model;
+    ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig));
   const config = buildConfig({ ...flags, provider: preferredProvider }, mode);
   let identityAppConfig = withWorkGovernanceContext(
     withGlobalIdentityContext(resolvedAppConfig, globalConfig),
@@ -1072,8 +1080,13 @@ export async function runCommand(
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = runtimeAppConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
-  const managedInvocationWithService = managedInvocation
-    ? withManagedInvocationService(managedInvocation)
+  const managedInvocationWithTranscriptSink = attachManagedInvocationSessionEventSink(managedInvocation, {
+    publish: async (events) => {
+      await transcriptStore.appendManyNext(sessionId, managedInvocationPersistedTranscriptEventDrafts(events));
+    },
+  });
+  const managedInvocationWithService = managedInvocationWithTranscriptSink
+    ? withManagedInvocationService(managedInvocationWithTranscriptSink)
     : undefined;
   builtinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
@@ -1386,20 +1399,21 @@ export async function runCommand(
   }
 
   try {
-    for (const [seq, entry] of transcript.entries()) {
+    for (const entry of transcript) {
       const timestamp = "ts" in entry && typeof entry.ts === "string"
         ? entry.ts
         : new Date().toISOString();
-      const legacyType = typeof entry.event.type === "string" ? entry.event.type : "assistant_message";
-      await transcriptStore.append(sessionId, {
-        eventId: randomUUID(),
-        kilnSessionId: sessionId,
-        sequence: seq + 1,
-        timestamp,
-        kind: mapTranscriptTypeToKind(legacyType),
-        source: mapTranscriptTypeToSource(legacyType),
-        payload: entry.event as Record<string, unknown>,
-      });
+      const eventId = randomUUID();
+      await transcriptStore.appendNext(
+        sessionId,
+        projectOperatorTranscriptEntryToDraft({
+          eventId,
+          kilnSessionId: sessionId,
+          timestamp,
+          event: entry.event,
+          source: operatorTranscriptSourceForEntry(entry.event, "cli", "run-command"),
+        }),
+      );
     }
   } catch {
     // fail-open
@@ -1407,10 +1421,9 @@ export async function runCommand(
 
   if (flags.plan && submittedPlanFromSession !== undefined) {
     try {
-      await transcriptStore.append(sessionId, {
+      await transcriptStore.appendNext(sessionId, {
         eventId: randomUUID(),
         kilnSessionId: sessionId,
-        sequence: transcript.length + 1,
         timestamp: new Date().toISOString(),
         kind: "tool_call_started",
         source: { actor: "tool", surface: "cli", component: "run-command" },
@@ -1854,43 +1867,6 @@ function errorToMessage(error: unknown): string {
 
 function appendCleanupFailure(primaryError: string, cleanupError: string | undefined): string {
   return cleanupError ? `${primaryError}; ${cleanupError}` : primaryError;
-}
-
-function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
-  switch (type) {
-    case "user":
-      return "user_message";
-    case "text_delta":
-      return "assistant_delta";
-    case "tool_use":
-      return "tool_call_started";
-    case "tool_result":
-      return "tool_call_completed";
-    case "cost_update":
-      return "cost_updated";
-    case "error":
-      return "error_recorded";
-    default:
-      return "assistant_message";
-  }
-}
-
-function mapTranscriptTypeToSource(type: string): SessionEventSource {
-  switch (type) {
-    case "user":
-      return { actor: "user", surface: "cli", component: "run-command" };
-    case "text_delta":
-      return { actor: "assistant", surface: "cli", component: "run-command" };
-    case "tool_use":
-    case "tool_result":
-      return { actor: "tool", surface: "cli", component: "run-command" };
-    case "cost_update":
-      return { actor: "runtime", surface: "cli", component: "run-command" };
-    case "error":
-      return { actor: "runtime", surface: "cli", component: "run-command" };
-    default:
-      return { actor: "system", surface: "cli", component: "run-command" };
-  }
 }
 
 function resolveParallelWorkerAdmissionLimits(

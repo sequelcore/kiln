@@ -13,6 +13,7 @@ import {
   type Capability,
   type DirectProviderExecutionMode,
   type DirectProviderId,
+  type ExecutionSessionEvent,
   type ToolCalledEvent,
   type ResolvedDirectProviderExecutionProfile,
   type ToolDefinition,
@@ -41,7 +42,6 @@ import type {
   IKilnSession,
   KilnPermissionPolicy,
   SessionCapabilities,
-  SessionEvent,
   SessionRunOptions,
 } from "./session.js";
 import { buildProviderSystemPrompt } from "./preamble-builder.js";
@@ -128,7 +128,7 @@ function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExec
   return profile?.executionMode ?? "text-only";
 }
 
-function toSessionToolUseEvent(content: string): Extract<SessionEvent, { type: "tool_use" }> {
+function toSessionToolUseEvent(content: string): Extract<ExecutionSessionEvent, { type: "tool_use" }> {
   try {
     const parsed = JSON.parse(content) as { name?: unknown; input?: unknown };
     return {
@@ -155,7 +155,7 @@ function resolveProfile(
   });
 }
 
-function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<SessionEvent, { type: "tool_use" }> {
+function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<ExecutionSessionEvent, { type: "tool_use" }> {
   return {
     type: "tool_use",
     toolName: event.toolName,
@@ -163,7 +163,7 @@ function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<SessionEvent,
   };
 }
 
-function toolResultToSessionEvent(event: ToolResultEvent): Extract<SessionEvent, { type: "tool_result" }> {
+function toolResultToSessionEvent(event: ToolResultEvent): Extract<ExecutionSessionEvent, { type: "tool_result" }> {
   const output = event.output ?? event.resultSummary ?? "";
   return {
     type: "tool_result",
@@ -171,6 +171,9 @@ function toolResultToSessionEvent(event: ToolResultEvent): Extract<SessionEvent,
     output,
     ...(event.resultSummary !== undefined && event.resultSummary !== output ? { outputSummary: event.resultSummary } : {}),
     ...(event.isError ? { isError: true } : {}),
+    ...(event.metadata ? { metadata: event.metadata } : {}),
+    ...(event.resourceLinks ? { resourceLinks: event.resourceLinks } : {}),
+    ...(event.toolUsage ? { toolUsage: event.toolUsage } : {}),
   };
 }
 
@@ -244,7 +247,7 @@ export class ProviderSession implements IKilnSession {
     return undefined;
   }
 
-  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     const startedAt = Date.now();
 
     if (options.abortSignal?.aborted) {
@@ -400,7 +403,7 @@ export class ProviderSession implements IKilnSession {
     }
   }
 
-  private async *runTextOnly(options: SessionRunOptions, startedAt: number): AsyncIterable<SessionEvent> {
+  private async *runTextOnly(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
     let isError = false;
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
@@ -560,7 +563,7 @@ export class ProviderSession implements IKilnSession {
     };
   }
 
-  private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<SessionEvent> {
+  private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
     const { RuntimeSessionOrchestrator, RuntimeSession } = await import("@kilnai/runtime");
 
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
@@ -606,10 +609,10 @@ export class ProviderSession implements IKilnSession {
     }
 
     const promptParts: ContentPart[] = [textPart(userPrompt)];
-    const liveToolEvents: SessionEvent[] = [];
+    const liveToolEvents: ExecutionSessionEvent[] = [];
     let hasLiveToolEvents = false;
     let wakeLiveToolDrain: (() => void) | undefined;
-    const enqueueLiveToolEvent = (event: SessionEvent) => {
+    const enqueueLiveToolEvent = (event: ExecutionSessionEvent) => {
       hasLiveToolEvents = true;
       liveToolEvents.push(event);
       wakeLiveToolDrain?.();

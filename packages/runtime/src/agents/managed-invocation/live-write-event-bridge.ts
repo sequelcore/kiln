@@ -2,13 +2,13 @@ import {
   defineManagedAgentWriteEvidence,
 } from "@kilnai/core";
 import type {
+  ExecutionSessionEvent,
   ManagedAgentInvocationRequest,
   ManagedAgentWriteEvidence,
 } from "@kilnai/core";
-import type { CliSessionEvent } from "../../execution/cli-session-contract.js";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
-type ManagedAgentFileChangeEvent = Extract<CliSessionEvent, { readonly type: "file_changed" }>;
+type ManagedAgentFileChangeEvent = Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>;
 
 export interface ManagedAgentLiveWriteEventBridgeInput {
   readonly request: ManagedAgentInvocationRequest;

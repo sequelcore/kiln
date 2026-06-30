@@ -1,4 +1,5 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
+import type { ExecutionSessionToolResultResourceLink } from "./execution-session-event.js";
 
 import type {
   ManagedAgentAdapterKind,
@@ -329,6 +330,8 @@ export interface CanonicalToolCallCompletedEvent extends SessionEventEnvelope<"t
   readonly durationMs: number;
   readonly output?: string;
   readonly outputSummary?: string;
+  readonly metadata?: Record<string, unknown>;
+  readonly resourceLinks?: readonly ExecutionSessionToolResultResourceLink[];
   readonly toolUsage?: SessionToolUsageSnapshot;
 }
 

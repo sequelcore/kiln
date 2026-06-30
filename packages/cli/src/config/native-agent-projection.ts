@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
@@ -8,6 +8,7 @@ import {
   createNativeProjectionFileSnapshot,
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
+  removeNativeProjectionTargetState,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
   type NativeProjectionInstallState,
@@ -18,6 +19,7 @@ import {
   isNativeProjectionHarnessDisabled,
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
+import { decideNativeAgentProjection } from "./native-agent-projection-decision.js";
 
 export interface NativeAgentProjectionResult {
   claude: boolean;
@@ -34,12 +36,13 @@ interface NativeAgentProjectionTarget {
   readonly label: "Claude Code" | "Codex" | "OpenCode";
   readonly dir: string;
   readonly extension: "md" | "toml";
-  readonly render: (agent: KilnAgentDefinition) => string;
+  readonly render: (agent: KilnAgentDefinition, nativeModel?: string) => string;
 }
 
 interface NativeAgentFileSyncResult {
   readonly ok: boolean;
   readonly snapshot?: NativeProjectionTargetState;
+  readonly removedTargetId?: string;
   readonly error?: string;
 }
 
@@ -51,7 +54,7 @@ function escapeTomlMultiline(value: string): string {
   return value.replaceAll("\"\"\"", "\\\"\\\"\\\"");
 }
 
-export function agentToClaudeMd(agent: KilnAgentDefinition): string {
+export function agentToClaudeMd(agent: KilnAgentDefinition, nativeModel?: string): string {
   const frontmatter: Record<string, unknown> = {
     name: agent.name,
     role: agent.role,
@@ -77,8 +80,8 @@ export function agentToClaudeMd(agent: KilnAgentDefinition): string {
     frontmatter.tools = [...agent.tools];
   }
 
-  if (agent.model) {
-    frontmatter.model = agent.model;
+  if (nativeModel) {
+    frontmatter.model = nativeModel;
   }
 
   if (agent.skills && agent.skills.length > 0) {
@@ -102,7 +105,7 @@ export function agentToClaudeMd(agent: KilnAgentDefinition): string {
   return `---\n${yamlFrontmatter}\n---\n${body}`;
 }
 
-export function agentToCodexToml(agent: KilnAgentDefinition): string {
+export function agentToCodexToml(agent: KilnAgentDefinition, nativeModel?: string): string {
   const instructions = buildNativeAgentInstructions(agent);
   const lines = [
     `name = "${escapeTomlString(agent.name)}"`,
@@ -110,8 +113,8 @@ export function agentToCodexToml(agent: KilnAgentDefinition): string {
     `developer_instructions = """${escapeTomlMultiline(instructions)}"""`,
   ];
 
-  if (agent.model) {
-    lines.push(`model = "${escapeTomlString(agent.model)}"`);
+  if (nativeModel) {
+    lines.push(`model = "${escapeTomlString(nativeModel)}"`);
   }
 
   const nicknameCandidates = nativeNicknameCandidates(agent);
@@ -125,7 +128,7 @@ export function agentToCodexToml(agent: KilnAgentDefinition): string {
   return `${lines.join("\n")}\n`;
 }
 
-export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
+export function agentToOpenCodeMd(agent: KilnAgentDefinition, nativeModel?: string): string {
   const frontmatter: Record<string, unknown> = {
     name: agent.name,
     description: agent.description ?? agent.role,
@@ -136,8 +139,8 @@ export function agentToOpenCodeMd(agent: KilnAgentDefinition): string {
   if (agent.nicknameCandidates && agent.nicknameCandidates.length > 0) {
     frontmatter.nicknameCandidates = [...agent.nicknameCandidates];
   }
-  if (agent.model) {
-    frontmatter.model = agent.model;
+  if (nativeModel) {
+    frontmatter.model = nativeModel;
   }
   if (agent.mode) {
     frontmatter.mode = agent.mode;
@@ -263,8 +266,11 @@ export async function syncNativeAgentProjections(
       }
       if (result.snapshot) {
         installState = upsertNativeProjectionTargetState(installState, result.snapshot);
+        synced += 1;
       }
-      synced += 1;
+      if (result.removedTargetId) {
+        installState = removeNativeProjectionTargetState(installState, result.removedTargetId);
+      }
     }
   }
 
@@ -282,6 +288,17 @@ function syncAgentFile(
 ): NativeAgentFileSyncResult {
   const filePath = join(target.dir, `${agent.name}.${target.extension}`);
   const targetId = `${target.key}-agent:${agent.name}`;
+  const decision = decideNativeAgentProjection({ agent, harness: target.key });
+  if (decision.kind === "omit") {
+    return removeOwnedOmittedAgentFile({
+      filePath,
+      installState,
+      kilnDir,
+      options,
+      targetId,
+    });
+  }
+
   try {
     if (existsSync(filePath)) {
       const drift = detectNativeProjectionFileDrift({
@@ -297,7 +314,7 @@ function syncAgentFile(
       }
     }
 
-    const content = target.render(agent);
+    const content = target.render(agent, decision.nativeModel);
     backupNativeProjectionFile({ kilnDir, targetId, filePath });
     writeFileSync(filePath, content, "utf-8");
     return {
@@ -308,6 +325,49 @@ function syncAgentFile(
         content,
       }),
     };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function removeOwnedOmittedAgentFile(input: {
+  readonly filePath: string;
+  readonly installState: NativeProjectionInstallState;
+  readonly kilnDir: string;
+  readonly options: NativeAgentProjectionOptions;
+  readonly targetId: string;
+}): NativeAgentFileSyncResult {
+  if (!input.installState.targets[input.targetId]) {
+    return { ok: true };
+  }
+
+  try {
+    if (!existsSync(input.filePath)) {
+      return { ok: true, removedTargetId: input.targetId };
+    }
+
+    const drift = detectNativeProjectionFileDrift({
+      targetId: input.targetId,
+      state: input.installState,
+      currentContent: readFileSync(input.filePath, "utf-8"),
+    });
+    if (drift && !input.options.force) {
+      return {
+        ok: false,
+        error: `managed file drift detected: ${drift.driftedFields.join(", ")}`,
+      };
+    }
+
+    backupNativeProjectionFile({
+      kilnDir: input.kilnDir,
+      targetId: input.targetId,
+      filePath: input.filePath,
+    });
+    unlinkSync(input.filePath);
+    return { ok: true, removedTargetId: input.targetId };
   } catch (error) {
     return {
       ok: false,

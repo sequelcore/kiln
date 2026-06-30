@@ -873,6 +873,110 @@ describe("TUI gateway message fail-closed behavior", () => {
     }
   });
 
+  it("projects rich CLI tool results to TUI session event frames", async () => {
+    vi.resetModules();
+    stubBunServe();
+    const discoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ claude: [] }));
+    const sessionManager = {
+      ...makeSessionManager(),
+      getProvider: vi.fn(() => "claude"),
+      getModel: vi.fn(() => ""),
+      factory: vi.fn(() => ({
+        run: async function* () {
+          yield {
+            type: "tool_use" as const,
+            toolCallId: "call-rich",
+            toolName: "managed_agent.invoke",
+            input: { profile: "foundation-readonly-plan" },
+          };
+          yield {
+            type: "tool_result" as const,
+            toolCallId: "call-rich",
+            toolName: "managed_agent.invoke",
+            output: "child completed",
+            metadata: {
+              invocationId: "managed-1",
+              routeId: "codex-oauth-auto-review-readonly",
+            },
+            resourceLinks: [{
+              uri: "kiln://managed-invocations/managed-1/transcript",
+              title: "Transcript",
+              relation: "events",
+            }],
+            toolUsage: {
+              scope: "turn" as const,
+              toolName: "managed_agent.invoke",
+              calls: 1,
+            },
+          };
+          yield { type: "text_delta" as const, content: "Parent turn completed." };
+          yield { type: "completed" as const, totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false };
+        },
+        dispose: vi.fn().mockResolvedValue(undefined),
+      })),
+    };
+    const { startTuiGateway } = await import("../../src/gateway/tui-gateway.js");
+
+    const gateway = await startTuiGateway({
+      sessionManager,
+      getProviderAvailability: () => ({ claude: true }),
+    });
+    try {
+      const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen?.(new Event("open"), wsCtx);
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "message",
+            content: "run rich cli event",
+          }),
+        }),
+        wsCtx,
+      );
+
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
+        type: string;
+        content?: string;
+        event?: { kind: string; payload: Record<string, unknown> };
+      });
+      const completedPayload = outboundFrames
+        .find((frame) => frame.type === "session_event" && frame.event?.kind === "tool_call_completed")
+        ?.event?.payload;
+
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "done",
+        content: "Parent turn completed.",
+      }));
+      expect(completedPayload).toMatchObject({
+        toolCallId: "call-rich",
+        toolName: "managed_agent.invoke",
+        output: "child completed",
+        metadata: {
+          invocationId: "managed-1",
+          routeId: "codex-oauth-auto-review-readonly",
+        },
+        resourceLinks: [{
+          uri: "kiln://managed-invocations/managed-1/transcript",
+          title: "Transcript",
+          relation: "events",
+        }],
+        toolUsage: {
+          scope: "turn",
+          toolName: "managed_agent.invoke",
+          calls: 1,
+        },
+        status: {
+          state: "succeeded",
+        },
+      });
+    } finally {
+      discoverySpy.mockRestore();
+      gateway.shutdown();
+    }
+  });
+
   it("streams managed invocation session events from a TUI turn", async () => {
     vi.resetModules();
     stubBunServe();

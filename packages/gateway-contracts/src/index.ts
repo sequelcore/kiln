@@ -469,8 +469,18 @@ export type {
   ToolResultPresentation,
   ToolResultPreview,
   ToolResultRawAvailability,
-  ToolResultResourceLinkPresentation,
 } from "./operator-event-presentation.js";
+
+export {
+  buildOperatorToolResultPayload,
+  parseOperatorToolResultEnvelope,
+  parseOperatorToolResultResourceLinks,
+} from "./operator-tool-result.js";
+export type {
+  OperatorToolResultPayload,
+  ParsedOperatorToolResultEnvelope,
+  ToolResultResourceLinkPresentation,
+} from "./operator-tool-result.js";
 
 export {
   PRESENTATION_INTENT_KINDS,

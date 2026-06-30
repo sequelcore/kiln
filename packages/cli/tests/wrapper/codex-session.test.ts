@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { CodexSession } from "../../src/wrapper/codex-session.js";
 import type { CodexSessionConfig } from "../../src/wrapper/codex-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
-import type { SessionEvent } from "../../src/wrapper/session.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
 
 vi.mock("@kilnai/core", () => ({
   CODEX_DEFAULT_MODEL: "gpt-5.4",
@@ -119,8 +119,8 @@ function makeMockProc(): ProcController {
   };
 }
 
-async function collectEvents(iter: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
-  const events: SessionEvent[] = [];
+async function collectEvents(iter: AsyncIterable<ExecutionSessionEvent>): Promise<ExecutionSessionEvent[]> {
+  const events: ExecutionSessionEvent[] = [];
   for await (const e of iter) events.push(e);
   return events;
 }

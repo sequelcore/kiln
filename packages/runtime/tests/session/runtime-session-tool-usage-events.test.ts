@@ -4,7 +4,7 @@ import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-eve
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 describe("runtime session tool usage events", () => {
-  it("projects tool usage snapshots onto canonical tool completion events", () => {
+  it("projects rich tool result evidence onto canonical tool completion events", () => {
     const session = new RuntimeSession({
       appName: "app",
       tenantId: "tenant",
@@ -28,6 +28,16 @@ describe("runtime session tool usage events", () => {
       success: true,
       output: "sources",
       resultSummary: "sources",
+      metadata: {
+        toolName: "web_search",
+        kind: "research",
+        routeId: "codex-oauth-auto-review-readonly",
+      },
+      resourceLinks: [{
+        uri: "kiln://artifacts/web-search/sources",
+        title: "Search sources",
+        relation: "source",
+      }],
       toolUsage: {
         scope: "turn",
         toolName: "web_search",
@@ -53,6 +63,16 @@ describe("runtime session tool usage events", () => {
     expect(completed).toMatchObject({
       kind: "tool_call_completed",
       toolName: "web_search",
+      metadata: {
+        toolName: "web_search",
+        kind: "research",
+        routeId: "codex-oauth-auto-review-readonly",
+      },
+      resourceLinks: [{
+        uri: "kiln://artifacts/web-search/sources",
+        title: "Search sources",
+        relation: "source",
+      }],
       toolUsage: {
         scope: "turn",
         toolName: "web_search",

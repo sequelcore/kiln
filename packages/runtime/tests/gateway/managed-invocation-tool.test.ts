@@ -17,7 +17,10 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { buildTuiTurnPerCallConfig } from "../../src/gateway/tui-gateway.js";
-import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import type {
+  ManagedAgentRuntimeAdapter,
+  ManagedAgentRuntimeInvocationInput,
+} from "../../src/agents/managed-invocation/index.js";
 import {
   ManagedAgentLeaseAcquireError,
   ManagedAgentWorktreeReviewRequiredError,
@@ -128,6 +131,49 @@ function makeAdapterWithHandoff(
           memoryWriteProposalUris: [],
         },
       })),
+  };
+}
+
+function makeAdapterWithProgressHandoff(summary: string): ManagedAgentRuntimeAdapter {
+  return {
+    descriptor: makeDescriptor(),
+    invoke: vi.fn(async (input: ManagedAgentRuntimeInvocationInput) => {
+      const { request, admission, progressObserver } = input;
+      await progressObserver?.({
+        eventId: `${request.invocationId}:progress:tool_called:test:read`,
+        kind: "tool_called",
+        recordedAt: "2026-06-30T00:00:00.000Z",
+        summary: "read called",
+        toolName: "read",
+      });
+      return defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId,
+        agentId: request.agentId,
+        parentSessionId: request.parentSessionId,
+        parentTurnId: request.parentTurnId,
+        profile: request.profile,
+        lifecycleState: "completed",
+        providerRoute: request.providerRoute,
+        adapterKind: request.adapterKind,
+        executionMode: request.executionMode,
+        authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
+        childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
+        childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
+        transcript: {
+          uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+          redacted: "unknown",
+          truncated: false,
+          persisted: true,
+          retention: "session",
+        },
+        resultHandoff: {
+          summary,
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
+          memoryWriteProposalUris: [],
+        },
+      });
+    }),
   };
 }
 
@@ -3484,6 +3530,56 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
+  it("returns managed_agent.invoke child progress events with the terminal result", async () => {
+    const adapter = makeAdapterWithProgressHandoff("Child review completed with evidence.");
+    const surface = makeSurface(adapter);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-progress",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect one file.",
+      summary: "Inspect one file.",
+      requestedAuthority: "read_only",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly progressEvents?: readonly {
+          readonly kind: string;
+          readonly summary: string;
+          readonly toolName?: string;
+        }[];
+      };
+    };
+    const output = JSON.parse(result.output) as {
+      readonly progressEvents?: readonly {
+        readonly kind: string;
+        readonly summary: string;
+        readonly toolName?: string;
+      }[];
+    };
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata.progressEvents).toEqual([expect.objectContaining({
+      kind: "tool_called",
+      summary: "read called",
+      toolName: "read",
+    })]);
+    expect(output.progressEvents).toEqual(result.metadata.progressEvents);
+  });
+
   it("returns phase recovery instructions when an explicit intermediate managed child times out", async () => {
     const surface = makeSurface(makeTimedOutAdapter());
     const session = makeSession();
@@ -5721,6 +5817,7 @@ describe("managed invocation runtime tool", () => {
       readonly isError: boolean;
       readonly metadata: {
         readonly invocationId: string;
+        readonly resourceLinks?: readonly { readonly uri: string; readonly title?: string; readonly relation?: string }[];
         readonly transcript?: { readonly uri?: string };
         readonly resultHandoff?: { readonly resourceUris?: readonly string[] };
       };
@@ -5731,6 +5828,11 @@ describe("managed invocation runtime tool", () => {
     expect(result.isError).toBe(false);
     expect(result.metadata.transcript?.uri).toBe(canonicalTranscriptUri);
     expect(result.metadata.resultHandoff?.resourceUris).toContain(canonicalTranscriptUri);
+    expect(result.metadata.resourceLinks).toEqual([expect.objectContaining({
+      uri: canonicalTranscriptUri,
+      title: "Managed invocation transcript",
+      relation: "events",
+    })]);
     expect(JSON.stringify(result.metadata)).not.toContain("kiln://managed-invocations/");
     await expect(surface.callBuiltinTools.get("resource_read")?.({
       uri: canonicalTranscriptUri,

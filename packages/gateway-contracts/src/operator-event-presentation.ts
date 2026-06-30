@@ -5,6 +5,11 @@ import {
   type PresentationIntent,
   type PresentationIntentResourceLink,
 } from "./presentation-intent.js";
+import {
+  parseOperatorToolResultEnvelope,
+  parseOperatorToolResultResourceLinks,
+  type ToolResultResourceLinkPresentation,
+} from "./operator-tool-result.js";
 
 export type OperatorEventTone = "info" | "running" | "success" | "warning" | "error";
 export type OperatorEventSurface = "conversation_inline" | "activity_panel" | "inspector";
@@ -27,16 +32,6 @@ export type ToolResultOutputKind =
   | "command"
   | "form"
   | "empty";
-
-export interface ToolResultResourceLinkPresentation {
-  readonly uri: string;
-  readonly title?: string;
-  readonly label?: string;
-  readonly sequence?: number;
-  readonly mimeType?: string;
-  readonly size?: number;
-  readonly relation?: string;
-}
 
 export interface ToolResultPreview {
   readonly text: string;
@@ -190,71 +185,6 @@ function parseJsonRecord(value: string): Record<string, unknown> | null {
   }
 }
 
-function parseToolResultEnvelope(value: string | null): {
-  readonly output?: string;
-  readonly isError?: boolean;
-  readonly metadata?: Record<string, unknown>;
-  readonly presentationIntent?: unknown;
-  readonly resourceLinks: readonly ToolResultResourceLinkPresentation[];
-} | null {
-  if (!value) return null;
-  let output: string | undefined;
-  let isError: boolean | undefined;
-  let metadata: Record<string, unknown> | undefined;
-  let presentationIntent: unknown;
-  let resourceLinks: readonly ToolResultResourceLinkPresentation[] = [];
-  let current: string | null = value;
-  for (let depth = 0; depth < 4 && current; depth += 1) {
-    const parsed = parseJsonRecord(current);
-    if (!parsed) {
-      output = current;
-      break;
-    }
-    const result = asRecord(parsed.result) ?? parsed;
-    const nextMetadata = asRecord(result.metadata);
-    if (nextMetadata) {
-      metadata = {
-        ...(metadata ?? {}),
-        ...nextMetadata,
-      };
-      if ("presentationIntent" in nextMetadata) {
-        presentationIntent = nextMetadata.presentationIntent;
-      }
-      const links = readResourceLinks(nextMetadata.resourceLinks);
-      if (links.length > 0) {
-        resourceLinks = links;
-      }
-    }
-    if ("presentationIntent" in result) {
-      presentationIntent = result.presentationIntent;
-    }
-    const directLinks = readResourceLinks(result.resourceLinks);
-    if (directLinks.length > 0) {
-      resourceLinks = directLinks;
-    }
-    if (typeof result.isError === "boolean") {
-      isError = result.isError;
-    }
-    const nextOutput = readString(result.output);
-    if (!nextOutput) {
-      break;
-    }
-    const nested = parseJsonRecord(nextOutput);
-    if (!nested || (!("output" in nested) && !("result" in nested) && !("metadata" in nested))) {
-      output = nextOutput;
-      break;
-    }
-    current = nextOutput;
-  }
-  return {
-    ...(output ? { output } : {}),
-    ...(isError !== undefined ? { isError } : {}),
-    ...(metadata ? { metadata } : {}),
-    ...(presentationIntent !== undefined ? { presentationIntent } : {}),
-    resourceLinks,
-  };
-}
-
 function compactText(value: string, maxLength = 140): string {
   const firstLine = value
     .replace(/\r\n/g, "\n")
@@ -264,26 +194,6 @@ function compactText(value: string, maxLength = 140): string {
     ?? value.trim();
   const normalized = firstLine.replace(/\s+/g, " ").trim();
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
-}
-
-function readResourceLinks(value: unknown): readonly ToolResultResourceLinkPresentation[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      const record = asRecord(item);
-      const uri = readString(record?.uri);
-      if (!uri) return null;
-      return {
-        uri,
-        ...(readString(record?.title) ? { title: readString(record?.title)! } : {}),
-        ...(readString(record?.label) ? { label: readString(record?.label)! } : {}),
-        ...(readNumber(record?.sequence) !== null ? { sequence: readNumber(record?.sequence)! } : {}),
-        ...(readString(record?.mimeType) ? { mimeType: readString(record?.mimeType)! } : {}),
-        ...(readNumber(record?.size) !== null ? { size: readNumber(record?.size)! } : {}),
-        ...(readString(record?.relation) ? { relation: readString(record?.relation)! } : {}),
-      } satisfies ToolResultResourceLinkPresentation;
-    })
-    .filter((item): item is ToolResultResourceLinkPresentation => item !== null);
 }
 
 function projectIntentResourceLinks(
@@ -813,7 +723,7 @@ function projectPresentationIntentToolPresentation(
 
 function readPresentationIntent(
   payload: Record<string, unknown>,
-  envelope: ReturnType<typeof parseToolResultEnvelope>,
+  envelope: ReturnType<typeof parseOperatorToolResultEnvelope>,
   output: string | undefined,
   metadata: Record<string, unknown> | undefined,
 ): PresentationIntent | undefined {
@@ -885,7 +795,7 @@ function projectToolResultPresentation(
   toolName: string,
   payload: Record<string, unknown>,
 ): ToolResultPresentation | undefined {
-  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  const envelope = parseOperatorToolResultEnvelope(toolResultEnvelopeText(payload));
   const payloadMetadata = asRecord(payload.metadata);
   const output = envelope?.output ?? readString(payload.output) ?? readString(payload.outputSummary) ?? undefined;
   const metadata = envelope?.metadata || payloadMetadata
@@ -894,7 +804,7 @@ function projectToolResultPresentation(
         ...(payloadMetadata ?? {}),
       }
     : undefined;
-  const payloadResourceLinks = readResourceLinks(payloadMetadata?.resourceLinks);
+  const payloadResourceLinks = parseOperatorToolResultResourceLinks(payloadMetadata?.resourceLinks);
   const resourceLinks = payloadResourceLinks.length > 0 ? payloadResourceLinks : envelope?.resourceLinks ?? [];
   const presentationIntent = readPresentationIntent(payload, envelope, output, metadata);
   if (!output && !metadata && resourceLinks.length === 0 && !presentationIntent) return undefined;
@@ -946,7 +856,7 @@ function projectToolResultPresentation(
 function toolResultText(payload: Record<string, unknown>): string | null {
   const raw = toolResultEnvelopeText(payload);
   if (!raw) return null;
-  const envelope = parseToolResultEnvelope(raw);
+  const envelope = parseOperatorToolResultEnvelope(raw);
   const payloadMetadata = asRecord(payload.metadata);
   const metadata = envelope?.metadata || payloadMetadata
     ? {
@@ -970,12 +880,15 @@ function toolResultText(payload: Record<string, unknown>): string | null {
 }
 
 function toolResultIsError(payload: Record<string, unknown>): boolean {
-  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  const status = asRecord(payload.status);
+  const state = readString(status?.state) ?? readString(payload.status);
+  if (state === "failed" || state === "error") return true;
+  const envelope = parseOperatorToolResultEnvelope(toolResultEnvelopeText(payload));
   return envelope?.isError === true;
 }
 
 function toolResultMetadata(payload: Record<string, unknown>): Record<string, unknown> | null {
-  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  const envelope = parseOperatorToolResultEnvelope(toolResultEnvelopeText(payload));
   const payloadMetadata = asRecord(payload.metadata);
   if (!envelope?.metadata && !payloadMetadata) {
     return null;

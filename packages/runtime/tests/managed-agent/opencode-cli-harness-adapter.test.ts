@@ -6,6 +6,8 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  type ExecutionSessionEvent,
+  type ExecutionSessionRunOptions,
   type ManagedAgentCapabilitySnapshotInput,
   type ManagedAgentInvocationRequest,
 } from "@kilnai/core";
@@ -18,8 +20,6 @@ import {
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   CliSession,
-  CliSessionEvent,
-  CliSessionRunOptions,
 } from "../../src/execution/cli-session-contract.js";
 
 function deferred<T = void>(): {
@@ -164,8 +164,8 @@ function snapshotInputFor(
   };
 }
 
-function eventStream(events: readonly CliSessionEvent[]): AsyncIterable<CliSessionEvent> {
-  return (async function* stream(): AsyncGenerator<CliSessionEvent> {
+function eventStream(events: readonly ExecutionSessionEvent[]): AsyncIterable<ExecutionSessionEvent> {
+  return (async function* stream(): AsyncGenerator<ExecutionSessionEvent> {
     for (const event of events) {
       yield event;
     }
@@ -174,7 +174,7 @@ function eventStream(events: readonly CliSessionEvent[]): AsyncIterable<CliSessi
 
 describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   it("executes an admitted foundation-readonly-plan invocation and records replayable evidence", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: "Review complete." },
       {
         type: "cost_update",
@@ -286,7 +286,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("hydrates admitted resource context into the CLI harness system prompt", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: options.system?.includes("Child transcript body.") ? "Context read." : "Missing context." },
       { type: "completed", totalUsd: 0.01, durationMs: 25, isError: false, isPreflightCrash: false },
     ]));
@@ -364,7 +364,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("proves admitted write authority with replayable proposal, decision, attempt, and terminal evidence", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: "Approved fixture update applied." },
       {
         type: "file_changed",
@@ -521,7 +521,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("records read-only OpenCode write denials as replayable authority-denied evidence", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: "Write denied by policy." },
       {
         type: "write_decision",
@@ -567,7 +567,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
 
     try {
       const run = vi.fn(() =>
-        (async function* stream(): AsyncGenerator<CliSessionEvent> {
+        (async function* stream(): AsyncGenerator<ExecutionSessionEvent> {
           await writeFile(proofPath, "after", "utf8");
           yield { type: "text_delta", content: "Attempted fixture update." };
           yield { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false };
@@ -607,7 +607,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     vi.useFakeTimers({ now: new Date("2026-05-28T04:45:00.000Z") });
     const runStarted = deferred();
     const run = vi.fn(() =>
-      (async function* neverFinishes(): AsyncGenerator<CliSessionEvent> {
+      (async function* neverFinishes(): AsyncGenerator<ExecutionSessionEvent> {
         runStarted.resolve();
         await new Promise(() => undefined);
       })(),
@@ -658,7 +658,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
 
   it("preserves partial write evidence when a live harness times out after a bounded file change", async () => {
     const run = vi.fn(() =>
-      (async function* partialWriteThenTimeout(): AsyncGenerator<CliSessionEvent> {
+      (async function* partialWriteThenTimeout(): AsyncGenerator<ExecutionSessionEvent> {
         yield {
           type: "file_changed",
           path: "C:/workspace/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
@@ -668,7 +668,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
           diffPreview: "diff --git a/managed-write-proof.txt b/managed-write-proof.txt",
           diffTruncated: true,
           resourceUris: ["kiln://managed-invocations/invocation-opencode-write-1/diffs/1"],
-        } as CliSessionEvent;
+        } as ExecutionSessionEvent;
         await new Promise(() => undefined);
       })(),
     );
@@ -795,7 +795,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         diffPreview: "diff --git a/managed-write-proof.txt b/managed-write-proof.txt",
         diffTruncated: true,
         resourceUris: ["kiln://managed-invocations/invocation-opencode-write-1/diffs/1"],
-      } as CliSessionEvent,
+      } as ExecutionSessionEvent,
       { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
     ]));
     const dispose = vi.fn().mockResolvedValue(undefined);
@@ -861,7 +861,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("forwards managed environment bindings to the CLI harness session without recording values as lease evidence", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: `Port ${options.env?.KILN_DEV_SERVER_PORT ?? "missing"} received.` },
       { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
     ]));

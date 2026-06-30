@@ -21,16 +21,14 @@ import { buildPromptFromMessages } from "./cli-prompt-serializer.js";
 import { CliResponseAssembler } from "./cli-response-assembler.js";
 import type {
   CliSessionFactory,
-  CliSessionEventCallback,
+  ExecutionSessionEventCallback,
 } from "./cli-session-contract.js";
 import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
 export type {
-  CliSessionRunOptions,
-  CliSessionEvent,
   CliSession,
   CliSessionFactory,
   CliSessionFactoryContext,
-  CliSessionEventCallback,
+  ExecutionSessionEventCallback,
 } from "./cli-session-contract.js";
 
 /**
@@ -48,7 +46,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
   constructor(
     private readonly factory: CliSessionFactory,
     providerLabel: string,
-    private readonly onEvent?: CliSessionEventCallback,
+    private readonly onEvent?: ExecutionSessionEventCallback,
     private readonly getOperatorSurface?: () => OperatorSurfaceController | undefined,
   ) {
     this.name = `cli-subscription:${providerLabel}`;

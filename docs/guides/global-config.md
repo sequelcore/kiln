@@ -910,7 +910,7 @@ global config must write a backup first, then write canonical config.
 Kiln agent profiles are canonical executable roles. A valid `.kiln/agents/*.md`
 or `~/.kiln/agents/*.md` file must declare `name`, `role`, `goal`, and `tier`.
 Optional fields include `displayName`, `nicknameCandidates`, `description`,
-`backstory`, `model`, `tools`, `skills`, `mode`, `authorityProfile`, `routeId`,
+`backstory`, `tools`, `skills`, `mode`, `authorityProfile`, `routeId`,
 `providerRoute`, and `taskAffinity`. `name` is the stable profile id used in
 configuration and events. `displayName` and `nicknameCandidates` are
 operator-facing identity hints that native harness projections may expose
@@ -920,6 +920,17 @@ using task ids such as `architecture-review`, `backend-coding`,
 parent sessions select a configured child but does not grant authority.
 Incomplete agent files are ignored instead of being projected as legacy partial
 agents.
+
+Agent profiles do not have a top-level `model` field. Use `providerRoute` only
+when the role requires a strict execution route. Profiles without
+`providerRoute` are portable and project to native harnesses without a fixed
+model so the harness can use its own current default. Profiles with
+`providerRoute` project a native model only when the target harness capability
+explicitly supports that provider/model encoding. Unsupported strict routes are
+omitted for that harness, and previously managed now-incompatible native agent
+files are backed up and removed unless drift blocks the cleanup. Kiln does not
+guess support from provider id prefixes; cross-harness provider adapters must
+be represented as explicit capabilities before projection may use them.
 
 Kiln also provides first-party built-in agent profiles for common roles:
 `scout`, `planner`, `architect`, `tdd`, `coder`, `fast-coder`, `reviewer`,
@@ -945,8 +956,9 @@ unless `--force` is confirmed.
 
 Native projection is independent from routing eligibility. Setting
 `engines.<id>.enabled: false` removes that engine from Kiln's runtime routing,
-but Kiln may still project canonical agents, skills, permissions, and shims into
-the native harness so direct use of that harness sees the same doctrine.
+but Kiln may still project compatible canonical agents, skills, permissions, and
+shims into the native harness so direct use of that harness sees the same
+doctrine.
 
 Repo-level shims are separate from global native harness projection. Generated
 `AGENTS.md` and generated `CLAUDE.md` belong to a resolved project root; they

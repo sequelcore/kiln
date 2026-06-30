@@ -111,6 +111,20 @@ function sentMessageFrame(ws: MockWebSocket): {
   };
 }
 
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await Promise.resolve();
+    }
+  }
+  throw lastError;
+}
+
 describe("GatewaySession provider switching", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -585,6 +599,28 @@ describe("GatewaySession canonical session events", () => {
         payload: {
           toolCallId: "tool-tree",
           toolName: "tree",
+          metadata: {
+            toolName: "tree",
+            kind: "inspection",
+            operation: "tree",
+            path: "C:\\workspace\\kiln",
+            depth: 2,
+            entryCount: 55,
+          },
+          resourceLinks: [
+            {
+              uri: "kiln://artifacts/tool-results/artifact_tree/content",
+              title: "tree full output",
+              mimeType: "text/plain",
+              size: 9000,
+              relation: "full_output",
+            },
+          ],
+          toolUsage: {
+            scope: "turn",
+            toolName: "tree",
+            calls: 1,
+          },
           output: JSON.stringify({
             output: ".\npackages/\n  tui/",
             isError: false,
@@ -638,6 +674,19 @@ describe("GatewaySession canonical session events", () => {
         activity: "tool_result",
         toolName: "tree",
         output: "55 entries under C:\\workspace\\kiln",
+        metadata: expect.objectContaining({
+          operation: "tree",
+          entryCount: 55,
+        }),
+        resourceLinks: [expect.objectContaining({
+          uri: "kiln://artifacts/tool-results/artifact_tree/content",
+          relation: "full_output",
+        })],
+        toolUsage: {
+          scope: "turn",
+          toolName: "tree",
+          calls: 1,
+        },
         toolPresentation: expect.objectContaining({
           outputKind: "tree",
           title: "C:\\workspace\\kiln",
@@ -645,7 +694,6 @@ describe("GatewaySession canonical session events", () => {
       }),
     ]));
     expect(JSON.stringify(events)).not.toContain("{\\\"output\\\"");
-    expect(JSON.stringify(events)).not.toContain("\\\"metadata\\\"");
 
     await session.dispose();
   });
@@ -1007,7 +1055,7 @@ describe("GatewaySession operator theme frames", () => {
       scope: "session",
       reason: "test",
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(ws.send.mock.calls.some(([payload]) => (
         typeof payload === "string"
         && payload !== "ping"

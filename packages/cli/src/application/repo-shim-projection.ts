@@ -427,8 +427,8 @@ function renderRepoShimBody(input: {
   lines.push(
     "## Agents",
     "",
-    "| Name | Display | Role | Tools | Model | Skills | Instruction Profiles |",
-    "|------|---------|------|-------|-------|--------|----------------------|",
+    "| Name | Display | Role | Tools | Provider Route | Skills | Instruction Profiles |",
+    "|------|---------|------|-------|----------------|--------|----------------------|",
     ...rows,
     "",
   );
@@ -470,7 +470,16 @@ function formatAgentRow(agent: KilnAgentDefinition): string {
   const instructionProfiles = agent.instructionProfiles && agent.instructionProfiles.length > 0
     ? agent.instructionProfiles.join(", ")
     : "-";
-  return `| ${agent.name} (${agent.scope}) | ${displayName} | ${agent.role}${taskAffinity} | ${tools} | ${agent.model ?? "-"} | ${skills} | ${instructionProfiles} |`;
+  return `| ${agent.name} (${agent.scope}) | ${displayName} | ${agent.role}${taskAffinity} | ${tools} | ${formatAgentProviderRoute(agent)} | ${skills} | ${instructionProfiles} |`;
+}
+
+function formatAgentProviderRoute(agent: KilnAgentDefinition): string {
+  if (!agent.providerRoute) {
+    return "-";
+  }
+  return agent.providerRoute.model
+    ? `${agent.providerRoute.providerId}/${agent.providerRoute.model}`
+    : agent.providerRoute.providerId;
 }
 
 function formatProfilePath(profile: KilnInstructionProfileDefinition, projectPath: string): string {

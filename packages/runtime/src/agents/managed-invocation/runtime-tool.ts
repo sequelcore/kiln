@@ -1518,6 +1518,7 @@ async function executeManagedInvocationTool(
     };
   }
 
+  const terminalSnapshot = service.status(prepared.request.invocationId);
   return terminalManagedInvocationResult({
     toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
     rawInput: prepared.canonicalizedRawInput,
@@ -1526,6 +1527,7 @@ async function executeManagedInvocationTool(
     contextMode: prepared.parsed.contextMode,
     request: prepared.request,
     record: result.record,
+    progressEvents: terminalSnapshot?.progressEvents,
     ...(prepared.canonicalizedForbiddenInputFields
       ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
       : {}),
@@ -2091,11 +2093,13 @@ function terminalManagedInvocationResult(input: {
   const timeoutEvidence = projectManagedInvocationTimeoutEvidence(input.record.capabilitySnapshot.authorityProfile);
   const authoritySnapshot = projectManagedInvocationAuthoritySnapshot(input.record.authority);
   const childLineage = projectManagedInvocationChildLineage(input.record);
+  const terminalProgressEvents = projectManagedInvocationTerminalProgressEvents(input.progressEvents);
+  const resourceLinks = projectManagedInvocationResultResourceLinks(input.record);
   const structuredEvidence = input.record.resultHandoff !== undefined
     || input.record.transcript !== undefined
     || resourceLease !== undefined
     || (input.record.diagnostics !== undefined && input.record.diagnostics.length > 0)
-    || (input.progressEvents !== undefined && input.progressEvents.length > 0);
+    || terminalProgressEvents.length > 0;
   return {
     output: recovery || handoffRecovery || phaseCompletion || structuredEvidence
       ? JSON.stringify({
@@ -2111,9 +2115,10 @@ function terminalManagedInvocationResult(input: {
           authoritySnapshot,
           ...(input.record.resultHandoff ? { resultHandoff: input.record.resultHandoff } : {}),
           ...(input.record.transcript ? { transcript: input.record.transcript } : {}),
+          ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
           ...(resourceLease ? { resourceLease } : {}),
           ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
-          ...(input.progressEvents && input.progressEvents.length > 0 ? { progressEvents: input.progressEvents } : {}),
+          ...(terminalProgressEvents.length > 0 ? { progressEvents: terminalProgressEvents } : {}),
           ...(recovery ? { recovery } : {}),
           ...(handoffRecovery ? { recovery: handoffRecovery } : {}),
           ...(phaseCompletion ? { phaseCompletion } : {}),
@@ -2148,7 +2153,8 @@ function terminalManagedInvocationResult(input: {
       ...(input.request.input.handoff ? { handoffContract: input.request.input.handoff } : {}),
       resultHandoff: input.record.resultHandoff,
       transcript: input.record.transcript,
-      ...(input.progressEvents && input.progressEvents.length > 0 ? { progressEvents: input.progressEvents } : {}),
+      ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+      ...(terminalProgressEvents.length > 0 ? { progressEvents: terminalProgressEvents } : {}),
       ...(resourceLease ? { resourceLease } : {}),
       ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
@@ -2169,6 +2175,30 @@ function terminalManagedInvocationResult(input: {
       }),
     },
   };
+}
+
+function projectManagedInvocationResultResourceLinks(
+  record: ManagedAgentInvocationRecord,
+): readonly {
+  readonly uri: string;
+  readonly title?: string;
+  readonly relation?: string;
+}[] {
+  const links = new Map<string, { readonly uri: string; readonly title?: string; readonly relation?: string }>();
+  const addLink = (uri: string | undefined, title: string, relation: string) => {
+    if (!uri || uri.trim().length === 0 || links.has(uri)) {
+      return;
+    }
+    links.set(uri, { uri, title, relation });
+  };
+  addLink(record.transcript?.uri, "Managed invocation transcript", "events");
+  for (const [index, uri] of (record.resultHandoff?.resourceUris ?? []).entries()) {
+    addLink(uri, `Managed invocation result ${index + 1}`, "summary");
+  }
+  for (const [index, uri] of (record.resultHandoff?.memoryWriteProposalUris ?? []).entries()) {
+    addLink(uri, `Managed invocation memory proposal ${index + 1}`, "source");
+  }
+  return [...links.values()];
 }
 
 function projectManagedInvocationTimeoutEvidence(authority: ManagedAgentAuthorityProfile): Record<string, unknown> {
@@ -2230,6 +2260,21 @@ function buildManagedInvocationPresentationIntent(input: {
       failureReason: boundedPresentationText(input.failureReason ?? ""),
     }],
   };
+}
+
+function projectManagedInvocationTerminalProgressEvents(
+  progressEvents: ManagedAgentRuntimeInvocationSnapshot["progressEvents"] | undefined,
+): readonly Record<string, unknown>[] {
+  return (progressEvents ?? []).map((event) => ({
+    eventId: event.eventId,
+    kind: event.kind,
+    recordedAt: event.recordedAt,
+    summary: event.summary,
+    ...(event.toolName ? { toolName: event.toolName } : {}),
+    ...(event.success !== undefined ? { success: event.success } : {}),
+    ...(event.isError !== undefined ? { isError: event.isError } : {}),
+    ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+  }));
 }
 
 function boundedPresentationText(value: string): string {

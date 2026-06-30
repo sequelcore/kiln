@@ -191,7 +191,13 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
   const tools = validateAgentProfileTools(optionalStringList(payload.tools, "tools", diagnostics), diagnostics);
   const skills = optionalStringList(payload.skills, "skills", diagnostics);
   const taskAffinity = optionalTaskAffinity(payload.taskAffinity, diagnostics);
-  const model = optionalText(payload.model, "model", diagnostics);
+  if (payload.model !== undefined) {
+    diagnostics.push({
+      severity: "error",
+      field: "model",
+      message: "Agent model is not a canonical top-level field. Use providerRoute for strict execution routing.",
+    });
+  }
   const instructions = optionalText(payload.instructions, "instructions", diagnostics);
   const normalized = removeUndefined({
     name,
@@ -203,7 +209,6 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
     tools,
     skills,
     taskAffinity,
-    model,
     instructions,
   });
   const path = join(projectPath, ".kiln", "agents", `${name || "invalid-agent"}.md`);
@@ -289,7 +294,7 @@ function renderExistingAgent(agent: KilnAgentDefinition): string {
     tools: agent.tools,
     skills: agent.skills,
     taskAffinity: agent.taskAffinity,
-    model: agent.model,
+    providerRoute: agent.providerRoute,
     instructions: agent.instructions,
   }));
 }

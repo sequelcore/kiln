@@ -1,18 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { extractText } from "@kilnai/core";
+import { extractText, type ExecutionSessionEvent } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../../src/execution/cli-subscription-executor.js";
 
-type SessionEvent =
-  | { type: "text_delta"; content: string; isThinking?: boolean }
-  | { type: "tool_use"; toolName: string; input: unknown }
-  | { type: "tool_result"; toolName: string; output: string }
-  | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number }
-  | { type: "cost_update"; usd: number; inputTokens?: number; outputTokens?: number; cacheReadTokens?: number }
-  | { type: "completed"; totalUsd: number; durationMs: number; isError: boolean; isPreflightCrash: boolean }
-  | { type: "error"; code: string; message: string; isRetryable: boolean };
-
-function eventStream(events: readonly SessionEvent[]): AsyncIterable<SessionEvent> {
-  return (async function* (): AsyncGenerator<SessionEvent> {
+function eventStream(events: readonly ExecutionSessionEvent[]): AsyncIterable<ExecutionSessionEvent> {
+  return (async function* (): AsyncGenerator<ExecutionSessionEvent> {
     for (const event of events) {
       yield event;
     }

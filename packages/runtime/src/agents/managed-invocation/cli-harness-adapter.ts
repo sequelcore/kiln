@@ -11,6 +11,7 @@ import {
   defineManagedAgentInvocationRecord,
 } from "@kilnai/core";
 import type {
+  ExecutionSessionEvent,
   ManagedAgentAdapterDescriptor,
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
@@ -20,7 +21,6 @@ import type {
 } from "@kilnai/core";
 import type {
   CliSession,
-  CliSessionEvent,
   CliSessionFactory,
 } from "../../execution/cli-session-contract.js";
 import type {
@@ -57,16 +57,16 @@ export interface ManagedCliHarnessFilesystemBoundaryConfig {
 
 interface CollectedCliHarnessEvidence {
   readonly textParts: string[];
-  readonly fileChanges: Extract<CliSessionEvent, { readonly type: "file_changed" }>[];
-  readonly writeDecisions: Extract<CliSessionEvent, { readonly type: "write_decision" }>[];
+  readonly fileChanges: Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[];
+  readonly writeDecisions: Extract<ExecutionSessionEvent, { readonly type: "write_decision" }>[];
   readonly usage: {
     inputTokens?: number;
     outputTokens?: number;
     cacheReadTokens?: number;
     costUsd?: number;
   };
-  completed?: Extract<CliSessionEvent, { readonly type: "completed" }>;
-  error?: Extract<CliSessionEvent, { readonly type: "error" }>;
+  completed?: Extract<ExecutionSessionEvent, { readonly type: "completed" }>;
+  error?: Extract<ExecutionSessionEvent, { readonly type: "error" }>;
 }
 
 const TIMEOUT = Symbol("managed-cli-harness-timeout");
@@ -392,7 +392,7 @@ function createEmptyCollectedEvidence(): CollectedCliHarnessEvidence {
 function collectWriteEvidence(input: {
   readonly request: ManagedAgentInvocationRequest;
   readonly collected: CollectedCliHarnessEvidence;
-  readonly filesystemChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[];
+  readonly filesystemChanges: readonly Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[];
   readonly readOnlyFilesystemViolation: boolean;
 }): {
   readonly evidence: readonly ManagedAgentWriteEvidence[];
@@ -490,10 +490,10 @@ async function snapshotFilesystemBoundary(
 
 async function collectFilesystemBoundaryChanges(
   snapshot: FilesystemBoundarySnapshot | undefined,
-): Promise<Extract<CliSessionEvent, { readonly type: "file_changed" }>[]> {
+): Promise<Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[]> {
   if (snapshot === undefined) return [];
 
-  const changes: Extract<CliSessionEvent, { readonly type: "file_changed" }>[] = [];
+  const changes: Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[] = [];
   for (const entry of snapshot.entries) {
     let currentContents: string | undefined;
     let exists = true;
@@ -554,10 +554,10 @@ async function restoreFilesystemBoundary(snapshot: FilesystemBoundarySnapshot | 
 }
 
 function mergeFileChanges(
-  emittedChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[],
-  filesystemChanges: readonly Extract<CliSessionEvent, { readonly type: "file_changed" }>[],
-): Extract<CliSessionEvent, { readonly type: "file_changed" }>[] {
-  const merged = new Map<string, Extract<CliSessionEvent, { readonly type: "file_changed" }>>();
+  emittedChanges: readonly Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[],
+  filesystemChanges: readonly Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[],
+): Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[] {
+  const merged = new Map<string, Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>>();
   for (const change of emittedChanges) {
     merged.set(change.path, change);
   }
@@ -594,7 +594,7 @@ function resolveLifecycleState(
   return "completed";
 }
 
-function isCancellationError(error: Extract<CliSessionEvent, { readonly type: "error" }>): boolean {
+function isCancellationError(error: Extract<ExecutionSessionEvent, { readonly type: "error" }>): boolean {
   const normalized = `${error.code} ${error.message}`.toLowerCase();
   return normalized.includes("cancel") || normalized.includes("abort");
 }

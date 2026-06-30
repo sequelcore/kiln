@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import type { IKilnSession, SessionEvent } from "../../src/wrapper/session.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
+import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
 import { AllCredentialsExhaustedError } from "@kilnai/core";
@@ -369,8 +370,8 @@ async function* streamEvents(
   }
 }
 
-async function collectEvents(iter: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
-  const events: SessionEvent[] = [];
+async function collectEvents(iter: AsyncIterable<ExecutionSessionEvent>): Promise<ExecutionSessionEvent[]> {
+  const events: ExecutionSessionEvent[] = [];
   for await (const event of iter) {
     events.push(event);
   }
@@ -452,7 +453,7 @@ describe("ProviderSession.run()", () => {
     process.env = originalEnv;
   });
 
-  it("maps provider stream events into SessionEvent shape", async () => {
+  it("maps provider stream events into execution session event shape", async () => {
     adapterMocks.openai.stream.mockReturnValue(
       streamEvents([
         { type: "thinking", content: "thinking..." },

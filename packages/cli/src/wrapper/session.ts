@@ -13,17 +13,13 @@
 
 import type {
   AgentMessage,
-  ExecutionBillingMode,
+  ExecutionSessionCostTrackingMode,
+  ExecutionSessionEvent,
   MemoryLayerKind,
   MemoryScopeKind,
   ReasoningEffort,
 } from "@kilnai/core";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
-
-export type CostTrackingMode =
-  | "native"
-  | "computed"
-  | "none";
 
 export type KilnPermissionAction = "allow" | "ask" | "deny";
 
@@ -142,54 +138,12 @@ export interface KilnPermissionPolicy {
   readonly agentScopes?: readonly KilnAgentPermissionScope[];
 }
 
-export type SessionEvent =
-  | { type: "text_delta"; content: string; isThinking?: boolean }
-  | { type: "tool_use"; toolName: string; input: unknown; toolCallId?: string; source?: "native" | "mcp"; mcpSelector?: string }
-  | { type: "tool_result"; toolName: string; output: string; outputSummary?: string; toolCallId?: string; isError?: boolean }
-  | {
-      type: "file_changed";
-      path: string;
-      changeType: "created" | "modified" | "deleted";
-      linesAdded?: number;
-      linesRemoved?: number;
-      diffPreview?: string;
-      diffTruncated?: boolean;
-    }
-  | {
-      type: "write_decision";
-      status: "approved" | "denied";
-      providerRequestId?: string;
-      actor?: string;
-      reason: string;
-      resourceUris?: readonly string[];
-    }
-  | {
-      type: "cost_update";
-      usd: number;
-      mode: CostTrackingMode;
-      provider?: string;
-      model?: string;
-      canonicalModel?: string;
-      billingMode?: ExecutionBillingMode;
-      inputTokens?: number;
-      outputTokens?: number;
-      cacheReadTokens?: number;
-    }
-  | {
-      type: "completed";
-      totalUsd: number;
-      durationMs: number;
-      isError: boolean;
-      isPreflightCrash: boolean;
-    }
-  | { type: "error"; code: string; message: string; isRetryable: boolean };
-
 export interface SessionCapabilities {
   readonly mcp: boolean;
   readonly streaming: boolean;
   readonly resumable: boolean;
   readonly resume: boolean;
-  readonly costTrackingMode: CostTrackingMode;
+  readonly costTrackingMode: ExecutionSessionCostTrackingMode;
   readonly supportedTools: readonly string[];
   readonly maxContextTokens: number | null;
   readonly priority: number;
@@ -211,7 +165,7 @@ export interface SessionRunOptions {
 }
 
 export interface IKilnSession {
-  run(options: SessionRunOptions): AsyncIterable<SessionEvent>;
+  run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent>;
   dispose(): Promise<void>;
   readonly capabilities: SessionCapabilities;
   readonly sessionId: string;

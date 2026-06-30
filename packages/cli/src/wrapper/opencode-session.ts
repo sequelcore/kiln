@@ -2,9 +2,8 @@ import { spawn, execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { appendExecutionIdentity, resolveExecutionIdentity } from "@kilnai/core";
+import { appendExecutionIdentity, resolveExecutionIdentity, type ExecutionSessionEvent } from "@kilnai/core";
 import type {
-  SessionEvent,
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
@@ -521,7 +520,7 @@ export class OpenCodeSession implements IKilnSession {
     return this._remoteSessionId ?? undefined;
   }
 
-  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this._disposed) return;
     const startTime = Date.now();
     const abortController = new AbortController();

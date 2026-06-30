@@ -158,6 +158,13 @@ describe("runSession", () => {
       });
 
       expect(result.providersUsed).toEqual(["codex-oauth", "opencode-go"]);
+      expect(result.transcript).toContainEqual(expect.objectContaining({
+        event: expect.objectContaining({
+          type: "tool_result",
+          toolName: "managed_agent.invoke",
+          output: "ok",
+        }),
+      }));
     } finally {
       consoleLog.mockRestore();
     }

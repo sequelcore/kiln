@@ -5,8 +5,8 @@ import type {
 } from "./frames.js";
 import type {
   OperatorEventTone,
-  ToolResultResourceLinkPresentation,
 } from "./operator-event-presentation.js";
+import type { ToolResultResourceLinkPresentation } from "./operator-tool-result.js";
 import {
   presentOperatorSessionEvent,
 } from "./operator-event-presentation.js";

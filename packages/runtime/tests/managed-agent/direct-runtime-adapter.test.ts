@@ -848,6 +848,13 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       "kiln://managed-agents/invocations/inv-direct-1/transcript",
       "kiln://managed-agents/invocations/inv-direct-1/resources/timeout",
     ]);
+    expect(result.record.replayResources).toEqual([expect.objectContaining({
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/timeout",
+      title: "Managed invocation timeout evidence",
+      mimeType: "text/markdown",
+    })]);
+    expect(result.record.replayResources?.[0]?.text).toContain("Progress events: 0");
+    expect(result.record.replayResources?.[0]?.text).toContain("No child runtime progress events were observed before timeout.");
     expect(result.record.resultHandoff?.summary).toContain("timed out after 1ms");
     expect(result.record.resultHandoff?.summary).toContain(result.record.childSessionId);
     expect(result.record.resultHandoff?.summary).toContain("No completed child handoff was produced before timeout");
@@ -855,6 +862,46 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(observedSignal).toBeDefined();
     expect(observedSignal?.aborted).toBe(true);
     expect(abortObserved).toBe(true);
+  });
+
+  it("preserves partial child progress evidence when a direct child times out mid-tool", async () => {
+    const provider = providerWithResponses([
+      response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),
+    ]);
+    const readTool = vi.fn(async () => new Promise<string>(() => undefined));
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", readTool]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await invokeManaged(service, request({
+      authority: {
+        ...request().authority,
+        timeoutMs: 25,
+      },
+    }), adapter);
+    const snapshot = service.status("inv-direct-1");
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("timed_out");
+    expect(snapshot?.progressEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "tool_called",
+        summary: "read called",
+        toolName: "read",
+      }),
+    ]));
+    expect(result.record.replayResources?.[0]?.text).toContain("Progress events:");
+    expect(result.record.replayResources?.[0]?.text).toContain("## Progress");
+    expect(result.record.replayResources?.[0]?.text).toContain("Summary: read called");
+    expect(result.record.replayResources?.[0]?.text).not.toContain("No child runtime progress events were observed before timeout.");
   });
 
   it("records external cancellation as a cancelled direct-provider invocation with evidence", async () => {

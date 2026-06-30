@@ -151,6 +151,52 @@ describe("config-status", () => {
     expect(setup.value).toEqual(snapshot.setup);
   });
 
+  it("reports native projection decisions for configured agents", async () => {
+    writeProjectConfig(tempDir);
+    const agentsDir = join(tempDir, ".kiln", "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(join(agentsDir, "reviewer.md"), [
+      "---",
+      "name: reviewer",
+      "role: Review specialist",
+      "goal: Review implementation quality",
+      "tier: reasoning",
+      "providerRoute:",
+      "  providerId: codex-oauth",
+      "  model: gpt-5.5",
+      "---",
+      "Review only.",
+      "",
+    ].join("\n"), "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const agents = await readConfigStatusView(snapshot, "agents");
+
+    expect(agents.value).toMatchObject({
+      agents: expect.arrayContaining([
+        expect.objectContaining({
+          id: "reviewer",
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-5.5",
+          },
+          nativeProjections: expect.arrayContaining([
+            {
+              target: "codex",
+              status: "projected",
+              nativeModel: "gpt-5.5",
+            },
+            {
+              target: "opencode",
+              status: "omitted",
+              reason: "unsupported-provider",
+            },
+          ]),
+        }),
+      ]),
+    });
+  });
+
   it("reports configured skill origin, projection state, and project override precedence", async () => {
     writeProjectConfig(tempDir);
     const userHome = join(tempDir, "home");

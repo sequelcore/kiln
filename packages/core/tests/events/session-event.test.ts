@@ -315,6 +315,15 @@ describe("session event envelope", () => {
         status: { state: "succeeded" },
         durationMs: 32,
         outputSummary: "read 1 file",
+        metadata: {
+          kind: "file",
+          path: "README.md",
+        },
+        resourceLinks: [{
+          uri: "kiln://artifacts/read-file/content",
+          title: "README.md",
+          relation: "source",
+        }],
       }, { generateEventId: () => `evt-${++idCounter}` }),
       createSessionEvent({
         kind: "approval_requested",
