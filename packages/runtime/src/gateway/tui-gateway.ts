@@ -50,7 +50,7 @@ import {
 import {
   attachManagedInvocationSessionEventSink,
   withManagedInvocationService,
-  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
 import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
@@ -119,7 +119,7 @@ export interface TuiGatewayOptions {
   /** Initial shared execution mode for operator work. */
   readonly executionMode?: OperatorExecutionMode;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
@@ -376,11 +376,14 @@ export function buildTuiDoneFramePayload(input: {
 export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGateway> {
   const port = options.port ?? 4801;
   const managedInvocation = options.managedInvocation
-    ? withManagedInvocationService(options.managedInvocation)
+    ? {
+        ...options.managedInvocation,
+        options: withManagedInvocationService(options.managedInvocation.options),
+      }
     : undefined;
   const builtinToolOptions = withManagedAgentInvocationResourceProvider(
     options.builtinToolOptions,
-    managedInvocation ? { service: managedInvocation.invocationService } : undefined,
+    managedInvocation ? { service: managedInvocation.options.invocationService } : undefined,
   );
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";

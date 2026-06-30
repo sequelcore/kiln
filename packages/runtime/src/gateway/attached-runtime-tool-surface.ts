@@ -63,6 +63,7 @@ import {
   MANAGED_AGENT_STATUS_CAPABILITY,
   MANAGED_AGENT_STATUS_TOOL,
   type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
 import {
   buildManagedInvocationPhaseRecovery,
@@ -89,7 +90,7 @@ export interface AttachedRuntimeBuiltinToolSurfaceOptions {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly executionMode?: OperatorExecutionMode;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
 }
 
 const RUNTIME_OBSERVE_METADATA_EGRESS: ActionEffectEnvelope = {
@@ -492,6 +493,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
   }
 
   if (options.managedInvocation) {
+    const managedInvocationOptions = options.managedInvocation.options;
     const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(options.managedInvocation);
     const managedInvocationExecutor = managedInvocationExecutors.get(MANAGED_AGENT_INVOKE_TOOL.name);
     for (const [toolName, executor] of managedInvocationExecutors) {
@@ -504,7 +506,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
         createManagedDelegationWorkItemStartExecutor(
           workItemExecutionStart,
           managedInvocationExecutor,
-          options.managedInvocation,
+          managedInvocationOptions,
         ),
       );
     }
@@ -523,14 +525,14 @@ export function createAttachedRuntimeBuiltinToolSurface(
     }
     toolCallMetadata.set(
       MANAGED_AGENT_INVOKE_TOOL.name,
-      createManagedInvocationToolCallMetadataResolver(options.managedInvocation),
+      createManagedInvocationToolCallMetadataResolver(managedInvocationOptions),
     );
     toolCallMetadata.set(
       MANAGED_AGENT_START_TOOL.name,
-      createManagedInvocationToolCallMetadataResolver(options.managedInvocation),
+      createManagedInvocationToolCallMetadataResolver(managedInvocationOptions),
     );
-    toolDefinitions.push(createManagedAgentInvokeToolDefinition(options.managedInvocation));
-    toolDefinitions.push(createManagedAgentStartToolDefinition(options.managedInvocation));
+    toolDefinitions.push(createManagedAgentInvokeToolDefinition(managedInvocationOptions));
+    toolDefinitions.push(createManagedAgentStartToolDefinition(managedInvocationOptions));
     toolDefinitions.push(MANAGED_AGENT_STATUS_TOOL);
     toolDefinitions.push(MANAGED_AGENT_LIST_TOOL);
     toolDefinitions.push(MANAGED_AGENT_JOIN_TOOL);

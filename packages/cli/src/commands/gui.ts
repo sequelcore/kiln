@@ -37,6 +37,7 @@ import { createStartupProfiler } from "../application/startup-profiler.js";
 import { loadContinuationSidebarInfo } from "../application/continuation-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
+import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import {
@@ -191,6 +192,9 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
+  const managedInvocationAttachment = managedInvocationWithService
+    ? createKilnRuntimeManagedInvocationAttachment("gui", managedInvocationWithService)
+    : undefined;
   builtinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
     managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
@@ -210,11 +214,11 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     contextArtifactCache,
     builtinToolOptions,
     "gui",
-    managedInvocationWithService,
+    managedInvocationAttachment,
     runtimeBudgetAdmission,
   );
   startupProfiler.mark("session-manager-ready");
-  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationWithService;
+  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }

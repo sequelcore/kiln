@@ -30,7 +30,7 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
-  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
   type OperatorSurfaceController,
   type OrchestrateResult,
   type PerCallToolConfig,
@@ -66,7 +66,7 @@ export interface ProviderSessionConfig {
   readonly executionProfile?: ResolvedDirectProviderExecutionProfile;
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }

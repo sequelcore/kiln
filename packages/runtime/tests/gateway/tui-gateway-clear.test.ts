@@ -7,7 +7,10 @@ import {
   textParts,
   type ManagedAgentInvocationRequest,
 } from "@kilnai/core";
-import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
+import type {
+  ManagedInvocationToolAttachment,
+  ManagedInvocationToolOptions,
+} from "../../src/agents/managed-invocation/runtime-tool.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
@@ -205,6 +208,19 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
     }],
     requestedBy: "assistant",
     requestSource: "tui",
+  };
+}
+
+function makeManagedInvocationAttachment(
+  options: ManagedInvocationToolOptions = makeManagedInvocationOptions(),
+): ManagedInvocationToolAttachment {
+  return {
+    options,
+    callerIdentity: {
+      kind: "kiln-runtime",
+      surface: "tui-test",
+      attachmentId: "attachment:tui-test",
+    },
   };
 }
 
@@ -1080,7 +1096,7 @@ describe("TUI gateway message fail-closed behavior", () => {
 
     const gateway = await startTuiGateway({
       sessionManager,
-      managedInvocation: makeManagedInvocationOptions(),
+      managedInvocation: makeManagedInvocationAttachment(),
     });
     try {
       const { handlers, mockWs, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });
@@ -1235,7 +1251,7 @@ describe("TUI gateway message fail-closed behavior", () => {
 
     const gateway = await startTuiGateway({
       sessionManager,
-      managedInvocation: makeManagedInvocationOptions(),
+      managedInvocation: makeManagedInvocationAttachment(),
     });
     try {
       const { handlers, wsCtx } = tuiSocketHarness.simulateConnection({ userId: "operator-1" });

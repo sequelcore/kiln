@@ -151,6 +151,7 @@ export type {
 export {
   attachManagedInvocationSessionEventSink,
   createManagedAgentStartToolDefinition,
+  createManagedInvocationToolAttachment,
   createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,
   resolveManagedInvocationService,
@@ -181,11 +182,13 @@ export type {
   ManagedInvocationSessionEventSink,
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationRouteProfile,
-  ManagedInvocationRouteCapability,
+  ManagedInvocationToolAttachment,
   ManagedInvocationToolOptions,
   ManagedInvocationToolOptionsWithService,
   ManagedInvocationToolRoute,
 } from "./runtime-tool.js";
+export { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
+export type { ManagedInvocationCallerCapabilityInput } from "./caller-capability-policy.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
 export interface ManagedAgentRuntimeInvocationInput {
@@ -2950,6 +2953,10 @@ function snapshotInputFromAdmission(snapshot: ManagedAgentCapabilitySnapshot): M
     capturedAt: snapshot.capturedAt,
     routeId: snapshot.routeId,
     routeSource: snapshot.routeSource,
+    ...(snapshot.callerIdentity ? { callerIdentity: snapshot.callerIdentity } : {}),
+    ...(snapshot.invocationCapabilityEvidence
+      ? { invocationCapabilityEvidence: snapshot.invocationCapabilityEvidence }
+      : {}),
     routeHealth: snapshot.routeHealth,
     providerModelProof: snapshot.providerModelProof,
     resourcePlane: snapshot.resourcePlane,

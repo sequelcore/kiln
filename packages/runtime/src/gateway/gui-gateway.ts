@@ -53,7 +53,7 @@ import {
 import {
   attachManagedInvocationSessionEventSink,
   withManagedInvocationService,
-  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
 import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
@@ -140,7 +140,7 @@ export interface StartGuiGatewayOptions {
   readonly onManagedWindowClose?: () => void;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorSessionTransportOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
 }
 
@@ -398,11 +398,14 @@ export function deriveGuiDoneAuthorityStatus(
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
   const managedInvocation = options.managedInvocation
-    ? withManagedInvocationService(options.managedInvocation)
+    ? {
+        ...options.managedInvocation,
+        options: withManagedInvocationService(options.managedInvocation.options),
+      }
     : undefined;
   const builtinToolOptions = withManagedAgentInvocationResourceProvider(
     options.builtinToolOptions,
-    managedInvocation ? { service: managedInvocation.invocationService } : undefined,
+    managedInvocation ? { service: managedInvocation.options.invocationService } : undefined,
   );
   const memoryLatticeResources = createAttachedRuntimeBuiltinToolSurface({ builtinToolOptions });
   const app = new Hono();
@@ -754,7 +757,7 @@ function wireOperatorTransport(
     getDiscoverySnapshot: () => readonly GuiProviderDiscoveryResult[];
     onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
     builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-    managedInvocation?: ManagedInvocationToolOptions;
+    managedInvocation?: ManagedInvocationToolAttachment;
     resolveProviderPreference?: () => OperatorProviderPreference | null | undefined;
     updateProviderPreference?: (selection: OperatorProviderPreference) => Promise<void> | void;
     onReady: (wsUrl: string) => void;
@@ -1142,7 +1145,7 @@ function wireOperatorTransport(
                 fail("Managed agent control requires sessionId and invocationId.");
                 return;
               }
-              const invocationService = input.managedInvocation?.invocationService;
+              const invocationService = input.managedInvocation?.options.invocationService;
               if (!invocationService) {
                 fail("Managed agent control requires a live invocation service.");
                 return;
@@ -1205,7 +1208,7 @@ function wireOperatorTransport(
                     admittedAt: promptEvent.timestamp,
                   });
                   await sessionRegistry.save(session);
-                  await input.managedInvocation?.sessionEventSink?.publish([promptEvent], {
+                  await input.managedInvocation?.options.sessionEventSink?.publish([promptEvent], {
                     session,
                     toolCall: {
                       id: requestId ?? `managed-agent-control:${action}:${invocationId}`,
@@ -1249,7 +1252,7 @@ function wireOperatorTransport(
                   ? events
                   : findManagedInvocationTerminalSessionEvents(session.sessionEvents, invocationId);
                 await sessionRegistry.save(session);
-                await input.managedInvocation?.sessionEventSink?.publish(terminalEvents, {
+                await input.managedInvocation?.options.sessionEventSink?.publish(terminalEvents, {
                   session,
                   toolCall: {
                     id: requestId ?? `managed-agent-control:${action}:${invocationId}`,

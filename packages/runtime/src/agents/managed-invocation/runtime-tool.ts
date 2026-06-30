@@ -15,6 +15,7 @@ import type {
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityApproval,
   ManagedAgentAuthorityProfile,
+  ManagedAgentCallerAttachmentIdentity,
   ManagedAgentCapabilitySnapshotInput,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
@@ -35,6 +36,7 @@ import type {
   CanonicalSessionEvent,
   ToolDefinition,
 } from "@kilnai/core";
+import { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
 import type { PresentationIntent } from "@kilnai/gateway-contracts";
 import { posix, resolve, win32 } from "node:path";
 import type {
@@ -102,31 +104,12 @@ export interface ManagedInvocationToolRoute {
   readonly providerId: string;
   readonly model?: string;
   readonly voiceProfile?: string;
-  readonly invocationCapability?: ManagedInvocationRouteCapability;
   readonly adapter: ManagedAgentRuntimeAdapter;
   readonly surface?: string;
   readonly providerModelProof?: ManagedAgentCapabilitySnapshotInput["providerModelProof"];
   readonly taskSuitability?: readonly ModelTaskSuitability[];
   readonly profiles: Partial<Record<ManagedAgentAdmissionProfile, ManagedInvocationRouteProfile>>;
 }
-
-export type ManagedInvocationRouteCapability =
-  | {
-    readonly target: string;
-    readonly status: "native-supported";
-    readonly nativeModel?: string;
-  }
-  | {
-    readonly target: string;
-    readonly status: "adapter-supported";
-    readonly adapterId: string;
-    readonly reason: string;
-  }
-  | {
-    readonly target: string;
-    readonly status: "unsupported";
-    readonly reason: string;
-  };
 
 export interface ManagedInvocationUnavailableRoute {
   readonly routeId: string;
@@ -154,6 +137,11 @@ export interface ManagedInvocationToolOptions {
 export type ManagedInvocationToolOptionsWithService = ManagedInvocationToolOptions & {
   readonly invocationService: RuntimeManagedAgentInvocationService;
 };
+
+export interface ManagedInvocationToolAttachment {
+  readonly options: ManagedInvocationToolOptions;
+  readonly callerIdentity: ManagedAgentCallerAttachmentIdentity;
+}
 
 export interface ManagedInvocationAgentCatalogEntry {
   readonly name: string;
@@ -699,24 +687,32 @@ export function createManagedAgentStartToolDefinition(
 }
 
 export function createManagedInvocationToolExecutor(
-  options: ManagedInvocationToolOptions,
-  service = resolveManagedInvocationService(options),
+  attachment: ManagedInvocationToolAttachment,
+  service = resolveManagedInvocationService(attachment.options),
 ): RuntimeBuiltinToolExecutor {
-  return async (input, context) => executeManagedInvocationTool(input, context, options, service);
+  return async (input, context) => executeManagedInvocationTool(input, context, attachment, service);
 }
 
 export function createManagedInvocationLifecycleToolExecutors(
-  options: ManagedInvocationToolOptions,
-  service = resolveManagedInvocationService(options),
+  attachment: ManagedInvocationToolAttachment,
+  service = resolveManagedInvocationService(attachment.options),
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
+  const options = attachment.options;
   return new Map([
-    [MANAGED_AGENT_INVOKE_TOOL_NAME, createManagedInvocationToolExecutor(options, service)],
-    [MANAGED_AGENT_START_TOOL_NAME, async (input, context) => executeManagedInvocationStartTool(input, context, options, service)],
+    [MANAGED_AGENT_INVOKE_TOOL_NAME, createManagedInvocationToolExecutor(attachment, service)],
+    [MANAGED_AGENT_START_TOOL_NAME, async (input, context) => executeManagedInvocationStartTool(input, context, attachment, service)],
     [MANAGED_AGENT_STATUS_TOOL_NAME, async (input, context) => executeManagedInvocationStatusTool(input, context, service)],
     [MANAGED_AGENT_LIST_TOOL_NAME, async (_input, context) => executeManagedInvocationListTool(context, service)],
     [MANAGED_AGENT_JOIN_TOOL_NAME, async (input, context) => executeManagedInvocationJoinTool(input, context, options, service)],
     [MANAGED_AGENT_CANCEL_TOOL_NAME, async (input, context) => executeManagedInvocationCancelTool(input, context, options, service)],
   ]);
+}
+
+export function createManagedInvocationToolAttachment(
+  options: ManagedInvocationToolOptions,
+  callerIdentity: ManagedAgentCallerAttachmentIdentity,
+): ManagedInvocationToolAttachment {
+  return { options, callerIdentity };
 }
 
 export function withManagedInvocationService(
@@ -891,54 +887,30 @@ export function createManagedInvocationToolCallMetadataResolver(
 }
 
 export function attachManagedInvocationSessionEventSink(
-  options: ManagedInvocationToolOptions | undefined,
+  attachment: ManagedInvocationToolAttachment | undefined,
   sessionEventSink: ManagedInvocationSessionEventSink,
-): ManagedInvocationToolOptions | undefined {
-  if (!options) {
+): ManagedInvocationToolAttachment | undefined {
+  if (!attachment) {
     return undefined;
   }
+  const { options } = attachment;
   return {
-    get routes() {
-      return options.routes;
+    get callerIdentity() {
+      return attachment.callerIdentity;
     },
-    get unavailableRoutes() {
-      return options.unavailableRoutes;
-    },
-    get agentCatalog() {
-      return options.agentCatalog;
-    },
-    get skillCatalog() {
-      return options.skillCatalog;
-    },
-    get requestedBy() {
-      return options.requestedBy;
-    },
-    get requestSource() {
-      return options.requestSource;
-    },
-    get artifactStore() {
-      return options.artifactStore;
-    },
-    get invocationService() {
-      return options.invocationService;
-    },
-    get invocationServiceKey() {
-      return options.invocationServiceKey;
-    },
-    get contextResolver() {
-      return options.contextResolver;
-    },
-    get sessionEventSink() {
-      const existingSink = options.sessionEventSink;
+    get options() {
       return {
-        publish: async (
-          events: readonly CanonicalSessionEvent[],
-          context: RuntimeBuiltinToolExecutionContext,
-        ) => {
-          const sinks = [existingSink, sessionEventSink].filter((sink): sink is ManagedInvocationSessionEventSink => (
-            sink !== undefined
-          ));
-          await Promise.allSettled(sinks.map((sink) => sink.publish(events, context)));
+        ...options,
+        sessionEventSink: {
+          publish: async (
+            events: readonly CanonicalSessionEvent[],
+            context: RuntimeBuiltinToolExecutionContext,
+          ) => {
+            const sinks = [options.sessionEventSink, sessionEventSink].filter((sink): sink is ManagedInvocationSessionEventSink => (
+              sink !== undefined
+            ));
+            await Promise.allSettled(sinks.map((sink) => sink.publish(events, context)));
+          },
         },
       };
     },
@@ -1009,12 +981,13 @@ function routeOwnedProviderRoute(
 async function prepareManagedInvocationRequest(
   rawInput: Record<string, unknown>,
   context: RuntimeBuiltinToolExecutionContext | undefined,
-  options: ManagedInvocationToolOptions,
+  attachment: ManagedInvocationToolAttachment,
   toolName: string,
 ): Promise<
   | { readonly ok: true; readonly prepared: PreparedManagedInvocationRequest }
   | { readonly ok: false; readonly result: ManagedInvocationToolResult }
 > {
+  const { options, callerIdentity } = attachment;
   if (!context) {
     return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
   }
@@ -1076,6 +1049,36 @@ async function prepareManagedInvocationRequest(
     };
   }
   const route = routeResolution.route;
+  const invocationCapabilityEvidence = evaluateManagedInvocationCallerCapability({
+    callerIdentity,
+    providerId: route.providerId,
+    ...(route.model ? { model: route.model } : {}),
+    adapterEvidence: {
+      adapterDescriptorId: route.adapter.descriptor.adapterDescriptorId,
+      adapterId: "kiln-managed-invocation",
+    },
+  });
+  if (invocationCapabilityEvidence.decision === "denied") {
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation denied: ${invocationCapabilityEvidence.reason}`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.input.profile,
+          providerRoute: {
+            providerId: route.providerId,
+            ...(route.model ? { model: route.model } : {}),
+          },
+          status: "denied",
+          callerIdentity,
+          invocationCapabilityEvidence,
+        },
+        toolName,
+      ),
+    };
+  }
 
   const profileDefaults = route.profiles[parsed.input.profile];
   if (!profileDefaults) {
@@ -1323,6 +1326,8 @@ async function prepareManagedInvocationRequest(
       capabilitySnapshotInput: {
         routeId: route.routeId,
         routeSource: route.routeSource,
+        callerIdentity,
+        invocationCapabilityEvidence,
         routeHealth: {
           status: "healthy",
           reason: managedInvocationRouteHealthReason(profileDefaults, route.routeSource),
@@ -1456,10 +1461,11 @@ function joinManagedInvocationLeasePath(rootPath: string, childId: string): stri
 async function executeManagedInvocationTool(
   rawInput: Record<string, unknown>,
   context: RuntimeBuiltinToolExecutionContext | undefined,
-  options: ManagedInvocationToolOptions,
+  attachment: ManagedInvocationToolAttachment,
   service: RuntimeManagedAgentInvocationService,
 ): Promise<ManagedInvocationToolResult> {
-  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, options, MANAGED_AGENT_INVOKE_TOOL_NAME);
+  const { options } = attachment;
+  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, attachment, MANAGED_AGENT_INVOKE_TOOL_NAME);
   if (!preparedResult.ok) {
     return preparedResult.result;
   }
@@ -1557,10 +1563,11 @@ async function executeManagedInvocationTool(
 async function executeManagedInvocationStartTool(
   rawInput: Record<string, unknown>,
   context: RuntimeBuiltinToolExecutionContext | undefined,
-  options: ManagedInvocationToolOptions,
+  attachment: ManagedInvocationToolAttachment,
   service: RuntimeManagedAgentInvocationService,
 ): Promise<ManagedInvocationToolResult> {
-  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, options, MANAGED_AGENT_START_TOOL_NAME);
+  const { options } = attachment;
+  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, attachment, MANAGED_AGENT_START_TOOL_NAME);
   if (!preparedResult.ok) {
     return preparedResult.result;
   }
@@ -2585,7 +2592,7 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
         .map((route) => {
           const suitability = formatTaskSuitability(route.taskSuitability, managedInvocationSkillNames(options));
           const timeoutSummary = formatRouteTimeoutSummary(route.profiles);
-          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}${route.invocationCapability ? `, invocationCapability=${formatRouteInvocationCapability(route.invocationCapability)}` : ""}, profiles=${Object.keys(route.profiles).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
+          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
         })
         .join("\n")
     : "- none";
@@ -2636,15 +2643,6 @@ function formatRouteTimeoutEntry(entry: {
     : `timeoutMs=${entry.timeoutMs}`;
 }
 
-function formatRouteInvocationCapability(capability: ManagedInvocationRouteCapability): string {
-  if (capability.status === "native-supported") {
-    return `${capability.target}:native-supported${capability.nativeModel ? `:${capability.nativeModel}` : ""}`;
-  }
-  if (capability.status === "adapter-supported") {
-    return `${capability.target}:adapter-supported:${capability.adapterId}:${capability.reason}`;
-  }
-  return `${capability.target}:unsupported:${capability.reason}`;
-}
 
 function managedInvocationRouteHealthReason(profile: ManagedInvocationRouteProfile, routeSource: ManagedAgentRouteSource): string {
   return profile.timeoutSource

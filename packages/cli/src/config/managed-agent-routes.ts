@@ -26,7 +26,6 @@ import {
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
   type ManagedAgentRuntimeAdapter,
-  type ManagedInvocationRouteCapability,
   type ManagedInvocationAgentCatalogEntry,
   type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
@@ -49,10 +48,6 @@ import { createManagedInvocationContextResolver } from "./managed-invocation-con
 import { loadAgentDefinitions, type KilnAgentDefinition } from "../application/agent-loader.js";
 import { readSkillCatalogStatus } from "./skill-catalog-status.js";
 import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
-import {
-  resolveHarnessRouteCapability,
-  type HarnessIntegrationId,
-} from "./harness-integration-capabilities.js";
 
 type ManagedSkillCatalogEntry = NonNullable<ManagedInvocationToolOptions["skillCatalog"]>[number];
 
@@ -65,7 +60,6 @@ export interface ManagedAgentRouteHealth {
   readonly provider: string;
   readonly model?: string;
   readonly profiles: readonly ManagedAgentAdmissionProfile[];
-  readonly parentHarnessCapability?: ManagedInvocationRouteCapability;
   readonly available: boolean;
   readonly reason?: string;
 }
@@ -93,7 +87,6 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly invocationService?: RuntimeManagedAgentInvocationService;
   readonly invocationServiceKey?: string;
   readonly userHome?: string;
-  readonly parentHarness?: HarnessIntegrationId;
 }
 
 type BuiltinToolOptionsSource = DefaultBuiltinToolRegistryOptions | (() => DefaultBuiltinToolRegistryOptions | undefined);
@@ -687,14 +680,6 @@ async function resolveRouteConfig(
   if (!model) {
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
-  const parentHarness = context.parentHarness;
-  const parentCapability = resolveParentHarnessCapability(parentHarness, routeConfig.provider, model);
-  if (parentHarness && parentCapability?.status === "unsupported") {
-    return unhealthy(
-      { ...baseHealth, model, parentHarnessCapability: parentCapability },
-      parentHarnessCapabilityFailure(parentHarness, routeConfig.provider, model, parentCapability.reason),
-    );
-  }
   const advertisedModels = context.providerModels?.[routeConfig.provider];
   if (
     context.providerModels
@@ -734,7 +719,6 @@ async function resolveRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    ...(parentCapability ? { invocationCapability: parentCapability } : {}),
     adapter,
     surface: "cli-harness",
     taskSuitability: resolveTaskSuitability(
@@ -750,7 +734,6 @@ async function resolveRouteConfig(
     health: {
       ...baseHealth,
       model,
-      ...(parentCapability ? { parentHarnessCapability: parentCapability } : {}),
       available: true,
     },
     route,
@@ -825,50 +808,6 @@ async function resolveRemoteHarnessRouteConfig(
 function supportsReadonlyResultHandoff(provider: string, model: string): boolean {
   const supportedModels = HARNESS_READONLY_RESULT_HANDOFF_MODELS[provider];
   return supportedModels === "*" || supportedModels?.includes(model) === true;
-}
-
-function resolveParentHarnessCapability(
-  parentHarness: HarnessIntegrationId | undefined,
-  providerId: string,
-  model: string,
-): ManagedInvocationRouteCapability | undefined {
-  if (!parentHarness) {
-    return undefined;
-  }
-  const capability = resolveHarnessRouteCapability({
-    harness: parentHarness,
-    providerId,
-    model,
-  });
-  if (capability.kind === "native-supported") {
-    return {
-      target: capability.harness,
-      status: capability.kind,
-      nativeModel: capability.nativeModel,
-    };
-  }
-  if (capability.kind === "adapter-supported") {
-    return {
-      target: capability.harness,
-      status: capability.kind,
-      adapterId: capability.adapterId,
-      reason: capability.reason,
-    };
-  }
-  return {
-    target: capability.harness,
-    status: capability.kind,
-    reason: capability.reason,
-  };
-}
-
-function parentHarnessCapabilityFailure(
-  parentHarness: HarnessIntegrationId,
-  providerId: string,
-  model: string,
-  reason: string,
-): string {
-  return `Parent harness '${parentHarness}' cannot invoke provider '${providerId}' model '${model}': ${reason}.`;
 }
 
 function routeRequiresWriteAuthority(
@@ -1160,14 +1099,6 @@ async function resolveDirectRouteConfig(
   if (!model) {
     return unhealthy(baseHealth, `Direct managed invocation route '${routeConfig.id}' requires a model.`);
   }
-  const parentHarness = context.parentHarness;
-  const parentCapability = resolveParentHarnessCapability(parentHarness, routeConfig.provider, model);
-  if (parentHarness && parentCapability?.status === "unsupported") {
-    return unhealthy(
-      { ...baseHealth, model, parentHarnessCapability: parentCapability },
-      parentHarnessCapabilityFailure(parentHarness, routeConfig.provider, model, parentCapability.reason),
-    );
-  }
   if (context.providerModels && context.providerModels[routeConfig.provider] === undefined) {
     return unhealthy(baseHealth, `Provider/model discovery is pending for direct managed invocation route '${routeConfig.id}'.`);
   }
@@ -1201,7 +1132,6 @@ async function resolveDirectRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    ...(parentCapability ? { invocationCapability: parentCapability } : {}),
     adapter,
     surface: "direct-provider",
     taskSuitability: resolveTaskSuitability(
@@ -1216,7 +1146,6 @@ async function resolveDirectRouteConfig(
     health: {
       ...baseHealth,
       model,
-      ...(parentCapability ? { parentHarnessCapability: parentCapability } : {}),
       available: true,
     },
     route,

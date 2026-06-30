@@ -33,6 +33,7 @@ import {
   createCliTranscriptBudgetUsageReader,
   createRuntimeBudgetAdmissionFromGlobalConfig,
 } from "../application/runtime-budget-admission.js";
+import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
@@ -106,7 +107,7 @@ import {
 import type {
   CliSessionFactoryContext,
   GovernedTurnOutcomeToolRecord,
-  ManagedInvocationToolOptions,
+  ManagedInvocationToolAttachment,
   RuntimeBudgetAdmissionPort,
   RuntimeSessionHydrator,
 } from "@kilnai/runtime";
@@ -131,7 +132,7 @@ interface TuiBootstrapOptions {
   readonly contextArtifactCache: ContextArtifactCache;
   readonly systemPrompt: string;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly operatorVoice?: OperatorVoiceRuntime;
@@ -390,7 +391,7 @@ export async function makeMultiProviderSessionFactory(
   contextArtifactCache: ContextArtifactCache,
   builtinToolOptions?: DefaultBuiltinToolRegistryOptions,
   transcriptSurface: OperatorTranscriptSurface = "tui",
-  managedInvocation?: ManagedInvocationToolOptions,
+  managedInvocation?: ManagedInvocationToolAttachment,
   budgetAdmission?: RuntimeBudgetAdmissionPort,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
@@ -417,11 +418,14 @@ export async function makeMultiProviderSessionFactory(
     },
   });
   const managedInvocationWithService = managedInvocationWithTranscriptSink
-    ? withManagedInvocationService(managedInvocationWithTranscriptSink)
+    ? {
+        ...managedInvocationWithTranscriptSink,
+        options: withManagedInvocationService(managedInvocationWithTranscriptSink.options),
+      }
     : undefined;
   const sessionBuiltinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+    managedInvocationWithService ? { service: managedInvocationWithService.options.invocationService } : undefined,
   );
 
   let currentProvider: ProviderId | null = initialProvider;
@@ -847,7 +851,7 @@ export async function makeMultiProviderSessionFactory(
 
 export interface MultiProviderSessionManager {
   readonly factory: CliSessionFactory;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   getProvider: () => string;
   setProvider: (provider: string) => void;
   getModel: () => string;
@@ -1230,6 +1234,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
+  const managedInvocationAttachment = managedInvocationWithService
+    ? createKilnRuntimeManagedInvocationAttachment("tui", managedInvocationWithService)
+    : undefined;
   builtinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
     managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
@@ -1286,14 +1293,14 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     contextArtifactCache,
     builtinToolOptions,
     "tui",
-    managedInvocationWithService,
+    managedInvocationAttachment,
     runtimeBudgetAdmission,
   );
   startupProfiler.mark("session-manager-ready");
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
-  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationWithService;
+  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
 
   const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
   const bootstrap = await bootstrapTuiSession({

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   ManagedAgentAdapterDescriptor,
+  ManagedAgentCallerAttachmentIdentity,
   ManagedAgentInvocationRequest,
   ManagedAgentLifecycleState,
 } from "@kilnai/core";
@@ -14,7 +15,7 @@ import {
 } from "@kilnai/core";
 import {
   buildAttachedRuntimePerCallToolConfig,
-  createAttachedRuntimeBuiltinToolSurface,
+  createAttachedRuntimeBuiltinToolSurface as createRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { buildTuiTurnPerCallConfig } from "../../src/gateway/tui-gateway.js";
 import type {
@@ -37,6 +38,34 @@ import {
 } from "../../src/agents/managed-invocation/runtime-tool.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
+
+function createAttachedRuntimeBuiltinToolSurface(
+  options: Omit<NonNullable<Parameters<typeof createRuntimeBuiltinToolSurface>[0]>, "managedInvocation"> & {
+    readonly managedInvocation?: ManagedInvocationToolOptions & {
+      readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+    };
+  } = {},
+) {
+  const callerIdentity = options.managedInvocation?.callerIdentity ?? {
+    kind: "kiln-runtime",
+    surface: "runtime-test",
+    attachmentId: "attachment:runtime-test",
+  };
+  const managedInvocation = options.managedInvocation
+    ? (({ callerIdentity: _callerIdentity, ...managedInvocationOptions }) => managedInvocationOptions)(options.managedInvocation)
+    : undefined;
+  return createRuntimeBuiltinToolSurface({
+    ...options,
+    ...(managedInvocation
+      ? {
+          managedInvocation: {
+            options: managedInvocation,
+            callerIdentity,
+          },
+        }
+      : {}),
+  });
+}
 
 function makeSession(sessionId = "session-parent"): RuntimeSession {
   const session = new RuntimeSession({
@@ -444,6 +473,52 @@ function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter(
 }
 
 describe("managed invocation runtime tool", () => {
+  it("denies unsupported external caller routes before adapter invocation", async () => {
+    const adapter = makeAdapter();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        callerIdentity: {
+          kind: "external-harness",
+          harness: "codex",
+          attachmentId: "attachment:codex:test",
+          evidenceId: "evidence:codex:test",
+        },
+        routes: [makeManagedRoute("opencode-readonly", "opencode-go/kimi-k2.7-code", adapter)],
+      },
+    });
+    const session = makeSession();
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "opencode-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-go/kimi-k2.7-code",
+      },
+      task: "Review the runtime boundary.",
+    }, {
+      session,
+      toolCall: {
+        id: "tool-call-caller-policy",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    }) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata: Record<string, unknown>;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("Managed invocation denied");
+    expect(result.metadata).toMatchObject({
+      status: "denied",
+      callerIdentity: { kind: "external-harness", harness: "codex" },
+      invocationCapabilityEvidence: { decision: "denied" },
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
   it("normalizes managed invocation options to one shared runtime service", () => {
     const options = {
       routes: [makeManagedRoute("opencode-readonly", "opencode-default-model")],
@@ -3121,15 +3196,7 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [
-          {
-            ...makeManagedRoute("opencode-readonly-a", "model-a"),
-            invocationCapability: {
-              target: "codex",
-              status: "adapter-supported",
-              adapterId: "kiln-managed-invocation",
-              reason: "cross-harness-managed-invocation",
-            },
-          },
+          makeManagedRoute("opencode-readonly-a", "model-a"),
           makeManagedRoute("opencode-readonly-b", "model-b"),
         ],
         agentCatalog: [
@@ -3200,7 +3267,7 @@ describe("managed invocation runtime tool", () => {
 
     expect(tool?.description).toContain("Configured healthy managed invocation routes");
     expect(tool?.description).toContain("opencode-readonly-a");
-    expect(tool?.description).toContain("invocationCapability=codex:adapter-supported:kiln-managed-invocation:cross-harness-managed-invocation");
+    expect(tool?.description).not.toContain("invocationCapability=");
     expect(tool?.description).toContain("taskSuitability=architecture-review:capable:static-profile");
     expect(tool?.description).toContain("Configured unavailable managed invocation routes");
     expect(tool?.description).toContain("openrouter-readonly");
@@ -3283,9 +3350,16 @@ describe("managed invocation runtime tool", () => {
   it("composes managed invocation session event sinks for operator surfaces", async () => {
     const originalSink = vi.fn();
     const surfaceSink = vi.fn();
-    const options = attachManagedInvocationSessionEventSink({
-      routes: [],
-      sessionEventSink: { publish: originalSink },
+    const attachment = attachManagedInvocationSessionEventSink({
+      options: {
+        routes: [],
+        sessionEventSink: { publish: originalSink },
+      },
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: "runtime-test",
+        attachmentId: "attachment:runtime-test",
+      },
     }, { publish: surfaceSink });
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
@@ -3298,7 +3372,7 @@ describe("managed invocation runtime tool", () => {
     };
     const events = [];
 
-    await options?.sessionEventSink?.publish(events, context);
+    await attachment?.options.sessionEventSink?.publish(events, context);
 
     expect(originalSink).toHaveBeenCalledWith(events, context);
     expect(surfaceSink).toHaveBeenCalledWith(events, context);
@@ -3332,23 +3406,37 @@ describe("managed invocation runtime tool", () => {
       requestSource: "gui",
     };
 
-    const options = attachManagedInvocationSessionEventSink(liveOptions, { publish: vi.fn() });
+    const attachment = attachManagedInvocationSessionEventSink({
+      options: liveOptions,
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: "runtime-test",
+        attachmentId: "attachment:runtime-test",
+      },
+    }, { publish: vi.fn() });
     current = {
       routes: [route],
       requestedBy: "assistant",
       requestSource: "gui",
     };
 
-    expect(options?.routes.map((entry) => entry.routeId)).toEqual(["codex-oauth-auto-review-readonly"]);
-    expect(options?.unavailableRoutes).toBeUndefined();
+    expect(attachment?.options.routes.map((entry) => entry.routeId)).toEqual(["codex-oauth-auto-review-readonly"]);
+    expect(attachment?.options.unavailableRoutes).toBeUndefined();
   });
 
   it("does not let one managed invocation session event sink block another", async () => {
     const originalSink = vi.fn().mockRejectedValue(new Error("relay unavailable"));
     const surfaceSink = vi.fn();
-    const options = attachManagedInvocationSessionEventSink({
-      routes: [],
-      sessionEventSink: { publish: originalSink },
+    const attachment = attachManagedInvocationSessionEventSink({
+      options: {
+        routes: [],
+        sessionEventSink: { publish: originalSink },
+      },
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: "runtime-test",
+        attachmentId: "attachment:runtime-test",
+      },
     }, { publish: surfaceSink });
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
@@ -3361,7 +3449,7 @@ describe("managed invocation runtime tool", () => {
     };
     const events = [];
 
-    await expect(options?.sessionEventSink?.publish(events, context)).resolves.toBeUndefined();
+    await expect(attachment?.options.sessionEventSink?.publish(events, context)).resolves.toBeUndefined();
 
     expect(originalSink).toHaveBeenCalledWith(events, context);
     expect(surfaceSink).toHaveBeenCalledWith(events, context);
@@ -5606,6 +5694,8 @@ describe("managed invocation runtime tool", () => {
         readonly providerRoute?: { readonly model?: string };
         readonly canonicalizedForbiddenInputFields?: readonly string[];
         readonly capabilitySnapshot?: {
+          readonly callerIdentity?: unknown;
+          readonly invocationCapabilityEvidence?: unknown;
           readonly childIdentity?: {
             readonly requestedAgentProfile?: string;
             readonly admittedAgentProfile?: string;
@@ -5629,6 +5719,11 @@ describe("managed invocation runtime tool", () => {
     });
     expect(result.metadata.capabilitySnapshot?.childIdentity?.requestedAgentProfile).toBeUndefined();
     expect(result.metadata.capabilitySnapshot?.childIdentity?.admittedAgentProfile).toBeUndefined();
+    expect(result.metadata.capabilitySnapshot?.callerIdentity).toMatchObject({ kind: "kiln-runtime" });
+    expect(result.metadata.capabilitySnapshot?.invocationCapabilityEvidence).toMatchObject({
+      decision: "admitted",
+      reason: "kiln-runtime-caller",
+    });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 

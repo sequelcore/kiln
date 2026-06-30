@@ -77,6 +77,7 @@ import {
   createRuntimeBudgetAdmissionFromGlobalConfig,
   projectGlobalRoutingBudgetPolicy,
 } from "../application/runtime-budget-admission.js";
+import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
@@ -1080,14 +1081,17 @@ export async function runCommand(
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
   const managedInvocation = runtimeAppConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
-  const managedInvocationWithTranscriptSink = attachManagedInvocationSessionEventSink(managedInvocation, {
+  const managedInvocationWithService = managedInvocation
+    ? withManagedInvocationService(managedInvocation)
+    : undefined;
+  const managedInvocationAttachment = managedInvocationWithService
+    ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService)
+    : undefined;
+  const managedInvocationWithTranscriptSink = attachManagedInvocationSessionEventSink(managedInvocationAttachment, {
     publish: async (events) => {
       await transcriptStore.appendManyNext(sessionId, managedInvocationPersistedTranscriptEventDrafts(events));
     },
   });
-  const managedInvocationWithService = managedInvocationWithTranscriptSink
-    ? withManagedInvocationService(managedInvocationWithTranscriptSink)
-    : undefined;
   builtinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
     managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
@@ -1274,7 +1278,7 @@ export async function runCommand(
     addDir: flags.addDir,
     localProvider: flags.localProvider,
     builtinToolOptions,
-    managedInvocation: managedInvocationWithService,
+    managedInvocation: managedInvocationWithTranscriptSink,
     ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,

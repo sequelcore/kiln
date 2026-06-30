@@ -212,6 +212,16 @@ forever. This refresh may update future route availability, network/tool
 authority, model selection, and agent route hints, but it never mutates an
 already admitted capability snapshot.
 
+Caller identity is admitted from the runtime attachment, not from the route
+catalog. `ManagedInvocationToolOptions` is a caller-neutral catalog of routes,
+unavailable diagnostics, agents, skills, context resolver, artifact store, and
+shared invocation service. `ManagedInvocationToolAttachment` pairs that catalog
+with explicit `callerIdentity` evidence at the surface that exposes
+`managed_agent.*`. Kiln-owned surfaces attach `kiln-runtime` identity; external
+harness adapters attach `external-harness` identity only when that harness is
+proven. Provider id, model id, UI profile controls, and config filenames must
+not be used to infer the parent caller.
+
 The snapshot is intentionally normalized rather than provider-native. It records:
 
 - route id and admitted route-health reason
@@ -503,10 +513,11 @@ CLI refreshes provider model evidence in the background and updates the same
 managed invocation options object. This preserves cross-surface route identity
 without introducing a surface-local managed-agent registry or compatibility
 fallback.
-The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so
-GUI, TUI, operator gateway, and CLI direct-provider executable sessions use the
-same tool definition, authority projection, executor, and route contract instead
-of surface-specific implementations.
+The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, which
+requires a managed invocation attachment rather than a bare route catalog. GUI,
+TUI, operator gateway, CLI run, and benchmark executable sessions use the same
+tool definition, authority projection, executor, route contract, and explicit
+caller identity boundary instead of surface-specific implementations.
 GUI and TUI recreate direct-provider executable sessions for each turn, but the
 runtime session id used by managed invocation tools is the stable outer Kiln
 session id. This keeps `managed_agent.status`, `managed_agent.list`,
@@ -673,9 +684,10 @@ Managed invocation resources are read-only pointers under
 handoff, diagnostic, lease, conflict, adoption, and governed worktree-review
 resources without becoming transcript storage. Transcript and large content
 payloads are owned by the artifact resource store and read through
-`resource_read`. GUI, TUI, and CLI executable sessions normalize managed
-invocation options to one runtime-owned invocation service before attaching the
-managed invocation resource provider; surfaces do not maintain private resource
+`resource_read`. GUI, TUI, CLI run, and benchmark executable sessions normalize
+managed invocation options to one runtime-owned invocation service before
+creating their managed invocation attachment and attaching the managed
+invocation resource provider; surfaces do not maintain private resource
 registries for child lifecycle state.
 
 Adapter-native `kiln://managed-invocations/...` pointers are private adapter

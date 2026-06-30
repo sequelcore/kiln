@@ -266,11 +266,41 @@ export interface ManagedAgentChildIdentitySnapshot {
   readonly voiceProfile?: string;
 }
 
+export type ManagedAgentCallerAttachmentIdentity =
+  | {
+    readonly kind: "kiln-runtime";
+    readonly surface: string;
+    readonly attachmentId: string;
+  }
+  | {
+    readonly kind: "external-harness";
+    readonly harness: "claude" | "codex" | "opencode";
+    readonly attachmentId: string;
+    readonly evidenceId: string;
+  };
+
+export type ManagedAgentInvocationCapabilityDecision =
+  | "admitted"
+  | "denied";
+
+export interface ManagedAgentInvocationCapabilityAdapterEvidence {
+  readonly adapterDescriptorId: string;
+  readonly adapterId: string;
+}
+
+export interface ManagedAgentInvocationCapabilityEvidence {
+  readonly decision: ManagedAgentInvocationCapabilityDecision;
+  readonly reason: string;
+  readonly adapterEvidence: ManagedAgentInvocationCapabilityAdapterEvidence;
+}
+
 export interface ManagedAgentCapabilitySnapshot {
   readonly snapshotId: string;
   readonly capturedAt: string;
   readonly routeId: string;
   readonly routeSource: ManagedAgentRouteSource;
+  readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  readonly invocationCapabilityEvidence?: ManagedAgentInvocationCapabilityEvidence;
   readonly routeHealth: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof: ManagedAgentProviderModelProofSnapshot;
   readonly providerRoute: ManagedAgentProviderRoute;
@@ -288,6 +318,8 @@ export interface ManagedAgentCapabilitySnapshotInput {
   readonly capturedAt?: string;
   readonly routeId: string;
   readonly routeSource: ManagedAgentRouteSource;
+  readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  readonly invocationCapabilityEvidence?: ManagedAgentInvocationCapabilityEvidence;
   readonly routeHealth?: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof?: ManagedAgentProviderModelProofSnapshot;
   readonly resourcePlane?: ManagedAgentResourcePlaneSnapshot;
@@ -526,6 +558,12 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
     capturedAt: requireIsoTimestamp(input.capturedAt, "Managed capability snapshot timestamp is required"),
     routeId: requireText(input.routeId, "Managed capability snapshot route id is required"),
     routeSource: requireRouteSource(input.routeSource),
+    ...(input.callerIdentity !== undefined
+      ? { callerIdentity: requireCallerAttachmentIdentity(input.callerIdentity) }
+      : {}),
+    ...(input.invocationCapabilityEvidence !== undefined
+      ? { invocationCapabilityEvidence: requireInvocationCapabilityEvidence(input.invocationCapabilityEvidence) }
+      : {}),
     routeHealth: {
       status: requireRouteHealthStatus(input.routeHealth.status),
       reason: requireText(input.routeHealth.reason, "Managed capability snapshot route health reason is required"),
@@ -567,6 +605,61 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
         : {}),
     },
   };
+}
+
+function requireCallerAttachmentIdentity(
+  input: ManagedAgentCallerAttachmentIdentity,
+): ManagedAgentCallerAttachmentIdentity {
+  if (input.kind === "kiln-runtime") {
+    return {
+      kind: input.kind,
+      surface: requireText(input.surface, "Managed invocation caller surface is required"),
+      attachmentId: requireText(input.attachmentId, "Managed invocation caller attachment id is required"),
+    };
+  }
+  if (input.kind === "external-harness") {
+    return {
+      kind: input.kind,
+      harness: requireCallerHarness(input.harness),
+      attachmentId: requireText(input.attachmentId, "Managed invocation caller attachment id is required"),
+      evidenceId: requireText(input.evidenceId, "Managed invocation caller evidence id is required"),
+    };
+  }
+  throw new Error(`Unsupported managed invocation caller identity kind: ${String((input as { readonly kind?: string }).kind ?? "")}`);
+}
+
+function requireCallerHarness(
+  harness: "claude" | "codex" | "opencode",
+): "claude" | "codex" | "opencode" {
+  if (harness === "claude" || harness === "codex" || harness === "opencode") {
+    return harness;
+  }
+  throw new Error(`Unsupported managed invocation caller harness: ${String(harness)}`);
+}
+
+function requireInvocationCapabilityEvidence(
+  input: ManagedAgentInvocationCapabilityEvidence,
+): ManagedAgentInvocationCapabilityEvidence {
+  return {
+    decision: requireInvocationCapabilityDecision(input.decision),
+    reason: requireText(input.reason, "Managed invocation capability decision reason is required"),
+    adapterEvidence: {
+      adapterDescriptorId: requireText(
+        input.adapterEvidence.adapterDescriptorId,
+        "Managed invocation capability adapter descriptor id is required",
+      ),
+      adapterId: requireText(input.adapterEvidence.adapterId, "Managed invocation capability adapter id is required"),
+    },
+  };
+}
+
+function requireInvocationCapabilityDecision(
+  decision: ManagedAgentInvocationCapabilityDecision,
+): ManagedAgentInvocationCapabilityDecision {
+  if (decision === "admitted" || decision === "denied") {
+    return decision;
+  }
+  throw new Error(`Unsupported managed invocation capability decision: ${String(decision)}`);
 }
 
 export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
@@ -670,6 +763,10 @@ export function buildManagedAgentCapabilitySnapshot(
     capturedAt,
     routeId: input.routeId,
     routeSource: input.routeSource,
+    ...(input.callerIdentity ? { callerIdentity: input.callerIdentity } : {}),
+    ...(input.invocationCapabilityEvidence
+      ? { invocationCapabilityEvidence: input.invocationCapabilityEvidence }
+      : {}),
     routeHealth: input.routeHealth ?? {
       status: "healthy",
       reason: "Route descriptor admitted by managed invocation policy.",

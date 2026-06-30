@@ -18,7 +18,7 @@ import {
   HarnessCredentialPoolService,
   type HarnessHomeAuth,
   type HarnessPoolProviderId,
-  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
   type OperatorSurfaceController,
   type RuntimeBudgetAdmissionPort,
   type RuntimeExecutionEnvelope,
@@ -164,7 +164,7 @@ export interface ProviderCreateConfig {
   readonly localProvider?: string;
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }

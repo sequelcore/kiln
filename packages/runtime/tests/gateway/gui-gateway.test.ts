@@ -38,7 +38,10 @@ import {
   resolveGuiProviderSwitch,
   type GuiCliProviderModelDiscovery,
 } from "../../src/gateway/gui-provider-models.js";
-import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
+import type {
+  ManagedInvocationToolAttachment,
+  ManagedInvocationToolOptions,
+} from "../../src/agents/managed-invocation/runtime-tool.js";
 import { createManagedInvocationLifecycleToolExecutors } from "../../src/agents/managed-invocation/runtime-tool.js";
 import {
   ManagedAgentWorktreeReviewRequiredError,
@@ -321,6 +324,19 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
     }],
     requestedBy: "assistant",
     requestSource: "gui",
+  };
+}
+
+function makeManagedInvocationAttachment(
+  options: ManagedInvocationToolOptions = makeManagedInvocationOptions(),
+): ManagedInvocationToolAttachment {
+  return {
+    options,
+    callerIdentity: {
+      kind: "kiln-runtime",
+      surface: "gui-test",
+      attachmentId: "attachment:gui-test",
+    },
   };
 }
 
@@ -2201,7 +2217,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation: makeManagedInvocationOptions(),
+        managedInvocation: makeManagedInvocationAttachment(),
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -2296,7 +2312,9 @@ describe("startGuiGateway static mount", () => {
         reason: unavailableReason,
       }],
     } satisfies ManagedInvocationToolOptions;
-    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(managedInvocation).get("managed_agent.start");
+    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(
+      makeManagedInvocationAttachment(managedInvocation),
+    ).get("managed_agent.start");
     if (!startManagedAgent) {
       throw new Error("managed_agent.start executor was not registered");
     }
@@ -2405,7 +2423,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation,
+        managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
           sessionManager: {
             factory: factory as never,
@@ -2571,7 +2589,9 @@ describe("startGuiGateway static mount", () => {
     );
     const managedInvocation = createManagedInvocation();
     const toolCallId = `tool-call-managed-start-${expectedMetadata.routeId}`;
-    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(managedInvocation).get("managed_agent.start");
+    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(
+      makeManagedInvocationAttachment(managedInvocation),
+    ).get("managed_agent.start");
     if (!startManagedAgent) {
       throw new Error("managed_agent.start executor was not registered");
     }
@@ -2668,7 +2688,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation,
+        managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
           sessionManager: {
             factory: factory as never,
@@ -2830,7 +2850,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation,
+        managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -2980,7 +3000,9 @@ describe("startGuiGateway static mount", () => {
       "../../src/gateway/message-pipeline.js",
     );
     const { invocationService, managedInvocation, releaseActive, startInput } = makeManagedWriteConflictFixture();
-    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(managedInvocation).get("managed_agent.start");
+    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(
+      makeManagedInvocationAttachment(managedInvocation),
+    ).get("managed_agent.start");
     if (!startManagedAgent) {
       throw new Error("managed_agent.start executor was not registered");
     }
@@ -3072,7 +3094,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation,
+        managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
           sessionManager: {
             factory: factory as never,
@@ -3734,7 +3756,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation: {
+        managedInvocation: makeManagedInvocationAttachment({
           ...baseManagedInvocation,
           invocationService,
           sessionEventSink,
@@ -3742,7 +3764,7 @@ describe("startGuiGateway static mount", () => {
             ...controlRoute,
             adapter: cancellableAdapter,
           }],
-        },
+        }),
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -3968,7 +3990,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation: {
+        managedInvocation: makeManagedInvocationAttachment({
           ...baseManagedInvocation,
           invocationService,
           sessionEventSink,
@@ -3976,7 +3998,7 @@ describe("startGuiGateway static mount", () => {
             ...controlRoute,
             adapter: promptableAdapter,
           }],
-        },
+        }),
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -4191,14 +4213,14 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation: {
+        managedInvocation: makeManagedInvocationAttachment({
           ...baseManagedInvocation,
           invocationService,
           routes: [{
             ...controlRoute,
             adapter: joinableAdapter,
           }],
-        },
+        }),
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -4379,7 +4401,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation,
+        managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -4706,14 +4728,14 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation: {
+        managedInvocation: makeManagedInvocationAttachment({
           ...baseManagedInvocation,
           invocationService,
           routes: [{
             ...controlRoute,
             adapter: terminalAdapter,
           }],
-        },
+        }),
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,

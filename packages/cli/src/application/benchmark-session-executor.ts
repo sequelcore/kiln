@@ -36,6 +36,7 @@ import { withWorkGovernanceContext } from "./work-governance-context.js";
 import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
 import { createKilnConfigTools } from "./config-tools.js";
 import { createWorkGovernanceTools } from "./work-governance-tool.js";
+import { createKilnRuntimeManagedInvocationAttachment } from "./managed-invocation-attachment.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -152,6 +153,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const managedInvocationWithService = managedInvocation
       ? withManagedInvocationService(managedInvocation)
       : undefined;
+    const managedInvocationAttachment = managedInvocationWithService
+      ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
+      : undefined;
     builtinToolOptions = withManagedAgentInvocationResourceProvider(
       builtinToolOptions,
       managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
@@ -168,7 +172,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ephemeral: true,
       skipGitRepoCheck: options.flags?.skipGitRepoCheck,
       builtinToolOptions,
-      managedInvocation: managedInvocationWithService,
+      managedInvocation: managedInvocationAttachment,
       executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
       model: effectiveModel,
     };

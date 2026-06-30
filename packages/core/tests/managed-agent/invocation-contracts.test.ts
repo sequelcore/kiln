@@ -272,6 +272,150 @@ describe("managed agent invocation contracts", () => {
     });
   });
 
+  it("preserves normalized caller attachment identity and runtime invocation capability evidence", () => {
+    const snapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
+      callerIdentity: {
+        kind: "external-harness",
+        harness: "codex",
+        attachmentId: " attachment:codex:session-parent ",
+        evidenceId: " evidence:codex:session-parent ",
+      },
+      invocationCapabilityEvidence: {
+        decision: "admitted",
+        reason: " cross-harness-managed-invocation ",
+        adapterEvidence: {
+          adapterDescriptorId: " adapter:codex-oauth:cli-harness ",
+          adapterId: " kiln-managed-invocation ",
+        },
+      },
+    });
+
+    expect(snapshot.callerIdentity).toEqual({
+      kind: "external-harness",
+      harness: "codex",
+      attachmentId: "attachment:codex:session-parent",
+      evidenceId: "evidence:codex:session-parent",
+    });
+    expect(snapshot.invocationCapabilityEvidence).toEqual({
+      decision: "admitted",
+      reason: "cross-harness-managed-invocation",
+      adapterEvidence: {
+        adapterDescriptorId: "adapter:codex-oauth:cli-harness",
+        adapterId: "kiln-managed-invocation",
+      },
+    });
+    expect(defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      capabilitySnapshot: snapshot,
+    }).capabilitySnapshot).toMatchObject({
+      callerIdentity: snapshot.callerIdentity,
+      invocationCapabilityEvidence: snapshot.invocationCapabilityEvidence,
+    });
+  });
+
+  it("preserves kiln runtime caller identity and admitted capability evidence", () => {
+    const snapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: "gateway",
+        attachmentId: "attachment:kiln-runtime:gateway:session-parent",
+      },
+      invocationCapabilityEvidence: {
+        decision: "admitted",
+        reason: "runtime-adapter-admitted",
+        adapterEvidence: {
+          adapterDescriptorId: "adapter:codex-oauth:cli-harness",
+          adapterId: "kiln-managed-invocation",
+        },
+      },
+    });
+
+    expect(defineManagedAgentCapabilitySnapshot(snapshot)).toMatchObject({
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: "gateway",
+        attachmentId: "attachment:kiln-runtime:gateway:session-parent",
+      },
+      invocationCapabilityEvidence: {
+        decision: "admitted",
+        reason: "runtime-adapter-admitted",
+      },
+    });
+  });
+
+  it("rejects malformed caller identity and runtime capability evidence", () => {
+    const snapshot = buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
+    });
+
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      callerIdentity: {
+        kind: "external-harness",
+        harness: "cursor" as "codex",
+        attachmentId: "attachment:cursor",
+        evidenceId: "evidence:cursor",
+      },
+    })).toThrow("Unsupported managed invocation caller harness: cursor");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: " ",
+        attachmentId: "attachment:kiln-runtime",
+      },
+    })).toThrow("Managed invocation caller surface is required");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      callerIdentity: {
+        kind: "legacy" as "kiln-runtime",
+        surface: "gateway",
+        attachmentId: "attachment:legacy",
+      },
+    })).toThrow("Unsupported managed invocation caller identity kind: legacy");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      invocationCapabilityEvidence: {
+        decision: "allowed" as "admitted",
+        reason: "policy-admitted",
+        adapterEvidence: {
+          adapterDescriptorId: "adapter:codex-oauth:cli-harness",
+          adapterId: "kiln-managed-invocation",
+        },
+      },
+    })).toThrow("Unsupported managed invocation capability decision: allowed");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      invocationCapabilityEvidence: {
+        decision: "denied",
+        reason: " ",
+        adapterEvidence: {
+          adapterDescriptorId: "adapter:codex-oauth:cli-harness",
+          adapterId: "kiln-managed-invocation",
+        },
+      },
+    })).toThrow("Managed invocation capability decision reason is required");
+    expect(() => defineManagedAgentCapabilitySnapshot({
+      ...snapshot,
+      invocationCapabilityEvidence: {
+        decision: "admitted",
+        reason: "adapter-missing",
+        adapterEvidence: {
+          adapterDescriptorId: " ",
+          adapterId: "kiln-managed-invocation",
+        },
+      },
+    })).toThrow("Managed invocation capability adapter descriptor id is required");
+  });
+
   it("marks writable default resource leases as pending cleanup obligations", () => {
     const baseRequest = makeRequest();
     const request = defineManagedAgentInvocationRequest({

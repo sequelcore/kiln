@@ -105,8 +105,11 @@ Current cross-harness managed invocation status:
 
 This status is an invocation capability, not a native projection capability. It
 is applied to managed route admission only when the caller supplies an explicit
-parent harness. Kiln must not infer the parent harness from provider prefixes,
-model ids, config filenames, or the current UI surface. Execution still has to
+external parent harness identity. Kiln runtime callers such as GUI, TUI, CLI
+run, and benchmark attach `kiln-runtime` identity and are governed by native
+managed invocation admission rather than this cross-harness matrix. Kiln must
+not infer the parent harness from provider prefixes, model ids, config
+filenames, selected provider, or the current UI surface. Execution still has to
 pass managed route admission, provider/model readiness, authority policy, and
 tool policy before a child run starts.
 

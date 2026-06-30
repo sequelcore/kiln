@@ -75,6 +75,7 @@ export {
   attachManagedInvocationSessionEventSink,
   createManagedAgentInvocationResourceProvider,
   createManagedAgentStartToolDefinition,
+  createManagedInvocationToolAttachment,
   createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,
   resolveManagedInvocationService,
@@ -178,7 +179,7 @@ export type {
   ManagedInvocationSessionEventSink,
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationRouteProfile,
-  ManagedInvocationRouteCapability,
+  ManagedInvocationToolAttachment,
   ManagedInvocationToolOptions,
   ManagedInvocationToolRoute,
 } from "./agents/managed-invocation/index.js";
