@@ -48,7 +48,9 @@ export interface ExperimentResult {
   readonly output: string;
   readonly scores: readonly EvalScore[];
   readonly durationMs: number;
+  readonly costUsd?: number;
   readonly tokenUsage: ExperimentTokenUsage;
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface Experiment {

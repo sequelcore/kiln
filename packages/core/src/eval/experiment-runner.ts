@@ -58,10 +58,12 @@ export class ExperimentRunner {
         output: generated.output,
         scores,
         durationMs: generated.durationMs,
+        costUsd: generated.costUsd,
         tokenUsage: {
           inputTokens: generated.inputTokens,
           outputTokens: generated.outputTokens,
         },
+        metadata: evalInput.metadata,
       });
     }
 

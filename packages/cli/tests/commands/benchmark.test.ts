@@ -148,11 +148,29 @@ describe("benchmarkCommand", () => {
     expect(existsSync(outputPath)).toBe(true);
     const written = JSON.parse(readFileSync(outputPath, "utf-8")) as {
       readonly baseline: { readonly profileId: string; readonly k: number; readonly passAtK: number };
+      readonly consistency: {
+        readonly runs: readonly {
+          readonly results: readonly {
+            readonly costUsd: number;
+            readonly metadata?: {
+              readonly activeAgentId?: string;
+              readonly toolCalls?: readonly { readonly name: string }[];
+            };
+          }[];
+        }[];
+      };
     };
     expect(written.baseline).toMatchObject({
       profileId: "kiln-tool-agent",
       k: 1,
       passAtK: 1,
+    });
+    expect(written.consistency.runs[0]?.results[0]).toMatchObject({
+      costUsd: 0.01,
+      metadata: {
+        activeAgentId: "kiln-tool-agent",
+        toolCalls: [{ name: "status" }],
+      },
     });
   });
 

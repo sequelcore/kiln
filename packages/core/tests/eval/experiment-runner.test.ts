@@ -115,6 +115,46 @@ describe("ExperimentRunner", () => {
     expect(receivedCost).toBe(0.045);
   });
 
+  it("preserves generated cost and metadata in experiment results", async () => {
+    const runner = new ExperimentRunner({
+      scorers,
+      dataset: { name: "d", items: [{ id: "1", input: "q", metadata: { expectedAgentId: "kiln-tool-agent" } }] },
+      experimentName: "test",
+      generateOutput: async () => ({
+        output: "response",
+        durationMs: 50,
+        costUsd: 0.045,
+        inputTokens: 565377,
+        outputTokens: 7646,
+        metadata: {
+          providerId: "codex-oauth",
+          modelId: "gpt-5.5",
+          toolCalls: [{ name: "web_search" }],
+          exactArtifacts: ["Source URL: https://example.test/research"],
+          sessionSucceeded: true,
+        },
+      }),
+    });
+
+    const result = await runner.run();
+
+    expect(result.results[0]).toMatchObject({
+      costUsd: 0.045,
+      metadata: {
+        expectedAgentId: "kiln-tool-agent",
+        providerId: "codex-oauth",
+        modelId: "gpt-5.5",
+        sessionSucceeded: true,
+        toolCalls: [{ name: "web_search" }],
+        exactArtifacts: ["Source URL: https://example.test/research"],
+      },
+      tokenUsage: {
+        inputTokens: 565377,
+        outputTokens: 7646,
+      },
+    });
+  });
+
   it("continues when scorer throws", async () => {
     const failingScorer: Scorer = {
       name: "failing",
