@@ -181,6 +181,7 @@ export type {
   ManagedInvocationSessionEventSink,
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationRouteProfile,
+  ManagedInvocationRouteCapability,
   ManagedInvocationToolOptions,
   ManagedInvocationToolOptionsWithService,
   ManagedInvocationToolRoute,

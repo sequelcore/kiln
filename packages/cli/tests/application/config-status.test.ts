@@ -148,6 +148,17 @@ describe("config-status", () => {
 
     expect(permissions.value).toEqual({ approval: "on-request", sandbox: "read-only" });
     expect(JSON.stringify(health.value)).toContain("harnessCapabilities");
+    expect(health.value).toMatchObject({
+      harnessCapabilities: expect.arrayContaining([
+        expect.objectContaining({
+          harness: "codex",
+          crossHarnessManagedInvocation: {
+            adapterId: "kiln-managed-invocation",
+            supportedProviderIds: ["opencode-go", "opencode-zen", "openrouter"],
+          },
+        }),
+      ]),
+    });
     expect(setup.value).toEqual(snapshot.setup);
   });
 
@@ -189,7 +200,57 @@ describe("config-status", () => {
             {
               target: "opencode",
               status: "omitted",
-              reason: "unsupported-provider",
+              reason: "adapter-required",
+            },
+          ]),
+        }),
+      ]),
+    });
+  });
+
+  it("reports adapter-supported agents without native projection", async () => {
+    writeProjectConfig(tempDir);
+    const agentsDir = join(tempDir, ".kiln", "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(join(agentsDir, "opencode-reviewer.md"), [
+      "---",
+      "name: opencode-reviewer",
+      "role: OpenCode review specialist",
+      "goal: Review implementation quality through OpenCode",
+      "tier: reasoning",
+      "providerRoute:",
+      "  providerId: opencode-go",
+      "  model: deepseek-v4-flash",
+      "---",
+      "Review only.",
+      "",
+    ].join("\n"), "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const agents = await readConfigStatusView(snapshot, "agents");
+
+    expect(agents.value).toMatchObject({
+      agents: expect.arrayContaining([
+        expect.objectContaining({
+          id: "opencode-reviewer",
+          invocationCapabilities: expect.arrayContaining([
+            {
+              target: "codex",
+              status: "adapter-supported",
+              adapterId: "kiln-managed-invocation",
+              reason: "cross-harness-managed-invocation",
+            },
+            {
+              target: "opencode",
+              status: "native-supported",
+              nativeModel: "opencode-go/deepseek-v4-flash",
+            },
+          ]),
+          nativeProjections: expect.arrayContaining([
+            {
+              target: "codex",
+              status: "omitted",
+              reason: "adapter-required",
             },
           ]),
         }),

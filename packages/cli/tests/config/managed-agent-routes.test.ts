@@ -452,6 +452,101 @@ describe("resolveManagedInvocationToolOptions", () => {
     ]);
   });
 
+  it("marks Codex-parent OpenCode direct routes as adapter-supported", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "1",
+      engines: {
+        "opencode-go": { enabled: true, billing: "subscription" },
+      },
+      routing: {
+        routes: [
+          { provider: "opencode-go", model: "deepseek-v4-flash" },
+        ],
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode-go"),
+      surface: "gui",
+      parentHarness: "codex",
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "opencode-go-readonly",
+      routeSource: "ordered-routing",
+      kind: "direct",
+      provider: "opencode-go",
+      model: "deepseek-v4-flash",
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+      parentHarnessCapability: {
+        target: "codex",
+        status: "adapter-supported",
+        adapterId: "kiln-managed-invocation",
+        reason: "cross-harness-managed-invocation",
+      },
+    }]);
+    expect(result.managedInvocation?.routes[0]).toMatchObject({
+      routeId: "opencode-go-readonly",
+      providerId: "opencode-go",
+      invocationCapability: {
+        target: "codex",
+        status: "adapter-supported",
+        adapterId: "kiln-managed-invocation",
+        reason: "cross-harness-managed-invocation",
+      },
+    });
+  });
+
+  it("fails closed when the parent harness lacks an adapter for the child route", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "1",
+      engines: {
+        openai: { enabled: true, billing: "api-key" },
+      },
+      routing: {
+        routes: [
+          { provider: "openai", model: "gpt-5.5" },
+        ],
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("openai"),
+      surface: "gui",
+      parentHarness: "opencode",
+      includeUnavailableRoutes: true,
+      providerModels: {
+        openai: ["gpt-5.5"],
+      },
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "openai-readonly",
+      routeSource: "ordered-routing",
+      kind: "direct",
+      provider: "openai",
+      model: "gpt-5.5",
+      profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: "Parent harness 'opencode' cannot invoke provider 'openai' model 'gpt-5.5': unsupported-provider.",
+      parentHarnessCapability: {
+        target: "opencode",
+        status: "unsupported",
+        reason: "unsupported-provider",
+      },
+    }]);
+    expect(result.managedInvocation?.routes).toEqual([]);
+    expect(result.managedInvocation?.unavailableRoutes).toEqual([{
+      routeId: "openai-readonly",
+      routeSource: "ordered-routing",
+      providerId: "openai",
+      model: "gpt-5.5",
+      profiles: ["foundation-readonly-plan"],
+      reason: "Parent harness 'opencode' cannot invoke provider 'openai' model 'gpt-5.5': unsupported-provider.",
+    }]);
+  });
+
   it("combines routing-derived read-only routes with explicit managed route exceptions", async () => {
     const result = await resolveManagedInvocationToolOptions({
       version: "1",

@@ -150,6 +150,10 @@ export interface KilnHarnessCapabilitySnapshot {
   readonly nativeConfigImport: string;
   readonly mcpRuntimeTools: string;
   readonly hooks: string;
+  readonly crossHarnessManagedInvocation: {
+    readonly adapterId: string;
+    readonly supportedProviderIds: readonly string[];
+  };
 }
 
 export interface KilnConfigSetupSnapshot {

@@ -178,6 +178,7 @@ export type {
   ManagedInvocationSessionEventSink,
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationRouteProfile,
+  ManagedInvocationRouteCapability,
   ManagedInvocationToolOptions,
   ManagedInvocationToolRoute,
 } from "./agents/managed-invocation/index.js";

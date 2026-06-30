@@ -23,7 +23,12 @@ import {
   resolveGlobalConfigPath,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
-import { listHarnessIntegrationCapabilities, HARNESSES_WITH_NATIVE_PROJECTION } from "../config/harness-integration-capabilities.js";
+import {
+  listHarnessIntegrationCapabilities,
+  HARNESSES_WITH_NATIVE_PROJECTION,
+  resolveHarnessRouteCapability,
+  type HarnessIntegrationId,
+} from "../config/harness-integration-capabilities.js";
 import {
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
@@ -55,6 +60,14 @@ interface NativeAgentProjectionSummary {
   readonly target: string;
   readonly status: "projected" | "omitted";
   readonly nativeModel?: string;
+  readonly reason?: string;
+}
+
+interface AgentInvocationCapabilitySummary {
+  readonly target: HarnessIntegrationId;
+  readonly status: "native-supported" | "adapter-supported" | "unsupported";
+  readonly nativeModel?: string;
+  readonly adapterId?: "kiln-managed-invocation";
   readonly reason?: string;
 }
 
@@ -425,6 +438,7 @@ async function readAgentIndexes(projectPath: string): Promise<unknown> {
       taskAffinity: agent.taskAffinity,
       routeId: agent.routeId,
       nativeProjections: nativeAgentProjectionSummaries(agent),
+      invocationCapabilities: agentInvocationCapabilitySummaries(agent),
     })),
   };
 }
@@ -443,6 +457,43 @@ function nativeAgentProjectionSummaries(agent: KilnAgentDefinition): readonly Na
       target,
       status: "projected",
       ...(decision.nativeModel ? { nativeModel: decision.nativeModel } : {}),
+    };
+  });
+}
+
+function agentInvocationCapabilitySummaries(agent: KilnAgentDefinition): readonly AgentInvocationCapabilitySummary[] {
+  if (!agent.providerRoute) {
+    return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => ({
+      target,
+      status: "native-supported",
+    }));
+  }
+
+  return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
+    const capability = resolveHarnessRouteCapability({
+      harness: target,
+      providerId: agent.providerRoute?.providerId ?? "",
+      model: agent.providerRoute?.model,
+    });
+    if (capability.kind === "native-supported") {
+      return {
+        target,
+        status: capability.kind,
+        nativeModel: capability.nativeModel,
+      };
+    }
+    if (capability.kind === "adapter-supported") {
+      return {
+        target,
+        status: capability.kind,
+        adapterId: capability.adapterId,
+        reason: capability.reason,
+      };
+    }
+    return {
+      target,
+      status: capability.kind,
+      reason: capability.reason,
     };
   });
 }
@@ -483,6 +534,10 @@ function projectHarnessCapability(capability: ReturnType<typeof listHarnessInteg
     nativeConfigImport: capability.nativeConfigImport ? "supported" : "unsupported",
     mcpRuntimeTools: capability.mcpRuntimeTools ? "supported" : "unsupported",
     hooks: capability.hooks ? "supported" : "unsupported",
+    crossHarnessManagedInvocation: {
+      adapterId: capability.crossHarnessManagedInvocation.adapterId,
+      supportedProviderIds: capability.crossHarnessManagedInvocation.supportedProviderIds,
+    },
   };
 }
 

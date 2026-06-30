@@ -1,6 +1,6 @@
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import {
-  encodeNativeAgentModel,
+  resolveHarnessRouteCapability,
   type HarnessIntegrationId,
 } from "./harness-integration-capabilities.js";
 
@@ -13,7 +13,7 @@ export type NativeAgentProjectionDecision =
   | {
     readonly kind: "omit";
     readonly harness: HarnessIntegrationId;
-    readonly reason: "unsupported-model" | "unsupported-provider";
+    readonly reason: "unsupported-model" | "unsupported-provider" | "adapter-required";
   };
 
 export interface DecideNativeAgentProjectionInput {
@@ -34,10 +34,17 @@ export function decideNativeAgentProjection(
     return { kind: "omit", harness, reason: "unsupported-model" };
   }
 
-  const nativeModel = encodeNativeAgentModel(harness, agent.providerRoute.providerId, model);
-  if (!nativeModel) {
-    return { kind: "omit", harness, reason: "unsupported-provider" };
+  const routeCapability = resolveHarnessRouteCapability({
+    harness,
+    providerId: agent.providerRoute.providerId,
+    model,
+  });
+  if (routeCapability.kind === "native-supported") {
+    return { kind: "project", harness, nativeModel: routeCapability.nativeModel };
+  }
+  if (routeCapability.kind === "adapter-supported") {
+    return { kind: "omit", harness, reason: "adapter-required" };
   }
 
-  return { kind: "project", harness, nativeModel };
+  return { kind: "omit", harness, reason: "unsupported-provider" };
 }

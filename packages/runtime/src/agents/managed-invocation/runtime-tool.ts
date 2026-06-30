@@ -102,12 +102,31 @@ export interface ManagedInvocationToolRoute {
   readonly providerId: string;
   readonly model?: string;
   readonly voiceProfile?: string;
+  readonly invocationCapability?: ManagedInvocationRouteCapability;
   readonly adapter: ManagedAgentRuntimeAdapter;
   readonly surface?: string;
   readonly providerModelProof?: ManagedAgentCapabilitySnapshotInput["providerModelProof"];
   readonly taskSuitability?: readonly ModelTaskSuitability[];
   readonly profiles: Partial<Record<ManagedAgentAdmissionProfile, ManagedInvocationRouteProfile>>;
 }
+
+export type ManagedInvocationRouteCapability =
+  | {
+    readonly target: string;
+    readonly status: "native-supported";
+    readonly nativeModel?: string;
+  }
+  | {
+    readonly target: string;
+    readonly status: "adapter-supported";
+    readonly adapterId: string;
+    readonly reason: string;
+  }
+  | {
+    readonly target: string;
+    readonly status: "unsupported";
+    readonly reason: string;
+  };
 
 export interface ManagedInvocationUnavailableRoute {
   readonly routeId: string;
@@ -2566,7 +2585,7 @@ function buildManagedRouteCatalogDescription(options: ManagedInvocationToolOptio
         .map((route) => {
           const suitability = formatTaskSuitability(route.taskSuitability, managedInvocationSkillNames(options));
           const timeoutSummary = formatRouteTimeoutSummary(route.profiles);
-          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
+          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "configured"}${route.invocationCapability ? `, invocationCapability=${formatRouteInvocationCapability(route.invocationCapability)}` : ""}, profiles=${Object.keys(route.profiles).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
         })
         .join("\n")
     : "- none";
@@ -2615,6 +2634,16 @@ function formatRouteTimeoutEntry(entry: {
   return entry.timeoutSource
     ? `timeoutMs=${entry.timeoutMs} source=${entry.timeoutSource}`
     : `timeoutMs=${entry.timeoutMs}`;
+}
+
+function formatRouteInvocationCapability(capability: ManagedInvocationRouteCapability): string {
+  if (capability.status === "native-supported") {
+    return `${capability.target}:native-supported${capability.nativeModel ? `:${capability.nativeModel}` : ""}`;
+  }
+  if (capability.status === "adapter-supported") {
+    return `${capability.target}:adapter-supported:${capability.adapterId}:${capability.reason}`;
+  }
+  return `${capability.target}:unsupported:${capability.reason}`;
 }
 
 function managedInvocationRouteHealthReason(profile: ManagedInvocationRouteProfile, routeSource: ManagedAgentRouteSource): string {

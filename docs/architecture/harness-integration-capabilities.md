@@ -18,6 +18,7 @@ Each harness integration declares explicit support for:
 - native config import
 - MCP runtime tools
 - hooks
+- cross-harness managed invocation adapters
 
 The CLI source of truth is
 `packages/cli/src/config/harness-integration-capabilities.ts`. Other CLI config
@@ -78,12 +79,36 @@ Native agent projection uses the same capability model. A Kiln agent without
 model. A Kiln agent with `providerRoute` is a strict route pin: the native
 projection may emit a harness model only when
 `packages/cli/src/config/harness-integration-capabilities.ts` explicitly
-declares the provider/model encoding for that harness. If the strict route is
-not supported, Kiln omits that agent for the harness and reconciles any
-previously managed native file through install-state, backup, and drift checks.
-This includes future cross-harness adapters: an adapter can make a provider
-usable across harnesses, but only after it is represented as explicit capability
-evidence rather than inferred from model id strings.
+declares the provider/model encoding for that harness.
+
+Native projection and invocation availability are deliberately separate:
+
+- `native-supported` means Kiln can project a valid harness-native agent model.
+- `adapter-supported` means Kiln can invoke the route through an explicit
+  managed-invocation adapter, but must not project it into that harness's native
+  agent files.
+- `unsupported` means neither native encoding nor adapter capability is proven.
+
+If a strict route is adapter-supported but not native-supported, Kiln omits the
+native agent with `adapter-required` and reconciles any previously managed
+native file through install-state, backup, and drift checks. Cross-harness
+adapter support is declared by provider id in the capability table; Kiln must
+not infer support from provider prefixes or model id strings.
+
+Current cross-harness managed invocation status:
+
+| Parent harness | Adapter | Supported child provider ids |
+|----------------|---------|------------------------------|
+| Claude Code | `kiln-managed-invocation` | `codex-oauth`, `opencode-go`, `opencode-zen`, `openrouter` |
+| Codex | `kiln-managed-invocation` | `opencode-go`, `opencode-zen`, `openrouter` |
+| OpenCode | `kiln-managed-invocation` | `codex-oauth` |
+
+This status is an invocation capability, not a native projection capability. It
+is applied to managed route admission only when the caller supplies an explicit
+parent harness. Kiln must not infer the parent harness from provider prefixes,
+model ids, config filenames, or the current UI surface. Execution still has to
+pass managed route admission, provider/model readiness, authority policy, and
+tool policy before a child run starts.
 
 ## Native Config Import
 

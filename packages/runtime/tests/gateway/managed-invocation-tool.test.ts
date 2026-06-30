@@ -3121,7 +3121,15 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [
-          makeManagedRoute("opencode-readonly-a", "model-a"),
+          {
+            ...makeManagedRoute("opencode-readonly-a", "model-a"),
+            invocationCapability: {
+              target: "codex",
+              status: "adapter-supported",
+              adapterId: "kiln-managed-invocation",
+              reason: "cross-harness-managed-invocation",
+            },
+          },
           makeManagedRoute("opencode-readonly-b", "model-b"),
         ],
         agentCatalog: [
@@ -3192,6 +3200,7 @@ describe("managed invocation runtime tool", () => {
 
     expect(tool?.description).toContain("Configured healthy managed invocation routes");
     expect(tool?.description).toContain("opencode-readonly-a");
+    expect(tool?.description).toContain("invocationCapability=codex:adapter-supported:kiln-managed-invocation:cross-harness-managed-invocation");
     expect(tool?.description).toContain("taskSuitability=architecture-review:capable:static-profile");
     expect(tool?.description).toContain("Configured unavailable managed invocation routes");
     expect(tool?.description).toContain("openrouter-readonly");

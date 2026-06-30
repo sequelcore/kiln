@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
-import { HARNESSES_WITH_NATIVE_PROJECTION } from "./harness-integration-capabilities.js";
+import {
+  HARNESSES_WITH_NATIVE_PROJECTION,
+  resolveHarnessRouteCapability,
+} from "./harness-integration-capabilities.js";
 import { decideNativeAgentProjection } from "./native-agent-projection-decision.js";
 
 const portableAgent = {
@@ -68,9 +71,9 @@ describe("decideNativeAgentProjection", () => {
     });
   });
 
-  it("omits an explicit provider that is incompatible with the target harness", () => {
+  it("omits an explicit provider with no native or adapter capability", () => {
     expect(decideNativeAgentProjection({
-      agent: agentWithRoute("opencode-go", "deepseek-v4-flash"),
+      agent: agentWithRoute("unregistered-provider", "deepseek-v4-flash"),
       harness: "codex",
     })).toStrictEqual({
       kind: "omit",
@@ -106,4 +109,30 @@ describe("decideNativeAgentProjection", () => {
       });
     },
   );
+
+  it("distinguishes cross-harness adapter support from native projection support", () => {
+    expect(resolveHarnessRouteCapability({
+      harness: "codex",
+      providerId: "opencode-go",
+      model: "deepseek-v4-flash",
+    })).toStrictEqual({
+      kind: "adapter-supported",
+      harness: "codex",
+      providerId: "opencode-go",
+      model: "deepseek-v4-flash",
+      adapterId: "kiln-managed-invocation",
+      reason: "cross-harness-managed-invocation",
+    });
+  });
+
+  it("keeps adapter support separate from native agent projection", () => {
+    expect(decideNativeAgentProjection({
+      agent: agentWithRoute("opencode-go", "deepseek-v4-flash"),
+      harness: "codex",
+    })).toStrictEqual({
+      kind: "omit",
+      harness: "codex",
+      reason: "adapter-required",
+    });
+  });
 });
