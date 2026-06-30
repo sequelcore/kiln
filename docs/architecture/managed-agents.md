@@ -113,6 +113,25 @@ transcript pointer, diagnostics, usage when available, result handoff, write
 evidence, and resource leases. A child that cannot provide substantive handoff
 evidence fails closed even when the provider process exits successfully.
 
+Managed invocation tool results expose admitted authority as structured runtime
+evidence. `managed_agent.start`, `managed_agent.status`, `managed_agent.list`,
+`managed_agent.join`, and `managed_agent.cancel` project an `authoritySnapshot`
+derived from the admitted request, not from route names or provider prose. The
+snapshot includes the authority profile id, permission profile, allowed tool
+names, explicit write and network flags, working-directory mode, timeout
+evidence, credential route, and memory scope. Operator surfaces and parent
+agents must use this snapshot as the inspectable authority evidence for a child
+invocation.
+
+Running and terminal snapshots may also carry `progressEvents`. These are
+runtime-observed child events such as tool authorization, tool call, tool
+result, tool cache hit, and runtime error. Direct-provider children emit these
+events through the child `RuntimeSessionOrchestrator` event bus; the managed
+invocation service retains a bounded recent event list for status, list, join,
+cancel, and replay consumers. Progress events are evidence of observed
+execution, not authority grants, and surfaces must not infer missing authority
+from them.
+
 Parallel execution is expressed as managed orchestration over the same child
 lifecycle. Core owns typed orchestration requests for fan-out, decomposition,
 review swarm, route comparison, and background job modes. Each request carries
@@ -629,6 +648,14 @@ terminal lifecycle with transcript, handoff, diagnostic, or resource evidence.
 If canonical start evidence exists but the canonical terminal event is missing,
 terminal managed-tool evidence still closes the invocation instead of being
 suppressed by the earlier canonical event.
+
+Surfaces should render `authoritySnapshot` and `progressEvents` as structured
+evidence when present. `authoritySnapshot` is the cross-surface source of truth
+for the admitted child authority, including explicit `writeAllowed` and
+`networkAllowed` booleans. `progressEvents` is the cross-surface source of truth
+for child tool activity observed before or after terminal join. A surface may
+summarize or paginate these fields for usability, but it must preserve the
+underlying runtime metadata for replay and operator inspection.
 
 The shared cockpit projection carries active and terminal children, attention
 state, stale heartbeat state, lifecycle timeline, route identity, dirty-worktree

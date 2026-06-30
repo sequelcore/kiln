@@ -31,6 +31,11 @@ baseline. Active and deferred execution tracks live in
   control to close naturally completed child work. Terminalized startup
   failures after runtime-owned lease side effects now record the same canonical
   requested, started, and failed events.
+- Exposed admitted managed-child authority and observed child tool progress as
+  structured runtime evidence: managed invocation lifecycle tools now project
+  `authoritySnapshot` with explicit tool, write, network, working-directory, and
+  memory-scope authority, and direct-provider children report bounded
+  `progressEvents` from the child runtime event bus.
 - Kept direct-provider managed child result handoffs bounded while preserving
   long final child output as governed replay resources, projected through
   managed-agent or artifact resource URIs instead of inline session metadata.
