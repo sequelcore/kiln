@@ -1,6 +1,10 @@
 # 08 - Verified Efficiency Control Plane
 
-Status: Proposed long-term architecture program
+Status: Active architecture program; Slice 1 complete, Slice 2 next
+
+Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
+(`feat(runtime): record lifecycle attribution ledger`). Slices 2 through 12
+are not started.
 
 ## Objective
 
@@ -11,6 +15,32 @@ a correct, authorized, evidence-backed outcome.
 
 The program optimizes verified outcomes per token, dollar, second, and agent
 turn. It does not optimize token count in isolation.
+
+## Goals
+
+- Attribute cost and tokens to lifecycle sources before optimizing behavior.
+- Reduce waste through measured, reversible, and evidence-backed actuators.
+- Preserve authority, evidence, replay, and verification semantics across
+  providers, harnesses, and operator surfaces.
+- Promote efficiency policy only through reproducible benchmarks, holdouts,
+  rollback paths, and residual-risk evidence.
+
+## Scope
+
+- Provider-neutral lifecycle ledger, efficiency controller, and policy evidence.
+- Context admission, reduction, retrieval, caching, routing, delegation,
+  verification, memory, and output-allocation decisions.
+- Cross-surface projections for measured, estimated, cached, and avoided cost.
+- Benchmark and promotion gates for verified engineering value.
+
+## Sequel Standards
+
+- No optimization before instrumentation.
+- No duplicate context-policy, routing, memory, or verification owner.
+- No silent lossy reduction.
+- No benchmark-only prompt path or compatibility shim.
+- No policy promotion without tests, typecheck, benchmark evidence, rollback,
+  and review.
 
 ## Governing Thesis
 
@@ -223,7 +253,27 @@ Each slice is independently reviewable and must close with tests, typecheck,
 benchmark evidence, and a residual-risk statement. Later slices may refine
 contracts but must not create parallel legacy paths.
 
+## Progress Status
+
+| Slice | Status | Progress | Next Action |
+| --- | --- | --- | --- |
+| Slice 0 - Baseline And Reproduction | Conditional | Not started as a standalone slice. Slice 1 produced lifecycle attribution fixtures, but the full roadmap `06` reproduction baseline is still open. | Run only if Slice 2 needs a broader pre-optimization baseline. |
+| Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
+| Slice 2 - Stable Prefix And Cache Topology | Next | Not started. | Prove byte-stable reusable request regions without changing admitted information. |
+| Slice 3 - Progressive Context And Tool Loading | Planned | Not started. | Start after stable-prefix evidence exists. |
+| Slice 4 - Typed Lossless Reduction | Planned | Not started. | Start after progressive-loading measurements identify high-volume structured artifacts. |
+| Slice 5 - Reversible Context Projection | Planned | Not started. | Start after typed reductions have preservation contracts. |
+| Slice 6 - Context Utility Allocation | Planned | Not started. | Start after lossless and reversible projection data exists. |
+| Slice 7 - Phase-Aware Route And Effort Control | Planned | Not started. | Start after context utility evidence defines task-class tradeoffs. |
+| Slice 8 - Delegation And Handoff Efficiency | Planned | Not started. | Start after route and context costs are attributable. |
+| Slice 9 - Output And Verification Allocation | Planned | Not started. | Start after verification cost is independently attributable. |
+| Slice 10 - Memory Efficiency And Reconsolidation | Planned | Not started. | Start after memory injection and recall costs are visible in the ledger. |
+| Slice 11 - Controlled Adaptation | Planned | Not started. | Start only after stable production evidence and holdouts exist. |
+| Slice 12 - Surface Parity And Public Evidence | Planned | Not started. | Start as contracts stabilize; public claims remain last. |
+
 ### Slice 0 - Baseline And Reproduction
+
+Status: Conditional; not started as a standalone slice.
 
 Goal: establish the current token and quality baseline before changing
 behavior.
@@ -245,6 +295,8 @@ Exit gate:
 - verified outcome and evidence completeness are scored independently of cost.
 
 ### Slice 1 - Lifecycle Attribution Ledger
+
+Status: Complete on 2026-07-01 in commit `f1f4baef`.
 
 Goal: make every material token source attributable without changing routing
 or context behavior.
@@ -286,6 +338,8 @@ Closure evidence:
 
 ### Slice 2 - Stable Prefix And Cache Topology
 
+Status: Next; not started.
+
 Goal: reduce repeated prefill cost without changing admitted information.
 
 Work:
@@ -305,6 +359,8 @@ Exit gate:
 
 ### Slice 3 - Progressive Context And Tool Loading
 
+Status: Planned; not started.
+
 Goal: stop admitting procedural context and tool schemas before they are
 needed.
 
@@ -323,6 +379,8 @@ Exit gate:
 - selected capabilities remain inspectable and replayable.
 
 ### Slice 4 - Typed Lossless Reduction
+
+Status: Planned; not started.
 
 Goal: remove representational waste from structured artifacts without losing
 information required by the task or verifier.
@@ -347,6 +405,8 @@ Exit gate:
 
 ### Slice 5 - Reversible Context Projection
 
+Status: Planned; not started.
+
 Goal: reduce active context while preserving exact evidence on demand.
 
 Work:
@@ -366,6 +426,8 @@ Exit gate:
 - the model cannot mistake a projection for complete canonical evidence.
 
 ### Slice 6 - Context Utility Allocation
+
+Status: Planned; not started.
 
 Goal: improve context admission beyond whole-block greedy scoring while
 preserving deterministic policy and auditability.
@@ -390,6 +452,8 @@ Exit gate:
 
 ### Slice 7 - Phase-Aware Route And Effort Control
 
+Status: Planned; not started.
+
 Goal: spend model capability where it changes verified outcomes.
 
 Work:
@@ -410,6 +474,8 @@ Exit gate:
   contract as higher-cost routes.
 
 ### Slice 8 - Delegation And Handoff Efficiency
+
+Status: Planned; not started.
 
 Goal: choose direct execution, fresh-context delegation, and shared-artifact
 handoffs according to task shape and measured coordination cost.
@@ -434,6 +500,8 @@ Exit gate:
 
 ### Slice 9 - Output And Verification Allocation
 
+Status: Planned; not started.
+
 Goal: reduce generated tokens and verification expense without hiding status
 or weakening proof.
 
@@ -455,6 +523,8 @@ Exit gate:
 
 ### Slice 10 - Memory Efficiency And Reconsolidation
 
+Status: Planned; not started.
+
 Goal: reduce transcript replay and repeated discovery through governed memory,
 not indiscriminate persistence.
 
@@ -475,6 +545,8 @@ Exit gate:
 
 ### Slice 11 - Controlled Adaptation
 
+Status: Planned; not started.
+
 Goal: allow Kiln to improve efficiency policy without silent drift.
 
 Work:
@@ -492,6 +564,8 @@ Exit gate:
 - holdout evidence shows improvement without hard-invariant regression.
 
 ### Slice 12 - Surface Parity And Public Evidence
+
+Status: Planned; not started.
 
 Goal: make efficiency behavior inspectable and comparable without turning the
 operator UI into a policy owner.
@@ -532,6 +606,14 @@ The benchmark portfolio must cover:
 External benchmarks may supplement this portfolio, but internal fixtures must
 exercise Kiln's authority, evidence, replay, and cross-surface contracts.
 
+## Research Basis
+
+This roadmap is grounded in the 2026-06-29 research-turn token incident,
+roadmap `06`, comparative harness research, Kiln's existing context governance,
+provider/model discovery, managed-agent runtime, memory, and benchmark
+contracts. Later slices must add reproducible benchmark evidence before making
+performance or savings claims.
+
 ## Required Ablations
 
 - no optimization versus each isolated actuator;
@@ -563,6 +645,14 @@ A slice may become production policy only when:
 9. Residual risks and unsupported cases are recorded.
 10. Stable behavior is promoted into canonical architecture or guide docs.
 
+## Verification
+
+Every slice must close with targeted tests, repository typecheck, benchmark or
+fixture evidence appropriate to the slice, cross-surface evidence when behavior
+is projected to operators, and a reviewer-confirmed residual-risk statement.
+Behavior-changing policies also require baseline/candidate comparison,
+rollback proof, and hard-invariant checks before promotion.
+
 ## Rollback Strategy
 
 Each behavior-changing actuator is guarded by a versioned policy selection,
@@ -578,7 +668,7 @@ require dual readers, migration shims, or permanent compatibility branches.
   citation preservation.
 - `07-cross-harness-provider-adapter-layer.md` supplies route identity and
   capability evidence required for cross-harness comparison.
-- `00.0.1-rust-module-optimization.md` governs any native acceleration of
+- `00-rust-module-optimization.md` governs any native acceleration of
   reducers, tokenizers, hashes, or ledger hot paths. TypeScript retains policy
   ownership.
 - `03-public-release-ui-debt.md` remains responsible for truthful operator
@@ -587,8 +677,9 @@ require dual readers, migration shims, or permanent compatibility branches.
 
 ## Initial Execution Order
 
-1. Slice 0: baseline and reproduction.
-2. Slice 1: lifecycle attribution ledger.
+1. Slice 0: conditional baseline and reproduction if Slice 2 needs broader
+   pre-optimization evidence.
+2. Slice 1: complete.
 3. Slice 2: stable prefix and cache topology.
 4. Slice 3: progressive context and tool loading.
 5. Slice 4: typed lossless reduction.

@@ -1,8 +1,7 @@
-# 0.0.1 - Rust Module Optimization
+# 00 - Rust Module Optimization
 
-## Status
-
-Active. Created on 2026-05-17.
+Status: Active Rust optimization boundary
+Created: 2026-05-17
 
 This track owns staged Rust, WASM, and sidecar optimization for Kiln modules.
 It is separate from the native operator surface roadmap. The product direction
@@ -20,6 +19,16 @@ are both selected for their strengths: Bun owns orchestration and contracts;
 Rust owns approved compute/native kernels that consume and produce those same
 contracts.
 
+## Goals
+
+- Keep Bun/TypeScript as the Kiln control plane.
+- Admit Rust, WASM, or sidecar modules only through measured, approved hot-path
+  slices.
+- Preserve shared contracts, deterministic parity, and TypeScript-owned
+  semantic references.
+- Prevent native helpers from becoming duplicate policy, routing, authority, or
+  surface owners.
+
 ## Principle
 
 Bun/TypeScript owns control-plane semantics because Kiln's runtime, gateway,
@@ -29,6 +38,14 @@ native capability without duplicating policy.
 
 No redundancy, no parallel truth, no private surface semantics. Rust may be a
 kernel, helper, or packaging substrate; it must not become a second Kiln.
+
+## Sequel Standards
+
+- No parallel control plane or private schema.
+- No dead spike code retained after a decision.
+- No native optimization without current benchmark evidence.
+- No promotion without parity tests, typecheck, build, benchmark evidence, and
+  review.
 
 ## Bun/TypeScript Responsibilities
 
@@ -166,7 +183,7 @@ choosing WASM, N-API, sidecar, or another Rust integration path:
 Until that evidence exists, Rust remains staged behind the TypeScript-owned
 port and outside runtime/surface packages.
 
-## Rust/Bun Capability Research
+## Research Basis
 
 Reviewed on 2026-05-17 from current official sources:
 
@@ -203,7 +220,7 @@ Bun/TypeScript behavior, bridge cost, transport fit, parity, fallback behavior,
 and cross-platform build/distribution before any external Rust module or
 production package is approved.
 
-## Acceptance Criteria
+## Completion Criteria
 
 - Architecture and roadmap docs clearly distinguish Bun control-plane ownership
   from Rust hot-path/native-helper ownership.

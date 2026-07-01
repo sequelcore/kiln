@@ -11,6 +11,24 @@ route failures accurately.
 The operator must never receive `Invalid API key` when the credential is valid
 and the actual failure is an obsolete ambient model fallback.
 
+## Goals
+
+- Make canonical Kiln routing and projected native defaults agree.
+- Classify credential, catalog, projection, and route failures by their actual
+  failing layer.
+- Prove bare native invocation behavior without relying on explicit per-command
+  overrides.
+- Remove obsolete aliases, duplicate writers, and temporary overrides.
+
+## Sequel Standards
+
+- No manual native file patch as durable configuration.
+- No legacy model alias shim.
+- No diagnostic that prints or persists secret material.
+- No completion claim without failing regression tests, idempotent sync tests,
+  typecheck, and live probe evidence where credentials are intentionally
+  available.
+
 ## Trigger
 
 On 2026-06-30, bare `opencode run` selected
@@ -186,6 +204,15 @@ Goal: expose one route-integrity status across operator surfaces.
 
 Exit gate: surfaces agree on route identity and failure classification.
 
+## Research Basis
+
+The starting evidence is the 2026-06-30 OpenCode Go incident: an explicit
+validated route succeeded while bare OpenCode execution selected an obsolete
+ambient fallback and misreported the result as `Invalid API key`. Additional
+research must inspect current native harness default-model configuration,
+provider catalogs, credential probes, and projection ownership before
+implementation.
+
 ## Required Tests
 
 - Unit tests for canonical-to-native default translation.
@@ -196,6 +223,14 @@ Exit gate: surfaces agree on route identity and failure classification.
 - Setup/status/doctor contract tests.
 - Live smoke tests for explicit and bare invocation, isolated from normal unit
   suites and skipped unless credentials are intentionally available.
+
+## Verification
+
+- Failing regression test reproduces the invalid-key misclassification.
+- Targeted projection, drift, catalog, and diagnostic tests pass.
+- Repository typecheck passes.
+- Live explicit and bare probes agree for repaired harnesses when credentials
+  are intentionally available.
 
 ## Promotion Gates
 

@@ -1,8 +1,13 @@
-# Cross-Harness Provider Adapter Layer
+# 07 - Cross-Harness Provider Adapter Layer
 
-Status: urgent active roadmap.
+Status: Urgent active adapter-layer roadmap
+Started: 2026-06-29
 
-Opened: 2026-06-29.
+## Objective
+
+Make cross-harness provider and agent execution explicit, governed, and
+diagnosable without projecting unsupported model strings into native harness
+files.
 
 ## Problem
 
@@ -81,6 +86,16 @@ The target behavior is:
 This must not be implemented by projecting unsupported model strings into
 native files.
 
+## Goals
+
+- Let a parent session invoke governed Kiln agents through native or adapter
+  capabilities based on explicit route support.
+- Preserve route identity, authority, tool policy, transcript evidence, and
+  residual-risk reporting across harness boundaries.
+- Keep native projection fail-closed for unsupported provider/model strings.
+- Give non-programmer operators a coherent team view without hiding harness
+  limitations.
+
 ## Scope
 
 The first implementation track should introduce:
@@ -110,6 +125,15 @@ The first implementation track should introduce:
 - Do not create harness-specific hacks that cannot be represented in shared
   capability/status contracts.
 
+## Sequel Standards
+
+- No fallback providers to hide unsupported routes.
+- No string-prefix guessing as a routing contract.
+- No bypass of work governance, authority, install state, or transcript
+  evidence.
+- No native projection of incompatible route identifiers without an explicit
+  adapter/provider capability.
+
 ## Architecture Direction
 
 The adapter layer should sit between canonical Kiln routes and harness-native
@@ -131,7 +155,7 @@ be the cross-harness execution mechanism. Cross-harness execution belongs in
 the managed invocation/runtime adapter layer because that layer can enforce
 authority, discovery, budget, lifecycle, and evidence.
 
-## Acceptance Criteria
+## Promotion Gates
 
 - `kiln config read agents` and setup/status views identify native, adapter,
   and omitted agent projection or invocation paths.
@@ -148,6 +172,15 @@ authority, discovery, budget, lifecycle, and evidence.
   managed-agent invocation, and cross-harness adapters for non-programmer
   operators.
 
+## Verification
+
+- Contract tests cover native support, adapter support, unsupported routes,
+  drift-safe cleanup, and setup/status reporting.
+- A local live read-only proof demonstrates Codex OAuth parent -> Kiln managed
+  invocation -> OpenCode-backed child -> structured handoff.
+- Documentation distinguishes native projection, managed-agent invocation, and
+  cross-harness adapters.
+
 ## Dependencies
 
 - `docs/architecture/harness-integration-capabilities.md`
@@ -157,7 +190,9 @@ authority, discovery, budget, lifecycle, and evidence.
 - `docs/guides/global-config.md`
 - `docs/research/20-cross-domain-task-taxonomy.md`
 
-## First Slice
+## Delivery Slices
+
+### Slice 1 - Read-Only Cross-Harness Bridge
 
 Start with a read-only vertical slice:
 
@@ -171,3 +206,10 @@ Start with a read-only vertical slice:
 
 This slice should not include write authority, background fan-out, or remote
 harness adapters. Those belong after the read-only bridge is proven.
+
+## Completion Criteria
+
+This roadmap closes when cross-harness agent invocation is represented by
+shared capability/status contracts, verified through a read-only adapter path,
+and no unsupported provider/model string is projected into a native harness
+file.

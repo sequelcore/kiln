@@ -10,6 +10,39 @@ documentation instead of being archived here.
 - Deferred items wait for a clear product or architecture trigger.
 - Completed implementation history belongs in `docs/changelog.md`.
 - Durable behavior belongs in canonical architecture and guide docs.
+- The status matrix below is the current progress index. Update it whenever a
+  roadmap slice starts, closes, defers, or changes owner.
+
+## Roadmap File Standard
+
+Every numbered roadmap file uses this professional shape unless a deeper
+architecture program needs additional sections:
+
+1. File name: `NN-kebab-case-title.md`.
+2. H1: `# NN - Title`.
+3. Metadata block: `Status:` plus `Started:` or `Created:` when known.
+4. Required sections: `Objective`, `Goals`, `Scope`, `Non-Goals`, `Research
+   Basis` when evidence exists or is required, `Delivery Slices` or equivalent
+   implementation slices, `Promotion Gates`, `Verification`, and `Completion
+   Criteria`.
+5. Sequel standards must be explicit when a roadmap could invite shortcuts:
+   no dead code, no legacy hacks, no duplicate owners, no prompt-only fixes, no
+   untested completion claims, and no unsupported compatibility shims.
+
+## Roadmap Status Matrix
+
+| File | Status | Current Progress | Next Action |
+| --- | --- | --- | --- |
+| [00-rust-module-optimization.md](./00-rust-module-optimization.md) | Active boundary | Rust/WASM/sidecar ownership boundaries are defined. No production Rust slice is admitted yet. | Start only from an approved module slice or ADR with parity and benchmark evidence. |
+| [01-native-operator-surface.md](./01-native-operator-surface.md) | Active benchmark-validation track | Slices 1 and 2 are complete. Slice 3, workload fixture governance, is next. | Implement Slice 3 before any live native or browser benchmark execution. |
+| [02-session-feedback-pipeline.md](./02-session-feedback-pipeline.md) | Active | Early feedback-pipeline slices are complete; the roadmap still contains started and pending repair-flow work. | Continue the next pending slice in that file and promote stable behavior into guides when closed. |
+| [03-public-release-ui-debt.md](./03-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
+| [04-federated-harness-configuration-plane.md](./04-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
+| [05-cli-test-harness-stability.md](./05-cli-test-harness-stability.md) | Deferred test infrastructure | Waiting for full-workspace verification or release-confidence pressure. | Reopen when the `@kilnai/cli test` hang blocks release or confidence gates. |
+| [06-research-turn-token-budgeting.md](./06-research-turn-token-budgeting.md) | Deferred under roadmap 08 | Research-specific budgeting remains governed by roadmap `08`; it should not run ahead of attribution and efficiency-control evidence. | Reopen after roadmap `08` supplies the measurement and budgeting primitives needed for research turns. |
+| [07-cross-harness-provider-adapter-layer.md](./07-cross-harness-provider-adapter-layer.md) | Urgent active | Adapter-layer work remains the active route-integrity foundation for governed cross-harness execution. | Continue only within explicit adapter-layer slices and avoid native harness file projections for unsupported model strings. |
+| [08-verified-efficiency-control-plane.md](./08-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
+| [09-native-harness-route-integrity.md](./09-native-harness-route-integrity.md) | Deferred correctness program | Not started. Added after invalid native-harness route diagnostics misreported a valid OpenCode Go credential. | Reopen as the long-term fix for route-aware native credential probes and accurate diagnostics. |
 
 ## Canonical References
 
@@ -42,7 +75,7 @@ Use these documents as the source of truth before starting roadmap work:
 
 ## Active Roadmaps
 
-0.0.1. [Rust Module Optimization](./00.0.1-rust-module-optimization.md)
+0. [Rust Module Optimization](./00-rust-module-optimization.md)
    Active on 2026-05-17. Scope is the Rust optimization boundary:
    Bun/TypeScript owns control-plane semantics while Rust/WASM/sidecars enter
    as measured module hot paths or native helpers behind TypeScript-owned ports
@@ -72,7 +105,8 @@ Use these documents as the source of truth before starting roadmap work:
    harness files.
 
 8. [Verified Efficiency Control Plane](./08-verified-efficiency-control-plane.md)
-   Proposed long-term architecture program opened on 2026-06-30. Scope is the
+   Active long-term architecture program opened on 2026-06-30. Slice 1 closed
+   on 2026-07-01 in commit `f1f4baef`; Slice 2 is next. Scope is the
    provider-neutral control loop that maximizes verified engineering value per
    token, dollar, second, and agent turn through attributable measurement,
    bounded efficiency actuators, and evidence-gated policy promotion.
@@ -178,4 +212,4 @@ roadmap files. Current completed areas include:
    paths, or gateway attach loops without an approved native-surface roadmap
    slice or ADR.
 7. Do not start Rust/WASM/sidecar modules without an approved Rust optimization
-   roadmap slice or ADR and the Rust module promotion gates in `00.0.1`.
+   roadmap slice or ADR and the Rust module promotion gates in `00`.

@@ -10,6 +10,44 @@ as a public product surface. This roadmap is intentionally narrow: it captures
 unfinished product semantics discovered during live GUI validation, not broad
 visual polish or completed execution-surface work.
 
+## Goals
+
+- Remove false or unavailable operator-facing states before public release.
+- Preserve cross-surface truth for context usage, events, skills, tools, and
+  managed-agent capability.
+- Keep GUI components thin over shared contracts rather than inventing local
+  product semantics.
+- Promote stable release behavior into architecture and guide docs when closed.
+
+## Scope
+
+- Release-blocking GUI semantics discovered during live validation.
+- Composer context usage, event density, structured tool output, skill
+  diagnostics, and managed-agent/tool capability routing.
+- Cross-surface contract or documentation changes required to keep GUI claims
+  truthful.
+
+## Non-Goals
+
+- No broad visual polish track.
+- No startup or benchmark work already promoted to architecture and guide docs.
+- No GUI-only workaround for a runtime, route, skill, or gateway contract gap.
+- No public-release claim before final operator live validation.
+
+## Sequel Standards
+
+- No fake context percentages or guessed authoritative state.
+- No UI-only compatibility hacks for unavailable routes, skills, or tools.
+- No visualizer dependency without a documented product behavior it replaces.
+- No public release claim without live validation and focused test evidence.
+
+## Research Basis
+
+Research is required where the debt depends on harness behavior, skill
+ecosystems, provider entitlements, or third-party visualizer dependencies. GUI
+layout fixes alone do not require external research, but they still require
+focused component, typecheck, build, and browser validation evidence.
+
 ## Progress Snapshot
 
 Updated: 2026-06-28
@@ -73,7 +111,7 @@ Still open before public release:
   restored sessions, structured outputs, inspector modes, responsive sidebar,
   and workspace file-type icon coverage.
 
-## Release-Blocking Debt
+## Delivery Slices - Release-Blocking Debt
 
 ### Cross-Harness Agent and Tool Capability Routing
 
@@ -333,7 +371,7 @@ Verification:
 - Research notes compare any future tree/file explorer dependency with the
   current static renderer before adoption.
 
-## Gates
+## Promotion Gates
 
 - Do not publish the GUI with a fake context percentage.
 - Do not infer authoritative context usage without runtime evidence.
@@ -349,3 +387,15 @@ Verification:
   would otherwise maintain poorly in-house.
 - Promote stable behavior into architecture or guide docs when this roadmap
   closes, then delete this roadmap file.
+
+## Verification
+
+Each debt item lists focused verification. Roadmap closeout also requires GUI
+typecheck, GUI tests, GUI build, relevant E2E coverage, cross-surface contract
+tests for shared semantics, and final operator live validation.
+
+## Completion Criteria
+
+This roadmap closes when no public GUI surface presents fake, unavailable, or
+ambiguous capability state; when stable behavior has moved into architecture or
+guide docs; and when this release-debt file can be deleted.

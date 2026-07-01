@@ -13,12 +13,49 @@ work item, or draft pull request.
 
 This roadmap is separate from:
 
-- `00.0.1-rust-module-optimization.md`, which decides Bun and Rust execution
+- `00-rust-module-optimization.md`, which decides Bun and Rust execution
   boundaries for hot-path modules.
 - `01-native-operator-surface.md`, which decides native operator surface
   projection and benchmark admission.
 - Existing CLI resume feedback, which scores session continuity and is not the
   same product feature.
+
+## Goals
+
+- Let operators report session problems without exporting unsafe evidence.
+- Preserve local-first redaction and explicit publication approval.
+- Convert approved feedback bundles into governed repair work when requested.
+- Keep feedback semantics in core/work-governance rather than duplicating a
+  separate repair engine.
+
+## Scope
+
+- Core feedback bundle and redaction contracts.
+- Runtime evidence collection from session ledgers.
+- CLI, gateway, GUI, TUI, and native feedback projections.
+- Issue-provider adapters only behind explicit operator consent.
+- Governed repair work item materialization for approved local bundles.
+
+## Non-Goals
+
+- No automatic upload or publication.
+- No unredacted transcript export.
+- No public issue creation without explicit approval.
+- No PR creation without work-governance evidence and review.
+- No replacement of existing work-governance closeout semantics.
+
+## Sequel Standards
+
+- No automatic upload.
+- No unredacted transcript export.
+- No public issue or PR creation without explicit approval and review.
+- No duplicated feedback engine beside existing work-governance.
+
+## Research Basis
+
+This roadmap is driven by Kiln product workflow evidence, not external
+research. Any external publication adapter must add provider-specific API and
+security evidence before activation.
 
 ## Long-Term Feature Decision
 
@@ -32,7 +69,7 @@ feature should be broader than a transcript dump:
 - Pull requests are possible later, but only as draft artifacts behind explicit
   approval and review gates.
 
-## Slices
+## Delivery Slices
 
 ### Slice 1 - Core Contract And Redaction
 
@@ -171,7 +208,7 @@ Verification:
 - Explicit live adapter test path.
 - Reviewer gate before any claim of completion.
 
-## Gates
+## Promotion Gates
 
 - No automatic upload.
 - No unredacted transcript export.
@@ -179,3 +216,15 @@ Verification:
 - No PR creation without work-governance evidence and review.
 - No gateway-contract expansion until core/runtime shapes prove stable.
 - No duplicated feedback engine beside existing work-governance.
+
+## Verification
+
+Each slice records its focused test, typecheck, and build commands inline. A
+roadmap closeout must also run the relevant package tests, repository
+typecheck, and reviewer gate for any changed surface.
+
+## Completion Criteria
+
+This roadmap closes when feedback can move from local redacted bundle to
+approved repair workflow and optional external draft without bypassing
+redaction, approval, work-governance, tests, or review.

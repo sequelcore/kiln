@@ -1,4 +1,7 @@
+# 04 - Federated Harness Configuration Plane
+
 Status: Deferred research
+Created: 2026-06-29
 
 ## Objective
 
@@ -6,6 +9,15 @@ Research whether Kiln can become the canonical configuration and capability
 plane for every supported harness while projecting only the minimum native
 material each harness needs. This is a post-release architecture initiative,
 not a remaining slice of skill parity.
+
+## Goals
+
+- Determine whether Kiln should own one governed capability/configuration plane
+  across supported harnesses.
+- Reduce duplicated native projection only when evidence proves governance and
+  standalone reliability are preserved.
+- Keep native harness discovery, permissions, and offline operation explicit.
+- Avoid lowest-common-denominator config that hides unsupported capabilities.
 
 ## Scope
 
@@ -16,6 +28,13 @@ not a remaining slice of skill parity.
 - Provider/model defaults and route preferences.
 - Permissions, approvals, hooks, and harness-specific policy.
 - Install state, drift, origin, admission, and omission diagnostics.
+
+## Non-Goals
+
+- No replacement of native harness discovery with prompt instructions.
+- No silent import of unmanaged native state.
+- No compatibility shim that pretends unsupported harness capabilities exist.
+- No weakening of direct harness operation when Kiln is not running.
 
 ## Target Model
 
@@ -54,6 +73,14 @@ runtime capabilities.
   unless the harness has proven runtime support for resolving the referenced
   capability before selection and admission.
 
+## Sequel Standards
+
+- No fake compatibility layer.
+- No unmanaged native config import without approval and provenance.
+- No weakening of native discovery, permissions, or direct harness operation.
+- No promotion without capability matrices, projection benchmarks, tests,
+  security review, and rollback design.
+
 ## Required Evidence
 
 - An authoritative capability matrix for every supported harness and surface.
@@ -67,8 +94,37 @@ runtime capabilities.
 - A migration and rollback design that does not silently import unmanaged
   configuration or break direct harness operation.
 
-## Promotion Gate
+## Research Basis
+
+Existing research is still required. This roadmap starts deferred until Kiln
+has current harness capability matrices, projection benchmarks, and live tests
+for direct and Kiln-managed operation.
+
+## Delivery Slices
+
+1. Capability matrix and source-precedence research.
+2. Projection cost and duplication benchmark.
+3. Security and trust-boundary review.
+4. Thin or dynamic projection prototype behind fail-closed diagnostics.
+
+## Promotion Gates
 
 Promote this roadmap to active only after the capability matrix and projection
 benchmarks show that a federated plane reduces meaningful duplication without
 weakening native discovery, governance, or standalone reliability.
+
+## Verification
+
+- Capability matrix covers every supported harness and surface.
+- Projection benchmark compares current full projection with proposed thin or
+  dynamic projection.
+- Direct-harness and Kiln-managed live tests pass for discovery, invocation,
+  permissions, drift, unavailable dependencies, and offline startup.
+- Security review covers instruction injection, tool authority, plugin trust,
+  native config import, and cross-harness privilege escalation.
+
+## Completion Criteria
+
+This roadmap closes when a researched federated configuration model is either
+promoted into architecture with implementation slices or rejected with evidence
+and no production code retained.
