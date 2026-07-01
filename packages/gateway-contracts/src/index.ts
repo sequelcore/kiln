@@ -67,6 +67,7 @@ export type {
   KilnSkillCatalogSnapshotEntry,
   KilnSkillOriginKind,
   KilnSkillProjectionTargetSnapshot,
+  TrustedExecutionIntegrity,
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,
@@ -74,6 +75,11 @@ export {
   KILN_CONFIG_SETUP_ACTIONS,
   KILN_CONFIG_SOURCE_STATUSES,
   KILN_PROJECTION_TARGET_STATUSES,
+  TRUSTED_EXECUTION_CLASSIFICATIONS,
+  TRUSTED_EXECUTION_EVIDENCE_FRESHNESS,
+  TRUSTED_EXECUTION_EVIDENCE_SOURCES,
+  TRUSTED_EXECUTION_PROFILES,
+  TRUSTED_EXECUTION_PROOF_STATUSES,
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
@@ -83,6 +89,7 @@ export {
   KilnSkillCatalogSnapshotEntrySchema,
   KilnSkillCatalogSnapshotSchema,
   KilnSkillProjectionTargetSnapshotSchema,
+  TrustedExecutionIntegritySchema,
 } from "./config-status.js";
 
 export type {

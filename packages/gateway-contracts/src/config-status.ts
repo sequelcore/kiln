@@ -43,6 +43,169 @@ export const KILN_CONFIG_SETUP_ACTIONS = [
   "review-native-projection-drift",
 ] as const;
 
+export const TRUSTED_EXECUTION_PROFILES = [
+  "restricted",
+  "workspace-write",
+  "trusted-full-access",
+] as const;
+
+export const TRUSTED_EXECUTION_CLASSIFICATIONS = [
+  "current-verified",
+  "intentional-operator-override",
+  "native-projection-drift",
+  "runtime-policy-mismatch",
+  "effective-policy-unproven",
+  "unsupported-semantic-translation",
+  "dangerous-unapproved-broadening",
+  "stale-evidence",
+  "partial-observation",
+  "observation-failed",
+] as const;
+
+export const TRUSTED_EXECUTION_EVIDENCE_FRESHNESS = ["current", "stale", "unknown"] as const;
+export const TRUSTED_EXECUTION_PROOF_STATUSES = ["proven", "inferred", "unavailable", "contradictory"] as const;
+export const TRUSTED_EXECUTION_EVIDENCE_SOURCES = [
+  "operator-local-config",
+  "repository-config",
+  "native-config",
+  "desktop-ui-selection",
+  "session-metadata",
+  "runtime-observation",
+  "managed-child-observation",
+] as const;
+
+const TRUSTED_EXECUTION_PROFILE_AUTHORITY: Readonly<Record<typeof TRUSTED_EXECUTION_PROFILES[number], number>> = {
+  restricted: 0,
+  "workspace-write": 1,
+  "trusted-full-access": 2,
+};
+
+function trustedExecutionAuthorizationIsComplete(
+  authorization: {
+    readonly status: "authorized" | "rejected" | "narrowed" | "unavailable";
+    readonly scope?: "operator-local" | "repository";
+    readonly authorizedBy?: string;
+    readonly authorizedAt?: string;
+    readonly revocable: boolean;
+  },
+): boolean {
+  return authorization.status === "authorized"
+    && authorization.scope === "operator-local"
+    && authorization.authorizedBy !== undefined
+    && authorization.authorizedAt !== undefined
+    && authorization.revocable;
+}
+
+const TrustedExecutionEvidenceSchema = z.object({
+  profile: z.enum(TRUSTED_EXECUTION_PROFILES),
+  source: z.enum(TRUSTED_EXECUTION_EVIDENCE_SOURCES),
+  observedAt: z.string().datetime(),
+  verifiedAt: z.string().datetime().optional(),
+  freshness: z.enum(TRUSTED_EXECUTION_EVIDENCE_FRESHNESS),
+  proof: z.enum(TRUSTED_EXECUTION_PROOF_STATUSES),
+  projectionOwnership: z.enum(["kiln-managed", "operator-owned", "unmanaged"]).optional(),
+});
+
+export const TrustedExecutionIntegritySchema = z.object({
+  harness: z.enum(["codex", "claude-code", "opencode"]),
+  desired: TrustedExecutionEvidenceSchema,
+  persistedNative: TrustedExecutionEvidenceSchema.optional(),
+  sessionOverride: TrustedExecutionEvidenceSchema.optional(),
+  effectiveRuntime: TrustedExecutionEvidenceSchema.optional(),
+  enforcement: z.object({
+    approvalControl: z.enum(["enforced", "not-enforced", "unknown"]),
+    filesystemSandbox: z.enum(["enforced", "not-enforced", "unknown"]),
+    networkBoundary: z.enum(["enforced", "not-enforced", "unknown"]),
+    strength: z.enum(["strong", "rules-only", "weak", "none", "unknown"]),
+  }),
+  authorization: z.object({
+    status: z.enum(["authorized", "rejected", "narrowed", "unavailable"]),
+    scope: z.enum(["operator-local", "repository"]).optional(),
+    authorizedBy: z.string().min(1).optional(),
+    authorizedAt: z.string().datetime().optional(),
+    revocable: z.boolean(),
+    reason: z.string().optional(),
+  }),
+  semanticLoss: z.array(z.string()),
+  classification: z.enum(TRUSTED_EXECUTION_CLASSIFICATIONS),
+  recommendation: z.string(),
+  remediationRequiresApproval: z.boolean(),
+  lastVerifiedAt: z.string().datetime().optional(),
+}).superRefine((value, context) => {
+  const evidenceSlots = ["desired", "persistedNative", "sessionOverride", "effectiveRuntime"] as const;
+  for (const slot of evidenceSlots) {
+    const evidence = value[slot];
+    if (evidence?.source === "desktop-ui-selection" && evidence.proof === "proven") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [slot, "proof"],
+        message: "A desktop UI selection is not proof of effective runtime authority",
+      });
+    }
+    if (evidence?.proof === "proven" && evidence.verifiedAt === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [slot, "verifiedAt"],
+        message: "Proven evidence requires slot-local verification provenance",
+      });
+    }
+  }
+  if (value.harness === "opencode" && value.enforcement.filesystemSandbox === "enforced") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["enforcement", "filesystemSandbox"],
+      message: "OpenCode permission resolution does not enforce a filesystem sandbox",
+    });
+  }
+  const trustedAuthorization = trustedExecutionAuthorizationIsComplete(value.authorization);
+  if (value.authorization.status === "authorized" && !trustedAuthorization) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["authorization"],
+      message: "Trusted authorization requires complete, revocable operator-local provenance",
+    });
+  }
+  const persistedNativeBroadensDesired = value.persistedNative !== undefined
+    && TRUSTED_EXECUTION_PROFILE_AUTHORITY[value.persistedNative.profile]
+      > TRUSTED_EXECUTION_PROFILE_AUTHORITY[value.desired.profile];
+  const currentVerifiedEvidenceIsFresh = evidenceSlots.every((slot) => {
+    const evidence = value[slot];
+    return evidence === undefined || evidence.freshness === "current";
+  });
+  const currentVerifiedEvidenceIsNotContradictoryOrUnavailable = evidenceSlots.every((slot) => {
+    const evidence = value[slot];
+    return evidence === undefined || !["contradictory", "unavailable"].includes(evidence.proof);
+  });
+  const persistedNativeMatchesDesired = value.persistedNative === undefined
+    || value.persistedNative.profile === value.desired.profile;
+  const sessionOverrideMatchesDesired = value.sessionOverride === undefined
+    || value.sessionOverride.profile === value.desired.profile;
+  if (value.classification === "current-verified" && (
+    value.desired.proof !== "proven"
+    || value.desired.freshness !== "current"
+    || value.desired.source === "desktop-ui-selection"
+    || value.effectiveRuntime?.proof !== "proven"
+    || value.effectiveRuntime.freshness !== "current"
+    || !["runtime-observation", "managed-child-observation"].includes(value.effectiveRuntime.source)
+    || value.effectiveRuntime.profile !== value.desired.profile
+    || !currentVerifiedEvidenceIsFresh
+    || !currentVerifiedEvidenceIsNotContradictoryOrUnavailable
+    || !persistedNativeMatchesDesired
+    || !sessionOverrideMatchesDesired
+    || value.semanticLoss.length > 0
+    || (value.desired.profile === "trusted-full-access" && !trustedAuthorization)
+    || (persistedNativeBroadensDesired && !trustedAuthorization)
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["classification"],
+      message: "Current verified state requires fresh matching runtime proof and valid trusted authorization",
+    });
+  }
+});
+
+export type TrustedExecutionIntegrity = z.infer<typeof TrustedExecutionIntegritySchema>;
+
 export interface KilnConfigSourceSnapshot {
   readonly path: string;
   readonly status: KilnConfigSourceStatus;

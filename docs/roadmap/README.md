@@ -38,6 +38,7 @@ architecture program needs additional sections:
 | [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open. Provider/model eligibility is now canonicalized; remaining items are narrowed to public-release UX truth, skill/plugin diagnostics, event density, context usage, and live validation. | Close fake or unavailable operator-facing states before public release. |
 | [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. The former research-turn budgeting roadmap is merged here as the initial workload. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
+| [05-trusted-execution-integrity.md](./05-trusted-execution-integrity.md) | Active; Slice 1 complete | Provider-neutral permission evidence contract, pure classifier, finite Core/Gateway vocabulary parity, and Slice 1 review blockers are closed. | Start Slice 2 harness adapters and native projection semantics. |
 
 ## Canonical References
 
@@ -99,6 +100,12 @@ Use these documents as the source of truth before starting roadmap work:
    provider-neutral control loop that maximizes verified engineering value per
    token, dollar, second, and agent turn through attributable measurement,
    bounded efficiency actuators, and evidence-gated policy promotion.
+
+5. [Trusted Execution Integrity](./05-trusted-execution-integrity.md)
+   Active on 2026-07-01. Slice 1 is complete: the provider-neutral permission
+   evidence contract, classification precedence, finite vocabulary parity, and
+   operator-local trust boundary are in place before native projection,
+   managed-agent, and operator-surface work.
 
 ## Deferred Roadmaps
 
