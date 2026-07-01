@@ -7,6 +7,27 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { GuiInboundFrame, GuiOutboundFrame } from "@kilnai/gateway-contracts";
 import { GuiWsClient } from "../src/lib/ws-client";
 
+const EMPTY_PROVIDER_MODEL_DISCOVERY: Extract<GuiInboundFrame, { type: "welcome" }>["providerModelDiscovery"] = {
+  catalogEvidence: {
+    status: "failed",
+    source: {
+      kind: "test",
+      id: "gui-ws-client",
+    },
+    observedAt: "2026-07-01T00:00:00.000Z",
+    counts: {
+      total: 0,
+      returned: 0,
+      omitted: 0,
+    },
+    failure: {
+      classification: "catalog-unavailable",
+      summary: "No provider model discovery fixture.",
+    },
+  },
+  entries: [],
+};
+
 // Track created WebSocket instances for testing
 let wsInstances: MockWebSocket[] = [];
 
@@ -1114,6 +1135,7 @@ describe("GuiWsClient", () => {
         {
           json: {
             type: "welcome",
+            providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
             executionMode: "execute",
@@ -1121,6 +1143,7 @@ describe("GuiWsClient", () => {
           },
           expected: {
             type: "welcome",
+            providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
             executionMode: "execute",

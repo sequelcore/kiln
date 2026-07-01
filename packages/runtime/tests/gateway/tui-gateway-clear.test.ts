@@ -234,6 +234,14 @@ function makeTuiOperatorDiscoveryFromModels(
     provider,
     available: true,
     models: [...models],
+    ...(models.length > 0
+      ? {
+          modelRouteHealth: Object.fromEntries(models.map((model) => [
+            model,
+            { healthy: true },
+          ])),
+        }
+      : {}),
     status: "available",
     reason: `${provider} models discovered.`,
     authState: "authenticated",
@@ -408,7 +416,7 @@ describe("TUI gateway startup discovery", () => {
 });
 
 describe("TUI gateway provider switching", () => {
-  it("echoes provider switch requestId on provider_changed", async () => {
+  it("rejects provider switches that canonical discovery marks ineligible", async () => {
     vi.resetModules();
     stubBunServe();
     const discoverySpy = vi
@@ -436,14 +444,12 @@ describe("TUI gateway provider switching", () => {
         wsCtx,
       );
 
-      expect(sessionManager.setProvider).toHaveBeenCalledWith("opencode");
-      expect(sessionManager.setModel).toHaveBeenCalledWith("openai/gpt-5");
-      expect(JSON.parse(mockWs.send.mock.calls[0][0] as string)).toEqual({
-        type: "provider_changed",
-        provider: "opencode",
-        model: "openai/gpt-5",
-        requestId: "request-1",
-      });
+      expect(sessionManager.setProvider).not.toHaveBeenCalled();
+      expect(sessionManager.setModel).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls[0][0] as string)).toEqual(expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("not eligible"),
+      }));
     } finally {
       discoverySpy.mockRestore();
       gateway.shutdown();

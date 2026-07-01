@@ -32,7 +32,9 @@ import {
   discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
+  markGuiProviderDiscoveryStale,
   probeCodexCliModelReadiness,
+  projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
@@ -859,6 +861,9 @@ describe("startGuiGateway static mount", () => {
         openrouter: {
           models: ["openrouter/free", "qwen/qwen3-coder:free"],
           modelRouteHealth: {
+            "openrouter/free": {
+              healthy: true,
+            },
             "qwen/qwen3-coder:free": {
               healthy: false,
               reason: "Provider/model route 'openrouter/qwen/qwen3-coder:free' is cooling down.",
@@ -882,6 +887,9 @@ describe("startGuiGateway static mount", () => {
       available: true,
       models: ["openrouter/free", "qwen/qwen3-coder:free"],
       modelRouteHealth: {
+        "openrouter/free": {
+          healthy: true,
+        },
         "qwen/qwen3-coder:free": {
           healthy: false,
           reason: "Provider/model route 'openrouter/qwen/qwen3-coder:free' is cooling down.",
@@ -889,6 +897,41 @@ describe("startGuiGateway static mount", () => {
         },
       },
     });
+
+    const projection = projectGuiProviderModelDiscovery(discovery, {
+      observedAt: "2026-04-28T12:00:00.000Z",
+    });
+    expect(projection.entries.find((entry) =>
+      entry.providerRoute.providerId === "openrouter"
+      && entry.providerRoute.providerModelId === "openrouter/free"
+    )).toMatchObject({
+      routeHealth: {
+        status: "healthy",
+      },
+      eligibility: {
+        reasonCodes: expect.not.arrayContaining([
+          "missing-route-health-evidence",
+          "route-unhealthy",
+        ]),
+      },
+    });
+    expect(projection.entries.find((entry) =>
+      entry.providerRoute.providerId === "openrouter"
+      && entry.providerRoute.providerModelId === "qwen/qwen3-coder:free"
+    )).toMatchObject({
+      routeHealth: {
+        status: "unhealthy",
+        reason: "Provider/model route 'openrouter/qwen/qwen3-coder:free' is cooling down.",
+      },
+      eligibility: {
+        eligible: false,
+        reasonCodes: expect.arrayContaining(["route-unhealthy"]),
+      },
+    });
+    expect(projection.entries.find((entry) =>
+      entry.providerRoute.providerId === "openrouter"
+      && entry.providerRoute.providerModelId === "qwen/qwen3-coder:free"
+    )?.eligibility.reasonCodes).not.toContain("missing-route-health-evidence");
   });
 
   it("uses one provider readiness wording path for switches and prompt execution", () => {
@@ -1262,7 +1305,7 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("applies the durable operator provider preference when the session manager has no active selection", async () => {
+  it("rejects a durable operator provider preference without canonical eligibility", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
@@ -1307,13 +1350,13 @@ describe("startGuiGateway static mount", () => {
         activeModel?: string;
       };
 
-      expect(setProvider).toHaveBeenCalledWith("codex-oauth");
-      expect(setModel).toHaveBeenCalledWith("gpt-5.4");
+      expect(setProvider).toHaveBeenCalledWith("");
+      expect(setModel).toHaveBeenCalledWith("");
       expect(welcomeFrame).toMatchObject({
         type: "welcome",
-        activeProvider: "codex-oauth",
-        activeModel: "gpt-5.4",
       });
+      expect(welcomeFrame.activeProvider).toBeUndefined();
+      expect(welcomeFrame.activeModel).toBeUndefined();
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
@@ -1781,7 +1824,7 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("uses the initial provider catalog when accepting a provider switch before socket welcome", async () => {
+  it("uses the initial canonical projection to reject an ineligible provider switch before socket welcome", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
@@ -1826,15 +1869,13 @@ describe("startGuiGateway static mount", () => {
       );
 
       expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
-      expect(setProvider).toHaveBeenCalledWith("openai");
-      expect(setModel).toHaveBeenCalledWith(GPT4O);
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
-      expect(outboundFrames).toContainEqual({
-        type: "provider_changed",
-        provider: "openai",
-        requestId: "request-drift",
-        model: GPT4O,
-      });
+      expect(setProvider).not.toHaveBeenCalled();
+      expect(setModel).not.toHaveBeenCalled();
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("not eligible"),
+      }));
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
@@ -1842,7 +1883,7 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("uses the cached ready provider catalog for provider switches instead of blocking on cold rediscovery", async () => {
+  it("uses the cached canonical projection to reject ineligible switches without cold rediscovery", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
@@ -1895,19 +1936,14 @@ describe("startGuiGateway static mount", () => {
       );
 
       expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
-      expect(setProvider).toHaveBeenCalledWith("codex-oauth");
-      expect(setModel).toHaveBeenCalledWith("gpt-5.4");
-      expect(updateProviderPreference).toHaveBeenCalledWith({
-        provider: "codex-oauth",
-        model: "gpt-5.4",
-      });
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
-      expect(outboundFrames).toContainEqual({
-        type: "provider_changed",
-        provider: "codex-oauth",
-        requestId: "request-codex-oauth",
-        model: "gpt-5.4",
-      });
+      expect(setProvider).not.toHaveBeenCalled();
+      expect(setModel).not.toHaveBeenCalled();
+      expect(updateProviderPreference).not.toHaveBeenCalled();
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
+      expect(outboundFrames).toContainEqual(expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("not eligible"),
+      }));
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
@@ -5339,6 +5375,134 @@ describe("startGuiGateway static mount", () => {
 });
 
 describe("projectGuiOperatorModels", () => {
+  it("projects large OpenCode catalogs as diagnostic evidence without making routes selectable", () => {
+    const discovery = buildGuiOperatorDiscoveryResults({
+      opencodeModels: Array.from({ length: 397 }, (_, index) => `provider-${index}/model-${index}`),
+      opencodeDiscovery: {
+        models: Array.from({ length: 397 }, (_, index) => `provider-${index}/model-${index}`),
+        status: "available",
+        reason: "OpenCode CLI models discovered.",
+        authState: "authenticated",
+      },
+      codexModels: [],
+      providerAvailability: { opencode: true },
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    });
+
+    const projection = projectGuiProviderModelDiscovery(discovery, {
+      observedAt: "2026-07-01T12:00:00.000Z",
+    });
+
+    expect(projection.catalogEvidence).toMatchObject({
+      status: "partial",
+      counts: { total: 397, returned: 397, omitted: 0 },
+    });
+    expect(projection.entries).toHaveLength(397);
+    expect(projection.entries[0]).toMatchObject({
+      providerRoute: {
+        providerId: "opencode",
+        providerModelId: "provider-0/model-0",
+        scope: "opencode-harness",
+      },
+      harnessRoute: {
+        harnessId: "opencode",
+        reportedProviderId: "opencode",
+        reportedModelId: "provider-0/model-0",
+      },
+      rawEvidence: {
+        rawId: "provider-0/model-0",
+      },
+      credentialEvidence: {
+        state: "authenticated",
+      },
+      entitlementEvidence: {
+        state: "unknown",
+      },
+      freshness: {
+        status: "fresh",
+      },
+      routeHealth: {
+        status: "unknown",
+      },
+      policyAdmission: {
+        use: "interactive",
+        status: "unknown",
+      },
+      eligibility: {
+        eligible: false,
+      },
+    });
+    expect(projection.entries[0].eligibility.reasonCodes).toEqual(expect.arrayContaining([
+      "missing-configured-evidence",
+      "missing-entitlement-evidence",
+      "missing-capability-evidence",
+      "missing-policy-evidence",
+      "missing-route-health-evidence",
+    ]));
+  });
+
+  it("keeps direct provider route-health diagnostic without granting eligibility", () => {
+    const projection = projectGuiProviderModelDiscovery([{
+      provider: "openrouter",
+      available: true,
+      models: ["openrouter/free"],
+      modelRouteHealth: {
+        "openrouter/free": { healthy: true },
+      },
+      status: "available",
+      reason: "OpenRouter models discovered.",
+      authState: "authenticated",
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    }], {
+      observedAt: "2026-07-01T12:00:00.000Z",
+    });
+
+    expect(projection.entries).toHaveLength(1);
+    expect(projection.entries[0]).toMatchObject({
+      credentialEvidence: { state: "authenticated" },
+      entitlementEvidence: { state: "unknown" },
+      routeHealth: { status: "healthy" },
+      policyAdmission: { use: "interactive", status: "unknown" },
+      eligibility: {
+        eligible: false,
+        reasonCodes: expect.arrayContaining([
+          "missing-configured-evidence",
+          "missing-entitlement-evidence",
+          "missing-capability-evidence",
+          "missing-policy-evidence",
+        ]),
+      },
+    });
+    expect(projection.entries[0].eligibility.reasonCodes).not.toContain("missing-route-health-evidence");
+  });
+
+  it("keeps stale catalog entries visible but fail-closed in the provider-model projection", () => {
+    const discovery = markGuiProviderDiscoveryStale(buildGuiOperatorDiscoveryResults({
+      opencodeModels: ["openai/gpt-5.4-mini"],
+      opencodeDiscovery: {
+        models: ["openai/gpt-5.4-mini"],
+        status: "available",
+        reason: "OpenCode CLI models discovered.",
+        authState: "authenticated",
+      },
+      codexModels: [],
+      providerAvailability: { opencode: true },
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    }));
+
+    const projection = projectGuiProviderModelDiscovery(discovery, {
+      observedAt: "2026-07-01T12:00:00.000Z",
+    });
+
+    expect(projection.catalogEvidence.status).toBe("partial");
+    expect(projection.entries).toHaveLength(1);
+    expect(projection.entries[0]).toMatchObject({
+      freshness: { status: "stale" },
+      eligibility: { eligible: false },
+    });
+    expect(projection.entries[0].eligibility.reasonCodes).toContain("stale-discovered-evidence");
+  });
+
   it("includes discovered codex-oauth subscription models from direct OAuth discovery", () => {
     const models = projectGuiOperatorDiscoveryInput(makeGuiOperatorDiscoveryBuilderInput({
       opencodeModels: ["openai/gpt-5.4-mini"],
@@ -7318,6 +7482,78 @@ describe("resolveGuiProviderSwitch", () => {
       throw new Error("expected cooling provider-model route resolution failure");
     }
     expect(resolution.error).toBe("qwen route is temporarily rate-limited.");
+  });
+
+  it("rejects legacy-listed routes that canonical discovery marks ineligible", () => {
+    const discovery = buildGuiOperatorDiscoveryResults({
+      opencodeModels: ["openai/gpt-5.4-mini"],
+      opencodeDiscovery: {
+        models: ["openai/gpt-5.4-mini"],
+        status: "available",
+        reason: "OpenCode CLI models discovered.",
+        authState: "authenticated",
+      },
+      codexModels: [],
+      providerAvailability: { opencode: true },
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    });
+    const providerModelDiscovery = projectGuiProviderModelDiscovery(discovery, {
+      observedAt: "2026-07-01T12:00:00.000Z",
+    });
+
+    const resolution = resolveGuiProviderSwitch({
+      provider: "opencode",
+      model: "openai/gpt-5.4-mini",
+      models: { opencode: ["openai/gpt-5.4-mini"] },
+      discovery,
+      providerModelDiscovery,
+    });
+
+    expect(resolution).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("not eligible"),
+    });
+  });
+
+  it("does not let legacy route health override canonical eligibility", () => {
+    const discovery = [{
+      provider: "openrouter",
+      available: true,
+      models: ["openrouter/free"],
+      modelRouteHealth: {
+        "openrouter/free": {
+          healthy: false,
+          reason: "legacy diagnostic says cooling down",
+        },
+      },
+      status: "available" as const,
+      reason: "OpenRouter models discovered.",
+      authState: "authenticated" as const,
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    }];
+    const projected = projectGuiProviderModelDiscovery(discovery, {
+      observedAt: "2026-07-01T12:00:00.000Z",
+    });
+    const providerModelDiscovery = {
+      ...projected,
+      entries: projected.entries.map((entry) => ({
+        ...entry,
+        routeHealth: { status: "healthy" as const },
+        eligibility: { eligible: true, reasonCodes: [] },
+      })),
+    };
+
+    expect(resolveGuiProviderSwitch({
+      provider: "openrouter",
+      model: "openrouter/free",
+      discovery,
+      providerModelDiscovery,
+    })).toEqual({
+      ok: true,
+      provider: "openrouter",
+      modelForSessionManager: "openrouter/free",
+      modelForAck: "openrouter/free",
+    });
   });
 
   it("rejects unknown providers even when the models map contains them", () => {

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GuiProviderModelDiscoveryProjection } from "@kilnai/gateway-contracts";
 import {
   deriveChangedFiles,
   derivePendingApprovals,
@@ -20,6 +21,7 @@ function resetSessionStore(): void {
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [],
+    providerModelDiscovery: defaultProviderModelDiscovery(),
     activeProvider: null,
     activeModel: null,
     sessionList: [],
@@ -58,6 +60,36 @@ function resetSessionStore(): void {
   });
 }
 
+function providerModelDiscovery(
+  providerId: string,
+  providerModelId: string,
+): GuiProviderModelDiscoveryProjection {
+  return {
+    catalogEvidence: {
+      status: "complete",
+      source: { kind: "test", id: "session-store" },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: { total: 1, returned: 1, omitted: 0 },
+    },
+    entries: [{
+      providerRoute: { providerId, providerModelId },
+      eligibility: { eligible: true, reasonCodes: [] },
+    } as GuiProviderModelDiscoveryProjection["entries"][number]],
+  };
+}
+
+function defaultProviderModelDiscovery(): GuiProviderModelDiscoveryProjection {
+  return {
+    catalogEvidence: {
+      status: "complete",
+      source: { kind: "test", id: "session-store" },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: { total: 0, returned: 0, omitted: 0 },
+    },
+    entries: [],
+  };
+}
+
 describe("session-store", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -91,6 +123,7 @@ describe("session-store", () => {
       ],
       activeProvider: "claude",
       activeModel: "sonnet",
+      providerModelDiscovery: providerModelDiscovery("claude", "sonnet"),
       executionMode: "execute",
     });
 

@@ -36,6 +36,7 @@ import {
 import {
   buildWelcomeProviderDescriptors,
   markGuiProviderDiscoveryStale,
+  projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
@@ -636,6 +637,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
           ws.send(JSON.stringify({
             type: "welcome",
+            providerModelDiscovery: projectGuiProviderModelDiscovery([]),
             models: {},
             providers: [],
             activeProvider: undefined,
@@ -705,6 +707,7 @@ function resolveOperatorActiveProviderSelection(input: {
   readonly discovery: readonly GuiProviderDiscoveryResult[];
   readonly preference?: OperatorProviderPreference | null;
 }): { readonly provider?: string; readonly model?: string } {
+  const providerModelDiscovery = projectGuiProviderModelDiscovery(input.discovery);
   const currentProvider = input.transport.sessionManager.getProvider().trim();
   const currentModel = input.transport.sessionManager.getModel().trim();
   if (currentProvider.length > 0) {
@@ -712,6 +715,7 @@ function resolveOperatorActiveProviderSelection(input: {
       provider: currentProvider,
       model: currentModel.length > 0 ? currentModel : undefined,
       discovery: input.discovery,
+      providerModelDiscovery,
     });
     if (currentResolution.ok) {
       return {
@@ -728,6 +732,7 @@ function resolveOperatorActiveProviderSelection(input: {
       provider: preferredProvider,
       model: preferredModel.length > 0 ? preferredModel : undefined,
       discovery: input.discovery,
+      providerModelDiscovery,
     });
     if (preferredResolution.ok) {
       input.transport.sessionManager.setProvider(preferredResolution.provider);
@@ -855,6 +860,7 @@ function wireOperatorTransport(
             applyDiscovery(currentDiscovery);
             ws.send(JSON.stringify({
               type: "providers_refreshed",
+              providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               models: projectGuiOperatorModels(currentDiscovery),
               providerDiscovery: currentDiscovery,
               providers: buildWelcomeProviderDescriptors(currentDiscovery),
@@ -884,6 +890,7 @@ function wireOperatorTransport(
           );
           ws.send(JSON.stringify({
             type: "welcome",
+            providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
             models: currentModels,
             providerDiscovery: currentDiscovery,
             providers: buildWelcomeProviderDescriptors(currentDiscovery),
@@ -929,6 +936,7 @@ function wireOperatorTransport(
               const currentDiscovery = await refreshDiscovery({ force: true });
               ws.send(JSON.stringify({
                 type: "providers_refreshed",
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
                 providers: buildWelcomeProviderDescriptors(currentDiscovery),
@@ -1003,6 +1011,7 @@ function wireOperatorTransport(
                 type: "provider_auth_completed",
                 provider: auth.provider,
                 requestId: auth.requestId,
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
                 providers: buildWelcomeProviderDescriptors(currentDiscovery),
@@ -1026,6 +1035,7 @@ function wireOperatorTransport(
                 provider: frame.provider,
                 model: frame.model,
                 discovery: currentDiscovery,
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               });
               if (!resolution.ok) {
                 ws.send(JSON.stringify({

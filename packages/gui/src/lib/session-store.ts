@@ -12,6 +12,7 @@ import type {
   GuiOutboundFrame,
   GuiProviderCatalogStatus,
   GuiProviderDiscoveryResult,
+  GuiProviderModelDiscoveryProjection,
   GuiProviderReasoningEffort,
   OperatorTurnRequestedAuthority,
   GuiSessionDetail,
@@ -1445,14 +1446,60 @@ function normalizeProviderDescriptors(
   return Array.from(providersById.values());
 }
 
-function providerSupportsSelection(provider: ProviderDescriptor, model: string | null): boolean {
+function providerSelectionEligibility(
+  provider: ProviderDescriptor,
+  model: string | null,
+  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
+): { readonly eligible: boolean; readonly reasonCodes: readonly string[] } {
+  if (!provider.available) {
+    return { eligible: false, reasonCodes: [] };
+  }
+  if (isGuiProviderModeless(provider.id) && provider.models.length === 0) {
+    return { eligible: model === null, reasonCodes: [] };
+  }
+  if (!discovery) {
+    return {
+      eligible: false,
+      reasonCodes: ["canonical provider model discovery is unavailable"],
+    };
+  }
+  const entry = model === null
+    ? undefined
+    : discovery.entries.find((candidate) => (
+        candidate.providerRoute.providerId === provider.id
+        && candidate.providerRoute.providerModelId === model
+      ));
+  return entry?.eligibility ?? {
+    eligible: false,
+    reasonCodes: ["not present in canonical provider model discovery"],
+  };
+}
+
+function providerSupportsSelection(
+  provider: ProviderDescriptor,
+  model: string | null,
+  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
+): boolean {
+  return providerSelectionEligibility(provider, model, discovery).eligible;
+}
+
+function providerSelectionFailureMessage(
+  provider: ProviderDescriptor,
+  model: string | null,
+  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
+): string {
   if (!providerHasSelectableSurface(provider)) {
-    return false;
+    return `${provider.label} is unavailable.`;
   }
-  if (provider.models.length === 0) {
-    return isGuiProviderModeless(provider.id) && model === null;
+  const reasonCodes = providerSelectionEligibility(provider, model, discovery).reasonCodes;
+  if (reasonCodes.length > 0) {
+    const selection = model === null ? provider.label : `${provider.label} model ${model}`;
+    return `${selection} is not eligible: ${reasonCodes.join(", ")}.`;
   }
-  return model !== null && provider.models.includes(model);
+  if (model === null && provider.models.length > 0) {
+    return providerRequiresSelectedModelMessage(provider.id);
+  }
+  return `${provider.label} does not advertise the requested model.`;
 }
 
 function providerHasSelectableSurface(provider: ProviderDescriptor): boolean {
@@ -1475,7 +1522,7 @@ function resolveStoredProviderSelectionRestore(
     return null;
   }
   const provider = state.providers.find((candidate) => candidate.id === stored.provider);
-  if (!provider || !providerSupportsSelection(provider, stored.model)) {
+  if (!provider || !providerSupportsSelection(provider, stored.model, state.providerModelDiscovery)) {
     return null;
   }
   if (!options.allowActiveOverride && (state.activeProvider || state.providerExplicitSelection)) {
@@ -1669,6 +1716,7 @@ interface SessionStoreState {
   readonly providerCatalogError: string | null;
   readonly providers: readonly ProviderDescriptor[];
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection | null;
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
   readonly sessionList: readonly GuiSessionSummary[];
@@ -1721,6 +1769,7 @@ interface SessionStoreActions {
   onProvidersRefreshed: (
     providers: readonly ProviderDescriptor[],
     providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+    providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
   ) => void;
   onSessionEvent: (event: GuiSessionEvent) => void;
   onTextDelta: (frame: StoreTextDeltaFrame) => void;
@@ -1795,6 +1844,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   providerCatalogError: null,
   providers: [],
   providerDiscovery: [],
+  providerModelDiscovery: null,
   activeProvider: null,
   activeModel: null,
   sessionList: [],
@@ -1959,7 +2009,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const activeProviderDescriptor = explicitActiveProvider
       ? providers.find((provider) => (
         provider.id === explicitActiveProvider
-          && providerSupportsSelection(provider, requestedModel)
+          && providerSupportsSelection(provider, requestedModel, frame.providerModelDiscovery)
       ))
       : undefined;
     const activeProvider = activeProviderDescriptor ? explicitActiveProvider ?? null : null;
@@ -1973,6 +2023,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({
       providers,
       providerDiscovery: frame.providerDiscovery ?? current.providerDiscovery,
+      providerModelDiscovery: frame.providerModelDiscovery,
       providerCatalogStatus: "ready",
       providerCatalogError: null,
       activeProvider,
@@ -1983,7 +2034,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerExplicitSelection: explicitSelection,
       continuationTargetId: current.continuationTargetId,
       status: "ready",
-      errorBanner: null,
+      errorBanner: explicitActiveProvider && !activeProviderDescriptor
+        ? (() => {
+            const provider = providers.find((candidate) => candidate.id === explicitActiveProvider);
+            return provider
+              ? providerSelectionFailureMessage(provider, requestedModel, frame.providerModelDiscovery)
+              : `${explicitActiveProvider} is unavailable.`;
+          })()
+        : null,
       providerSwitching: false,
       providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
@@ -1999,10 +2057,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       get().switchProvider(restore.provider, restore.model ?? undefined);
     } else if (activeProvider) {
       writeStoredProviderSelection(activeProvider, activeModel);
+    } else {
+      const stored = readStoredProviderSelection();
+      const storedProvider = stored
+        ? providers.find((provider) => provider.id === stored.provider)
+        : undefined;
+      if (stored && storedProvider && !providerSupportsSelection(
+        storedProvider,
+        stored.model,
+        frame.providerModelDiscovery,
+      )) {
+        set({
+          errorBanner: providerSelectionFailureMessage(
+            storedProvider,
+            stored.model,
+            frame.providerModelDiscovery,
+          ),
+        });
+      }
     }
   },
 
-  onProvidersRefreshed: (nextProviders, nextProviderDiscovery) => {
+  onProvidersRefreshed: (nextProviders, nextProviderDiscovery, nextProviderModelDiscovery) => {
     const current = get();
     const providers = normalizeProviderDescriptors(nextProviders);
     const activeProvider = current.activeProvider;
@@ -2011,7 +2087,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const activeStillAvailable = activeProvider
       ? providers.some((provider) => (
         provider.id === activeProvider
-          && providerSupportsSelection(provider, requestedModel)
+          && providerSupportsSelection(
+            provider,
+            requestedModel,
+            nextProviderModelDiscovery ?? current.providerModelDiscovery,
+          )
       ))
       : false;
     const nextActiveProvider = activeStillAvailable ? activeProvider : null;
@@ -2025,6 +2105,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       && current.activeModel === nextActiveModel
       && current.providerExplicitSelection === nextProviderExplicitSelection
       && current.routeMode === nextRouteMode
+      && (nextProviderModelDiscovery === undefined
+        || current.providerModelDiscovery === nextProviderModelDiscovery)
     ) {
       return;
     }
@@ -2032,12 +2114,25 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({
       providers,
       providerDiscovery: nextProviderDiscovery ?? current.providerDiscovery,
+      providerModelDiscovery: nextProviderModelDiscovery ?? current.providerModelDiscovery,
       providerCatalogStatus: "ready",
       providerCatalogError: null,
       activeProvider: nextActiveProvider,
       activeModel: nextActiveModel,
       routeMode: nextRouteMode,
       providerExplicitSelection: nextProviderExplicitSelection,
+      errorBanner: activeProvider && !activeStillAvailable
+        ? (() => {
+            const provider = providers.find((candidate) => candidate.id === activeProvider);
+            return provider
+              ? providerSelectionFailureMessage(
+                  provider,
+                  requestedModel,
+                  nextProviderModelDiscovery ?? current.providerModelDiscovery,
+                )
+              : `${activeProvider} is unavailable.`;
+          })()
+        : current.errorBanner,
     });
 
     const restore = resolveStoredProviderSelectionRestore(get());
@@ -3047,6 +3142,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
     set({
       providers: normalizeProviderDescriptors(frame.providers ?? state.providers),
+      providerDiscovery: frame.providerDiscovery ?? state.providerDiscovery,
+      providerModelDiscovery: frame.providerModelDiscovery,
       providerCatalogStatus: "ready",
       providerCatalogError: null,
       providerAuthenticating: false,
@@ -3115,28 +3212,29 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     const targetProvider = state.providers.find((candidate) => candidate.id === provider);
-    if (!targetProvider || !providerHasSelectableSurface(targetProvider)) {
+    if (!targetProvider) {
       if (!state.providerSwitching) {
         set({
           providerSwitching: false,
           providerSwitchTarget: null,
           providerSwitchTimeoutId: null,
-          errorBanner: `${targetProvider?.label ?? provider} is unavailable.`,
+          errorBanner: `${provider} is unavailable.`,
         });
       }
       return false;
     }
     const normalizedModel = readString(model) ?? null;
-    if (!providerSupportsSelection(targetProvider, normalizedModel)) {
+    if (!providerSupportsSelection(targetProvider, normalizedModel, state.providerModelDiscovery)) {
       if (!state.providerSwitching) {
-        const message = normalizedModel === null && targetProvider.models.length > 0
-          ? providerRequiresSelectedModelMessage(provider)
-          : `${targetProvider.label} does not advertise the requested model.`;
         set({
           providerSwitching: false,
           providerSwitchTarget: null,
           providerSwitchTimeoutId: null,
-          errorBanner: message,
+          errorBanner: providerSelectionFailureMessage(
+            targetProvider,
+            normalizedModel,
+            state.providerModelDiscovery,
+          ),
         });
       }
       return false;

@@ -11,6 +11,7 @@ const {
   mockSessionManagerPrepare,
   mockResolveGuiOperatorDiscoveryResults,
   mockProjectGuiOperatorModels,
+  mockProjectGuiProviderModelDiscovery,
   mockResolveGuiProviderSwitch,
   mockCreateProviderCatalogService,
   mockDeriveGovernedTurnOutcomeFromToolRecords,
@@ -49,6 +50,27 @@ const {
       entry.available ? [[entry.provider, entry.models]] : []
     )))
   )),
+  mockProjectGuiProviderModelDiscovery: vi.fn((discovery: Array<{ provider: string; models: string[] }>) => ({
+    catalogEvidence: {
+      status: "complete",
+      source: {
+        kind: "test",
+        id: "tui-session-persistence",
+      },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: {
+        total: discovery.length,
+        returned: discovery.length,
+        omitted: 0,
+      },
+    },
+    entries: discovery.flatMap((provider) => provider.models.map((model) => ({
+      providerRoute: { providerId: provider.provider, providerModelId: model, scope: "provider" },
+      normalizedModel: { providerId: provider.provider, modelId: model },
+      freshness: { status: "fresh", observedAt: "2026-07-01T00:00:00.000Z" },
+      eligibility: { eligible: true, reasonCodes: [] },
+    }))),
+  })),
   mockCreateProviderCatalogService: vi.fn((resolveDiscovery: () => Promise<readonly unknown[]>, emptyDiscovery: readonly unknown[]) => {
     let discovery = emptyDiscovery;
     const listeners = new Set<(snapshot: { status: string; discovery: readonly unknown[] }) => void>();
@@ -77,10 +99,19 @@ const {
   mockResolveGuiProviderSwitch: vi.fn((input: {
     provider: string;
     model?: string;
-    models: Record<string, string[]>;
+    discovery?: readonly Array<{ provider: string; models: string[] }>;
+    providerModelDiscovery?: {
+      entries: readonly Array<{
+        providerRoute: { providerId: string; providerModelId: string };
+      }>;
+    };
   }) => {
     const provider = input.provider.trim();
-    const providerModels = input.models[provider];
+    const providerModels = provider === "claude"
+      ? input.discovery?.find((entry) => entry.provider === provider)?.models
+      : input.providerModelDiscovery?.entries
+          .filter((entry) => entry.providerRoute.providerId === provider)
+          .map((entry) => entry.providerRoute.providerModelId);
     if (!providerModels) {
       return { ok: false, error: `Provider '${provider}' is unavailable` } as const;
     }
@@ -228,6 +259,7 @@ vi.mock("@kilnai/runtime", () => ({
   resolveGuiOperatorDiscoveryResults: mockResolveGuiOperatorDiscoveryResults,
   markGuiProviderDiscoveryStale: (discovery: readonly unknown[]) => discovery,
   projectGuiOperatorModels: mockProjectGuiOperatorModels,
+  projectGuiProviderModelDiscovery: mockProjectGuiProviderModelDiscovery,
   createProviderCatalogService: mockCreateProviderCatalogService,
   deriveGovernedTurnOutcomeFromToolRecords: mockDeriveGovernedTurnOutcomeFromToolRecords,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
@@ -1544,6 +1576,43 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(mockStartTui).not.toHaveBeenCalled();
   });
 
+  it("does not synthesize gateway admission when provider model discovery is absent", async () => {
+    const previousTransport = process.env.KILN_TUI_TRANSPORT;
+    delete process.env.KILN_TUI_TRANSPORT;
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-gateway-authority-"));
+
+    mockStartTuiGateway.mockResolvedValue({
+      port: 4801,
+      url: "ws://localhost:4801/ws",
+      models: { openai: ["gpt-5.4"] },
+      providerDiscovery: [{
+        provider: "openai",
+        available: true,
+        models: ["gpt-5.4"],
+        status: "available",
+        reason: "Observed model catalog.",
+        authState: "authenticated",
+        lastCheckedAt: "2026-07-01T12:00:00.000Z",
+      }],
+      shutdown: vi.fn(),
+    });
+
+    try {
+      await expect(tuiCommand(APP_CONFIG, { cwd, provider: "openai" })).rejects.toThrow(
+        "Provider 'openai' is not available in the runtime TUI model catalog. Available providers: none",
+      );
+    } finally {
+      process.env.KILN_TUI_TRANSPORT = previousTransport;
+      await rm(cwd, { recursive: true, force: true });
+    }
+
+    expect(mockProjectGuiProviderModelDiscovery).not.toHaveBeenCalled();
+    expect(mockStartTui).not.toHaveBeenCalled();
+  });
+
   it("accepts pending direct bootstrap and fails closed when a direct-api provider remains undiscovered", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
     process.env.KILN_TUI_TRANSPORT = "direct";
@@ -1722,6 +1791,6 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(switchToModelessProviderResult).toBe("claude");
     expect(directApiSwitchError).toContain("model");
     expect(mockResolveGuiOperatorDiscoveryResults).toHaveBeenCalled();
-    expect(mockProjectGuiOperatorModels).toHaveBeenCalled();
+    expect(mockProjectGuiProviderModelDiscovery).toHaveBeenCalled();
   });
 });

@@ -70,6 +70,7 @@ import {
   parseOperatorToolResultEnvelope,
   presentOperatorEventPayload,
   type GuiProviderDiscoveryResult,
+  type GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import {
   GoalRunStore,
@@ -94,7 +95,7 @@ import {
   createProviderCatalogService,
   deriveGovernedTurnOutcomeFromToolRecords,
   markGuiProviderDiscoveryStale,
-  projectGuiOperatorModels,
+  projectGuiProviderModelDiscovery,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
@@ -145,6 +146,7 @@ interface TuiBootstrapResult {
   readonly createSession: () => Promise<SessionLike>;
   readonly providerModelsRef: { current: Record<string, string[]> };
   readonly providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] };
+  readonly providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null };
   shutdown(): void;
 }
 type TuiControlSession = SessionLike & {
@@ -265,6 +267,39 @@ function assertTuiProviderAvailableInStartupCatalog(
   throw new Error(
     `Provider '${provider}' is not available in the runtime TUI model catalog. Available providers: ${availableProviders}`,
   );
+}
+
+function projectEligibleTuiProviderModels(
+  projection: GuiProviderModelDiscoveryProjection | null,
+  discovery: readonly GuiProviderDiscoveryResult[],
+  gatewayModelessProviderIds: readonly string[] = [],
+): Record<string, string[]> {
+  const modelsByProvider: Record<string, string[]> = {};
+  for (const entry of projection?.entries ?? []) {
+    if (!entry.eligibility.eligible) {
+      continue;
+    }
+    const provider = entry.providerRoute.providerId;
+    const model = entry.providerRoute.providerModelId;
+    const models = modelsByProvider[provider] ?? [];
+    if (!models.includes(model)) {
+      models.push(model);
+    }
+    modelsByProvider[provider] = models;
+  }
+  for (const entry of discovery) {
+    if (entry.available
+      && entry.status === "model_selection_not_required"
+      && isGuiProviderModeless(entry.provider)) {
+      modelsByProvider[entry.provider] = [];
+    }
+  }
+  for (const provider of gatewayModelessProviderIds) {
+    if (isGuiProviderModeless(provider)) {
+      modelsByProvider[provider] = [];
+    }
+  }
+  return modelsByProvider;
 }
 
 function isOnlyStaleProviderDiscovery(discovery: readonly GuiProviderDiscoveryResult[]): boolean {
@@ -895,10 +930,17 @@ async function bootstrapGatewaySession(
   writeTuiBootstrapStatus("Loading provider and model discovery...");
 
   const providerModelsRef: { current: Record<string, string[]> } = {
-    current: gateway.models,
+    current: projectEligibleTuiProviderModels(
+      gateway.providerModelDiscovery,
+      gateway.providerDiscovery ?? [],
+      Object.keys(gateway.models),
+    ),
   };
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = {
     current: gateway.providerDiscovery ?? [],
+  };
+  const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = {
+    current: gateway.providerModelDiscovery,
   };
 
   let session: GatewaySession | null = null;
@@ -906,9 +948,19 @@ async function bootstrapGatewaySession(
     if (!session) {
       session = new GatewaySession(
         gateway.url,
-        (models: Record<string, string[]>, discovery?: readonly GuiProviderDiscoveryResult[]) => {
+        (
+          models: Record<string, string[]>,
+          discovery?: readonly GuiProviderDiscoveryResult[],
+          providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
+        ) => {
           providerModelsRef.current = models;
           providerDiscoveryRef.current = discovery ?? [];
+          providerModelDiscoveryRef.current = providerModelDiscovery ?? null;
+          providerModelsRef.current = projectEligibleTuiProviderModels(
+            providerModelDiscoveryRef.current,
+            providerDiscoveryRef.current,
+            Object.keys(models),
+          );
         },
       );
     }
@@ -919,6 +971,7 @@ async function bootstrapGatewaySession(
     createSession,
     providerModelsRef,
     providerDiscoveryRef,
+    providerModelDiscoveryRef,
     shutdown: () => {
       void session?.dispose();
       gateway.shutdown();
@@ -1023,6 +1076,7 @@ async function bootstrapDirectSession(
   let session: TuiControlSession | null = null;
   const providerModelsRef: { current: Record<string, string[]> } = { current: {} };
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = { current: [] };
+  const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = { current: null };
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
     () => resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(options.registry)),
     [],
@@ -1035,7 +1089,11 @@ async function bootstrapDirectSession(
   );
   const applyProviderDiscovery = (discovery: readonly GuiProviderDiscoveryResult[]): Record<string, string[]> => {
     providerDiscoveryRef.current = discovery;
-    providerModelsRef.current = projectGuiOperatorModels(providerDiscoveryRef.current);
+    providerModelDiscoveryRef.current = projectGuiProviderModelDiscovery(providerDiscoveryRef.current);
+    providerModelsRef.current = projectEligibleTuiProviderModels(
+      providerModelDiscoveryRef.current,
+      providerDiscoveryRef.current,
+    );
     return providerModelsRef.current;
   };
   applyProviderDiscovery(providerCatalog.snapshot().discovery);
@@ -1121,10 +1179,14 @@ async function bootstrapDirectSession(
       async switchProvider(providerName: string, modelName?: string) {
         const provider = providerName.trim() as ProviderId;
         const requestedModel = typeof modelName === "string" ? modelName.trim() : "";
+        await ensureProviderModels();
         const resolution = resolveGuiProviderSwitch({
           provider,
           model: requestedModel,
-          models: await ensureProviderModels(),
+          discovery: providerDiscoveryRef.current,
+          ...(providerModelDiscoveryRef.current
+            ? { providerModelDiscovery: providerModelDiscoveryRef.current }
+            : {}),
         });
         if (!resolution.ok) {
           throw new Error(resolution.error);
@@ -1141,6 +1203,7 @@ async function bootstrapDirectSession(
     createSession,
     providerModelsRef,
     providerDiscoveryRef,
+    providerModelDiscoveryRef,
     shutdown: () => {},
   };
 }
@@ -1396,6 +1459,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     (themeName) => persistTuiThemePreference(themeName, globalConfig),
     async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
     () => startupProfiler.mark("tui-first-frame-rendered"),
+    bootstrap.providerModelDiscoveryRef,
   );
 
   bootstrap.shutdown();

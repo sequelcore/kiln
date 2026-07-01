@@ -222,6 +222,78 @@ describe("TUI authority forwarding", () => {
     });
   });
 
+  it("rejects legacy-listed routes that canonical discovery marks ineligible", async () => {
+    const { resolveTuiProviderSwitch } = await import("../../src/gateway/tui-gateway.js");
+    const { projectGuiProviderModelDiscovery } = await import("../../src/gateway/gui-provider-models.js");
+    const discovery = [{
+      provider: "opencode",
+      available: true,
+      models: ["openai/gpt-5.4-mini"],
+      status: "available" as const,
+      reason: "OpenCode CLI models discovered.",
+      authState: "authenticated" as const,
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    }];
+    const providerModelDiscovery = projectGuiProviderModelDiscovery(discovery, {
+      observedAt: "2026-07-01T12:00:00.000Z",
+    });
+
+    const resolution = resolveTuiProviderSwitch({
+      provider: "opencode",
+      model: "openai/gpt-5.4-mini",
+      models: { opencode: ["openai/gpt-5.4-mini"] },
+      discovery,
+      providerModelDiscovery,
+    });
+
+    expect(resolution).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("not eligible"),
+    });
+  });
+
+  it("does not let legacy route health override canonical eligibility", async () => {
+    const { resolveTuiProviderSwitch } = await import("../../src/gateway/tui-gateway.js");
+    const { projectGuiProviderModelDiscovery } = await import("../../src/gateway/gui-provider-models.js");
+    const discovery = [{
+      provider: "openrouter",
+      available: true,
+      models: ["openrouter/free"],
+      modelRouteHealth: {
+        "openrouter/free": {
+          healthy: false,
+          reason: "legacy diagnostic says cooling down",
+        },
+      },
+      status: "available" as const,
+      reason: "OpenRouter models discovered.",
+      authState: "authenticated" as const,
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    }];
+    const projected = projectGuiProviderModelDiscovery(discovery, {
+      observedAt: "2026-07-01T12:00:00.000Z",
+    });
+    const providerModelDiscovery = {
+      ...projected,
+      entries: projected.entries.map((entry) => ({
+        ...entry,
+        routeHealth: { status: "healthy" as const },
+        eligibility: { eligible: true, reasonCodes: [] },
+      })),
+    };
+
+    expect(resolveTuiProviderSwitch({
+      provider: "openrouter",
+      model: "openrouter/free",
+      discovery,
+      providerModelDiscovery,
+    })).toEqual({
+      ok: true,
+      provider: "openrouter",
+      model: "openrouter/free",
+    });
+  });
+
   it("fails closed when live Codex OAuth discovery says the model has function tools disabled", async () => {
     const { buildTuiTurnPerCallConfig, deriveTuiAuthorityStatusFromPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
     const cfg = buildTuiTurnPerCallConfig("codex-oauth", "gpt-disabled", undefined, {

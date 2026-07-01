@@ -1,5 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAppShellFrameHandler } from "../src/components/app-shell-frame-handler.js";
+import type { GuiProviderModelDiscoveryProjection } from "@kilnai/gateway-contracts";
+
+const EMPTY_PROVIDER_MODEL_DISCOVERY: GuiProviderModelDiscoveryProjection = {
+  catalogEvidence: {
+    status: "failed",
+    source: {
+      kind: "test",
+      id: "app-shell-frame-handler",
+    },
+    observedAt: "2026-07-01T00:00:00.000Z",
+    counts: {
+      total: 0,
+      returned: 0,
+      omitted: 0,
+    },
+    failure: {
+      classification: "catalog-unavailable",
+      summary: "No provider model discovery fixture.",
+    },
+  },
+  entries: [],
+};
 
 function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHandler>[0]> = {}) {
   return {
@@ -85,12 +107,14 @@ describe("createAppShellFrameHandler", () => {
       provider: "codex",
       providers: undefined,
       providerDiscovery: [{ provider: "codex" }],
+      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
     } as never);
 
     expect(input.onProviderAuthCompleted).toHaveBeenCalledTimes(1);
     expect(input.onProvidersRefreshed).toHaveBeenCalledWith(
       [{ id: "codex", models: ["gpt"], available: true }],
       [{ provider: "codex" }],
+      EMPTY_PROVIDER_MODEL_DISCOVERY,
     );
     expect(input.refetchDashboard).toHaveBeenCalledTimes(1);
   });

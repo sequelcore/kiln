@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GuiProviderModelDiscoveryProjection } from "@kilnai/gateway-contracts";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store.js";
 
@@ -162,9 +163,17 @@ function resetStore(): void {
     errorBanner: null,
     providerCatalogStatus: "ready",
     providerCatalogError: null,
-    providers: [],
-    activeProvider: "claude",
-    activeModel: "claude-sonnet-4-6",
+    providers: [{
+      id: "claude",
+      label: "Claude",
+      group: "harness",
+      free: false,
+      available: true,
+      models: ["claude-sonnet-4-6"],
+    }],
+    providerModelDiscovery: providerModelDiscovery("claude", "claude-sonnet-4-6"),
+    activeProvider: null,
+    activeModel: null,
     sessionList: [],
     selectedSessionId: null,
     continuationTargetId: null,
@@ -188,6 +197,24 @@ function resetStore(): void {
     providerSwitchTimeoutId: null,
     activityPhase: "idle",
   });
+}
+
+function providerModelDiscovery(
+  providerId: string,
+  providerModelId: string,
+): GuiProviderModelDiscoveryProjection {
+  return {
+    catalogEvidence: {
+      status: "complete",
+      source: { kind: "test", id: "app-shell-responsive" },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: { total: 1, returned: 1, omitted: 0 },
+    },
+    entries: [{
+      providerRoute: { providerId, providerModelId },
+      eligibility: { eligible: true, reasonCodes: [] },
+    } as GuiProviderModelDiscoveryProjection["entries"][number]],
+  };
 }
 
 describe("AppShell responsive sidebar", () => {

@@ -204,6 +204,72 @@ const GuiProviderDiscoveryResultSchema = z.object({
   lastCheckedAt: z.string(),
 });
 
+const GuiProviderModelDiscoveryProjectionSchema = z.object({
+  catalogEvidence: z.object({
+    status: z.enum(["complete", "partial", "failed"]),
+    source: z.object({
+      kind: z.string(),
+      id: z.string(),
+      version: z.string().optional(),
+    }),
+    observedAt: z.string(),
+    counts: z.object({
+      total: z.number().int().min(0),
+      returned: z.number().int().min(0),
+      omitted: z.number().int().min(0),
+    }),
+    failure: z.object({
+      classification: z.string(),
+      summary: z.string(),
+    }).optional(),
+  }),
+  entries: z.array(z.object({
+    normalizedModel: z.object({
+      family: z.string(),
+      version: z.string().optional(),
+    }),
+    providerRoute: z.object({
+      providerId: z.string(),
+      providerModelId: z.string(),
+      scope: z.string(),
+    }),
+    harnessRoute: z.object({
+      harnessId: z.string(),
+      reportedProviderId: z.string(),
+      reportedModelId: z.string(),
+    }).optional(),
+    rawEvidence: z.object({
+      rawId: z.string(),
+      provenance: z.string(),
+    }),
+    credentialEvidence: z.object({
+      state: z.enum(["authenticated", "missing", "expired", "not-required", "unknown"]),
+      source: z.string(),
+    }),
+    entitlementEvidence: z.object({
+      state: z.enum(["confirmed", "denied", "not-required", "unknown"]),
+      source: z.string(),
+    }),
+    freshness: z.object({
+      status: z.enum(["fresh", "stale", "unknown"]),
+      observedAt: z.string(),
+      expiresAt: z.string().optional(),
+    }),
+    routeHealth: z.object({
+      status: z.enum(["healthy", "unhealthy", "unknown"]),
+      reason: z.string().optional(),
+    }),
+    policyAdmission: z.object({
+      use: z.enum(["interactive", "managed-agent", "background"]),
+      status: z.enum(["admitted", "denied", "unknown"]),
+    }),
+    eligibility: z.object({
+      eligible: z.boolean(),
+      reasonCodes: z.array(z.string()),
+    }),
+  })),
+});
+
 const GuiAuthorityStatusSchema = z.object({
   effective: z.enum(["fail_closed", "read_only", "idempotent", "audited", "destructive", "unknown"]),
   admittedAuthority: z.enum(["fail_closed", "read_only", "idempotent", "audited", "destructive", "unknown"]).optional(),
@@ -486,6 +552,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
   z.object({
     type: z.literal("welcome"),
+    providerModelDiscovery: GuiProviderModelDiscoveryProjectionSchema,
     greeting: z.string().optional(),
     models: z.record(z.array(z.string())).optional(),
     providerDiscovery: z.array(GuiProviderDiscoveryResultSchema).optional(),
@@ -516,6 +583,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("provider_auth_completed"),
     provider: z.string(),
     requestId: z.string().trim().min(1),
+    providerModelDiscovery: GuiProviderModelDiscoveryProjectionSchema,
     models: z.record(z.array(z.string())),
     providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
     providers: z.array(GuiProviderDescriptorSchema).optional(),
@@ -528,9 +596,10 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("providers_refreshed"),
-    models: z.record(z.array(z.string())),
-    providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
-    providers: z.array(GuiProviderDescriptorSchema),
+    providerModelDiscovery: GuiProviderModelDiscoveryProjectionSchema,
+    models: z.record(z.array(z.string())).optional(),
+    providerDiscovery: z.array(GuiProviderDiscoveryResultSchema).optional(),
+    providers: z.array(GuiProviderDescriptorSchema).optional(),
   }),
   z.object({
     type: z.literal("provider_changed"),

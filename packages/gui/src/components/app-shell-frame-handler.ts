@@ -2,6 +2,7 @@ import {
   isOperatorThemeName,
   type GuiInboundFrame,
   type GuiOutboundFrame,
+  type GuiProviderModelDiscoveryProjection,
   type OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import type { ProviderDescriptor } from "../lib/session-store.js";
@@ -23,6 +24,7 @@ interface AppShellFrameHandlerInput {
   readonly onProvidersRefreshed: (
     providers: readonly ProviderDescriptor[],
     providerDiscovery?: Extract<GuiInboundFrame, { type: "providers_refreshed" }>["providerDiscovery"],
+    providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
   ) => void;
   readonly onExecConfirmed: () => void;
   readonly onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
@@ -101,14 +103,22 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
         return;
       case "provider_auth_completed":
         input.onProviderAuthCompleted(frame);
-        input.onProvidersRefreshed(frame.providers ?? input.getProviders(), frame.providerDiscovery);
+        input.onProvidersRefreshed(
+          frame.providers ?? input.getProviders(),
+          frame.providerDiscovery,
+          frame.providerModelDiscovery,
+        );
         input.refetchDashboard();
         return;
       case "provider_auth_failed":
         input.onProviderAuthFailed(frame);
         return;
       case "providers_refreshed":
-        input.onProvidersRefreshed(frame.providers, frame.providerDiscovery);
+        input.onProvidersRefreshed(
+          frame.providers ?? input.getProviders(),
+          frame.providerDiscovery,
+          frame.providerModelDiscovery,
+        );
         return;
       case "execution_mode_transitioned":
         input.onExecConfirmed();

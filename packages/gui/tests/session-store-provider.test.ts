@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GuiOutboundFrame } from "@kilnai/gateway-contracts";
+import type {
+  GuiOutboundFrame,
+  GuiProviderModelDiscoveryProjection,
+} from "@kilnai/gateway-contracts";
 import { useSessionStore } from "../src/lib/session-store.js";
 
 function resetSessionStore(): void {
@@ -13,6 +16,7 @@ function resetSessionStore(): void {
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [],
+    providerModelDiscovery: defaultProviderModelDiscovery(),
     activeProvider: null,
     activeModel: null,
     sessionList: [],
@@ -39,6 +43,61 @@ function resetSessionStore(): void {
     providerSwitchTimeoutId: null,
     providerAuthTimeoutId: null,
   });
+}
+
+function providerModelDiscovery(
+  providerId: string,
+  providerModelId: string,
+  eligible: boolean,
+  reasonCodes: readonly string[] = [],
+): GuiProviderModelDiscoveryProjection {
+  return {
+    catalogEvidence: {
+      status: "complete",
+      source: { kind: "test", id: "session-store-provider" },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: { total: 1, returned: 1, omitted: 0 },
+    },
+    entries: [{
+      providerRoute: { providerId, providerModelId },
+      eligibility: { eligible, reasonCodes },
+    } as GuiProviderModelDiscoveryProjection["entries"][number]],
+  };
+}
+
+function defaultProviderModelDiscovery(): GuiProviderModelDiscoveryProjection {
+  const routes = [
+    ["claude", "sonnet-4.6"],
+    ["claude", "claude-sonnet-4-6"],
+    ["codex", "o3"],
+    ["codex-oauth", "gpt-5.4"],
+    ["codex-oauth", "gpt-5.5"],
+    ["openai", "gpt-5"],
+  ] as const;
+  const projection = emptyProviderModelDiscovery();
+  return {
+    ...projection,
+    catalogEvidence: {
+      ...projection.catalogEvidence,
+      counts: { total: routes.length, returned: routes.length, omitted: 0 },
+    },
+    entries: routes.map(([providerId, providerModelId]) => ({
+      providerRoute: { providerId, providerModelId },
+      eligibility: { eligible: true, reasonCodes: [] },
+    } as GuiProviderModelDiscoveryProjection["entries"][number])),
+  };
+}
+
+function emptyProviderModelDiscovery(): GuiProviderModelDiscoveryProjection {
+  return {
+    catalogEvidence: {
+      status: "complete",
+      source: { kind: "test", id: "session-store-provider" },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: { total: 0, returned: 0, omitted: 0 },
+    },
+    entries: [],
+  };
 }
 
 function advertiseOpenAiModel(): void {
@@ -105,6 +164,128 @@ describe("session-store provider selection", () => {
       model: "sonnet-4.6",
       requestId: expect.any(String),
     });
+  });
+
+  it("switchProvider rejects a descriptor-advertised model that canonical discovery marks ineligible", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      providers: [{
+        id: "openai",
+        label: "OpenAI",
+        group: "direct-api",
+        free: false,
+        available: true,
+        models: ["gpt-5"],
+      }],
+      providerModelDiscovery: providerModelDiscovery("openai", "gpt-5", false, ["stale-catalog"]),
+    });
+
+    expect(useSessionStore.getState().switchProvider("openai", "gpt-5")).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().errorBanner).toBe(
+      "OpenAI model gpt-5 is not eligible: stale-catalog.",
+    );
+  });
+
+  it("welcome rejects an active selection that canonical discovery marks ineligible", () => {
+    useSessionStore.getState().onWelcome({
+      type: "welcome",
+      providers: [{
+        id: "openai",
+        label: "OpenAI",
+        group: "direct-api",
+        free: false,
+        available: true,
+        models: ["gpt-5"],
+      }],
+      providerModelDiscovery: providerModelDiscovery("openai", "gpt-5", false, ["policy-denied"]),
+      activeProvider: "openai",
+      activeModel: "gpt-5",
+      executionMode: "execute",
+    });
+
+    expect(useSessionStore.getState().activeProvider).toBeNull();
+    expect(useSessionStore.getState().activeModel).toBeNull();
+    expect(useSessionStore.getState().errorBanner).toBe(
+      "OpenAI model gpt-5 is not eligible: policy-denied.",
+    );
+  });
+
+  it("welcome does not restore a stored selection that canonical discovery marks ineligible", () => {
+    const send = vi.fn();
+    localStorage.setItem("kiln.gui.providerSelection", JSON.stringify({
+      provider: "openai",
+      model: "gpt-5",
+    }));
+    useSessionStore.getState().setSender(send);
+
+    useSessionStore.getState().onWelcome({
+      type: "welcome",
+      providers: [{
+        id: "openai",
+        label: "OpenAI",
+        group: "direct-api",
+        free: false,
+        available: true,
+        models: ["gpt-5"],
+      }],
+      providerModelDiscovery: providerModelDiscovery("openai", "gpt-5", false, ["missing-entitlement-evidence"]),
+      executionMode: "execute",
+    });
+
+    expect(send).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().errorBanner).toBe(
+      "OpenAI model gpt-5 is not eligible: missing-entitlement-evidence.",
+    );
+  });
+
+  it("projection-only refresh replaces discovery state and clears a newly ineligible active selection", () => {
+    const providers = [{
+      id: "openai",
+      label: "OpenAI",
+      group: "direct-api" as const,
+      free: false,
+      available: true,
+      models: ["gpt-5"],
+    }];
+    useSessionStore.setState({
+      providers,
+      providerModelDiscovery: providerModelDiscovery("openai", "gpt-5", true),
+      activeProvider: "openai",
+      activeModel: "gpt-5",
+      providerExplicitSelection: true,
+      routeMode: "user",
+    });
+    const replacement = providerModelDiscovery("openai", "gpt-5", false, ["route-unhealthy"]);
+
+    useSessionStore.getState().onProvidersRefreshed(providers, undefined, replacement);
+
+    const state = useSessionStore.getState();
+    expect(state.providerModelDiscovery).toBe(replacement);
+    expect(state.activeProvider).toBeNull();
+    expect(state.activeModel).toBeNull();
+    expect(state.errorBanner).toBe("OpenAI model gpt-5 is not eligible: route-unhealthy.");
+  });
+
+  it("projection-only refresh replaces discovery state when selection eligibility is unchanged", () => {
+    const providers = [{
+      id: "openai",
+      label: "OpenAI",
+      group: "direct-api" as const,
+      free: false,
+      available: true,
+      models: ["gpt-5"],
+    }];
+    useSessionStore.setState({
+      providers,
+      providerModelDiscovery: providerModelDiscovery("openai", "gpt-5", true),
+    });
+    const replacement = providerModelDiscovery("openai", "gpt-5", true);
+
+    useSessionStore.getState().onProvidersRefreshed(providers, undefined, replacement);
+
+    expect(useSessionStore.getState().providerModelDiscovery).toBe(replacement);
   });
 
   it("switchProvider rejects provider changes until the provider catalog is ready", () => {
@@ -180,7 +361,7 @@ describe("session-store provider selection", () => {
     ]);
   });
 
-  it("switchProvider accepts model-less Claude and emits a provider frame without model", () => {
+  it("switchProvider accepts available model-less Claude with an empty canonical model projection", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.setState({
@@ -194,6 +375,7 @@ describe("session-store provider selection", () => {
           models: [],
         },
       ],
+      providerModelDiscovery: emptyProviderModelDiscovery(),
     });
 
     const accepted = useSessionStore.getState().switchProvider("claude");
@@ -204,6 +386,47 @@ describe("session-store provider selection", () => {
       provider: "claude",
       requestId: expect.any(String),
     });
+  });
+
+  it("switchProvider rejects a model for a model-less provider even if canonical discovery contains it", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      providers: [{
+        id: "claude",
+        label: "Claude",
+        group: "harness",
+        free: false,
+        available: true,
+        models: [],
+      }],
+      providerModelDiscovery: providerModelDiscovery("claude", "sonnet-4.6", true),
+    });
+
+    expect(useSessionStore.getState().switchProvider("claude", "sonnet-4.6")).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("switchProvider fails a modeled route closed when canonical discovery is absent", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      providers: [{
+        id: "openai",
+        label: "OpenAI",
+        group: "direct-api",
+        free: false,
+        available: true,
+        models: ["gpt-5"],
+      }],
+      providerModelDiscovery: null,
+    });
+
+    expect(useSessionStore.getState().switchProvider("openai", "gpt-5")).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().errorBanner).toBe(
+      "OpenAI model gpt-5 is not eligible: canonical provider model discovery is unavailable.",
+    );
   });
 
   it("switchProvider rejects a known unavailable provider", () => {
@@ -521,6 +744,7 @@ describe("session-store provider selection", () => {
       models: {
         "codex-oauth": ["gpt-5.5"],
       },
+      providerModelDiscovery: defaultProviderModelDiscovery(),
       executionMode: "execute",
     });
 
@@ -567,6 +791,7 @@ describe("session-store provider selection", () => {
       },
       activeProvider: "openrouter",
       activeModel: "openrouter/free",
+      providerModelDiscovery: defaultProviderModelDiscovery(),
       executionMode: "execute",
     });
 
@@ -604,7 +829,7 @@ describe("session-store provider selection", () => {
         available: true,
         models: ["gpt-5.5"],
       },
-    ]);
+    ], undefined, defaultProviderModelDiscovery());
 
     expect(send).toHaveBeenCalledWith({
       type: "provider",
@@ -876,6 +1101,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "claude",
       activeModel: "claude-sonnet-4-6",
+      providerModelDiscovery: defaultProviderModelDiscovery(),
       executionMode: "execute",
     });
 
@@ -919,6 +1145,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "claude",
       activeModel: "claude-sonnet-4-6",
+      providerModelDiscovery: defaultProviderModelDiscovery(),
       executionMode: "execute",
     });
 
@@ -1119,6 +1346,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "openai",
       activeModel: "gpt-5",
+      providerModelDiscovery: defaultProviderModelDiscovery(),
       executionMode: "execute",
     });
 
@@ -1320,6 +1548,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "openai",
       activeModel: "gpt-5",
+      providerModelDiscovery: defaultProviderModelDiscovery(),
       executionMode: "execute",
     });
 
@@ -1546,6 +1775,7 @@ describe("session-store provider selection", () => {
       ],
       activeProvider: "claude",
       activeModel: "claude-sonnet-4-6",
+      providerModelDiscovery: defaultProviderModelDiscovery(),
       executionMode: "execute",
     });
     expect(useSessionStore.getState().routeMode).toBe("user");

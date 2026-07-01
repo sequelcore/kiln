@@ -12,6 +12,7 @@ import {
   presentOperatorSessionEvent,
   projectVoiceAudioOutputParts,
   type GuiProviderDiscoveryResult,
+  type GuiProviderModelDiscoveryProjection,
   type OperatorTurnRequestedAuthority,
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
@@ -250,6 +251,7 @@ export class GatewaySession implements SessionLike {
   private onWelcome: ((
     models: Record<string, string[]>,
     providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+    providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
   ) => void) | null = null;
 
   /** Pending queue items for the current turn. Set while a turn is in flight. */
@@ -287,6 +289,7 @@ export class GatewaySession implements SessionLike {
     onWelcome?: (
       models: Record<string, string[]>,
       providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+      providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
     ) => void,
   ) {
     this.userId = `kiln-tui-${randomUUID()}`;
@@ -622,13 +625,21 @@ export class GatewaySession implements SessionLike {
       });
     } else if (frame.type === "welcome") {
       if (frame.models && this.onWelcome) {
-        this.onWelcome(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[] | undefined);
+        this.onWelcome(
+          frame.models,
+          frame.providerDiscovery as readonly GuiProviderDiscoveryResult[] | undefined,
+          frame.providerModelDiscovery,
+        );
       }
       if ("executionMode" in frame) {
         this._planMode = frame.executionMode === "plan";
       }
     } else if (frame.type === "providers_refreshed") {
-      this.onWelcome?.(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[]);
+      this.onWelcome?.(
+        frame.models,
+        frame.providerDiscovery as readonly GuiProviderDiscoveryResult[],
+        frame.providerModelDiscovery,
+      );
       this.providerRefreshCallbacks?.resolve();
     } else if (frame.type === "provider_auth_started") {
       const pending = this.providerAuthCallbacks;
@@ -661,7 +672,11 @@ export class GatewaySession implements SessionLike {
         modelCount: frame.models?.[frame.provider]?.length,
         discovery: frame.providerDiscovery?.find((entry) => entry.provider === frame.provider),
       });
-      this.onWelcome?.(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[]);
+      this.onWelcome?.(
+        frame.models,
+        frame.providerDiscovery as readonly GuiProviderDiscoveryResult[],
+        frame.providerModelDiscovery,
+      );
       const pending = this.providerAuthCallbacks;
       if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {
         pending.resolve();

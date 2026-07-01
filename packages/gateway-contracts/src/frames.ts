@@ -164,6 +164,106 @@ export interface GuiProviderDiscoveryResult {
   readonly lastCheckedAt: string;
 }
 
+export type GuiProviderCatalogEvidenceStatus = "complete" | "partial" | "failed";
+
+export interface GuiProviderCatalogEvidenceSource {
+  readonly kind: string;
+  readonly id: string;
+  readonly version?: string;
+}
+
+export interface GuiProviderCatalogEvidenceCounts {
+  readonly total: number;
+  readonly returned: number;
+  readonly omitted: number;
+}
+
+export interface GuiProviderCatalogEvidenceFailure {
+  readonly classification: string;
+  readonly summary: string;
+}
+
+export interface GuiProviderCatalogEvidenceSummary {
+  readonly status: GuiProviderCatalogEvidenceStatus;
+  readonly source: GuiProviderCatalogEvidenceSource;
+  readonly observedAt: string;
+  readonly counts: GuiProviderCatalogEvidenceCounts;
+  readonly failure?: GuiProviderCatalogEvidenceFailure;
+}
+
+export interface GuiNormalizedModelIdentity {
+  readonly family: string;
+  readonly version?: string;
+}
+
+export interface GuiProviderModelRouteIdentity {
+  readonly providerId: string;
+  readonly providerModelId: string;
+  readonly scope: string;
+}
+
+export interface GuiHarnessModelRouteIdentity {
+  readonly harnessId: string;
+  readonly reportedProviderId: string;
+  readonly reportedModelId: string;
+}
+
+export interface GuiProviderModelRawEvidenceSummary {
+  readonly rawId: string;
+  readonly provenance: string;
+}
+
+export interface GuiProviderModelCredentialEvidence {
+  readonly state: "authenticated" | "missing" | "expired" | "not-required" | "unknown";
+  readonly source: string;
+}
+
+export interface GuiProviderModelEntitlementEvidence {
+  readonly state: "confirmed" | "denied" | "not-required" | "unknown";
+  readonly source: string;
+}
+
+export interface GuiProviderModelFreshness {
+  readonly status: "fresh" | "stale" | "unknown";
+  readonly observedAt: string;
+  readonly expiresAt?: string;
+}
+
+export interface GuiProviderModelRouteHealthEvidence {
+  readonly status: "healthy" | "unhealthy" | "unknown";
+  readonly reason?: string;
+}
+
+export interface GuiProviderModelPolicyAdmission {
+  readonly use: "interactive" | "managed-agent" | "background";
+  readonly status: "admitted" | "denied" | "unknown";
+}
+
+export type GuiProviderModelEligibilityReasonCode = string;
+
+export interface GuiProviderModelEligibility {
+  readonly eligible: boolean;
+  readonly reasonCodes: readonly GuiProviderModelEligibilityReasonCode[];
+}
+
+export interface GuiProviderModelRouteEntry {
+  readonly normalizedModel: GuiNormalizedModelIdentity;
+  readonly providerRoute: GuiProviderModelRouteIdentity;
+  readonly harnessRoute?: GuiHarnessModelRouteIdentity;
+  readonly rawEvidence: GuiProviderModelRawEvidenceSummary;
+  readonly credentialEvidence: GuiProviderModelCredentialEvidence;
+  readonly entitlementEvidence: GuiProviderModelEntitlementEvidence;
+  readonly freshness: GuiProviderModelFreshness;
+  readonly routeHealth: GuiProviderModelRouteHealthEvidence;
+  readonly policyAdmission: GuiProviderModelPolicyAdmission;
+  readonly eligibility: GuiProviderModelEligibility;
+}
+
+export interface GuiProviderModelDiscoveryProjection {
+  readonly catalogEvidence: GuiProviderCatalogEvidenceSummary;
+  readonly entries: readonly GuiProviderModelRouteEntry[];
+}
+
 export type GuiProviderAuthMethod = "device_code" | "api_key";
 
 export interface GuiProviderAuthDeviceCodeStarted {
@@ -183,6 +283,7 @@ export interface GuiProviderAuthCompleted {
   readonly models: Record<string, string[]>;
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly providers?: readonly GuiProviderDescriptor[];
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
 }
 
 export interface GuiProviderAuthFailed {
@@ -861,6 +962,7 @@ export type GuiInboundFrame =
   | { type: "error"; message: string; code?: string }
   | {
       type: "welcome";
+      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
       greeting?: string;
       models?: Record<string, string[]>;
       providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -885,9 +987,10 @@ export type GuiInboundFrame =
     | GuiProviderAuthFailed
     | {
       type: "providers_refreshed";
-      models: Record<string, string[]>;
-      providerDiscovery: readonly GuiProviderDiscoveryResult[];
-      providers: readonly GuiProviderDescriptor[];
+      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
+      models?: Record<string, string[]>;
+      providerDiscovery?: readonly GuiProviderDiscoveryResult[];
+      providers?: readonly GuiProviderDescriptor[];
     }
     | { type: "provider_changed"; provider: string; model?: string; requestId: string }
     | { type: "continuation_selected"; sessionId: string; gatewayTargetId?: string };

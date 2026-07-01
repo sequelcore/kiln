@@ -59,6 +59,7 @@ import type {
   OperatorCockpitAttachTarget,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
+  GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import {
   createEmptyOperatorWorkspaceHomeProjection,
@@ -122,6 +123,30 @@ export interface GatewayServerConfig {
   readonly validateToken?: WsRoutesConfig["validateToken"];
   /** Gateway-level JWT verifier. When set, applied to all API and admin routes. */
   readonly jwtVerifier?: JwtVerifyFn;
+}
+
+function emptyGuiProviderModelDiscoveryProjection(sourceId: string): GuiProviderModelDiscoveryProjection {
+  const observedAt = new Date().toISOString();
+  return {
+    catalogEvidence: {
+      status: "failed",
+      source: {
+        kind: "runtime-provider-catalog",
+        id: sourceId,
+      },
+      observedAt,
+      counts: {
+        total: 0,
+        returned: 0,
+        omitted: 0,
+      },
+      failure: {
+        classification: "catalog-unavailable",
+        summary: "Provider model discovery is unavailable for this gateway route.",
+      },
+    },
+    entries: [],
+  };
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -236,6 +261,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
           const selectedRuntime = resolveAppGatewayGuiRuntime(config);
           ws.send(JSON.stringify({
             type: "welcome",
+            providerModelDiscovery: emptyGuiProviderModelDiscoveryProjection("app-gateway"),
             models: {},
             providers: [],
             executionMode: "execute",
@@ -272,6 +298,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
           if (frame.type === "refresh_providers") {
             ws.send(JSON.stringify({
               type: "providers_refreshed",
+              providerModelDiscovery: emptyGuiProviderModelDiscoveryProjection("app-gateway"),
               models: {},
               providerDiscovery: [],
               providers: [],

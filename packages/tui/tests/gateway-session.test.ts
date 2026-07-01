@@ -1,6 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewaySession } from "../src/gateway-session.js";
 import { setTuiOperatorThemeHandler } from "../src/operator-theme-handler.js";
+import type { GuiProviderModelDiscoveryProjection } from "@kilnai/gateway-contracts";
+
+const EMPTY_PROVIDER_MODEL_DISCOVERY: GuiProviderModelDiscoveryProjection = {
+  catalogEvidence: {
+    status: "failed",
+    source: {
+      kind: "test",
+      id: "tui-gateway-session",
+    },
+    observedAt: "2026-07-01T00:00:00.000Z",
+    counts: {
+      total: 0,
+      returned: 0,
+      omitted: 0,
+    },
+    failure: {
+      classification: "catalog-unavailable",
+      summary: "No provider model discovery fixture.",
+    },
+  },
+  entries: [],
+};
 
 let wsInstances: MockWebSocket[] = [];
 
@@ -1041,10 +1063,15 @@ describe("GatewaySession provider authentication", () => {
       requestId: frame.requestId,
       models: { "opencode-go": ["minimax-m2.5"] },
       providerDiscovery: [],
+      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
     }));
 
     await expect(promise).resolves.toBeUndefined();
-    expect(onWelcome).toHaveBeenCalledWith({ "opencode-go": ["minimax-m2.5"] }, []);
+    expect(onWelcome).toHaveBeenCalledWith(
+      { "opencode-go": ["minimax-m2.5"] },
+      [],
+      EMPTY_PROVIDER_MODEL_DISCOVERY,
+    );
     await session.dispose();
   });
 
@@ -1079,6 +1106,7 @@ describe("GatewaySession provider authentication", () => {
       requestId: frame.requestId,
       models: { "codex-oauth": ["gpt-5.4"] },
       providerDiscovery: [],
+      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
     }));
 
     await expect(promise).resolves.toBeUndefined();

@@ -1,7 +1,11 @@
 import { execSync } from "node:child_process";
 import {
   OPENCODE_BASE_URL,
+  createProviderModelEvidence,
+  deriveProviderModelEligibility,
   formatProviderModelRouteCooldown,
+  type ProviderModelEvidence,
+  type ProviderModelEvidenceValue,
 } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
@@ -17,9 +21,13 @@ import {
   type GuiProviderDiscoveryResult,
   type GuiProviderDiscoveryStatus,
   type GuiProviderModelCapabilities,
+  type GuiProviderModelDiscoveryProjection,
+  type GuiProviderModelEligibility,
+  type GuiProviderModelRouteEntry,
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
 } from "@kilnai/gateway-contracts";
+import { normalizeRuntimeProviderDiscoveryCatalog } from "./provider-model-adapters/runtime-discovery-catalogs.js";
 
 const KNOWN_GUI_PROVIDER_IDS = new Set<string>(GUI_PROVIDER_DISPLAY_ORDER);
 
@@ -286,6 +294,132 @@ export function projectGuiOperatorModels(
   );
 }
 
+export function projectGuiProviderModelDiscovery(
+  discovery: readonly GuiProviderDiscoveryResult[],
+  options: { readonly observedAt?: string } = {},
+): GuiProviderModelDiscoveryProjection {
+  const observedAt = options.observedAt ?? new Date().toISOString();
+  const catalogs = discovery.map((entry) => normalizeRuntimeProviderDiscoveryCatalog({
+    providerId: entry.provider,
+    family: runtimeAdapterFamily(entry.provider),
+    discovery: {
+      models: entry.models,
+      status: entry.status,
+      reason: entry.reason,
+      authState: entry.authState,
+    },
+    observedAt: entry.lastCheckedAt || observedAt,
+    freshness: entry.status === "stale" ? "stale" : "fresh",
+    ...(isHarnessProvider(entry.provider)
+      ? {
+          harnessId: entry.provider,
+          reportedProviderId: entry.provider,
+        }
+      : {}),
+  }));
+  const entries = catalogs.flatMap((catalog) => catalog.routes.map((catalogRoute) => {
+    const route = enrichRouteHealthEvidence(catalogRoute, discovery, observedAt);
+    const sourceEntry = discovery.find((item) => item.provider === route.identity.route.providerId);
+    const rawEvidence = catalog.rawEntries.find((raw) =>
+      raw.providerModelId === route.identity.route.providerModelId
+      && raw.scope === route.identity.route.scope
+    );
+    const decision = deriveProviderModelEligibility(route, {
+      use: "interactive",
+      evaluatedAt: observedAt,
+      requiredStates: [
+        "discovered",
+        "configured",
+        "authenticated",
+        "entitled",
+        "capabilityCompatible",
+        "policyAdmitted",
+        "routeHealthy",
+      ],
+      requiredCapabilities: [],
+      minimumCapabilityAuthority: "harness-reported",
+      minimumStateAuthority: "harness-reported",
+      requireProbe: false,
+    }, []);
+    return projectGuiProviderModelRouteEntry({
+      route,
+      rawId: rawEvidence?.rawId ?? route.identity.route.providerModelId,
+      rawProvenance: rawEvidence?.provenance ?? catalog.source.id,
+      observedAt: catalog.observedAt,
+      expiresAt: route.observations.find((observation) => observation.expiresAt)?.expiresAt,
+      discovery: sourceEntry,
+      eligibility: {
+        eligible: decision.eligible,
+        reasonCodes: decision.reasons,
+      },
+    });
+  }));
+  const total = catalogs.reduce((sum, catalog) => sum + catalog.rawEntries.length, 0);
+  const failure = catalogs.flatMap((catalog) => catalog.failures)[0];
+  return {
+    catalogEvidence: {
+      status: classifyGuiProviderCatalogEvidence(catalogs),
+      source: {
+        kind: "runtime-provider-catalog",
+        id: "gui-provider-model-discovery",
+      },
+      observedAt,
+      counts: {
+        total,
+        returned: entries.length,
+        omitted: Math.max(0, total - entries.length),
+      },
+      ...(failure
+        ? {
+            failure: {
+              classification: failure.classification,
+              summary: failure.summary,
+            },
+          }
+        : {}),
+    },
+    entries,
+  };
+}
+
+function enrichRouteHealthEvidence(
+  route: ProviderModelEvidence,
+  discovery: readonly GuiProviderDiscoveryResult[],
+  observedAt: string,
+): ProviderModelEvidence {
+  const diagnostic = discovery.find((entry) =>
+    entry.provider === route.identity.route.providerId
+  )?.modelRouteHealth?.[route.identity.route.providerModelId];
+  if (!diagnostic) return route;
+
+  const source = {
+    kind: "runtime-diagnostic" as const,
+    id: `route-health:${route.identity.route.providerId}`,
+  };
+  const routeHealthValue = diagnostic.healthy ? "confirmed" : "denied";
+  return createProviderModelEvidence({
+    identity: route.identity,
+    aliases: route.aliases,
+    states: {
+      ...route.states,
+      routeHealthy: routeHealthValue,
+    },
+    observations: [
+      ...route.observations,
+      {
+        state: "routeHealthy",
+        value: routeHealthValue,
+        provenance: source.id,
+        authority: "runtime-observed",
+        source,
+        observedAt,
+        freshness: "fresh",
+      },
+    ],
+    failures: route.failures,
+  });
+}
+
 export function markGuiProviderDiscoveryStale(
   discovery: readonly GuiProviderDiscoveryResult[],
 ): GuiProviderDiscoveryResult[] {
@@ -298,6 +432,138 @@ export function markGuiProviderDiscoveryStale(
       ? entry.reason
       : `Cached provider discovery from ${entry.lastCheckedAt}; refresh is pending. ${entry.reason}`,
   }));
+}
+
+function projectGuiProviderModelRouteEntry(input: {
+  readonly route: ProviderModelEvidence;
+  readonly rawId: string;
+  readonly rawProvenance: string;
+  readonly observedAt: string;
+  readonly expiresAt?: string;
+  readonly discovery?: GuiProviderDiscoveryResult;
+  readonly eligibility: GuiProviderModelEligibility;
+}): GuiProviderModelRouteEntry {
+  const routeHealth = input.discovery?.modelRouteHealth?.[input.route.identity.route.providerModelId];
+  const routeHealthState = evidenceState(input.route, "routeHealthy");
+  const policyState = evidenceState(input.route, "policyAdmitted");
+  return {
+    normalizedModel: input.route.identity.normalizedModel,
+    providerRoute: input.route.identity.route,
+    ...(input.route.identity.harness ? { harnessRoute: input.route.identity.harness } : {}),
+    rawEvidence: {
+      rawId: input.rawId,
+      provenance: input.rawProvenance,
+    },
+    credentialEvidence: {
+      state: credentialEvidenceState(evidenceState(input.route, "authenticated")),
+      source: evidenceSourceId(input.route, "authenticated"),
+    },
+    entitlementEvidence: {
+      state: entitlementEvidenceState(evidenceState(input.route, "entitled")),
+      source: evidenceSourceId(input.route, "entitled"),
+    },
+    freshness: {
+      status: freshnessStatus(input.route),
+      observedAt: input.observedAt,
+      ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+    },
+    routeHealth: {
+      status: routeHealth?.healthy === false
+        ? "unhealthy"
+        : routeHealthState === "confirmed"
+          ? "healthy"
+          : routeHealthState === "denied"
+            ? "unhealthy"
+            : "unknown",
+      ...(routeHealth?.reason ? { reason: routeHealth.reason } : {}),
+    },
+    policyAdmission: {
+      use: "interactive",
+      status: policyState === "confirmed"
+        ? "admitted"
+        : policyState === "denied"
+          ? "denied"
+          : "unknown",
+    },
+    eligibility: input.eligibility,
+  };
+}
+
+function classifyGuiProviderCatalogEvidence(
+  catalogs: readonly ReturnType<typeof normalizeRuntimeProviderDiscoveryCatalog>[],
+): GuiProviderModelDiscoveryProjection["catalogEvidence"]["status"] {
+  if (catalogs.length === 0) {
+    return "failed";
+  }
+  if (catalogs.every((catalog) => catalog.classification === "available")) {
+    return "complete";
+  }
+  if (catalogs.every((catalog) => catalog.rawEntries.length === 0 && catalog.failures.length > 0)) {
+    return "failed";
+  }
+  return "partial";
+}
+
+function evidenceState(
+  evidence: ProviderModelEvidence,
+  state: keyof ProviderModelEvidence["states"],
+): ProviderModelEvidenceValue {
+  return evidence.states[state];
+}
+
+function credentialEvidenceState(
+  state: ProviderModelEvidenceValue,
+): GuiProviderModelRouteEntry["credentialEvidence"]["state"] {
+  if (state === "confirmed") return "authenticated";
+  if (state === "denied") return "missing";
+  if (state === "not-required") return "not-required";
+  return "unknown";
+}
+
+function entitlementEvidenceState(
+  state: ProviderModelEvidenceValue,
+): GuiProviderModelRouteEntry["entitlementEvidence"]["state"] {
+  if (state === "confirmed") return "confirmed";
+  if (state === "denied") return "denied";
+  if (state === "not-required") return "not-required";
+  return "unknown";
+}
+
+function freshnessStatus(
+  evidence: ProviderModelEvidence,
+): GuiProviderModelRouteEntry["freshness"]["status"] {
+  const freshnessValues = evidence.observations.map((observation) => observation.freshness);
+  if (freshnessValues.includes("stale") || freshnessValues.includes("expired")) {
+    return "stale";
+  }
+  if (freshnessValues.length > 0 && freshnessValues.every((freshness) => freshness === "fresh")) {
+    return "fresh";
+  }
+  return "unknown";
+}
+
+function evidenceSourceId(
+  evidence: ProviderModelEvidence,
+  state: keyof ProviderModelEvidence["states"],
+): string {
+  return evidence.observations.find((observation) => observation.state === state)?.source.id
+    ?? evidence.aliases[0]?.source.id
+    ?? evidence.identity.route.providerId;
+}
+
+function runtimeAdapterFamily(
+  providerId: string,
+): Parameters<typeof normalizeRuntimeProviderDiscoveryCatalog>[0]["family"] {
+  if (providerId === "codex") return "codex-harness";
+  if (providerId === "opencode") return "opencode-harness";
+  if (providerId === "openrouter") return "openrouter";
+  if (providerId === "ollama" || providerId === "lmstudio") return "local-provider";
+  if (providerId === "opencode-go" || providerId === "opencode-zen") return "opencode-service";
+  return "direct-provider";
+}
+
+function isHarnessProvider(providerId: string): boolean {
+  return providerId === "codex" || providerId === "opencode";
 }
 
 function normalizeModelIds(models: readonly string[]): string[] {
@@ -410,22 +676,22 @@ async function attachProviderModelRouteHealth(
       const decision = await routeHealthStore.evaluateRouteHealth(provider, model);
       return [model, decision] as const;
     }));
-    const unhealthyRouteHealth = Object.fromEntries(routeHealthEntries.flatMap(([model, decision]) => (
-      decision.healthy
-        ? []
-        : [[
-            model,
-            {
-              healthy: false,
+    const modelRouteHealth = Object.fromEntries(routeHealthEntries.map(([model, decision]) => ([
+      model,
+      {
+        healthy: decision.healthy,
+        ...(!decision.healthy
+          ? {
               reason: formatProviderModelRouteCooldown(decision),
               ...(decision.cooldownUntil ? { cooldownUntil: decision.cooldownUntil } : {}),
-            } satisfies GuiProviderModelRouteHealth,
-          ] as const]
-    )));
+            }
+          : {}),
+      } satisfies GuiProviderModelRouteHealth,
+    ] as const)));
     return [
       provider,
-      Object.keys(unhealthyRouteHealth).length > 0
-        ? { ...discovery, modelRouteHealth: unhealthyRouteHealth }
+      Object.keys(modelRouteHealth).length > 0
+        ? { ...discovery, modelRouteHealth }
         : discovery,
     ] as const;
   }));
@@ -2021,6 +2287,7 @@ export function resolveGuiProviderSwitch(input: {
   readonly model: unknown;
   readonly models?: Record<string, string[]>;
   readonly discovery?: readonly GuiProviderDiscoveryResult[];
+  readonly providerModelDiscovery?: GuiProviderModelDiscoveryProjection;
 }): GuiProviderSwitchResolution {
   const nextProvider = typeof input.provider === "string" ? input.provider.trim() : "";
   if (!nextProvider) {
@@ -2043,9 +2310,13 @@ export function resolveGuiProviderSwitch(input: {
       error: discoveryResult.reason,
     };
   }
-  const discoveredProviderModels = discoveryResult
-    ? [...discoveryResult.models]
-    : input.models?.[nextProvider];
+  const discoveredProviderModels = input.providerModelDiscovery
+    ? input.providerModelDiscovery.entries
+        .filter((entry) => entry.providerRoute.providerId === nextProvider)
+        .map((entry) => entry.providerRoute.providerModelId)
+    : discoveryResult
+      ? [...discoveryResult.models]
+      : input.models?.[nextProvider];
   if (discoveredProviderModels === undefined) {
     return {
       ok: false,
@@ -2081,14 +2352,31 @@ export function resolveGuiProviderSwitch(input: {
       error: providerRequiresSelectedModelMessage(nextProvider),
     };
   }
-  if (!providerModels.includes(requestedModel)) {
+  const canonicalRoute = input.providerModelDiscovery?.entries.find((entry) =>
+    entry.providerRoute.providerId === nextProvider
+    && entry.providerRoute.providerModelId === requestedModel
+  );
+  if (input.providerModelDiscovery && !canonicalRoute) {
+    return {
+      ok: false,
+      error: `Provider '${nextProvider}' does not advertise model '${requestedModel}'`,
+    };
+  }
+  if (canonicalRoute && !canonicalRoute.eligibility.eligible) {
+    return {
+      ok: false,
+      error: canonicalRoute.routeHealth.reason
+        ?? `Provider '${nextProvider}' model '${requestedModel}' is not eligible (${canonicalRoute.eligibility.reasonCodes.join(", ")})`,
+    };
+  }
+  if (!input.providerModelDiscovery && !providerModels.includes(requestedModel)) {
     return {
       ok: false,
       error: `Provider '${nextProvider}' does not advertise model '${requestedModel}'`,
     };
   }
   const routeHealth = discoveryResult?.modelRouteHealth?.[requestedModel];
-  if (routeHealth && !routeHealth.healthy) {
+  if (!input.providerModelDiscovery && routeHealth && !routeHealth.healthy) {
     return {
       ok: false,
       error: routeHealth.reason ?? `Provider '${nextProvider}' model '${requestedModel}' is cooling down`,

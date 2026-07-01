@@ -116,6 +116,7 @@ export function AppShell() {
   const timelineEntries = useSessionStore((state) => state.timelineEntries);
   const sessionEvents = useSessionStore((state) => state.sessionEvents);
   const providers = useSessionStore((state) => state.providers);
+  const providerModelDiscovery = useSessionStore((state) => state.providerModelDiscovery);
   const providerDiscovery = useSessionStore((state) => state.providerDiscovery);
   const planMode = useSessionStore((state) => state.planMode);
   const activity = useSessionStore((state) => state.activity);
@@ -1122,6 +1123,7 @@ export function AppShell() {
       <ProviderPicker
         open={isProviderPickerOpen}
         providers={providers}
+        providerModelDiscovery={providerModelDiscovery}
         activeProvider={activeProvider}
         activeModel={activeModel}
         onSwitchProvider={providerPickerActions.onSwitchProvider}

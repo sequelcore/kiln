@@ -7,6 +7,7 @@ import {
   type GuiInboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
+  type GuiProviderModelDiscoveryProjection,
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
   type OperatorExecutionMode,
@@ -58,6 +59,7 @@ import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import {
   markGuiProviderDiscoveryStale,
+  projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
@@ -133,6 +135,7 @@ export interface TuiGateway {
   readonly port: number;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   /** Gracefully stop the gateway server. */
   shutdown(): void;
 }
@@ -219,12 +222,14 @@ export function deriveTuiDoneAuthorityStatus(
 }
 
 export function buildTuiWelcomeFramePayload(input: {
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly executionMode: OperatorExecutionMode;
   readonly authorityStatus: TuiAuthorityStatus;
 }): {
   readonly type: "welcome";
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly executionMode: OperatorExecutionMode;
@@ -232,6 +237,7 @@ export function buildTuiWelcomeFramePayload(input: {
 } {
   return {
     type: "welcome",
+    providerModelDiscovery: input.providerModelDiscovery,
     models: input.models,
     ...(input.providerDiscovery ? { providerDiscovery: input.providerDiscovery } : {}),
     executionMode: input.executionMode,
@@ -478,6 +484,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             const currentDiscovery = applyDiscovery(snapshot.discovery);
             ws.send(JSON.stringify({
               type: "providers_refreshed",
+              providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               models: projectGuiOperatorModels(currentDiscovery),
               providerDiscovery: currentDiscovery,
             }));
@@ -508,6 +515,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             ),
           );
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
+            providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
             models: currentModels,
             providerDiscovery: currentDiscovery,
             executionMode: options.executionMode ?? "execute",
@@ -548,6 +556,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               const currentDiscovery = await refreshDiscovery({ force: true });
               ws.send(JSON.stringify({
                 type: "providers_refreshed",
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
               }));
@@ -621,6 +630,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 type: "provider_auth_completed",
                 provider: auth.provider,
                 requestId: auth.requestId,
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
               }));
@@ -640,6 +650,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 provider: frame.provider,
                 model: frame.model,
                 discovery: currentDiscovery,
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               });
               if (!resolution.ok) {
                 ws.send(JSON.stringify({ type: "error", message: resolution.error }));
@@ -989,6 +1000,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     get providerDiscovery() {
       readDiscovery();
       return providerDiscovery;
+    },
+    get providerModelDiscovery() {
+      readDiscovery();
+      return projectGuiProviderModelDiscovery(providerDiscovery);
     },
     shutdown: () => server.stop(),
   };
@@ -1402,6 +1417,7 @@ export function resolveTuiProviderSwitch(input: {
   readonly model: unknown;
   readonly models?: Record<string, string[]>;
   readonly discovery?: readonly GuiProviderDiscoveryResult[];
+  readonly providerModelDiscovery?: GuiProviderModelDiscoveryProjection;
 }):
   | { readonly ok: true; readonly provider: string; readonly model: string }
   | { readonly ok: false; readonly error: string } {
@@ -1414,9 +1430,13 @@ export function resolveTuiProviderSwitch(input: {
   if (discoveryResult && !discoveryResult.available) {
     return { ok: false, error: discoveryResult.reason };
   }
-  const discoveredProviderModels = discoveryResult
-    ? [...discoveryResult.models]
-    : input.models?.[provider];
+  const discoveredProviderModels = input.providerModelDiscovery
+    ? input.providerModelDiscovery.entries
+        .filter((entry) => entry.providerRoute.providerId === provider)
+        .map((entry) => entry.providerRoute.providerModelId)
+    : discoveryResult
+      ? [...discoveryResult.models]
+      : input.models?.[provider];
   if (!discoveredProviderModels) {
     return { ok: false, error: `Provider '${provider}' is unavailable` };
   }
@@ -1436,11 +1456,25 @@ export function resolveTuiProviderSwitch(input: {
   if (!model) {
     return { ok: false, error: providerRequiresSelectedModelMessage(provider) };
   }
-  if (!providerModels.includes(model)) {
+  const canonicalRoute = input.providerModelDiscovery?.entries.find((entry) =>
+    entry.providerRoute.providerId === provider
+    && entry.providerRoute.providerModelId === model
+  );
+  if (input.providerModelDiscovery && !canonicalRoute) {
+    return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` };
+  }
+  if (canonicalRoute && !canonicalRoute.eligibility.eligible) {
+    return {
+      ok: false,
+      error: canonicalRoute.routeHealth.reason
+        ?? `Provider '${provider}' model '${model}' is not eligible (${canonicalRoute.eligibility.reasonCodes.join(", ")})`,
+    };
+  }
+  if (!input.providerModelDiscovery && !providerModels.includes(model)) {
     return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` };
   }
   const routeHealth = discoveryResult?.modelRouteHealth?.[model];
-  if (routeHealth && !routeHealth.healthy) {
+  if (!input.providerModelDiscovery && routeHealth && !routeHealth.healthy) {
     return {
       ok: false,
       error: routeHealth.reason ?? `Provider '${provider}' model '${model}' is cooling down`,
