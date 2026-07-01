@@ -184,7 +184,34 @@ export type {
   ManagedInvocationToolRoute,
 } from "./agents/managed-invocation/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
-export type { ProviderCatalogService, ProviderCatalogSnapshot } from "./gateway/provider-catalog-service.js";
+export type {
+  ProviderCatalogClassification,
+  ProviderCatalogEvidence,
+  ProviderCatalogFreshness,
+  ProviderCatalogService,
+  ProviderCatalogSnapshot,
+} from "./gateway/provider-catalog-service.js";
+export {
+  normalizeProviderCatalogObservation,
+} from "./gateway/provider-model-adapters/catalog-normalization.js";
+export type {
+  NormalizedProviderCatalogObservation,
+  NormalizedProviderCatalogRawEntry,
+  ProviderCatalogFailureInput,
+  ProviderCatalogObservationClassification,
+  ProviderCatalogObservationInput,
+  ProviderCatalogObservationStatus,
+  ProviderCatalogRawEntryInput,
+  ProviderCatalogStateEvidenceInput,
+} from "./gateway/provider-model-adapters/catalog-normalization.js";
+export {
+  normalizeRuntimeProviderDiscoveryCatalog,
+} from "./gateway/provider-model-adapters/runtime-discovery-catalogs.js";
+export type {
+  RuntimeProviderAdapterFamily,
+  RuntimeProviderCatalogInput,
+  RuntimeProviderModelDiscoverySnapshot,
+} from "./gateway/provider-model-adapters/runtime-discovery-catalogs.js";
 export {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,

@@ -11,17 +11,32 @@ describe("createProviderCatalogService", () => {
     const listener = vi.fn();
     service.subscribe(listener);
 
-    expect(service.snapshot()).toEqual({ status: "pending", discovery: [] });
+    expect(service.snapshot()).toMatchObject({
+      status: "pending",
+      discovery: [],
+      freshness: "unknown",
+      classification: "unavailable",
+      catalogEvidenceCurrent: false,
+    });
 
     service.startBackgroundRefresh({ force: true });
-    expect(service.snapshot()).toEqual({ status: "pending", discovery: [] });
+    expect(service.snapshot()).toMatchObject({
+      status: "pending",
+      discovery: [],
+      freshness: "unknown",
+      classification: "unavailable",
+      catalogEvidenceCurrent: false,
+    });
 
     resolveDiscovery(["gpt-5.4"]);
-    await expect(service.ensureReady()).resolves.toEqual({
+    await expect(service.ensureReady()).resolves.toMatchObject({
       status: "ready",
       discovery: ["gpt-5.4"],
+      freshness: "fresh",
+      classification: "available",
+      catalogEvidenceCurrent: true,
     });
-    expect(listener).toHaveBeenCalledWith({ status: "ready", discovery: ["gpt-5.4"] });
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ status: "ready", discovery: ["gpt-5.4"] }));
   });
 
   it("keeps a ready snapshot usable while a forced refresh is in flight", async () => {
@@ -34,17 +49,30 @@ describe("createProviderCatalogService", () => {
       }));
     const service = createProviderCatalogService(resolveDiscovery, []);
 
-    await expect(service.refresh({ force: true })).resolves.toEqual({
+    await expect(service.refresh({ force: true })).resolves.toMatchObject({
       status: "ready",
       discovery: ["first"],
+      freshness: "fresh",
+      classification: "available",
+      catalogEvidenceCurrent: true,
     });
 
     const second = service.refresh({ force: true });
-    expect(service.snapshot()).toEqual({ status: "refreshing", discovery: ["first"] });
-    await expect(service.ensureReady()).resolves.toEqual({ status: "refreshing", discovery: ["first"] });
+    expect(service.snapshot()).toMatchObject({
+      status: "refreshing",
+      discovery: ["first"],
+      freshness: "fresh",
+      classification: "available",
+      catalogEvidenceCurrent: true,
+    });
+    await expect(service.ensureReady()).resolves.toMatchObject({
+      status: "refreshing",
+      discovery: ["first"],
+      catalogEvidenceCurrent: true,
+    });
 
     resolveSecond(["second"]);
-    await expect(second).resolves.toEqual({ status: "ready", discovery: ["second"] });
+    await expect(second).resolves.toMatchObject({ status: "ready", discovery: ["second"] });
   });
 
   it("serves initial discovery immediately and publishes fresh discovery after refresh", async () => {
@@ -58,11 +86,74 @@ describe("createProviderCatalogService", () => {
       },
     );
 
-    expect(service.snapshot()).toEqual({ status: "ready", discovery: ["cached"] });
+    expect(service.snapshot()).toMatchObject({
+      status: "ready",
+      discovery: ["cached"],
+      freshness: "stale",
+      classification: "stale",
+      catalogEvidenceCurrent: false,
+    });
 
     const refresh = service.refresh({ force: true });
-    expect(service.snapshot()).toEqual({ status: "refreshing", discovery: ["cached"] });
-    await expect(refresh).resolves.toEqual({ status: "ready", discovery: ["fresh"] });
+    expect(service.snapshot()).toMatchObject({ status: "refreshing", discovery: ["cached"] });
+    await expect(refresh).resolves.toMatchObject({ status: "ready", discovery: ["fresh"] });
     expect(onDiscoveryResolved).toHaveBeenCalledWith(["fresh"]);
+  });
+
+  it("classifies seeded discovery as stale diagnostic evidence until a refresh resolves", async () => {
+    const service = createProviderCatalogService(
+      vi.fn<() => Promise<string[]>>().mockResolvedValue(["fresh"]),
+      [],
+      {
+        initialDiscovery: ["cached"],
+        initialFreshness: "stale",
+      },
+    );
+
+    expect(service.snapshot()).toMatchObject({
+      status: "ready",
+      discovery: ["cached"],
+      freshness: "stale",
+      classification: "stale",
+      catalogEvidenceCurrent: false,
+      evidence: [{
+        classification: "stale",
+        summary: "Seeded provider catalog requires refresh before admission.",
+      }],
+    });
+
+    await expect(service.refresh({ force: true })).resolves.toMatchObject({
+      status: "ready",
+      discovery: ["fresh"],
+      freshness: "fresh",
+      classification: "available",
+      catalogEvidenceCurrent: true,
+    });
+  });
+
+  it("retains stale discovery as inspectable failed evidence when refresh fails", async () => {
+    const service = createProviderCatalogService(
+      vi.fn<() => Promise<string[]>>().mockRejectedValue(new Error("network unavailable")),
+      [],
+      {
+        initialDiscovery: ["cached"],
+        initialFreshness: "stale",
+      },
+    );
+
+    await expect(service.refresh({ force: true })).rejects.toThrow("network unavailable");
+
+    expect(service.snapshot()).toMatchObject({
+      status: "error",
+      discovery: ["cached"],
+      freshness: "stale",
+      classification: "failed",
+      catalogEvidenceCurrent: false,
+      error: "network unavailable",
+      evidence: [{
+        classification: "failed",
+        summary: "Provider catalog refresh failed: network unavailable",
+      }],
+    });
   });
 });

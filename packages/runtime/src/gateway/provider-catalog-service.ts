@@ -1,9 +1,21 @@
 import type { GuiProviderCatalogStatus } from "@kilnai/gateway-contracts";
 import { createProviderDiscoveryCache, DEFAULT_PROVIDER_DISCOVERY_CACHE_TTL_MS } from "./provider-discovery-cache.js";
 
+export type ProviderCatalogFreshness = "fresh" | "stale" | "unknown";
+export type ProviderCatalogClassification = "available" | "stale" | "failed" | "unavailable";
+
+export interface ProviderCatalogEvidence {
+  readonly classification: ProviderCatalogClassification;
+  readonly summary: string;
+}
+
 export interface ProviderCatalogSnapshot<TDiscovery> {
   readonly status: GuiProviderCatalogStatus;
   readonly discovery: TDiscovery;
+  readonly freshness: ProviderCatalogFreshness;
+  readonly classification: ProviderCatalogClassification;
+  readonly catalogEvidenceCurrent: boolean;
+  readonly evidence: readonly ProviderCatalogEvidence[];
   readonly error?: string;
 }
 
@@ -18,6 +30,7 @@ export interface ProviderCatalogService<TDiscovery> {
 export interface ProviderCatalogServiceOptions<TDiscovery> {
   readonly ttlMs?: number;
   readonly initialDiscovery?: TDiscovery;
+  readonly initialFreshness?: ProviderCatalogFreshness;
   readonly onDiscoveryResolved?: (discovery: TDiscovery) => void;
 }
 
@@ -35,12 +48,25 @@ export function createProviderCatalogService<TDiscovery>(
   const listeners = new Set<(snapshot: ProviderCatalogSnapshot<TDiscovery>) => void>();
   let discovery = options.initialDiscovery ?? emptyDiscovery;
   let status: GuiProviderCatalogStatus = options.initialDiscovery ? "ready" : "pending";
+  let freshness: ProviderCatalogFreshness = options.initialDiscovery
+    ? options.initialFreshness ?? "stale"
+    : "unknown";
+  let classification: ProviderCatalogClassification = options.initialDiscovery
+    ? classifyFreshness(freshness)
+    : "unavailable";
+  let evidence: readonly ProviderCatalogEvidence[] = options.initialDiscovery
+    ? evidenceFor(classification, undefined)
+    : [];
   let error: string | undefined;
   let inflight: Promise<ProviderCatalogSnapshot<TDiscovery>> | undefined;
 
   const snapshot = (): ProviderCatalogSnapshot<TDiscovery> => ({
     status,
     discovery,
+    freshness,
+    classification,
+    catalogEvidenceCurrent: freshness === "fresh" && classification === "available",
+    evidence,
     ...(error ? { error } : {}),
   });
 
@@ -61,13 +87,20 @@ export function createProviderCatalogService<TDiscovery>(
       .then((nextDiscovery) => {
         discovery = nextDiscovery;
         status = "ready";
+        freshness = "fresh";
+        classification = "available";
+        evidence = evidenceFor(classification, undefined);
         error = undefined;
         notify();
         return snapshot();
       })
       .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
         status = "error";
-        error = err instanceof Error ? err.message : String(err);
+        freshness = "stale";
+        classification = "failed";
+        evidence = evidenceFor(classification, message);
+        error = message;
         notify();
         throw err;
       })
@@ -98,4 +131,24 @@ export function createProviderCatalogService<TDiscovery>(
       };
     },
   };
+}
+
+function classifyFreshness(freshness: ProviderCatalogFreshness): ProviderCatalogClassification {
+  return freshness === "fresh" ? "available" : "stale";
+}
+
+function evidenceFor(
+  classification: ProviderCatalogClassification,
+  detail: string | undefined,
+): readonly ProviderCatalogEvidence[] {
+  switch (classification) {
+    case "available":
+      return [{ classification, summary: "Provider catalog is fresh." }];
+    case "failed":
+      return [{ classification, summary: `Provider catalog refresh failed: ${detail ?? "unknown error"}` }];
+    case "stale":
+      return [{ classification, summary: "Seeded provider catalog requires refresh before admission." }];
+    case "unavailable":
+      return [{ classification, summary: "Provider catalog is unavailable." }];
+  }
 }

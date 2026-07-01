@@ -1,6 +1,6 @@
 # 05 - Provider Model Eligibility Plane
 
-Status: Active; Slice 1 closed
+Status: Active; Slice 2 closed
 
 Created: 2026-07-01
 
@@ -121,7 +121,7 @@ contradiction. The approved ownership and migration decisions are:
 | Slice | Status | Deliverable | Commit |
 | --- | --- | --- | --- |
 | 1. Semantics and evidence contracts | Closed | Provider-neutral identities, evidence vocabulary, provenance/authority/freshness, failure semantics, and pure interactive/managed eligibility. | `feat(core): define provider model evidence and eligibility` |
-| 2. Catalog normalization and adapter evidence | Not started | Versioned catalog observations and split runtime adapters preserving raw IDs, aliases, duplicates, route identity, and classified stale/partial/failed evidence. | `refactor(runtime): normalize provider model catalog evidence` |
+| 2. Catalog normalization and adapter evidence | Closed | Versioned catalog observations and split runtime adapters preserving raw IDs, aliases, duplicates, route identity, and classified stale/partial/failed evidence. | `refactor(runtime): normalize provider model catalog evidence` |
 | 3. Eligibility adoption and managed-agent enforcement | Not started | Canonical admission for switching/defaults/native integrity and managed agents receiving admitted routes only. | `feat(routing): enforce provider model eligibility` |
 | 4. Gateway and operator projections | Not started | One public summary/detail contract and shared eligible-by-default behavior across Gateway, SDK, CLI, GUI, TUI, React, widget, native, and studio. | `feat(operator): present eligible provider model routes` |
 | 5. Canonical documentation and closure | Not started | Verified architecture, ownership, operator/managed-agent behavior, changelog, residual risk, and roadmap closeout preparation. | `docs(architecture): define provider model eligibility` |
