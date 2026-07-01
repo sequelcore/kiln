@@ -2,9 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stringify as stringifyToml } from "smol-toml";
 import { readConfigStatusSnapshot, readConfigStatusView } from "../../src/application/config-status.js";
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
+import {
+  createNativeProjectionSnapshot,
+  emptyNativeProjectionInstallState,
+  upsertNativeProjectionTargetState,
+  writeNativeProjectionInstallState,
+} from "../../src/config/native-projection-state.js";
 
 let tempDir: string;
 
@@ -206,6 +213,138 @@ describe("config-status", () => {
         }),
       ]),
     });
+  });
+
+  it("reports native route default drift through setup projection status", async () => {
+    writeProjectConfig(tempDir);
+    const codexConfigPath = join(tempDir, "home", ".codex", "config.toml");
+    const projected = {
+      model: "gpt-5.4-mini",
+      approval_policy: "on-request",
+      sandbox_mode: "read-only",
+    };
+    mkdirSync(join(tempDir, "home", ".codex"), { recursive: true });
+    writeFileSync(codexConfigPath, stringifyToml({
+      ...projected,
+      model: "gpt-5.3-codex-spark",
+    }), "utf-8");
+    writeNativeProjectionInstallState(
+      join(tempDir, ".kiln"),
+      upsertNativeProjectionTargetState(
+        emptyNativeProjectionInstallState(),
+        createNativeProjectionSnapshot({
+          targetId: "codex-config",
+          filePath: codexConfigPath,
+          document: projected,
+          managedFields: ["model", "approval_policy", "sandbox_mode"],
+          updatedAt: "2026-07-01T12:00:00.000Z",
+        }),
+      ),
+    );
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "codex-config",
+        status: "drifted",
+        routeIntegrity: expect.objectContaining({
+          canonicalRoute: { providerId: "codex-oauth", model: "gpt-5.4-mini" },
+          nativeConfiguredDefault: { providerId: "codex-oauth", model: "gpt-5.3-codex-spark" },
+          selectedRuntimeRoute: { providerId: "codex-oauth", model: "gpt-5.3-codex-spark" },
+          catalogStatus: {
+            status: "not-observable",
+            providerId: "codex-oauth",
+            model: "gpt-5.3-codex-spark",
+          },
+          explicitProbeStatus: "not-run",
+          credentialSource: "none",
+          bareProofSupported: false,
+          classification: "projection-drift",
+          routeStatus: "drifted",
+          credentialStatus: "unknown",
+        }),
+      }),
+    ]));
+    expect(snapshot.setup.recommendedActions).toContain("review-native-projection-drift");
+  });
+
+  it("reports canonical and native route defaults as separate matching evidence", async () => {
+    writeProjectConfig(tempDir);
+    const codexConfigPath = join(tempDir, "home", ".codex", "config.toml");
+    const projected = {
+      model: "gpt-5.4-mini",
+      approval_policy: "on-request",
+      sandbox_mode: "read-only",
+    };
+    mkdirSync(join(tempDir, "home", ".codex"), { recursive: true });
+    writeFileSync(codexConfigPath, stringifyToml(projected), "utf-8");
+    writeNativeProjectionInstallState(
+      join(tempDir, ".kiln"),
+      upsertNativeProjectionTargetState(
+        emptyNativeProjectionInstallState(),
+        createNativeProjectionSnapshot({
+          targetId: "codex-config",
+          filePath: codexConfigPath,
+          document: projected,
+          managedFields: ["model", "approval_policy", "sandbox_mode"],
+          updatedAt: "2026-07-01T12:00:00.000Z",
+        }),
+      ),
+    );
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "codex-config",
+        status: "managed",
+        routeIntegrity: expect.objectContaining({
+          canonicalRoute: { providerId: "codex-oauth", model: "gpt-5.4-mini" },
+          nativeConfiguredDefault: { providerId: "codex-oauth", model: "gpt-5.4-mini" },
+          selectedRuntimeRoute: { providerId: "codex-oauth", model: "gpt-5.4-mini" },
+          explicitProbeStatus: "not-run",
+          credentialStatus: "not-tested",
+          routeStatus: "matches-canonical",
+          classification: "ok",
+        }),
+      }),
+    ]));
+  });
+
+  it("does not report missing default after an owned stale native default is removed", async () => {
+    writeProjectConfig(tempDir);
+    const codexConfigPath = join(tempDir, "home", ".codex", "config.toml");
+    const projected = {
+      approval_policy: "on-request",
+      sandbox_mode: "read-only",
+    };
+    mkdirSync(join(tempDir, "home", ".codex"), { recursive: true });
+    writeFileSync(codexConfigPath, stringifyToml(projected), "utf-8");
+    writeNativeProjectionInstallState(
+      join(tempDir, ".kiln"),
+      upsertNativeProjectionTargetState(
+        emptyNativeProjectionInstallState(),
+        createNativeProjectionSnapshot({
+          targetId: "codex-config",
+          filePath: codexConfigPath,
+          document: projected,
+          managedFields: ["approval_policy", "sandbox_mode"],
+          updatedAt: "2026-07-01T12:00:00.000Z",
+        }),
+      ),
+    );
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "codex-config",
+        status: "managed",
+      }),
+    ]));
+    const codexProjection = snapshot.projections.find((projection) => projection.targetId === "codex-config");
+    expect(codexProjection?.routeIntegrity).toBeUndefined();
   });
 
   it("reports adapter-supported agents without native projection", async () => {

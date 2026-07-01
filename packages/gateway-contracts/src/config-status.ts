@@ -122,6 +122,41 @@ export interface KilnProjectionTargetSnapshot {
   readonly details?: string;
   readonly managedFieldCount?: number;
   readonly updatedAt?: string;
+  readonly routeIntegrity?: {
+    readonly canonicalRoute?: {
+      readonly providerId: string;
+      readonly model: string;
+    };
+    readonly nativeConfiguredDefault?: {
+      readonly providerId: string;
+      readonly model: string;
+    };
+    readonly selectedRuntimeRoute?: {
+      readonly providerId: string;
+      readonly model: string;
+    };
+    readonly catalogStatus: {
+      readonly status: string;
+      readonly providerId?: string;
+      readonly model?: string;
+      readonly reason?: string;
+    };
+    readonly explicitProbeStatus: string;
+    readonly credentialSource: string;
+    readonly bareProofSupported: boolean;
+    readonly routeStatus:
+      | "matches-canonical"
+      | "native-default-invalid"
+      | "missing-default"
+      | "unavailable"
+      | "unknown-model"
+      | "stale-catalog"
+      | "drifted"
+      | "unsupported-proof"
+      | "unknown";
+    readonly credentialStatus: "valid" | "invalid" | "unauthorized" | "not-tested" | "unknown";
+    readonly classification: string;
+  };
 }
 
 export interface KilnRepoShimProjectionSnapshot {
@@ -214,6 +249,42 @@ export const KilnProjectionTargetSnapshotSchema = z.object({
   details: z.string().optional(),
   managedFieldCount: z.number().int().nonnegative().optional(),
   updatedAt: z.string().datetime().optional(),
+  routeIntegrity: z.object({
+    canonicalRoute: z.object({
+      providerId: z.string(),
+      model: z.string(),
+    }).optional(),
+    nativeConfiguredDefault: z.object({
+      providerId: z.string(),
+      model: z.string(),
+    }).optional(),
+    selectedRuntimeRoute: z.object({
+      providerId: z.string(),
+      model: z.string(),
+    }).optional(),
+    catalogStatus: z.object({
+      status: z.string(),
+      providerId: z.string().optional(),
+      model: z.string().optional(),
+      reason: z.string().optional(),
+    }),
+    explicitProbeStatus: z.string(),
+    credentialSource: z.string(),
+    bareProofSupported: z.boolean(),
+    routeStatus: z.enum([
+      "matches-canonical",
+      "native-default-invalid",
+      "missing-default",
+      "unavailable",
+      "unknown-model",
+      "stale-catalog",
+      "drifted",
+      "unsupported-proof",
+      "unknown",
+    ]),
+    credentialStatus: z.enum(["valid", "invalid", "unauthorized", "not-tested", "unknown"]),
+    classification: z.string(),
+  }).optional(),
 });
 
 export const KilnRepoShimProjectionSnapshotSchema = z.object({

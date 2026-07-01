@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
+import { parse as parseToml } from "smol-toml";
 import type {
   KilnConfigReadResult,
   KilnConfigReadView,
@@ -30,10 +31,18 @@ import {
   type HarnessIntegrationId,
 } from "../config/harness-integration-capabilities.js";
 import {
+  detectNativeProjectionDrift,
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "../config/native-projection-state.js";
+import { stripJsonComments } from "../config/json-comments.js";
+import {
+  classifyNativeRouteIntegrity,
+  type NativeRoute,
+  type NativeRouteCatalogEvidence,
+  type NativeRouteProbeEvidence,
+} from "../config/native-route-integrity.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { decideNativeAgentProjection } from "../config/native-agent-projection-decision.js";
 import { projectContextPath } from "./project-context.js";
@@ -88,7 +97,7 @@ export async function readConfigStatusSnapshot(
     ...sourceErrors("project context", projectContext),
   );
 
-  const projectionState = await readProjectionSnapshots(rootPath, errors);
+  const projectionState = await readProjectionSnapshots(rootPath, errors, effectiveConfig ?? undefined);
   const skillCatalog = effectiveConfig
     ? readSkillCatalogStatus({
       projectPath: rootPath,
@@ -228,6 +237,7 @@ function readProjectContextState(projectPath: string): KilnConfigSourceSnapshot 
 async function readProjectionSnapshots(
   projectPath: string,
   errors: string[],
+  effectiveConfig?: KilnYaml,
 ): Promise<{
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
@@ -273,11 +283,13 @@ async function readProjectionSnapshots(
   try {
     const installState = readNativeProjectionInstallState(join(projectPath, ".kiln"));
     for (const target of Object.values(installState.targets)) {
+      const routeIntegrity = readNativeRouteIntegrity(target, effectiveConfig);
       projections.push({
         targetId: target.targetId,
         path: target.filePath,
         kind: "native",
         status: readNativeProjectionStatus(target),
+        ...(routeIntegrity ? { routeIntegrity } : {}),
         managedFieldCount: target.managedFields.length,
         updatedAt: target.updatedAt,
       });
@@ -309,7 +321,109 @@ function readNativeProjectionStatus(target: NativeProjectionTargetState): KilnPr
     });
     return drift ? "drifted" : "managed";
   }
+  const document = readNativeDocument(target.filePath);
+  const drift = detectNativeProjectionDrift({
+    targetId: target.targetId,
+    state: {
+      version: 1,
+      targets: {
+        [target.targetId]: target,
+      },
+    },
+    currentDocument: document,
+  });
+  if (drift) {
+    return "drifted";
+  }
   return "managed";
+}
+
+function readNativeRouteIntegrity(
+  target: NativeProjectionTargetState,
+  effectiveConfig: KilnYaml | undefined,
+): KilnProjectionTargetSnapshot["routeIntegrity"] | undefined {
+  if (!target.managedFields.includes("model") || !existsSync(target.filePath) || target.projectionKind === "file") {
+    return undefined;
+  }
+  const document = readNativeDocument(target.filePath);
+  const model = typeof document.model === "string" ? document.model.trim() : undefined;
+  const canonicalRoute = canonicalRouteFromConfig(effectiveConfig);
+  const harness = target.targetId.startsWith("opencode-") ? "opencode" : target.targetId.startsWith("codex-") ? "codex" : "claude";
+  const nativeRoute = nativeRouteFromTarget(target.targetId, model, canonicalRoute);
+  const drift = detectNativeProjectionDrift({
+    targetId: target.targetId,
+    state: {
+      version: 1,
+      targets: {
+        [target.targetId]: target,
+      },
+    },
+    currentDocument: document,
+  });
+  const explicitProbe: NativeRouteProbeEvidence = { status: "not-run", credentialSource: "none" };
+  const catalogStatus: NativeRouteCatalogEvidence = model
+    ? { status: "not-observable", providerId: nativeRoute?.providerId, model: nativeRoute?.model }
+    : { status: "missing-default", providerId: canonicalRoute?.providerId, model: canonicalRoute?.model };
+  const diagnostic = classifyNativeRouteIntegrity({
+    harness,
+    canonicalRoute,
+    nativeConfiguredDefault: nativeRoute,
+    selectedRuntimeRoute: nativeRoute,
+    explicitProbe,
+    catalogStatus,
+    projectionDrift: drift !== undefined,
+    bareProofSupported: false,
+  });
+  return {
+    ...(diagnostic.canonicalRoute ? { canonicalRoute: diagnostic.canonicalRoute } : {}),
+    ...(diagnostic.nativeConfiguredDefault ? { nativeConfiguredDefault: diagnostic.nativeConfiguredDefault } : {}),
+    ...(diagnostic.selectedRuntimeRoute ? { selectedRuntimeRoute: diagnostic.selectedRuntimeRoute } : {}),
+    catalogStatus: diagnostic.catalogStatus,
+    explicitProbeStatus: diagnostic.explicitProbeStatus,
+    credentialSource: diagnostic.credentialSource,
+    bareProofSupported: diagnostic.bareProofSupported,
+    routeStatus: diagnostic.routeStatus,
+    credentialStatus: diagnostic.credentialStatus,
+    classification: diagnostic.classification,
+  };
+}
+
+function readNativeDocument(filePath: string): Record<string, unknown> {
+  const raw = readFileSync(filePath, "utf-8");
+  if (extname(filePath) === ".toml") {
+    return parseToml(raw) as Record<string, unknown>;
+  }
+  return JSON.parse(stripJsonComments(raw)) as Record<string, unknown>;
+}
+
+function canonicalRouteFromConfig(config: KilnYaml | undefined): NativeRoute | undefined {
+  const providerId = config?.provider?.trim();
+  const model = config?.model?.default?.trim();
+  return providerId && model ? { providerId, model } : undefined;
+}
+
+function nativeRouteFromTarget(
+  targetId: string,
+  model: string | undefined,
+  canonicalRoute: NativeRoute | undefined,
+): NativeRoute | undefined {
+  if (!model) {
+    return undefined;
+  }
+  if (targetId.startsWith("opencode-") && model.includes("/")) {
+    const [providerId, ...rest] = model.split("/");
+    return providerId && rest.length > 0 ? { providerId, model: rest.join("/") } : undefined;
+  }
+  if (targetId.startsWith("opencode-")) {
+    return { providerId: "opencode", model };
+  }
+  if (targetId.startsWith("codex-")) {
+    const providerId = canonicalRoute?.providerId === "codex" || canonicalRoute?.providerId === "codex-oauth"
+      ? canonicalRoute.providerId
+      : "codex";
+    return { providerId, model };
+  }
+  return undefined;
 }
 
 async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnConfigReadView): Promise<unknown> {
