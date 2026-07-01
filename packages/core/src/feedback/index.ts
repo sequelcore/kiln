@@ -1,3 +1,6 @@
+import { PII_PATTERNS } from "../safety/pii-scanner.js";
+import type { WorkItem } from "../work-governance/work-item.js";
+
 export type FeedbackReporterMode =
   | "quick"
   | "diagnostic"
@@ -108,6 +111,90 @@ export interface FeedbackBundle {
 export interface FeedbackIssueDraft {
   readonly feedbackId: string;
   readonly markdown: string;
+  readonly publication: FeedbackPublicationGate;
+}
+
+export interface FeedbackPublicationApproval {
+  readonly approved: boolean;
+  readonly approvedBy: string;
+  readonly approvedAt: string;
+  readonly resourceUris: readonly string[];
+}
+
+export type FeedbackIssueProviderName = "github";
+export type FeedbackIssuePublicationMode = "draft" | "create";
+export type FeedbackIssueProviderResponseStatus = "drafted" | "created";
+
+export interface FeedbackIssueProviderRequest {
+  readonly feedbackId: string;
+  readonly title: string;
+  readonly body: string;
+  readonly approval: RedactedFeedbackApprovalEvidence;
+}
+
+export interface FeedbackIssueProviderResponse {
+  readonly provider: FeedbackIssueProviderName;
+  readonly status: FeedbackIssueProviderResponseStatus;
+  readonly externalId?: string;
+  readonly url?: string;
+  readonly rawResponsePreview?: string;
+}
+
+export interface FeedbackIssueProviderPort {
+  readonly provider: FeedbackIssueProviderName;
+  readonly mode: FeedbackIssuePublicationMode;
+  createIssue(request: FeedbackIssueProviderRequest): Promise<FeedbackIssueProviderResponse>;
+}
+
+export interface RedactedFeedbackApprovalEvidence {
+  readonly approvedBy: string;
+  readonly approvedAt: string;
+  readonly resourceUris: readonly string[];
+}
+
+export interface FeedbackIssuePublicationDraft {
+  readonly feedbackId: string;
+  readonly provider: FeedbackIssueProviderName;
+  readonly mode: FeedbackIssuePublicationMode;
+  readonly approval: RedactedFeedbackApprovalEvidence;
+  readonly providerResponse: FeedbackIssueProviderResponse;
+  readonly publication: FeedbackPublicationGate;
+}
+
+export interface FeedbackIssuePublicationDraftInput {
+  readonly bundle: FeedbackBundle;
+  readonly issueDraft: FeedbackIssueDraft;
+  readonly approval: FeedbackPublicationApproval;
+  readonly provider: FeedbackIssueProviderPort;
+}
+
+export interface FeedbackDraftPullRequestInput {
+  readonly workItem: WorkItem;
+  readonly approval: FeedbackPublicationApproval;
+  readonly branchName: string;
+  readonly title: string;
+  readonly body: string;
+  readonly changedFiles: readonly string[];
+  readonly reviewEvidenceUris: readonly string[];
+}
+
+export interface FeedbackDraftPullRequestMetadata {
+  readonly feedbackId: string;
+  readonly sourceFeedbackId: string;
+  readonly repairWorkItemId: string;
+  readonly status: "draft-local";
+  readonly branchName: string;
+  readonly title: string;
+  readonly body: string;
+  readonly changedFiles: readonly string[];
+  readonly reviewEvidenceUris: readonly string[];
+  readonly approval: RedactedFeedbackApprovalEvidence;
+  readonly evidence: {
+    readonly tests: boolean;
+    readonly typecheck: boolean;
+    readonly review: boolean;
+    readonly residualRisk: boolean;
+  };
   readonly publication: FeedbackPublicationGate;
 }
 
@@ -280,6 +367,99 @@ export function createFeedbackIssueDraft(bundle: FeedbackBundle): FeedbackIssueD
   };
 }
 
+export async function createFeedbackIssuePublicationDraft(
+  input: FeedbackIssuePublicationDraftInput,
+): Promise<FeedbackIssuePublicationDraft> {
+  if (input.bundle.status !== "local-draft") {
+    throw new Error("Feedback issue publication requires a local draft bundle.");
+  }
+  if (input.issueDraft.feedbackId !== input.bundle.feedbackId) {
+    throw new Error("Feedback issue publication draft must match the feedback bundle.");
+  }
+  const approval = requirePublicationApproval({
+    approval: input.approval,
+    feedbackId: input.bundle.feedbackId,
+    evidenceKind: "approval",
+    message: "Feedback issue publication requires explicit approval.",
+  });
+  const providerResponse = redactProviderResponse(await input.provider.createIssue({
+    feedbackId: input.bundle.feedbackId,
+    title: `Feedback: ${input.bundle.feedbackId}`,
+    body: input.issueDraft.markdown,
+    approval,
+  }));
+  if (providerResponse.provider !== input.provider.provider) {
+    throw new Error("Feedback issue provider response must match the approved provider.");
+  }
+
+  return {
+    feedbackId: input.bundle.feedbackId,
+    provider: input.provider.provider,
+    mode: input.provider.mode,
+    approval,
+    providerResponse,
+    publication: {
+      allowed: false,
+      reason: "requires-explicit-approval",
+    },
+  };
+}
+
+export function createFeedbackDraftPullRequestMetadata(
+  input: FeedbackDraftPullRequestInput,
+): FeedbackDraftPullRequestMetadata {
+  const repair = input.workItem.feedbackRepair;
+  if (!repair || input.workItem.status !== "completed") {
+    throw new Error("Feedback draft PR requires a completed feedback repair work item.");
+  }
+  requireWorkItemEvidence(input.workItem, "tests", "Feedback draft PR requires passing repair tests.");
+  requireWorkItemEvidence(input.workItem, "typecheck", "Feedback draft PR requires passing repair typecheck.");
+  requireWorkItemEvidence(input.workItem, "managed-agent-review", "Feedback draft PR requires managed-agent review evidence.");
+  requireWorkItemEvidence(input.workItem, "residual-risk", "Feedback draft PR requires residual risk closeout.");
+  for (const gate of [...repair.verificationCriteria, "managed-agent review"]) {
+    if (!input.workItem.verificationGateResults.some((result) => result.gate === gate && result.status === "passed")) {
+      throw new Error("Feedback draft PR requires passing repair verification gates.");
+    }
+  }
+  if (!input.workItem.residualRisk?.trim()) {
+    throw new Error("Feedback draft PR requires residual risk closeout.");
+  }
+  const approval = requirePublicationApproval({
+    approval: input.approval,
+    feedbackId: repair.feedbackId,
+    evidenceKind: "pr-approval",
+    message: "Feedback draft PR requires explicit approval.",
+  });
+  const branchName = redactRequiredText(input.branchName, "Feedback draft PR requires a branch name.");
+  const title = redactRequiredText(input.title, "Feedback draft PR requires a title.");
+  const body = redactRequiredText(input.body, "Feedback draft PR requires a body.");
+  const changedFiles = normalizeRequiredRedactedList(input.changedFiles, "Feedback draft PR requires changed files.");
+  const reviewEvidenceUris = normalizeRequiredList(input.reviewEvidenceUris, "Feedback draft PR requires review evidence.");
+
+  return {
+    feedbackId: repair.feedbackId,
+    sourceFeedbackId: repair.feedbackId,
+    repairWorkItemId: input.workItem.id,
+    status: "draft-local",
+    branchName,
+    title,
+    body,
+    changedFiles,
+    reviewEvidenceUris,
+    approval,
+    evidence: {
+      tests: true,
+      typecheck: true,
+      review: true,
+      residualRisk: true,
+    },
+    publication: {
+      allowed: false,
+      reason: "requires-explicit-approval",
+    },
+  };
+}
+
 function evidenceSelected(kind: FeedbackEvidenceKind, selection: FeedbackEvidenceSelection): boolean {
   switch (kind) {
     case "session-summary":
@@ -320,6 +500,75 @@ function renderEvidence(evidence: readonly FeedbackEvidenceItem[]): string[] {
   });
 }
 
+function redactProviderResponse(response: FeedbackIssueProviderResponse): FeedbackIssueProviderResponse {
+  return {
+    provider: response.provider,
+    status: response.status,
+    ...(response.externalId ? { externalId: redactFeedbackText(response.externalId).text } : {}),
+    ...(response.url ? { url: redactFeedbackText(response.url).text } : {}),
+    ...(response.rawResponsePreview ? { rawResponsePreview: redactFeedbackText(response.rawResponsePreview).text } : {}),
+  };
+}
+
+function requirePublicationApproval(input: {
+  readonly approval: FeedbackPublicationApproval;
+  readonly feedbackId: string;
+  readonly evidenceKind: "approval" | "pr-approval";
+  readonly message: string;
+}): RedactedFeedbackApprovalEvidence {
+  if (input.approval.approved !== true) {
+    throw new Error(input.message);
+  }
+  const approvedBy = redactRequiredText(input.approval.approvedBy, "Feedback publication approval actor is required.");
+  const approvedAt = requireCanonicalUtcTimestamp(input.approval.approvedAt, "Feedback publication approval timestamp is required.");
+  const resourceUris = normalizeRequiredList(input.approval.resourceUris, "Feedback publication requires approval evidence.");
+  const expected = `kiln://feedback/${encodeURIComponent(input.feedbackId)}/${input.evidenceKind}`;
+  if (!resourceUris.every((uri) => uri === expected)) {
+    throw new Error("Feedback publication approval evidence must be the local feedback resource URI.");
+  }
+  return {
+    approvedBy,
+    approvedAt,
+    resourceUris,
+  };
+}
+
+function requireWorkItemEvidence(workItem: WorkItem, evidence: string, message: string): void {
+  if (!workItem.providedEvidence.includes(evidence)) {
+    throw new Error(message);
+  }
+}
+
+function redactRequiredText(value: string, message: string): string {
+  const redacted = redactFeedbackText(value).text.trim();
+  if (!redacted) {
+    throw new Error(message);
+  }
+  return redacted;
+}
+
+function normalizeRequiredRedactedList(values: readonly string[], message: string): readonly string[] {
+  return normalizeRequiredList(values.map((value) => redactFeedbackText(value).text), message);
+}
+
+function normalizeRequiredList(values: readonly string[], message: string): readonly string[] {
+  const normalized = [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+  if (normalized.length === 0) {
+    throw new Error(message);
+  }
+  return normalized;
+}
+
+function requireCanonicalUtcTimestamp(value: string, message: string): string {
+  const timestamp = value.trim();
+  const canonicalUtcIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+  const parsed = Date.parse(timestamp);
+  if (!canonicalUtcIso.test(timestamp) || !Number.isFinite(parsed) || new Date(parsed).toISOString() !== timestamp) {
+    throw new Error(message);
+  }
+  return timestamp;
+}
+
 function markdownFenceFor(content: string): string {
   const backtickRuns = content.match(/`+/g) ?? [];
   const longestRun = backtickRuns.reduce((longest, run) => Math.max(longest, run.length), 0);
@@ -354,4 +603,3 @@ function assertValidIsoTimestamp(value: string, field: string): void {
     throw new RangeError(`${field} must be a canonical ISO UTC timestamp.`);
   }
 }
-import { PII_PATTERNS } from "../safety/pii-scanner.js";

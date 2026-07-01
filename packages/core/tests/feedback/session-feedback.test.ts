@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   createFeedbackBundle,
   createFeedbackIssueDraft,
+  createFeedbackDraftPullRequestMetadata,
+  createFeedbackIssuePublicationDraft,
   redactFeedbackText,
 } from "../../src/feedback/index.js";
 import {
@@ -12,6 +14,7 @@ import {
   FEEDBACK_REPAIR_RISK_HYPOTHESIS_EVIDENCE,
   FEEDBACK_REPAIR_VERIFICATION_CRITERIA_EVIDENCE,
   WorkItemStore,
+  type WorkItem,
 } from "../../src/index.js";
 
 describe("session feedback redaction", () => {
@@ -250,6 +253,157 @@ describe("session feedback issue draft", () => {
     expect(issue.markdown).toContain("````text");
     expect(issue.markdown).toContain("before\n```text\ninside\n```\nafter");
     expect(issue.markdown).toContain("\n````\n");
+  });
+});
+
+describe("session feedback issue publication", () => {
+  it("creates provider issue publication drafts only after explicit approval and redacts provider evidence", async () => {
+    const bundle = feedbackRepairBundle("feedback-2026-05-18-issue-publication");
+    const calls: unknown[] = [];
+
+    const draft = await createFeedbackIssuePublicationDraft({
+      bundle,
+      issueDraft: createFeedbackIssueDraft(bundle),
+      approval: {
+        approved: true,
+        approvedBy: "ricardo@example.com",
+        approvedAt: "2026-05-18T12:10:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-issue-publication/approval"],
+      },
+      provider: {
+        provider: "github",
+        mode: "draft",
+        createIssue: async (request) => {
+          calls.push(request);
+          return {
+            provider: "github",
+            status: "drafted",
+            externalId: "issue-draft-1",
+            url: "https://github.com/sequelcore/kiln/issues/1?token=ghp_secret123456789",
+            rawResponsePreview: "Authorization: Bearer sk-ant-secret123456789",
+          };
+        },
+      },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(JSON.stringify(calls)).not.toContain("ricardo@example.com");
+    expect(JSON.stringify(draft)).not.toContain("ghp_secret123456789");
+    expect(JSON.stringify(draft)).not.toContain("sk-ant-secret123456789");
+    expect(draft.publication.allowed).toBe(false);
+    expect(draft.providerResponse.rawResponsePreview).toContain("[REDACTED:credential]");
+    expect(draft.approval.approvedBy).toBe("[REDACTED:email]");
+  });
+
+  it("fails closed before provider issue adapters run without explicit approval", async () => {
+    const bundle = feedbackRepairBundle("feedback-2026-05-18-issue-blocked");
+    let called = false;
+
+    await expect(createFeedbackIssuePublicationDraft({
+      bundle,
+      issueDraft: createFeedbackIssueDraft(bundle),
+      approval: {
+        approved: false,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:10:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-issue-blocked/approval"],
+      },
+      provider: {
+        provider: "github",
+        mode: "create",
+        createIssue: async () => {
+          called = true;
+          throw new Error("Network should not be reached.");
+        },
+      },
+    } as never)).rejects.toThrow("Feedback issue publication requires explicit approval.");
+
+    expect(called).toBe(false);
+  });
+
+  it("fails closed when provider issue response provenance does not match the approved adapter", async () => {
+    const bundle = feedbackRepairBundle("feedback-2026-05-18-issue-provider-mismatch");
+
+    await expect(createFeedbackIssuePublicationDraft({
+      bundle,
+      issueDraft: createFeedbackIssueDraft(bundle),
+      approval: {
+        approved: true,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:10:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-issue-provider-mismatch/approval"],
+      },
+      provider: {
+        provider: "github",
+        mode: "draft",
+        createIssue: async () => ({
+          provider: "not-github" as "github",
+          status: "drafted",
+        }),
+      },
+    })).rejects.toThrow("Feedback issue provider response must match the approved provider.");
+  });
+});
+
+describe("session feedback draft pull request flow", () => {
+  it("creates local draft PR metadata only after repair verification, review, residual risk, and approval", () => {
+    const item = completedFeedbackRepairWorkItem("feedback-2026-05-18-pr");
+
+    const draft = createFeedbackDraftPullRequestMetadata({
+      workItem: item,
+      approval: {
+        approved: true,
+        approvedBy: "ricardo@example.com",
+        approvedAt: "2026-05-18T12:30:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-pr/pr-approval"],
+      },
+      branchName: "codex/feedback-2026-05-18-pr",
+      title: "Fix session feedback projection",
+      body: "Repair verified without token sk-ant-secret123456789.",
+      changedFiles: ["packages/core/src/feedback/index.ts"],
+      reviewEvidenceUris: ["kiln://reviews/feedback-2026-05-18-pr"],
+    });
+
+    expect(draft.status).toBe("draft-local");
+    expect(draft.publication.allowed).toBe(false);
+    expect(draft.sourceFeedbackId).toBe("feedback-2026-05-18-pr");
+    expect(draft.repairWorkItemId).toBe(item.id);
+    expect(draft.body).toContain("[REDACTED:credential]");
+    expect(draft.approval.approvedBy).toBe("[REDACTED:email]");
+    expect(draft.evidence).toMatchObject({
+      tests: true,
+      typecheck: true,
+      review: true,
+      residualRisk: true,
+    });
+  });
+
+  it("blocks draft PR metadata when repair work governance has not passed review and verification", () => {
+    const bundle = feedbackRepairBundle("feedback-2026-05-18-pr-blocked");
+    const input = createFeedbackRepairWorkItemInput({
+      bundle,
+      approval: feedbackRepairApproval("feedback-2026-05-18-pr-blocked"),
+      riskHypothesis: "PR creation must wait for repair verification.",
+      fileImpact: ["packages/core/src/feedback/index.ts"],
+      verificationCriteria: ["bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts"],
+    });
+    const store = new WorkItemStore({ now: () => "2026-05-18T12:06:00.000Z" });
+    const item = store.upsert(input);
+
+    expect(() => createFeedbackDraftPullRequestMetadata({
+      workItem: item,
+      approval: {
+        approved: true,
+        approvedBy: "ricardo",
+        approvedAt: "2026-05-18T12:30:00.000Z",
+        resourceUris: ["kiln://feedback/feedback-2026-05-18-pr-blocked/pr-approval"],
+      },
+      branchName: "codex/feedback-2026-05-18-pr-blocked",
+      title: "Fix feedback",
+      body: "Repair pending.",
+      changedFiles: ["packages/core/src/feedback/index.ts"],
+      reviewEvidenceUris: ["kiln://reviews/feedback-2026-05-18-pr-blocked"],
+    })).toThrow("Feedback draft PR requires a completed feedback repair work item.");
   });
 });
 
@@ -637,4 +791,46 @@ function feedbackRepairApproval(feedbackId: string) {
     approvedAt: "2026-05-18T12:05:00.000Z",
     resourceUris: [`kiln://feedback/${encodeURIComponent(feedbackId)}/approval`],
   } as const;
+}
+
+function completedFeedbackRepairWorkItem(feedbackId: string): WorkItem {
+  const bundle = feedbackRepairBundle(feedbackId);
+  const input = createFeedbackRepairWorkItemInput({
+    bundle,
+    approval: feedbackRepairApproval(feedbackId),
+    riskHypothesis: "Draft PR metadata must remain governed by repair closeout.",
+    fileImpact: ["packages/core/src/feedback/index.ts"],
+    verificationCriteria: [
+      "bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts",
+      "bun run --filter @kilnai/core typecheck",
+    ],
+  });
+  const store = new WorkItemStore({ now: () => "2026-05-18T12:06:00.000Z" });
+  const item = store.upsert(input);
+  const completed = store.complete({
+    id: item.id,
+    providedEvidence: ["tests", "typecheck", "managed-agent-review", "residual-risk"],
+    residualRisk: "No remaining feedback repair risk after tests, typecheck, and review.",
+    verificationGateResults: [
+      {
+        gate: "bun run --cwd packages/core test -- tests/feedback/session-feedback.test.ts",
+        status: "passed",
+        completedAt: "2026-05-18T12:20:00.000Z",
+      },
+      {
+        gate: "bun run --filter @kilnai/core typecheck",
+        status: "passed",
+        completedAt: "2026-05-18T12:20:00.000Z",
+      },
+      {
+        gate: "managed-agent review",
+        status: "passed",
+        completedAt: "2026-05-18T12:20:00.000Z",
+      },
+    ],
+  });
+  if (!completed || completed.item.status !== "completed") {
+    throw new Error("Fixture failed to complete feedback repair work item.");
+  }
+  return completed.item;
 }
