@@ -35,7 +35,6 @@ architecture program needs additional sections:
 | --- | --- | --- | --- |
 | [00-rust-module-optimization.md](./00-rust-module-optimization.md) | Active boundary | Rust/WASM/sidecar ownership boundaries are defined. No production Rust slice is admitted yet. | Start only from an approved module slice or ADR with parity and benchmark evidence. |
 | [01-native-operator-surface.md](./01-native-operator-surface.md) | Active benchmark-validation track | Slices 1 and 2 are complete. Slice 3, workload fixture governance, is next. | Implement Slice 3 before any live native or browser benchmark execution. |
-| [02-session-feedback-pipeline.md](./02-session-feedback-pipeline.md) | Active | Early feedback-pipeline slices are complete; the roadmap still contains started and pending repair-flow work. | Continue the next pending slice in that file and promote stable behavior into guides when closed. |
 | [03-public-release-ui-debt.md](./03-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
 | [04-federated-harness-configuration-plane.md](./04-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [05-research-turn-token-budgeting.md](./05-research-turn-token-budgeting.md) | Deferred under roadmap 06 | Research-specific budgeting remains governed by roadmap `06`; it should not run ahead of attribution and efficiency-control evidence. | Reopen after roadmap `06` supplies the measurement and budgeting primitives needed for research turns. |
@@ -84,11 +83,6 @@ Use these documents as the source of truth before starting roadmap work:
    contract-only runner admission, orchestration planning, workload
    governance, and approval evidence before live browser or native benchmark
    execution.
-
-2. [Session Feedback Pipeline](./02-session-feedback-pipeline.md)
-   Active on 2026-05-18. Scope is the operator feedback-to-fix pipeline:
-   local-first feedback bundles, redaction, evidence selection, issue drafts,
-   governed repair work items, and later draft pull-request flow.
 
 3. [Public Release UI Debt](./03-public-release-ui-debt.md)
    Active on 2026-06-28. Scope is release-blocking GUI debt discovered during
@@ -193,6 +187,10 @@ roadmap files. Current completed areas include:
 - Execution surfaces convergence: shared Operator Workspace home projection,
   gateway target switcher, target-aware resource inspector, SDK/CLI resource
   reads, and cross-surface documentation closeout.
+- Session feedback pipeline: local redacted feedback bundles, safe runtime
+  evidence selection, contract-backed surface previews, explicit issue-provider
+  approval, governed repair work-item materialization, and local draft
+  pull-request metadata gates.
 
 ## Execution Priority
 
