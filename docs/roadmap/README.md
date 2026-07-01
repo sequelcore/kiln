@@ -38,7 +38,6 @@ architecture program needs additional sections:
 | [02-session-feedback-pipeline.md](./02-session-feedback-pipeline.md) | Active | Early feedback-pipeline slices are complete; the roadmap still contains started and pending repair-flow work. | Continue the next pending slice in that file and promote stable behavior into guides when closed. |
 | [03-public-release-ui-debt.md](./03-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
 | [04-federated-harness-configuration-plane.md](./04-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
-| [05-cli-test-harness-stability.md](./05-cli-test-harness-stability.md) | Deferred test infrastructure | Waiting for full-workspace verification or release-confidence pressure. | Reopen when the `@kilnai/cli test` hang blocks release or confidence gates. |
 | [06-research-turn-token-budgeting.md](./06-research-turn-token-budgeting.md) | Deferred under roadmap 08 | Research-specific budgeting remains governed by roadmap `08`; it should not run ahead of attribution and efficiency-control evidence. | Reopen after roadmap `08` supplies the measurement and budgeting primitives needed for research turns. |
 | [07-cross-harness-provider-adapter-layer.md](./07-cross-harness-provider-adapter-layer.md) | Urgent active | Adapter-layer work remains the active route-integrity foundation for governed cross-harness execution. | Continue only within explicit adapter-layer slices and avoid native harness file projections for unsupported model strings. |
 | [08-verified-efficiency-control-plane.md](./08-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
@@ -117,9 +116,6 @@ Use these documents as the source of truth before starting roadmap work:
   Deferred until cross-harness capability matrices and projection benchmarks
   can justify replacing selected full projections with thin or dynamic native
   adapters without weakening standalone operation or governance.
-- [CLI Test Harness Stability](./05-cli-test-harness-stability.md).
-  Deferred until full-workspace verification or release confidence requires
-  diagnosing the `@kilnai/cli test` hang observed on 2026-06-29.
 - [Research Turn Token Budgeting](./06-research-turn-token-budgeting.md).
   Deferred research-specific implementation slice governed by roadmap `08`.
   Promote it when live validation, release confidence, or provider quota
@@ -193,6 +189,9 @@ roadmap files. Current completed areas include:
 - External benchmark validation platform.
 - CLI answer/json output contracts for exact-format evals and benchmark
   harnesses.
+- CLI package test harness stability: deterministic single-worker Vitest
+  execution, verbose workspace-filter diagnostics, bounded test/hook/teardown
+  stalls, and hermetic default package verification.
 - Native operator surface foundation and embedded browser operator capability.
 - Native operator surface projection foundation with defer/no-promotion status.
 - Execution surfaces convergence: shared Operator Workspace home projection,

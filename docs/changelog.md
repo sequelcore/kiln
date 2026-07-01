@@ -8,6 +8,10 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Stabilized the `@kilnai/cli` package test harness for workspace verification:
+  CLI Vitest runs stay single-worker, emit verbose progress under filtered
+  workspace commands, and bound test, hook, and teardown stalls without
+  depending on live credentials or operator-local harness state.
 - Completed the execution-surfaces convergence track: shared Operator
   Workspace home projection, gateway target switcher, target-aware resource
   inspector reads through runtime provider options, SDK `ApiClient.readResource`,
