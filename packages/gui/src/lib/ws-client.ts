@@ -357,6 +357,7 @@ const GuiSessionEventSchema = z.object({
     "config_change_failed",
     "file_changed",
     "cost_updated",
+    "lifecycle_attribution_recorded",
     "work_item_updated",
     "work_item_execution_started",
     "work_item_execution_finished",

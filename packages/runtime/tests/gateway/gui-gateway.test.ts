@@ -2393,6 +2393,15 @@ describe("startGuiGateway static mount", () => {
           },
         };
         yield {
+          type: "cost_update",
+          usd: 0.0123,
+          provider: "openai",
+          model: GPT4O,
+          inputTokens: 120,
+          outputTokens: 30,
+          cacheReadTokens: 20,
+        };
+        yield {
           type: "text_delta",
           content: "The managed child route is unavailable before invocation.",
         };
@@ -2447,7 +2456,12 @@ describe("startGuiGateway static mount", () => {
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as {
         type: string;
         content?: string;
-        event?: { kind: string; payload: Record<string, unknown> };
+        event?: {
+          eventId: string;
+          kind: string;
+          parentEventId?: string;
+          payload: Record<string, unknown>;
+        };
       });
       const sessionEventFrames = outboundFrames.filter((frame) => frame.type === "session_event");
       const toolEventFrames = sessionEventFrames.filter((frame) => frame.event?.kind.startsWith("tool_call_"));
@@ -2456,6 +2470,12 @@ describe("startGuiGateway static mount", () => {
       const managedLifecycleFrames = sessionEventFrames.filter((frame) =>
         frame.event?.kind.startsWith("agent_invocation_")
       );
+      const costEventIndex = sessionEventFrames.findIndex((frame) => frame.event?.kind === "cost_updated");
+      const lifecycleEventIndex = sessionEventFrames.findIndex(
+        (frame) => frame.event?.kind === "lifecycle_attribution_recorded",
+      );
+      const costEvent = sessionEventFrames[costEventIndex]?.event;
+      const lifecycleEvent = sessionEventFrames[lifecycleEventIndex]?.event;
       const admittedTurn = vi.mocked(processAdmittedTurn).mock.calls[0]?.[0];
 
       expect(outboundFrames).toContainEqual({ type: "thinking" });
@@ -2500,6 +2520,18 @@ describe("startGuiGateway static mount", () => {
       });
       expect(completedPayload?.metadata).toEqual(expectedMetadata);
       expect(managedLifecycleFrames).toEqual([]);
+      expect(lifecycleEventIndex).toBe(costEventIndex + 1);
+      expect(lifecycleEvent).toMatchObject({
+        parentEventId: costEvent?.eventId,
+        payload: {
+          ledger: {
+            sourceEventId: costEvent?.eventId,
+          },
+          summary: {
+            totalTokens: 170,
+          },
+        },
+      });
       expect(factory).toHaveBeenCalledTimes(1);
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();

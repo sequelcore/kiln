@@ -831,6 +831,23 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       continue;
     }
 
+    if (event.kind === "lifecycle_attribution_recorded") {
+      const presentation = presentOperatorEventPayload(event.kind, payload);
+      timelineEntries.push({
+        id: `${detail.id}:timeline:${event.sequence}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        presentationDetails: presentation.details,
+      });
+      continue;
+    }
+
     if (isWorkItemTimelineEventKind(event.kind)) {
       const presentation = presentOperatorEventPayload(event.kind, payload);
       timelineEntries.push({
@@ -2261,6 +2278,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               usage,
               cost,
             },
+          },
+        ],
+      });
+      return;
+    }
+
+    if (event.kind === "lifecycle_attribution_recorded") {
+      const presentation = presentOperatorEventPayload(event.kind, payload);
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            ...timelineTurnId(event),
+            title: presentation.title,
+            summary: presentation.summary,
+            tone: presentation.tone,
+            presentationDetails: presentation.details,
           },
         ],
       });

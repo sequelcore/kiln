@@ -927,6 +927,15 @@ describe("TUI gateway message fail-closed behavior", () => {
               calls: 1,
             },
           };
+          yield {
+            type: "cost_update" as const,
+            usd: 0.0123,
+            provider: "claude",
+            model: "claude-sonnet-4-5",
+            inputTokens: 120,
+            outputTokens: 30,
+            cacheReadTokens: 20,
+          };
           yield { type: "text_delta" as const, content: "Parent turn completed." };
           yield { type: "completed" as const, totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false };
         },
@@ -960,6 +969,15 @@ describe("TUI gateway message fail-closed behavior", () => {
       const completedPayload = outboundFrames
         .find((frame) => frame.type === "session_event" && frame.event?.kind === "tool_call_completed")
         ?.event?.payload;
+      const sessionEvents = outboundFrames
+        .filter((frame) => frame.type === "session_event")
+        .map((frame) => frame.event);
+      const costEventIndex = sessionEvents.findIndex((event) => event?.kind === "cost_updated");
+      const lifecycleEventIndex = sessionEvents.findIndex(
+        (event) => event?.kind === "lifecycle_attribution_recorded",
+      );
+      const costEvent = sessionEvents[costEventIndex];
+      const lifecycleEvent = sessionEvents[lifecycleEventIndex];
 
       expect(outboundFrames).toContainEqual(expect.objectContaining({
         type: "done",
@@ -985,6 +1003,18 @@ describe("TUI gateway message fail-closed behavior", () => {
         },
         status: {
           state: "succeeded",
+        },
+      });
+      expect(lifecycleEventIndex).toBe(costEventIndex + 1);
+      expect(lifecycleEvent).toMatchObject({
+        parentEventId: costEvent?.eventId,
+        payload: {
+          ledger: {
+            sourceEventId: costEvent?.eventId,
+          },
+          summary: {
+            totalTokens: 170,
+          },
         },
       });
     } finally {

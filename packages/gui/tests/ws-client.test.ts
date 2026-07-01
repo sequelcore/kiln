@@ -678,6 +678,58 @@ describe("GuiWsClient", () => {
         },
         {
           json: {
+            type: "session_event",
+            event: {
+              eventId: "evt-lifecycle-attribution",
+              kilnSessionId: "sess-1",
+              sequence: 6,
+              timestamp: "2026-06-30T18:00:00.000Z",
+              kind: "lifecycle_attribution_recorded",
+              turnId: "sess-1:turn:1",
+              payload: {
+                ledger: {
+                  sourceEventId: "evt-cost",
+                  context: { route: "codex-oauth/gpt-5.5" },
+                  records: [
+                    { source: "unknown", tokenClass: "raw", tokens: 100 },
+                  ],
+                },
+                summary: {
+                  totalTokens: 100,
+                  totalCostUsd: 0.01,
+                  bySource: { unknown: 100 },
+                },
+              },
+            },
+          },
+          expected: {
+            type: "session_event",
+            event: {
+              eventId: "evt-lifecycle-attribution",
+              kilnSessionId: "sess-1",
+              sequence: 6,
+              timestamp: "2026-06-30T18:00:00.000Z",
+              kind: "lifecycle_attribution_recorded",
+              turnId: "sess-1:turn:1",
+              payload: {
+                ledger: {
+                  sourceEventId: "evt-cost",
+                  context: { route: "codex-oauth/gpt-5.5" },
+                  records: [
+                    { source: "unknown", tokenClass: "raw", tokens: 100 },
+                  ],
+                },
+                summary: {
+                  totalTokens: 100,
+                  totalCostUsd: 0.01,
+                  bySource: { unknown: 100 },
+                },
+              },
+            },
+          },
+        },
+        {
+          json: {
             type: "activity_phase",
             kilnSessionId: "sess-1",
             turnId: "sess-1:turn:live",

@@ -65,6 +65,10 @@ import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-even
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
 import {
+  projectLiveLifecycleAttribution,
+  type LiveCostEventIdentity,
+} from "./live-lifecycle-attribution.js";
+import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
   OperatorResourceReadRequestSchema,
@@ -1932,26 +1936,30 @@ class GuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated" | "browser_operator_evidence";
+    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated" | "lifecycle_attribution_recorded" | "browser_operator_evidence";
     timestamp: string;
     payload: Record<string, unknown>;
-  }): void {
+    parentEventId?: string;
+  }): LiveCostEventIdentity | null {
     if (!this.ws || !this.capture) {
-      return;
+      return null;
     }
     const sequence = this.nextLiveSequence();
     if (sequence === null) {
-      return;
+      return null;
     }
+    const eventId = `${this.capture.sessionId}:live:${sequence}`;
+    const turnId = `${this.capture.sessionId}:turn:live`;
     this.ws.send(JSON.stringify({
       type: "session_event",
       event: {
-        eventId: `${this.capture.sessionId}:live:${sequence}`,
+        eventId,
         kilnSessionId: this.capture.sessionId,
         sequence,
         timestamp: input.timestamp,
         kind: input.kind,
-        turnId: `${this.capture.sessionId}:turn:live`,
+        turnId,
+        ...(input.parentEventId ? { parentEventId: input.parentEventId } : {}),
         source: {
           actor: input.kind === "assistant_delta" ? "assistant" : input.kind.startsWith("tool_") ? "tool" : "runtime",
           surface: "gui",
@@ -1960,6 +1968,13 @@ class GuiActivityStreamer {
         payload: input.payload,
       },
     } satisfies GuiInboundFrame));
+    return {
+      eventId,
+      kilnSessionId: this.capture.sessionId,
+      sequence,
+      timestamp: input.timestamp,
+      turnId,
+    };
   }
 
   private emitActivityPhase(input: {
@@ -2268,27 +2283,49 @@ class GuiActivityStreamer {
         },
       });
     } else if (event.type === "cost_update") {
-      this.emitSessionEvent({
+      const timestamp = new Date().toISOString();
+      const provider = {
+        provider: event.provider ?? "unknown",
+        model: event.model ?? event.canonicalModel ?? "unknown",
+        canonicalModel: event.canonicalModel,
+        billingMode: event.billingMode,
+      };
+      const usage = {
+        inputTokens: event.inputTokens ?? 0,
+        outputTokens: event.outputTokens ?? 0,
+        cacheReadTokens: event.cacheReadTokens ?? 0,
+        cacheWriteTokens: 0,
+      };
+      const cost = {
+        deltaUsd: event.usd,
+        currency: "USD" as const,
+      };
+      const costIdentity = this.emitSessionEvent({
         kind: "cost_updated",
-        timestamp: new Date().toISOString(),
+        timestamp,
         payload: {
-          provider: {
-            provider: event.provider ?? "unknown",
-            model: event.model ?? event.canonicalModel ?? "unknown",
-            canonicalModel: event.canonicalModel,
-            billingMode: event.billingMode,
-          },
-          usage: {
-            inputTokens: event.inputTokens ?? 0,
-            outputTokens: event.outputTokens ?? 0,
-            cacheReadTokens: event.cacheReadTokens ?? 0,
-          },
-          cost: {
-            deltaUsd: event.usd,
-            currency: "USD",
-          },
+          provider,
+          usage,
+          cost,
         },
       });
+      if (costIdentity) {
+        const attribution = projectLiveLifecycleAttribution({
+          ...costIdentity,
+          provider,
+          usage,
+          cost,
+        });
+        this.emitSessionEvent({
+          kind: "lifecycle_attribution_recorded",
+          timestamp,
+          parentEventId: attribution.parentEventId,
+          payload: {
+            ledger: attribution.ledger,
+            summary: attribution.summary,
+          },
+        });
+      }
     }
   }
 

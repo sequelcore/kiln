@@ -167,6 +167,16 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       ...scoped,
     };
   }
+  if (event.kind === "lifecycle_attribution_recorded") {
+    return {
+      type: "activity",
+      activity: event.kind,
+      details: presentation.compactText,
+      surfaces: presentation.surfaces,
+      sessionEvent: event,
+      ...scoped,
+    };
+  }
   if (event.kind === "approval_requested") {
     const approvalId = readString(payload.approvalId);
     return {

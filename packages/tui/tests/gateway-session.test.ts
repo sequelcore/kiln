@@ -547,6 +547,71 @@ describe("GatewaySession canonical session events", () => {
     await session.dispose();
   });
 
+  it("projects lifecycle attribution as canonical activity evidence", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "measure lifecycle use" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-attribution",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-06-30T18:00:00.000Z",
+        kind: "lifecycle_attribution_recorded",
+        turnId: "session-1:turn:live",
+        payload: {
+          ledger: {
+            sourceEventId: "evt-cost",
+            context: { route: "codex-oauth/gpt-5.5" },
+            records: [
+              { source: "unknown", tokenClass: "raw", tokens: 100 },
+              { source: "unknown", tokenClass: "generated", tokens: 20 },
+            ],
+          },
+          summary: {
+            totalTokens: 120,
+            totalCostUsd: 0.0123,
+            bySource: { unknown: 120 },
+          },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "done",
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+
+    await collect;
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "activity",
+      activity: "lifecycle_attribution_recorded",
+      sessionId: "session-1",
+      turnId: "session-1:turn:live",
+      details: "120 tokens · $0.0123 · 120 unknown",
+      surfaces: ["activity_panel", "inspector"],
+      sessionEvent: expect.objectContaining({
+        eventId: "evt-attribution",
+        kind: "lifecycle_attribution_recorded",
+        kilnSessionId: "session-1",
+      }),
+    }));
+
+    await session.dispose();
+  });
+
   it("projects read and tree tool results from full payload envelopes", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     const ws = wsInstances[0];

@@ -1,145 +1,130 @@
-# Roadmap 08 Slice 1.2 Plan
+# Roadmap 08 Slice 1.3 Plan
 
 ## Objective
 
-Emit normalized lifecycle attribution from runtime cost events without changing
-provider requests, routing, context admission, benchmark schemas, or task
-outcomes.
+Preserve canonical lifecycle attribution evidence across GUI and TUI operator
+surfaces without changing provider requests, routing, context admission,
+billing totals, benchmark schemas, or task outcomes.
 
 ## Non-Goals
 
-- No fine-grained source allocation beyond explicit `unknown` records.
+- No new lifecycle allocation semantics.
 - No provider adapter changes.
 - No benchmark baseline schema changes.
 - No context governor or admission policy changes.
-- No UI-owned efficiency calculations.
+- No UI-owned efficiency calculations or cost accumulation.
 
 ## Evidence Inputs
 
-- `docs/roadmap/08-verified-efficiency-control-plane.md:247` requires Slice 1
-  lifecycle attribution ledger work.
-- `docs/roadmap/08-verified-efficiency-control-plane.md:255` requires runtime
-  emission of normalized usage and lifecycle events.
-- `packages/core/src/events/session-lifecycle-attribution.ts` owns the
-  provider-neutral lifecycle attribution contracts and pure projection helper.
-- `packages/runtime/src/session/runtime-session-event-ledger.ts` is the
-  runtime boundary that translates runtime `cost_update` events into canonical
-  session events.
-- `packages/cli/src/wrapper/session-store.ts` validates persisted canonical
-  transcript event kinds.
-- `packages/gateway-contracts/src/frames.ts` defines operator-visible session
-  event kinds for GUI/TUI gateway frames.
+- Commit `094c9877` introduced canonical
+  `lifecycle_attribution_recorded` emission and shared operator presentation.
+- `packages/gui/src/lib/ws-client.ts` independently validates inbound canonical
+  event kinds and currently omits lifecycle attribution.
+- `packages/gui/src/lib/session-store.ts` owns GUI activity timeline projection
+  and must not treat attribution evidence as another billing update.
+- `packages/tui/src/gateway-session.ts` owns canonical event projection into
+  terminal activities.
 
 ## Surface Map
 
-- `packages/core/src/events/session-event.ts`
-  - Add a canonical `lifecycle_attribution_recorded` event carrying the
-    attribution ledger and summary.
-- `packages/runtime/src/session/runtime-session-event-ledger.ts`
-  - Emit the lifecycle attribution event immediately after `cost_updated`,
-    parented to the source cost event.
-- `packages/cli/src/wrapper/session-store.ts`
-  - Preserve the new event through transcript persistence validation.
-- `packages/gateway-contracts/src/frames.ts`
-  - Admit the new event kind across operator session event frames.
-- `packages/gateway-contracts/src/operator-event-presentation.ts`
-  - Present the lifecycle attribution summary without exposing raw ledger JSON
-    inline.
+- `packages/gui/src/lib/ws-client.ts`
+  - Admit the canonical event through GUI websocket validation.
+- `packages/gui/src/lib/session-store.ts`
+  - Append shared lifecycle attribution presentation to live and replayed
+    activity timelines.
+- `packages/runtime/src/gateway/live-lifecycle-attribution.ts`
+  - Project live cost event identity through the canonical lifecycle ledger
+    and summary functions.
+- `packages/runtime/src/gateway/gui-gateway.ts`
+  - Emit parented lifecycle attribution immediately after each live GUI cost
+    event.
+- `packages/runtime/src/gateway/tui-gateway.ts`
+  - Emit parented lifecycle attribution immediately after each live TUI cost
+    event.
+- `packages/tui/src/gateway-session.ts`
+  - Map lifecycle attribution to a canonical terminal activity with session and
+    turn identity preserved.
 
 ## Atomic Implementation
 
-### 1.2.1 Failing Runtime Test
-
-File:
-
-- `packages/runtime/tests/session/runtime-session-lifecycle-attribution-events.test.ts`
-
-Work:
-
-- Prove a runtime `cost_update` produces both `cost_updated` and
-  `lifecycle_attribution_recorded`.
-- Prove the attribution event is parented to the cost event.
-- Prove provider usage is represented as explicit lifecycle records and
-  summarized without changing provider token totals.
-
-### 1.2.2 Canonical Event Contract
+### 1.3.1 Failing Surface Tests
 
 Files:
 
-- `packages/core/src/events/session-event.ts`
-- `packages/core/src/events/index.ts`
+- `packages/gui/tests/ws-client.test.ts`
+- `packages/gui/tests/session-store.test.ts`
+- `packages/tui/tests/gateway-session.test.ts`
 
 Work:
 
-- Add `lifecycle_attribution_recorded` to the canonical event kind union and
-  event map.
-- Export the canonical event type.
+- Prove GUI websocket validation accepts the canonical event.
+- Prove GUI records shared presentation details without exposing raw ledger
+  records or incrementing cost/token totals.
+- Prove TUI emits activity evidence with canonical session event identity.
 
-### 1.2.3 Runtime Emission
-
-File:
-
-- `packages/runtime/src/session/runtime-session-event-ledger.ts`
-
-Work:
-
-- Build the existing `cost_updated` event as the authoritative provider usage
-  source.
-- Project it through `projectCostUpdatedEventToLifecycleLedger`.
-- Emit `lifecycle_attribution_recorded` with `parentEventId` set to the source
-  cost event.
-
-### 1.2.4 Surface Preservation
+### 1.3.2 GUI Preservation
 
 Files:
 
-- `packages/cli/src/wrapper/session-store.ts`
-- `packages/gateway-contracts/src/frames.ts`
-- `packages/gateway-contracts/src/operator-event-presentation.ts`
-- `packages/gateway-contracts/tests/operator-event-presentation.test.ts`
-- `packages/runtime/tests/gateway/message-pipeline.test.ts`
+- `packages/gui/src/lib/ws-client.ts`
+- `packages/gui/src/lib/session-store.ts`
 
 Work:
 
-- Admit the event in transcript persistence and gateway frame contracts.
-- Present attribution as activity-panel evidence, not conversation prose.
-- Update runtime event-order tests to assert the new evidence explicitly.
+- Add the event kind to the inbound schema.
+- Reuse `presentOperatorEventPayload`; do not duplicate formatting logic.
+- Append an activity timeline entry without calling the cost accumulator.
+
+### 1.3.3 TUI Preservation
+
+File:
+
+- `packages/tui/src/gateway-session.ts`
+
+Work:
+
+- Reuse `presentOperatorSessionEvent`.
+- Emit activity-panel evidence with compact presentation text, surfaces, and
+  the original canonical event.
+
+### 1.3.4 Live Gateway Attribution
+
+Files:
+
+- `packages/runtime/src/gateway/live-lifecycle-attribution.ts`
+- `packages/runtime/src/gateway/gui-gateway.ts`
+- `packages/runtime/src/gateway/tui-gateway.ts`
+- `packages/runtime/tests/gateway/live-lifecycle-attribution.test.ts`
+- `packages/runtime/tests/gateway/gui-gateway.test.ts`
+- `packages/runtime/tests/gateway/tui-gateway-clear.test.ts`
+
+Work:
+
+- Reuse canonical cost-to-ledger projection and lifecycle summary functions.
+- Preserve the live cost event as the attribution parent and ledger source.
+- Emit paired websocket frames in deterministic sequence on both gateways.
 
 ## Verification Gates
 
 Run in order:
 
 ```bash
-bun run --filter @kilnai/core test tests/events/session-lifecycle-attribution.test.ts
-bun run --filter @kilnai/runtime test tests/session/runtime-session-lifecycle-attribution-events.test.ts tests/gateway/message-pipeline.test.ts
-bun run --filter @kilnai/gateway-contracts test tests/operator-event-presentation.test.ts tests/operator-cockpit-projection.test.ts
+bun run --filter @kilnai/gui test tests/ws-client.test.ts tests/session-store.test.ts tests/timeline-visibility.test.ts
+bun run --filter @kilnai/tui test tests/gateway-session.test.ts
+bun run --filter @kilnai/gateway-contracts test tests/operator-event-presentation.test.ts
+bun run --filter @kilnai/runtime test tests/gateway/live-lifecycle-attribution.test.ts
+bun run --filter @kilnai/runtime test tests/gateway/gui-gateway.test.ts
+bun run --filter @kilnai/runtime test tests/gateway/tui-gateway-clear.test.ts
 node_modules\.bin\tsc.exe -b packages/gateway-contracts packages/tools packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native
-node_modules\.bin\tsc.exe -p packages/widget/tsconfig.json --noEmit
-node_modules\.bin\tsc.exe -p packages/studio/tsconfig.json --noEmit
 node_modules\.bin\tsc.exe -p packages/gui/tsconfig.json --noEmit
-node_modules\.bin\tsc.exe -p scripts/tsconfig.json --noEmit
 ```
-
-## Known External Test Gap
-
-`bun run --filter @kilnai/cli test tests/commands/tui-session-persistence.test.ts`
-currently fails in the managed-invocation test harness before lifecycle
-attribution assertions run:
-
-- `TypeError: Cannot read properties of undefined (reading 'invocationService')`
-- failing helper: `withManagedInvocationService` in
-  `packages/cli/tests/commands/tui-session-persistence.test.ts:193`
-
-This slice still updates CLI transcript allowlisting so the new event is not
-silently dropped. The unrelated managed-invocation harness failure must be
-handled separately before using that suite as a lifecycle gate.
 
 ## Risks
 
-- Current runtime allocation is intentionally `unknown`; later slices must add
-  source allocations from context, tool, worker, artifact, and verification
-  boundaries.
-- Gateway/operator surfaces must remain projections of canonical ledger data,
-  not independent efficiency calculators.
-- Event allowlists are manually maintained and can drift when future canonical
-  events are added.
+- GUI's local event-kind schema can drift from canonical gateway contracts.
+- Lifecycle attribution must remain evidence only; counting it as another
+  `cost_update` would double session totals.
+- GUI and TUI must reuse shared presentation contracts so summaries do not
+  diverge across surfaces.
+- Live and persisted event paths must preserve the same attribution parentage
+  and totals without duplicating billing state.

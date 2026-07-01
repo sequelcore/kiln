@@ -2146,6 +2146,29 @@ describe("session-store", () => {
           eventId: "evt-9",
           kilnSessionId: "session-77",
           sequence: 9,
+          timestamp: "2026-04-21T10:04:05.000Z",
+          kind: "lifecycle_attribution_recorded",
+          turnId: "session-77:turn:1",
+          payload: {
+            ledger: {
+              sourceEventId: "evt-8",
+              context: { route: "codex-oauth/gpt-5.4-mini" },
+              records: [
+                { source: "unknown", tokenClass: "raw", tokens: 42 },
+                { source: "unknown", tokenClass: "generated", tokens: 21 },
+              ],
+            },
+            summary: {
+              totalTokens: 63,
+              totalCostUsd: 0.015,
+              bySource: { unknown: 63 },
+            },
+          },
+        },
+        {
+          eventId: "evt-10",
+          kilnSessionId: "session-77",
+          sequence: 10,
           timestamp: "2026-04-21T10:04:10.000Z",
           kind: "continuity_decided",
           payload: {
@@ -2154,9 +2177,9 @@ describe("session-store", () => {
           },
         },
         {
-          eventId: "evt-10",
+          eventId: "evt-11",
           kilnSessionId: "session-77",
-          sequence: 10,
+          sequence: 11,
           timestamp: "2026-04-21T10:05:00.000Z",
           kind: "turn_completed",
           payload: { outcome: "completed" },
@@ -2170,7 +2193,7 @@ describe("session-store", () => {
     expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
     expect(state.status).toBe("ready");
     expect(state.messages).toHaveLength(2);
-    expect(state.timelineEntries).toHaveLength(9);
+    expect(state.timelineEntries).toHaveLength(10);
     expect(state.messages[0]).toMatchObject({
       role: "user",
       content: "What was this session about?",
@@ -2224,6 +2247,64 @@ describe("session-store", () => {
         reason: "single-source-cache",
       }),
     }));
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      type: "event",
+      eventKind: "lifecycle_attribution_recorded",
+      title: "Lifecycle attribution recorded",
+      summary: "63 tokens · $0.0150 · 63 unknown",
+      turnId: "session-77:turn:1",
+    }));
+  });
+
+  it("projects lifecycle attribution as activity evidence without counting cost twice", () => {
+    useSessionStore.setState({
+      status: "running",
+      liveSessionId: "session-attribution",
+      sessionCostUsd: 0.25,
+      inputTokens: 100,
+      outputTokens: 20,
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-attribution",
+      kilnSessionId: "session-attribution",
+      sequence: 2,
+      timestamp: "2026-06-30T18:00:00.000Z",
+      kind: "lifecycle_attribution_recorded",
+      turnId: "session-attribution:turn:1",
+      payload: {
+        ledger: {
+          sourceEventId: "evt-cost",
+          context: { route: "codex-oauth/gpt-5.5" },
+          records: [
+            { source: "unknown", tokenClass: "raw", tokens: 100 },
+            { source: "unknown", tokenClass: "generated", tokens: 20 },
+          ],
+        },
+        summary: {
+          totalTokens: 120,
+          totalCostUsd: 0.0123,
+          bySource: { unknown: 120 },
+        },
+      },
+    });
+
+    const state = useSessionStore.getState();
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      type: "event",
+      eventKind: "lifecycle_attribution_recorded",
+      turnId: "session-attribution:turn:1",
+      title: "Lifecycle attribution recorded",
+      summary: "120 tokens · $0.0123 · 120 unknown",
+      presentationDetails: expect.arrayContaining([
+        { label: "Route", value: "codex-oauth/gpt-5.5" },
+        { label: "Source event", value: "evt-cost" },
+      ]),
+    }));
+    expect(JSON.stringify(state.timelineEntries)).not.toContain("\"records\"");
+    expect(state.sessionCostUsd).toBe(0.25);
+    expect(state.inputTokens).toBe(100);
+    expect(state.outputTokens).toBe(20);
   });
 
   it("restores selected-session authority and routing state from canonical turn completion", () => {
