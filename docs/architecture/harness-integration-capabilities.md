@@ -80,6 +80,16 @@ architecture. Kiln uses native projection when:
 Native projection must remain governed by install-state, drift detection,
 append-only backups, and explicit uninstall behavior.
 
+Native default route projection is a supported projection surface for Codex and
+OpenCode only when the canonical Kiln provider/model can be encoded in that
+harness's native syntax. It is not a fallback picker and does not import stale
+ambient defaults. Codex and OpenCode config writers compose permissions,
+supported settings, and the route default before one managed write. They
+preserve unmanaged native defaults until install-state proves Kiln owns the
+field. Claude Code default-route projection is unsupported until a stable
+native contract is proven; surfaces must mark that proof unsupported rather
+than assuming parity.
+
 Native agent projection uses the same capability model. A Kiln agent without
 `providerRoute` is portable and projects to native harnesses without a fixed
 model. A Kiln agent with `providerRoute` is a strict route pin: the native
@@ -172,6 +182,52 @@ Current status:
 | Claude Code | Unsupported | Settings shape is broader than Kiln's current canonical import contract |
 | Codex | Supported | Provider, model, approval, and sandbox map cleanly |
 | OpenCode | Supported | Provider, model, and default permission map cleanly |
+
+## Native Route Proof And Diagnostics
+
+Native route proof is evidence, not repair. The smallest supported proof should
+be non-destructive and bounded. When a harness exposes a stable bare-invocation
+or status mechanism that reveals the selected provider/model, Kiln records that
+selected runtime route and compares it with the canonical route and explicit
+probe route. When proof is unsupported, Kiln records `bareProofSupported:
+false` and keeps the static native-config evidence separate from live proof.
+
+Credential-safe probes always use an explicit provider and validated model.
+They record only credential source class, probe status, catalog status, and
+route identity. They must not print, hash into user-visible output, persist, or
+otherwise expose secret material. Probe timeouts, retries, output length, and
+provider spend must be bounded.
+
+Diagnostics distinguish:
+
+- authentication failure
+- authorization failure
+- unknown model
+- unavailable route
+- stale catalog
+- projection drift
+- ambient fallback mismatch
+- missing canonical default
+- unsupported bare proof
+- transient timeout or availability failure
+
+The OpenCode incident on 2026-06-30 is the canonical regression: an explicit
+`opencode-go/deepseek-v4-flash` route probe succeeded while bare `opencode run`
+selected obsolete `opencode-go/deepseek-v4-flash-free` and reported `Invalid
+API key`. Kiln must classify that state as credential-valid with a native
+default or ambient fallback mismatch, never as an invalid credential.
+
+## External Harness Evidence
+
+Local harness repositories were used as supporting evidence for route
+integrity. They inform Kiln capability boundaries but are not architecture to
+copy.
+
+| Repo inspected | Relevant evidence | Stability | Kiln impact |
+| --- | --- | --- | --- |
+| `C:/Proyectos/Sequel/cloned/codex` | App-server config/read and external-agent import APIs, setup/status notifications, account auth state, MCP status, model/provider capabilities, native config defaults and fallback internals. | App-server protocol and CLI config are stronger evidence; fallback internals are version-sensitive implementation detail. | Use stable config/status surfaces when available; fail closed around unsupported fallback behavior. |
+| `C:/Proyectos/Sequel/cloned/opencode` | JSON/JSONC config, `OPENCODE_CONFIG*`, `provider`, `model`, `small_model`, auth commands, `models --refresh`, provider/model route ids, startup config, plugins, MCP, and permissions. | Public config/docs and CLI behavior are stronger evidence; internal default-to-latest selection is not Kiln doctrine. | Project OpenCode defaults as `provider/model`; do not copy ambient fallback selection into Kiln. |
+| `C:/Proyectos/Sequel/cloned/claude-code` | Doctor/login/logout/status command registry, model priority comments, native subagent/MCP/permission config, model validation classes. | Mostly internal/reference evidence; subscription and app behavior can vary. | Mark native default proof unsupported until a stable public contract is available. |
 
 ## Harness Doctor
 

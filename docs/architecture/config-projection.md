@@ -93,6 +93,61 @@ If global config marks a known harness engine as `enabled: false`, sync first
 uninstalls recorded managed projections for that harness and excludes that
 harness from new permission, hook, agent, and skill projection writes.
 
+## Native Route Defaults
+
+Kiln projects native default routes only from canonical Kiln config. The
+resolved route is the merged `provider` plus `model.default`; native files never
+become route truth. Before writing a native default, the projection layer must
+validate that the selected provider/model can be represented by that harness:
+
+- Codex native config receives `model = "<model>"` only for Codex-native
+  provider ids such as `codex` or `codex-oauth`.
+- OpenCode native config receives `model: "<provider>/<model>"` when the
+  selected provider/model has OpenCode-native syntax.
+- Claude Code native default projection is unsupported until a stable
+  public/native default-route contract is proven.
+
+Each native config file has one composed writer for its managed route field.
+The Codex writer owns `codex-config`; the OpenCode writer owns
+`opencode-config`. Route defaults are composed with permissions and supported
+settings before the atomic file write, then recorded in install-state with
+per-field hashes. Hook, agent, and skill projections remain separate target
+families and must not write the native `model` field.
+
+Unmanaged native fields are preserved. A preexisting native `model` is never
+deleted on first sync merely because the canonical route targets another
+harness. Kiln may remove a stale native default only when install-state proves
+Kiln previously owned the `model` field. After removal, ownership of `model` is
+dropped from install-state so status surfaces do not report a false missing
+default for a harness that is no longer targeted.
+
+No compatibility aliases or obsolete model mappings are allowed. If a canonical
+route cannot be encoded for a harness, Kiln omits or removes only previously
+managed native route fields and reports the unsupported capability through the
+shared status contract.
+
+## Route Integrity Evidence
+
+`KilnConfigStatusSnapshot` carries native route integrity evidence for managed
+native default fields. Operator surfaces must keep these fields separate:
+
+- canonical route: the provider/model resolved from Kiln config
+- native configured default: the provider/model represented by the native file
+- selected runtime route: the route observed from native proof when available,
+  or the configured native default when only static evidence exists
+- catalog status: whether the provider/model is available, unknown, stale,
+  disabled, missing, or not observable
+- explicit probe status: credential-safe route probe result
+- credential source class: `env`, `kiln-auth-store`, `native-auth-store`,
+  `none`, or `unknown`
+- bare proof support: whether the harness can non-destructively prove its bare
+  invocation default
+- classification: the normalized failure layer
+
+Setup, status, doctor, sync, GUI, TUI, resource, and model-callable config-read
+surfaces consume this shared contract. They must not re-read native files and
+invent their own route health, credential health, or drift language.
+
 ## Project Roots And Repo Shims
 
 Global native projections and repo-local instruction shims are different target

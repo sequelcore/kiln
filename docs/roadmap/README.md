@@ -38,7 +38,6 @@ architecture program needs additional sections:
 | [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
 | [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. The former research-turn budgeting roadmap is merged here as the initial workload. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
-| [05-native-harness-route-integrity.md](./05-native-harness-route-integrity.md) | Deferred correctness program | Not started. Added after invalid native-harness route diagnostics misreported a valid OpenCode Go credential. | Reopen as the long-term fix for route-aware native credential probes and accurate diagnostics. |
 
 ## Canonical References
 
@@ -104,12 +103,6 @@ Use these documents as the source of truth before starting roadmap work:
   Deferred until cross-harness capability matrices and projection benchmarks
   can justify replacing selected full projections with thin or dynamic native
   adapters without weakening standalone operation or governance.
-- [Native Harness Route Integrity](./05-native-harness-route-integrity.md).
-  Deferred correctness program opened on 2026-06-30 after a valid OpenCode Go
-  credential was misreported as invalid because bare OpenCode execution used an
-  obsolete ambient model fallback. Scope is canonical native default
-  projection, catalog validation, route-aware credential probes, and accurate
-  cross-harness diagnostics.
 - OS-pack packaging for web extraction and browser helpers.
   Deferred until controlled web primitives need platform-specific helper
   binaries or dependencies.
@@ -166,6 +159,10 @@ roadmap files. Current completed areas include:
 - Agent context, instruction profiles, skills, and repo shims.
 - Memory Lattice, memory lifecycle policy, and context resource projection.
 - Provider credential pooling and provider/model discovery.
+- Native harness route integrity: canonical default projection for supported
+  native harnesses, managed-field ownership for native `model`, credential-safe
+  route evidence, ambient fallback mismatch classification, and cross-surface
+  config/status diagnostics.
 - Operator-surface startup discovery staging and stale provider diagnostics.
 - Controlled web research, browser/computer use, and tool execution.
 - Native developer tool runtimes for repo search, globbing, JSON querying, and

@@ -271,6 +271,14 @@ model ID. If no selected model exists, the canonical error wording is:
 Provider '<provider>' requires a selected model.
 ```
 
+Native harness defaults follow the same fail-closed rule. A native harness may
+have an ambient default, but Kiln does not treat that ambient selection as
+canonical unless route integrity evidence shows it matches the resolved Kiln
+provider/model. A valid explicit route probe outranks a bare native error when
+classifying credentials. If the explicit probe succeeds but bare execution uses
+a stale or unknown native model, the failure layer is route/default mismatch,
+not invalid credential.
+
 ## Provider And Model Route Health
 
 Discovery proves that a provider can advertise and admit a model. It does not
@@ -284,6 +292,16 @@ credential health:
 - credential health answers "which secret/account can be used?"
 - provider/model route health answers "is this advertised execution route
   cooling down?"
+- native route integrity answers "does the harness default actually select the
+  canonical provider/model?"
+
+These layers must remain separate in diagnostics. `authentication-failure` and
+`authorization-failure` are credential/account results for a catalog-valid
+explicit route. `unknown-model`, `unavailable-route`, and `stale-catalog` are
+provider/model or catalog results. `projection-drift` and
+`ambient-fallback-mismatch` are native configuration results. A diagnostic may
+carry more than one evidence field, but it must name the layer that failed
+first and must not relabel a route or projection problem as an invalid API key.
 
 Execution surfaces must consult both before admitting work. Retryable route
 outcomes such as `rate-limited`, `quota-exceeded`, and `connection-failed`
