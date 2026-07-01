@@ -1,4 +1,4 @@
-# 06 - Native Harness Route Integrity
+# 05 - Native Harness Route Integrity
 
 Status: Deferred correctness program
 
@@ -250,11 +250,11 @@ Rollback restores the previous managed-field snapshot and canonical routing
 policy. It must not restore an obsolete model alias or leave a second native
 writer active. Diagnostic evidence remains available after rollback.
 
-## Relationship To Roadmap 05
+## Relationship To Roadmap 04
 
-Roadmap `05-verified-efficiency-control-plane.md` depends on truthful route,
+Roadmap `04-verified-efficiency-control-plane.md` depends on truthful route,
 model, cache, and credential evidence. This roadmap owns native route integrity
-and error classification. Roadmap `05` may continue through native Codex routes
+and error classification. Roadmap `04` may continue through native Codex routes
 while this track is deferred, but it must use explicit validated provider/model
 identity and must not treat the failing ambient OpenCode default as a valid
 benchmark route.

@@ -336,7 +336,7 @@ Atomic documentation invocations:
 2. `docs/architecture/harness-integration-capabilities.md` and
    `docs/guides/observability.md` — document direct/harness usage capability
    semantics and operator interpretation of explicit gaps.
-3. `docs/roadmap/05-verified-efficiency-control-plane.md` and
+3. `docs/roadmap/04-verified-efficiency-control-plane.md` and
    `docs/roadmap/README.md` — mark Slice 1 closed only after all gates pass and
    link the committed benchmark evidence.
 4. `docs/releases/2.1.0.md` and `docs/changelog.md` — add release-facing facts

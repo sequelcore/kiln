@@ -1,4 +1,4 @@
-# 05 - Verified Efficiency Control Plane
+# 04 - Verified Efficiency Control Plane
 
 Status: Active architecture program; Slice 1 complete, Slice 2 next
 
@@ -74,8 +74,9 @@ utility, policy, and promotion evidence.
 
 The immediate measured failure is a successful research turn that consumed
 565,377 input tokens, 7,646 output tokens, and 433,152 cache-read tokens. That
-case remains documented in `04-research-turn-token-budgeting.md` and becomes an
-initial benchmark workload for this program. It is not the program boundary.
+case is now the first named benchmark workload inside this roadmap. It is not
+the program boundary and does not create a separate research-only budgeting
+owner.
 
 ## Outcomes
 
@@ -104,6 +105,7 @@ This roadmap is successful when Kiln can:
 - Move authority, safety, or verification policy into model instructions.
 - Preserve obsolete context or routing behavior behind compatibility shims.
 - Add a second context-policy owner beside `ContextGovernor`.
+- Add a research-only budgeting engine beside this efficiency control plane.
 - Build online learning before stable telemetry and deterministic baselines
   exist.
 
@@ -257,7 +259,7 @@ contracts but must not create parallel legacy paths.
 
 | Slice | Status | Progress | Next Action |
 | --- | --- | --- | --- |
-| Slice 0 - Baseline And Reproduction | Conditional | Not started as a standalone slice. Slice 1 produced lifecycle attribution fixtures, but the full roadmap `05` reproduction baseline is still open. | Run only if Slice 2 needs a broader pre-optimization baseline. |
+| Slice 0 - Baseline And Reproduction | Conditional | Not started as a standalone slice. Slice 1 produced lifecycle attribution fixtures, but the full research-turn reproduction baseline is still open. | Run only if Slice 2 needs a broader pre-optimization baseline. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
 | Slice 2 - Stable Prefix And Cache Topology | Next | Not started. | Prove byte-stable reusable request regions without changing admitted information. |
 | Slice 3 - Progressive Context And Tool Loading | Planned | Not started. | Start after stable-prefix evidence exists. |
@@ -280,7 +282,8 @@ behavior.
 
 Work:
 
-- reproduce the research-turn case from roadmap `05`;
+- reproduce or replace the 2026-06-29 research-turn workload with a stable
+  fixture;
 - select representative coding, tool-use, memory, managed-agent, and research
   tasks;
 - capture provider usage, cost, latency, tool counts, verification results,
@@ -606,10 +609,58 @@ The benchmark portfolio must cover:
 External benchmarks may supplement this portfolio, but internal fixtures must
 exercise Kiln's authority, evidence, replay, and cross-surface contracts.
 
+### Initial Research-Turn Workload
+
+The first high-pressure workload is the 2026-06-29 GUI research turn with
+`codex-oauth/gpt-5.5`. The turn completed correctly, produced visible
+citations, accurate tool events, and a clean `completed` outcome, but consumed:
+
+- 565,377 input tokens;
+- 7,646 output tokens;
+- 433,152 cache-read tokens.
+
+This workload must be reproduced or replaced with an equivalent committed
+research-heavy fixture before research-specific savings are claimed. Its
+budgeting work belongs to this roadmap and uses this roadmap's lifecycle
+attribution, context admission, reduction, retrieval, cache, and promotion
+contracts.
+
+Research-turn evidence budgeting must preserve:
+
+- exact source URLs in user-facing answers when web tools inform the result;
+- citations, tool metadata, transcript events, and session evidence;
+- accurate tool counts in continuity artifacts and session summaries;
+- cross-surface semantics for GUI, CLI, TUI, SDK, gateway, and managed-agent
+  invocations;
+- research-only behavior that does not accidentally materialize governed work
+  items.
+
+The implementation path is:
+
+1. Reproduce or replace the original research workload with a stable fixture.
+2. Attribute research-turn tokens by lifecycle source:
+   - projected session and context artifacts;
+   - prior transcript replay;
+   - web search and extraction outputs;
+   - repository inspection outputs;
+   - tool summaries;
+   - model-facing procedural instructions;
+   - memory and continuity artifacts;
+   - verification evidence;
+   - final output.
+3. Define the canonical research evidence budget and compaction boundary.
+4. Add cross-surface projections for measured, estimated, cached, and avoided
+   research-token volume.
+5. Promote stable doctrine into architecture and guides after verification.
+
+Research-specific optimization must not use prompt-only quick fixes,
+provider-specific hidden truncation, ungrounded summaries replacing primary
+sources, or silent evidence dropping.
+
 ## Research Basis
 
 This roadmap is grounded in the 2026-06-29 research-turn token incident,
-roadmap `05`, comparative harness research, Kiln's existing context governance,
+comparative harness research, Kiln's existing context governance,
 provider/model discovery, managed-agent runtime, memory, and benchmark
 contracts. Later slices must add reproducible benchmark evidence before making
 performance or savings claims.
@@ -663,9 +714,9 @@ require dual readers, migration shims, or permanent compatibility branches.
 
 ## Relationship To Existing Roadmaps
 
-- `04-research-turn-token-budgeting.md` supplies the first measured workload
-  and remains responsible for research-specific evidence compaction and
-  citation preservation.
+- The former research-turn token-budgeting roadmap has been merged into this
+  roadmap. The research-turn incident is the first measured workload here, not
+  a separate policy owner.
 - `docs/architecture/harness-integration-capabilities.md` and
   `docs/architecture/managed-agents.md` supply route identity and capability
   evidence required for cross-harness comparison.
