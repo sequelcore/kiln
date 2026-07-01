@@ -39,7 +39,6 @@ architecture program needs additional sections:
 | [03-public-release-ui-debt.md](./03-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
 | [04-federated-harness-configuration-plane.md](./04-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [05-research-turn-token-budgeting.md](./05-research-turn-token-budgeting.md) | Deferred under roadmap 07 | Research-specific budgeting remains governed by roadmap `07`; it should not run ahead of attribution and efficiency-control evidence. | Reopen after roadmap `07` supplies the measurement and budgeting primitives needed for research turns. |
-| [06-cross-harness-provider-adapter-layer.md](./06-cross-harness-provider-adapter-layer.md) | Urgent active | Adapter-layer work remains the active route-integrity foundation for governed cross-harness execution. | Continue only within explicit adapter-layer slices and avoid native harness file projections for unsupported model strings. |
 | [07-verified-efficiency-control-plane.md](./07-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
 | [08-native-harness-route-integrity.md](./08-native-harness-route-integrity.md) | Deferred correctness program | Not started. Added after invalid native-harness route diagnostics misreported a valid OpenCode Go credential. | Reopen as the long-term fix for route-aware native credential probes and accurate diagnostics. |
 
@@ -96,12 +95,6 @@ Use these documents as the source of truth before starting roadmap work:
    live validation, starting with the composer context usage indicator. The GUI
    must not publish with a fake context percentage or an unavailable state
    presented as authoritative.
-
-6. [Cross-Harness Provider Adapter Layer](./06-cross-harness-provider-adapter-layer.md)
-   Urgent active roadmap opened on 2026-06-29. Scope is the explicit adapter
-   layer that lets Kiln invoke governed agents and provider routes across
-   harness boundaries without projecting unsupported model strings into native
-   harness files.
 
 7. [Verified Efficiency Control Plane](./07-verified-efficiency-control-plane.md)
    Active long-term architecture program opened on 2026-06-30. Slice 1 closed
@@ -175,6 +168,9 @@ roadmap files. Current completed areas include:
 - Managed agent invocation, background and parallel lifecycle, route-source
   provenance, parent-turn lineage, timeout diagnostics, and remote harness
   route constraints.
+- Cross-harness read-only managed invocation adapters with shared native versus
+  adapter support status, fail-closed external caller admission, and no native
+  projection of unsupported provider/model strings.
 - Work governance, plan mode, goal execution, and evidence-gated closeout.
 - Config projection, native harness projection, and governed config mutation.
 - Agent context, instruction profiles, skills, and repo shims.

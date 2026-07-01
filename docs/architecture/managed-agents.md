@@ -222,6 +222,16 @@ harness adapters attach `external-harness` identity only when that harness is
 proven. Provider id, model id, UI profile controls, and config filenames must
 not be used to infer the parent caller.
 
+For external harness callers, cross-harness provider admission is a shared core
+capability contract. The runtime records `invocationCapabilityEvidence` in the
+admitted snapshot with the adapter id, adapter descriptor id, decision, and
+reason. Unsupported caller/provider pairs fail before adapter invocation, while
+supported read-only pairs continue through the same authority profile, tool
+policy, transcript, resource, and terminal-result evidence as any other managed
+child. The first supported cross-harness slice is read-only managed invocation;
+write authority, fan-out, and remote adapter expansion require separate
+capability proof.
+
 The snapshot is intentionally normalized rather than provider-native. It records:
 
 - route id and admitted route-health reason

@@ -666,8 +666,9 @@ require dual readers, migration shims, or permanent compatibility branches.
 - `05-research-turn-token-budgeting.md` supplies the first measured workload
   and remains responsible for research-specific evidence compaction and
   citation preservation.
-- `06-cross-harness-provider-adapter-layer.md` supplies route identity and
-  capability evidence required for cross-harness comparison.
+- `docs/architecture/harness-integration-capabilities.md` and
+  `docs/architecture/managed-agents.md` supply route identity and capability
+  evidence required for cross-harness comparison.
 - `00-rust-module-optimization.md` governs any native acceleration of
   reducers, tokenizers, hashes, or ledger hot paths. TypeScript retains policy
   ownership.

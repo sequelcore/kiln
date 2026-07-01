@@ -25,6 +25,12 @@ The CLI source of truth is
 modules may consume that model, but they must not recreate harness capability
 tables locally.
 
+Cross-harness managed invocation support is a runtime contract owned by
+`@kilnai/core` managed invocation capabilities and consumed by CLI status,
+native projection decisions, and runtime admission. Harness integration code may
+project that shared matrix into operator-facing setup/status views, but it must
+not maintain a second provider-support list.
+
 ## Runtime Config Injection
 
 Runtime config injection is preferred when Kiln launches the child process and
@@ -94,6 +100,16 @@ native agent with `adapter-required` and reconciles any previously managed
 native file through install-state, backup, and drift checks. Cross-harness
 adapter support is declared by provider id in the capability table; Kiln must
 not infer support from provider prefixes or model id strings.
+
+Operator-facing behavior follows three distinct paths:
+
+- Native projection writes a standalone harness artifact only when the selected
+  provider/model can be encoded for that harness.
+- Managed invocation runs a governed Kiln child through the runtime service and
+  records route, authority, transcript, resource, and outcome evidence.
+- Cross-harness adapter invocation is a managed invocation whose caller identity
+  is an explicit external harness and whose provider route is admitted by the
+  shared adapter capability matrix.
 
 Current cross-harness managed invocation status:
 
