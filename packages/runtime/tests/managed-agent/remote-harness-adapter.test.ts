@@ -318,7 +318,7 @@ describe("ManagedRemoteHarnessAdapter", () => {
       request: childRequest,
       adapter,
       admission: decision,
-    })).rejects.toThrow("Managed agent record provider route does not match admitted request");
+    })).rejects.toThrow("Managed invocation usage route must match the admitted capability snapshot");
   });
 
   it("marks an in-flight remote invocation failed when remote cancellation notification fails", async () => {

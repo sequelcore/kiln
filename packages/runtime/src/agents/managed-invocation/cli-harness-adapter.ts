@@ -130,6 +130,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read"],
+        semanticSourceGranularity: "unknown",
+        evidenceBasis: "adapter",
       },
       resultHandoff: {
         boundedSummary: true,
@@ -454,9 +457,9 @@ function usageReport(usage: CollectedCliHarnessEvidence["usage"]): ManagedAgentI
   return {
     source: "adapter",
     tokenClasses: [
-      { name: "input_tokens", value: usage.inputTokens ?? "unknown" },
-      { name: "output_tokens", value: usage.outputTokens ?? "unknown" },
-      { name: "cache_read_tokens", value: usage.cacheReadTokens ?? "unknown" },
+      { name: "input", value: usage.inputTokens ?? "unknown" },
+      { name: "output", value: usage.outputTokens ?? "unknown" },
+      { name: "cache_read", value: usage.cacheReadTokens ?? "unknown" },
     ],
     cost: {
       currency: usage.costUsd !== undefined ? "USD" : "unknown",

@@ -50,6 +50,9 @@ function makeAdapter(): ManagedAgentRuntimeAdapter {
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read", "cache_write"],
+        semanticSourceGranularity: "estimated",
+        evidenceBasis: "runtime",
       },
       resultHandoff: {
         boundedSummary: true,

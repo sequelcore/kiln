@@ -65,10 +65,6 @@ import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-even
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
 import {
-  projectLiveLifecycleAttribution,
-  type LiveCostEventIdentity,
-} from "./live-lifecycle-attribution.js";
-import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
   OperatorResourceReadRequestSchema,
@@ -1936,17 +1932,17 @@ class GuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated" | "lifecycle_attribution_recorded" | "browser_operator_evidence";
+    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "browser_operator_evidence";
     timestamp: string;
     payload: Record<string, unknown>;
     parentEventId?: string;
-  }): LiveCostEventIdentity | null {
+  }): void {
     if (!this.ws || !this.capture) {
-      return null;
+      return;
     }
     const sequence = this.nextLiveSequence();
     if (sequence === null) {
-      return null;
+      return;
     }
     const eventId = `${this.capture.sessionId}:live:${sequence}`;
     const turnId = `${this.capture.sessionId}:turn:live`;
@@ -1968,13 +1964,6 @@ class GuiActivityStreamer {
         payload: input.payload,
       },
     } satisfies GuiInboundFrame));
-    return {
-      eventId,
-      kilnSessionId: this.capture.sessionId,
-      sequence,
-      timestamp: input.timestamp,
-      turnId,
-    };
   }
 
   private emitActivityPhase(input: {
@@ -2282,50 +2271,6 @@ class GuiActivityStreamer {
           },
         },
       });
-    } else if (event.type === "cost_update") {
-      const timestamp = new Date().toISOString();
-      const provider = {
-        provider: event.provider ?? "unknown",
-        model: event.model ?? event.canonicalModel ?? "unknown",
-        canonicalModel: event.canonicalModel,
-        billingMode: event.billingMode,
-      };
-      const usage = {
-        inputTokens: event.inputTokens ?? 0,
-        outputTokens: event.outputTokens ?? 0,
-        cacheReadTokens: event.cacheReadTokens ?? 0,
-        cacheWriteTokens: 0,
-      };
-      const cost = {
-        deltaUsd: event.usd,
-        currency: "USD" as const,
-      };
-      const costIdentity = this.emitSessionEvent({
-        kind: "cost_updated",
-        timestamp,
-        payload: {
-          provider,
-          usage,
-          cost,
-        },
-      });
-      if (costIdentity) {
-        const attribution = projectLiveLifecycleAttribution({
-          ...costIdentity,
-          provider,
-          usage,
-          cost,
-        });
-        this.emitSessionEvent({
-          kind: "lifecycle_attribution_recorded",
-          timestamp,
-          parentEventId: attribution.parentEventId,
-          payload: {
-            ledger: attribution.ledger,
-            summary: attribution.summary,
-          },
-        });
-      }
     }
   }
 

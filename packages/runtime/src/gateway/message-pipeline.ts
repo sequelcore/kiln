@@ -32,7 +32,7 @@ import type {
   VoiceSurface,
   SessionTurnOutcome,
 } from "@kilnai/core";
-import { DefaultContextGovernor, extractText, hasModality, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate, VALID_VOICE_SURFACES } from "@kilnai/core";
+import { DefaultContextGovernor, estimateTextTokens, extractText, hasModality, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate, VALID_VOICE_SURFACES } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
 import type {
@@ -2211,7 +2211,10 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
 
   // Post-generation grounding verification (Tier 2)
   let groundingResult: GroundingResult | undefined;
+  const runtimeFinalOutputText = extractText(result.parts);
   let resultParts = result.parts;
+  let canonicalTurnEventsAppended = false;
+  try {
   if (
     ctx.groundingMode === "verified" &&
     ctx.groundingDeps &&
@@ -2445,10 +2448,17 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     planSubmissions,
     analysisReports,
     specificationSubmissions,
+    lifecycleAttributionEvidence: {
+      contextAudit: projectedContextAudit,
+      finalOutput: {
+        estimatedTokens: estimateTextTokens(runtimeFinalOutputText),
+      },
+    },
     clarificationRecords,
     authorityMutationViolations: authorityMutationViolation ? [authorityMutationViolation] : undefined,
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
   });
+  canonicalTurnEventsAppended = true;
 
   // Persist mutated session (required for non-reference stores like Redis)
   await ctx.sessionRegistry.save(session);
@@ -2645,6 +2655,36 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,
     },
   };
+  } catch (error) {
+    if (!canonicalTurnEventsAppended) {
+      const turnFailedAt = new Date();
+      const failureRuntimeEvents = capturedRuntimeEvents.some((event) => event.type === "error")
+        ? capturedRuntimeEvents
+        : [...capturedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
+      appendCanonicalTurnEvents({
+        session,
+        turnId: perCallConfig?.turnId,
+        channel: ctx.channel,
+        userMessageContent: userText,
+        assistantMessageContent: runtimeFinalOutputText,
+        queued: result.queued,
+        turnOutcome: "failed",
+        turnStartedAt,
+        turnCompletedAt: turnFailedAt,
+        continuity: runtimeContinuityPresentation.runtimeContinuity,
+        runtimeEvents: failureRuntimeEvents,
+        lifecycleAttributionEvidence: {
+          contextAudit: projectedContextAudit,
+          finalOutput: {
+            estimatedTokens: estimateTextTokens(runtimeFinalOutputText),
+          },
+        },
+      });
+      await ctx.sessionRegistry.save(session);
+    }
+    await ctx.turnCapture?.abort?.(session.id);
+    throw error;
+  }
 }
 
 function runtimeFailureEvent(error: unknown, sessionId: string, timestamp: Date): ErrorEvent {

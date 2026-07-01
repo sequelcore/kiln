@@ -567,10 +567,17 @@ describe("makeMultiProviderSessionFactory", () => {
       undefined,
       "tui",
       {
-        routes: [],
-        requestedBy: "assistant",
-        requestSource: "tui",
-        invocationService,
+        callerIdentity: {
+          kind: "kiln-runtime",
+          surface: "tui",
+          attachmentId: "kiln-runtime:tui",
+        },
+        options: {
+          routes: [],
+          requestedBy: "assistant",
+          requestSource: "tui",
+          invocationService,
+        },
       } as any,
     );
     const session = factory("sys", "/p");
@@ -822,7 +829,14 @@ describe("makeMultiProviderSessionFactory", () => {
       cache,
       undefined,
       "gui",
-      { routes: [] },
+      {
+        callerIdentity: {
+          kind: "kiln-runtime",
+          surface: "gui",
+          attachmentId: "kiln-runtime:gui",
+        },
+        options: { routes: [] },
+      },
     );
     const session = factory("sys", "/proj");
     const run = session.run({ prompt: "start a managed child", kilnSessionId: "sess-managed-events" } as any);

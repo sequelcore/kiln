@@ -132,6 +132,9 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read"],
+        semanticSourceGranularity: "unknown",
+        evidenceBasis: "adapter",
       },
       resultHandoff: {
         boundedSummary: true,
@@ -972,13 +975,6 @@ describe("TUI gateway message fail-closed behavior", () => {
       const sessionEvents = outboundFrames
         .filter((frame) => frame.type === "session_event")
         .map((frame) => frame.event);
-      const costEventIndex = sessionEvents.findIndex((event) => event?.kind === "cost_updated");
-      const lifecycleEventIndex = sessionEvents.findIndex(
-        (event) => event?.kind === "lifecycle_attribution_recorded",
-      );
-      const costEvent = sessionEvents[costEventIndex];
-      const lifecycleEvent = sessionEvents[lifecycleEventIndex];
-
       expect(outboundFrames).toContainEqual(expect.objectContaining({
         type: "done",
         content: "Parent turn completed.",
@@ -1005,18 +1001,8 @@ describe("TUI gateway message fail-closed behavior", () => {
           state: "succeeded",
         },
       });
-      expect(lifecycleEventIndex).toBe(costEventIndex + 1);
-      expect(lifecycleEvent).toMatchObject({
-        parentEventId: costEvent?.eventId,
-        payload: {
-          ledger: {
-            sourceEventId: costEvent?.eventId,
-          },
-          summary: {
-            totalTokens: 170,
-          },
-        },
-      });
+      expect(sessionEvents.some((event) => event?.kind === "cost_updated")).toBe(false);
+      expect(sessionEvents.some((event) => event?.kind === "lifecycle_attribution_recorded")).toBe(false);
     } finally {
       discoverySpy.mockRestore();
       gateway.shutdown();

@@ -17,15 +17,20 @@ import type {
   WorkItemExecutionAttempt,
   ToolCalledEvent,
   ToolResultEvent,
+  ContextAuditEntry,
 } from "@kilnai/core";
 import {
   createSessionEvent,
   projectCostUpdatedEventToLifecycleLedger,
-  summarizeLifecycleAttributionLedger,
+  reconcileLifecycleAttributionLedger,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { RuntimeTurnFileChange } from "./runtime-turn-record.js";
 import { sanitizeAssistantEgressText } from "./assistant-egress-sanitizer.js";
+import {
+  projectRuntimeLifecycleAttributionAllocations,
+  type RuntimeLifecycleFinalOutputBoundary,
+} from "./runtime-lifecycle-attribution-allocations.js";
 
 type CapturedRuntimeLedgerEvent =
   | ApprovalReceivedEvent
@@ -48,6 +53,11 @@ export interface RuntimeTurnAuthorityMutationViolation {
   readonly errorCode: string;
   readonly message: string;
   readonly details: Record<string, unknown>;
+}
+
+export interface RuntimeLifecycleAttributionEvidence {
+  readonly contextAudit?: ContextAuditEntry;
+  readonly finalOutput?: RuntimeLifecycleFinalOutputBoundary;
 }
 
 export interface AppendCanonicalTurnEventsInput {
@@ -108,6 +118,7 @@ export interface AppendCanonicalTurnEventsInput {
     readonly issueCodes: readonly string[];
     readonly blockingIssueCodes: readonly string[];
   }[];
+  readonly lifecycleAttributionEvidence?: RuntimeLifecycleAttributionEvidence;
   readonly clarificationRecords?: readonly {
     readonly specificationId: string;
     readonly clarificationId: string;
@@ -318,7 +329,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
             inputTokens: runtimeEvent.inputTokens,
             outputTokens: runtimeEvent.outputTokens,
             cacheReadTokens: runtimeEvent.cacheReadTokens,
-            cacheWriteTokens: 0,
+            cacheWriteTokens: runtimeEvent.cacheWriteTokens,
           },
           cost: {
             currency: "USD",
@@ -329,19 +340,31 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           timestamp: runtimeEvent.timestamp,
         });
         events.push(costEvent);
+        const route = `${costEvent.provider.provider}/${costEvent.provider.model}`;
+        const lifecycleEvidence = normalizeLifecycleAttributionEvidence(
+          input.lifecycleAttributionEvidence,
+          session.id,
+          turnId,
+        );
         const attributionLedger = projectCostUpdatedEventToLifecycleLedger(costEvent, {
+          allocations: projectRuntimeLifecycleAttributionAllocations({
+            contextAudit: lifecycleEvidence.contextAudit,
+            finalOutput: lifecycleEvidence.finalOutput,
+            route,
+          }),
           context: {
-            route: `${costEvent.provider.provider}/${costEvent.provider.model}`,
+            route,
           },
         });
+        const reconciled = reconcileLifecycleAttributionLedger(costEvent, attributionLedger);
         events.push(createSessionEvent<"lifecycle_attribution_recorded">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
           kind: "lifecycle_attribution_recorded",
           turnId,
           parentEventId: costEvent.eventId,
-          ledger: attributionLedger,
-          summary: summarizeLifecycleAttributionLedger(attributionLedger),
+          ledger: reconciled.ledger,
+          summary: reconciled.summary,
           source: runtimeSource,
           timestamp: runtimeEvent.timestamp,
         }));
@@ -552,6 +575,23 @@ function nextCanonicalTurnOrdinal(session: RuntimeSession): number {
   }, 0);
 
   return Math.max(session.userTurnCount, highestPersistedTurnOrdinal + 1, 1);
+}
+
+function normalizeLifecycleAttributionEvidence(
+  evidence: RuntimeLifecycleAttributionEvidence | undefined,
+  sessionId: string,
+  turnId: string,
+): RuntimeLifecycleAttributionEvidence {
+  if (!evidence?.finalOutput) {
+    return evidence ?? {};
+  }
+  return {
+    ...evidence,
+    finalOutput: {
+      ...evidence.finalOutput,
+      evidenceUri: evidence.finalOutput.evidenceUri ?? `kiln://sessions/${sessionId}/turns/${turnId}/final-output`,
+    },
+  };
 }
 
 function projectWorkItemEvents(input: {

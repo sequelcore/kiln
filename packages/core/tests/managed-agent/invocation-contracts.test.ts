@@ -85,6 +85,9 @@ function makeDescriptor(): ManagedAgentAdapterDescriptor {
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,
@@ -205,7 +208,23 @@ describe("managed agent invocation contracts", () => {
 
     expect(descriptor.adapterKind).toBe("harness");
     expect(descriptor.supportedProfiles).toEqual(["foundation-readonly-plan"]);
+    expect(descriptor.usage).toMatchObject({
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
+    });
     expect(JSON.stringify(descriptor)).not.toMatch(/\bsubagent\b|\bteam\b|\bfork\b/);
+  });
+
+  it("rejects provider-reported semantic source claims without provider usage evidence", () => {
+    expect(() => defineManagedAgentAdapterDescriptor({
+      ...makeDescriptor(),
+      usage: {
+        ...makeDescriptor().usage,
+        semanticSourceGranularity: "provider_reported",
+        evidenceBasis: "adapter",
+      },
+    })).toThrow("Managed invocation provider-reported semantic source granularity requires provider usage evidence");
   });
 
   it("preserves remote-harness limitations as route capability evidence without changing adapter kind", () => {
@@ -526,9 +545,9 @@ describe("managed agent invocation contracts", () => {
     const usage: ManagedAgentUsageReport = {
       source: "adapter",
       tokenClasses: [
-        { name: "input_tokens", value: 120 },
-        { name: "output_tokens", value: 45 },
-        { name: "cached_tokens", value: "unknown" },
+        { name: "input", value: 120 },
+        { name: "output", value: 45 },
+        { name: "cache_read", value: "unknown" },
       ],
       cost: { currency: "USD", amount: "unknown" },
     };
@@ -539,7 +558,7 @@ describe("managed agent invocation contracts", () => {
     expect(record.capabilitySnapshot.routeId).toBe("codex-oauth-readonly");
     expect(record.capabilitySnapshot.routeSource).toBe("explicit-managed-route");
     expect(record.transcript?.redacted).toBe(true);
-    expect(record.usage?.tokenClasses[2]).toEqual({ name: "cached_tokens", value: "unknown" });
+    expect(record.usage?.tokenClasses[2]).toEqual({ name: "cache_read", value: "unknown" });
     expect(record.resultHandoff?.summary).toBe("No file writes were needed.");
   });
 
@@ -684,15 +703,56 @@ describe("managed agent invocation contracts", () => {
       },
     })).toThrow("Unsupported managed invocation timeout source: request");
   });
+
+  it("rejects non-canonical usage token class names at the lifecycle boundary", () => {
+    expect(() => defineManagedAgentInvocationRecord(makeCompletedRecordInput({
+      source: "adapter",
+      tokenClasses: [
+        { name: "input_tokens" as unknown as "input", value: 120 },
+      ],
+      cost: { currency: "USD", amount: "unknown" },
+    }))).toThrow("Unsupported managed invocation usage token class: input_tokens");
+  });
+
+  it("rejects usage claims outside the admitted adapter descriptor capability", () => {
+    expect(() => defineManagedAgentInvocationRecord(makeCompletedRecordInput({
+      source: "adapter",
+      tokenClasses: [
+        { name: "cache_write", value: 12 },
+      ],
+      cost: { currency: "USD", amount: "unknown" },
+    }))).toThrow("Managed invocation usage token class is not supported by the admitted adapter descriptor: cache_write");
+  });
+
+  it("rejects usage evidence that claims a stronger source than the admitted adapter descriptor", () => {
+    expect(() => defineManagedAgentInvocationRecord(makeCompletedRecordInput({
+      source: "provider",
+      tokenClasses: [
+        { name: "input", value: 120 },
+      ],
+      cost: { currency: "USD", amount: 0.01 },
+    }))).toThrow("Managed invocation usage evidence source must match the admitted adapter descriptor");
+  });
+
+  it("rejects provider route drift from the admitted capability snapshot", () => {
+    expect(() => defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      providerRoute: {
+        providerId: "codex-oauth",
+        surface: "cli",
+        model: "different-model",
+      },
+    })).toThrow("Managed invocation usage route must match the admitted capability snapshot");
+  });
 });
 
 function makeCompletedRecordInput(
   usage: ManagedAgentUsageReport = {
     source: "adapter",
     tokenClasses: [
-      { name: "input_tokens", value: 120 },
-      { name: "output_tokens", value: 45 },
-      { name: "cached_tokens", value: "unknown" },
+      { name: "input", value: 120 },
+      { name: "output", value: 45 },
+      { name: "cache_read", value: "unknown" },
     ],
     cost: { currency: "USD", amount: "unknown" },
   },

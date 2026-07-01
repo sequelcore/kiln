@@ -148,6 +148,7 @@ export class RuntimeSessionExecutionTelemetry {
       inputTokens: this.totals.inputTokens,
       outputTokens: this.totals.outputTokens,
       cacheReadTokens: this.totals.cacheReadTokens,
+      cacheWriteTokens: this.totals.cacheWriteTokens,
       totalCostUsd,
       byRoleModel: {
         [`assistant:${model}`]: {

@@ -264,6 +264,26 @@ Exit gate:
 - direct-provider and harness routes disclose equivalent evidence or explicit
   capability gaps.
 
+Closure evidence:
+
+- Core lifecycle ledger contracts reconcile provider totals, preserve raw
+  usage, retain unknown remainders, and replay deterministically from canonical
+  evidence.
+- Runtime appends lifecycle attribution after provider execution using admitted
+  context-audit evidence and bounded final-output evidence; deferred context is
+  auditable but not counted as provider input.
+- Message-pipeline tests prove lifecycle attribution is absent from the
+  provider request path and does not change the completed task outcome.
+- Managed invocation descriptors declare token classes, semantic source
+  granularity, and evidence basis so direct, CLI harness, and remote harness
+  routes expose equivalent evidence or explicit capability gaps.
+- Fixture benchmark
+  `packages/core/evals/benchmark/kiln-lifecycle-attribution-v1.jsonl` proves
+  deterministic reconciliation, replay, unknown attribution, cache token-class
+  handling, and no fabricated source precision. Runtime/gateway and
+  managed-route tests prove request/outcome neutrality and declared route-gap
+  behavior.
+
 ### Slice 2 - Stable Prefix And Cache Topology
 
 Goal: reduce repeated prefill cost without changing admitted information.
@@ -585,8 +605,9 @@ system can detect its own regressions.
 ## Open Decisions Requiring Evidence
 
 - The canonical name and package boundary of the efficiency controller.
-- Whether lifecycle attribution belongs in the existing session event ledger
-  or a dedicated projection over canonical events.
+- Resolved by Slice 1: lifecycle attribution is recorded as canonical session
+  ledger evidence plus pure core replay/reconciliation helpers, not as a
+  parallel event store or provider-adapter side channel.
 - The token estimation strategy used before provider admission.
 - Artifact retention rules for reversible projections and active verification.
 - The first supported typed reducers and their preservation contracts.

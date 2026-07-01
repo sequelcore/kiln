@@ -237,9 +237,9 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       usage: {
         source: "adapter",
         tokenClasses: [
-          { name: "input_tokens", value: 42 },
-          { name: "output_tokens", value: 7 },
-          { name: "cache_read_tokens", value: 3 },
+          { name: "input", value: 42 },
+          { name: "output", value: 7 },
+          { name: "cache_read", value: 3 },
         ],
         cost: { currency: "USD", amount: 0.02 },
       },

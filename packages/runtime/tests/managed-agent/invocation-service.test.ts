@@ -119,6 +119,9 @@ function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}):
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,
@@ -370,7 +373,7 @@ function makeRecord(
     },
     usage: {
       source: "adapter",
-      tokenClasses: [{ name: "input_tokens", value: "unknown" }],
+      tokenClasses: [{ name: "input", value: "unknown" }],
       cost: { currency: "unknown", amount: "unknown" },
     },
     resultHandoff: {

@@ -78,10 +78,11 @@ function makeManagedAdapter(summary = "Delegated vision summary."): ManagedAgent
           retention: "session",
         },
         usage: {
+          source: "adapter",
           tokenClasses: [
-            { name: "input_tokens", value: 7 },
-            { name: "output_tokens", value: 5 },
-            { name: "cache_read_tokens", value: 0 },
+            { name: "input", value: 7 },
+            { name: "output", value: 5 },
+            { name: "cache_read", value: 0 },
           ],
         },
         resultHandoff: {
@@ -118,6 +119,9 @@ function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,

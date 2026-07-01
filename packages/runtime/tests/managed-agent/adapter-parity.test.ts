@@ -52,7 +52,6 @@ describe("managed agent adapter parity", () => {
       cancellation: harness.descriptor.cancellation,
       timeout: harness.descriptor.timeout,
       transcript: harness.descriptor.transcript,
-      usage: harness.descriptor.usage,
       resultHandoff: harness.descriptor.resultHandoff,
       credentialRoute: harness.descriptor.credentialRoute,
       memoryContext: harness.descriptor.memoryContext,
@@ -63,7 +62,17 @@ describe("managed agent adapter parity", () => {
     expect(harness.descriptor).toMatchObject({
       adapterKind: "harness",
       supportedExecutionModes: ["cli-harness"],
+      usage: {
+        tokenClasses: ["input", "output", "cache_read"],
+        semanticSourceGranularity: "unknown",
+        evidenceBasis: "adapter",
+      },
       unsupportedFieldPolicy: "reject",
+    });
+    expect(direct.descriptor.usage).toMatchObject({
+      tokenClasses: ["input", "output", "cache_read", "cache_write"],
+      semanticSourceGranularity: "estimated",
+      evidenceBasis: "runtime",
     });
     expect(direct.descriptor.supportedProfiles).toEqual(harness.descriptor.supportedProfiles);
   });

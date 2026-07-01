@@ -113,6 +113,36 @@ filenames, selected provider, or the current UI surface. Execution still has to
 pass managed route admission, provider/model readiness, authority policy, and
 tool policy before a child run starts.
 
+## Managed Usage Evidence
+
+Managed invocation adapters must declare usage evidence capability separately
+from route availability. A supported invocation route is not automatically a
+complete lifecycle-attribution route.
+
+Each adapter descriptor declares:
+
+- token classes it can report: input, output, cache read, cache write;
+- semantic source granularity: provider-reported, estimated, or unknown;
+- evidence basis: provider, runtime, adapter, or unknown.
+
+Provider-reported semantic granularity is valid only when the evidence basis is
+provider usage. Runtime and adapter-derived values remain estimates or unknowns
+and must reconcile through the canonical lifecycle ledger instead of being
+presented as provider truth.
+
+Current managed-route usage evidence:
+
+| Route family | Token classes | Semantic granularity | Evidence basis |
+|--------------|---------------|----------------------|----------------|
+| Direct runtime adapter | input, output, cache read, cache write | estimated | runtime |
+| CLI harness adapter | input, output, cache read | unknown | adapter |
+| Remote harness adapter | input, output | unknown | adapter |
+
+Cross-route comparisons must either show equivalent lifecycle attribution
+evidence or surface these explicit gaps. No operator surface may fill a missing
+harness usage class by inference from provider prefixes, transcript text, or
+local cost heuristics.
+
 ## Native Config Import
 
 Native config import is narrower than native projection. It is allowed only when

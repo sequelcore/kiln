@@ -70,6 +70,15 @@ const runWiringMocks = vi.hoisted(() => {
 });
 
 vi.mock("@kilnai/runtime", () => ({
+  attachManagedInvocationSessionEventSink: vi.fn((attachment: Record<string, unknown> | undefined, sessionEventSink: unknown) => {
+    if (!attachment) {
+      return undefined;
+    }
+    return {
+      ...attachment,
+      sessionEventSink,
+    };
+  }),
   getProjectContextArtifactCache: vi.fn().mockResolvedValue({
     set: vi.fn(),
   }),
@@ -529,7 +538,17 @@ describe("run command builtin tool wiring", () => {
     }));
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },
-      managedInvocation,
+      managedInvocation: {
+        options: managedInvocation,
+        callerIdentity: {
+          kind: "kiln-runtime",
+          surface: "run",
+          attachmentId: "kiln-runtime:run",
+        },
+        sessionEventSink: {
+          publish: expect.any(Function),
+        },
+      },
     });
   });
 

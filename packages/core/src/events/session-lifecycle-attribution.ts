@@ -112,6 +112,25 @@ export interface SessionLifecycleAttributionSummary {
   readonly totalCostUsd: number;
 }
 
+export interface SessionLifecycleAttributionProviderTotals {
+  readonly input: number;
+  readonly output: number;
+  readonly cache_read: number;
+  readonly cache_write: number;
+}
+
+export interface SessionLifecycleAttributionReconciliationResult {
+  readonly ledger: SessionLifecycleAttributionLedger;
+  readonly summary: SessionLifecycleAttributionSummary;
+  readonly providerTotals: SessionLifecycleAttributionProviderTotals;
+}
+
+export interface ReplayLifecycleAttributionEvidenceInput {
+  readonly costEvent: CanonicalCostUpdatedEvent;
+  readonly ledger: SessionLifecycleAttributionLedger;
+  readonly summary: SessionLifecycleAttributionSummary;
+}
+
 export interface ProjectCostUpdatedEventToLifecycleLedgerOptions {
   readonly allocations?: readonly SessionLifecycleAttributionAllocation[];
   readonly context?: SessionLifecycleExecutionContext;
@@ -139,14 +158,16 @@ export function projectCostUpdatedEventToLifecycleLedger(
     const allocations = (options.allocations ?? []).filter((allocation) =>
       providerTokenClassForLifecycleClass(allocation) === providerTokenClass,
     );
-    const allocated = allocations.reduce((total, allocation) => total + validateAllocation(allocation), 0);
-    if (allocated > providerTotal) {
-      throw new Error(`Lifecycle attribution for ${providerTokenClass} exceeds provider-reported usage`);
-    }
+    const reconciledAllocations = reconcileProviderClassAllocations(
+      providerTokenClass,
+      providerTotal,
+      allocations,
+    );
+    const allocated = reconciledAllocations.reduce((total, allocation) => total + validateAllocation(allocation), 0);
     if (providerTotal === 0) {
       continue;
     }
-    for (const allocation of allocations) {
+    for (const allocation of reconciledAllocations) {
       if (allocation.tokens === 0) {
         continue;
       }
@@ -222,6 +243,143 @@ export function summarizeLifecycleAttributionLedger(
   };
 }
 
+export function reconcileLifecycleAttributionLedger(
+  event: CanonicalCostUpdatedEvent,
+  ledger: SessionLifecycleAttributionLedger,
+): SessionLifecycleAttributionReconciliationResult {
+  validateLedgerIdentity(event, ledger);
+  validateRecords(event, ledger.records);
+
+  const providerTotals = providerTotalsFromUsage(event.usage);
+  for (const providerTokenClass of PROVIDER_TOKEN_CLASSES) {
+    const total = ledger.records
+      .filter((record) => record.providerTokenClass === providerTokenClass)
+      .reduce((sum, record) => sum + record.tokens, 0);
+    const providerTotal = providerTotals[providerTokenClass];
+    if (total > providerTotal) {
+      throw new Error(`Lifecycle attribution allocation overflow for ${providerTokenClass}`);
+    }
+    if (total !== providerTotal) {
+      throw new Error(`Lifecycle attribution provider-total mismatch for ${providerTokenClass}`);
+    }
+  }
+
+  const summary = summarizeLifecycleAttributionLedger(ledger);
+  if (Math.abs(summary.totalCostUsd - event.cost.deltaUsd) > 1e-12) {
+    throw new Error("Lifecycle attribution provider-total mismatch for cost");
+  }
+
+  return { ledger, summary, providerTotals };
+}
+
+export function replayLifecycleAttributionEvidence(
+  input: ReplayLifecycleAttributionEvidenceInput,
+): SessionLifecycleAttributionReconciliationResult {
+  const reconciled = reconcileLifecycleAttributionLedger(input.costEvent, input.ledger);
+  if (!structurallyEqual(reconciled.summary, input.summary)) {
+    throw new Error("Lifecycle attribution summary mismatch");
+  }
+  return reconciled;
+}
+
+function validateLedgerIdentity(
+  event: CanonicalCostUpdatedEvent,
+  ledger: SessionLifecycleAttributionLedger,
+): void {
+  if (
+    ledger.sessionId !== event.kilnSessionId
+    || ledger.turnId !== event.turnId
+    || ledger.sourceEventId !== event.eventId
+    || ledger.sourceEventSequence !== event.sequence
+    || !structurallyEqual(ledger.provider, event.provider)
+    || !structurallyEqual(ledger.usage, event.usage)
+    || !structurallyEqual(ledger.cost, event.cost)
+  ) {
+    throw new Error("Lifecycle attribution identity mismatch");
+  }
+}
+
+function validateRecords(
+  event: CanonicalCostUpdatedEvent,
+  records: readonly SessionLifecycleAttributionRecord[],
+): void {
+  const fingerprints = new Set<string>();
+  let previousProviderClassIndex = -1;
+  let unknownSeen = false;
+
+  for (const record of records) {
+    const fingerprint = JSON.stringify(record);
+    if (fingerprints.has(fingerprint)) {
+      throw new Error("Lifecycle attribution duplicate record");
+    }
+    fingerprints.add(fingerprint);
+
+    if (
+      record.sessionId !== event.kilnSessionId
+      || record.turnId !== event.turnId
+      || record.sourceEventId !== event.eventId
+      || record.sourceEventSequence !== event.sequence
+      || !structurallyEqual(record.provider, event.provider)
+    ) {
+      throw new Error("Lifecycle attribution identity mismatch");
+    }
+    if (
+      !Number.isInteger(record.tokens)
+      || record.tokens < 0
+      || expectedProviderTokenClassForLifecycleClass(record.tokenClass) !== record.providerTokenClass
+      || !Number.isFinite(record.cost.deltaUsd)
+      || record.cost.deltaUsd < 0
+      || record.cost.currency !== event.cost.currency
+    ) {
+      throw new Error("Lifecycle attribution allocation mismatch");
+    }
+
+    const providerClassIndex = PROVIDER_TOKEN_CLASSES.indexOf(record.providerTokenClass);
+    if (providerClassIndex < previousProviderClassIndex) {
+      throw new Error("Lifecycle attribution record order mismatch");
+    }
+    if (providerClassIndex !== previousProviderClassIndex) {
+      previousProviderClassIndex = providerClassIndex;
+      unknownSeen = false;
+    } else if (unknownSeen && record.source !== "unknown") {
+      throw new Error("Lifecycle attribution record order mismatch");
+    }
+    unknownSeen = record.source === "unknown";
+  }
+}
+
+function providerTotalsFromUsage(usage: SessionTokenUsage): SessionLifecycleAttributionProviderTotals {
+  return {
+    input: usage.inputTokens,
+    output: usage.outputTokens,
+    cache_read: usage.cacheReadTokens,
+    cache_write: usage.cacheWriteTokens,
+  };
+}
+
+function structurallyEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true;
+  }
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => structurallyEqual(value, right[index]));
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.hasOwn(rightRecord, key)
+      && structurallyEqual(leftRecord[key], rightRecord[key]));
+}
+
 function readProviderTotal(usage: SessionTokenUsage, providerTokenClass: SessionProviderTokenClass): number {
   switch (providerTokenClass) {
     case "input":
@@ -279,6 +437,46 @@ function lifecycleClassForProviderClass(providerTokenClass: SessionProviderToken
     case "cache_write":
       return "cache_written";
   }
+}
+
+function reconcileProviderClassAllocations(
+  providerTokenClass: SessionProviderTokenClass,
+  providerTotal: number,
+  allocations: readonly SessionLifecycleAttributionAllocation[],
+): readonly SessionLifecycleAttributionAllocation[] {
+  const allocated = allocations.reduce((total, allocation) => total + validateAllocation(allocation), 0);
+  if (allocated <= providerTotal) {
+    return allocations;
+  }
+  if (allocations.some((allocation) => allocation.quality === "provider_reported" || allocation.cost?.quality === "provider_reported")) {
+    throw new Error(`Lifecycle attribution for ${providerTokenClass} exceeds provider-reported usage`);
+  }
+  if (providerTotal === 0) {
+    return [];
+  }
+  return clampEstimatedAllocationsToProviderTotal(allocations, providerTotal);
+}
+
+function clampEstimatedAllocationsToProviderTotal(
+  allocations: readonly SessionLifecycleAttributionAllocation[],
+  providerTotal: number,
+): readonly SessionLifecycleAttributionAllocation[] {
+  let remaining = providerTotal;
+  const clamped: SessionLifecycleAttributionAllocation[] = [];
+  for (const allocation of allocations) {
+    if (remaining <= 0) {
+      break;
+    }
+    const tokens = Math.min(allocation.tokens, remaining);
+    remaining -= tokens;
+    clamped.push({
+      ...allocation,
+      tokens,
+      cost: undefined,
+      quality: allocation.quality ?? "estimated",
+    });
+  }
+  return clamped;
 }
 
 function validateAllocation(allocation: SessionLifecycleAttributionAllocation): number {

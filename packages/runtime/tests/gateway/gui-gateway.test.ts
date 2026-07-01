@@ -248,6 +248,9 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read"],
+        semanticSourceGranularity: "unknown",
+        evidenceBasis: "adapter",
       },
       resultHandoff: {
         boundedSummary: true,
@@ -385,6 +388,9 @@ function makeManagedWriteConflictFixture(): {
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read"],
+        semanticSourceGranularity: "unknown",
+        evidenceBasis: "adapter",
       },
       resultHandoff: {
         boundedSummary: true,
@@ -566,6 +572,9 @@ function makeManagedDirtyWorktreeReviewFixture(): {
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read"],
+        semanticSourceGranularity: "unknown",
+        evidenceBasis: "adapter",
       },
       resultHandoff: {
         boundedSummary: true,
@@ -2470,12 +2479,6 @@ describe("startGuiGateway static mount", () => {
       const managedLifecycleFrames = sessionEventFrames.filter((frame) =>
         frame.event?.kind.startsWith("agent_invocation_")
       );
-      const costEventIndex = sessionEventFrames.findIndex((frame) => frame.event?.kind === "cost_updated");
-      const lifecycleEventIndex = sessionEventFrames.findIndex(
-        (frame) => frame.event?.kind === "lifecycle_attribution_recorded",
-      );
-      const costEvent = sessionEventFrames[costEventIndex]?.event;
-      const lifecycleEvent = sessionEventFrames[lifecycleEventIndex]?.event;
       const admittedTurn = vi.mocked(processAdmittedTurn).mock.calls[0]?.[0];
 
       expect(outboundFrames).toContainEqual({ type: "thinking" });
@@ -2520,18 +2523,8 @@ describe("startGuiGateway static mount", () => {
       });
       expect(completedPayload?.metadata).toEqual(expectedMetadata);
       expect(managedLifecycleFrames).toEqual([]);
-      expect(lifecycleEventIndex).toBe(costEventIndex + 1);
-      expect(lifecycleEvent).toMatchObject({
-        parentEventId: costEvent?.eventId,
-        payload: {
-          ledger: {
-            sourceEventId: costEvent?.eventId,
-          },
-          summary: {
-            totalTokens: 170,
-          },
-        },
-      });
+      expect(sessionEventFrames.some((frame) => frame.event?.kind === "cost_updated")).toBe(false);
+      expect(sessionEventFrames.some((frame) => frame.event?.kind === "lifecycle_attribution_recorded")).toBe(false);
       expect(factory).toHaveBeenCalledTimes(1);
     } finally {
       vi.mocked(processAdmittedTurn).mockReset();

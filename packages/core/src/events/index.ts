@@ -183,6 +183,7 @@ export interface CostUpdateEvent extends KilnEvent {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
   readonly totalCostUsd: number;
   readonly byRoleModel: Record<string, {
     model: string;
@@ -722,14 +723,19 @@ export type { TraceSpan, SpanEvent, TraceContext } from "./trace.js";
 export { createSessionEvent, compareSessionEvents } from "./session-event.js";
 export {
   projectCostUpdatedEventToLifecycleLedger,
+  reconcileLifecycleAttributionLedger,
+  replayLifecycleAttributionEvidence,
   summarizeLifecycleAttributionLedger,
 } from "./session-lifecycle-attribution.js";
 export type {
   ProjectCostUpdatedEventToLifecycleLedgerOptions,
+  ReplayLifecycleAttributionEvidenceInput,
   SessionLifecycleAttributedCost,
   SessionLifecycleAttributionAllocation,
   SessionLifecycleAttributionLedger,
+  SessionLifecycleAttributionProviderTotals,
   SessionLifecycleAttributionQuality,
+  SessionLifecycleAttributionReconciliationResult,
   SessionLifecycleAttributionRecord,
   SessionLifecycleAttributionSummary,
   SessionLifecycleExecutionContext,

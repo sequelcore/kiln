@@ -70,10 +70,6 @@ import type {
   RuntimeTurnFileChange,
   RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
-import {
-  projectLiveLifecycleAttribution,
-  type LiveCostEventIdentity,
-} from "./live-lifecycle-attribution.js";
 
 type BunHonoAdapters = typeof import("hono/bun");
 const TUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-tui";
@@ -1085,17 +1081,17 @@ class TuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated" | "lifecycle_attribution_recorded";
+    kind: "assistant_delta" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed";
     timestamp: string;
     payload: Record<string, unknown>;
     parentEventId?: string;
-  }): LiveCostEventIdentity | null {
+  }): void {
     if (!this.ws || !this.capture) {
-      return null;
+      return;
     }
     const sequence = this.nextLiveSequence();
     if (sequence === null) {
-      return null;
+      return;
     }
     const eventId = `${this.capture.sessionId}:live:${sequence}`;
     const turnId = `${this.capture.sessionId}:turn:live`;
@@ -1117,13 +1113,6 @@ class TuiActivityStreamer {
         payload: input.payload,
       },
     } satisfies GuiInboundFrame));
-    return {
-      eventId,
-      kilnSessionId: this.capture.sessionId,
-      sequence,
-      timestamp: input.timestamp,
-      turnId,
-    };
   }
 
   forwardSessionEvents(events: readonly CanonicalSessionEvent[]): void {
@@ -1393,50 +1382,6 @@ class TuiActivityStreamer {
           },
         },
       });
-    } else if (event.type === "cost_update") {
-      const timestamp = new Date().toISOString();
-      const provider = {
-        provider: event.provider ?? "unknown",
-        model: event.model ?? event.canonicalModel ?? "unknown",
-        canonicalModel: event.canonicalModel,
-        billingMode: event.billingMode,
-      };
-      const usage = {
-        inputTokens: event.inputTokens ?? 0,
-        outputTokens: event.outputTokens ?? 0,
-        cacheReadTokens: event.cacheReadTokens ?? 0,
-        cacheWriteTokens: 0,
-      };
-      const cost = {
-        deltaUsd: event.usd,
-        currency: "USD" as const,
-      };
-      const costIdentity = this.emitSessionEvent({
-        kind: "cost_updated",
-        timestamp,
-        payload: {
-          provider,
-          usage,
-          cost,
-        },
-      });
-      if (costIdentity) {
-        const attribution = projectLiveLifecycleAttribution({
-          ...costIdentity,
-          provider,
-          usage,
-          cost,
-        });
-        this.emitSessionEvent({
-          kind: "lifecycle_attribution_recorded",
-          timestamp,
-          parentEventId: attribution.parentEventId,
-          payload: {
-            ledger: attribution.ledger,
-            summary: attribution.summary,
-          },
-        });
-      }
     }
     // completed/error are handled by the gateway's done/error frames.
     // approval_requested/approval_received come via eventBus, not execution session events.

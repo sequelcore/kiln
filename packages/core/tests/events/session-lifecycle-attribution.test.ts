@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   projectCostUpdatedEventToLifecycleLedger,
+  reconcileLifecycleAttributionLedger,
   summarizeLifecycleAttributionLedger,
   type CanonicalCostUpdatedEvent,
+  type SessionLifecycleAttributionLedger,
 } from "../../src/events/index.js";
 
 const COST_EVENT: CanonicalCostUpdatedEvent = {
@@ -32,7 +34,123 @@ const COST_EVENT: CanonicalCostUpdatedEvent = {
   },
 };
 
+function createCanonicalLedger(): SessionLifecycleAttributionLedger {
+  return projectCostUpdatedEventToLifecycleLedger(COST_EVENT, {
+    context: { route: "codex-oauth/gpt-5.5" },
+    allocations: [
+      {
+        source: "control_instructions",
+        tokenClass: "admitted",
+        tokens: 60,
+        quality: "estimated",
+        evidenceUris: ["kiln://context-audit/admission-1"],
+      },
+      {
+        source: "final_output",
+        tokenClass: "generated",
+        tokens: 20,
+        quality: "provider_reported",
+        evidenceUris: ["kiln://session/session-1/turn/turn-1/final-output"],
+      },
+      {
+        source: "repository_evidence",
+        tokenClass: "cached",
+        tokens: 10,
+        quality: "estimated",
+        evidenceUris: ["kiln://artifact/repository-evidence-1"],
+      },
+      {
+        source: "procedural_context",
+        tokenClass: "cache_written",
+        tokens: 4,
+        quality: "estimated",
+        evidenceUris: ["kiln://context-audit/cache-write-1"],
+      },
+    ],
+  });
+}
+
 describe("session lifecycle attribution", () => {
+  describe("canonical reconciliation", () => {
+    it("reconciles all provider token classes while preserving estimated evidence and unknown remainders", () => {
+      const ledger = createCanonicalLedger();
+
+      const result = reconcileLifecycleAttributionLedger(COST_EVENT, ledger);
+
+      expect(result.ledger).toEqual(ledger);
+      expect(result.summary).toEqual(summarizeLifecycleAttributionLedger(ledger));
+      expect(result.providerTotals).toEqual({
+        input: 100,
+        output: 20,
+        cache_read: 30,
+        cache_write: 10,
+      });
+      expect(result.ledger.records).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          source: "control_instructions",
+          providerTokenClass: "input",
+          tokens: 60,
+          quality: "estimated",
+          evidenceUris: ["kiln://context-audit/admission-1"],
+        }),
+        expect.objectContaining({
+          source: "unknown",
+          providerTokenClass: "input",
+          tokens: 40,
+          quality: "unknown",
+        }),
+        expect.objectContaining({
+          source: "unknown",
+          providerTokenClass: "cache_read",
+          tokens: 20,
+          quality: "unknown",
+        }),
+        expect.objectContaining({
+          source: "unknown",
+          providerTokenClass: "cache_write",
+          tokens: 6,
+          quality: "unknown",
+        }),
+      ]));
+      expect(result.summary.totalTokens).toBe(160);
+      expect(result.summary.totalCostUsd).toBeCloseTo(COST_EVENT.cost.deltaUsd);
+    });
+
+    const invalidFixtures: readonly {
+      readonly name: string;
+      readonly mutate: (ledger: SessionLifecycleAttributionLedger) => SessionLifecycleAttributionLedger;
+      readonly error: string;
+    }[] = [
+      {
+        name: "duplicate record",
+        mutate: (ledger) => ({ ...ledger, records: [...ledger.records, ledger.records[0]!] }),
+        error: "duplicate",
+      },
+      {
+        name: "missing record",
+        mutate: (ledger) => ({ ...ledger, records: ledger.records.slice(1) }),
+        error: "provider-total mismatch",
+      },
+      {
+        name: "reordered record",
+        mutate: (ledger) => ({ ...ledger, records: [ledger.records[1]!, ledger.records[0]!, ...ledger.records.slice(2)] }),
+        error: "record order mismatch",
+      },
+      {
+        name: "over-allocated record",
+        mutate: (ledger) => ({
+          ...ledger,
+          records: ledger.records.map((record, index) => index === 0 ? { ...record, tokens: 101 } : record),
+        }),
+        error: "allocation overflow",
+      },
+    ];
+
+    it.each(invalidFixtures)("rejects $name deterministically", ({ mutate, error }) => {
+      expect(() => reconcileLifecycleAttributionLedger(COST_EVENT, mutate(createCanonicalLedger()))).toThrow(error);
+    });
+  });
+
   it("projects provider usage into explicit unknown lifecycle records", () => {
     const ledger = projectCostUpdatedEventToLifecycleLedger(COST_EVENT);
 
@@ -141,10 +259,75 @@ describe("session lifecycle attribution", () => {
     expect(summary.bySourceCostUsd.control_instructions).toBeCloseTo(0.003075);
   });
 
-  it("rejects source allocations that exceed provider-reported usage", () => {
+  it("clamps estimated over-allocation without erasing admitted source attribution", () => {
+    const ledger = projectCostUpdatedEventToLifecycleLedger(COST_EVENT, {
+      context: { route: "codex-oauth/gpt-5.5" },
+      allocations: [
+        { source: "control_instructions", tokenClass: "raw", tokens: 101, quality: "estimated" },
+        { source: "final_output", tokenClass: "generated", tokens: 21, quality: "estimated" },
+      ],
+    });
+
+    expect(ledger.records).toEqual([
+      expect.objectContaining({
+        source: "control_instructions",
+        tokenClass: "raw",
+        providerTokenClass: "input",
+        tokens: 100,
+        quality: "estimated",
+        context: { route: "codex-oauth/gpt-5.5" },
+        evidenceUris: [],
+      }),
+      expect.objectContaining({
+        source: "final_output",
+        tokenClass: "generated",
+        providerTokenClass: "output",
+        tokens: 20,
+        quality: "estimated",
+        context: { route: "codex-oauth/gpt-5.5" },
+        evidenceUris: [],
+      }),
+      expect.objectContaining({ source: "unknown", providerTokenClass: "cache_read", tokens: 30 }),
+      expect.objectContaining({ source: "unknown", providerTokenClass: "cache_write", tokens: 10 }),
+    ]);
+    expect(reconcileLifecycleAttributionLedger(COST_EVENT, ledger).summary.totalTokens).toBe(160);
+  });
+
+  it("recomputes explicit estimated costs when clamping estimated token overflow", () => {
+    const ledger = projectCostUpdatedEventToLifecycleLedger(COST_EVENT, {
+      allocations: [
+        {
+          source: "final_output",
+          tokenClass: "generated",
+          tokens: 30,
+          quality: "estimated",
+          cost: {
+            currency: "USD",
+            deltaUsd: 99,
+            quality: "estimated",
+          },
+        },
+      ],
+    });
+
+    const outputRecord = ledger.records.find((record) => record.providerTokenClass === "output");
+    expect(outputRecord).toMatchObject({
+      source: "final_output",
+      tokens: 20,
+      quality: "estimated",
+      cost: {
+        currency: "USD",
+        quality: "estimated",
+      },
+    });
+    expect(outputRecord?.cost.deltaUsd).not.toBe(99);
+    expect(reconcileLifecycleAttributionLedger(COST_EVENT, ledger).summary.totalCostUsd).toBeCloseTo(0.0123);
+  });
+
+  it("rejects provider-reported source allocations that exceed provider-reported usage", () => {
     expect(() => projectCostUpdatedEventToLifecycleLedger(COST_EVENT, {
       allocations: [
-        { source: "control_instructions", tokenClass: "raw", tokens: 101 },
+        { source: "control_instructions", tokenClass: "raw", tokens: 101, quality: "provider_reported" },
       ],
     })).toThrow("Lifecycle attribution for input exceeds provider-reported usage");
   });
@@ -160,7 +343,7 @@ describe("session lifecycle attribution", () => {
 
     expect(() => projectCostUpdatedEventToLifecycleLedger(zeroCacheWriteEvent, {
       allocations: [
-        { source: "verification", tokenClass: "cache_written", tokens: 1 },
+        { source: "verification", tokenClass: "cache_written", tokens: 1, quality: "provider_reported" },
       ],
     })).toThrow("Lifecycle attribution for cache_write exceeds provider-reported usage");
   });

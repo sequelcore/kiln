@@ -57,6 +57,11 @@ is documented by concern, not as a single monolith.
   lifecycle tools, parallel orchestration, leases, resource projection, remote
   harness routes, write evidence, terminal events, and replay invariants.
 
+- `lifecycle-attribution.md`
+  Provider-neutral token and cost attribution over canonical session events:
+  source classes, reconciliation, replay, request neutrality, managed-route
+  usage capability gaps, and benchmark evidence.
+
 - `session-feedback-pipeline.md`
   Local-first operator feedback, redaction, evidence selection, issue draft,
   repair work item, and draft pull-request governance.

@@ -122,6 +122,9 @@ function makeDescriptor() {
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,
@@ -279,8 +282,8 @@ function makeRecord(lifecycleState: ManagedAgentInvocationRecord["lifecycleState
     usage: {
       source: "adapter",
       tokenClasses: [
-        { name: "input_tokens", value: "unknown" },
-        { name: "output_tokens", value: "unknown" },
+        { name: "input", value: "unknown" },
+        { name: "output", value: "unknown" },
       ],
       cost: { currency: "unknown", amount: "unknown" },
     },
@@ -565,8 +568,8 @@ describe("appendManagedInvocationSessionEvents", () => {
       usage: {
         source: "adapter",
         tokenClasses: [
-          { name: "input_tokens", value: "unknown" },
-          { name: "output_tokens", value: "unknown" },
+          { name: "input", value: "unknown" },
+          { name: "output", value: "unknown" },
         ],
         cost: { currency: "unknown", amount: "unknown" },
       },

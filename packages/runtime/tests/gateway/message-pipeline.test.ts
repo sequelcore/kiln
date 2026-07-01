@@ -330,6 +330,305 @@ describe("processAdmittedTurn", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("keeps lifecycle attribution out of the provider request and task outcome", async () => {
+    const session = makeMockSession();
+    const observedProviderCalls: unknown[] = [];
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async (...args: unknown[]) => {
+        observedProviderCalls.push(args);
+        expect(session.sessionEvents).toEqual([]);
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          canonicalModel: "gpt-5.5",
+          billingMode: "metered",
+          inputTokens: 400,
+          outputTokens: 8,
+          cacheReadTokens: 4,
+          cacheWriteTokens: 0,
+          totalCostUsd: 0.0042,
+          byRoleModel: {},
+          timestamp: new Date("2026-06-30T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("neutral response"),
+          inputTokens: 400,
+          outputTokens: 8,
+          cacheReadTokens: 4,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      recalledMemory: "Relevant durable memory.",
+      knowledgeContext: "Verified knowledge context.",
+      userParts: textParts("Prove request neutrality."),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.parts).toEqual(textParts("neutral response"));
+      expect(result.result.inputTokens).toBe(400);
+      expect(result.result.outputTokens).toBe(8);
+      expect(result.result.cacheReadTokens).toBe(4);
+      expect(result.result.cacheWriteTokens).toBe(0);
+    }
+    expect(observedProviderCalls).toHaveLength(1);
+    expect(observedProviderCalls[0]).toEqual([
+      session,
+      textParts("Prove request neutrality."),
+      expect.objectContaining({
+        content: expect.stringContaining("Relevant durable memory."),
+      }),
+      undefined,
+      undefined,
+    ]);
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "continuity_decided",
+      "cost_updated",
+      "lifecycle_attribution_recorded",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    expect(session.sessionEvents).toContainEqual(expect.objectContaining({
+      kind: "lifecycle_attribution_recorded",
+      ledger: expect.objectContaining({
+        records: expect.arrayContaining([
+          expect.objectContaining({
+            source: "memory",
+            quality: "estimated",
+          }),
+          expect.objectContaining({
+            source: "knowledge",
+            quality: "estimated",
+          }),
+          expect.objectContaining({
+            source: "unknown",
+            providerTokenClass: "input",
+            quality: "unknown",
+          }),
+        ]),
+      }),
+    }));
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "completed",
+    });
+  });
+
+  it("attributes final output from the runtime completion before gateway egress appends sources", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalCostUsd: 0.001,
+          byRoleModel: {},
+          timestamp: new Date("2026-06-30T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("done"),
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          toolExecutions: [{
+            toolName: "web_search",
+            durationMs: 12,
+            success: true,
+            resultSummary: "Found relevant source pages.",
+            metadata: {
+              sources: [{
+                title: "Kiln docs",
+                url: "https://docs.example.com/kiln",
+              }],
+            },
+          }],
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(extractText(result.result.parts)).toContain("https://docs.example.com/kiln");
+    }
+    const attribution = session.sessionEvents.find((event) => event.kind === "lifecycle_attribution_recorded");
+    expect(attribution).toMatchObject({
+      ledger: {
+        records: expect.arrayContaining([
+          expect.objectContaining({
+            source: "final_output",
+            providerTokenClass: "output",
+            tokens: 1,
+            quality: "estimated",
+          }),
+        ]),
+      },
+    });
+    expect(attribution).not.toMatchObject({
+      ledger: {
+        records: expect.arrayContaining([
+          expect.objectContaining({
+            source: "unknown",
+            providerTokenClass: "output",
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("persists cost and lifecycle attribution when post-provider voice synthesis fails", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalCostUsd: 0.001,
+          byRoleModel: {},
+          timestamp: new Date("2026-06-30T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("done"),
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const ttsAdapter: TtsAdapter = {
+      name: "failing-tts",
+      synthesize: vi.fn().mockRejectedValue(new Error("TTS unavailable")),
+    };
+    const abort = vi.fn();
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      voiceConfig: {
+        tts: { provider: "failing-tts", command: "failing-tts" },
+        policy: {
+          surfaces: {
+            api: {
+              enabled: true,
+              output: { modes: ["audio-response"], failureMode: "fail-closed" },
+            },
+          },
+        },
+      },
+      ttsAdapter,
+      turnCapture: { abort },
+    }))).rejects.toThrow("TTS unavailable");
+
+    expect(abort).toHaveBeenCalledWith(session.id);
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "continuity_decided",
+      "cost_updated",
+      "lifecycle_attribution_recorded",
+      "error_recorded",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("does not append a second failed canonical turn when saving completed events fails", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalCostUsd: 0.001,
+          byRoleModel: {},
+          timestamp: new Date("2026-06-30T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("done"),
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+    (sessionRegistry.save as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("store down"));
+    const abort = vi.fn();
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      turnCapture: { abort },
+    }))).rejects.toThrow("store down");
+
+    expect(sessionRegistry.save).toHaveBeenCalledTimes(1);
+    expect(abort).toHaveBeenCalledWith(session.id);
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_started")).toHaveLength(1);
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "completed",
+    });
+  });
+
   it("captures inbound multimodal parts as replayable artifacts before runtime orchestration", async () => {
     const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
     const orchestrator = makeMockOrchestrator();
@@ -2425,6 +2724,7 @@ describe("processAdmittedTurn", () => {
           inputTokens: 10,
           outputTokens: 5,
           cacheReadTokens: 0,
+          cacheWriteTokens: 0,
           totalCostUsd: 0,
           byRoleModel: {},
           timestamp: new Date("2026-04-23T19:00:04.000Z"),

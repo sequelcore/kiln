@@ -35,6 +35,28 @@ export * as engine from "./engine/index.js";
 // Re-export streaming types for runtime
 export type { StreamLevel } from "./events/index.js";
 export { EVENT_LEVEL_MAP, LEVEL_HIERARCHY } from "./events/index.js";
+export {
+  projectCostUpdatedEventToLifecycleLedger,
+  reconcileLifecycleAttributionLedger,
+  replayLifecycleAttributionEvidence,
+  summarizeLifecycleAttributionLedger,
+} from "./events/index.js";
+export type {
+  ProjectCostUpdatedEventToLifecycleLedgerOptions,
+  ReplayLifecycleAttributionEvidenceInput,
+  SessionLifecycleAttributedCost,
+  SessionLifecycleAttributionAllocation,
+  SessionLifecycleAttributionLedger,
+  SessionLifecycleAttributionProviderTotals,
+  SessionLifecycleAttributionQuality,
+  SessionLifecycleAttributionReconciliationResult,
+  SessionLifecycleAttributionRecord,
+  SessionLifecycleAttributionSummary,
+  SessionLifecycleExecutionContext,
+  SessionLifecycleSourceKind,
+  SessionLifecycleTokenClass,
+  SessionProviderTokenClass,
+} from "./events/index.js";
 
 // Error hierarchy re-exported for direct access by runtime
 export { KilnError } from "./engine/errors.js";

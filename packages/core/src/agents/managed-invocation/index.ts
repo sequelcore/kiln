@@ -218,6 +218,9 @@ export interface ManagedAgentAdapterDescriptor {
     readonly supported: boolean;
     readonly preservesProviderTokenClasses: boolean;
     readonly supportsExplicitUnknowns: boolean;
+    readonly tokenClasses: readonly ManagedAgentUsageTokenClassCapability[];
+    readonly semanticSourceGranularity: ManagedAgentSemanticSourceGranularity;
+    readonly evidenceBasis: ManagedAgentUsageEvidenceBasis;
   };
   readonly resultHandoff: {
     readonly boundedSummary: boolean;
@@ -236,6 +239,23 @@ export interface ManagedAgentAdapterDescriptor {
   };
   readonly limitations?: readonly string[];
 }
+
+export type ManagedAgentUsageTokenClassCapability =
+  | "input"
+  | "output"
+  | "cache_read"
+  | "cache_write";
+
+export type ManagedAgentSemanticSourceGranularity =
+  | "provider_reported"
+  | "estimated"
+  | "unknown";
+
+export type ManagedAgentUsageEvidenceBasis =
+  | "provider"
+  | "runtime"
+  | "adapter"
+  | "unknown";
 
 export type ManagedAgentRouteHealthStatus = "healthy";
 
@@ -341,7 +361,7 @@ export interface ManagedAgentDiagnosticPointer {
 }
 
 export interface ManagedAgentTokenClassUsage {
-  readonly name: string;
+  readonly name: ManagedAgentUsageTokenClassCapability;
   readonly value: number | "unknown";
 }
 
@@ -536,6 +556,12 @@ export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDe
       supported: input.usage.supported === true,
       preservesProviderTokenClasses: input.usage.preservesProviderTokenClasses === true,
       supportsExplicitUnknowns: input.usage.supportsExplicitUnknowns === true,
+      tokenClasses: input.usage.tokenClasses.map(requireUsageTokenClassCapability),
+      semanticSourceGranularity: requireSemanticSourceGranularity(
+        input.usage.semanticSourceGranularity,
+        input.usage.evidenceBasis,
+      ),
+      evidenceBasis: requireUsageEvidenceBasis(input.usage.evidenceBasis),
     },
     resultHandoff: {
       boundedSummary: input.resultHandoff.boundedSummary === true,
@@ -663,6 +689,7 @@ function requireInvocationCapabilityDecision(
 }
 
 export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
+  const capabilitySnapshot = defineManagedAgentCapabilitySnapshot(input.capabilitySnapshot);
   return {
     invocationId: requireText(input.invocationId, "Managed invocation record id is required"),
     agentId: requireText(input.agentId, "Managed invocation record agent id is required"),
@@ -670,17 +697,17 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     parentTurnId: requireText(input.parentTurnId, "Managed invocation record parent turn id is required"),
     profile: requireAdmissionProfile(input.profile),
     lifecycleState: requireLifecycleState(input.lifecycleState),
-    providerRoute: requireProviderRoute(input.providerRoute),
-    adapterKind: requireAdapterKind(input.adapterKind),
-    executionMode: requireExecutionMode(input.executionMode),
+    providerRoute: requireInvocationRecordProviderRoute(input.providerRoute, capabilitySnapshot.providerRoute),
+    adapterKind: requireMatchingAdapterKind(input.adapterKind, capabilitySnapshot.adapterKind),
+    executionMode: requireMatchingExecutionMode(input.executionMode, capabilitySnapshot.executionMode),
     authority: requireAuthority(input.authority),
-    capabilitySnapshot: defineManagedAgentCapabilitySnapshot(input.capabilitySnapshot),
+    capabilitySnapshot,
     ...(input.resourceLease !== undefined ? { resourceLease: requireResourceLease(input.resourceLease) } : {}),
     ...(input.childSessionId !== undefined ? { childSessionId: requireText(input.childSessionId, "Managed invocation child session id is required") } : {}),
     ...(input.childTurnId !== undefined ? { childTurnId: requireText(input.childTurnId, "Managed invocation child turn id is required") } : {}),
     ...(input.transcript !== undefined ? { transcript: requireTranscript(input.transcript) } : {}),
     ...(input.diagnostics !== undefined ? { diagnostics: input.diagnostics.map(requireDiagnosticPointer) } : {}),
-    ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage) } : {}),
+    ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage, capabilitySnapshot.adapterDescriptor) } : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: requireResultHandoff(input.resultHandoff) } : {}),
     ...(input.replayResources !== undefined ? { replayResources: input.replayResources.map(requireReplayResource) } : {}),
     ...(input.writeEvidence !== undefined ? { writeEvidence: input.writeEvidence.map(defineManagedAgentWriteEvidence) } : {}),
@@ -1126,15 +1153,82 @@ function requireDiagnosticPointer(input: ManagedAgentDiagnosticPointer): Managed
   };
 }
 
-function requireUsageReport(input: ManagedAgentUsageReport): ManagedAgentUsageReport {
+function requireInvocationRecordProviderRoute(
+  input: ManagedAgentProviderRoute,
+  admitted: ManagedAgentProviderRoute,
+): ManagedAgentProviderRoute {
+  const providerRoute = requireProviderRoute(input);
+  if (
+    providerRoute.providerId !== admitted.providerId
+    || providerRoute.surface !== admitted.surface
+    || providerRoute.model !== admitted.model
+    || providerRoute.reasoningEffort !== admitted.reasoningEffort
+  ) {
+    throw new Error("Managed invocation usage route must match the admitted capability snapshot");
+  }
+  return providerRoute;
+}
+
+function requireMatchingAdapterKind(
+  value: ManagedAgentAdapterKind,
+  admitted: ManagedAgentAdapterKind,
+): ManagedAgentAdapterKind {
+  const adapterKind = requireAdapterKind(value);
+  if (adapterKind !== admitted) {
+    throw new Error("Managed invocation adapter kind must match the admitted capability snapshot");
+  }
+  return adapterKind;
+}
+
+function requireMatchingExecutionMode(
+  value: ManagedAgentExecutionMode,
+  admitted: ManagedAgentExecutionMode,
+): ManagedAgentExecutionMode {
+  const executionMode = requireExecutionMode(value);
+  if (executionMode !== admitted) {
+    throw new Error("Managed invocation execution mode must match the admitted capability snapshot");
+  }
+  return executionMode;
+}
+
+function requireUsageReport(
+  input: ManagedAgentUsageReport,
+  descriptor: ManagedAgentAdapterDescriptor,
+): ManagedAgentUsageReport {
+  if (!descriptor.usage.supported) {
+    throw new Error("Managed invocation usage report is not supported by the admitted adapter descriptor");
+  }
+  const source = requireUsageReportSource(input.source);
+  if (source !== descriptor.usage.evidenceBasis) {
+    throw new Error("Managed invocation usage evidence source must match the admitted adapter descriptor");
+  }
+  const supportedTokenClasses = new Set(descriptor.usage.tokenClasses);
   return {
-    source: input.source,
+    source,
     tokenClasses: input.tokenClasses.map((entry) => ({
-      name: requireText(entry.name, "Managed invocation token class name is required"),
+      name: requireSupportedUsageTokenClass(entry.name, supportedTokenClasses),
       value: entry.value,
     })),
     cost: input.cost,
   };
+}
+
+function requireUsageReportSource(source: ManagedAgentUsageReport["source"]): ManagedAgentUsageReport["source"] {
+  if (source === "adapter" || source === "provider" || source === "runtime" || source === "unknown") {
+    return source;
+  }
+  throw new Error(`Unsupported managed invocation usage source: ${String(source)}`);
+}
+
+function requireSupportedUsageTokenClass(
+  value: ManagedAgentUsageTokenClassCapability,
+  supportedTokenClasses: ReadonlySet<ManagedAgentUsageTokenClassCapability>,
+): ManagedAgentUsageTokenClassCapability {
+  const tokenClass = requireUsageTokenClassCapability(value);
+  if (!supportedTokenClasses.has(tokenClass)) {
+    throw new Error(`Managed invocation usage token class is not supported by the admitted adapter descriptor: ${tokenClass}`);
+  }
+  return tokenClass;
 }
 
 function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentResultHandoff {
@@ -1298,6 +1392,35 @@ function requireUnsupportedFieldPolicy(value: ManagedAgentUnsupportedFieldPolicy
     throw new Error(`Unsupported managed invocation unsupported-field policy: ${value as string}`);
   }
   return value;
+}
+
+function requireUsageTokenClassCapability(
+  value: ManagedAgentUsageTokenClassCapability,
+): ManagedAgentUsageTokenClassCapability {
+  if (value === "input" || value === "output" || value === "cache_read" || value === "cache_write") {
+    return value;
+  }
+  throw new Error(`Unsupported managed invocation usage token class: ${String(value)}`);
+}
+
+function requireSemanticSourceGranularity(
+  value: ManagedAgentSemanticSourceGranularity,
+  evidenceBasis: ManagedAgentUsageEvidenceBasis,
+): ManagedAgentSemanticSourceGranularity {
+  if (value !== "provider_reported" && value !== "estimated" && value !== "unknown") {
+    throw new Error(`Unsupported managed invocation semantic source granularity: ${String(value)}`);
+  }
+  if (value === "provider_reported" && evidenceBasis !== "provider") {
+    throw new Error("Managed invocation provider-reported semantic source granularity requires provider usage evidence");
+  }
+  return value;
+}
+
+function requireUsageEvidenceBasis(value: ManagedAgentUsageEvidenceBasis): ManagedAgentUsageEvidenceBasis {
+  if (value === "provider" || value === "runtime" || value === "adapter" || value === "unknown") {
+    return value;
+  }
+  throw new Error(`Unsupported managed invocation usage evidence basis: ${String(value)}`);
 }
 
 function requireRouteHealthStatus(value: ManagedAgentRouteHealthStatus): ManagedAgentRouteHealthStatus {

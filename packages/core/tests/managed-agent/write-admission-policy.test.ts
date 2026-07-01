@@ -61,6 +61,9 @@ function makeDescriptor(): ManagedAgentAdapterDescriptor {
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,

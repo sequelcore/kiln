@@ -144,6 +144,22 @@ const composite = new CompositeEventStore([
 
 The `CostTracker` accumulates token usage keyed by `role:model` tuple. This ensures accurate cost attribution when a role switches models mid-session (e.g., via model routing).
 
+## Lifecycle Attribution
+
+Runtime execution appends `lifecycle_attribution_recorded` session events after
+provider usage is known. These events reconcile provider-reported totals with
+semantic sources such as admitted memory, procedural context, repository
+context, cache activity, final output, and unknown remainder.
+
+Lifecycle attribution is observability evidence. It does not alter provider
+requests, context admission, routing, or task outcomes. Provider usage remains
+the billing source of truth; semantic allocations are labeled as provider
+reported, runtime estimated, adapter estimated, or unknown according to the
+route capability.
+
+For the architecture contract, see
+[Lifecycle Attribution](../architecture/lifecycle-attribution.md).
+
 ### LLM Cost
 
 Costs are computed using `MODEL_PRICING`, which derives rates from the same `MODEL_CATALOG` used by the capability registry. Anthropic models receive cache-aware pricing (cache read at 10% of input rate, cache write at 125%).

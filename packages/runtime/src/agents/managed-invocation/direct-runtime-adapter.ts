@@ -6,6 +6,7 @@ import type {
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
   ManagedAgentReplayResource,
+  ManagedAgentUsageReport,
   ManagedAgentWriteEvidence,
   ProviderAdapter,
   SandboxConfig,
@@ -130,6 +131,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read", "cache_write"],
+        semanticSourceGranularity: "estimated",
+        evidenceBasis: "runtime",
       },
       resultHandoff: {
         boundedSummary: true,
@@ -612,7 +616,7 @@ function transcriptPointer(invocationId: string) {
   };
 }
 
-function unknownRuntimeUsage() {
+function unknownRuntimeUsage(): ManagedAgentUsageReport {
   return {
     source: "runtime" as const,
     tokenClasses: [
