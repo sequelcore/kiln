@@ -35,11 +35,11 @@ architecture program needs additional sections:
 | --- | --- | --- | --- |
 | [00-rust-module-optimization.md](./00-rust-module-optimization.md) | Active boundary | Rust/WASM/sidecar ownership boundaries are defined. No production Rust slice is admitted yet. | Start only from an approved module slice or ADR with parity and benchmark evidence. |
 | [01-native-operator-surface.md](./01-native-operator-surface.md) | Active benchmark-validation track | Slices 1 and 2 are complete. Slice 3, workload fixture governance, is next. | Implement Slice 3 before any live native or browser benchmark execution. |
-| [03-public-release-ui-debt.md](./03-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
-| [04-federated-harness-configuration-plane.md](./04-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
-| [05-research-turn-token-budgeting.md](./05-research-turn-token-budgeting.md) | Deferred under roadmap 06 | Research-specific budgeting remains governed by roadmap `06`; it should not run ahead of attribution and efficiency-control evidence. | Reopen after roadmap `06` supplies the measurement and budgeting primitives needed for research turns. |
-| [06-verified-efficiency-control-plane.md](./06-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
-| [07-native-harness-route-integrity.md](./07-native-harness-route-integrity.md) | Deferred correctness program | Not started. Added after invalid native-harness route diagnostics misreported a valid OpenCode Go credential. | Reopen as the long-term fix for route-aware native credential probes and accurate diagnostics. |
+| [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
+| [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
+| [04-research-turn-token-budgeting.md](./04-research-turn-token-budgeting.md) | Deferred under roadmap 05 | Research-specific budgeting remains governed by roadmap `05`; it should not run ahead of attribution and efficiency-control evidence. | Reopen after roadmap `05` supplies the measurement and budgeting primitives needed for research turns. |
+| [05-verified-efficiency-control-plane.md](./05-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
+| [06-native-harness-route-integrity.md](./06-native-harness-route-integrity.md) | Deferred correctness program | Not started. Added after invalid native-harness route diagnostics misreported a valid OpenCode Go credential. | Reopen as the long-term fix for route-aware native credential probes and accurate diagnostics. |
 
 ## Canonical References
 
@@ -84,13 +84,13 @@ Use these documents as the source of truth before starting roadmap work:
    governance, and approval evidence before live browser or native benchmark
    execution.
 
-3. [Public Release UI Debt](./03-public-release-ui-debt.md)
+2. [Public Release UI Debt](./02-public-release-ui-debt.md)
    Active on 2026-06-28. Scope is release-blocking GUI debt discovered during
    live validation, starting with the composer context usage indicator. The GUI
    must not publish with a fake context percentage or an unavailable state
    presented as authoritative.
 
-6. [Verified Efficiency Control Plane](./06-verified-efficiency-control-plane.md)
+5. [Verified Efficiency Control Plane](./05-verified-efficiency-control-plane.md)
    Active long-term architecture program opened on 2026-06-30. Slice 1 closed
    on 2026-07-01 in commit `f1f4baef`; Slice 2 is next. Scope is the
    provider-neutral control loop that maximizes verified engineering value per
@@ -99,16 +99,16 @@ Use these documents as the source of truth before starting roadmap work:
 
 ## Deferred Roadmaps
 
-- [Federated Harness Configuration Plane](./04-federated-harness-configuration-plane.md).
+- [Federated Harness Configuration Plane](./03-federated-harness-configuration-plane.md).
   Deferred until cross-harness capability matrices and projection benchmarks
   can justify replacing selected full projections with thin or dynamic native
   adapters without weakening standalone operation or governance.
-- [Research Turn Token Budgeting](./05-research-turn-token-budgeting.md).
-  Deferred research-specific implementation slice governed by roadmap `06`.
+- [Research Turn Token Budgeting](./04-research-turn-token-budgeting.md).
+  Deferred research-specific implementation slice governed by roadmap `05`.
   Promote it when live validation, release confidence, or provider quota
   pressure requires reducing research-turn token volume through measured
   attribution and canonical evidence budgeting.
-- [Native Harness Route Integrity](./07-native-harness-route-integrity.md).
+- [Native Harness Route Integrity](./06-native-harness-route-integrity.md).
   Deferred correctness program opened on 2026-06-30 after a valid OpenCode Go
   credential was misreported as invalid because bare OpenCode execution used an
   obsolete ambient model fallback. Scope is canonical native default

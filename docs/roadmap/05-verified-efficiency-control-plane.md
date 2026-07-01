@@ -1,4 +1,4 @@
-# 06 - Verified Efficiency Control Plane
+# 05 - Verified Efficiency Control Plane
 
 Status: Active architecture program; Slice 1 complete, Slice 2 next
 
@@ -74,7 +74,7 @@ utility, policy, and promotion evidence.
 
 The immediate measured failure is a successful research turn that consumed
 565,377 input tokens, 7,646 output tokens, and 433,152 cache-read tokens. That
-case remains documented in `05-research-turn-token-budgeting.md` and becomes an
+case remains documented in `04-research-turn-token-budgeting.md` and becomes an
 initial benchmark workload for this program. It is not the program boundary.
 
 ## Outcomes
@@ -663,7 +663,7 @@ require dual readers, migration shims, or permanent compatibility branches.
 
 ## Relationship To Existing Roadmaps
 
-- `05-research-turn-token-budgeting.md` supplies the first measured workload
+- `04-research-turn-token-budgeting.md` supplies the first measured workload
   and remains responsible for research-specific evidence compaction and
   citation preservation.
 - `docs/architecture/harness-integration-capabilities.md` and
@@ -672,7 +672,7 @@ require dual readers, migration shims, or permanent compatibility branches.
 - `00-rust-module-optimization.md` governs any native acceleration of
   reducers, tokenizers, hashes, or ledger hot paths. TypeScript retains policy
   ownership.
-- `03-public-release-ui-debt.md` remains responsible for truthful operator
+- `02-public-release-ui-debt.md` remains responsible for truthful operator
   presentation. This roadmap supplies canonical efficiency evidence; UI
   surfaces do not invent local percentages or policy.
 

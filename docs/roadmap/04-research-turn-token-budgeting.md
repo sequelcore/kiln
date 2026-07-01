@@ -1,6 +1,6 @@
-# 05 - Research Turn Token Budgeting
+# 04 - Research Turn Token Budgeting
 
-Status: Deferred implementation slice governed by roadmap 06
+Status: Deferred implementation slice governed by roadmap 05
 
 ## Objective
 
@@ -9,7 +9,7 @@ diagnosable, and evidence-efficient without weakening source quality, tool
 traceability, or cross-surface parity.
 
 This file owns the research-turn workload and its acceptance evidence.
-`06-verified-efficiency-control-plane.md` owns the broader efficiency control
+`05-verified-efficiency-control-plane.md` owns the broader efficiency control
 model, lifecycle attribution, actuator contracts, and policy-promotion gates.
 
 ## Goals
@@ -17,7 +17,7 @@ model, lifecycle attribution, actuator contracts, and policy-promotion gates.
 - Bound research-turn token volume without weakening source quality.
 - Attribute research cost by source before compaction or budgeting changes.
 - Preserve citations, tool metadata, and cross-surface traceability.
-- Reuse roadmap `06` measurement and control primitives instead of creating a
+- Reuse roadmap `05` measurement and control primitives instead of creating a
   separate research-only policy engine.
 
 ## Sequel Standards
@@ -58,7 +58,7 @@ workflows.
 - No global token minimization at the expense of research quality.
 - No prompt-only quick fix.
 - No provider-specific hidden truncation.
-- No separate research policy owner outside roadmap `06` control-plane
+- No separate research policy owner outside roadmap `05` control-plane
   contracts.
 
 ## Constraints
@@ -102,7 +102,7 @@ depends on.
 ## Delivery Slices
 
 1. Reproduce or replace the 2026-06-29 research workload with a stable fixture.
-2. Attribute research-turn tokens by lifecycle source using roadmap `06`
+2. Attribute research-turn tokens by lifecycle source using roadmap `05`
    primitives.
 3. Define the canonical research evidence budget and compaction boundary.
 4. Add cross-surface projections for measured, estimated, cached, and avoided

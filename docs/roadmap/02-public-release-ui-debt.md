@@ -1,4 +1,4 @@
-# 03 - Public Release UI Debt
+# 02 - Public Release UI Debt
 
 Status: Active
 Started: 2026-06-28

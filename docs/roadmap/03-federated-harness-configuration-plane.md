@@ -1,4 +1,4 @@
-# 04 - Federated Harness Configuration Plane
+# 03 - Federated Harness Configuration Plane
 
 Status: Deferred research
 Created: 2026-06-29
