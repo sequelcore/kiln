@@ -212,6 +212,16 @@ forever. This refresh may update future route availability, network/tool
 authority, model selection, and agent route hints, but it never mutates an
 already admitted capability snapshot.
 
+Managed-agent route admission consumes the same canonical provider-model
+eligibility plane as interactive provider selection. Catalog membership,
+runtime provider availability, or a flattened provider/model string is not
+enough to admit a child route. A managed route becomes selectable only when the
+configured route, credential/auth evidence, entitlement evidence when known,
+required capabilities, catalog freshness, route health, policy admission, and
+authority profile are all admitted for managed-agent use. Stale or partial
+provider-model discovery remains diagnostic; it may be shown in staged
+catalogs, but it does not authorize a managed child invocation.
+
 Caller identity is admitted from the runtime attachment, not from the route
 catalog. `ManagedInvocationToolOptions` is a caller-neutral catalog of routes,
 unavailable diagnostics, agents, skills, context resolver, artifact store, and

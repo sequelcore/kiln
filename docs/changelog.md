@@ -8,6 +8,11 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Added the provider-model eligibility plane: provider catalog observations are
+  preserved as raw diagnostic evidence, normalized through runtime adapter
+  families, evaluated by canonical eligibility for interactive and managed-agent
+  use, and projected to Gateway, GUI, TUI, and CLI operator surfaces without
+  local eligibility derivation or live provider spend.
 - Stabilized the `@kilnai/cli` package test harness for workspace verification:
   CLI Vitest runs stay single-worker, emit verbose progress under filtered
   workspace commands, and bound test, hook, and teardown stalls without

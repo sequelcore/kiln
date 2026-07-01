@@ -37,6 +37,10 @@ or point here, but architectural and coding doctrine belongs in
 - Runtime owns execution policy, session state, event emission, and adapter
   invocation. Operator surfaces project runtime evidence; they do not re-create
   runtime policy.
+- Provider/model catalog discovery is evidence, not authority. Runtime and
+  operator surfaces must consume canonical eligibility decisions instead of
+  deriving local selectability from model arrays, provider availability, stale
+  caches, or static display metadata.
 - Surface parity is implemented through shared contracts. GUI, TUI, CLI,
   widget, SDK, and future surfaces should attach to common runtime ports instead
   of duplicating per-surface executors.

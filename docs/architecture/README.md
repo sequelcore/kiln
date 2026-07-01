@@ -96,8 +96,8 @@ is documented by concern, not as a single monolith.
   tools, and consumer projection.
 
 - `provider-model-discovery.md`
-  Runtime provider availability, model discovery, operator diagnostics, and
-  provider/model selection invariants.
+  Runtime provider/model evidence, catalog normalization, canonical
+  eligibility, operator diagnostics, and provider/model selection invariants.
 
 - `multimodal-transport.md`
   Canonical multimodal artifact transport, capability-aware route admission,

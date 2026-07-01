@@ -38,7 +38,6 @@ architecture program needs additional sections:
 | [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
 | [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. The former research-turn budgeting roadmap is merged here as the initial workload. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
-| [05-provider-model-eligibility-plane.md](./05-provider-model-eligibility-plane.md) | Active; admitted | Ricardo approved Classification B and Piama validated it with no blocking contradiction. No production slice has started. | Start Slice 1 with intentional failing core contract tests. |
 
 ## Canonical References
 
@@ -97,13 +96,6 @@ Use these documents as the source of truth before starting roadmap work:
    provider-neutral control loop that maximizes verified engineering value per
    token, dollar, second, and agent turn through attributable measurement,
    bounded efficiency actuators, and evidence-gated policy promotion.
-
-5. [Provider Model Eligibility Plane](./05-provider-model-eligibility-plane.md)
-   Active architecture program admitted on 2026-07-01. No production slice has
-   started. Scope is provider-neutral discovery evidence, catalog
-   normalization, deterministic use-specific eligibility, managed-agent route
-   admission, and canonical operator projections. Roadmaps 03 and 04 remain
-   unchanged.
 
 ## Deferred Roadmaps
 
@@ -167,6 +159,9 @@ roadmap files. Current completed areas include:
 - Agent context, instruction profiles, skills, and repo shims.
 - Memory Lattice, memory lifecycle policy, and context resource projection.
 - Provider credential pooling and provider/model discovery.
+- Provider-model eligibility plane: raw catalog evidence preservation, runtime
+  adapter normalization, canonical interactive and managed-agent eligibility,
+  Gateway projection, and GUI/TUI/CLI render-only operator selection.
 - Native harness route integrity: canonical default projection for supported
   native harnesses, managed-field ownership for native `model`, credential-safe
   route evidence, ambient fallback mismatch classification, and cross-surface
