@@ -87,6 +87,11 @@ roadmap retains them only as context for the remaining release blockers.
 - Added cross-surface startup profiling and evidence-backed first-usable
   improvements for CLI, GUI dev mode, and TUI. Canonical profiling commands now
   live in `docs/guides/gui.md` and `docs/guides/tui.md`.
+- Completed the provider-model eligibility plane. Raw catalog evidence,
+  runtime adapter normalization, canonical interactive and managed-agent
+  eligibility, Gateway projection, and GUI/TUI/CLI render-only operator
+  selection are now canonical in
+  `docs/architecture/provider-model-discovery.md`.
 
 Current verification evidence:
 
@@ -107,8 +112,9 @@ Still open before public release:
 
 - Authoritative composer context usage instead of the current neutral state.
 - Cross-surface event-density doctrine and parity verification for CLI/TUI.
-- Research and correction of managed-agent/tool capability routing across
-  harnesses and provider entitlements.
+- Public-release presentation of managed-agent/tool capability diagnostics
+  across harnesses and provider entitlements, now consuming canonical
+  provider-model eligibility rather than solving route admissibility locally.
 - Skill catalog projection and admission parity across Codex, OpenCode, Claude
   Code, and GUI-managed invocations.
 - Final live validation of long conversations, streaming interruptions,
@@ -119,29 +125,30 @@ Still open before public release:
 
 ### Cross-Harness Agent and Tool Capability Routing
 
-Status: Partially implemented
+Status: Partially implemented; provider/model route eligibility complete
 
 Problem:
 
 - Kiln-managed agent routes are expected to work as native capabilities across
   GUI, CLI, TUI, and delegated harness surfaces.
-- During GUI transcript refactor validation, Codex subagent review routes failed
-  because configured models were not available from the active ChatGPT account:
-  `opencode-go/deepseek-v4-pro` and `codex-oauth/codex-auto-review`.
-- This may indicate stale local config, missing latest Kiln install/projection,
-  incorrect provider routing for this harness, or a broader product gap: managed
-  agents/tools are not yet exposed as a reliable native capability layer across
-  every surface.
-- Release readiness requires this to be researched against current Kiln
-  architecture, local projections, provider account entitlements, and comparable
-  harness behavior before choosing an implementation.
+- Provider/model route eligibility, stale catalog behavior, native route
+  integrity classification, and managed-agent route admission are now governed
+  by the canonical provider-model discovery architecture.
+- Remaining release debt is the public operator experience for managed-agent
+  and tool capability diagnostics: GUI, CLI, and TUI must explain whether a
+  failure is provider/model eligibility, missing tool capability, missing
+  harness support, skill/plugin admission, setup drift, or account entitlement.
+- Release readiness still requires live operator validation and cross-surface
+  parity so the GUI does not expose raw provider, harness, or tool exceptions as
+  product truth.
 
 Required outcome:
 
-- Define the canonical capability model for managed agents and tools across
-  GUI, CLI, TUI, Codex, OpenCode, and future harness adapters.
-- Detect unavailable provider/model routes before invocation and present a clear
-  actionable diagnostic instead of surfacing raw provider errors.
+- Render the canonical provider-model eligibility result before invocation and
+  present a clear actionable diagnostic instead of surfacing raw provider
+  errors.
+- Define or consume the canonical capability model for managed agents and tools
+  across GUI, CLI, TUI, Codex, OpenCode, and future harness adapters.
 - Ensure native Kiln agents/tools can be invoked consistently from all supported
   operator surfaces when the active provider/account is entitled.
 - Document which failures are local setup drift, stale projection/install state,

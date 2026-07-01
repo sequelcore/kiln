@@ -35,7 +35,7 @@ architecture program needs additional sections:
 | --- | --- | --- | --- |
 | [00-rust-module-optimization.md](./00-rust-module-optimization.md) | Active boundary | Rust/WASM/sidecar ownership boundaries are defined. No production Rust slice is admitted yet. | Start only from an approved module slice or ADR with parity and benchmark evidence. |
 | [01-native-operator-surface.md](./01-native-operator-surface.md) | Active benchmark-validation track | Slices 1 and 2 are complete. Slice 3, workload fixture governance, is next. | Implement Slice 3 before any live native or browser benchmark execution. |
-| [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
+| [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open. Provider/model eligibility is now canonicalized; remaining items are narrowed to public-release UX truth, skill/plugin diagnostics, event density, context usage, and live validation. | Close fake or unavailable operator-facing states before public release. |
 | [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. The former research-turn budgeting roadmap is merged here as the initial workload. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
 
@@ -84,9 +84,12 @@ Use these documents as the source of truth before starting roadmap work:
 
 2. [Public Release UI Debt](./02-public-release-ui-debt.md)
    Active on 2026-06-28. Scope is release-blocking GUI debt discovered during
-   live validation, starting with the composer context usage indicator. The GUI
-   must not publish with a fake context percentage or an unavailable state
-   presented as authoritative.
+   live validation, starting with the composer context usage indicator. The
+   provider-model eligibility plane is complete and canonicalized; this
+   roadmap now owns only the remaining public-release UX truth, skill/plugin
+   diagnostics, event-density, context-usage, and final live-validation debt.
+   The GUI must not publish with a fake context percentage or an unavailable
+   state presented as authoritative.
 
 4. [Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md)
    Active long-term architecture program opened on 2026-06-30. Slice 1 closed
