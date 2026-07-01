@@ -8,6 +8,7 @@ import type {
   DefaultBuiltinToolRegistryOptions,
   DiscoveredDirectProviderModelCapabilities,
   ManagedAgentAdmissionProfile,
+  ManagedAgentCallerAttachmentIdentity,
   ToolDefinition,
   ToolResultMetadata,
   ToolResourceDisplayDescriptor,
@@ -86,11 +87,17 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readResource(uri: string, options?: ToolResourceReadOptions): Promise<ToolResourceReadResult>;
 }
 
+export type AttachedRuntimeManagedInvocationConfig =
+  | ManagedInvocationToolAttachment
+  | (ManagedInvocationToolOptions & {
+    readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  });
+
 export interface AttachedRuntimeBuiltinToolSurfaceOptions {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly executionMode?: OperatorExecutionMode;
-  readonly managedInvocation?: ManagedInvocationToolAttachment;
+  readonly managedInvocation?: AttachedRuntimeManagedInvocationConfig;
 }
 
 const RUNTIME_OBSERVE_METADATA_EGRESS: ActionEffectEnvelope = {
@@ -419,6 +426,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
   options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
 ): AttachedRuntimeBuiltinToolSurface {
   const themeController = options.operatorSurface?.theme;
+  const managedInvocation = options.managedInvocation
+    ? normalizeManagedInvocationAttachment(options.managedInvocation)
+    : undefined;
   const requiresPlanningStores = options.executionMode === "plan";
   const coreSurface = options.builtinToolOptions
     ? createDefaultBuiltinToolSurface(
@@ -444,7 +454,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     callBuiltinTools.set(GOAL_CREATE_TOOL_NAME, createSessionAwareGoalCreateExecutor(goalCreateExecutor));
   }
 
-  if (!themeController && options.executionMode !== "plan" && !options.managedInvocation && !goalCreateExecutor) {
+  if (!themeController && options.executionMode !== "plan" && !managedInvocation && !goalCreateExecutor) {
     return baseSurface;
   }
 
@@ -492,9 +502,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
     toolDefinitions.push(RECORD_CLARIFICATION_TOOL);
   }
 
-  if (options.managedInvocation) {
-    const managedInvocationOptions = options.managedInvocation.options;
-    const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(options.managedInvocation);
+  if (managedInvocation) {
+    const managedInvocationOptions = managedInvocation.options;
+    const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(managedInvocation);
     const managedInvocationExecutor = managedInvocationExecutors.get(MANAGED_AGENT_INVOKE_TOOL.name);
     for (const [toolName, executor] of managedInvocationExecutors) {
       callBuiltinTools.set(toolName, executor);
@@ -552,6 +562,23 @@ export function createAttachedRuntimeBuiltinToolSurface(
     listResources: baseSurface.listResources,
     listResourceTemplates: baseSurface.listResourceTemplates,
     readResource: baseSurface.readResource,
+  };
+}
+
+function normalizeManagedInvocationAttachment(
+  managedInvocation: AttachedRuntimeManagedInvocationConfig,
+): ManagedInvocationToolAttachment {
+  if ("options" in managedInvocation && "callerIdentity" in managedInvocation) {
+    return managedInvocation;
+  }
+  const { callerIdentity, ...options } = managedInvocation;
+  return {
+    options,
+    callerIdentity: callerIdentity ?? {
+      kind: "kiln-runtime",
+      surface: "runtime",
+      attachmentId: "attachment:runtime",
+    },
   };
 }
 

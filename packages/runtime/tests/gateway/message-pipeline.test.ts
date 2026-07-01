@@ -2469,11 +2469,12 @@ describe("processAdmittedTurn", () => {
       "tool_call_started",
       "tool_call_completed",
       "cost_updated",
+      "lifecycle_attribution_recorded",
       "error_recorded",
       "assistant_message",
       "turn_completed",
     ]);
-    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     expect(ledger[3]).toMatchObject({
       kind: "provider_routed",
       provider: {
@@ -2486,7 +2487,14 @@ describe("processAdmittedTurn", () => {
       toolName: "write",
       input: { filePath: "src/demo.txt", content: "hello" },
     });
-    expect(ledger[8]).toMatchObject({
+    expect(ledger[7]).toMatchObject({
+      kind: "lifecycle_attribution_recorded",
+      parentEventId: ledger[6]?.eventId,
+      summary: expect.objectContaining({
+        totalTokens: 15,
+      }),
+    });
+    expect(ledger[9]).toMatchObject({
       kind: "assistant_message",
       content: "done",
     });

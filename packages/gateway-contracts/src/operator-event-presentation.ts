@@ -1255,6 +1255,36 @@ function costUpdatedPresentation(payload: Record<string, unknown>): OperatorEven
   };
 }
 
+function lifecycleAttributionPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const ledger = asRecord(payload.ledger);
+  const summaryRecord = asRecord(payload.summary);
+  const context = asRecord(ledger?.context);
+  const records = Array.isArray(ledger?.records) ? ledger.records : [];
+  const bySource = asRecord(summaryRecord?.bySource);
+  const totalTokens = readNumber(summaryRecord?.totalTokens) ?? 0;
+  const totalCostUsd = readNumber(summaryRecord?.totalCostUsd) ?? 0;
+  const unknownTokens = readNumber(bySource?.unknown);
+  const route = readString(context?.route);
+  const cost = formatUsd(totalCostUsd) ?? "$0.0000";
+  const summary = `${totalTokens} tokens · ${cost}${unknownTokens !== undefined ? ` · ${unknownTokens} unknown` : ""}`;
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Tokens", totalTokens);
+  addItem(details, "Cost", cost);
+  addItem(details, "Unknown source tokens", unknownTokens);
+  addItem(details, "Records", records.length);
+  addItem(details, "Route", route);
+  addItem(details, "Source event", ledger?.sourceEventId);
+  return {
+    title: "Lifecycle attribution recorded",
+    summary,
+    compactText: summary,
+    tone: "info",
+    details,
+    surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
+  };
+}
+
 function approvalRequestedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const summary = readString(payload.action) ?? readString(payload.justification) ?? "Approval required";
   const details: OperatorEventDetailItem[] = [];
@@ -1883,6 +1913,8 @@ export function presentOperatorEventPayload(
       return fileChangedPresentation(payload);
     case "cost_updated":
       return costUpdatedPresentation(payload);
+    case "lifecycle_attribution_recorded":
+      return lifecycleAttributionPresentation(payload);
     case "goal.created":
     case "goal.updated":
     case "goal.completed":

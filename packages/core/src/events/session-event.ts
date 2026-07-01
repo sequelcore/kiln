@@ -19,6 +19,10 @@ import type {
 } from "../agents/managed-invocation/index.js";
 import type { WorkClassification } from "../agents/work-classification.js";
 import type { MultimodalDelegationEvidence } from "../engine/domain/multimodal-routing.js";
+import type {
+  SessionLifecycleAttributionLedger,
+  SessionLifecycleAttributionSummary,
+} from "./session-lifecycle-attribution.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
 
 export type CanonicalSessionEventKind =
@@ -49,6 +53,7 @@ export type CanonicalSessionEventKind =
   | "config_change_failed"
   | "file_changed"
   | "cost_updated"
+  | "lifecycle_attribution_recorded"
   | "work_item_updated"
   | "work_item_execution_started"
   | "work_item_execution_finished"
@@ -385,6 +390,11 @@ export interface CanonicalCostUpdatedEvent extends SessionEventEnvelope<"cost_up
   readonly cost: SessionCost;
 }
 
+export interface CanonicalLifecycleAttributionRecordedEvent extends SessionEventEnvelope<"lifecycle_attribution_recorded"> {
+  readonly ledger: SessionLifecycleAttributionLedger;
+  readonly summary: SessionLifecycleAttributionSummary;
+}
+
 export interface CanonicalWorkItemUpdatedEvent extends SessionEventEnvelope<"work_item_updated"> {
   readonly workItem: WorkItem;
   readonly operation: "update" | "complete";
@@ -593,6 +603,7 @@ export interface CanonicalSessionEventMap {
   config_change_failed: CanonicalConfigChangeFailedEvent;
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
+  lifecycle_attribution_recorded: CanonicalLifecycleAttributionRecordedEvent;
   work_item_updated: CanonicalWorkItemUpdatedEvent;
   work_item_execution_started: CanonicalWorkItemExecutionStartedEvent;
   work_item_execution_finished: CanonicalWorkItemExecutionFinishedEvent;

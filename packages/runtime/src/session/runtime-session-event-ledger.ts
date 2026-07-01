@@ -18,7 +18,11 @@ import type {
   ToolCalledEvent,
   ToolResultEvent,
 } from "@kilnai/core";
-import { createSessionEvent } from "@kilnai/core";
+import {
+  createSessionEvent,
+  projectCostUpdatedEventToLifecycleLedger,
+  summarizeLifecycleAttributionLedger,
+} from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { RuntimeTurnFileChange } from "./runtime-turn-record.js";
 import { sanitizeAssistantEgressText } from "./assistant-egress-sanitizer.js";
@@ -304,7 +308,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         const totalCostUsd = runtimeEvent.totalCostUsd;
         const deltaUsd = Math.max(0, totalCostUsd - previousTotalCostUsd);
         previousTotalCostUsd = totalCostUsd;
-        events.push(createSessionEvent<"cost_updated">({
+        const costEvent = createSessionEvent<"cost_updated">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
           kind: "cost_updated",
@@ -321,6 +325,23 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
             deltaUsd,
             totalUsd: totalCostUsd,
           },
+          source: runtimeSource,
+          timestamp: runtimeEvent.timestamp,
+        });
+        events.push(costEvent);
+        const attributionLedger = projectCostUpdatedEventToLifecycleLedger(costEvent, {
+          context: {
+            route: `${costEvent.provider.provider}/${costEvent.provider.model}`,
+          },
+        });
+        events.push(createSessionEvent<"lifecycle_attribution_recorded">({
+          kilnSessionId: session.id,
+          sequence: nextSequence(),
+          kind: "lifecycle_attribution_recorded",
+          turnId,
+          parentEventId: costEvent.eventId,
+          ledger: attributionLedger,
+          summary: summarizeLifecycleAttributionLedger(attributionLedger),
           source: runtimeSource,
           timestamp: runtimeEvent.timestamp,
         }));

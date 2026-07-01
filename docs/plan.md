@@ -1,92 +1,109 @@
-# Roadmap 08 Slice 1.1 Plan
+# Roadmap 08 Slice 1.2 Plan
 
 ## Objective
 
-Add provider-neutral lifecycle attribution contracts in `@kilnai/core` so usage
-can be attributed by lifecycle source without changing runtime behavior,
-provider routing, context admission, or benchmark artifact schemas yet.
+Emit normalized lifecycle attribution from runtime cost events without changing
+provider requests, routing, context admission, benchmark schemas, or task
+outcomes.
 
 ## Non-Goals
 
-- No runtime session emission changes.
+- No fine-grained source allocation beyond explicit `unknown` records.
 - No provider adapter changes.
-- No benchmark artifact schema changes.
-- No token estimation policy changes.
-- No learned or behavior-changing efficiency policy.
+- No benchmark baseline schema changes.
+- No context governor or admission policy changes.
+- No UI-owned efficiency calculations.
 
 ## Evidence Inputs
 
-- `docs/roadmap/08-verified-efficiency-control-plane.md:247` defines Slice 1
-  as lifecycle attribution ledger work.
-- `docs/roadmap/08-verified-efficiency-control-plane.md:180` requires
-  attribution at request, turn, phase, worker, tool, and artifact boundaries.
-- `docs/roadmap/08-verified-efficiency-control-plane.md:186` names lifecycle
-  sources such as control instructions, procedural context, memory, tool schema,
-  tool output, repository evidence, web evidence, verification, and final
-  output.
-- `packages/core/src/events/session-event.ts:95` already defines canonical
-  provider token usage fields, including cache-read and cache-write tokens.
-- `packages/core/src/events/session-event.ts:382` defines canonical
-  `cost_updated` events with provider identity, usage, and cost.
-- `packages/core/src/cost/cost-tracker.ts:104` treats provider-reported usage
-  as the basis for cache-aware cost computation.
-- `packages/core/src/eval/benchmark-baseline.ts:35` keeps baseline readiness
-  metadata separate from detailed evidence artifacts.
+- `docs/roadmap/08-verified-efficiency-control-plane.md:247` requires Slice 1
+  lifecycle attribution ledger work.
+- `docs/roadmap/08-verified-efficiency-control-plane.md:255` requires runtime
+  emission of normalized usage and lifecycle events.
+- `packages/core/src/events/session-lifecycle-attribution.ts` owns the
+  provider-neutral lifecycle attribution contracts and pure projection helper.
+- `packages/runtime/src/session/runtime-session-event-ledger.ts` is the
+  runtime boundary that translates runtime `cost_update` events into canonical
+  session events.
+- `packages/cli/src/wrapper/session-store.ts` validates persisted canonical
+  transcript event kinds.
+- `packages/gateway-contracts/src/frames.ts` defines operator-visible session
+  event kinds for GUI/TUI gateway frames.
 
 ## Surface Map
 
-- `packages/core/src/events/session-event.ts` owns canonical session event
-  contracts and is the correct source for provider usage projection.
-- `packages/core/src/events/index.ts` exports event contracts to the rest of
-  the monorepo and should expose the new attribution vocabulary.
-- `packages/core/src/cost/cost-tracker.ts` remains the owner of cost
-  calculation; attribution must not duplicate pricing policy.
-- `packages/core/src/eval/benchmark-runner.ts` and
-  `packages/core/src/eval/benchmark-baseline.ts` will consume attribution in a
-  later integration slice, but this slice does not change them.
+- `packages/core/src/events/session-event.ts`
+  - Add a canonical `lifecycle_attribution_recorded` event carrying the
+    attribution ledger and summary.
+- `packages/runtime/src/session/runtime-session-event-ledger.ts`
+  - Emit the lifecycle attribution event immediately after `cost_updated`,
+    parented to the source cost event.
+- `packages/cli/src/wrapper/session-store.ts`
+  - Preserve the new event through transcript persistence validation.
+- `packages/gateway-contracts/src/frames.ts`
+  - Admit the new event kind across operator session event frames.
+- `packages/gateway-contracts/src/operator-event-presentation.ts`
+  - Present the lifecycle attribution summary without exposing raw ledger JSON
+    inline.
 
 ## Atomic Implementation
 
-### 1.1.1 Failing Core Tests
+### 1.2.1 Failing Runtime Test
 
 File:
 
-- `packages/core/tests/events/session-lifecycle-attribution.test.ts`
+- `packages/runtime/tests/session/runtime-session-lifecycle-attribution-events.test.ts`
 
 Work:
 
-- Prove `CanonicalCostUpdatedEvent` can project into lifecycle attribution
-  records while preserving session, turn, sequence, provider, model, request id,
-  usage, and cost.
-- Prove `input`, `output`, `cache_read`, and `cache_write` are distinct token
-  classes.
-- Prove absent source allocation produces explicit `unknown` records.
-- Prove under-allocation produces an `unknown` remainder.
-- Prove over-allocation fails fast.
+- Prove a runtime `cost_update` produces both `cost_updated` and
+  `lifecycle_attribution_recorded`.
+- Prove the attribution event is parented to the cost event.
+- Prove provider usage is represented as explicit lifecycle records and
+  summarized without changing provider token totals.
 
-### 1.1.2 Core Contracts And Pure Projection
+### 1.2.2 Canonical Event Contract
 
-File:
+Files:
 
-- `packages/core/src/events/session-lifecycle-attribution.ts`
-
-Work:
-
-- Add `SessionLifecycleSourceKind`.
-- Add `SessionLifecycleTokenClass`.
-- Add source allocations and ledger record types.
-- Add `projectCostUpdatedEventToLifecycleLedger`.
-- Add `summarizeLifecycleAttributionLedger`.
-
-### 1.1.3 Exports
-
-File:
-
+- `packages/core/src/events/session-event.ts`
 - `packages/core/src/events/index.ts`
 
 Work:
 
-- Re-export the new contracts and helpers.
+- Add `lifecycle_attribution_recorded` to the canonical event kind union and
+  event map.
+- Export the canonical event type.
+
+### 1.2.3 Runtime Emission
+
+File:
+
+- `packages/runtime/src/session/runtime-session-event-ledger.ts`
+
+Work:
+
+- Build the existing `cost_updated` event as the authoritative provider usage
+  source.
+- Project it through `projectCostUpdatedEventToLifecycleLedger`.
+- Emit `lifecycle_attribution_recorded` with `parentEventId` set to the source
+  cost event.
+
+### 1.2.4 Surface Preservation
+
+Files:
+
+- `packages/cli/src/wrapper/session-store.ts`
+- `packages/gateway-contracts/src/frames.ts`
+- `packages/gateway-contracts/src/operator-event-presentation.ts`
+- `packages/gateway-contracts/tests/operator-event-presentation.test.ts`
+- `packages/runtime/tests/gateway/message-pipeline.test.ts`
+
+Work:
+
+- Admit the event in transcript persistence and gateway frame contracts.
+- Present attribution as activity-panel evidence, not conversation prose.
+- Update runtime event-order tests to assert the new evidence explicitly.
 
 ## Verification Gates
 
@@ -94,15 +111,35 @@ Run in order:
 
 ```bash
 bun run --filter @kilnai/core test tests/events/session-lifecycle-attribution.test.ts
-bun run --filter @kilnai/core test
-bun run --filter @kilnai/core typecheck
+bun run --filter @kilnai/runtime test tests/session/runtime-session-lifecycle-attribution-events.test.ts tests/gateway/message-pipeline.test.ts
+bun run --filter @kilnai/gateway-contracts test tests/operator-event-presentation.test.ts tests/operator-cockpit-projection.test.ts
 node_modules\.bin\tsc.exe -b packages/gateway-contracts packages/tools packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native
+node_modules\.bin\tsc.exe -p packages/widget/tsconfig.json --noEmit
+node_modules\.bin\tsc.exe -p packages/studio/tsconfig.json --noEmit
+node_modules\.bin\tsc.exe -p packages/gui/tsconfig.json --noEmit
+node_modules\.bin\tsc.exe -p scripts/tsconfig.json --noEmit
 ```
+
+## Known External Test Gap
+
+`bun run --filter @kilnai/cli test tests/commands/tui-session-persistence.test.ts`
+currently fails in the managed-invocation test harness before lifecycle
+attribution assertions run:
+
+- `TypeError: Cannot read properties of undefined (reading 'invocationService')`
+- failing helper: `withManagedInvocationService` in
+  `packages/cli/tests/commands/tui-session-persistence.test.ts:193`
+
+This slice still updates CLI transcript allowlisting so the new event is not
+silently dropped. The unrelated managed-invocation harness failure must be
+handled separately before using that suite as a lifecycle gate.
 
 ## Risks
 
-- Lifecycle source names must stay aligned with roadmap 08.
-- `cost_updated` is only the first projection source; future tool, context, and
-  benchmark events must not be forced through this helper.
-- Tool cache hits are not provider cache-read tokens.
-- Unknown attribution must mean "not yet attributed", not zero usage.
+- Current runtime allocation is intentionally `unknown`; later slices must add
+  source allocations from context, tool, worker, artifact, and verification
+  boundaries.
+- Gateway/operator surfaces must remain projections of canonical ledger data,
+  not independent efficiency calculators.
+- Event allowlists are manually maintained and can drift when future canonical
+  events are added.

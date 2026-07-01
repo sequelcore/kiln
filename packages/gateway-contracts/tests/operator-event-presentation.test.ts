@@ -1120,6 +1120,43 @@ describe("operator event presentation", () => {
     expect(operatorEventTargetsSurface(cost, "activity_panel")).toBe(true);
   });
 
+  it("presents lifecycle attribution without exposing raw ledger syntax inline", () => {
+    const presentation = presentOperatorEventPayload("lifecycle_attribution_recorded", {
+      ledger: {
+        sourceEventId: "event-cost-1",
+        context: {
+          route: "codex-oauth/gpt-5.5",
+        },
+        records: [
+          { source: "unknown", tokenClass: "raw", tokens: 100 },
+          { source: "unknown", tokenClass: "generated", tokens: 20 },
+          { source: "unknown", tokenClass: "cached", tokens: 30 },
+        ],
+      },
+      summary: {
+        totalTokens: 150,
+        totalCostUsd: 0.0123,
+        bySource: {
+          unknown: 150,
+        },
+      },
+    });
+
+    expect(presentation.title).toBe("Lifecycle attribution recorded");
+    expect(presentation.summary).toBe("150 tokens · $0.0123 · 150 unknown");
+    expect(presentation.details).toEqual([
+      { label: "Tokens", value: "150" },
+      { label: "Cost", value: "$0.0123" },
+      { label: "Unknown source tokens", value: "150" },
+      { label: "Records", value: "3" },
+      { label: "Route", value: "codex-oauth/gpt-5.5" },
+      { label: "Source event", value: "event-cost-1" },
+    ]);
+    expect(operatorEventTargetsSurface(presentation, "conversation_inline")).toBe(false);
+    expect(operatorEventTargetsSurface(presentation, "activity_panel")).toBe(true);
+    expect(JSON.stringify(presentation)).not.toContain("\"records\"");
+  });
+
   it("summarizes JSON-shaped tool output before it reaches inline surfaces", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",

@@ -782,6 +782,7 @@ export type {
   CanonicalApprovalResolvedEvent,
   CanonicalFileChangedEvent,
   CanonicalCostUpdatedEvent,
+  CanonicalLifecycleAttributionRecordedEvent,
   SessionAgentInvocationIdentity,
   SessionAgentInvocationTranscriptPointer,
   SessionAgentInvocationDiagnosticPointer,

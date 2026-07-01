@@ -192,6 +192,7 @@ export {
 export type {
   AttachedRuntimeBuiltinToolSurface,
   AttachedRuntimeBuiltinToolSurfaceOptions,
+  AttachedRuntimeManagedInvocationConfig,
 } from "./gateway/attached-runtime-tool-surface.js";
 export {
   PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE,
