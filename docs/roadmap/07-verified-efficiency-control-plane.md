@@ -1,4 +1,4 @@
-# 08 - Verified Efficiency Control Plane
+# 07 - Verified Efficiency Control Plane
 
 Status: Active architecture program; Slice 1 complete, Slice 2 next
 
@@ -74,7 +74,7 @@ utility, policy, and promotion evidence.
 
 The immediate measured failure is a successful research turn that consumed
 565,377 input tokens, 7,646 output tokens, and 433,152 cache-read tokens. That
-case remains documented in `06-research-turn-token-budgeting.md` and becomes an
+case remains documented in `05-research-turn-token-budgeting.md` and becomes an
 initial benchmark workload for this program. It is not the program boundary.
 
 ## Outcomes
@@ -257,7 +257,7 @@ contracts but must not create parallel legacy paths.
 
 | Slice | Status | Progress | Next Action |
 | --- | --- | --- | --- |
-| Slice 0 - Baseline And Reproduction | Conditional | Not started as a standalone slice. Slice 1 produced lifecycle attribution fixtures, but the full roadmap `06` reproduction baseline is still open. | Run only if Slice 2 needs a broader pre-optimization baseline. |
+| Slice 0 - Baseline And Reproduction | Conditional | Not started as a standalone slice. Slice 1 produced lifecycle attribution fixtures, but the full roadmap `05` reproduction baseline is still open. | Run only if Slice 2 needs a broader pre-optimization baseline. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
 | Slice 2 - Stable Prefix And Cache Topology | Next | Not started. | Prove byte-stable reusable request regions without changing admitted information. |
 | Slice 3 - Progressive Context And Tool Loading | Planned | Not started. | Start after stable-prefix evidence exists. |
@@ -280,7 +280,7 @@ behavior.
 
 Work:
 
-- reproduce the research-turn case from roadmap `06`;
+- reproduce the research-turn case from roadmap `05`;
 - select representative coding, tool-use, memory, managed-agent, and research
   tasks;
 - capture provider usage, cost, latency, tool counts, verification results,
@@ -609,7 +609,7 @@ exercise Kiln's authority, evidence, replay, and cross-surface contracts.
 ## Research Basis
 
 This roadmap is grounded in the 2026-06-29 research-turn token incident,
-roadmap `06`, comparative harness research, Kiln's existing context governance,
+roadmap `05`, comparative harness research, Kiln's existing context governance,
 provider/model discovery, managed-agent runtime, memory, and benchmark
 contracts. Later slices must add reproducible benchmark evidence before making
 performance or savings claims.
@@ -663,10 +663,10 @@ require dual readers, migration shims, or permanent compatibility branches.
 
 ## Relationship To Existing Roadmaps
 
-- `06-research-turn-token-budgeting.md` supplies the first measured workload
+- `05-research-turn-token-budgeting.md` supplies the first measured workload
   and remains responsible for research-specific evidence compaction and
   citation preservation.
-- `07-cross-harness-provider-adapter-layer.md` supplies route identity and
+- `06-cross-harness-provider-adapter-layer.md` supplies route identity and
   capability evidence required for cross-harness comparison.
 - `00-rust-module-optimization.md` governs any native acceleration of
   reducers, tokenizers, hashes, or ledger hot paths. TypeScript retains policy

@@ -1,4 +1,4 @@
-# 07 - Cross-Harness Provider Adapter Layer
+# 06 - Cross-Harness Provider Adapter Layer
 
 Status: Urgent active adapter-layer roadmap
 Started: 2026-06-29

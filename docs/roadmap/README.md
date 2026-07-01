@@ -38,10 +38,10 @@ architecture program needs additional sections:
 | [02-session-feedback-pipeline.md](./02-session-feedback-pipeline.md) | Active | Early feedback-pipeline slices are complete; the roadmap still contains started and pending repair-flow work. | Continue the next pending slice in that file and promote stable behavior into guides when closed. |
 | [03-public-release-ui-debt.md](./03-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open, with partially implemented and pending items tracked in-file. | Close fake or unavailable operator-facing states before public release. |
 | [04-federated-harness-configuration-plane.md](./04-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
-| [06-research-turn-token-budgeting.md](./06-research-turn-token-budgeting.md) | Deferred under roadmap 08 | Research-specific budgeting remains governed by roadmap `08`; it should not run ahead of attribution and efficiency-control evidence. | Reopen after roadmap `08` supplies the measurement and budgeting primitives needed for research turns. |
-| [07-cross-harness-provider-adapter-layer.md](./07-cross-harness-provider-adapter-layer.md) | Urgent active | Adapter-layer work remains the active route-integrity foundation for governed cross-harness execution. | Continue only within explicit adapter-layer slices and avoid native harness file projections for unsupported model strings. |
-| [08-verified-efficiency-control-plane.md](./08-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
-| [09-native-harness-route-integrity.md](./09-native-harness-route-integrity.md) | Deferred correctness program | Not started. Added after invalid native-harness route diagnostics misreported a valid OpenCode Go credential. | Reopen as the long-term fix for route-aware native credential probes and accurate diagnostics. |
+| [05-research-turn-token-budgeting.md](./05-research-turn-token-budgeting.md) | Deferred under roadmap 07 | Research-specific budgeting remains governed by roadmap `07`; it should not run ahead of attribution and efficiency-control evidence. | Reopen after roadmap `07` supplies the measurement and budgeting primitives needed for research turns. |
+| [06-cross-harness-provider-adapter-layer.md](./06-cross-harness-provider-adapter-layer.md) | Urgent active | Adapter-layer work remains the active route-integrity foundation for governed cross-harness execution. | Continue only within explicit adapter-layer slices and avoid native harness file projections for unsupported model strings. |
+| [07-verified-efficiency-control-plane.md](./07-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
+| [08-native-harness-route-integrity.md](./08-native-harness-route-integrity.md) | Deferred correctness program | Not started. Added after invalid native-harness route diagnostics misreported a valid OpenCode Go credential. | Reopen as the long-term fix for route-aware native credential probes and accurate diagnostics. |
 
 ## Canonical References
 
@@ -97,13 +97,13 @@ Use these documents as the source of truth before starting roadmap work:
    must not publish with a fake context percentage or an unavailable state
    presented as authoritative.
 
-7. [Cross-Harness Provider Adapter Layer](./07-cross-harness-provider-adapter-layer.md)
+6. [Cross-Harness Provider Adapter Layer](./06-cross-harness-provider-adapter-layer.md)
    Urgent active roadmap opened on 2026-06-29. Scope is the explicit adapter
    layer that lets Kiln invoke governed agents and provider routes across
    harness boundaries without projecting unsupported model strings into native
    harness files.
 
-8. [Verified Efficiency Control Plane](./08-verified-efficiency-control-plane.md)
+7. [Verified Efficiency Control Plane](./07-verified-efficiency-control-plane.md)
    Active long-term architecture program opened on 2026-06-30. Slice 1 closed
    on 2026-07-01 in commit `f1f4baef`; Slice 2 is next. Scope is the
    provider-neutral control loop that maximizes verified engineering value per
@@ -116,12 +116,12 @@ Use these documents as the source of truth before starting roadmap work:
   Deferred until cross-harness capability matrices and projection benchmarks
   can justify replacing selected full projections with thin or dynamic native
   adapters without weakening standalone operation or governance.
-- [Research Turn Token Budgeting](./06-research-turn-token-budgeting.md).
-  Deferred research-specific implementation slice governed by roadmap `08`.
+- [Research Turn Token Budgeting](./05-research-turn-token-budgeting.md).
+  Deferred research-specific implementation slice governed by roadmap `07`.
   Promote it when live validation, release confidence, or provider quota
   pressure requires reducing research-turn token volume through measured
   attribution and canonical evidence budgeting.
-- [Native Harness Route Integrity](./09-native-harness-route-integrity.md).
+- [Native Harness Route Integrity](./08-native-harness-route-integrity.md).
   Deferred correctness program opened on 2026-06-30 after a valid OpenCode Go
   credential was misreported as invalid because bare OpenCode execution used an
   obsolete ambient model fallback. Scope is canonical native default
