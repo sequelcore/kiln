@@ -139,8 +139,13 @@ export { classifyToolError } from "./tool-error-classifier.js";
 export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";
 export { SlidingWindowRateLimiter } from "./sliding-window-rate-limiter.js";
-export { ModelCapabilityRegistry } from "./model-capability-registry.js";
+export {
+  CANONICAL_MODEL_CAPABILITIES,
+  ModelCapabilityRegistry,
+  isCanonicalModelCapability,
+} from "./model-capability-registry.js";
 export type {
+  CanonicalModelCapability,
   ModelTaskSuitability,
   ModelTaskSuitabilityEvidence,
   ModelTaskSuitabilityLevel,
@@ -211,6 +216,36 @@ export type {
   ProviderModelRouteHealthRecord,
   ProviderModelRouteKey,
 } from "./provider-model-route-health.js";
+export {
+  PROVIDER_MODEL_EVIDENCE_STATES,
+  createProviderModelEvidence,
+} from "./provider-model-evidence.js";
+export type {
+  ProviderModelAliasEvidence,
+  ProviderModelEvidence,
+  ProviderModelEvidenceAuthority,
+  ProviderModelEvidenceFailure,
+  ProviderModelEvidenceFreshness,
+  ProviderModelEvidenceInput,
+  ProviderModelEvidenceObservation,
+  ProviderModelEvidenceSourceIdentity,
+  ProviderModelEvidenceState,
+  ProviderModelEvidenceStates,
+  ProviderModelEvidenceValue,
+  ProviderModelHarnessIdentity,
+  ProviderModelIdentity,
+  ProviderModelNormalizedIdentity,
+  ProviderModelProviderIdentity,
+  ProviderModelRouteIdentity,
+} from "./provider-model-evidence.js";
+export { deriveProviderModelEligibility } from "./provider-model-eligibility.js";
+export type {
+  ProviderModelCapabilityClaim,
+  ProviderModelEligibilityDecision,
+  ProviderModelEligibilityReason,
+  ProviderModelEligibilityRequirements,
+  ProviderModelEligibilityUse,
+} from "./provider-model-eligibility.js";
 
 export {
   CredentialPool,

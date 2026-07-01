@@ -2226,11 +2226,11 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     const responseText = extractText(result.parts);
     try {
       // Select cheapest model with structured output support
-      const eligible = ctx.groundingDeps.modelRegistry
-        .eligible({ hasTools: false, requiresStreaming: false })
+      const groundingCandidates = ctx.groundingDeps.modelRegistry
+        .all()
         .filter((p) => p.supportsStructuredOutput)
         .sort((a, b) => a.inputPer1M - b.inputPer1M);
-      const judge = eligible[0];
+      const judge = groundingCandidates[0];
       const provider = judge ? ctx.groundingDeps.providerPool.get(judge.provider) : undefined;
       if (provider && judge) {
         groundingResult = await ctx.groundingDeps.rail.evaluate(responseText, chunks, provider, judge.model);

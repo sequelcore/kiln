@@ -27,6 +27,23 @@ export type ModelTaskSuitabilityTask =
   | "research"
   | "test-writing";
 
+export const CANONICAL_MODEL_CAPABILITIES = [
+  "tools",
+  "streaming",
+  "structured-output",
+  "vision",
+  "audio",
+  "screenshot-review",
+  "document",
+  "transcription",
+] as const;
+
+export type CanonicalModelCapability = (typeof CANONICAL_MODEL_CAPABILITIES)[number];
+
+export function isCanonicalModelCapability(capability: string): capability is CanonicalModelCapability {
+  return (CANONICAL_MODEL_CAPABILITIES as readonly string[]).includes(capability);
+}
+
 export type ModelTaskSuitabilityLevel = "preferred" | "capable" | "limited";
 export type ModelTaskSuitabilitySource =
   | "static-profile"
@@ -321,15 +338,6 @@ export class ModelCapabilityRegistry {
   /** Get capability profile for an exact provider/model pair */
   getByProvider(provider: string, model: string): ModelCapabilityProfile | undefined {
     return PROFILES.get(`${provider}/${model}`);
-  }
-
-  /** Return models that support the required capabilities */
-  eligible(request: { hasTools: boolean; requiresStreaming: boolean }): readonly ModelCapabilityProfile[] {
-    return ALL_PROFILES.filter((p) => {
-      if (request.hasTools && !p.supportsTools) return false;
-      if (request.requiresStreaming && !p.supportsStreaming) return false;
-      return true;
-    });
   }
 
   /** Resolve whether a provider/model can call tools in structured mode */
