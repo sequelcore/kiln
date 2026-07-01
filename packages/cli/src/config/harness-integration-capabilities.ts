@@ -1,3 +1,8 @@
+import {
+  getManagedAgentCrossHarnessInvocationCapability,
+  type ManagedAgentCrossHarnessAdapterId,
+} from "@kilnai/core";
+
 export const HARNESSES_WITH_NATIVE_PROJECTION = ["claude", "codex", "opencode"] as const;
 
 export type HarnessIntegrationId = typeof HARNESSES_WITH_NATIVE_PROJECTION[number];
@@ -24,7 +29,7 @@ export interface NativeProjectionCapability {
 }
 
 export interface CrossHarnessManagedInvocationCapability {
-  readonly adapterId: "kiln-managed-invocation";
+  readonly adapterId: ManagedAgentCrossHarnessAdapterId;
   readonly supportedProviderIds: readonly string[];
 }
 
@@ -86,10 +91,7 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeConfigImport: supportsNativeConfigImport("claude"),
     mcpRuntimeTools: true,
     hooks: true,
-    crossHarnessManagedInvocation: {
-      adapterId: "kiln-managed-invocation",
-      supportedProviderIds: ["codex-oauth", "opencode-go", "opencode-zen", "openrouter"],
-    },
+    crossHarnessManagedInvocation: getManagedAgentCrossHarnessInvocationCapability("claude"),
   },
   codex: {
     harness: "codex",
@@ -103,10 +105,7 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeConfigImport: supportsNativeConfigImport("codex"),
     mcpRuntimeTools: true,
     hooks: true,
-    crossHarnessManagedInvocation: {
-      adapterId: "kiln-managed-invocation",
-      supportedProviderIds: ["opencode-go", "opencode-zen", "openrouter"],
-    },
+    crossHarnessManagedInvocation: getManagedAgentCrossHarnessInvocationCapability("codex"),
   },
   opencode: {
     harness: "opencode",
@@ -120,10 +119,7 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeConfigImport: supportsNativeConfigImport("opencode"),
     mcpRuntimeTools: true,
     hooks: true,
-    crossHarnessManagedInvocation: {
-      adapterId: "kiln-managed-invocation",
-      supportedProviderIds: ["codex-oauth"],
-    },
+    crossHarnessManagedInvocation: getManagedAgentCrossHarnessInvocationCapability("opencode"),
   },
 };
 

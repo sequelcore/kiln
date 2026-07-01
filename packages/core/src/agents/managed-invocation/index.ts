@@ -299,6 +299,58 @@ export type ManagedAgentCallerAttachmentIdentity =
     readonly evidenceId: string;
   };
 
+export type ManagedAgentExternalHarnessId = Extract<
+  ManagedAgentCallerAttachmentIdentity,
+  { readonly kind: "external-harness" }
+>["harness"];
+
+export type ManagedAgentCrossHarnessAdapterId = "kiln-managed-invocation";
+
+export interface ManagedAgentCrossHarnessInvocationCapability {
+  readonly harness: ManagedAgentExternalHarnessId;
+  readonly adapterId: ManagedAgentCrossHarnessAdapterId;
+  readonly supportedProviderIds: readonly string[];
+}
+
+const CROSS_HARNESS_INVOCATION_CAPABILITIES = {
+  claude: {
+    harness: "claude",
+    adapterId: "kiln-managed-invocation",
+    supportedProviderIds: ["codex-oauth", "opencode-go", "opencode-zen", "openrouter"],
+  },
+  codex: {
+    harness: "codex",
+    adapterId: "kiln-managed-invocation",
+    supportedProviderIds: ["opencode-go", "opencode-zen", "openrouter"],
+  },
+  opencode: {
+    harness: "opencode",
+    adapterId: "kiln-managed-invocation",
+    supportedProviderIds: ["codex-oauth"],
+  },
+} as const satisfies Record<ManagedAgentExternalHarnessId, ManagedAgentCrossHarnessInvocationCapability>;
+
+export function listManagedAgentCrossHarnessInvocationCapabilities(): readonly ManagedAgentCrossHarnessInvocationCapability[] {
+  return [
+    CROSS_HARNESS_INVOCATION_CAPABILITIES.claude,
+    CROSS_HARNESS_INVOCATION_CAPABILITIES.codex,
+    CROSS_HARNESS_INVOCATION_CAPABILITIES.opencode,
+  ];
+}
+
+export function getManagedAgentCrossHarnessInvocationCapability(
+  harness: ManagedAgentExternalHarnessId,
+): ManagedAgentCrossHarnessInvocationCapability {
+  return CROSS_HARNESS_INVOCATION_CAPABILITIES[harness];
+}
+
+export function supportsManagedAgentCrossHarnessProvider(
+  harness: ManagedAgentExternalHarnessId,
+  providerId: string,
+): boolean {
+  return getManagedAgentCrossHarnessInvocationCapability(harness).supportedProviderIds.includes(providerId);
+}
+
 export type ManagedAgentInvocationCapabilityDecision =
   | "admitted"
   | "denied";

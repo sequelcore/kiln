@@ -19,11 +19,15 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn((path: string) => fsMocks.files.get(path) ?? ""),
 }));
 
-vi.mock("node:os", () => ({
-  default: {
-    homedir: vi.fn(),
-  },
-}));
+vi.mock("node:os", () => {
+  const homedir = vi.fn(() => "/home/tester");
+  return {
+    homedir,
+    default: {
+      homedir,
+    },
+  };
+});
 
 vi.mock("../../src/application/agent-loader.js", () => ({
   loadAgentDefinitions: vi.fn(),

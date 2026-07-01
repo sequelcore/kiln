@@ -1,14 +1,9 @@
-import type {
-  ManagedAgentCallerAttachmentIdentity,
-  ManagedAgentInvocationCapabilityAdapterEvidence,
-  ManagedAgentInvocationCapabilityEvidence,
+import {
+  type ManagedAgentCallerAttachmentIdentity,
+  type ManagedAgentInvocationCapabilityAdapterEvidence,
+  type ManagedAgentInvocationCapabilityEvidence,
+  supportsManagedAgentCrossHarnessProvider,
 } from "@kilnai/core";
-
-const EXTERNAL_HARNESS_PROVIDER_SUPPORT = {
-  claude: new Set(["codex-oauth", "opencode-go", "opencode-zen", "openrouter"]),
-  codex: new Set(["opencode-go", "opencode-zen", "openrouter"]),
-  opencode: new Set(["codex-oauth"]),
-} as const;
 
 export interface ManagedInvocationCallerCapabilityInput {
   readonly callerIdentity: ManagedAgentCallerAttachmentIdentity;
@@ -28,7 +23,7 @@ export function evaluateManagedInvocationCallerCapability(
     };
   }
 
-  const supported = EXTERNAL_HARNESS_PROVIDER_SUPPORT[input.callerIdentity.harness].has(input.providerId);
+  const supported = supportsManagedAgentCrossHarnessProvider(input.callerIdentity.harness, input.providerId);
   return {
     decision: supported ? "admitted" : "denied",
     reason: supported

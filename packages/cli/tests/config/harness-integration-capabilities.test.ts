@@ -4,6 +4,7 @@ import {
   HARNESSES_WITH_NATIVE_PROJECTION,
   getHarnessIntegrationCapability,
   listHarnessIntegrationCapabilities,
+  resolveHarnessRouteCapability,
   supportsHarnessIntegration,
 } from "../../src/config/harness-integration-capabilities.js";
 
@@ -53,5 +54,46 @@ describe("harness integration capabilities", () => {
     expect(supportsHarnessIntegration("codex", "runtimeConfigInjection")).toBe(true);
     expect(supportsHarnessIntegration("opencode", "runtimeConfigInjection")).toBe(true);
     expect(supportsHarnessIntegration("claude", "runtimeConfigInjection")).toBe(false);
+  });
+
+  it("distinguishes native support, adapter support, and unsupported strict routes", () => {
+    expect(resolveHarnessRouteCapability({
+      harness: "codex",
+      providerId: "codex-oauth",
+      model: "gpt-5.5",
+    })).toMatchObject({
+      kind: "native-supported",
+      nativeModel: "gpt-5.5",
+    });
+
+    expect(resolveHarnessRouteCapability({
+      harness: "codex",
+      providerId: "opencode-go",
+      model: "kimi-k2.7-code",
+    })).toEqual({
+      kind: "adapter-supported",
+      harness: "codex",
+      providerId: "opencode-go",
+      model: "kimi-k2.7-code",
+      adapterId: "kiln-managed-invocation",
+      reason: "cross-harness-managed-invocation",
+    });
+
+    expect(resolveHarnessRouteCapability({
+      harness: "codex",
+      providerId: "codex-oauth",
+    })).toMatchObject({
+      kind: "unsupported",
+      reason: "missing-model",
+    });
+
+    expect(resolveHarnessRouteCapability({
+      harness: "codex",
+      providerId: "anthropic",
+      model: "claude-opus-4",
+    })).toMatchObject({
+      kind: "unsupported",
+      reason: "unsupported-provider",
+    });
   });
 });

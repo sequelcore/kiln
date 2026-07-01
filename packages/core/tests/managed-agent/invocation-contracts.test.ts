@@ -7,6 +7,9 @@ import {
   defineManagedAgentCapabilitySnapshot,
   defineManagedAgentInvocationRecord,
   buildManagedAgentCapabilitySnapshot,
+  getManagedAgentCrossHarnessInvocationCapability,
+  listManagedAgentCrossHarnessInvocationCapabilities,
+  supportsManagedAgentCrossHarnessProvider,
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   ManagedAgentInvocationRequest,
@@ -366,6 +369,30 @@ describe("managed agent invocation contracts", () => {
         reason: "runtime-adapter-admitted",
       },
     });
+  });
+
+  it("owns the cross-harness managed invocation support matrix", () => {
+    expect(listManagedAgentCrossHarnessInvocationCapabilities()).toEqual([
+      {
+        harness: "claude",
+        adapterId: "kiln-managed-invocation",
+        supportedProviderIds: ["codex-oauth", "opencode-go", "opencode-zen", "openrouter"],
+      },
+      {
+        harness: "codex",
+        adapterId: "kiln-managed-invocation",
+        supportedProviderIds: ["opencode-go", "opencode-zen", "openrouter"],
+      },
+      {
+        harness: "opencode",
+        adapterId: "kiln-managed-invocation",
+        supportedProviderIds: ["codex-oauth"],
+      },
+    ]);
+
+    expect(getManagedAgentCrossHarnessInvocationCapability("codex").adapterId).toBe("kiln-managed-invocation");
+    expect(supportsManagedAgentCrossHarnessProvider("codex", "opencode-go")).toBe(true);
+    expect(supportsManagedAgentCrossHarnessProvider("codex", "codex-oauth")).toBe(false);
   });
 
   it("rejects malformed caller identity and runtime capability evidence", () => {

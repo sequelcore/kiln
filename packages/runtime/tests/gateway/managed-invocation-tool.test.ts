@@ -435,11 +435,16 @@ function makeSurface(
   });
 }
 
-function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter()) {
+function makeManagedRoute(
+  routeId: string,
+  model: string,
+  adapter = makeAdapter(),
+  providerId = "opencode",
+) {
   return {
     routeId,
     routeSource: "explicit-managed-route" as const,
-    providerId: "opencode",
+    providerId,
     model,
     adapter,
     surface: "cli-harness",
@@ -476,6 +481,111 @@ function makeManagedRoute(routeId: string, model: string, adapter = makeAdapter(
 }
 
 describe("managed invocation runtime tool", () => {
+  it("admits Codex parent read-only invocation through explicit OpenCode adapter capability", async () => {
+    const adapter = makeAdapter({
+      adapterDescriptorId: "adapter:opencode-go:cli-harness",
+      providerId: "opencode-go",
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        callerIdentity: {
+          kind: "external-harness",
+          harness: "codex",
+          attachmentId: "attachment:codex:test",
+          evidenceId: "evidence:codex:test",
+        },
+        routes: [makeManagedRoute("opencode-go-readonly", "kimi-k2.7-code", adapter, "opencode-go")],
+      },
+    });
+    const session = makeSession();
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "opencode-go-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode-go",
+        model: "kimi-k2.7-code",
+      },
+      task: "Read the architecture docs and report route risks.",
+      requestedAuthority: "read_only",
+    }, {
+      session,
+      toolCall: {
+        id: "tool-call-codex-opencode-go",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    }) as {
+      readonly isError: boolean;
+      readonly metadata: {
+        readonly status?: string;
+        readonly routeId?: string;
+        readonly providerRoute?: Record<string, unknown>;
+        readonly adapterKind?: string;
+        readonly executionMode?: string;
+        readonly authoritySnapshot?: Record<string, unknown>;
+        readonly capabilitySnapshot?: {
+          readonly callerIdentity?: unknown;
+          readonly invocationCapabilityEvidence?: unknown;
+          readonly providerRoute?: Record<string, unknown>;
+          readonly authorityProfile?: Record<string, unknown>;
+        };
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      status: "completed",
+      routeId: "opencode-go-readonly",
+      providerRoute: {
+        providerId: "opencode-go",
+        model: "kimi-k2.7-code",
+        surface: "cli-harness",
+      },
+      adapterKind: "harness",
+      executionMode: "cli-harness",
+      authoritySnapshot: {
+        authorityProfileId: "authority:opencode-go-readonly:foundation-readonly-plan",
+        permissionProfile: "read-only",
+        toolAuthority: {
+          allowedToolNames: ["read", "grep", "glob"],
+          writeAllowed: false,
+          networkAllowed: false,
+        },
+      },
+      capabilitySnapshot: {
+        callerIdentity: {
+          kind: "external-harness",
+          harness: "codex",
+          attachmentId: "attachment:codex:test",
+          evidenceId: "evidence:codex:test",
+        },
+        invocationCapabilityEvidence: {
+          decision: "admitted",
+          reason: "cross-harness-managed-invocation",
+          adapterEvidence: {
+            adapterDescriptorId: "adapter:opencode-go:cli-harness",
+            adapterId: "kiln-managed-invocation",
+          },
+        },
+        providerRoute: {
+          providerId: "opencode-go",
+          model: "kimi-k2.7-code",
+          surface: "cli-harness",
+        },
+        authorityProfile: {
+          authorityProfileId: "authority:opencode-go-readonly:foundation-readonly-plan",
+          toolAuthority: {
+            allowedToolNames: ["read", "grep", "glob"],
+            writeAllowed: false,
+            networkAllowed: false,
+          },
+        },
+      },
+    });
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+  });
+
   it("denies unsupported external caller routes before adapter invocation", async () => {
     const adapter = makeAdapter();
     const surface = createAttachedRuntimeBuiltinToolSurface({
