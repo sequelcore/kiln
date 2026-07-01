@@ -1,8 +1,8 @@
 import type { ManagedInvocationToolOptions } from "@kilnai/runtime";
 import {
-  PENDING_MANAGED_AGENT_PROVIDER_MODELS,
+  PENDING_MANAGED_AGENT_PROVIDER_MODEL_CATALOG_DIAGNOSTICS,
   discoverManagedAgentProviderModels,
-  type ManagedAgentProviderModels,
+  type ManagedAgentProviderModelCatalogDiagnostics,
 } from "./managed-agent-provider-models.js";
 import {
   createManagedInvocationToolOptionsCatalog,
@@ -21,13 +21,13 @@ export interface StagedManagedInvocationRouteCatalog {
 export interface CreateStagedManagedInvocationRouteCatalogOptions {
   readonly onRefreshError?: (error: unknown) => void;
   readonly reloadConfig?: () => ManagedAgentRouteConfigSource | null | undefined;
-  readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModels>;
+  readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
   readonly refreshIntervalMs?: number;
 }
 
 type StagedManagedInvocationRouteContext = Omit<
   ResolveManagedInvocationToolOptionsContext,
-  "providerModels" | "includeUnavailableRoutes"
+  "providerModelEligibility" | "includeUnavailableRoutes"
 >;
 
 export async function createStagedManagedInvocationRouteCatalog(
@@ -40,16 +40,16 @@ export async function createStagedManagedInvocationRouteCatalog(
   const currentConfig = () => options.reloadConfig?.() ?? config;
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
-  const resolve = (providerModels: ManagedAgentProviderModels) =>
+  const resolve = (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) =>
     resolveManagedInvocationToolOptions(currentConfig(), {
       ...context,
       ...(invocationService ? { invocationService } : {}),
       ...(invocationServiceKey ? { invocationServiceKey } : {}),
-      providerModels,
+      providerModelEligibility: providerModelCatalogDiagnostics,
       includeUnavailableRoutes: true,
     });
   mark("route-catalog-initial-resolve-started");
-  const initial = await resolve(PENDING_MANAGED_AGENT_PROVIDER_MODELS);
+  const initial = await resolve(PENDING_MANAGED_AGENT_PROVIDER_MODEL_CATALOG_DIAGNOSTICS);
   mark("route-catalog-initial-resolve-finished", {
     routes: initial.managedInvocation?.routes.length ?? 0,
     unavailableRoutes: initial.managedInvocation?.unavailableRoutes?.length ?? 0,
@@ -116,16 +116,16 @@ function createRouteCatalogStartupMarker(): (phase: string, detail?: Record<stri
 
 async function refreshCatalog(
   catalog: ManagedInvocationToolOptionsCatalog | undefined,
-  resolve: (providerModels: ManagedAgentProviderModels) => ReturnType<typeof resolveManagedInvocationToolOptions>,
-  discoverProviderModels: () => Promise<ManagedAgentProviderModels>,
+  resolve: (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) => ReturnType<typeof resolveManagedInvocationToolOptions>,
+  discoverProviderModels: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>,
   onRefreshError: ((error: unknown) => void) | undefined,
 ): Promise<void> {
   if (!catalog) {
     return;
   }
   try {
-    const providerModels = await discoverProviderModels();
-    const refreshed = await resolve(providerModels);
+    const providerModelCatalogDiagnostics = await discoverProviderModels();
+    const refreshed = await resolve(providerModelCatalogDiagnostics);
     catalog.update(refreshed.managedInvocation ?? {
       routes: [],
       unavailableRoutes: [],

@@ -133,10 +133,8 @@ const configMocks = vi.hoisted(() => ({
 }));
 
 const managedProviderModelMocks = vi.hoisted(() => ({
-  discoverManagedAgentProviderModels: vi.fn(async () => ({
-    codex: ["gpt-5.3-codex-spark"],
-    opencode: ["opencode/minimax-m2.5-free"],
-  })),
+  eligibleModels: null as unknown as (models: Record<string, string[]>) => Record<string, unknown>,
+  discoverManagedAgentProviderModels: vi.fn(),
 }));
 
 const guiSessionMocks = vi.hoisted(() => ({
@@ -257,10 +255,48 @@ vi.mock("../../src/config/env-config.js", () => ({
   resolveEffectiveProvider: configMocks.resolveEffectiveProvider,
 }));
 
-vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
-  PENDING_MANAGED_AGENT_PROVIDER_MODELS: {},
-  discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
-}));
+vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
+  const core = await vi.importActual<typeof import("@kilnai/core")>("@kilnai/core");
+  const runtime = await vi.importActual<typeof import("@kilnai/runtime")>("@kilnai/runtime");
+  const observedAt = "2026-07-01T12:00:00.000Z";
+  const requirements = {
+    use: "managed-agent",
+    evaluatedAt: observedAt,
+    requiredStates: ["discovered", "configured", "authenticated", "capabilityCompatible", "policyAdmitted", "routeHealthy"],
+    requiredCapabilities: [],
+    minimumCapabilityAuthority: "harness-reported",
+    minimumStateAuthority: "harness-reported",
+    requireProbe: false,
+  } as const;
+  managedProviderModelMocks.eligibleModels = (models) =>
+    Object.fromEntries(Object.entries(models).map(([providerId, providerModels]) => {
+      const catalog = runtime.normalizeRuntimeProviderDiscoveryCatalog({
+        providerId,
+        family: providerId === "codex" ? "codex-harness" : "opencode-harness",
+        discovery: { models: providerModels, status: "available", reason: "fixture catalog", authState: "authenticated" },
+        observedAt,
+        freshness: "fresh",
+        harnessId: providerId,
+        reportedProviderId: providerId,
+      });
+      return [providerId, Object.fromEntries(catalog.routes.map((route) => [
+        route.identity.route.providerModelId,
+        {
+          catalogDiagnosticEvidence: route,
+          catalogDiagnosticDecision: core.deriveProviderModelEligibility(route, requirements, []),
+        },
+      ]))];
+    }));
+  managedProviderModelMocks.discoverManagedAgentProviderModels.mockImplementation(async () =>
+    managedProviderModelMocks.eligibleModels({
+      codex: ["gpt-5.3-codex-spark"],
+      opencode: ["opencode/minimax-m2.5-free"],
+    }));
+  return {
+    PENDING_MANAGED_AGENT_PROVIDER_MODEL_CATALOG_DIAGNOSTICS: {},
+    discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
+  };
+});
 
 vi.mock("../../src/application/continuation-sidebar-info.js", () => ({
   loadContinuationSidebarInfo: vi.fn().mockResolvedValue({}),
@@ -341,10 +377,10 @@ describe("GUI dashboard provider availability", () => {
     guiSessionMocks.summaries = [];
     guiSessionMocks.detail = null;
     guiSessionMocks.loadSessionDetail.mockClear();
-    managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue({
+    managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue(managedProviderModelMocks.eligibleModels({
       codex: ["gpt-5.3-codex-spark"],
       opencode: ["opencode/minimax-m2.5-free"],
-    });
+    }));
     registryMocks.providers = [{
       id: "openai",
       group: "direct-api",
@@ -625,7 +661,7 @@ describe("GUI dashboard provider availability", () => {
       },
     };
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    let resolveDiscovery: ((models: { codex: string[]; opencode: string[] }) => void) | undefined;
+    let resolveDiscovery: ((models: ReturnType<typeof managedProviderModelMocks.eligibleModels>) => void) | undefined;
     managedProviderModelMocks.discoverManagedAgentProviderModels.mockImplementationOnce(() =>
       new Promise((resolve) => {
         resolveDiscovery = resolve;
@@ -644,7 +680,7 @@ describe("GUI dashboard provider availability", () => {
       }
       expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
     } finally {
-      resolveDiscovery?.({ codex: ["gpt-5.3-codex-spark"], opencode: [] });
+      resolveDiscovery?.(managedProviderModelMocks.eligibleModels({ codex: ["gpt-5.3-codex-spark"], opencode: [] }));
       await command;
     }
   });

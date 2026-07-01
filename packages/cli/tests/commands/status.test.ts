@@ -6,6 +6,7 @@ import { statusCommand } from "../../src/commands/status.js";
 import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
 import { writeGlobalConfig } from "../../src/config/global-config.js";
 import type { KilnAppConfig } from "../../src/config.js";
+import type { ProviderModelEligibilityRequirements } from "@kilnai/core";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
   appName: "kiln",
@@ -19,12 +20,56 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
   mcpServerName: "kiln",
 };
 
-vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
-  discoverManagedAgentProviderModels: vi.fn().mockResolvedValue({
-    codex: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
-    opencode: ["opencode/minimax-m2.5-free"],
-  }),
-}));
+vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
+  const core = await import("@kilnai/core");
+  const runtime = await import("@kilnai/runtime");
+  const observedAt = "2026-07-01T12:00:00.000Z";
+  const requirements: ProviderModelEligibilityRequirements = {
+    use: "managed-agent",
+    evaluatedAt: observedAt,
+    requiredStates: [
+      "discovered",
+      "configured",
+      "authenticated",
+      "capabilityCompatible",
+      "policyAdmitted",
+      "routeHealthy",
+    ],
+    requiredCapabilities: [],
+    minimumCapabilityAuthority: "harness-reported",
+    minimumStateAuthority: "harness-reported",
+    requireProbe: false,
+  };
+  const observedModels = (providerId: string, models: readonly string[]) => {
+    const catalog = runtime.normalizeRuntimeProviderDiscoveryCatalog({
+      providerId,
+      family: providerId === "codex" ? "codex-harness" : "opencode-harness",
+      discovery: {
+        models,
+        status: "available",
+        reason: "fixture catalog",
+        authState: "authenticated",
+      },
+      observedAt,
+      freshness: "fresh",
+      harnessId: providerId,
+      reportedProviderId: providerId,
+    });
+    return Object.fromEntries(catalog.routes.map((route) => [
+      route.identity.route.providerModelId,
+      {
+        catalogDiagnosticEvidence: route,
+        catalogDiagnosticDecision: core.deriveProviderModelEligibility(route, requirements, []),
+      },
+    ]));
+  };
+  return {
+    discoverManagedAgentProviderModels: vi.fn().mockResolvedValue({
+      codex: observedModels("codex", ["gpt-5.3-codex-spark", "gpt-5.4-mini"]),
+      opencode: observedModels("opencode", ["opencode/minimax-m2.5-free"]),
+    }),
+  };
+});
 
 describe("statusCommand", () => {
   const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;

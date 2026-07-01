@@ -1072,7 +1072,7 @@ export async function runCommand(
     registry,
     surface: "run",
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
-    providerModels: managedAgentProviderModels,
+    providerModelEligibility: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({
       builtinToolOptions: () => builtinToolOptions,
       runtimeEnv: env,

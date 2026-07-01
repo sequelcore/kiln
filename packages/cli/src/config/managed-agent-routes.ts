@@ -8,13 +8,21 @@ import type {
   ManagedAgentMemoryScope,
   ManagedAgentAuthorityProfile,
   ManagedAgentRouteSource,
+  ProviderModelEvidence,
+  ProviderModelEvidenceObservation,
+  ProviderModelEvidenceState,
+  ProviderModelEvidenceValue,
+  ProviderModelEligibilityDecision,
+  ProviderModelEligibilityRequirements,
   ModelTaskSuitabilityEvidence,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
 import {
+  createProviderModelEvidence,
   defineManagedAgentReadAuthority,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  deriveProviderModelEligibility,
   isDirectProviderId,
 } from "@kilnai/core";
 import {
@@ -31,6 +39,10 @@ import {
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
 } from "@kilnai/runtime";
+import type {
+  ManagedAgentProviderModelCatalogDiagnostic,
+  ManagedAgentProviderModelCatalogDiagnostics,
+} from "./managed-agent-provider-models.js";
 import type { CliSessionFactory } from "@kilnai/runtime";
 import type {
   KilnManagedAgentsConfig,
@@ -79,7 +91,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly registry: SessionRegistry;
   readonly surface: ManagedAgentOperatorSurface;
   readonly isProviderAvailable?: (provider: string) => boolean | undefined;
-  readonly providerModels?: Readonly<Record<string, readonly string[] | undefined>>;
+  readonly providerModelEligibility?: ManagedAgentProviderModelCatalogDiagnostics;
   readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly builtinToolOptions?: BuiltinToolOptionsSource;
@@ -680,24 +692,22 @@ async function resolveRouteConfig(
   if (!model) {
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
-  const advertisedModels = context.providerModels?.[routeConfig.provider];
-  if (
-    context.providerModels
-    && !Object.prototype.hasOwnProperty.call(context.providerModels, routeConfig.provider)
-  ) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' model evidence is pending.`);
+  const catalogEntry = resolveManagedProviderModelCatalogEntry(context, routeConfig.provider, model);
+  if (catalogEntry.status === "pending") {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' model eligibility evidence is pending.`);
   }
-  if (advertisedModels && advertisedModels.length === 0) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' did not advertise any models.`);
-  }
-  if (advertisedModels && !advertisedModels.includes(model)) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not advertise model '${model}'.`);
+  if (catalogEntry.status === "ineligible") {
+    return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, undefined));
   }
   if (!supportsReadonlyResultHandoff(routeConfig.provider, model)) {
     return unhealthy(
       baseHealth,
       `Provider '${routeConfig.provider}' model '${model}' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.`,
     );
+  }
+  const canonicalAdmission = deriveCanonicalManagedRouteAdmission(catalogEntry.entry, routeConfig, model);
+  if (!canonicalAdmission.eligible) {
+    return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, canonicalAdmission));
   }
 
   const profileResolution = buildRouteProfiles(routeConfig, context.cwd, profiles, config.managedAgents?.worktreeLease);
@@ -1099,12 +1109,12 @@ async function resolveDirectRouteConfig(
   if (!model) {
     return unhealthy(baseHealth, `Direct managed invocation route '${routeConfig.id}' requires a model.`);
   }
-  if (context.providerModels && context.providerModels[routeConfig.provider] === undefined) {
-    return unhealthy(baseHealth, `Provider/model discovery is pending for direct managed invocation route '${routeConfig.id}'.`);
+  const catalogEntry = resolveManagedProviderModelCatalogEntry(context, routeConfig.provider, model);
+  if (catalogEntry.status === "pending") {
+    return unhealthy(baseHealth, `Provider/model eligibility evidence is pending for direct managed invocation route '${routeConfig.id}'.`);
   }
-  const advertisedModels = context.providerModels?.[routeConfig.provider];
-  if (advertisedModels && !advertisedModels.includes(model)) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not advertise model '${model}'.`);
+  if (catalogEntry.status === "ineligible") {
+    return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, undefined));
   }
   let adapter: ManagedAgentRuntimeAdapter | undefined;
   try {
@@ -1120,6 +1130,10 @@ async function resolveDirectRouteConfig(
     if (!writeSupport.ok) {
       return unhealthy(baseHealth, writeSupport.reason);
     }
+  }
+  const canonicalAdmission = deriveCanonicalManagedRouteAdmission(catalogEntry.entry, routeConfig, model);
+  if (!canonicalAdmission.eligible) {
+    return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, canonicalAdmission));
   }
   const profileResolution = buildRouteProfiles(routeConfig, context.cwd, normalizeProfiles(routeConfig.profiles), config.managedAgents?.worktreeLease);
   if (!profileResolution.ok) {
@@ -1238,6 +1252,135 @@ function unhealthy(
       available: false,
       reason,
     },
+  };
+}
+
+function resolveManagedProviderModelCatalogEntry(
+  context: ResolveManagedInvocationToolOptionsContext,
+  providerId: string,
+  model: string,
+): {
+  readonly status: "available";
+  readonly entry: ManagedAgentProviderModelCatalogDiagnostic;
+} | {
+  readonly status: "ineligible";
+} | {
+  readonly status: "pending";
+} {
+  if (!context.providerModelEligibility) {
+    return { status: "pending" };
+  }
+  const providerEligibility = context.providerModelEligibility?.[providerId];
+  if (providerEligibility === undefined) {
+    return { status: "pending" };
+  }
+  const entry = providerEligibility?.[model];
+  if (!entry) {
+    return { status: "ineligible" };
+  }
+  return { status: "available", entry };
+}
+
+function deriveCanonicalManagedRouteAdmission(
+  entry: ManagedAgentProviderModelCatalogDiagnostic,
+  routeConfig: KilnManagedAgentRouteConfig,
+  model: string,
+): ProviderModelEligibilityDecision {
+  return deriveProviderModelEligibility(
+    managedRouteEvidence(entry.catalogDiagnosticEvidence, routeConfig, model),
+    managedRouteEligibilityRequirements(new Date().toISOString()),
+    [],
+  );
+}
+
+function managedEligibilityUnavailableReason(
+  providerId: string,
+  model: string,
+  decision: ProviderModelEligibilityDecision | undefined,
+): string {
+  if (!decision) {
+    return `Provider '${providerId}' has no eligible managed-agent decision for model '${model}'.`;
+  }
+  const reasons = decision.reasons.length > 0 ? decision.reasons.join(", ") : "unknown";
+  return `Provider '${providerId}' model '${model}' is not eligible for managed invocation: ${reasons}.`;
+}
+
+function managedRouteEligibilityRequirements(evaluatedAt: string): ProviderModelEligibilityRequirements {
+  return {
+    use: "managed-agent",
+    evaluatedAt,
+    requiredStates: [
+      "discovered",
+      "configured",
+      "authenticated",
+      "capabilityCompatible",
+      "policyAdmitted",
+      "routeHealthy",
+    ],
+    requiredCapabilities: [],
+    minimumCapabilityAuthority: "harness-reported",
+    minimumStateAuthority: "harness-reported",
+    requireProbe: false,
+  };
+}
+
+function managedRouteEvidence(
+  catalogDiagnosticEvidence: ProviderModelEvidence,
+  routeConfig: KilnManagedAgentRouteConfig,
+  model: string,
+): ProviderModelEvidence {
+  const observedAt = new Date().toISOString();
+  const routeObservations = [
+    managedRouteObservation("configured", "confirmed", "operator-declared", routeConfig.id, observedAt),
+    managedRouteObservation("authenticated", "confirmed", "runtime-observed", routeConfig.provider, observedAt),
+    managedRouteObservation("capabilityCompatible", "confirmed", "runtime-observed", routeConfig.id, observedAt),
+    managedRouteObservation("policyAdmitted", "confirmed", "operator-declared", routeConfig.id, observedAt),
+    managedRouteObservation("routeHealthy", "confirmed", "runtime-observed", routeConfig.id, observedAt),
+  ];
+  return createProviderModelEvidence({
+    identity: {
+      ...catalogDiagnosticEvidence.identity,
+      route: {
+        providerId: routeConfig.provider,
+        providerModelId: model,
+        scope: catalogDiagnosticEvidence.identity.route.scope,
+      },
+    },
+    aliases: catalogDiagnosticEvidence.aliases,
+    states: {
+      ...catalogDiagnosticEvidence.states,
+      configured: "confirmed",
+      authenticated: "confirmed",
+      capabilityCompatible: "confirmed",
+      policyAdmitted: "confirmed",
+      routeHealthy: "confirmed",
+    },
+    observations: [
+      ...catalogDiagnosticEvidence.observations,
+      ...routeObservations,
+    ],
+    failures: catalogDiagnosticEvidence.failures,
+  });
+}
+
+function managedRouteObservation(
+  state: ProviderModelEvidenceState,
+  value: ProviderModelEvidenceValue,
+  authority: ProviderModelEvidenceObservation["authority"],
+  id: string,
+  observedAt: string,
+): ProviderModelEvidenceObservation {
+  return {
+    state,
+    value,
+    provenance: `managed-agent-route:${state}`,
+    authority,
+    source: {
+      kind: "managed-agent-route",
+      id,
+    },
+    observedAt,
+    freshness: "fresh",
   };
 }
 

@@ -82,7 +82,7 @@ export async function statusCommand(
     registry,
     surface: "operator",
     isProviderAvailable: (provider) => engineAvailability.get(provider),
-    providerModels: managedAgentProviderModels,
+    providerModelEligibility: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
     builtinToolOptions,
   });

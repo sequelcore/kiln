@@ -192,6 +192,26 @@ describe("deriveProviderModelEligibility", () => {
     expect(decision.reasons).toContain("missing-entitlement-evidence");
   });
 
+  it("allows use policies to omit entitlement when no entitlement source exists", () => {
+    const decision = deriveProviderModelEligibility(
+      evidence({ entitled: "unknown" }),
+      requirements({
+        use: "managed-agent",
+        requiredStates: [
+          "discovered",
+          "configured",
+          "authenticated",
+          "capabilityCompatible",
+          "policyAdmitted",
+          "routeHealthy",
+        ],
+      }),
+      [],
+    );
+
+    expect(decision).toMatchObject({ eligible: true, use: "managed-agent", reasons: [] });
+  });
+
   it("does not promote discovery into capability compatibility or route health", () => {
     const decision = deriveProviderModelEligibility(
       evidence({ discovered: "confirmed", capabilityCompatible: "unknown", routeHealthy: "unknown" }),

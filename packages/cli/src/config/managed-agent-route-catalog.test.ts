@@ -2,10 +2,15 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defineManagedAgentAdapterDescriptor } from "@kilnai/core";
-import { RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
+import {
+  deriveProviderModelEligibility,
+  defineManagedAgentAdapterDescriptor,
+  type ProviderModelEligibilityRequirements,
+} from "@kilnai/core";
+import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
 import type { ManagedAgentRuntimeAdapter } from "@kilnai/runtime";
 import { createStagedManagedInvocationRouteCatalog } from "./managed-agent-route-catalog.js";
+import type { ManagedAgentProviderModelCatalogDiagnostics } from "./managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "./managed-agent-routes.js";
 import type { ManagedAgentRouteConfigSource } from "./managed-agent-routes.js";
 import { SessionRegistry } from "../wrapper/session-registry.js";
@@ -17,6 +22,7 @@ const READONLY_POLICY: KilnPermissionPolicy = {
   approval: "on-request",
   sandbox: "read-only",
 };
+const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
 
 function createTempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "kiln-managed-route-catalog-"));
@@ -64,6 +70,61 @@ function makeAdapter(): ManagedAgentRuntimeAdapter {
       cleanup: { supported: true },
     }),
     invoke: vi.fn(),
+  };
+}
+
+function observedProviderModels(
+  models: Readonly<Record<string, readonly string[]>>,
+): ManagedAgentProviderModelCatalogDiagnostics {
+  return Object.fromEntries(Object.entries(models).map(([providerId, providerModels]) => {
+    const catalog = normalizeRuntimeProviderDiscoveryCatalog({
+      providerId,
+      family: providerId === "codex"
+        ? "codex-harness"
+        : providerId === "opencode"
+          ? "opencode-harness"
+          : "direct-provider",
+      discovery: {
+        models: providerModels,
+        status: "available",
+        reason: "fixture catalog",
+        authState: "authenticated",
+      },
+      observedAt: FIXTURE_OBSERVED_AT,
+      freshness: "fresh",
+      ...(providerId === "codex" || providerId === "opencode"
+        ? { harnessId: providerId, reportedProviderId: providerId }
+        : {}),
+    });
+    return [
+      providerId,
+      Object.fromEntries(catalog.routes.map((route) => [
+        route.identity.route.providerModelId,
+        {
+          catalogDiagnosticEvidence: route,
+          catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedCatalogRequirements(), []),
+        },
+      ])),
+    ];
+  }));
+}
+
+function managedCatalogRequirements(): ProviderModelEligibilityRequirements {
+  return {
+    use: "managed-agent",
+    evaluatedAt: FIXTURE_OBSERVED_AT,
+    requiredStates: [
+      "discovered",
+      "configured",
+      "authenticated",
+      "capabilityCompatible",
+      "policyAdmitted",
+      "routeHealthy",
+    ],
+    requiredCapabilities: [],
+    minimumCapabilityAuthority: "harness-reported",
+    minimumStateAuthority: "harness-reported",
+    requireProbe: false,
   };
 }
 
@@ -192,12 +253,12 @@ describe("managed agent route catalog", () => {
       directAdapterFactory: () => makeAdapter(),
     }, {
       reloadConfig: () => currentConfig,
-      discoverProviderModels: async () => ({ "opencode-go": ["qwen3.6-plus"] }),
+      discoverProviderModels: async () => observedProviderModels({ "opencode-go": ["qwen3.6-plus"] }),
     });
 
     expect(catalog.managedInvocation?.routes).toEqual([]);
     expect(catalog.managedInvocation?.unavailableRoutes?.[0]?.reason)
-      .toBe("Provider/model discovery is pending for direct managed invocation route 'opencode-go-research-readonly'.");
+      .toBe("Provider/model eligibility evidence is pending for direct managed invocation route 'opencode-go-research-readonly'.");
 
     await catalog.refreshNow();
     expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(false);
@@ -218,7 +279,7 @@ describe("managed agent route catalog", () => {
       isProviderAvailable: () => true,
       directAdapterFactory,
     }, {
-      discoverProviderModels: async () => ({ "opencode-go": ["qwen3.6-plus"] }),
+      discoverProviderModels: async () => observedProviderModels({ "opencode-go": ["qwen3.6-plus"] }),
     });
 
     expect(directAdapterFactory).not.toHaveBeenCalled();
@@ -226,7 +287,7 @@ describe("managed agent route catalog", () => {
     expect(catalog.managedInvocation?.unavailableRoutes?.[0]).toMatchObject({
       providerId: "opencode-go",
       model: "qwen3.6-plus",
-      reason: "Provider/model discovery is pending for direct managed invocation route 'opencode-go-research-readonly'.",
+      reason: "Provider/model eligibility evidence is pending for direct managed invocation route 'opencode-go-research-readonly'.",
     });
 
     await catalog.refreshNow();
@@ -270,9 +331,9 @@ describe("managed agent route catalog", () => {
       registry: createRegistry("opencode-go"),
       surface: "gui",
       isProviderAvailable: () => true,
-      providerModels: {
+      providerModelEligibility: observedProviderModels({
         "opencode-go": ["qwen3.6-plus"],
-      },
+      }),
       directAdapterFactory: async () => makeAdapter(),
     });
 
@@ -308,9 +369,9 @@ describe("managed agent route catalog", () => {
       registry: createRegistry("codex"),
       surface: "run",
       isProviderAvailable: () => true,
-      providerModels: {
+      providerModelEligibility: observedProviderModels({
         codex: ["gpt-5.3-codex-spark"],
-      },
+      }),
     });
 
     expect(resolution.routeHealth[0]).toMatchObject({ available: true });
@@ -356,9 +417,9 @@ describe("managed agent route catalog", () => {
       registry: createRegistry("codex"),
       surface: "run",
       isProviderAvailable: () => true,
-      providerModels: {
+      providerModelEligibility: observedProviderModels({
         codex: ["gpt-5.3-codex-spark"],
-      },
+      }),
       includeUnavailableRoutes: true,
     });
 
@@ -378,7 +439,7 @@ describe("managed agent route catalog", () => {
       isProviderAvailable: () => true,
     }, {
       reloadConfig: () => currentConfig,
-      discoverProviderModels: async () => ({ codex: ["gpt-5.3-codex-spark"] }),
+      discoverProviderModels: async () => observedProviderModels({ codex: ["gpt-5.3-codex-spark"] }),
     });
     const service = catalog.managedInvocation?.invocationService;
 
@@ -403,7 +464,7 @@ describe("managed agent route catalog", () => {
       isProviderAvailable: () => true,
     }, {
       reloadConfig: () => currentConfig,
-      discoverProviderModels: async () => ({ codex: ["gpt-5.3-codex-spark"] }),
+      discoverProviderModels: async () => observedProviderModels({ codex: ["gpt-5.3-codex-spark"] }),
     });
     await catalog.refreshNow();
     const initialService = catalog.managedInvocation?.invocationService;
@@ -458,9 +519,9 @@ describe("managed agent route catalog", () => {
       registry: createRegistry("codex"),
       surface: "run",
       isProviderAvailable: () => true,
-      providerModels: {
+      providerModelEligibility: observedProviderModels({
         codex: ["gpt-5.3-codex-spark"],
-      },
+      }),
       includeUnavailableRoutes: true,
     });
 

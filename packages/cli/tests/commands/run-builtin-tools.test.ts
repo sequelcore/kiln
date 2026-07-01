@@ -69,7 +69,10 @@ const runWiringMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@kilnai/runtime", () => ({
+vi.mock("@kilnai/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/runtime")>();
+  return {
+  ...actual,
   attachManagedInvocationSessionEventSink: vi.fn((attachment: Record<string, unknown> | undefined, sessionEventSink: unknown) => {
     if (!attachment) {
       return undefined;
@@ -198,7 +201,8 @@ vi.mock("@kilnai/runtime", () => ({
   WindowsUiaComputerUseProvider: class MockWindowsUiaComputerUseProvider {
     constructor(readonly options: unknown) {}
   },
-}));
+  };
+});
 
 vi.mock("@kilnai/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/core")>();

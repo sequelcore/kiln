@@ -17,6 +17,7 @@ export type ProviderModelEligibilityUse = "interactive" | "managed-agent";
 export interface ProviderModelEligibilityRequirements {
   readonly use: ProviderModelEligibilityUse;
   readonly evaluatedAt: string;
+  readonly requiredStates?: readonly ProviderModelEvidenceState[];
   readonly requiredCapabilities: readonly string[];
   readonly minimumCapabilityAuthority: ProviderModelEvidenceAuthority;
   readonly minimumStateAuthority?: ProviderModelEvidenceAuthority;
@@ -76,14 +77,27 @@ interface RequiredStateRule {
   readonly authorityLabel: string;
 }
 
-const REQUIRED_STATE_RULES: readonly RequiredStateRule[] = [
-  { state: "configured", missingReason: "missing-configured-evidence", deniedReason: "configuration-denied", staleLabel: "configured", authorityLabel: "configured" },
-  { state: "authenticated", missingReason: "missing-authentication-evidence", deniedReason: "authentication-denied", staleLabel: "authentication", authorityLabel: "authentication" },
-  { state: "entitled", missingReason: "missing-entitlement-evidence", deniedReason: "entitlement-denied", staleLabel: "entitlement", authorityLabel: "entitlement" },
-  { state: "capabilityCompatible", missingReason: "missing-capability-evidence", deniedReason: "capability-incompatible", staleLabel: "capability", authorityLabel: "capability" },
-  { state: "policyAdmitted", missingReason: "missing-policy-evidence", deniedReason: "policy-denied", staleLabel: "policy", authorityLabel: "policy" },
-  { state: "routeHealthy", missingReason: "missing-route-health-evidence", deniedReason: "route-unhealthy", staleLabel: "route-health", authorityLabel: "route-health" },
+const DEFAULT_REQUIRED_STATES: readonly ProviderModelEvidenceState[] = [
+  "configured",
+  "authenticated",
+  "entitled",
+  "capabilityCompatible",
+  "policyAdmitted",
+  "routeHealthy",
 ];
+
+const STATE_RULES: Readonly<Record<ProviderModelEvidenceState, RequiredStateRule | undefined>> = {
+  advertised: { state: "advertised", missingReason: "missing-configured-evidence", deniedReason: "configuration-denied", staleLabel: "advertised", authorityLabel: "advertised" },
+  discovered: { state: "discovered", missingReason: "missing-configured-evidence", deniedReason: "configuration-denied", staleLabel: "discovered", authorityLabel: "discovered" },
+  configured: { state: "configured", missingReason: "missing-configured-evidence", deniedReason: "configuration-denied", staleLabel: "configured", authorityLabel: "configured" },
+  authenticated: { state: "authenticated", missingReason: "missing-authentication-evidence", deniedReason: "authentication-denied", staleLabel: "authentication", authorityLabel: "authentication" },
+  entitled: { state: "entitled", missingReason: "missing-entitlement-evidence", deniedReason: "entitlement-denied", staleLabel: "entitlement", authorityLabel: "entitlement" },
+  capabilityCompatible: { state: "capabilityCompatible", missingReason: "missing-capability-evidence", deniedReason: "capability-incompatible", staleLabel: "capability", authorityLabel: "capability" },
+  policyAdmitted: { state: "policyAdmitted", missingReason: "missing-policy-evidence", deniedReason: "policy-denied", staleLabel: "policy", authorityLabel: "policy" },
+  routeHealthy: { state: "routeHealthy", missingReason: "missing-route-health-evidence", deniedReason: "route-unhealthy", staleLabel: "route-health", authorityLabel: "route-health" },
+  probeVerified: { state: "probeVerified", missingReason: "missing-probe-evidence", deniedReason: "probe-failed", staleLabel: "probe", authorityLabel: "probe" },
+  selectable: undefined,
+};
 
 const AUTHORITY_RANK: Readonly<Record<ProviderModelEvidenceAuthority, number>> = Object.freeze({
   inferred: 0,
@@ -125,18 +139,19 @@ export function deriveProviderModelEligibility(
   }
   const minimumStateAuthority = requirements.minimumStateAuthority ?? "harness-reported";
 
-  for (const rule of REQUIRED_STATE_RULES) {
+  for (const state of requirements.requiredStates ?? DEFAULT_REQUIRED_STATES) {
+    const rule = STATE_RULES[state];
+    if (!rule) {
+      continue;
+    }
     evaluateRequiredState(evidence, rule, minimumStateAuthority, evaluatedAt, reasons);
   }
 
   if (requirements.requireProbe) {
-    evaluateRequiredState(evidence, {
-      state: "probeVerified",
-      missingReason: "missing-probe-evidence",
-      deniedReason: "probe-failed",
-      staleLabel: "probe",
-      authorityLabel: "probe",
-    }, minimumStateAuthority, evaluatedAt, reasons);
+    const probeRule = STATE_RULES.probeVerified;
+    if (probeRule) {
+      evaluateRequiredState(evidence, probeRule, minimumStateAuthority, evaluatedAt, reasons);
+    }
   }
 
   for (const capability of requirements.requiredCapabilities) {

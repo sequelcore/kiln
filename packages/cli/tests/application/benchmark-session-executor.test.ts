@@ -187,7 +187,7 @@ describe("createBenchmarkSessionExecutor", () => {
       ...options,
       artifactResources: { store: {} },
     }));
-    benchmarkExecutorMocks.discoverManagedAgentProviderModels.mockResolvedValue([]);
+    benchmarkExecutorMocks.discoverManagedAgentProviderModels.mockResolvedValue({});
     benchmarkExecutorMocks.getProjectContextArtifactCache.mockResolvedValue({});
     benchmarkExecutorMocks.loadBuiltinToolSurfaceOptions.mockResolvedValue({
       memoryResources: {
