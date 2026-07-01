@@ -522,6 +522,13 @@ Current measured dev-mode optimizations:
   profiling showed many linked-workspace `/@fs/` contract modules on the
   initial resource path. The targeted pre-bundle collapses that graph into a
   single optimized dependency request.
+- Production builds keep Vite's 560 kB chunk warning gate active. Large,
+  stable dependency families are split by ownership in `packages/gui/vite.config.ts`:
+  React/router/UI runtime, query runtime, shared Kiln contracts, validators,
+  markdown/syntax rendering, inspectors, icons, state, and pure style utilities.
+  Do not raise the warning limit to hide bundle regressions; either preserve
+  these stable chunk boundaries or add a measured lazy boundary for optional GUI
+  surfaces.
 
 Reference profile on Windows 11, Bun `1.3.8`, Node `24.3.0`, with the working
 tree based on commit `38dd7c9a`: warm dev startup after the optimization

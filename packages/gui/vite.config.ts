@@ -11,6 +11,9 @@ const resolvedGatewayPort = Number.isFinite(gatewayPort) && gatewayPort > 0 ? ga
 
 function guiManualChunks(id: string): string | undefined {
   const normalized = id.replace(/\\/g, "/");
+  if (normalized.includes("/packages/gateway-contracts/dist/")) {
+    return "vendor-kiln-contracts";
+  }
   if (!normalized.includes("/node_modules/")) {
     return undefined;
   }
@@ -19,10 +22,54 @@ function guiManualChunks(id: string): string | undefined {
     || normalized.includes("/react-dom/")
     || normalized.includes("/scheduler/")
   ) {
-    return "vendor-react";
+    return "vendor-react-ui";
   }
   if (normalized.includes("/zod/")) {
     return "vendor-validation";
+  }
+  if (
+    normalized.includes("/@tanstack/react-router/")
+    || normalized.includes("/@tanstack/router-core/")
+    || normalized.includes("/@tanstack/history/")
+    || normalized.includes("/@tanstack/store/")
+  ) {
+    return "vendor-react-ui";
+  }
+  if (
+    normalized.includes("/@tanstack/react-query/")
+    || normalized.includes("/@tanstack/query-core/")
+  ) {
+    return "vendor-query";
+  }
+  if (
+    normalized.includes("/class-variance-authority/")
+    || normalized.includes("/clsx/")
+    || normalized.includes("/tailwind-merge/")
+  ) {
+    return "vendor-style-utils";
+  }
+  if (
+    normalized.includes("/@base-ui/")
+    || normalized.includes("/@radix-ui/")
+    || normalized.includes("/cmdk/")
+    || normalized.includes("/react-remove-scroll/")
+    || normalized.includes("/aria-hidden/")
+    || normalized.includes("/@shadcn/")
+  ) {
+    return "vendor-react-ui";
+  }
+  if (normalized.includes("/lucide-react/") || normalized.includes("/lucide/")) {
+    return "vendor-icons";
+  }
+  if (
+    normalized.includes("/react-file-icon/")
+    || normalized.includes("/react-json-view-lite/")
+    || normalized.includes("/facehash/")
+  ) {
+    return "vendor-inspectors";
+  }
+  if (normalized.includes("/zustand/")) {
+    return "vendor-state";
   }
   if (
     normalized.includes("/react-syntax-highlighter/")

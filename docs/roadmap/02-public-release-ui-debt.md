@@ -50,7 +50,7 @@ focused component, typecheck, build, and browser validation evidence.
 
 ## Progress Snapshot
 
-Updated: 2026-06-28
+Updated: 2026-07-01
 
 The following GUI foundations have been implemented and verified. Their stable
 behavior belongs in the canonical GUI and architecture documentation; this
@@ -93,7 +93,11 @@ Current verification evidence:
 - Focused component and contract tests pass for the transcript, composer,
   navigation, inspector panels, workspace tree, avatars, and event projection.
 - GUI typecheck and focused lint checks pass for the implemented slices.
-- GUI production builds pass with the existing large-chunk warning.
+- GUI production builds pass without the previous large-chunk warning. The
+  production bundle now uses stable Vite/Rollup chunks for React/router/UI,
+  shared Kiln contracts, query runtime, validators, markdown/syntax rendering,
+  inspectors, icons, state, and style utilities; the 560 kB warning gate remains
+  active.
 - Startup profiling tests, GUI tests, repository typecheck, and repository
   build pass for the measured startup slices.
 - Final operator live validation remains pending and is required before this
