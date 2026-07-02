@@ -60,6 +60,8 @@ export { generateBenchmarkPublicReport } from "./benchmark-report.js";
 export type { BenchmarkPublicReport, BenchmarkPublicReportInput } from "./benchmark-report.js";
 export type {
   BenchmarkBaselineResult,
+  BenchmarkEvidenceArtifact,
+  BenchmarkEvidenceArtifactKind,
   BenchmarkProfile,
   BenchmarkProfileReadiness,
   BenchmarkReadinessInput,

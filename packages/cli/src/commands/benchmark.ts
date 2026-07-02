@@ -15,6 +15,8 @@ import {
   projectBfclDataset,
   projectTauDataset,
   type BenchmarkBaselineResult,
+  type BenchmarkEvidenceArtifact,
+  type BenchmarkEvidenceArtifactKind,
   type BenchmarkItemExecutor,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
@@ -260,6 +262,7 @@ function parseBaseline(value: unknown): BenchmarkBaselineResult {
     passAtK: requireNumber(record.passAtK, "passAtK"),
     scorers: requireStringArray(record.scorers, "scorers"),
     artifactUris: requireStringArray(record.artifactUris, "artifactUris"),
+    evidenceArtifacts: requireEvidenceArtifacts(record.evidenceArtifacts),
     configHash: requireString(record.configHash, "configHash"),
     datasetVersion: requireString(record.datasetVersion, "datasetVersion"),
   };
@@ -284,6 +287,38 @@ function requireStringArray(value: unknown, field: string): readonly string[] {
     throw new Error(`benchmark baseline field '${field}' must be an array of non-empty strings.`);
   }
   return value;
+}
+
+function requireEvidenceArtifacts(value: unknown): readonly BenchmarkEvidenceArtifact[] {
+  if (!Array.isArray(value)) {
+    throw new Error("benchmark baseline field 'evidenceArtifacts' must be an array of evidence artifact records.");
+  }
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`benchmark baseline evidenceArtifacts[${index}] must be an object.`);
+    }
+    const record = entry as Record<string, unknown>;
+    return {
+      kind: requireEvidenceArtifactKind(record.kind, index),
+      uri: requireString(record.uri, `evidenceArtifacts[${index}].uri`),
+    };
+  });
+}
+
+function requireEvidenceArtifactKind(value: unknown, index: number): BenchmarkEvidenceArtifactKind {
+  const allowed: readonly BenchmarkEvidenceArtifactKind[] = [
+    "result",
+    "transcript",
+    "tool-calls",
+    "diagnostics",
+    "usage",
+    "route",
+    "cost",
+  ];
+  if (typeof value === "string" && allowed.includes(value as BenchmarkEvidenceArtifactKind)) {
+    return value as BenchmarkEvidenceArtifactKind;
+  }
+  throw new Error(`benchmark baseline evidenceArtifacts[${index}].kind must be a supported evidence artifact kind.`);
 }
 
 function readFlag(args: readonly string[], flag: string): string | undefined {

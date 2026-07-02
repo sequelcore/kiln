@@ -16,6 +16,23 @@ const MOCK_APP_CONFIG = {
   mcpServerName: "kiln",
 };
 
+const REQUIRED_EVIDENCE_ARTIFACTS = [
+  "transcript",
+  "tool-calls",
+  "diagnostics",
+  "usage",
+  "route",
+  "cost",
+  "result",
+] as const;
+
+function evidenceArtifacts(): readonly { readonly kind: string; readonly uri: string }[] {
+  return REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => ({
+    kind,
+    uri: `kiln://artifacts/benchmark-baselines/${kind}/content`,
+  }));
+}
+
 describe("benchmarkCommand", () => {
   let root: string;
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
@@ -55,7 +72,8 @@ describe("benchmarkCommand", () => {
           k: profile.minimumK,
           passAtK: profile.minimumPassAtK,
           scorers: profile.requiredScorers,
-          artifactUris: ["kiln://artifacts/eval/tool-internal/result"],
+          artifactUris: evidenceArtifacts().map((artifact) => artifact.uri),
+          evidenceArtifacts: evidenceArtifacts(),
           configHash: "sha256:test",
         }],
       }),
@@ -88,7 +106,8 @@ describe("benchmarkCommand", () => {
           k: profile.minimumK,
           passAtK: 1,
           scorers: profile.requiredScorers,
-          artifactUris: ["kiln://artifacts/benchmark-baselines/artifact_1/content"],
+          artifactUris: evidenceArtifacts().map((artifact) => artifact.uri),
+          evidenceArtifacts: evidenceArtifacts(),
           configHash: "sha256:test",
         }],
       }),
@@ -147,7 +166,12 @@ describe("benchmarkCommand", () => {
 
     expect(existsSync(outputPath)).toBe(true);
     const written = JSON.parse(readFileSync(outputPath, "utf-8")) as {
-      readonly baseline: { readonly profileId: string; readonly k: number; readonly passAtK: number };
+      readonly baseline: {
+        readonly profileId: string;
+        readonly k: number;
+        readonly passAtK: number;
+        readonly evidenceArtifacts: readonly { readonly kind: string; readonly uri: string }[];
+      };
       readonly consistency: {
         readonly runs: readonly {
           readonly results: readonly {
@@ -165,6 +189,7 @@ describe("benchmarkCommand", () => {
       k: 1,
       passAtK: 1,
     });
+    expect(written.baseline.evidenceArtifacts.map((artifact) => artifact.kind)).toEqual(REQUIRED_EVIDENCE_ARTIFACTS);
     expect(written.consistency.runs[0]?.results[0]).toMatchObject({
       costUsd: 0.01,
       metadata: {

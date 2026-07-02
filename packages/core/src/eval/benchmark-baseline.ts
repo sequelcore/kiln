@@ -18,6 +18,20 @@ export type BenchmarkReadinessStatus =
   | "internal-baseline-ready"
   | "external-ready";
 
+export type BenchmarkEvidenceArtifactKind =
+  | "result"
+  | "transcript"
+  | "tool-calls"
+  | "diagnostics"
+  | "usage"
+  | "route"
+  | "cost";
+
+export interface BenchmarkEvidenceArtifact {
+  readonly kind: BenchmarkEvidenceArtifactKind;
+  readonly uri: string;
+}
+
 export interface BenchmarkProfile {
   readonly id: string;
   readonly version: string;
@@ -40,6 +54,7 @@ export interface BenchmarkBaselineResult {
   readonly passAtK: number;
   readonly scorers: readonly string[];
   readonly artifactUris: readonly string[];
+  readonly evidenceArtifacts: readonly BenchmarkEvidenceArtifact[];
   readonly configHash: string;
   readonly datasetVersion: string;
 }
@@ -267,6 +282,7 @@ function evaluateProfileReadiness(
     ...(baseline.passAtK >= profile.minimumPassAtK ? [] : [`passAtK ${baseline.passAtK} is below ${profile.minimumPassAtK}`]),
     ...missingScorers(profile, baseline).map((scorer) => `missing required scorer ${scorer}`),
     ...(baseline.artifactUris.length > 0 ? [] : ["missing result artifact URI"]),
+    ...missingEvidenceArtifacts(baseline).map((kind) => `missing required evidence artifact ${kind}`),
     ...(baseline.configHash.trim().length > 0 ? [] : ["missing config hash"]),
     ...(baseline.datasetVersion.trim().length > 0 ? [] : ["missing dataset version"]),
   ];
@@ -285,4 +301,18 @@ function missingScorers(
 ): readonly string[] {
   const present = new Set(baseline.scorers);
   return profile.requiredScorers.filter((scorer) => !present.has(scorer));
+}
+
+function missingEvidenceArtifacts(baseline: BenchmarkBaselineResult): readonly BenchmarkEvidenceArtifactKind[] {
+  const present = new Set(baseline.evidenceArtifacts.map((artifact) => artifact.kind));
+  const required: readonly BenchmarkEvidenceArtifactKind[] = [
+    "result",
+    "transcript",
+    "tool-calls",
+    "diagnostics",
+    "usage",
+    "route",
+    "cost",
+  ];
+  return required.filter((kind) => !present.has(kind));
 }

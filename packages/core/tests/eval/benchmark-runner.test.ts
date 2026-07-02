@@ -66,6 +66,8 @@ describe("BenchmarkBaselineRunner", () => {
         inputTokens: 12,
         outputTokens: 8,
         metadata: {
+          providerId: "codex-oauth",
+          modelId: "gpt-5.5",
           toolCalls: context.item.id === "first"
             ? [{ name: "status" }]
             : [{ name: "resource_read" }],
@@ -85,9 +87,37 @@ describe("BenchmarkBaselineRunner", () => {
       configHash: "sha256:test",
     });
     expect(result.baseline.scorers).toEqual(profile.requiredScorers);
-    expect(result.baseline.artifactUris).toEqual(["kiln://artifacts/benchmark-baselines/artifact_1/content"]);
-    expect(artifactStore.get("benchmark-baselines", "artifact_1")?.content).toMatchObject({
+    expect(result.baseline.evidenceArtifacts.map((artifact) => artifact.kind)).toEqual([
+      "transcript",
+      "tool-calls",
+      "diagnostics",
+      "usage",
+      "route",
+      "cost",
+      "result",
+    ]);
+    expect(result.baseline.artifactUris).toEqual(result.baseline.evidenceArtifacts.map((artifact) => artifact.uri));
+    expect(artifactStore.get("benchmark-baselines", "artifact_7")?.content).toMatchObject({
       type: "json",
+      value: {
+        evidenceManifest: {
+          version: "benchmark-baseline-evidence.v1",
+          artifacts: result.baseline.evidenceArtifacts.filter((artifact) => artifact.kind !== "result"),
+        },
+      },
+    });
+    const routeArtifact = artifactStore.get("benchmark-baselines", "artifact_5")?.content;
+    expect(routeArtifact).toMatchObject({
+      type: "json",
+      value: { kind: "route" },
+    });
+    expect(routeArtifact?.type === "json" ? routeArtifact.value : undefined).toMatchObject({
+      evidence: expect.arrayContaining([
+        expect.objectContaining({
+          providerId: "codex-oauth",
+          modelId: "gpt-5.5",
+        }),
+      ]),
     });
   });
 });

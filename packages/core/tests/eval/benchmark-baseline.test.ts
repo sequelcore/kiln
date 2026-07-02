@@ -4,8 +4,19 @@ import {
   KILN_EXTERNAL_BENCHMARK_TRACKS,
   evaluateBenchmarkReadiness,
   type BenchmarkBaselineResult,
+  type BenchmarkEvidenceArtifactKind,
   type BenchmarkTrack,
 } from "../../src/eval/index.js";
+
+const REQUIRED_EVIDENCE_ARTIFACTS: readonly BenchmarkEvidenceArtifactKind[] = [
+  "transcript",
+  "tool-calls",
+  "diagnostics",
+  "usage",
+  "route",
+  "cost",
+  "result",
+];
 
 function baselineFor(profileId: string, overrides: Partial<BenchmarkBaselineResult> = {}): BenchmarkBaselineResult {
   const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === profileId);
@@ -19,7 +30,11 @@ function baselineFor(profileId: string, overrides: Partial<BenchmarkBaselineResu
     k: profile.minimumK,
     passAtK: profile.minimumPassAtK,
     scorers: profile.requiredScorers,
-    artifactUris: [`kiln://artifacts/eval/${profile.id}/result`],
+    artifactUris: REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => `kiln://artifacts/eval/${profile.id}/${kind}`),
+    evidenceArtifacts: REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => ({
+      kind,
+      uri: `kiln://artifacts/eval/${profile.id}/${kind}`,
+    })),
     configHash: "sha256:test",
     datasetVersion: "2026-05-08",
     ...overrides,
@@ -58,6 +73,7 @@ describe("benchmark baseline readiness", () => {
           passAtK: 0.2,
           scorers: ["tool-calling-accuracy"],
           artifactUris: [],
+          evidenceArtifacts: [],
           configHash: "",
           datasetVersion: "",
         }),
@@ -72,6 +88,13 @@ describe("benchmark baseline readiness", () => {
       "missing required scorer latency",
       "missing required scorer cost",
       "missing result artifact URI",
+      "missing required evidence artifact result",
+      "missing required evidence artifact transcript",
+      "missing required evidence artifact tool-calls",
+      "missing required evidence artifact diagnostics",
+      "missing required evidence artifact usage",
+      "missing required evidence artifact route",
+      "missing required evidence artifact cost",
       "missing config hash",
       "missing dataset version",
     ]);
