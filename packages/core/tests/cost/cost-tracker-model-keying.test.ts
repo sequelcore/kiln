@@ -5,6 +5,7 @@ import {
   STT_PRICING,
   EMBEDDING_PRICING,
   resolveExecutionPricing,
+  resolveExecutionCostEvidence,
   resolveModelPricing,
 } from "../../src/cost/cost-tracker.js";
 
@@ -200,6 +201,39 @@ describe("CostTracker model-keying", () => {
     expect(resolveModelPricing("gpt-5.4")).toMatchObject({
       inputRate: 2.5,
       outputRate: 15,
+    });
+  });
+
+  it("separates subscription charge evidence from unknown metered pricing", () => {
+    const usage = {
+      inputTokens: 1000,
+      outputTokens: 500,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
+
+    expect(resolveExecutionCostEvidence(usage, {
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      billingMode: "subscription",
+    })).toEqual({
+      kind: "subscription",
+      currency: "USD",
+      amountUsd: 0,
+      comparable: false,
+      reason: "subscription billing does not expose per-call metered charges",
+    });
+
+    expect(resolveExecutionCostEvidence(usage, {
+      provider: "opencode-go",
+      model: "unpriced-live-model",
+      billingMode: "metered",
+    })).toEqual({
+      kind: "unknown",
+      currency: "unknown",
+      amountUsd: 0,
+      comparable: false,
+      reason: "metered pricing is missing for provider/model",
     });
   });
 });

@@ -1253,6 +1253,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       model: "opencode/minimax-m2.5-free",
       canonicalModel: "minimax-m2.5-free",
       billingMode: "free",
+      costEvidence: {
+        kind: "free",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: true,
+      },
       byRoleModel: {
         "assistant:opencode/minimax-m2.5-free": {
           model: "opencode/minimax-m2.5-free",
@@ -1260,6 +1266,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
           billingMode: "free",
           calls: 1,
           costUsd: 0,
+          costEvidence: {
+            kind: "free",
+            currency: "USD",
+            amountUsd: 0,
+            comparable: true,
+          },
         },
       },
       totalCostUsd: 0,
@@ -1292,6 +1304,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       model: "opencode/nemotron-3-super-free",
       canonicalModel: "nemotron-3-super-free",
       billingMode: "free",
+      costEvidence: {
+        kind: "free",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: true,
+      },
       byRoleModel: {
         "assistant:opencode/nemotron-3-super-free": {
           model: "opencode/nemotron-3-super-free",
@@ -1299,6 +1317,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
           billingMode: "free",
           calls: 1,
           costUsd: 0,
+          costEvidence: {
+            kind: "free",
+            currency: "USD",
+            amountUsd: 0,
+            comparable: true,
+          },
         },
       },
       totalCostUsd: 0,
@@ -1306,6 +1330,73 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(warnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('Model "opencode/nemotron-3-super-free" not found in MODEL_PRICING'),
     );
+  });
+
+  it("emits non-comparable cost evidence for unpriced subscription and metered routes", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      eventBus,
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
+      modelOverride: { provider: "codex-oauth", model: "gpt-5.5" },
+    });
+
+    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
+    );
+    expect(costUpdateEvents[0]?.[0]).toMatchObject({
+      type: "cost_update",
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      billingMode: "subscription",
+      totalCostUsd: 0,
+      costEvidence: {
+        kind: "subscription",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: false,
+      },
+      byRoleModel: {
+        "assistant:gpt-5.5": {
+          costUsd: 0,
+          costEvidence: {
+            kind: "subscription",
+            currency: "USD",
+            amountUsd: 0,
+            comparable: false,
+          },
+        },
+      },
+    });
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("No metered pricing found"),
+    );
+
+    eventBus.emit.mockClear();
+    await orchestrator.processMessage(makeSession(), textParts("hello"), undefined, undefined, {
+      modelOverride: { provider: "openai", model: "unknown-metered-model" },
+    });
+
+    const unknownCostUpdateEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
+    );
+    expect(unknownCostUpdateEvents[0]?.[0]).toMatchObject({
+      type: "cost_update",
+      provider: "openai",
+      model: "unknown-metered-model",
+      billingMode: "metered",
+      totalCostUsd: 0,
+      costEvidence: {
+        kind: "unknown",
+        currency: "unknown",
+        amountUsd: 0,
+        comparable: false,
+      },
+    });
   });
 
   it("routingDecision is included in OrchestrateResult", async () => {

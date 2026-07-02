@@ -215,6 +215,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         activeAgentId: context.profile.id,
         providerId: result.successfulProviderId,
         modelId: result.successfulModelId,
+        costEvidence: result.finalCostEvidence,
         sessionSucceeded: result.sessionSucceeded,
         toolCalls: result.transcript.flatMap((entry) => {
           if (entry.event.type !== "tool_use") return [];

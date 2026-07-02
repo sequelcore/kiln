@@ -23,6 +23,7 @@ import type {
   SessionLifecycleAttributionLedger,
   SessionLifecycleAttributionSummary,
 } from "./session-lifecycle-attribution.js";
+import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
 
 export type CanonicalSessionEventKind =
@@ -108,6 +109,7 @@ export interface SessionCost {
   readonly currency: "USD";
   readonly deltaUsd: number;
   readonly totalUsd?: number;
+  readonly evidence?: ExecutionCostEvidence;
 }
 
 export type SessionFileChangeType = "created" | "updated" | "deleted" | "renamed";

@@ -2,7 +2,14 @@ import type {
   AgentRole,
   ExecutionBillingMode,
 } from "../agents/index.js";
-import type { RoleUsage, ModelPricing, CostSummary, SttPricing, EmbeddingPricing } from "./index.js";
+import type {
+  RoleUsage,
+  ModelPricing,
+  CostSummary,
+  SttPricing,
+  EmbeddingPricing,
+  ExecutionCostEvidence,
+} from "./index.js";
 import { MODEL_CATALOG } from "../agents/model-pricing.js";
 
 /** Anthropic cache multipliers (other providers don't expose cache-aware pricing) */
@@ -126,6 +133,49 @@ export function computeUsageCostUsd(
   );
 }
 
+export function resolveExecutionCostEvidence(
+  usage: TokenUsage,
+  modelRef: CostedModelRef | undefined,
+): ExecutionCostEvidence {
+  if (modelRef?.billingMode === "subscription") {
+    return {
+      kind: "subscription",
+      currency: "USD",
+      amountUsd: 0,
+      comparable: false,
+      reason: "subscription billing does not expose per-call metered charges",
+    };
+  }
+  if (modelRef?.billingMode === "free") {
+    return {
+      kind: "free",
+      currency: "USD",
+      amountUsd: 0,
+      comparable: true,
+      reason: "free billing mode",
+    };
+  }
+
+  const pricing = resolveExecutionPricing(modelRef);
+  if (!pricing) {
+    return {
+      kind: "unknown",
+      currency: "unknown",
+      amountUsd: 0,
+      comparable: false,
+      reason: "metered pricing is missing for provider/model",
+    };
+  }
+
+  return {
+    kind: "metered",
+    currency: "USD",
+    amountUsd: computeUsageCostUsd(usage, modelRef),
+    comparable: true,
+    reason: "metered pricing resolved",
+  };
+}
+
 /**
  * Tracks token usage and computes costs per role with cache-aware pricing.
  * Subscribes to EventBus cost_update events for automatic tracking.
@@ -218,6 +268,7 @@ export class CostTracker {
         outputTokens: entry.outputTokens,
         cacheReadTokens: entry.cacheReadTokens,
         cacheWriteTokens: entry.cacheWriteTokens,
+        costEvidence: resolveExecutionCostEvidence(entry, entry),
         calls: entry.calls,
       };
     }

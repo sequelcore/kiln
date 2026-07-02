@@ -335,6 +335,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
             currency: "USD",
             deltaUsd,
             totalUsd: totalCostUsd,
+            ...(runtimeEvent.costEvidence ? { evidence: runtimeEvent.costEvidence } : {}),
           },
           source: runtimeSource,
           timestamp: runtimeEvent.timestamp,

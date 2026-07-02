@@ -1,5 +1,6 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type { AgentMessage, ReasoningEffort } from "../agents/index.js";
+import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { SessionToolUsageSnapshot } from "./session-event.js";
 
 export type ExecutionSessionCostTrackingMode =
@@ -79,6 +80,7 @@ export type ExecutionSessionEvent =
       readonly inputTokens?: number;
       readonly outputTokens?: number;
       readonly cacheReadTokens?: number;
+      readonly costEvidence?: ExecutionCostEvidence;
     }
   | {
       readonly type: "completed";

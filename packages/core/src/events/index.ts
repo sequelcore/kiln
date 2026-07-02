@@ -12,6 +12,7 @@ import type {
   MultimodalTransportModality,
 } from "../engine/domain/multimodal-routing.js";
 import type { TraceSpan } from "./trace.js";
+import type { ExecutionCostEvidence } from "../cost/index.js";
 export type {
   ExecutionSessionCostTrackingMode,
   ExecutionSessionEvent,
@@ -185,6 +186,7 @@ export interface CostUpdateEvent extends KilnEvent {
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
   readonly totalCostUsd: number;
+  readonly costEvidence?: ExecutionCostEvidence;
   readonly byRoleModel: Record<string, {
     model: string;
     provider?: string;
@@ -192,6 +194,7 @@ export interface CostUpdateEvent extends KilnEvent {
     billingMode?: ExecutionBillingMode;
     calls: number;
     costUsd: number;
+    costEvidence?: ExecutionCostEvidence;
   }>;
   readonly agentId?: string;
 }

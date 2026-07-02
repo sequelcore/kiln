@@ -7,6 +7,10 @@ import type {
   ApprovalMatchQuery,
   ApprovalMemoryRecord,
 } from "../wrapper/index.js";
+import {
+  resolveExecutionCostEvidence,
+  type ExecutionCostEvidence,
+} from "@kilnai/core";
 import { createPermissionEvaluator } from "../wrapper/index.js";
 import type {
   ProviderCreateConfig,
@@ -67,6 +71,7 @@ export interface ApprovalMemoryLookup {
 
 export interface RunSessionResult {
   readonly finalCostUsd: number;
+  readonly finalCostEvidence: ExecutionCostEvidence;
   readonly sessionSucceeded: boolean;
   readonly lastError: string | null;
   readonly accumulatedText: string;
@@ -101,6 +106,13 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       })()).map((provider) => ({ provider }));
 
   let finalCostUsd = 0;
+  let finalCostEvidence: ExecutionCostEvidence = {
+    kind: "unknown",
+    currency: "unknown",
+    amountUsd: 0,
+    comparable: false,
+    reason: "metered pricing is missing for provider/model",
+  };
   let sessionSucceeded = false;
   let lastError: string | null = null;
   let accumulatedText = "";
@@ -364,6 +376,17 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             finalCostUsd = event.usd;
             inputTokens = event.inputTokens ?? inputTokens;
             outputTokens = event.outputTokens ?? outputTokens;
+            finalCostEvidence = event.costEvidence ?? resolveExecutionCostEvidence({
+              inputTokens: event.inputTokens ?? 0,
+              outputTokens: event.outputTokens ?? 0,
+              cacheReadTokens: event.cacheReadTokens ?? 0,
+              cacheWriteTokens: 0,
+            }, {
+              provider: event.provider ?? providerId,
+              model: event.model ?? effectiveSessionConfig.model,
+              canonicalModel: event.canonicalModel,
+              billingMode: event.billingMode,
+            });
             recordProviderTokenUsage(providerTokenUsage, {
               provider: event.provider ?? providerId,
               ...(event.model ? { model: event.model } : {}),
@@ -450,6 +473,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
   return {
     finalCostUsd,
+    finalCostEvidence,
     sessionSucceeded,
     lastError,
     accumulatedText,

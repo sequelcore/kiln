@@ -10,7 +10,7 @@ import type {
   MultimodalCapability,
   MultimodalTransportModality,
 } from "@kilnai/core";
-import { computeUsageCostUsd, resolveExecutionPricing } from "@kilnai/core";
+import { computeUsageCostUsd, resolveExecutionCostEvidence, resolveExecutionPricing } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
 
 export interface OrchestratorUsageSnapshot {
@@ -137,6 +137,7 @@ export class RuntimeSessionExecutionTelemetry {
 
   private emitCostUpdate(sessionId: string, agentId?: string): void {
     const totalCostUsd = this.computeTotalCostUsd(this.totals);
+    const costEvidence = resolveExecutionCostEvidence(this.totals, this.executionIdentity);
     const model = this.executionIdentity?.model ?? this.executionIdentity?.canonicalModel ?? "unknown";
 
     const event: CostUpdateEvent = {
@@ -150,6 +151,7 @@ export class RuntimeSessionExecutionTelemetry {
       cacheReadTokens: this.totals.cacheReadTokens,
       cacheWriteTokens: this.totals.cacheWriteTokens,
       totalCostUsd,
+      costEvidence,
       byRoleModel: {
         [`assistant:${model}`]: {
           model,
@@ -158,6 +160,7 @@ export class RuntimeSessionExecutionTelemetry {
           billingMode: this.executionIdentity?.billingMode,
           calls: 1,
           costUsd: totalCostUsd,
+          costEvidence,
         },
       },
       timestamp: new Date(),

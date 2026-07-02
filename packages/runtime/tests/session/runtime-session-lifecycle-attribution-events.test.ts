@@ -50,6 +50,13 @@ describe("runtime session lifecycle attribution events", () => {
       cacheReadTokens: 30,
       cacheWriteTokens: 7,
       totalCostUsd: 0.0123,
+      costEvidence: {
+        kind: "subscription",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: false,
+        reason: "subscription billing does not expose per-call metered charges",
+      },
       byRoleModel: {},
       timestamp: completedAt,
     };
@@ -86,6 +93,14 @@ describe("runtime session lifecycle attribution events", () => {
         outputTokens: 20,
         cacheReadTokens: 30,
         cacheWriteTokens: 7,
+      },
+      cost: {
+        evidence: {
+          kind: "subscription",
+          currency: "USD",
+          amountUsd: 0,
+          comparable: false,
+        },
       },
     });
     expect(attributionEvent).toMatchObject({

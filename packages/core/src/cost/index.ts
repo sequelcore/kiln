@@ -8,12 +8,43 @@ export interface RoleUsage {
   readonly provider?: string;
   readonly canonicalModel?: string;
   readonly billingMode?: ExecutionBillingMode;
+  readonly costEvidence?: ExecutionCostEvidence;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
   readonly calls: number;
 }
+
+export type ExecutionCostEvidence =
+  | {
+      readonly kind: "metered";
+      readonly currency: "USD";
+      readonly amountUsd: number;
+      readonly comparable: true;
+      readonly reason: "metered pricing resolved";
+    }
+  | {
+      readonly kind: "subscription";
+      readonly currency: "USD";
+      readonly amountUsd: 0;
+      readonly comparable: false;
+      readonly reason: "subscription billing does not expose per-call metered charges";
+    }
+  | {
+      readonly kind: "free";
+      readonly currency: "USD";
+      readonly amountUsd: 0;
+      readonly comparable: true;
+      readonly reason: "free billing mode";
+    }
+  | {
+      readonly kind: "unknown";
+      readonly currency: "unknown";
+      readonly amountUsd: 0;
+      readonly comparable: false;
+      readonly reason: "metered pricing is missing for provider/model";
+    };
 
 /** Model pricing rates (per million tokens) */
 export interface ModelPricing {
@@ -51,6 +82,7 @@ export {
   STT_PRICING,
   EMBEDDING_PRICING,
   computeUsageCostUsd,
+  resolveExecutionCostEvidence,
   resolveExecutionPricing,
   resolveModelPricing,
 } from "./cost-tracker.js";

@@ -241,6 +241,13 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "Only one sentence.",
         attempts: [],
         exactArtifacts: [],
+        finalCostEvidence: {
+          kind: "subscription",
+          currency: "USD",
+          amountUsd: 0,
+          comparable: false,
+          reason: "subscription billing does not expose per-call metered charges",
+        },
         finalCostUsd: 0,
         inputTokens: 4,
         lastError: null,
@@ -271,6 +278,14 @@ describe("createBenchmarkSessionExecutor", () => {
     });
 
     expect(result.output).toBe("Only one sentence.");
+    expect(result.metadata).toMatchObject({
+      costEvidence: {
+        kind: "subscription",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: false,
+      },
+    });
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       output: expect.objectContaining({ mode: "answer" }),
       sessionConfig: expect.objectContaining({
@@ -304,6 +319,13 @@ describe("createBenchmarkSessionExecutor", () => {
           { providerId: "opencode", succeeded: true, error: null },
         ],
         exactArtifacts: [],
+        finalCostEvidence: {
+          kind: "subscription",
+          currency: "USD",
+          amountUsd: 0,
+          comparable: false,
+          reason: "subscription billing does not expose per-call metered charges",
+        },
         finalCostUsd: 0,
         inputTokens: 4,
         lastError: null,
@@ -339,6 +361,13 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "failed partial",
         attempts: [{ providerId: "codex", succeeded: false, error: "Provider failed" }],
         exactArtifacts: ["Provider error: Provider failed"],
+        finalCostEvidence: {
+          kind: "unknown",
+          currency: "unknown",
+          amountUsd: 0,
+          comparable: false,
+          reason: "metered pricing is missing for provider/model",
+        },
         finalCostUsd: 0,
         inputTokens: 4,
         lastError: "Provider failed",
@@ -376,6 +405,13 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "timeout partial",
         attempts: [{ providerId: "codex", succeeded: false, error: "Timed out after 1000ms" }],
         exactArtifacts: ["Provider error: Timed out after 1000ms"],
+        finalCostEvidence: {
+          kind: "unknown",
+          currency: "unknown",
+          amountUsd: 0,
+          comparable: false,
+          reason: "metered pricing is missing for provider/model",
+        },
         finalCostUsd: 0,
         inputTokens: 4,
         lastError: "Timed out after 1000ms",
