@@ -40,14 +40,26 @@ Observed state:
 - OpenCode is authenticated and advertises a large model catalog. That catalog
   is diagnostic evidence, not entitlement or route authority.
 - Repo shims are current.
-- Native projections are managed, with `codex-config` still requiring
-  review for native projection drift.
+- Native projections are managed and current, including `codex-config` and
+  `opencode-config`.
 - The effective permission read model reports `workspace-write` for the active
   policy, while canonical global config still declares conservative safe
   defaults. This is expected evidence layering, not a reason to flatten policy.
 
 No live provider probes, paid inference, destructive checks, or credentialed
 model calls are required to use this example.
+
+Benchmark-integrity repairs completed on 2026-07-02 now make follow-up route
+comparisons safer to interpret:
+
+- provider tool names round-trip to canonical Kiln identities across supported
+  providers;
+- route failures are classified as compatibility, auth, quota, rate-limit,
+  transient, or unknown evidence instead of generic provider failure;
+- subscription/free/unknown/metered economics are separate and comparable only
+  when the evidence says they are comparable;
+- internal benchmark baselines emit typed evidence artifacts for transcript,
+  tool calls, diagnostics, usage, route, cost, and result.
 
 ## Routing Policy
 
@@ -185,9 +197,14 @@ should not silently repair native config.
 
 ## Current Follow-Up Items
 
-- Review `codex-config` drift before treating native Codex config as current.
+- Re-run discovery and suitability review when an eligible provider catalog
+  adds or materially changes a frontier model; update canonical config and
+  this example only after the route is actually available and evidenced.
+- Run a bounded post-repair benchmark pilot before promoting route changes;
+  keep `k >= 5` comparisons opt-in because they can use credentials, quota,
+  network, or paid inference.
 - Consider pruning or ranking the visible OpenCode model catalog in operator
-  surfaces so the 400+ discovered models do not bury eligible routes.
+  surfaces so the large discovered catalog does not bury eligible routes.
 - Review competing Codex executables on `PATH`; current Codex auth and model
   discovery work, but duplicate entries can confuse native invocation evidence.
 - Keep live provider probes optional and explicit because they can use

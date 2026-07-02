@@ -8,6 +8,12 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Added provider-neutral benchmark integrity for efficiency work: provider tool
+  names round-trip to canonical Kiln identities, route failures are classified
+  from shared route-health evidence, execution economics distinguish metered,
+  subscription, free, and unknown cost, and internal benchmark baselines emit
+  typed transcript, tool-call, diagnostic, usage, route, cost, and result
+  artifacts before readiness or routing promotion.
 - Added provider-neutral trusted-execution permission integrity: Kiln now keeps
   canonical desired policy, native projection, session override, observed
   runtime policy, harness enforcement strength, evidence freshness, operator

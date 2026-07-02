@@ -88,6 +88,8 @@ exists for the exact profile id and version and includes:
 - `passAtK` greater than or equal to the profile threshold
 - every required scorer
 - at least one result artifact URI
+- typed evidence artifacts for result, transcript, tool calls, diagnostics,
+  usage, route, and cost
 - a config hash
 - a dataset version
 
@@ -95,12 +97,30 @@ Missing evidence blocks readiness. This is intentionally stricter than ordinary
 development evals because public benchmark claims must survive replay and audit.
 
 Internal baseline execution uses `BenchmarkBaselineRunner` plus the normal Kiln
-runtime session path. The runner owns pass^k, scorer application, and artifact
-emission; the CLI/runtime adapter owns provider routing, context projection,
-tool metadata capture, and config hashing. Internal baseline scorers are
+runtime session path. The runner owns pass^k, scorer application, and typed
+artifact emission; the CLI/runtime adapter owns provider routing, context
+projection, tool metadata capture, and config hashing. Internal baseline scorers are
 structural evidence checks, not hidden LLM judges: they score only Kiln-observed
 evidence such as tool calls, route identity, handoff output, policy violations,
 latency, and cost.
+
+The baseline artifact set is intentionally typed. `artifactUris` remains the
+flat URI list for report tables, while `evidenceArtifacts` preserves the
+artifact kind for replay and readiness checks:
+
+| Kind | Required evidence |
+| --- | --- |
+| `result` | Full baseline result, pass^k consistency, scorer output, config hash, dataset version, and manifest of supporting artifacts. |
+| `transcript` | Per-run and per-item assistant outputs used by scorers. |
+| `tool-calls` | Kiln-observed tool calls and managed invocation evidence. |
+| `diagnostics` | Policy violations, route failures, and benchmark/session diagnostics. |
+| `usage` | Duration and token usage by run and item. |
+| `route` | Provider/model identity and route evidence when observable. |
+| `cost` | Charged cost and comparable/non-comparable economic evidence. |
+
+A baseline missing any required evidence kind is blocked. A subscription route
+may report zero charged cost, but it is not comparable metered-cost evidence
+unless the cost evidence explicitly classifies it as comparable.
 
 The BFCL adapter is a projection adapter. It converts supported BFCL rows into
 Kiln `DatasetItem` records with `expectedToolCalls` metadata. Unsupported row

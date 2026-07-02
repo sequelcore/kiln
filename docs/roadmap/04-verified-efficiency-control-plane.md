@@ -1,10 +1,14 @@
 # 04 - Verified Efficiency Control Plane
 
-Status: Active architecture program; Slice 1 complete, Slice 2 next
+Status: Active architecture program; Slice 0 in progress, Slice 1 complete
 
 Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
-(`feat(runtime): record lifecycle attribution ledger`). Slices 2 through 12
-are not started.
+(`feat(runtime): record lifecycle attribution ledger`). Slice 0 live baseline
+work started on 2026-07-02 and exposed provider-tool compatibility, route-error
+classification, and subscription-economic evidence blockers. The
+provider-neutral benchmark-integrity prerequisites closed on 2026-07-02 in
+commits `d0d9ecf9`, `41d28e5f`, `e74eb1b3`, and `bd2c0480`. Slices 2 through
+12 are not started.
 
 ## Objective
 
@@ -259,7 +263,7 @@ contracts but must not create parallel legacy paths.
 
 | Slice | Status | Progress | Next Action |
 | --- | --- | --- | --- |
-| Slice 0 - Baseline And Reproduction | Conditional | Not started as a standalone slice. Slice 1 produced lifecycle attribution fixtures, but the full research-turn reproduction baseline is still open. | Run only if Slice 2 needs a broader pre-optimization baseline. |
+| Slice 0 - Baseline And Reproduction | In progress | A bounded live tool-agent pilot ran on 2026-07-02. Successful routes exposed 421k-521k cumulative input-token pressure; Kimi rejected canonical dotted tool names; DeepSeek routes returned upstream 400 errors; Qwen returned transient 503; subscription economics were not comparable. Provider-neutral tool identity, route-failure classification, comparable cost evidence, and typed benchmark evidence are now implemented. | Run a bounded post-repair pilot with explicit operator authorization before any `k=5` comparison or routing promotion. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
 | Slice 2 - Stable Prefix And Cache Topology | Next | Not started. | Prove byte-stable reusable request regions without changing admitted information. |
 | Slice 3 - Progressive Context And Tool Loading | Planned | Not started. | Start after stable-prefix evidence exists. |
@@ -275,7 +279,7 @@ contracts but must not create parallel legacy paths.
 
 ### Slice 0 - Baseline And Reproduction
 
-Status: Conditional; not started as a standalone slice.
+Status: In progress since 2026-07-02.
 
 Goal: establish the current token and quality baseline before changing
 behavior.
@@ -291,11 +295,26 @@ Work:
 - define stable fixtures, seeds where supported, and provider limitations;
 - publish a benchmark manifest and baseline report without marketing claims.
 
+Prerequisite repair work closed in `docs/plan.md`. It repaired reversible
+provider tool identities, canonical route-failure evidence, honest
+subscription economics, and typed reproducible benchmark artifacts before
+further live samples are admitted. These are normal execution-path
+corrections, not benchmark-only adapters.
+
+Closed prerequisite commits:
+
+- `d0d9ecf9 fix(core): preserve canonical tool identities across providers`
+- `41d28e5f fix(routing): classify provider route failures`
+- `e74eb1b3 feat(cost): expose comparable execution cost evidence`
+- `bd2c0480 feat(benchmark): emit reproducible baseline evidence`
+
 Exit gate:
 
 - the same workload can be rerun through supported execution surfaces;
 - token totals reconcile with provider usage or document the discrepancy;
 - verified outcome and evidence completeness are scored independently of cost.
+- any post-repair live pilot is explicitly authorized because it may use
+  network, credentials, quota, or paid inference.
 
 ### Slice 1 - Lifecycle Attribution Ledger
 
