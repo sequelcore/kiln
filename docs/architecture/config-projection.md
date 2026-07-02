@@ -148,6 +148,44 @@ Setup, status, doctor, sync, GUI, TUI, resource, and model-callable config-read
 surfaces consume this shared contract. They must not re-read native files and
 invent their own route health, credential health, or drift language.
 
+## Permission Integrity Evidence
+
+Kiln models trusted or full-access execution as evidence, not as one flattened
+provider enum. Canonical permissions describe the operator's desired policy;
+native files, desktop session selection, runtime observation, harness
+capability, projection ownership, and operator authorization remain distinct
+fields in `TrustedExecutionIntegrity`.
+
+The shared config/status contract must keep these facts separate:
+
+- canonical desired policy from Kiln config or operator-local trusted profile
+- persisted native projection and whether Kiln owns the managed fields
+- session-only override such as a desktop Full Access selector
+- observed effective runtime policy when the harness exposes proof
+- harness enforcement capability for approval, filesystem, and network
+- evidence source, freshness, proof status, and last verification time
+- operator authorization scope, revocability, and approval requirement
+- mismatch classification and exact recommended action
+
+Classifications such as `current-verified`, `intentional-operator-override`,
+`native-projection-drift`, `runtime-policy-mismatch`,
+`effective-policy-unproven`, `unsupported-semantic-translation`,
+`dangerous-unapproved-broadening`, `stale-evidence`, `partial-observation`,
+and `observation-failed` are Gateway/Core vocabulary. CLI, doctor, setup, GUI,
+TUI, model-callable config reads, and workspace health consume that vocabulary;
+they do not recalculate policy from native files, UI labels, or assistant text.
+
+A desktop UI selection is never runtime proof. A session-only override is not
+promoted into canonical config or persisted native policy unless the operator
+uses Kiln's governed proposal, approval, and apply lifecycle. Conversely, an
+operator-approved personal trusted profile is not unexplained drift when the
+authorization evidence is current and scoped to the local operator.
+
+Projection remains idempotent and preserves unmanaged native fields. When a
+harness cannot preserve Kiln's canonical semantics, the adapter must emit
+lossy or unsupported evidence and fail closed for authority-sensitive
+background work instead of silently broadening or narrowing the policy.
+
 ## Project Roots And Repo Shims
 
 Global native projections and repo-local instruction shims are different target
@@ -244,9 +282,10 @@ operator surfaces. `KilnConfigStatusSnapshot` reports resolved project root,
 global config status, project config status, adopted project-context status,
 effective config availability, repo-shim projection status, native projection
 install-state status, workflow snapshot manifest status, skill catalog status,
-and harness integration capabilities. Skill catalog status includes origin,
-built-in flag, source path, native projection status for Claude Code, Codex,
-and OpenCode, and admission availability. CLI commands, runtime setup
+permission integrity, and harness integration capabilities. Skill catalog
+status includes origin, built-in flag, source path, native projection status
+for Claude Code, Codex, and OpenCode, and admission availability. CLI commands,
+runtime setup
 endpoints, GUI/TUI setup screens, SDK/widget descriptors, and audit events must
 consume that shared contract instead of re-reading YAML or native files
 independently. The model-callable `kiln_config.read` tool is a read-only
@@ -255,8 +294,8 @@ must not mutate configuration or native provider files.
 
 For setup surfaces, `KilnConfigStatusSnapshot.setup` is the domain-specific
 read model. It contains project-context status, repo-shim status, native
-projection status, skill projection/admission diagnostics, and deterministic
-recommended actions such as
+projection status, permission-integrity status, skill projection/admission
+diagnostics, and deterministic recommended actions such as
 `adopt-project-context`, `sync-repo-shims`, `sync-native-projections`, or
 `adopt-or-back-up-native-guidance`. Native skill adoption is explicit: setup
 may copy parseable, non-conflicting harness-local skills into the canonical

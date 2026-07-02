@@ -139,6 +139,32 @@ filenames, selected provider, or the current UI surface. Execution still has to
 pass managed route admission, provider/model readiness, authority policy, and
 tool policy before a child run starts.
 
+## Permission Capability Semantics
+
+Codex, Claude Code, and OpenCode expose different native permission concepts.
+Kiln must translate those concepts into provider-neutral evidence without
+renaming one harness's mode into another harness's guarantee.
+
+Current permission capability treatment:
+
+| Harness | Native concepts | Kiln treatment |
+| --- | --- | --- |
+| Codex | Approval policy, sandbox mode, permission profiles, desktop Full Access selectors, session overrides, resumed sessions, automations, and subagents. | Codex can express strong approval and filesystem sandbox evidence when runtime proof is available. Desktop Full Access selection is recorded as session evidence, not proof by itself and not persistent canonical policy. |
+| Claude Code | Modes such as `auto`, `dontAsk`, and `bypassPermissions`, plus native tool and subagent configuration. | Claude Code modes are translated as lossy permission evidence until Kiln can prove exact approval, filesystem, and network enforcement for the active run. `bypassPermissions` is a dangerous authority signal, not a provider-neutral sandbox guarantee. |
+| OpenCode | `allow`, `ask`, and `deny` permission resolution. | OpenCode permission rules describe approval behavior but do not prove a Codex-equivalent filesystem sandbox. Kiln records approval evidence separately from filesystem and network enforcement strength. |
+
+Every adapter reports desired, persisted, session, and effective permission
+evidence separately when available. Unsupported or lossy translations remain
+visible in `TrustedExecutionIntegrity.semanticLoss` and classification. A
+harness-specific broadening requires explicit operator-local authorization and
+approval-bound remediation; repository configuration and model output cannot
+authorize trusted/full-access execution.
+
+Child execution never inherits the parent harness permission profile by
+assumption. Managed invocation records requested, projected, and observed child
+authority separately, and background/unattended execution fails closed when the
+required child authority cannot be proven.
+
 ## Managed Usage Evidence
 
 Managed invocation adapters must declare usage evidence capability separately

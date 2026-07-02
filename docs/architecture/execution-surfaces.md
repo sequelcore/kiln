@@ -135,6 +135,12 @@ Execution-surface behavior is contract-first:
    `docs/guides/gateway-app-runtime.md`, which maps `gateway.yaml`,
    `app.yaml`, operator attachment, tenant boundaries, MCP, and production
    hardening back to the shared runtime-surface doctrine.
+8. **Permission integrity projection.** Trusted/full-access execution state is
+   part of config health and setup status through the shared
+   `TrustedExecutionIntegrity` contract. Surfaces may summarize the
+   classification, evidence source, enforcement strength, effective proof,
+   approval requirement, and recommendation, but they must not infer runtime
+   authority from a UI selector, native file, model statement, or local badge.
 
 ## Non-Goals
 
@@ -178,8 +184,9 @@ Accepted and implemented foundation:
 - Route health and provider/model readiness are projected from managed-agent
   capability snapshots. Gateway/app health is projected from explicit gateway
   target identity. Config health is part of the contract; local GUI setup
-  diagnostics feed it, and producers without setup/doctor evidence project
-  `unknown`.
+  diagnostics feed it, including permission-integrity mismatches and stale or
+  unproven trusted-execution evidence. Producers without setup/doctor evidence
+  project `unknown`.
 - GUI target-bound operator actions use explicit `gatewayTargetId`; targetless
   global control-plane frames are limited to connected-surface, provider
   catalog, UI preference, or source-message operations.

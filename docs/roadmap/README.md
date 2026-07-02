@@ -38,7 +38,6 @@ architecture program needs additional sections:
 | [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open. Provider/model eligibility is now canonicalized; remaining items are narrowed to public-release UX truth, skill/plugin diagnostics, event density, context usage, and live validation. | Close fake or unavailable operator-facing states before public release. |
 | [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 1 complete | Slice 1 closed on 2026-07-01 in commit `f1f4baef`. The former research-turn budgeting roadmap is merged here as the initial workload. Slice 2 is next; Slices 3 through 12 are planned. | Start Slice 2, stable prefix and cache topology, with no behavior-changing optimization before evidence. |
-| [05-trusted-execution-integrity.md](./05-trusted-execution-integrity.md) | Active; Slice 4 complete | Doctor, CLI config/status reads, Gateway contracts, GUI setup, TUI setup, and operator workspace health now project the shared permission-integrity aggregate without treating UI selection as runtime proof. | Start Slice 5 canonical documentation and closure. |
 
 ## Canonical References
 
@@ -100,13 +99,6 @@ Use these documents as the source of truth before starting roadmap work:
    provider-neutral control loop that maximizes verified engineering value per
    token, dollar, second, and agent turn through attributable measurement,
    bounded efficiency actuators, and evidence-gated policy promotion.
-
-5. [Trusted Execution Integrity](./05-trusted-execution-integrity.md)
-   Active on 2026-07-01. Slices 1 and 2 are complete: the provider-neutral
-   permission evidence contract, classification precedence, finite vocabulary
-   parity, operator-local trust boundary, and native projection evidence for
-   Codex, Claude Code, and OpenCode are in place before managed-agent and
-   operator-surface work.
 
 ## Deferred Roadmaps
 
@@ -198,6 +190,11 @@ roadmap files. Current completed areas include:
   evidence selection, contract-backed surface previews, explicit issue-provider
   approval, governed repair work-item materialization, and local draft
   pull-request metadata gates.
+- Trusted execution integrity: provider-neutral permission evidence,
+  operator-local trusted execution profiles, canonical/native/session/effective
+  policy separation, Codex/Claude Code/OpenCode semantic capability evidence,
+  read-only doctor/status projection, shared CLI/GUI/TUI/Gateway surfaces, and
+  managed-agent requested/projected/observed authority checks.
 
 ## Execution Priority
 

@@ -8,6 +8,13 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Added provider-neutral trusted-execution permission integrity: Kiln now keeps
+  canonical desired policy, native projection, session override, observed
+  runtime policy, harness enforcement strength, evidence freshness, operator
+  authorization, and remediation classification separate across Codex, Claude
+  Code, and OpenCode; doctor, setup/status, CLI, GUI, TUI, managed-agent
+  execution, and model-readable config views consume the shared evidence
+  contract without treating UI Full Access selection as runtime proof.
 - Added the provider-model eligibility plane: provider catalog observations are
   preserved as raw diagnostic evidence, normalized through runtime adapter
   families, evaluated by canonical eligibility for interactive and managed-agent

@@ -23,6 +23,7 @@ The projection is intentionally read-only. It summarizes:
 - managed-agent counts and attention counts
 - pending/resolved approval counts
 - config health
+- permission integrity as part of config health
 - route health
 - provider/model readiness
 - gateway/app health
@@ -61,9 +62,13 @@ projection is available.
   operator events into the shared projector so work/goals, approvals, route
   health, and provider readiness stay cross-surface.
 - Gateway/app health is projected from explicit target identity. Config health
-  is present in the contract; local GUI setup diagnostics feed it, and
-  producers without setup/doctor evidence project `unknown` instead of
-  inferring health locally.
+  is present in the contract; local GUI setup diagnostics feed it, including
+  permission-integrity entries for trusted/full-access execution evidence.
+  Runtime-policy mismatches and unapproved broadening are blocking config
+  health, while stale, unproven, unsupported, partial, or failed observations
+  remain degraded until the operator takes the recommended action. Producers
+  without setup/doctor evidence project `unknown` instead of inferring health
+  locally.
 
 ## Gateway Target Switcher
 

@@ -132,6 +132,19 @@ cancel, and replay consumers. Progress events are evidence of observed
 execution, not authority grants, and surfaces must not infer missing authority
 from them.
 
+Managed children also carry runtime authority evidence for the permission plane
+when the selected route requires trusted or full-access execution. The request
+records requested authority, projection records what Kiln attempted to provide
+to the child harness, and observation records what the runtime actually proved.
+Caller-supplied authority evidence is advisory input only; runtime-owned
+observers decide whether evidence is proven, inferred, unavailable,
+contradictory, stale, partial, or failed. Unattended, background, resumed, or
+replayed children that require trusted authority fail closed when observation
+is unproven, stale, partial, failed, downgraded, broadened without approval, or
+mismatched with the admitted profile. The diagnostic must name the missing
+proof or mismatch instead of falling through as a generic invalid-key,
+provider, or permission failure.
+
 Parallel execution is expressed as managed orchestration over the same child
 lifecycle. Core owns typed orchestration requests for fan-out, decomposition,
 review swarm, route comparison, and background job modes. Each request carries
