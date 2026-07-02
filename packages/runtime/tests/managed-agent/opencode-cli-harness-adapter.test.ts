@@ -227,6 +227,27 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       invocationId: request.invocationId,
       childSessionId: "session-parent:managed:invocation-opencode-1",
       lifecycleState: "completed",
+      capabilitySnapshot: {
+        authorityEvidence: {
+          requested: {
+            authority: "auto",
+            source: "managed-invocation-request",
+            proof: "proven",
+          },
+          projected: {
+            permissionProfile: "read-only",
+            approval: "on-request",
+            sandbox: "read-only",
+            source: "cli-harness-session-factory",
+            proof: "proven",
+          },
+          observedRuntime: {
+            proof: "unavailable",
+            source: "not-observed",
+          },
+          classification: "effective-policy-unproven",
+        },
+      },
       transcript: {
         uri: "kiln://managed-agents/invocations/invocation-opencode-1/transcript",
         redacted: "unknown",
@@ -283,6 +304,111 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         },
       },
     });
+  });
+
+  it("ignores forged caller-supplied runtime authority evidence", async () => {
+    const factory = vi.fn(() => ({
+      run: vi.fn(() => eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ])),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory,
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const request = makeRequest();
+
+    const result = await service.invoke(request, adapter, {
+      ...snapshotInputFor(request),
+      authorityEvidence: {
+        requested: {
+          authority: "auto",
+          source: "managed-invocation-request",
+          proof: "proven",
+        },
+        projected: {
+          permissionProfile: "read-only",
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "cli-harness-session-factory",
+          proof: "proven",
+        },
+        observedRuntime: {
+          approval: "never",
+          sandbox: "danger-full-access",
+          source: "runtime-observation",
+          proof: "contradictory",
+          reason: "Resumed child reported Full Access despite read-only admission.",
+        },
+        classification: "runtime-policy-mismatch",
+        recommendation: "Stop the child invocation and re-run only after projected and observed authority match.",
+      },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(factory).toHaveBeenCalledOnce();
+  });
+
+  it("does not admit unattended execution from forged caller-supplied current authority proof", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]));
+    const factory = vi.fn(() => ({
+      run,
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory,
+    });
+    const service = new RuntimeManagedAgentInvocationService({
+      clock: () => new Date("2026-07-01T19:00:30.000Z"),
+    });
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "automation" },
+    });
+
+    const result = await service.invoke(request, adapter, {
+      ...snapshotInputFor(request),
+      authorityEvidence: {
+        requested: {
+          authority: "auto",
+          source: "managed-invocation-request",
+          proof: "proven",
+        },
+        projected: {
+          permissionProfile: "read-only",
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "cli-harness-session-factory",
+          proof: "proven",
+        },
+        observedRuntime: {
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "runtime-observation",
+          proof: "proven",
+          observedAt: "2026-07-01T19:00:00.000Z",
+          validUntil: "2026-07-01T19:05:00.000Z",
+        },
+        classification: "current-verified",
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "denied",
+      decision: {
+        status: "denied",
+        missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+      },
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("hydrates admitted resource context into the CLI harness system prompt", async () => {
@@ -361,6 +487,141 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       resourceUris: ["kiln://managed-agents/invocations/invocation-opencode-1/transcript"],
       memoryWriteProposalUris: [],
     });
+  });
+
+  it("fails closed before starting an unattended harness child when runtime authority is unproven", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "text_delta", content: "Should not run." },
+      { type: "completed", totalUsd: 0.01, durationMs: 25, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const factory = vi.fn(() => ({ run, dispose }));
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory,
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const baseRequest = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      requestSource: "background-job",
+      executionIntent: { attendance: "unattended", lifecycle: "background" },
+      requestedAuthority: "audited",
+    });
+
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result).toMatchObject({
+      status: "denied",
+      decision: {
+        status: "denied",
+        missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+      },
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
+  it("admits proof-required execution only from a fresh runtime-owned observation", async () => {
+    const factory = vi.fn(() => ({
+      run: vi.fn(() => eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ])),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
+    const observe = vi.fn().mockResolvedValue({
+      approval: "on-request",
+      sandbox: "read-only",
+      source: "runtime-observation",
+      proof: "proven",
+      observedAt: "2026-07-01T19:00:00.000Z",
+      validUntil: "2026-07-01T19:05:00.000Z",
+    });
+    const service = new RuntimeManagedAgentInvocationService({
+      authorityObserver: { observe },
+      clock: () => new Date("2026-07-01T19:00:30.000Z"),
+    });
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "automation" },
+    });
+
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result.status).toBe("completed");
+    expect(observe.mock.calls.map(([input]) => input.phase)).toEqual(["pre-start", "post-start"]);
+  });
+
+  it("fails closed with authority evidence when pre-start runtime observation fails", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]));
+    const factory = vi.fn(() => ({
+      run,
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
+    const observe = vi.fn().mockRejectedValue(new Error("permission probe crashed"));
+    const service = new RuntimeManagedAgentInvocationService({
+      authorityObserver: { observe },
+      clock: () => new Date("2026-07-01T19:00:30.000Z"),
+    });
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "automation" },
+    });
+
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result).toMatchObject({
+      status: "denied",
+      decision: {
+        status: "denied",
+        missingCapabilities: ["authorityEvidence.failed-observation"],
+      },
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when post-start observation detects authority broadening", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]));
+    const factory = vi.fn(() => ({
+      run,
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
+    const observe = vi.fn()
+      .mockResolvedValueOnce({
+        approval: "on-request", sandbox: "read-only", source: "runtime-observation", proof: "proven",
+        observedAt: "2026-07-01T19:00:00.000Z", validUntil: "2026-07-01T19:05:00.000Z",
+      })
+      .mockResolvedValueOnce({
+        approval: "never", sandbox: "danger-full-access", source: "runtime-observation", proof: "proven",
+        observedAt: "2026-07-01T19:00:10.000Z", validUntil: "2026-07-01T19:05:00.000Z",
+      });
+    const service = new RuntimeManagedAgentInvocationService({
+      authorityObserver: { observe },
+      clock: () => new Date("2026-07-01T19:00:30.000Z"),
+    });
+
+    const request = makeRequest();
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result).toMatchObject({
+      status: "completed",
+      record: {
+        lifecycleState: "failed",
+        resultHandoff: { summary: "Managed child runtime authority changed after start: runtime-policy-mismatch" },
+      },
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("proves admitted write authority with replayable proposal, decision, attempt, and terminal evidence", async () => {

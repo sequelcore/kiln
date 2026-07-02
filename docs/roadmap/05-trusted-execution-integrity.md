@@ -1,6 +1,6 @@
 # 05 - Trusted Execution Integrity
 
-Status: Active; Slice 2 complete
+Status: Active; Slice 3 complete
 Started: 2026-07-01
 
 ## Objective
@@ -53,9 +53,12 @@ reports and inference. Kiln terminology remains provider-neutral.
    evidence, retain lossy/unsupported semantics, persist evidence in native
    install state, preserve unmanaged fields, and expose projection evidence
    through the shared Gateway config-status contract.
-3. **Next - runtime and managed agents.** Record requested, projected, and
-   observed child authority and fail closed for unproven unattended execution.
-4. **Pending - doctor and shared surfaces.** Project one read-only status
+3. **Complete - runtime and managed agents.** Managed child execution records
+   requested, projected, and observed authority; unattended/background/resume
+   execution fails closed when proof is unproven, stale, partial, failed, or
+   mismatched; runtime-owned observations are separated from caller input; and
+   replay re-evaluates authority freshness before recovery.
+4. **Next - doctor and shared surfaces.** Project one read-only status
    contract through CLI, GUI, TUI, setup, Gateway, and model-callable reads.
 5. **Pending - canonical documentation and closure.** Promote durable doctrine,
    record verification and reviews, then remove this active roadmap.
@@ -110,6 +113,25 @@ git diff --check
 
 The first full CLI package test attempt timed out at the 5-minute tool limit;
 the command was rerun with a longer timeout and exited successfully.
+
+Slice 3 closeout on 2026-07-01:
+
+```bash
+bun run --cwd packages/core test -- tests/managed-agent/invocation-contracts.test.ts
+bun run --cwd packages/runtime test -- tests/managed-agent/opencode-cli-harness-adapter.test.ts
+bun run --cwd packages/core test -- tests/managed-agent
+bun run --cwd packages/runtime test -- tests/managed-agent
+bun run --filter @kilnai/core build
+bun run typecheck
+git diff --check
+```
+
+Independent Slice 3 review found and verified closure of blockers covering
+forged caller-supplied authority evidence, request-source substring policy,
+stale/partial/failed authority observations, projection-versus-observed
+mismatch, replay freshness, raw observer errors, and post-start
+launch-before-proof races. The remaining live managed-agent proof suites were
+not run because they require separately authorized live credentials.
 
 Final closure requires the canonical workspace test, typecheck, build, GUI E2E,
 projection consistency, stale-reference scan, `git diff --check`, and a clean

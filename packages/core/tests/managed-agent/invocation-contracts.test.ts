@@ -7,6 +7,8 @@ import {
   defineManagedAgentCapabilitySnapshot,
   defineManagedAgentInvocationRecord,
   buildManagedAgentCapabilitySnapshot,
+  buildManagedAgentAuthorityEvidence,
+  evaluateManagedAgentAdmission,
   getManagedAgentCrossHarnessInvocationCapability,
   listManagedAgentCrossHarnessInvocationCapabilities,
   supportsManagedAgentCrossHarnessProvider,
@@ -15,6 +17,7 @@ import type {
   ManagedAgentInvocationRequest,
   ManagedAgentInvocationRecord,
   ManagedAgentAdapterDescriptor,
+  ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentUsageReport,
 } from "../../src/agents/managed-invocation/index.js";
 
@@ -494,6 +497,170 @@ describe("managed agent invocation contracts", () => {
       workingDirectoryMode: "workspace-write",
       diagnosticUris: [],
     });
+  });
+
+  it("records requested, projected, and observed child authority evidence separately", () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      requestedAuthority: "read_only",
+    });
+    const snapshot = buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
+    });
+
+    expect(snapshot.authorityEvidence).toMatchObject({
+      requested: {
+        authority: "read_only",
+        source: "managed-invocation-request",
+        proof: "proven",
+      },
+      projected: {
+        permissionProfile: "read-only",
+        approval: "on-request",
+        sandbox: "read-only",
+        source: "managed-authority-profile",
+        proof: "proven",
+      },
+      observedRuntime: {
+        proof: "unavailable",
+        source: "not-observed",
+      },
+      classification: "effective-policy-unproven",
+    });
+  });
+
+  it("fails closed when observed child runtime authority contradicts the admitted projection", () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      requestedAuthority: "read_only",
+    });
+
+    const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-readonly",
+      routeSource: "explicit-managed-route",
+      authorityEvidence: {
+        requested: {
+          authority: "read_only",
+          source: "managed-invocation-request",
+          proof: "proven",
+        },
+        projected: {
+          permissionProfile: "read-only",
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "managed-authority-profile",
+          proof: "proven",
+        },
+        observedRuntime: {
+          approval: "never",
+          sandbox: "danger-full-access",
+          source: "runtime-observation",
+          proof: "contradictory",
+          reason: "Child runtime resumed with Full Access despite read-only child authority.",
+        },
+        classification: "runtime-policy-mismatch",
+        recommendation: "Stop the child invocation and re-run only after projected and observed authority match.",
+      },
+    });
+
+    expect(decision).toMatchObject({
+      status: "denied",
+      missingCapabilities: ["authorityEvidence.runtimePolicyMismatch"],
+    });
+  });
+
+  it("fails closed for unattended background child invocations when effective runtime authority is unproven", () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      requestSource: "background-job",
+      executionIntent: { attendance: "unattended", lifecycle: "background" },
+      requestedAuthority: "audited",
+    });
+
+    const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "codex-oauth-background",
+      routeSource: "explicit-managed-route",
+    });
+
+    expect(decision).toMatchObject({
+      status: "denied",
+      missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+    });
+  });
+
+  it("uses structured execution intent instead of request-source text", () => {
+    const attended = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      requestSource: "background-looking-label",
+      executionIntent: { attendance: "attended", lifecycle: "foreground" },
+    });
+    const unattended = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      requestSource: "manual",
+      executionIntent: { attendance: "unattended", lifecycle: "automation" },
+    });
+    const input = { capturedAt: "2026-05-07T08:00:00.000Z", routeId: "route", routeSource: "explicit-managed-route" as const };
+
+    expect(evaluateManagedAgentAdmission(attended, makeDescriptor(), input).status).toBe("admitted");
+    expect(evaluateManagedAgentAdmission(unattended, makeDescriptor(), input)).toMatchObject({
+      status: "denied",
+      missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+    });
+  });
+
+  const proofRequiredAuthorityCases: ReadonlyArray<{
+    readonly name: string;
+    readonly observedRuntime: ManagedAgentObservedRuntimeAuthorityEvidence;
+    readonly expected: string;
+  }> = [
+    {
+      name: "proven mismatch",
+      observedRuntime: { approval: "never", sandbox: "danger-full-access", source: "runtime-observation", proof: "proven", observedAt: "2026-05-07T08:00:00.000Z", validUntil: "2099-05-07T08:00:00.000Z" },
+      expected: "authorityEvidence.runtimePolicyMismatch",
+    },
+    {
+      name: "stale proof",
+      observedRuntime: { approval: "on-request", sandbox: "read-only", source: "runtime-observation", proof: "proven", observedAt: "2026-05-07T08:00:00.000Z", validUntil: "2026-05-07T08:01:00.000Z" },
+      expected: "authorityEvidence.stale-evidence",
+    },
+    {
+      name: "partial proof",
+      observedRuntime: { approval: "on-request", source: "runtime-observation", proof: "proven", observedAt: "2026-05-07T08:00:00.000Z", validUntil: "2099-05-07T08:00:00.000Z" },
+      expected: "authorityEvidence.partial-observation",
+    },
+    {
+      name: "forged not-observed proof",
+      observedRuntime: { approval: "on-request", sandbox: "read-only", source: "not-observed", proof: "proven", observedAt: "2026-05-07T08:00:00.000Z", validUntil: "2099-05-07T08:00:00.000Z" },
+      expected: "authorityEvidence.effective-policy-unproven",
+    },
+    {
+      name: "failed observation",
+      observedRuntime: { source: "runtime-observation", proof: "failed", reason: "Harness runtime authority probe failed before child start." },
+      expected: "authorityEvidence.failed-observation",
+    },
+  ];
+
+  it.each(proofRequiredAuthorityCases)("fails closed for $name on proof-required execution", ({ observedRuntime, expected }) => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "background" },
+    });
+    const authorityEvidence = buildManagedAgentAuthorityEvidence({
+      request,
+      projectedSource: "managed-authority-profile",
+      observedRuntime,
+    });
+    const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "route",
+      routeSource: "explicit-managed-route",
+      authorityEvidence,
+    });
+    expect(decision).toMatchObject({ status: "denied", missingCapabilities: [expected] });
   });
 
   it("rejects malformed resource lease fields at the snapshot boundary", () => {

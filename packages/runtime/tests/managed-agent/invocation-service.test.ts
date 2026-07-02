@@ -4596,6 +4596,67 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(secondRecovery.recovered).toEqual([]);
   });
 
+  it("re-evaluates managed child authority freshness during persisted replay", async () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeIsolatedWorktreeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "resume" },
+    });
+    const recoveryStore = makeRecoveryStore();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const leaseManager = {
+      acquire: vi.fn(async ({ lease }) => lease),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const firstService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: leaseManager,
+      clock: () => new Date("2026-05-07T08:00:30.000Z"),
+      authorityObserver: {
+        observe: vi.fn().mockResolvedValue({
+          approval: "on-request",
+          sandbox: "workspace-write",
+          source: "runtime-observation",
+          proof: "proven",
+          observedAt: "2026-05-07T08:00:00.000Z",
+          validUntil: "2026-05-07T08:01:00.000Z",
+        }),
+      },
+    });
+    await firstService.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    }, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
+    });
+
+    const restartedService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: leaseManager,
+    });
+    const recovered = await restartedService.recoverPersistedInvocations({
+      now: new Date("2026-05-07T08:10:00.000Z"),
+    });
+    const joined = await restartedService.join(request.invocationId);
+
+    expect(recovered.recovered[0]).toMatchObject({ lifecycleState: "failed" });
+    expect(joined).toMatchObject({
+      status: "completed",
+      record: {
+        lifecycleState: "failed",
+        resultHandoff: { summary: expect.stringContaining("stale-evidence") },
+      },
+    });
+  });
+
   it("daemon startup recovers persisted checkpoints through the runtime service and filesystem store", async () => {
     const rootPath = await mkdtemp(join(tmpdir(), "kiln-managed-daemon-recovery-"));
     try {
