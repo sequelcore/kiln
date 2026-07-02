@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { KilnError } from "../../engine/errors.js";
 import type {
   MultimodalArtifact,
@@ -107,6 +109,10 @@ export interface MemoryArtifactResourceStoreOptions {
   readonly resourceNotifications?: ToolResourceChangeNotifier;
 }
 
+export interface FileArtifactResourceStoreOptions extends MemoryArtifactResourceStoreOptions {
+  readonly rootDir: string;
+}
+
 export interface ArtifactResourceProviderOptions {
   readonly store: ArtifactResourceStore;
 }
@@ -119,7 +125,10 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
   private resourceNotifications: ToolResourceChangeNotifier | undefined;
   private sequence = 0;
 
-  constructor(options: MemoryArtifactResourceStoreOptions = {}) {
+  constructor(
+    options: MemoryArtifactResourceStoreOptions = {},
+    restoredArtifacts: readonly ArtifactResource[] = [],
+  ) {
     this.now = options.now ?? (() => new Date().toISOString());
     this.maxContentBytes = clampPositive(options.maxContentBytes, DEFAULT_MAX_CONTENT_BYTES);
     this.maxArtifactsPerNamespace = clampPositive(
@@ -127,6 +136,11 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
       DEFAULT_MAX_ARTIFACTS_PER_NAMESPACE,
     );
     this.resourceNotifications = options.resourceNotifications;
+    for (const artifact of [...restoredArtifacts].sort((left, right) => left.sequence - right.sequence)) {
+      const existing = this.artifactsByNamespace.get(artifact.namespace) ?? [];
+      this.artifactsByNamespace.set(artifact.namespace, [...existing, artifact]);
+      this.sequence = Math.max(this.sequence, artifact.sequence);
+    }
   }
 
   setResourceChangeNotifier(notifier: ToolResourceChangeNotifier): void {
@@ -204,6 +218,88 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
     this.resourceNotifications?.notifyResourceUpdated(`kiln://artifacts/${artifact.namespace}/${artifact.id}`);
     this.resourceNotifications?.notifyResourceUpdated(`kiln://artifacts/${artifact.namespace}/${artifact.id}/content`);
   }
+}
+
+export class FileArtifactResourceStore implements ArtifactResourceStore {
+  private readonly rootDir: string;
+  private readonly memory: MemoryArtifactResourceStore;
+
+  constructor(options: FileArtifactResourceStoreOptions) {
+    if (options.rootDir.trim().length === 0) {
+      throw artifactError("Artifact root directory is required", { rootDir: options.rootDir });
+    }
+    this.rootDir = resolve(options.rootDir);
+    mkdirSync(this.rootDir, { recursive: true });
+    const maxContentBytes = clampPositive(options.maxContentBytes, DEFAULT_MAX_CONTENT_BYTES);
+    const restoredArtifacts = loadPersistedArtifacts(this.rootDir, maxContentBytes);
+    this.memory = new MemoryArtifactResourceStore(options, restoredArtifacts);
+  }
+
+  setResourceChangeNotifier(notifier: ToolResourceChangeNotifier): void {
+    this.memory.setResourceChangeNotifier(notifier);
+  }
+
+  put(input: ArtifactResourcePutInput): ArtifactResourceMetadata {
+    const previousIds = new Set(this.memory.list(input.namespace).map((artifact) => artifact.id));
+    const metadata = this.memory.put(input);
+    const artifact = this.memory.get(metadata.namespace, metadata.id)!;
+    this.persistArtifact(artifact);
+    const retainedIds = new Set(this.memory.list(input.namespace).map((entry) => entry.id));
+    for (const previousId of previousIds) {
+      if (!retainedIds.has(previousId)) {
+        rmSync(this.artifactPath(input.namespace, previousId), { force: true });
+      }
+    }
+    return metadata;
+  }
+
+  listNamespaces(): readonly ArtifactNamespaceSummary[] {
+    return this.memory.listNamespaces();
+  }
+
+  list(namespace: string): readonly ArtifactResourceMetadata[] {
+    return this.memory.list(namespace);
+  }
+
+  get(namespace: string, id: string): ArtifactResource | undefined {
+    return this.memory.get(namespace, id);
+  }
+
+  private persistArtifact(artifact: ArtifactResource): void {
+    const namespaceDir = join(this.rootDir, artifact.namespace);
+    mkdirSync(namespaceDir, { recursive: true });
+    const target = this.artifactPath(artifact.namespace, artifact.id);
+    const temporary = `${target}.tmp`;
+    writeFileSync(temporary, JSON.stringify(artifact, null, 2), "utf8");
+    renameSync(temporary, target);
+  }
+
+  private artifactPath(namespace: string, id: string): string {
+    return join(this.rootDir, namespace, `${id}.json`);
+  }
+
+}
+
+function loadPersistedArtifacts(rootDir: string, maxContentBytes: number): readonly ArtifactResource[] {
+  const restored: ArtifactResource[] = [];
+  for (const namespace of readdirSync(rootDir, { withFileTypes: true })) {
+    if (!namespace.isDirectory() || !NAMESPACE_PATTERN.test(namespace.name)) continue;
+    const namespaceDir = join(rootDir, namespace.name);
+    const artifacts = readdirSync(namespaceDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /^artifact_\d+\.json$/u.test(entry.name))
+      .map((entry) => parsePersistedArtifact(readFileSync(join(namespaceDir, entry.name), "utf8"), namespace.name));
+    const oversized = artifacts.find((artifact) => artifact.size > maxContentBytes);
+    if (oversized) {
+      throw artifactError("Persisted artifact content exceeds configured limit", {
+        namespace: namespace.name,
+        id: oversized.id,
+        size: oversized.size,
+        maxContentBytes,
+      });
+    }
+    restored.push(...artifacts);
+  }
+  return restored;
 }
 
 export function projectMultimodalArtifactResource(artifact: ArtifactResource): MultimodalArtifact | undefined {
@@ -464,6 +560,59 @@ function projectArtifactMetadata(artifact: ArtifactResource): ArtifactResourceMe
     ...(artifact.checksum ? { checksum: artifact.checksum } : {}),
     ...(artifact.multimodal ? { multimodal: artifact.multimodal } : {}),
   };
+}
+
+function parsePersistedArtifact(serialized: string, namespace: string): ArtifactResource {
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch {
+    throw artifactError("Persisted artifact is not valid JSON", { namespace });
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw artifactError("Persisted artifact must be an object", { namespace });
+  }
+  const artifact = value as Partial<ArtifactResource>;
+  if (
+    artifact.namespace !== namespace
+    || typeof artifact.id !== "string"
+    || !/^artifact_\d+$/u.test(artifact.id)
+    || typeof artifact.sequence !== "number"
+    || !Number.isSafeInteger(artifact.sequence)
+    || artifact.sequence <= 0
+    || typeof artifact.title !== "string"
+    || typeof artifact.mimeType !== "string"
+    || typeof artifact.createdAt !== "string"
+    || typeof artifact.updatedAt !== "string"
+    || typeof artifact.size !== "number"
+    || !isArtifactContent(artifact.content)
+    || !artifact.producer
+    || typeof artifact.producer.kind !== "string"
+    || typeof artifact.producer.name !== "string"
+    || !artifact.retention
+  ) {
+    throw artifactError("Persisted artifact has an invalid contract", { namespace, id: artifact.id });
+  }
+  validateRetention(artifact.retention);
+  const measuredSize = measureContentSize(artifact.content);
+  if (measuredSize !== artifact.size) {
+    throw artifactError("Persisted artifact size does not match content", {
+      namespace,
+      id: artifact.id,
+      size: artifact.size,
+      measuredSize,
+    });
+  }
+  return artifact as ArtifactResource;
+}
+
+function isArtifactContent(value: unknown): value is ArtifactContent {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const content = value as Partial<ArtifactContent>;
+  if (content.type === "json") return "value" in content;
+  if (content.type === "text") return typeof content.text === "string";
+  if (content.type === "blob") return typeof content.blob === "string";
+  return false;
 }
 
 function artifactNotFound(uri: string): KilnError {

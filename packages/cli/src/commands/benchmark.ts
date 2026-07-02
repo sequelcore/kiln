@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BenchmarkBaselineRunner,
   KILN_BENCHMARK_PROFILES,
   KILN_EXTERNAL_BENCHMARK_TRACKS,
-  MemoryArtifactResourceStore,
+  FileArtifactResourceStore,
   createBenchmarkProfileScorers,
   evaluateBenchmarkReadiness,
   generateBenchmarkPublicReport,
@@ -196,6 +196,7 @@ async function runInternalBenchmark(
   const dataset = parseDatasetJsonl(datasetNameFromPath(datasetPath), datasetContent);
   const k = parsePositiveInteger(readFlag(args, "--k") ?? String(profile.minimumK), "--k");
   const outputPath = readFlag(args, "--output") ?? defaultOutputPath(profile.id, dependencies.now?.() ?? new Date());
+  const artifactRoot = resolve(`${outputPath}.artifacts`);
   const executor = dependencies.executeItem ?? createBenchmarkSessionExecutor({
     appConfig: config,
     flags: readExecutorFlags(args),
@@ -214,12 +215,13 @@ async function runInternalBenchmark(
       scorerNames: profile.requiredScorers,
     }),
     scorers: createBenchmarkProfileScorers(profile),
-    artifactStore: new MemoryArtifactResourceStore(),
+    artifactStore: new FileArtifactResourceStore({ rootDir: artifactRoot }),
     executeItem: executor,
   });
   const result = await runner.run();
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, JSON.stringify({
+    artifactRoot,
     baselines: [result.baseline],
     baseline: result.baseline,
     consistency: result.consistency,
@@ -227,6 +229,7 @@ async function runInternalBenchmark(
   }, null, 2), "utf-8");
   printJson({
     outputPath,
+    artifactRoot,
     baseline: result.baseline,
     readiness: evaluateBenchmarkReadiness({ baselines: [result.baseline] }),
   });

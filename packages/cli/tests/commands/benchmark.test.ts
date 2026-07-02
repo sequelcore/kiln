@@ -166,6 +166,7 @@ describe("benchmarkCommand", () => {
 
     expect(existsSync(outputPath)).toBe(true);
     const written = JSON.parse(readFileSync(outputPath, "utf-8")) as {
+      readonly artifactRoot: string;
       readonly baseline: {
         readonly profileId: string;
         readonly k: number;
@@ -184,6 +185,8 @@ describe("benchmarkCommand", () => {
         }[];
       };
     };
+    expect(written.artifactRoot).toBe(`${outputPath}.artifacts`);
+    expect(existsSync(join(written.artifactRoot, "benchmark-baselines", "artifact_7.json"))).toBe(true);
     expect(written.baseline).toMatchObject({
       profileId: "kiln-tool-agent",
       k: 1,

@@ -206,10 +206,12 @@ export type {
   ArtifactResourcePutInput,
   ArtifactResourceStore,
   ArtifactRetentionPolicy,
+  FileArtifactResourceStoreOptions,
   MemoryArtifactResourceStoreOptions,
 } from "./infrastructure/artifact-resource-store.js";
 export {
   ArtifactResourceProvider,
+  FileArtifactResourceStore,
   MemoryArtifactResourceStore,
   projectMultimodalArtifactResource,
 } from "./infrastructure/artifact-resource-store.js";
