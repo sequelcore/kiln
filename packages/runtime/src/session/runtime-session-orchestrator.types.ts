@@ -19,6 +19,7 @@ import type {
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
 } from "@kilnai/core";
+import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
 import type { ContextAuditEntry } from "@kilnai/core";
@@ -170,6 +171,7 @@ export interface OrchestrateResult {
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
+  readonly providerRequests?: readonly ProviderRequestEvidence[];
   readonly queued: boolean;
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;

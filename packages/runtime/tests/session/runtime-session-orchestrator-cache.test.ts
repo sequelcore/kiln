@@ -98,6 +98,48 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     expect(cached).toBe("sunny, 20C");
   });
 
+  it("records reconciled provider request evidence for every tool round", async () => {
+    const provider = makeProviderWithToolCall();
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [TOOL_DEF],
+      builtinTools: new Map([["get_weather", toolFn]]),
+      capabilityMap: makeCapabilityMap(60),
+      toolCache,
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+
+    expect(result.providerRequests).toEqual([
+      expect.objectContaining({
+        requestIndex: 0,
+        inputTokens: 100,
+        outputTokens: 50,
+        cumulativeInputTokens: 100,
+        cumulativeOutputTokens: 50,
+        toolCount: 1,
+        stopReason: "tool_use",
+      }),
+      expect.objectContaining({
+        requestIndex: 1,
+        inputTokens: 100,
+        outputTokens: 50,
+        cumulativeInputTokens: 200,
+        cumulativeOutputTokens: 100,
+        toolCount: 1,
+        stopReason: "end_turn",
+      }),
+    ]);
+    expect(result.providerRequests?.[0]?.systemBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.messageBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.toolSchemaBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[1]?.messageBytes).toBeGreaterThan(
+      result.providerRequests?.[0]?.messageBytes ?? 0,
+    );
+    expect(result.inputTokens).toBe(200);
+    expect(result.outputTokens).toBe(100);
+  });
+
   it("returns cached result on second call without executing tool", async () => {
     // Pre-populate cache
     toolCache.set("get_weather", { city: "London" }, "sunny, 20C", 60);

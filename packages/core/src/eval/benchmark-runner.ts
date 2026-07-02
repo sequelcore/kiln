@@ -168,6 +168,7 @@ export class BenchmarkBaselineRunner {
         value: collectResultEvidence(consistency, (result) => ({
           durationMs: result.durationMs,
           tokenUsage: result.tokenUsage,
+          providerRequests: readArrayMetadata(result, "providerRequests"),
         })),
       },
       {

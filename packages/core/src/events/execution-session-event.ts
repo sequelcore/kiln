@@ -30,6 +30,23 @@ export interface ExecutionSessionToolResultResourceLink {
   readonly relation?: string;
 }
 
+export interface ProviderRequestEvidence {
+  readonly requestIndex: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
+  readonly cumulativeInputTokens: number;
+  readonly cumulativeOutputTokens: number;
+  readonly cumulativeCacheReadTokens: number;
+  readonly cumulativeCacheWriteTokens: number;
+  readonly systemBytes: number;
+  readonly messageBytes: number;
+  readonly toolSchemaBytes: number;
+  readonly toolCount: number;
+  readonly stopReason?: string;
+}
+
 export type ExecutionSessionEvent =
   | { readonly type: "text_delta"; readonly content: string; readonly isThinking?: boolean }
   | {
@@ -80,6 +97,7 @@ export type ExecutionSessionEvent =
       readonly inputTokens?: number;
       readonly outputTokens?: number;
       readonly cacheReadTokens?: number;
+      readonly providerRequests?: readonly ProviderRequestEvidence[];
       readonly costEvidence?: ExecutionCostEvidence;
     }
   | {

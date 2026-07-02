@@ -9,6 +9,7 @@ import type {
   MultimodalRoutingDecision,
   MultimodalCapability,
   MultimodalTransportModality,
+  ProviderRequestEvidence,
 } from "@kilnai/core";
 import { computeUsageCostUsd, resolveExecutionCostEvidence, resolveExecutionPricing } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
@@ -27,9 +28,34 @@ export interface OrchestratorResponseUsage {
   readonly cacheWriteTokens: number;
 }
 
+export interface ProviderRequestRegionEvidence {
+  readonly systemBytes: number;
+  readonly messageBytes: number;
+  readonly toolSchemaBytes: number;
+  readonly toolCount: number;
+  readonly stopReason?: string;
+}
+
+export function measureProviderRequestRegions(input: {
+  readonly system: string;
+  readonly messages: unknown;
+  readonly tools?: unknown;
+  readonly toolCount: number;
+  readonly stopReason?: string;
+}): ProviderRequestRegionEvidence {
+  return {
+    systemBytes: serializedByteLength(input.system),
+    messageBytes: serializedByteLength(input.messages),
+    toolSchemaBytes: serializedByteLength(input.tools ?? []),
+    toolCount: input.toolCount,
+    ...(input.stopReason ? { stopReason: input.stopReason } : {}),
+  };
+}
+
 export class RuntimeSessionExecutionTelemetry {
   private executionIdentity: ExecutionIdentity | undefined;
   private warnedMissingModel = false;
+  private readonly providerRequests: ProviderRequestEvidence[] = [];
 
   private totals: OrchestratorUsageSnapshot = {
     inputTokens: 0,
@@ -53,6 +79,7 @@ export class RuntimeSessionExecutionTelemetry {
     sessionId: string,
     usage: OrchestratorResponseUsage,
     agentId?: string,
+    request?: ProviderRequestRegionEvidence,
   ): OrchestratorUsageSnapshot {
     this.totals = {
       inputTokens: this.totals.inputTokens + usage.inputTokens,
@@ -60,12 +87,27 @@ export class RuntimeSessionExecutionTelemetry {
       cacheReadTokens: this.totals.cacheReadTokens + usage.cacheReadTokens,
       cacheWriteTokens: this.totals.cacheWriteTokens + usage.cacheWriteTokens,
     };
+    if (request) {
+      this.providerRequests.push({
+        requestIndex: this.providerRequests.length,
+        ...usage,
+        cumulativeInputTokens: this.totals.inputTokens,
+        cumulativeOutputTokens: this.totals.outputTokens,
+        cumulativeCacheReadTokens: this.totals.cacheReadTokens,
+        cumulativeCacheWriteTokens: this.totals.cacheWriteTokens,
+        ...request,
+      });
+    }
     this.emitCostUpdate(sessionId, agentId);
     return this.snapshot();
   }
 
   snapshot(): OrchestratorUsageSnapshot {
     return { ...this.totals };
+  }
+
+  requestSnapshot(): readonly ProviderRequestEvidence[] {
+    return this.providerRequests.map((request) => ({ ...request }));
   }
 
   emitModelRouted(sessionId: string, decision: RoutingDecision): void {
@@ -199,4 +241,9 @@ export class RuntimeSessionExecutionTelemetry {
     }
     return pricing;
   }
+}
+
+function serializedByteLength(value: unknown): number {
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  return Buffer.byteLength(serialized ?? "", "utf8");
 }

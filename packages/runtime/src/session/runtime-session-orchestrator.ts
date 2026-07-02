@@ -6,12 +6,16 @@ import {
   normalizeToolCall,
   resolveExecutionIdentity,
   textParts,
+  type ProviderRequestEvidence,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
 import { finalizeRuntimeSessionResponse, requestRuntimeSessionFallbackResponse } from "./runtime-session-orchestrator-response.js";
 import { resolveRuntimeSessionRouting } from "./runtime-session-orchestrator-routing.js";
-import { RuntimeSessionExecutionTelemetry } from "./runtime-session-orchestrator-telemetry.js";
+import {
+  measureProviderRequestRegions,
+  RuntimeSessionExecutionTelemetry,
+} from "./runtime-session-orchestrator-telemetry.js";
 import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-executor.js";
 import {
   RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
@@ -229,6 +233,7 @@ export class RuntimeSessionOrchestrator {
             cacheWriteTokens: 0,
           },
           usageTotals: this.telemetry.snapshot(),
+          providerRequests: this.telemetry.requestSnapshot(),
           toolExecutions,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
           preLlmEscalation: escalation,
@@ -252,6 +257,7 @@ export class RuntimeSessionOrchestrator {
           pending: pendingTransitionForRound,
           toolExecutions,
           usageTotals: this.telemetry.snapshot(),
+          providerRequests: this.telemetry.requestSnapshot(),
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
           preLlmEscalation: escalation,
         });
@@ -277,6 +283,13 @@ export class RuntimeSessionOrchestrator {
           cacheWriteTokens: response.cacheWriteTokens,
         },
         session.activeAgentId ?? undefined,
+        measureProviderRequestRegions({
+          system: routing.invocationSystem,
+          messages: session.conversationHistory,
+          tools: toolsForRound,
+          toolCount: toolsForRound?.length ?? 0,
+          ...(response.stopReason ? { stopReason: response.stopReason } : {}),
+        }),
       );
 
       if (!routing.hasTools || response.toolCalls.length === 0) {
@@ -298,6 +311,7 @@ export class RuntimeSessionOrchestrator {
             cacheWriteTokens: response.cacheWriteTokens,
           },
           usageTotals,
+          providerRequests: this.telemetry.requestSnapshot(),
           toolExecutions,
           stopReason: response.stopReason,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
@@ -360,6 +374,7 @@ export class RuntimeSessionOrchestrator {
           session.id,
           fallback.usage,
           session.activeAgentId ?? undefined,
+          fallback.request,
         );
         const finalizedFallback = this.finalizeNoToolFallback({
           session,
@@ -374,6 +389,7 @@ export class RuntimeSessionOrchestrator {
           parts: finalizedFallback.parts,
           usage: fallback.usage,
           usageTotals: fallbackUsageTotals,
+          providerRequests: this.telemetry.requestSnapshot(),
           toolExecutions,
           stopReason: finalizedFallback.stopReason,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
@@ -418,6 +434,7 @@ export class RuntimeSessionOrchestrator {
         pending: pendingTransition,
         toolExecutions,
         usageTotals: this.telemetry.snapshot(),
+        providerRequests: this.telemetry.requestSnapshot(),
         routingDecision: toPublicRoutingDecision(routing.routingDecision),
         preLlmEscalation: escalation,
       });
@@ -438,7 +455,12 @@ export class RuntimeSessionOrchestrator {
       session,
       this.deps.maxTokens,
     );
-    const usageTotals = this.telemetry.recordResponse(session.id, fallback.usage, session.activeAgentId ?? undefined);
+    const usageTotals = this.telemetry.recordResponse(
+      session.id,
+      fallback.usage,
+      session.activeAgentId ?? undefined,
+      fallback.request,
+    );
     const finalizedFallback = this.finalizeNoToolFallback({
       session,
       fallback,
@@ -452,6 +474,7 @@ export class RuntimeSessionOrchestrator {
       parts: finalizedFallback.parts,
       usage: fallback.usage,
       usageTotals,
+      providerRequests: this.telemetry.requestSnapshot(),
       toolExecutions,
       stopReason: finalizedFallback.stopReason,
       routingDecision: toPublicRoutingDecision(routing.routingDecision),
@@ -685,6 +708,7 @@ function finalizeManagedInvocationTransitionRequired(input: {
     readonly cacheReadTokens: number;
     readonly cacheWriteTokens: number;
   };
+  readonly providerRequests: readonly ProviderRequestEvidence[];
   readonly routingDecision: OrchestrateResult["routingDecision"];
   readonly preLlmEscalation: OrchestrateResult["escalation"];
 }): Promise<OrchestrateResult> {
@@ -700,6 +724,7 @@ function finalizeManagedInvocationTransitionRequired(input: {
       cacheWriteTokens: 0,
     },
     usageTotals: input.usageTotals,
+    providerRequests: input.providerRequests,
     toolExecutions: input.toolExecutions,
     stopReason: RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
     routingDecision: input.routingDecision,

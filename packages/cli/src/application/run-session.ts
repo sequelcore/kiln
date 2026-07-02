@@ -10,6 +10,7 @@ import type {
 import {
   resolveExecutionCostEvidence,
   type ExecutionCostEvidence,
+  type ProviderRequestEvidence,
 } from "@kilnai/core";
 import { createPermissionEvaluator } from "../wrapper/index.js";
 import type {
@@ -77,6 +78,7 @@ export interface RunSessionResult {
   readonly accumulatedText: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  readonly providerRequests: readonly ProviderRequestEvidence[];
   readonly toolCallCount: number;
   readonly turnDepth: number;
   readonly successfulProviderId?: ProviderId;
@@ -118,6 +120,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let accumulatedText = "";
   let inputTokens = 0;
   let outputTokens = 0;
+  let providerRequests: readonly ProviderRequestEvidence[] = [];
   let toolCallCount = 0;
   let turnDepth = 0;
   let successfulProviderId: ProviderId | undefined;
@@ -376,6 +379,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             finalCostUsd = event.usd;
             inputTokens = event.inputTokens ?? inputTokens;
             outputTokens = event.outputTokens ?? outputTokens;
+            providerRequests = event.providerRequests ?? providerRequests;
             finalCostEvidence = event.costEvidence ?? resolveExecutionCostEvidence({
               inputTokens: event.inputTokens ?? 0,
               outputTokens: event.outputTokens ?? 0,
@@ -479,6 +483,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     accumulatedText,
     inputTokens,
     outputTokens,
+    providerRequests,
     toolCallCount,
     turnDepth,
     successfulProviderId,
