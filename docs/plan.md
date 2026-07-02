@@ -1,7 +1,7 @@
 # Trusted Execution and Native Permission Integrity Plan
 
-Status: Active implementation plan
-Updated: 2026-07-01
+Status: Completed implementation plan
+Updated: 2026-07-02
 
 ## Objective
 
@@ -53,17 +53,13 @@ same Gateway contract.
 
 ## Roadmap Ownership
 
-Create `docs/roadmap/05-trusted-execution-integrity.md` when Slice 1 begins and
-add it to `docs/roadmap/README.md` as an active security/configuration track.
-Update its completed-slice evidence after every implementation commit. Keep
-`docs/roadmap/03-federated-harness-configuration-plane.md` deferred and intact:
-that roadmap concerns a broader future configuration plane, while this plan
-closes a current correctness and authority-integrity defect.
-
-Do not delete roadmap 05 until all implementation commits, full verification,
-independent reviews, canonical documentation promotion, changelog entry, and
-stale-reference scans pass. Then remove it and retain history in
-`docs/changelog.md`.
+This plan completed as a focused security/configuration integrity track. The
+temporary implementation roadmap was removed after its durable decisions were
+promoted into canonical architecture/operator documentation and
+`docs/changelog.md`. `docs/roadmap/03-federated-harness-configuration-plane.md`
+remains deferred and intact: that roadmap concerns a broader future
+configuration plane, while this plan closed a current correctness and
+authority-integrity defect.
 
 ## Slice 1 - Contract, Domain Model, and Evidence Taxonomy
 
@@ -81,9 +77,8 @@ Commit: `feat(config): model effective permission evidence`
   `packages/core/src/security/index.ts`.
 - Add classification and trust-boundary tests in
   `packages/core/tests/security/trusted-execution-integrity.test.ts`.
-- Create/update `docs/roadmap/05-trusted-execution-integrity.md` and
-  `docs/roadmap/README.md` with slice state only; durable doctrine waits for
-  Slice 5.
+- Update the temporary implementation roadmap and `docs/roadmap/README.md`
+  with slice state only; durable doctrine waits for Slice 5.
 
 The contract must represent desired, persisted, session, and effective evidence
 separately, including source, observed/verified timestamps, freshness,
@@ -278,8 +273,8 @@ Commit: `feat(operator): expose effective permission integrity`
   implementation. Expected owners are the config/setup Gateway handler under
   `packages/runtime/src/gateway/`, GUI config/setup panels under
   `packages/gui/src/`, and TUI handlers/renderers under `packages/tui/src/`.
-  Record exact discovered paths in roadmap 05 before editing; do not create a
-  parallel status service.
+  Record exact discovered paths in the implementation plan before editing; do
+  not create a parallel status service.
 - Add parity tests in `packages/cli/tests/commands/config.test.ts`,
   `packages/cli/tests/application/config-read-tool.test.ts`, relevant runtime
   Gateway tests, GUI component/parity tests, and TUI handler/render tests.
@@ -317,7 +312,8 @@ git diff --check
 
 Start the applicable local GUI dev server and validate the permission integrity
 status in a browser before closure; record the command, browser scenario, and
-result in roadmap 05. Do not use credentials or live provider calls.
+result in the implementation history. Do not use credentials or live provider
+calls.
 
 Review gates: cross-surface contract parity, React/TypeScript review for GUI,
 security review, adversarial misleading-state review, accessibility review for
@@ -346,9 +342,9 @@ Commit: `docs(architecture): close trusted execution integrity roadmap`
   development example that is not presented as the team/public default.
 - Update `README.md` only if the public command/contract description changed.
 - Add implementation history and residual risks to `docs/changelog.md`.
-- Mark every slice complete in roadmap 05, promote all durable content, update
-  `docs/roadmap/README.md`, then delete
-  `docs/roadmap/05-trusted-execution-integrity.md` only after all gates pass.
+- Mark every slice complete, promote all durable content, update
+  `docs/roadmap/README.md`, then remove the temporary implementation roadmap
+  only after all gates pass.
 
 Run documentation link/reference scans and generated projection consistency;
 do not hand-edit generated projections. If canonical project context changes,
@@ -368,7 +364,8 @@ Before Slice 5 closure, obtain and resolve all blocking findings from:
    automation, and child-downgrade review.
 
 Rerun every focused suite affected by a review fix, then its package gate and
-typecheck. Record findings and resolutions in roadmap 05 before deleting it.
+typecheck. Record findings and resolutions in the implementation history before
+removing temporary planning artifacts.
 
 ## Final Verification and Commit Hygiene
 
