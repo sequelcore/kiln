@@ -1,6 +1,6 @@
 # Token Pressure Diagnosis And Repair Plan
 
-Status: Slices 1-4 complete; Slice 5 next
+Status: Slices 1-4 complete; Slice 5 local validation complete; live pilot requires explicit opt-in
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/04-verified-efficiency-control-plane.md`, Slice 0
 
@@ -199,7 +199,7 @@ per-round evidence.
 
 Owner: existing benchmark runner and operator routing example.
 
-Status: Next with explicit operator authorization.
+Status: Local deterministic validation complete; live pilot pending explicit operator authorization.
 
 - Run local deterministic and fixture tests before any credentialed probe.
 - With explicit operator authorization, run one sequential `k=1` pilot on the
