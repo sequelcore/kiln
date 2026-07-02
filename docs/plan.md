@@ -1,163 +1,237 @@
-# Provider-Neutral Benchmark Integrity Plan
+# Token Pressure Diagnosis And Repair Plan
 
-Status: Complete
+Status: Ready for implementation
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/04-verified-efficiency-control-plane.md`, Slice 0
 
 ## Objective
 
-Make live route comparisons valid before Kiln promotes any quality-per-token
-policy. The benchmark path must use provider-safe reversible tool identities,
-classify route failures from canonical evidence, distinguish charged cost from
-subscription/quota economics, and preserve provider-reported cumulative usage.
+Make Kiln's tool-agent execution proportional to task complexity without
+weakening authority, tool correctness, evidence, or provider neutrality. The
+immediate target is to explain and reduce the 419,972-940,391 cumulative input
+tokens observed in the authorized two-item `kiln-tool-agent` pilot before any
+`k >= 5` route comparison.
 
 ## Non-Goals
 
-- Do not tune the personal routing profile from `k=1` observations.
-- Do not add provider-specific benchmark prompts, tool catalogs, or retries.
-- Do not report subscription execution as metered `$0` evidence.
-- Do not suppress genuine cumulative token usage because the number is large.
-- Do not retain parallel legacy serializers or compatibility branches.
+- Do not hide provider-reported usage or redefine cumulative tokens downward.
+- Do not optimize one provider through a benchmark-only prompt or tool path.
+- Do not rank models from the current `k=1` samples.
+- Do not weaken read-only authority or expose tools the active authority cannot
+  execute.
+- Do not add a second context, tool-catalog, routing, or usage owner.
+- Do not start Roadmap 04 learning or adaptive-routing slices early.
 
-## Evidence And Risk
+## Diagnosis
 
-Live `kiln-tool-agent` probes on 2026-07-02 showed:
+### 1. The pressure is primarily real cumulative provider input
 
-- GPT-5.5 and GLM-5.2 completed with `passAtK = 0.5` at `k=1`.
-- MiniMax M3 completed both items but over-called tools and scored `0`.
-- Kimi K2.7 rejected canonical dotted function names.
-- DeepSeek V4 Pro and Flash returned upstream `400` failures.
-- Qwen3.7 Max returned transient `503 failover_exhausted` failures.
-- subscription routes emitted zero charged cost and incomplete economic evidence;
-- successful two-item runs accumulated 421k-521k provider-reported input tokens.
+`RuntimeSessionOrchestrator` sends the complete conversation history and the
+effective tool definitions on every tool round. Runtime telemetry adds each
+provider response's usage into session totals. The benchmark projects those
+totals without suppressing them.
 
-The original benchmark evidence was not promotion-ready. Expanding to `k=5`
-before repairing these integrity gaps would have spent quota without producing
-comparable evidence.
+The post-repair pilot recorded:
 
-The integrity prerequisites are now implemented and committed:
+| Route | Read item | Search item | Total input | Tool calls |
+| --- | ---: | ---: | ---: | ---: |
+| Codex GPT-5.5 | 152,192 | 272,534 | 424,726 | 9 |
+| Kimi K2.7 Code | 168,408 | 251,564 | 419,972 | 28 |
+| GLM 5.2 | 670,823 | 269,568 | 940,391 | 27 |
+| DeepSeek V4 Pro | 244,812 | 614,981 | 859,793 | 32 |
 
-- `d0d9ecf9 fix(core): preserve canonical tool identities across providers`
-- `41d28e5f fix(routing): classify provider route failures`
-- `e74eb1b3 feat(cost): expose comparable execution cost evidence`
-- `bd2c0480 feat(benchmark): emit reproducible baseline evidence`
+The artifact does not retain per-round usage, so exact round-level attribution
+is not currently reproducible. There is no evidence that the item totals are a
+simple double-counting defect.
 
-## Slice 1 - Reversible Provider Tool Names
+### 2. Read-only benchmark authority does not constrain the advertised tools
 
-Owner: `@kilnai/core` provider infrastructure.
+The benchmark sets `{ approval: "never", sandbox: "read-only" }`, but does not
+set `requestedAuthority: "read_only"` on the session. The direct-provider
+session therefore takes the `auto` branch and does not create a read-only tool
+allowlist. Runtime execution still denies forbidden effects, but the model sees
+schemas for tools it cannot use.
 
-Status: Complete in commit `d0d9ecf9`.
+The default built-in surface contains 47 tools and serializes to 79,290 bytes
+before benchmark-specific config, governance, or managed-agent tools are
+added. The existing deferred projection contains eight discovery/read tools
+and serializes to 12,500 bytes, an 84% schema-byte reduction. This is diagnostic
+evidence, not yet a promotion decision.
 
-- Extract one provider-neutral reversible tool-name codec from the existing
-  Codex OAuth implementation.
-- Apply it to OpenAI-compatible request tools, forced tool choice, assistant
-  replay, streamed responses, and non-streamed responses.
-- Preserve canonical names at the runtime boundary and handle collisions
-  deterministically.
-- Add focused tests for dotted names, leading punctuation/digits, collisions,
-  replay, streaming, and Kimi-compatible function-name constraints.
+### 3. Every tool round resends stable and growing request regions
 
-Gate: focused core tests, full `@kilnai/core` suite, typecheck, boundary review.
+Each provider request receives:
 
-## Slice 2 - Canonical Route Failure Evidence
+- the provider system prompt and Kiln executable guidance;
+- all effective tool schemas;
+- the complete conversation history;
+- prior tool calls and raw tool results.
 
-Owner: `@kilnai/core` route-health policy; CLI records outcomes only.
+The tool surface is stable but is not currently evidenced as a cache-aligned
+prefix. Tool outputs and history grow each round. `read_many` permits up to
+60,000 bytes in the observed GPT-5.5 search trajectory, while other routes
+repeated `read` and `resource_read` calls. These costs compound rather than
+remaining one-time inputs.
 
-Status: Complete in commit `41d28e5f`.
+### 4. The execution envelope is too broad for this task class
 
-- Distinguish transient upstream unavailability (`503`, failover exhaustion),
-  request/schema incompatibility (`400` with invalid tool/schema evidence),
-  authentication, quota, rate limit, and unknown failures.
-- Cool down only retryable route outcomes; preserve non-retryable compatibility
-  evidence for operator diagnosis without pretending the whole provider is down.
-- Prove benchmark and normal execution record the same classification.
+The benchmark grants up to 32 tool rounds to two bounded read-only questions.
+Observed routes used 3-27 tool calls per item. The envelope prevents an
+unbounded loop, but it does not express a task-class budget, diminishing-return
+gate, or evidence-completeness stop condition.
 
-Gate: core route-health tests, CLI benchmark executor tests, package suites,
-typecheck.
+### 5. The current quality failure is partly a benchmark-contract defect
 
-## Slice 3 - Honest Economic And Usage Evidence
+`tool-read-file` declares one expected `read` call and no allowed extra tools.
+The scorer treats every additional `read`, `grep`, or `resource_read` as a
+precision error and requires every scorer to equal 1.0 for the item to pass.
+GPT-5.5 returned the requested authority profiles correctly but scored 0.5 for
+the trajectory `read, grep, read`.
 
-Owner: core cost contracts and runtime telemetry; benchmark projects evidence.
+Tool efficiency should be measured, but exact single-call conformance is not a
+valid proxy for answer correctness when bounded supporting reads are allowed.
+Outcome correctness, required-tool recall, prohibited effects, redundant
+calls, and token efficiency need separate evidence.
 
-Status: Complete in commit `e74eb1b3`.
+### 6. Benchmark reproducibility evidence is incomplete
 
-- Keep charged cost, reference metered value, subscription/quota usage, and
-  unknown pricing as distinct evidence.
-- Remove misleading missing-meter warnings for known subscription/free routes.
-- Never invent provider charges from public list prices.
-- Preserve cumulative provider usage across tool rounds, including cache reads
-  and writes, and expose call/round counts required to interpret totals.
-- Make readiness block when a requested cost comparison lacks comparable
-  economic evidence.
+The config hash currently covers profile, dataset, provider, model, and scorer
+names. It does not cover the effective system prompt, authority profile, tool
+catalog/schema snapshot, execution envelope, instruction/context projection,
+or runtime policy that materially determine token use.
 
-Gate: core cost tests, runtime telemetry/ledger tests, benchmark contract tests,
-package suites, typecheck.
+Evidence URIs are created in an in-memory artifact store. The JSON records the
+URIs and aggregate consistency results, but a later process cannot resolve the
+referenced transcript, usage, route, cost, or diagnostics content. Per-round
+usage and request-region attribution are also absent. Current artifacts are
+diagnostic, not independently replayable or public-ready.
 
-## Slice 4 - Reproducible Routing Baseline
+## Architectural Decisions
 
-Owner: existing benchmark runner; no benchmark-only execution path.
+1. Provider-reported per-call usage remains authoritative; Kiln records both
+   per-call deltas and cumulative session totals.
+2. Advertised tools must be the intersection of canonical capability,
+   effective authority, task admission, and provider support.
+3. Execution denial is not a substitute for request-time tool projection.
+4. Stable prompt/tool regions receive identities and hashes before cache or
+   prefix optimization claims are made.
+5. Raw tool evidence remains canonical outside model context; model-facing
+   history may use typed lossless or explicit reversible projections only.
+6. Tool efficiency and task correctness are separate benchmark dimensions.
+7. Benchmark artifacts must survive the producing process and resolve from the
+   emitted report.
 
-Status: Complete in commit `bd2c0480`.
+## Slice 1 - Reproducible Per-Round Evidence
 
-- Persist resolvable result, transcript/tool, diagnostic, usage, route, and
-  economic evidence for each run.
-- Record provider/model, reasoning behavior when observable, config hash,
-  dataset version, scorer set, `k`, and commit.
-- Run a bounded pilot, then `k >= 5` only for routes whose execution and
-  economic evidence pass readiness gates.
-- Update the personal operator example from evidence; do not promote a route
-  from vendor claims or one run.
+Owner: core benchmark contracts plus runtime telemetry projection.
 
-Gate: benchmark readiness, report generation, focused live probes with explicit
-operator authorization, relevant package tests, typecheck, build, review.
+Status: Next.
+
+- Record one row per provider request with provider/model, round, input,
+  output, cache read/write, tool-schema identity, stable-prefix identity,
+  conversation bytes, tool-result bytes, and stop reason.
+- Persist benchmark artifacts in a durable local artifact store and prove every
+  emitted URI resolves in a fresh process.
+- Hash the effective authority profile, system prompt, instruction/context
+  projection, tool catalog schemas, execution envelope, scorer configuration,
+  and provider/model route.
+- Keep aggregate totals as a reconciliation over per-round evidence.
+
+Gate: failing tests first; artifact fresh-process resolution; per-round totals
+reconcile exactly; core/runtime/CLI suites; typecheck; review.
+
+## Slice 2 - Authority-Aligned Tool Projection
+
+Owner: CLI benchmark session construction and existing core tool projection.
+
+Status: Blocked by Slice 1 evidence.
+
+- Project the benchmark profile's canonical
+  `foundation-readonly-plan` authority into `requestedAuthority: "read_only"`.
+- Derive the effective tool surface from admitted authority instead of sending
+  tools that execution policy will later deny.
+- Reuse the canonical deferred tool-catalog mechanism; do not create a
+  benchmark-only allowlist.
+- Prove equivalent projection in normal CLI/runtime execution for the same
+  authority and task evidence.
+
+Gate: forbidden tools are absent from provider requests; required read/search
+tools remain available; authority remains fail-closed; no provider-specific
+branch; measured schema and token deltas are recorded.
+
+## Slice 3 - Tool-Use Quality And Budget Contract
+
+Owner: core eval dataset/scorers and runtime execution envelope policy.
+
+Status: Blocked by Slice 2.
+
+- Split answer correctness, expected-tool recall, prohibited-tool use,
+  redundant-call rate, and token/round efficiency into explicit scores.
+- Permit bounded supporting reads where the fixture semantics allow them.
+- Add task-class tool-round and tool-output budgets with explicit finalization
+  behavior; do not hard-code one model's observed trajectory.
+- Detect repeated equivalent reads and evidence-complete continuation before
+  another provider round is admitted.
+
+Gate: fixtures distinguish a correct supported answer from wasteful repetition;
+prohibited effects still fail the item; the same scorer semantics apply across
+providers.
+
+## Slice 4 - Stable Prefix And Progressive Tool Loading
+
+Owner: Roadmap 04 Slices 2 and 3 through existing context/tool owners.
+
+Status: Blocked by trustworthy Slice 1-3 baselines.
+
+- Make stable system, instruction, and tool-catalog regions byte-identical and
+  cache-evidenced where the provider supports it.
+- Start with the minimal authority/task-admitted tools plus catalog discovery;
+  retrieve additional schemas only through governed selection.
+- Keep `ContextGovernor` authoritative for model-facing context admission.
+- Measure uncached input, cached input, latency, task success, and replay
+  fidelity independently.
+
+Gate: non-inferior task success; no authority or capability loss; provider
+limitations remain explicit; cache and progressive-loading gains reconcile to
+per-round evidence.
+
+## Slice 5 - Bounded Live Validation
+
+Owner: existing benchmark runner and operator routing example.
+
+Status: Blocked by Slices 1-4.
+
+- Run local deterministic and fixture tests before any credentialed probe.
+- With explicit operator authorization, run one sequential `k=1` pilot on the
+  same four routes.
+- Compare request regions, calls, tokens, cache evidence, latency, correctness,
+  and redundant-call rate against the 2026-07-02 artifacts.
+- Run `k >= 5` only when artifacts resolve, quality meets the profile gate, and
+  the economics requested for comparison are comparable.
+
+Gate: benchmark readiness passes for the bounded claim being made; no route or
+personal config promotion from a single sample.
 
 ## Verification And Commit Sequence
 
-1. `fix(core): preserve canonical tool identities across providers`
-2. `fix(routing): classify provider route failures`
-3. `feat(cost): expose comparable execution cost evidence`
-4. `feat(benchmark): emit reproducible baseline evidence`
-5. Documentation promotion and Roadmap 04 status update after all gates pass.
+1. `feat(benchmark): persist per-round execution evidence`
+2. `fix(authority): project admitted tools into provider requests`
+3. `fix(eval): separate tool correctness from call efficiency`
+4. `feat(efficiency): align stable prefixes and progressive tools`
+5. Documentation/status commit after the bounded pilot.
 
-Each production slice starts with a failing test, changes one owner, runs its
-focused and package gates, receives code/architecture review, and commits only
-related files. Rollback reverts the slice commit; no feature flag, shadow path,
-or compatibility shim remains.
+Each production slice begins with intentional failing tests, changes one
+authority owner, runs focused and package verification, receives review, and
+commits only related files. Rollback reverts the slice commit; no compatibility
+shim, shadow path, or legacy tool projection remains.
 
-## Completion Criteria
+## Residual Risks
 
-- Kimi-compatible tool names round-trip to canonical Kiln tool identities.
-- Route errors are classified consistently and transient failures cool down.
-- Subscription runs do not masquerade as measured metered `$0` executions.
-- Provider-reported cumulative usage and cache evidence remain intact.
-- Baseline artifacts are resolvable and meet the benchmark profile's declared
-  reproducibility requirements.
-- No routing configuration changes until comparative evidence reaches its gate.
-- Focused tests, package tests, typecheck, build, review, and `git diff --check`
-  pass with a clean worktree.
-
-## Closeout
-
-Status: complete as prerequisite repair work for Roadmap 04 Slice 0.
-
-Verification completed:
-
-- `bun run --filter @kilnai/core test`
-- `bun run --filter @kilnai/runtime test` passed before Slice 3 and affected
-  runtime suites passed after Slice 3; one later full-runtime run hit a
-  Windows timeout in `tui-gateway-clear.test.ts`, and that file passed cleanly
-  on immediate isolated rerun.
-- `bun run --filter @kilnai/cli test`
-- `bun run typecheck`
-- `bun run --filter @kilnai/core build`
-- `bun run --filter @kilnai/cli build`
-- `git diff --check`
-
-Residual risk:
-
-- Live `k >= 5` provider comparisons were not rerun after these repairs.
-  They still require explicit operator authorization because they use network,
-  credentials, quota, and possibly paid inference.
-- The next Roadmap 04 action is to run a bounded post-repair pilot and promote
-  only routes whose execution, economic, and artifact evidence pass readiness
-  gates.
+- Tokenization and cache semantics differ by provider, so byte measurements
+  cannot be presented as provider-equivalent token counts.
+- A smaller tool surface may reduce discovery quality unless deferred catalog
+  retrieval is reliable and visible to the model.
+- Tool-loop limits can truncate legitimate research or coding work if applied
+  without task-class and evidence-completeness signals.
+- Subscription routes remain economically non-comparable without metered or
+  quota-value evidence even after token attribution improves.
