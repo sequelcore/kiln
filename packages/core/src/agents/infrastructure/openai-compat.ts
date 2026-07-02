@@ -11,6 +11,11 @@ import { KilnError } from "../../engine/errors.js";
 import { withRetry } from "./retry.js";
 import type { RetryOptions } from "./retry.js";
 import { normalizeToolInput } from "../tool-call-input.js";
+import {
+  collectCanonicalToolNames,
+  createProviderToolNameCodec,
+  type ProviderToolNameCodec,
+} from "./tool-name-codec.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -63,6 +68,11 @@ interface OpenAIRequestBody {
   tools?: OpenAIToolFunction[];
   tool_choice?: string | { type: string; function?: { name: string } };
   stream?: boolean;
+}
+
+interface OpenAIRequest {
+  readonly body: OpenAIRequestBody;
+  readonly toolNames: ProviderToolNameCodec;
 }
 
 interface OpenAIToolCallResponse {
@@ -129,22 +139,26 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
   }
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
-    const body = this.buildRequestBody(options);
-    const response = await withRetry(() => this.sendRequest(body, options.signal), this.retryOptions(), options.signal);
-    return this.mapResponse(response);
+    const request = this.buildRequest(options);
+    const response = await withRetry(
+      () => this.sendRequest(request.body, options.signal),
+      this.retryOptions(),
+      options.signal,
+    );
+    return this.mapResponse(response, request.toolNames);
   }
 
   async *streamMessage(
     options: CreateMessageOptions,
   ): AsyncGenerator<AgentStreamEvent> {
-    const body = this.buildRequestBody(options);
-    body.stream = true;
+    const request = this.buildRequest(options);
+    request.body.stream = true;
 
     const response = await withRetry(
       () => fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: this.buildHeaders(),
-        body: JSON.stringify(body),
+        body: JSON.stringify(request.body),
         signal: options.signal,
       }),
       this.retryOptions(),
@@ -193,8 +207,11 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
                 type: "tool_use",
                 content: JSON.stringify({
                   id: buf.id,
-                  name: buf.name,
-                  input: normalizeToolInput(buf.name, buf.arguments || "{}"),
+                  name: request.toolNames.toCanonicalName(buf.name),
+                  input: normalizeToolInput(
+                    request.toolNames.toCanonicalName(buf.name),
+                    buf.arguments || "{}",
+                  ),
                 }),
               };
             }
@@ -237,8 +254,11 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         type: "tool_use",
         content: JSON.stringify({
           id: buf.id,
-          name: buf.name,
-          input: normalizeToolInput(buf.name, buf.arguments || "{}"),
+          name: request.toolNames.toCanonicalName(buf.name),
+          input: normalizeToolInput(
+            request.toolNames.toCanonicalName(buf.name),
+            buf.arguments || "{}",
+          ),
         }),
       };
     }
@@ -277,6 +297,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
 
   private mapMessageToOpenAI(
     message: CreateMessageOptions["messages"][number],
+    toolNames: ProviderToolNameCodec,
   ): readonly OpenAIMessage[] {
     const toolResults = message.parts.filter((part) => part.type === "tool_result");
     const nonToolResultParts = message.parts.filter((part) => part.type !== "tool_result");
@@ -295,7 +316,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
             id: part.id,
             type: "function",
             function: {
-              name: part.name,
+              name: toolNames.toProviderName(part.name),
               arguments: JSON.stringify(part.input),
             },
           })),
@@ -326,10 +347,11 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     return messages;
   }
 
-  private buildRequestBody(options: CreateMessageOptions): OpenAIRequestBody {
+  private buildRequest(options: CreateMessageOptions): OpenAIRequest {
+    const toolNames = createProviderToolNameCodec(collectCanonicalToolNames(options));
     const messages: OpenAIMessage[] = [
       { role: "system", content: options.system },
-      ...options.messages.flatMap((message) => this.mapMessageToOpenAI(message)),
+      ...options.messages.flatMap((message) => this.mapMessageToOpenAI(message, toolNames)),
     ];
 
     const body: OpenAIRequestBody = {
@@ -342,7 +364,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       body.tools = options.tools.map((tool) => ({
         type: "function" as const,
         function: {
-          name: tool.name,
+          name: toolNames.toProviderName(tool.name),
           description: tool.description,
           parameters: tool.inputSchema,
         },
@@ -360,13 +382,16 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
             body.tool_choice = "none";
             break;
           case "tool":
-            body.tool_choice = { type: "function", function: { name: options.toolChoice.name } };
+            body.tool_choice = {
+              type: "function",
+              function: { name: toolNames.toProviderName(options.toolChoice.name) },
+            };
             break;
         }
       }
     }
 
-    return body;
+    return { body, toolNames };
   }
 
   /** HTTP headers for API requests. Override in subclasses to add provider-specific headers. */
@@ -395,14 +420,17 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     return (await response.json()) as OpenAIChatResponse;
   }
 
-  private mapResponse(response: OpenAIChatResponse): AgentResponse {
+  private mapResponse(response: OpenAIChatResponse, toolNames: ProviderToolNameCodec): AgentResponse {
     const choice = response.choices[0];
     const content = choice?.message.content ?? "";
     const toolCalls: ToolCall[] = (choice?.message.tool_calls ?? []).map(
       (tc) => ({
         id: tc.id,
-        name: tc.function.name,
-        input: normalizeToolInput(tc.function.name, tc.function.arguments),
+        name: toolNames.toCanonicalName(tc.function.name),
+        input: normalizeToolInput(
+          toolNames.toCanonicalName(tc.function.name),
+          tc.function.arguments,
+        ),
       }),
     );
 

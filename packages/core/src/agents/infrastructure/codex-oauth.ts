@@ -11,6 +11,11 @@ import type { ContentPart } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { CodexOAuthAuth } from "./codex-oauth-auth.js";
 import { normalizeToolInput } from "../tool-call-input.js";
+import {
+  collectCanonicalToolNames,
+  createProviderToolNameCodec,
+  type ProviderToolNameCodec,
+} from "./tool-name-codec.js";
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 const STREAMED_CONTENT_IDLE_MS = 2000;
@@ -61,12 +66,7 @@ interface ResponsesRequestBody {
 
 interface ResponsesRequest {
   readonly body: ResponsesRequestBody;
-  readonly toolNames: ToolNameMapping;
-}
-
-interface ToolNameMapping {
-  toProviderName(canonicalName: string): string;
-  toCanonicalName(providerName: string): string;
+  readonly toolNames: ProviderToolNameCodec;
 }
 
 interface ResponsesOutputItem {
@@ -470,7 +470,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     options: CreateMessageOptions,
   ): ResponsesRequest {
     const input: ResponsesInputItem[] = [];
-    const toolNames = createToolNameMapping(collectCanonicalToolNames(options));
+    const toolNames = createProviderToolNameCodec(collectCanonicalToolNames(options));
 
     for (const message of options.messages) {
       input.push(...this.mapMessageToInputItems(message.role, message.parts, toolNames));
@@ -510,7 +510,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   private mapMessageToInputItems(
     role: "user" | "assistant",
     parts: readonly ContentPart[],
-    toolNames: ToolNameMapping,
+    toolNames: ProviderToolNameCodec,
   ): ResponsesInputItem[] {
     const items: ResponsesInputItem[] = [];
     const textContent = extractText(parts);
@@ -595,7 +595,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     });
   }
 
-  private mapResponse(response: ResponsesResponse, toolNames: ToolNameMapping): AgentResponse & {
+  private mapResponse(response: ResponsesResponse, toolNames: ProviderToolNameCodec): AgentResponse & {
     readonly cost: {
       readonly inputPer1M: number;
       readonly outputPer1M: number;
@@ -1573,57 +1573,6 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
     return leftKeys.every((key) => jsonValuesEqual(left[key], right[key]));
   }
   return false;
-}
-
-function collectCanonicalToolNames(options: CreateMessageOptions): string[] {
-  const names = new Set(options.tools?.map((tool) => tool.name) ?? []);
-  for (const message of options.messages) {
-    for (const part of message.parts) {
-      if (part.type === "tool_use") {
-        names.add(part.name);
-      }
-    }
-  }
-  return [...names];
-}
-
-function createToolNameMapping(canonicalNames: readonly string[]): ToolNameMapping {
-  const canonicalToProvider = new Map<string, string>();
-  const providerToCanonical = new Map<string, string>();
-  const usedProviderNames = new Set<string>();
-
-  for (const canonicalName of canonicalNames) {
-    if (canonicalToProvider.has(canonicalName)) {
-      continue;
-    }
-    const baseName = toResponsesToolName(canonicalName);
-    let providerName = baseName;
-    let suffix = 2;
-    while (usedProviderNames.has(providerName)) {
-      providerName = `${baseName}_${suffix}`;
-      suffix += 1;
-    }
-    usedProviderNames.add(providerName);
-    canonicalToProvider.set(canonicalName, providerName);
-    providerToCanonical.set(providerName, canonicalName);
-  }
-
-  return {
-    toProviderName: (canonicalName) =>
-      canonicalToProvider.get(canonicalName) ?? toResponsesToolName(canonicalName),
-    toCanonicalName: (providerName) => providerToCanonical.get(providerName) ?? providerName,
-  };
-}
-
-function toResponsesToolName(name: string): string {
-  if (/^[a-zA-Z0-9_-]+$/.test(name)) {
-    return name;
-  }
-  const normalized = name
-    .replace(/[^a-zA-Z0-9_-]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return normalized.length > 0 ? normalized : "tool";
 }
 
 function toStrictToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
