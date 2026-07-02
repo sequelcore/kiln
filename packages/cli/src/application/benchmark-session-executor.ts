@@ -174,6 +174,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       builtinToolOptions,
       managedInvocation: managedInvocationAttachment,
       executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
+      requestedAuthority: "read_only" as const,
       model: effectiveModel,
     };
     const sessionHooks = new SessionHooks(options.appConfig.kilnYaml?.hooks, {

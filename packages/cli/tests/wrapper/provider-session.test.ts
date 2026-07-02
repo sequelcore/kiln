@@ -65,6 +65,15 @@ vi.mock("@kilnai/core", async (importOriginal) => {
       schema: { type: "object", properties: {}, required: [] },
       tags: [],
       annotations: { readOnly: true },
+      effectEnvelope: {
+        operation: "observe",
+        boundaries: ["process", "workspace"],
+        dataEgress: "none",
+        identityUse: "none",
+        reversibility: "reversible",
+        consequences: [],
+        idempotency: "idempotent",
+      },
     },
   ]]);
 
@@ -688,7 +697,7 @@ describe("ProviderSession.run()", () => {
       {
         source: "route_policy",
         status: "applied",
-        admittedAuthority: "fail_closed",
+        admittedAuthority: "audited",
         reason: "cli direct-provider requested turn authority",
       },
       {
@@ -712,6 +721,57 @@ describe("ProviderSession.run()", () => {
         reason: "Work-item authority envelopes are introduced by Slice 7 and are not available to this Slice 5 admission.",
       },
     ]);
+  });
+
+  it("projects only admitted read-only tools into executable runtime per-call config", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "read-only tools projected" }],
+      toolExecutions: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      operatorSurface: {
+        theme: {
+          setTheme: vi.fn(),
+        },
+      },
+    }));
+
+    await collectEvents(session.run({
+      prompt: "execute with read-only authority evidence",
+      requestedAuthority: "read_only",
+    }));
+
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      toolAllowlist?: ReadonlySet<string>;
+      additionalTools?: readonly { readonly name: string }[];
+      perCallCapabilities?: ReadonlyMap<string, unknown>;
+      effectiveTurnAuthority?: {
+        requestedAuthority?: string;
+        admittedAuthority?: string;
+        toolCount?: number;
+        deniedToolCount?: number;
+      };
+    } | undefined;
+
+    expect([...(perCallConfig?.toolAllowlist ?? [])]).toEqual(["mock_builtin"]);
+    expect(perCallConfig?.additionalTools?.map((tool) => tool.name)).toEqual(["mock_builtin"]);
+    expect([...(perCallConfig?.perCallCapabilities?.keys() ?? [])]).toEqual(["mock_builtin"]);
+    expect(perCallConfig?.effectiveTurnAuthority).toMatchObject({
+      requestedAuthority: "read_only",
+      admittedAuthority: "read_only",
+      toolCount: 1,
+      deniedToolCount: 1,
+    });
   });
 
   it("passes the run abort signal into executable runtime per-call config", async () => {

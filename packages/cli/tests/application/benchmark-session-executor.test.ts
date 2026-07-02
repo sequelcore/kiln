@@ -316,6 +316,7 @@ describe("createBenchmarkSessionExecutor", () => {
       output: expect.objectContaining({ mode: "answer" }),
       sessionConfig: expect.objectContaining({
         executionEnvelope: { toolRounds: { max: 32 } },
+        requestedAuthority: "read_only",
       }),
     }));
     expect(createManagedDirectProviderAdapterFactory).toHaveBeenCalledWith(expect.objectContaining({
