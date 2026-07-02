@@ -20,7 +20,12 @@ import {
   type BenchmarkItemExecutor,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
-import { createBenchmarkSessionExecutor, type BenchmarkSessionExecutorFlags } from "../application/benchmark-session-executor.js";
+import {
+  BENCHMARK_EXECUTION_ENVELOPE,
+  BENCHMARK_POLICY,
+  createBenchmarkSessionExecutor,
+  type BenchmarkSessionExecutorFlags,
+} from "../application/benchmark-session-executor.js";
 
 export interface BenchmarkCommandDependencies {
   readonly executeItem?: BenchmarkItemExecutor;
@@ -210,6 +215,11 @@ async function runInternalBenchmark(
       profile,
       datasetName: dataset.name,
       datasetVersion: datasetVersionFromPath(datasetPath),
+      datasetContentHash: hashContent(datasetContent),
+      k,
+      authorityProfile: profile.authorityProfile,
+      permissionPolicy: BENCHMARK_POLICY,
+      executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
       provider: readFlag(args, "--provider"),
       model: readFlag(args, "--model"),
       scorerNames: profile.requiredScorers,
@@ -367,6 +377,10 @@ function defaultOutputPath(profileId: string, now: Date): string {
 
 function computeConfigHash(value: unknown): string {
   return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
+}
+
+function hashContent(value: string): string {
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 
 function stableStringify(value: unknown): string {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   EventBus,
   CostUpdateEvent,
@@ -32,6 +33,10 @@ export interface ProviderRequestRegionEvidence {
   readonly systemBytes: number;
   readonly messageBytes: number;
   readonly toolSchemaBytes: number;
+  readonly systemHash: string;
+  readonly messageHash: string;
+  readonly toolSchemaHash: string;
+  readonly stablePrefixHash: string;
   readonly toolCount: number;
   readonly stopReason?: string;
 }
@@ -43,10 +48,17 @@ export function measureProviderRequestRegions(input: {
   readonly toolCount: number;
   readonly stopReason?: string;
 }): ProviderRequestRegionEvidence {
+  const system = serializeForEvidence(input.system);
+  const messages = serializeForEvidence(input.messages);
+  const tools = serializeForEvidence(input.tools ?? []);
   return {
-    systemBytes: serializedByteLength(input.system),
-    messageBytes: serializedByteLength(input.messages),
-    toolSchemaBytes: serializedByteLength(input.tools ?? []),
+    systemBytes: byteLength(system),
+    messageBytes: byteLength(messages),
+    toolSchemaBytes: byteLength(tools),
+    systemHash: hashSerialized(system),
+    messageHash: hashSerialized(messages),
+    toolSchemaHash: hashSerialized(tools),
+    stablePrefixHash: hashSerialized(`${system}\n${tools}`),
     toolCount: input.toolCount,
     ...(input.stopReason ? { stopReason: input.stopReason } : {}),
   };
@@ -243,7 +255,14 @@ export class RuntimeSessionExecutionTelemetry {
   }
 }
 
-function serializedByteLength(value: unknown): number {
-  const serialized = typeof value === "string" ? value : JSON.stringify(value);
-  return Buffer.byteLength(serialized ?? "", "utf8");
+function serializeForEvidence(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value) ?? "";
+}
+
+function byteLength(serialized: string): number {
+  return Buffer.byteLength(serialized, "utf8");
+}
+
+function hashSerialized(serialized: string): string {
+  return `sha256:${createHash("sha256").update(serialized, "utf8").digest("hex")}`;
 }

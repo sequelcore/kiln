@@ -1,6 +1,6 @@
 # Token Pressure Diagnosis And Repair Plan
 
-Status: Ready for implementation
+Status: Slice 1 complete; Slice 2 next
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/04-verified-efficiency-control-plane.md`, Slice 0
 
@@ -125,7 +125,7 @@ diagnostic, not independently replayable or public-ready.
 
 Owner: core benchmark contracts plus runtime telemetry projection.
 
-Status: Next.
+Status: Complete.
 
 - Record one row per provider request with provider/model, round, input,
   output, cache read/write, tool-schema identity, stable-prefix identity,
@@ -144,7 +144,7 @@ reconcile exactly; core/runtime/CLI suites; typecheck; review.
 
 Owner: CLI benchmark session construction and existing core tool projection.
 
-Status: Blocked by Slice 1 evidence.
+Status: Next.
 
 - Project the benchmark profile's canonical
   `foundation-readonly-plan` authority into `requestedAuthority: "read_only"`.

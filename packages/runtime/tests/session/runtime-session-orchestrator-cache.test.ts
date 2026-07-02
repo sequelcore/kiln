@@ -133,6 +133,12 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     expect(result.providerRequests?.[0]?.systemBytes).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.messageBytes).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.toolSchemaBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.systemHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.messageHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.toolSchemaHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.stablePrefixHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[1]?.stablePrefixHash).toBe(result.providerRequests?.[0]?.stablePrefixHash);
+    expect(result.providerRequests?.[1]?.messageHash).not.toBe(result.providerRequests?.[0]?.messageHash);
     expect(result.providerRequests?.[1]?.messageBytes).toBeGreaterThan(
       result.providerRequests?.[0]?.messageBytes ?? 0,
     );

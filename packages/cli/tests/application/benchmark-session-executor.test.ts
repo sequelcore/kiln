@@ -265,6 +265,10 @@ describe("createBenchmarkSessionExecutor", () => {
           systemBytes: 100,
           messageBytes: 50,
           toolSchemaBytes: 25,
+          systemHash: "sha256:system",
+          messageHash: "sha256:message",
+          toolSchemaHash: "sha256:tools",
+          stablePrefixHash: "sha256:prefix",
           toolCount: 2,
           stopReason: "end_turn",
         }],
@@ -305,6 +309,7 @@ describe("createBenchmarkSessionExecutor", () => {
         requestIndex: 0,
         cumulativeInputTokens: 4,
         toolSchemaBytes: 25,
+        stablePrefixHash: "sha256:prefix",
       })],
     });
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({

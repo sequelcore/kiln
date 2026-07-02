@@ -43,6 +43,10 @@ export interface ProviderRequestEvidence {
   readonly systemBytes: number;
   readonly messageBytes: number;
   readonly toolSchemaBytes: number;
+  readonly systemHash: string;
+  readonly messageHash: string;
+  readonly toolSchemaHash: string;
+  readonly stablePrefixHash: string;
   readonly toolCount: number;
   readonly stopReason?: string;
 }

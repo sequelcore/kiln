@@ -46,8 +46,8 @@ import { runSession } from "./run-session.js";
 import { createNonHumanRunOutputSink } from "./run-output.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 
-const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
-const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 32 } } as const;
+export const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
+export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 32 } } as const;
 
 export interface BenchmarkSessionExecutorFlags {
   readonly provider?: string;

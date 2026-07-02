@@ -202,6 +202,62 @@ describe("benchmarkCommand", () => {
     });
   });
 
+  it("includes dataset content in the internal benchmark config hash", async () => {
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    const firstOutputPath = join(root, "first-baseline.json");
+    const secondOutputPath = join(root, "second-baseline.json");
+    const executeItem = async () => ({
+      output: "completed",
+      durationMs: 10,
+      costUsd: 0.01,
+      inputTokens: 5,
+      outputTokens: 3,
+      metadata: {
+        activeAgentId: "kiln-tool-agent",
+        toolCalls: [{ name: "status" }],
+      },
+    });
+    writeFileSync(
+      datasetPath,
+      JSON.stringify({
+        id: "tool-call",
+        input: "Call status.",
+        expected: "status",
+        metadata: { expectedToolCalls: [{ name: "status" }] },
+      }) + "\n",
+      "utf-8",
+    );
+    await benchmarkCommand(
+      MOCK_APP_CONFIG,
+      "run-internal",
+      ["--profile", "kiln-tool-agent", "--dataset", datasetPath, "--k", "1", "--output", firstOutputPath],
+      { executeItem },
+    );
+
+    writeFileSync(
+      datasetPath,
+      JSON.stringify({
+        id: "tool-call",
+        input: "Call status and explain the result.",
+        expected: "status",
+        metadata: { expectedToolCalls: [{ name: "status" }] },
+      }) + "\n",
+      "utf-8",
+    );
+    await benchmarkCommand(
+      MOCK_APP_CONFIG,
+      "run-internal",
+      ["--profile", "kiln-tool-agent", "--dataset", datasetPath, "--k", "1", "--output", secondOutputPath],
+      { executeItem },
+    );
+
+    const first = JSON.parse(readFileSync(firstOutputPath, "utf-8")) as { readonly baseline: { readonly configHash: string } };
+    const second = JSON.parse(readFileSync(secondOutputPath, "utf-8")) as { readonly baseline: { readonly configHash: string } };
+    expect(first.baseline.configHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(second.baseline.configHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(second.baseline.configHash).not.toBe(first.baseline.configHash);
+  });
+
   it("keeps run-internal stdout as one benchmark JSON document for exact-format harnesses", async () => {
     const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
     const outputPath = join(root, "baseline.json");
