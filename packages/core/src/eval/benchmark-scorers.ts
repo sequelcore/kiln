@@ -49,6 +49,32 @@ class ToolTrajectoryEvidenceScorer implements Scorer {
   async score(input: EvalInput): Promise<EvalScore> {
     const expected = readToolCalls(input.metadata, "expectedToolCalls");
     const actual = readToolCalls(input.metadata, "toolCalls");
+    const forbidden = readToolCalls(input.metadata, "forbiddenToolCalls");
+    const forbiddenNames = new Set(forbidden.map((call) => call.name));
+    const forbiddenObserved = actual.filter((call) => forbiddenNames.has(call.name)).map((call) => call.name);
+    if (forbiddenObserved.length > 0) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: `forbidden tool calls observed: ${forbiddenObserved.join(", ")}`,
+      };
+    }
+    const redundant = findRedundantToolCalls(actual);
+    if (redundant.length > 0) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: `redundant exact tool calls observed: ${redundant.join(", ")}`,
+      };
+    }
+    const budgetFailure = evaluateToolBudget(input.metadata, actual.length);
+    if (budgetFailure) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: budgetFailure,
+      };
+    }
     if (expected.length === 0) {
       return {
         name: this.name,
@@ -64,6 +90,52 @@ class ToolTrajectoryEvidenceScorer implements Scorer {
       reasoning: `${matched.length}/${expected.length} expected tool calls observed`,
     };
   }
+}
+
+function findRedundantToolCalls(actual: readonly ToolCall[]): readonly string[] {
+  const seen = new Set<string>();
+  const redundant: string[] = [];
+  for (const call of actual) {
+    const key = `${call.name}:${stableStringify(call.args ?? {})}`;
+    if (seen.has(key)) {
+      redundant.push(call.name);
+      continue;
+    }
+    seen.add(key);
+  }
+  return redundant;
+}
+
+function evaluateToolBudget(metadata: Record<string, unknown> | undefined, toolCallCount: number): string | undefined {
+  const raw = metadata?.toolBudgets;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const budgets = raw as Record<string, unknown>;
+  const maxToolCalls = budgets.maxToolCalls;
+  if (typeof maxToolCalls === "number" && Number.isFinite(maxToolCalls) && toolCallCount > maxToolCalls) {
+    return `tool budget exceeded: ${toolCallCount}/${maxToolCalls} calls`;
+  }
+  const maxInputTokens = budgets.maxInputTokens;
+  const totalInputTokens = readProviderInputTokens(metadata);
+  if (
+    typeof maxInputTokens === "number"
+    && Number.isFinite(maxInputTokens)
+    && totalInputTokens !== undefined
+    && totalInputTokens > maxInputTokens
+  ) {
+    return `input token budget exceeded: ${totalInputTokens}/${maxInputTokens}`;
+  }
+  return undefined;
+}
+
+function readProviderInputTokens(metadata: Record<string, unknown> | undefined): number | undefined {
+  const raw = metadata?.providerRequests;
+  if (!Array.isArray(raw)) return undefined;
+  const totals = raw.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const value = (entry as Record<string, unknown>).cumulativeInputTokens;
+    return typeof value === "number" && Number.isFinite(value) ? [value] : [];
+  });
+  return totals.length > 0 ? Math.max(...totals) : undefined;
 }
 
 class HandoffEvidenceScorer implements Scorer {
@@ -147,4 +219,17 @@ function readStringArray(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : [];
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right, "en"))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

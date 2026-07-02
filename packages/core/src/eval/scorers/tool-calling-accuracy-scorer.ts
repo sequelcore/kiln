@@ -64,8 +64,6 @@ export class ToolCallingAccuracyScorer implements Scorer {
       return { name: this.name, score: 0, reasoning: `0/${expected.length} expected calls made (no tool calls recorded)` };
     }
 
-    // Precision: fraction of actual calls that match an expected call
-    // Recall: fraction of expected calls that were made
     const expectedMatched = new Set<number>();
     const actualMatched = new Set<number>();
 
@@ -80,22 +78,17 @@ export class ToolCallingAccuracyScorer implements Scorer {
       }
     }
 
-    const relevantActualCount = actual.filter((call, index) =>
-      actualMatched.has(index) || !allowedExtraCallNames.has(call.name)
-    ).length;
-    const precision = relevantActualCount > 0 ? actualMatched.size / relevantActualCount : 0;
     const recall = expectedMatched.size / expected.length;
-    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
 
     const missed = expected.filter((_, i) => !expectedMatched.has(i)).map((c) => c.name);
     const extra = actual
       .filter((call, index) => !actualMatched.has(index) && !allowedExtraCallNames.has(call.name))
       .map((c) => c.name);
 
-    const parts: string[] = [`F1=${f1.toFixed(2)} (precision=${precision.toFixed(2)}, recall=${recall.toFixed(2)})`];
+    const parts: string[] = [`expected-call recall=${recall.toFixed(2)}`];
     if (missed.length > 0) parts.push(`missed: ${missed.join(", ")}`);
-    if (extra.length > 0) parts.push(`extra: ${extra.join(", ")}`);
+    if (extra.length > 0) parts.push(`extra observed outside correctness: ${extra.join(", ")}`);
 
-    return { name: this.name, score: Math.round(f1 * 100) / 100, reasoning: parts.join("; ") };
+    return { name: this.name, score: Math.round(recall * 100) / 100, reasoning: parts.join("; ") };
   }
 }

@@ -315,12 +315,12 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       output: expect.objectContaining({ mode: "answer" }),
       sessionConfig: expect.objectContaining({
-        executionEnvelope: { toolRounds: { max: 32 } },
+        executionEnvelope: { toolRounds: { max: 8 } },
         requestedAuthority: "read_only",
       }),
     }));
     expect(createManagedDirectProviderAdapterFactory).toHaveBeenCalledWith(expect.objectContaining({
-      executionEnvelope: { toolRounds: { max: 32 } },
+      executionEnvelope: { toolRounds: { max: 8 } },
     }));
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();

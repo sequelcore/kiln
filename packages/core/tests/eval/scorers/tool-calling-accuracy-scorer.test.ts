@@ -20,7 +20,7 @@ describe("ToolCallingAccuracyScorer", () => {
     });
     expect(result.name).toBe("tool-calling-accuracy");
     expect(result.score).toBe(1);
-    expect(result.reasoning).toContain("F1=1.00");
+    expect(result.reasoning).toContain("expected-call recall=1.00");
   });
 
   it("ignores explicitly allowed extra tool calls", async () => {
@@ -59,7 +59,7 @@ describe("ToolCallingAccuracyScorer", () => {
     expect(result.reasoning).toContain("0/1 expected calls made");
   });
 
-  it("handles extra tool calls (precision < 1)", async () => {
+  it("does not penalize outcome correctness for extra supporting tool calls", async () => {
     const scorer = new ToolCallingAccuracyScorer();
     const result = await scorer.score({
       input: "q",
@@ -72,9 +72,8 @@ describe("ToolCallingAccuracyScorer", () => {
         ],
       },
     });
-    // precision = 1/2 = 0.5, recall = 1/1 = 1.0, F1 = 2*0.5*1/(0.5+1) = 0.67
-    expect(result.score).toBeCloseTo(0.67, 1);
-    expect(result.reasoning).toContain("extra: unrelated");
+    expect(result.score).toBe(1);
+    expect(result.reasoning).toContain("extra observed outside correctness: unrelated");
   });
 
   it("handles missed tool calls (recall < 1)", async () => {
@@ -87,8 +86,7 @@ describe("ToolCallingAccuracyScorer", () => {
         toolCalls: [{ name: "search", args: {}, result: "found" }],
       },
     });
-    // precision = 1/1 = 1.0, recall = 1/2 = 0.5, F1 = 2*1*0.5/(1+0.5) = 0.67
-    expect(result.score).toBeCloseTo(0.67, 1);
+    expect(result.score).toBe(0.5);
     expect(result.reasoning).toContain("missed: read");
   });
 
@@ -137,11 +135,10 @@ describe("ToolCallingAccuracyScorer", () => {
         ],
       },
     });
-    // 2 matches out of 3 expected, 2 matches out of 3 actual
-    // precision = 2/3, recall = 2/3, F1 = 2*(2/3)*(2/3)/((2/3)+(2/3)) = 0.67
+    // 2 matches out of 3 expected; extra calls are reported but not mixed into correctness.
     expect(result.score).toBeCloseTo(0.67, 1);
     expect(result.reasoning).toContain("missed: write");
-    expect(result.reasoning).toContain("extra: delete");
+    expect(result.reasoning).toContain("extra observed outside correctness: delete");
   });
 
   it("rejects invalid expectedToolCalls entries", async () => {

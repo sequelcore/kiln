@@ -1,6 +1,6 @@
 # Token Pressure Diagnosis And Repair Plan
 
-Status: Slices 1-2 complete; Slice 3 next
+Status: Slices 1-3 complete; Slice 4 next
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/04-verified-efficiency-control-plane.md`, Slice 0
 
@@ -163,7 +163,7 @@ branch; measured schema and token deltas are recorded.
 
 Owner: core eval dataset/scorers and runtime execution envelope policy.
 
-Status: Next.
+Status: Complete.
 
 - Split answer correctness, expected-tool recall, prohibited-tool use,
   redundant-call rate, and token/round efficiency into explicit scores.
@@ -181,7 +181,7 @@ providers.
 
 Owner: Roadmap 04 Slices 2 and 3 through existing context/tool owners.
 
-Status: Blocked by trustworthy Slice 1-3 baselines.
+Status: Next.
 
 - Make stable system, instruction, and tool-catalog regions byte-identical and
   cache-evidenced where the provider supports it.
