@@ -215,6 +215,7 @@ export type {
   ProviderModelRouteHealthDecision,
   ProviderModelRouteHealthRecord,
   ProviderModelRouteKey,
+  ProviderModelRouteOutcome,
 } from "./provider-model-route-health.js";
 export {
   PROVIDER_MODEL_EVIDENCE_STATES,

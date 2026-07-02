@@ -52,6 +52,41 @@ describe("provider model route health", () => {
     expect(mapProviderModelRouteErrorToOutcome("openrouter API error 402: insufficient credits")).toEqual({
       type: "quota-exceeded",
     });
+    expect(mapProviderModelRouteErrorToOutcome(
+      'opencode-go API error 400: {"error":{"type":"invalid_request_error","message":"function name is invalid"}}',
+    )).toEqual({
+      type: "request-incompatible",
+      reason: "function name is invalid",
+    });
+    expect(mapProviderModelRouteErrorToOutcome(
+      'opencode-go API error 503: {"error":{"code":"failover_exhausted","message":"Inference is temporarily unavailable"}}',
+    )).toEqual({
+      type: "transient-unavailable",
+      reason: "Inference is temporarily unavailable",
+    });
+  });
+
+  it("cools down transient unavailability but preserves request incompatibility without retry", () => {
+    const now = Date.parse("2026-07-02T20:00:00.000Z");
+    const transient = createProviderModelRouteHealthRecord({
+      providerId: "opencode-go",
+      modelId: "qwen3.7-max",
+      outcome: { type: "transient-unavailable", reason: "failover exhausted" },
+      now,
+    });
+    const incompatible = createProviderModelRouteHealthRecord({
+      providerId: "opencode-go",
+      modelId: "kimi-k2.7-code",
+      outcome: { type: "request-incompatible", reason: "invalid function name" },
+      now,
+    });
+
+    expect(transient.cooldownUntil).toBeGreaterThan(now);
+    expect(incompatible.cooldownUntil).toBeNull();
+    expect(incompatible.lastOutcome).toEqual({
+      type: "request-incompatible",
+      reason: "invalid function name",
+    });
   });
 
   it("formats cooldown diagnostics with expiration time", () => {

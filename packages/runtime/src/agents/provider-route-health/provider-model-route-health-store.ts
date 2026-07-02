@@ -4,7 +4,7 @@ import { join } from "node:path";
 import {
   createProviderModelRouteHealthRecord,
   evaluateProviderModelRouteHealth,
-  type CredentialOutcome,
+  type ProviderModelRouteOutcome,
   type ProviderModelRouteHealthDecision,
   type ProviderModelRouteHealthRecord,
 } from "@kilnai/core";
@@ -62,7 +62,7 @@ export class ProviderModelRouteHealthStore {
   async recordOutcome(input: {
     readonly providerId: string;
     readonly modelId: string;
-    readonly outcome: CredentialOutcome;
+    readonly outcome: ProviderModelRouteOutcome;
     readonly errorMessage?: string;
   }): Promise<ProviderModelRouteHealthRecord> {
     assertSafeProviderId(input.providerId);
@@ -116,17 +116,40 @@ function parseProviderModelRouteHealthRecord(
     lastSuccess: typeof record.lastSuccess === "number" ? record.lastSuccess : null,
     lastFailure: typeof record.lastFailure === "number" ? record.lastFailure : null,
     cooldownUntil: typeof record.cooldownUntil === "number" ? record.cooldownUntil : null,
-    lastOutcome: isCredentialOutcome(record.lastOutcome) ? record.lastOutcome : null,
+    lastOutcome: parseProviderModelRouteOutcome(record.lastOutcome),
     lastError: typeof record.lastError === "string" ? record.lastError : null,
     updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : new Date(0).toISOString(),
   };
 }
 
-function isCredentialOutcome(value: unknown): value is CredentialOutcome {
-  return typeof value === "object"
-    && value !== null
-    && "type" in value
-    && typeof (value as { readonly type?: unknown }).type === "string";
+function parseProviderModelRouteOutcome(value: unknown): ProviderModelRouteOutcome | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  switch (record.type) {
+    case "ok":
+    case "quota-exceeded":
+    case "auth-failed":
+    case "connection-failed":
+      return { type: record.type };
+    case "rate-limited":
+      return {
+        type: "rate-limited",
+        ...(typeof record.resetAt === "number" ? { resetAt: record.resetAt } : {}),
+      };
+    case "transient-unavailable":
+    case "request-incompatible":
+      return {
+        type: record.type,
+        ...(typeof record.reason === "string" ? { reason: record.reason } : {}),
+      };
+    case "unknown-error":
+      return {
+        type: "unknown-error",
+        ...(typeof record.message === "string" ? { message: record.message } : {}),
+      };
+    default:
+      return null;
+  }
 }
 
 function assertSafeProviderId(providerId: string): void {
