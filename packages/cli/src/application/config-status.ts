@@ -284,11 +284,13 @@ async function readProjectionSnapshots(
     const installState = readNativeProjectionInstallState(join(projectPath, ".kiln"));
     for (const target of Object.values(installState.targets)) {
       const routeIntegrity = readNativeRouteIntegrity(target, effectiveConfig);
+      const status = readNativeProjectionStatus(target);
       projections.push({
         targetId: target.targetId,
         path: target.filePath,
         kind: "native",
-        status: readNativeProjectionStatus(target),
+        status,
+        ...(target.permissionIntegrity ? { permissionIntegrity: permissionIntegrityForProjectionStatus(target.permissionIntegrity, status) } : {}),
         ...(routeIntegrity ? { routeIntegrity } : {}),
         managedFieldCount: target.managedFields.length,
         updatedAt: target.updatedAt,
@@ -336,6 +338,32 @@ function readNativeProjectionStatus(target: NativeProjectionTargetState): KilnPr
     return "drifted";
   }
   return "managed";
+}
+
+function permissionIntegrityForProjectionStatus(
+  integrity: NonNullable<NativeProjectionTargetState["permissionIntegrity"]>,
+  status: KilnProjectionTargetSnapshot["status"],
+): NonNullable<KilnProjectionTargetSnapshot["permissionIntegrity"]> {
+  if (status === "managed" || status === "current") {
+    return integrity;
+  }
+
+  const persistedNative = integrity.persistedNative
+    ? {
+      ...integrity.persistedNative,
+      freshness: "stale" as const,
+      proof: status === "missing" ? "unavailable" as const : "contradictory" as const,
+    }
+    : undefined;
+  return {
+    ...integrity,
+    ...(persistedNative ? { persistedNative } : {}),
+    classification: status === "drifted" ? "native-projection-drift" : "stale-evidence",
+    recommendation: status === "missing"
+      ? "Re-run governed native projection sync before trusting persisted native permission evidence."
+      : "Review native permission projection drift before trusting persisted native permission evidence.",
+    remediationRequiresApproval: true,
+  };
 }
 
 function readNativeRouteIntegrity(

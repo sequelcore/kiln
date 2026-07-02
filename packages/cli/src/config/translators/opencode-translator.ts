@@ -1,6 +1,7 @@
 import { translatePermission } from "../../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import {
+  createPermissionProjectionIntegrity,
   PERMISSION_PROJECTION_TARGET_IDS,
   type PermissionProjection,
 } from "./permission-projection.js";
@@ -37,5 +38,19 @@ export function translateOpenCodePermissionProjection(input: {
     targetId: PERMISSION_PROJECTION_TARGET_IDS.opencode,
     managedFields,
     document,
+    integrity: createPermissionProjectionIntegrity({
+      harness: "opencode",
+      policy: input.policy,
+      translated,
+      semanticLoss: cfg.permissionDefault === "allow"
+        ? ["OpenCode allow resolves permission prompts but does not provide filesystem sandbox enforcement."]
+        : ["OpenCode permission rules do not provide filesystem sandbox enforcement."],
+      enforcement: {
+        approvalControl: cfg.permissionDefault === "allow" || cfg.permissionDefault === "deny" ? "enforced" : "unknown",
+        filesystemSandbox: "not-enforced",
+        networkBoundary: "not-enforced",
+        strength: "rules-only",
+      },
+    }),
   };
 }

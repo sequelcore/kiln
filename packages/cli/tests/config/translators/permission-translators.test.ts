@@ -20,6 +20,11 @@ const granularPolicy: KilnPermissionPolicy = {
   agentScopes: [{ agent: "planner", inherit: false }],
 };
 
+const fullAccessPolicy: KilnPermissionPolicy = {
+  approval: "never",
+  sandbox: "danger-full-access",
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -52,6 +57,36 @@ describe("permission projection translators", () => {
     expect(asRecord(kiln.permissionSync).backend).toBe("claude");
   });
 
+  it("reports Claude full-access projection as lossy trusted evidence rather than Codex-equivalent sandboxing", () => {
+    const projection = translateClaudePermissionProjection({
+      policy: fullAccessPolicy,
+      existingDocument: {},
+    });
+
+    expect(projection.integrity).toMatchObject({
+      harness: "claude-code",
+      desired: {
+        profile: "trusted-full-access",
+        source: "operator-local-config",
+        proof: "proven",
+      },
+      persistedNative: {
+        profile: "trusted-full-access",
+        source: "native-config",
+        projectionOwnership: "kiln-managed",
+      },
+      enforcement: {
+        approvalControl: "enforced",
+        filesystemSandbox: "not-enforced",
+        strength: "rules-only",
+      },
+      classification: "unsupported-semantic-translation",
+      remediationRequiresApproval: true,
+    });
+    expect(projection.integrity.effectiveRuntime).toBeUndefined();
+    expect(projection.integrity.semanticLoss.join(" ")).toContain("bypassPermissions");
+  });
+
   it("projects Codex approval and sandbox fields while preserving unmanaged TOML sections", () => {
     const projection = translateCodexPermissionProjection({
       policy: granularPolicy,
@@ -75,6 +110,39 @@ describe("permission projection translators", () => {
     const kiln = asRecord(projection.document.kiln);
     expect(kiln.legacy).toBe("keep");
     expect(asRecord(kiln.permission_sync).backend).toBe("codex");
+    expect(projection.integrity.classification).toBe("unsupported-semantic-translation");
+    expect(projection.integrity.semanticLoss.join(" ")).toContain("granular permission rule");
+  });
+
+  it("reports Codex Full Access native projection separately from unproven runtime authority", () => {
+    const projection = translateCodexPermissionProjection({
+      policy: fullAccessPolicy,
+      existingDocument: {},
+    });
+
+    expect(projection.document.approval_policy).toBe("never");
+    expect(projection.document.sandbox_mode).toBe("danger-full-access");
+    expect(projection.integrity).toMatchObject({
+      harness: "codex",
+      desired: {
+        profile: "trusted-full-access",
+        source: "operator-local-config",
+        proof: "proven",
+      },
+      persistedNative: {
+        profile: "trusted-full-access",
+        source: "native-config",
+        projectionOwnership: "kiln-managed",
+      },
+      enforcement: {
+        approvalControl: "enforced",
+        filesystemSandbox: "enforced",
+        strength: "strong",
+      },
+      classification: "effective-policy-unproven",
+      remediationRequiresApproval: true,
+    });
+    expect(projection.integrity.effectiveRuntime).toBeUndefined();
   });
 
   it("projects OpenCode permission defaults while preserving unmanaged JSON keys", () => {
@@ -95,5 +163,34 @@ describe("permission projection translators", () => {
       },
     });
     expect(projection.document.kiln).toBeUndefined();
+  });
+
+  it("reports OpenCode allow as permission-rule resolution without sandbox enforcement", () => {
+    const projection = translateOpenCodePermissionProjection({
+      policy: fullAccessPolicy,
+      existingDocument: {},
+    });
+
+    expect(projection.document.permission).toEqual({ default: "allow" });
+    expect(projection.integrity).toMatchObject({
+      harness: "opencode",
+      desired: {
+        profile: "trusted-full-access",
+        source: "operator-local-config",
+      },
+      persistedNative: {
+        profile: "trusted-full-access",
+        source: "native-config",
+      },
+      enforcement: {
+        approvalControl: "enforced",
+        filesystemSandbox: "not-enforced",
+        networkBoundary: "not-enforced",
+        strength: "rules-only",
+      },
+      classification: "unsupported-semantic-translation",
+      remediationRequiresApproval: true,
+    });
+    expect(projection.integrity.semanticLoss.join(" ")).toContain("OpenCode allow");
   });
 });

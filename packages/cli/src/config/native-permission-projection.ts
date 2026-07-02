@@ -134,6 +134,7 @@ async function syncClaudePermissions(
       filePath: target,
       document: projection.document,
       managedFields: projection.managedFields,
+      permissionIntegrity: projection.integrity,
     }),
   };
 }
@@ -180,6 +181,7 @@ async function syncCodexPermissions(
       filePath: target,
       document: projection.document,
       managedFields: projection.managedFields,
+      permissionIntegrity: projection.integrity,
     }),
   };
 }
@@ -227,6 +229,7 @@ async function syncOpenCodePermissions(
       filePath: target,
       document: projection.document,
       managedFields: projection.managedFields,
+      permissionIntegrity: projection.integrity,
     }),
   };
 }

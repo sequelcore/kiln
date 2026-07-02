@@ -223,6 +223,22 @@ describe("syncNativePermissionProjections", () => {
       "sandbox_mode",
       "kiln.permission_sync",
     ]);
+    expect(asRecord(asRecord(targets["codex-config"]).permissionIntegrity)).toMatchObject({
+      harness: "codex",
+      classification: "unsupported-semantic-translation",
+      persistedNative: {
+        source: "native-config",
+        projectionOwnership: "kiln-managed",
+      },
+    });
+    expect(asRecord(asRecord(targets["opencode-config"]).permissionIntegrity)).toMatchObject({
+      harness: "opencode",
+      classification: "unsupported-semantic-translation",
+      enforcement: {
+        filesystemSandbox: "not-enforced",
+        strength: "rules-only",
+      },
+    });
   });
 
   it("projects the canonical Codex OAuth default model into Codex native config", async () => {

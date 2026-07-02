@@ -285,6 +285,7 @@ export interface KilnProjectionTargetSnapshot {
   readonly details?: string;
   readonly managedFieldCount?: number;
   readonly updatedAt?: string;
+  readonly permissionIntegrity?: TrustedExecutionIntegrity;
   readonly routeIntegrity?: {
     readonly canonicalRoute?: {
       readonly providerId: string;
@@ -412,6 +413,7 @@ export const KilnProjectionTargetSnapshotSchema = z.object({
   details: z.string().optional(),
   managedFieldCount: z.number().int().nonnegative().optional(),
   updatedAt: z.string().datetime().optional(),
+  permissionIntegrity: TrustedExecutionIntegritySchema.optional(),
   routeIntegrity: z.object({
     canonicalRoute: z.object({
       providerId: z.string(),

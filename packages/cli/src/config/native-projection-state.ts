@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 
 export interface NativeProjectionTargetState {
   readonly targetId: string;
@@ -10,6 +11,7 @@ export interface NativeProjectionTargetState {
   readonly managedFields: readonly string[];
   readonly managedFieldHashes: Readonly<Record<string, string>>;
   readonly updatedAt: string;
+  readonly permissionIntegrity?: TrustedExecutionIntegrity;
 }
 
 export interface NativeProjectionInstallState {
@@ -23,6 +25,7 @@ export interface NativeProjectionSnapshotInput {
   readonly document: Record<string, unknown>;
   readonly managedFields: readonly string[];
   readonly updatedAt?: string;
+  readonly permissionIntegrity?: TrustedExecutionIntegrity;
 }
 
 export interface NativeProjectionFileSnapshotInput {
@@ -84,6 +87,7 @@ export function createNativeProjectionSnapshot(
     managedFields: [...input.managedFields],
     managedFieldHashes,
     updatedAt: input.updatedAt ?? new Date().toISOString(),
+    ...(input.permissionIntegrity ? { permissionIntegrity: input.permissionIntegrity } : {}),
   };
 }
 

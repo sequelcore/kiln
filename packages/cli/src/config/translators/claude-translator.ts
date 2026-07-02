@@ -2,6 +2,7 @@ import { translatePermission } from "../../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import {
   asRecord,
+  createPermissionProjectionIntegrity,
   PERMISSION_PROJECTION_TARGET_IDS,
   toPermissionSyncMetadata,
   type PermissionProjection,
@@ -36,5 +37,19 @@ export function translateClaudePermissionProjection(input: {
         permissionSync: toPermissionSyncMetadata(translated),
       },
     },
+    integrity: createPermissionProjectionIntegrity({
+      harness: "claude-code",
+      policy: input.policy,
+      translated,
+      semanticLoss: cfg.permissionMode === "bypassPermissions"
+        ? ["Claude Code bypassPermissions bypasses prompts but is not equivalent to Codex sandbox enforcement."]
+        : [],
+      enforcement: {
+        approvalControl: cfg.allowDangerouslySkipPermissions ? "enforced" : "unknown",
+        filesystemSandbox: "not-enforced",
+        networkBoundary: "not-enforced",
+        strength: "rules-only",
+      },
+    }),
   };
 }

@@ -2,6 +2,7 @@ import { translatePermission } from "../../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import {
   asRecord,
+  createPermissionProjectionIntegrity,
   PERMISSION_PROJECTION_TARGET_IDS,
   toPermissionSyncMetadata,
   type PermissionProjection,
@@ -46,6 +47,17 @@ export function translateCodexPermissionProjection(input: {
     targetId: PERMISSION_PROJECTION_TARGET_IDS.codex,
     managedFields,
     document,
+    integrity: createPermissionProjectionIntegrity({
+      harness: "codex",
+      policy: input.policy,
+      translated,
+      enforcement: {
+        approvalControl: "enforced",
+        filesystemSandbox: "enforced",
+        networkBoundary: "enforced",
+        strength: "strong",
+      },
+    }),
   };
 }
 

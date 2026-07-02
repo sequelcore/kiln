@@ -269,6 +269,80 @@ describe("config-status", () => {
     expect(snapshot.setup.recommendedActions).toContain("review-native-projection-drift");
   });
 
+  it("downgrades permission integrity evidence when native projection drift is detected", async () => {
+    writeProjectConfig(tempDir);
+    const codexConfigPath = join(tempDir, "home", ".codex", "config.toml");
+    const projected = {
+      approval_policy: "on-request",
+      sandbox_mode: "read-only",
+    };
+    mkdirSync(join(tempDir, "home", ".codex"), { recursive: true });
+    writeFileSync(codexConfigPath, stringifyToml({
+      approval_policy: "never",
+      sandbox_mode: "danger-full-access",
+    }), "utf-8");
+    writeNativeProjectionInstallState(
+      join(tempDir, ".kiln"),
+      upsertNativeProjectionTargetState(
+        emptyNativeProjectionInstallState(),
+        createNativeProjectionSnapshot({
+          targetId: "codex-config",
+          filePath: codexConfigPath,
+          document: projected,
+          managedFields: ["approval_policy", "sandbox_mode"],
+          permissionIntegrity: {
+            harness: "codex",
+            desired: {
+              profile: "restricted",
+              source: "operator-local-config",
+              observedAt: "2026-07-01T15:00:00.000Z",
+              verifiedAt: "2026-07-01T15:00:01.000Z",
+              freshness: "current",
+              proof: "proven",
+            },
+            persistedNative: {
+              profile: "restricted",
+              source: "native-config",
+              observedAt: "2026-07-01T15:01:00.000Z",
+              verifiedAt: "2026-07-01T15:01:01.000Z",
+              freshness: "current",
+              proof: "proven",
+              projectionOwnership: "kiln-managed",
+            },
+            enforcement: {
+              approvalControl: "enforced",
+              filesystemSandbox: "enforced",
+              networkBoundary: "enforced",
+              strength: "strong",
+            },
+            authorization: { status: "unavailable", revocable: true },
+            semanticLoss: [],
+            classification: "effective-policy-unproven",
+            recommendation: "Verify effective runtime authority.",
+            remediationRequiresApproval: false,
+            lastVerifiedAt: "2026-07-01T15:01:01.000Z",
+          },
+        }),
+      ),
+    );
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "codex-config",
+        status: "drifted",
+        permissionIntegrity: expect.objectContaining({
+          classification: "native-projection-drift",
+          persistedNative: expect.objectContaining({
+            freshness: "stale",
+            proof: "contradictory",
+          }),
+        }),
+      }),
+    ]));
+  });
+
   it("reports canonical and native route defaults as separate matching evidence", async () => {
     writeProjectConfig(tempDir);
     const codexConfigPath = join(tempDir, "home", ".codex", "config.toml");
@@ -307,6 +381,73 @@ describe("config-status", () => {
           credentialStatus: "not-tested",
           routeStatus: "matches-canonical",
           classification: "ok",
+        }),
+      }),
+    ]));
+  });
+
+  it("reports native permission integrity from install-state evidence", async () => {
+    writeProjectConfig(tempDir);
+    const codexConfigPath = join(tempDir, "home", ".codex", "config.toml");
+    const projected = {
+      approval_policy: "never",
+      sandbox_mode: "danger-full-access",
+    };
+    mkdirSync(join(tempDir, "home", ".codex"), { recursive: true });
+    writeFileSync(codexConfigPath, stringifyToml(projected), "utf-8");
+    writeNativeProjectionInstallState(
+      join(tempDir, ".kiln"),
+      upsertNativeProjectionTargetState(
+        emptyNativeProjectionInstallState(),
+        createNativeProjectionSnapshot({
+          targetId: "codex-config",
+          filePath: codexConfigPath,
+          document: projected,
+          managedFields: ["approval_policy", "sandbox_mode"],
+          permissionIntegrity: {
+            harness: "codex",
+            desired: {
+              profile: "trusted-full-access",
+              source: "operator-local-config",
+              observedAt: "2026-07-01T15:00:00.000Z",
+              verifiedAt: "2026-07-01T15:00:01.000Z",
+              freshness: "current",
+              proof: "proven",
+            },
+            persistedNative: {
+              profile: "trusted-full-access",
+              source: "native-config",
+              observedAt: "2026-07-01T15:01:00.000Z",
+              verifiedAt: "2026-07-01T15:01:01.000Z",
+              freshness: "current",
+              proof: "proven",
+              projectionOwnership: "kiln-managed",
+            },
+            enforcement: {
+              approvalControl: "enforced",
+              filesystemSandbox: "enforced",
+              networkBoundary: "enforced",
+              strength: "strong",
+            },
+            authorization: { status: "unavailable", revocable: true },
+            semanticLoss: [],
+            classification: "effective-policy-unproven",
+            recommendation: "Verify effective runtime authority.",
+            remediationRequiresApproval: true,
+            lastVerifiedAt: "2026-07-01T15:01:01.000Z",
+          },
+        }),
+      ),
+    );
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "codex-config",
+        permissionIntegrity: expect.objectContaining({
+          harness: "codex",
+          classification: "effective-policy-unproven",
         }),
       }),
     ]));

@@ -54,6 +54,54 @@ describe("KilnProjectionTargetSnapshotSchema", () => {
     });
   });
 
+  it("preserves native permission-integrity evidence for setup and doctor surfaces", () => {
+    const parsed = KilnProjectionTargetSnapshotSchema.parse({
+      targetId: "codex-config",
+      path: "C:/Users/test/.codex/config.toml",
+      kind: "native",
+      status: "managed",
+      managedFieldCount: 3,
+      updatedAt: "2026-07-01T15:02:01.000Z",
+      permissionIntegrity: {
+        harness: "codex",
+        desired: {
+          profile: "trusted-full-access",
+          source: "operator-local-config",
+          observedAt: "2026-07-01T15:00:00.000Z",
+          verifiedAt: "2026-07-01T15:00:01.000Z",
+          freshness: "current",
+          proof: "proven",
+        },
+        persistedNative: {
+          profile: "trusted-full-access",
+          source: "native-config",
+          observedAt: "2026-07-01T15:01:00.000Z",
+          verifiedAt: "2026-07-01T15:01:01.000Z",
+          freshness: "current",
+          proof: "proven",
+          projectionOwnership: "kiln-managed",
+        },
+        enforcement: {
+          approvalControl: "enforced",
+          filesystemSandbox: "enforced",
+          networkBoundary: "enforced",
+          strength: "strong",
+        },
+        authorization: { status: "unavailable", revocable: true },
+        semanticLoss: [],
+        classification: "effective-policy-unproven",
+        recommendation: "Verify effective runtime authority.",
+        remediationRequiresApproval: true,
+        lastVerifiedAt: "2026-07-01T15:01:01.000Z",
+      },
+    });
+
+    expect(parsed.permissionIntegrity).toMatchObject({
+      harness: "codex",
+      classification: "effective-policy-unproven",
+    });
+  });
+
   it("rejects invalid structured projection metadata", () => {
     expect(() => KilnProjectionTargetSnapshotSchema.parse({
       targetId: "codex-agent:planner",

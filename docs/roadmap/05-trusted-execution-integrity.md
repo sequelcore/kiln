@@ -1,6 +1,6 @@
 # 05 - Trusted Execution Integrity
 
-Status: Active; Slice 1 complete
+Status: Active; Slice 2 complete
 Started: 2026-07-01
 
 ## Objective
@@ -48,10 +48,12 @@ reports and inference. Kiln terminology remains provider-neutral.
    capability honesty, operator-local authorization boundary, finite
    Core/Gateway vocabulary parity, and current-verified rejection for stale,
    unknown, UI-only, or mismatched evidence.
-2. **Next - harness adapters and native projection.** Translate Codex,
-   Claude Code, and OpenCode semantics with explicit loss evidence while
-   preserving unmanaged fields and idempotency.
-3. **Pending - runtime and managed agents.** Record requested, projected, and
+2. **Complete - harness adapters and native projection.** Codex, Claude Code,
+   and OpenCode permission projections emit provider-neutral trusted-execution
+   evidence, retain lossy/unsupported semantics, persist evidence in native
+   install state, preserve unmanaged fields, and expose projection evidence
+   through the shared Gateway config-status contract.
+3. **Next - runtime and managed agents.** Record requested, projected, and
    observed child authority and fail closed for unproven unattended execution.
 4. **Pending - doctor and shared surfaces.** Project one read-only status
    contract through CLI, GUI, TUI, setup, Gateway, and model-callable reads.
@@ -92,6 +94,22 @@ Gateway no longer serializes `current-verified` with stale or unknown optional
 evidence, Gateway no longer serializes `current-verified` with persisted native
 policy mismatch, and Core no longer treats UI-selected desired evidence as
 current verified.
+
+Slice 2 closeout on 2026-07-01:
+
+```bash
+bun run --cwd packages/cli test -- tests/config/translators/permission-translators.test.ts
+bun run --cwd packages/cli test -- tests/config/native-permission-projection.test.ts
+bun run --cwd packages/cli test -- tests/application/config-status.test.ts
+bun run --cwd packages/cli test -- tests/config/translators/permission-translators.test.ts tests/config/native-permission-projection.test.ts tests/config/native-projection-state.test.ts tests/application/config-status.test.ts
+bun run --filter @kilnai/gateway-contracts test
+bun run --filter @kilnai/cli test
+bun run typecheck
+git diff --check
+```
+
+The first full CLI package test attempt timed out at the 5-minute tool limit;
+the command was rerun with a longer timeout and exited successfully.
 
 Final closure requires the canonical workspace test, typecheck, build, GUI E2E,
 projection consistency, stale-reference scan, `git diff --check`, and a clean
