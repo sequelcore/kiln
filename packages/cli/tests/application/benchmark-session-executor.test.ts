@@ -322,6 +322,12 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(createManagedDirectProviderAdapterFactory).toHaveBeenCalledWith(expect.objectContaining({
       executionEnvelope: { toolRounds: { max: 8 } },
     }));
+    expect(benchmarkExecutorMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
+      toolProjection: {
+        mode: "deferred",
+        alwaysOnTools: ["read", "grep", "glob", "read_many"],
+      },
+    }));
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("[tool] status"));

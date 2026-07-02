@@ -1,6 +1,6 @@
 # Token Pressure Diagnosis And Repair Plan
 
-Status: Slices 1-3 complete; Slice 4 next
+Status: Slices 1-4 complete; Slice 5 next
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/04-verified-efficiency-control-plane.md`, Slice 0
 
@@ -181,7 +181,7 @@ providers.
 
 Owner: Roadmap 04 Slices 2 and 3 through existing context/tool owners.
 
-Status: Next.
+Status: Complete.
 
 - Make stable system, instruction, and tool-catalog regions byte-identical and
   cache-evidenced where the provider supports it.
@@ -199,7 +199,7 @@ per-round evidence.
 
 Owner: existing benchmark runner and operator routing example.
 
-Status: Blocked by Slices 1-4.
+Status: Next with explicit operator authorization.
 
 - Run local deterministic and fixture tests before any credentialed probe.
 - With explicit operator authorization, run one sequential `k=1` pilot on the
