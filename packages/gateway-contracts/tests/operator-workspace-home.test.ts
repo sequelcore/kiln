@@ -357,6 +357,7 @@ describe("operator workspace home projection", () => {
           details: "Codex native projection drifted from resolved Kiln config.",
         },
       ],
+      permissionIntegrity: [],
       recommendedActions: ["review-project-context", "sync-repo-shims", "review-native-projection-drift"],
     });
 
@@ -379,6 +380,68 @@ describe("operator workspace home projection", () => {
           status: "blocked",
         },
       ],
+    });
+  });
+
+  it("projects permission integrity into workspace config health", () => {
+    const health = createOperatorWorkspaceConfigHealthSummary({
+      projectRoot: "C:/workspace/kiln",
+      projectContext: {
+        path: "C:/workspace/kiln/.kiln/project-context.md",
+        status: "valid",
+        recommendation: "none",
+      },
+      repoShims: [],
+      nativeProjections: [],
+      permissionIntegrity: [{
+        harness: "codex",
+        desired: {
+          profile: "trusted-full-access",
+          source: "operator-local-config",
+          observedAt: "2026-07-01T15:00:00.000Z",
+          verifiedAt: "2026-07-01T15:00:01.000Z",
+          freshness: "current",
+          proof: "proven",
+        },
+        effectiveRuntime: {
+          profile: "workspace-write",
+          source: "runtime-observation",
+          observedAt: "2026-07-01T15:02:00.000Z",
+          verifiedAt: "2026-07-01T15:02:01.000Z",
+          freshness: "current",
+          proof: "proven",
+        },
+        enforcement: {
+          approvalControl: "enforced",
+          filesystemSandbox: "enforced",
+          networkBoundary: "enforced",
+          strength: "strong",
+        },
+        authorization: {
+          status: "authorized",
+          scope: "operator-local",
+          authorizedBy: "operator",
+          authorizedAt: "2026-07-01T14:59:00.000Z",
+          revocable: true,
+        },
+        semanticLoss: [],
+        classification: "runtime-policy-mismatch",
+        recommendation: "Restart Codex with proven Full Access or choose a narrower trusted profile.",
+        remediationRequiresApproval: true,
+        lastVerifiedAt: "2026-07-01T15:02:01.000Z",
+      }],
+      recommendedActions: ["none"],
+    });
+
+    expect(health).toMatchObject({
+      status: "blocked",
+      issueCount: 1,
+      items: [{
+        id: "permission-integrity:codex",
+        status: "blocked",
+        summary: "Codex permission integrity is runtime-policy-mismatch.",
+        recommendation: "Restart Codex with proven Full Access or choose a narrower trusted profile.",
+      }],
     });
   });
 });

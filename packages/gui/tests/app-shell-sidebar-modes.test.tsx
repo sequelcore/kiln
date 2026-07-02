@@ -109,6 +109,7 @@ vi.mock("../src/api/client.js", () => ({
           },
         ],
         nativeProjections: [],
+        permissionIntegrity: [],
         recommendedActions: ["none"],
       };
     }
@@ -362,6 +363,7 @@ describe("AppShell sidebar modes", () => {
               },
             ],
             nativeProjections: [],
+            permissionIntegrity: [],
             recommendedActions: ["none" as const],
           },
           error: null,

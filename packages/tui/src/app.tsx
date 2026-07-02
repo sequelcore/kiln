@@ -15,7 +15,6 @@ import {
   type GuiProviderCatalogStatus,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelDiscoveryProjection,
-  type KilnConfigSetupAction,
   type KilnConfigSetupSnapshot,
   type OperatorCommandDefinition,
   type OperatorTurnRequestedAuthority,
@@ -25,6 +24,7 @@ import type { Message, ReasoningEffort, ContinuationSidebarInfo, SessionListItem
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
+import { formatSetupSnapshot } from "./setup-format.js";
 import {
   initUI,
   createThemePicker,
@@ -82,7 +82,6 @@ function operatorCommandToSlashCommand(command: OperatorCommandDefinition): Slas
     type: "builtin",
   };
 }
-
 export async function startTui(
   createSession: () => Promise<SessionLike>,
   providerDisplayInfo: readonly ProviderDisplayInfo[],
@@ -1870,36 +1869,4 @@ export async function startTui(
 
   await new Promise<void>((resolve) => renderer.once("destroy", resolve));
   clearOperatorThemeHandler();
-}
-
-const SETUP_ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
-  none: "current",
-  "adopt-project-context": "adopt project context",
-  "review-project-context": "review project context",
-  "sync-repo-shims": "sync repo shims",
-  "sync-native-projections": "sync native projections",
-  "review-and-force-sync-repo-shims": "review shim drift",
-  "adopt-or-back-up-native-guidance": "adopt native guidance",
-  "review-native-projection-drift": "review native drift",
-};
-
-function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
-  const actions = snapshot.recommendedActions.length > 0
-    ? snapshot.recommendedActions.map((action) => SETUP_ACTION_LABELS[action]).join(", ")
-    : SETUP_ACTION_LABELS.none;
-  const repoShims = snapshot.repoShims.length > 0
-    ? snapshot.repoShims.map((shim) => `  - ${shim.target}: ${shim.status}`).join("\n")
-    : "  - none";
-  const nativeProjections = snapshot.nativeProjections.length > 0
-    ? snapshot.nativeProjections.map((projection) => `  - ${projection.targetId}: ${projection.status}`).join("\n")
-    : "  - none";
-  return [
-    `project: ${snapshot.projectRoot}`,
-    `project context: ${snapshot.projectContext.status}`,
-    `actions: ${actions}`,
-    "repo shims:",
-    repoShims,
-    "native projections:",
-    nativeProjections,
-  ].join("\n");
 }

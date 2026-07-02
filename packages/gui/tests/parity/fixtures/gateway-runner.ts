@@ -148,6 +148,7 @@ const setupSnapshot: KilnConfigSetupSnapshot = {
     },
   ],
   nativeProjections: [],
+  permissionIntegrity: [],
   recommendedActions: ["none"],
 };
 

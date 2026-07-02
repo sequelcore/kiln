@@ -83,6 +83,7 @@ export {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
+  KilnConfigStatusSnapshotSchema,
   KilnConfigSourceSnapshotSchema,
   KilnProjectionTargetSnapshotSchema,
   KilnRepoShimProjectionSnapshotSchema,

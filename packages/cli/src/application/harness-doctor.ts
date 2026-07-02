@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { discoverGuiCliOperatorModels } from "@kilnai/runtime";
-import type { KilnProjectionTargetSnapshot } from "@kilnai/gateway-contracts";
+import type { KilnProjectionTargetSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { readConfigStatusSnapshot } from "./config-status.js";
 
 export interface HarnessDoctorProviderDiscovery {
@@ -44,6 +44,7 @@ export interface HarnessDoctorReport {
   readonly projectRoot?: string;
   readonly kilnCli: HarnessDoctorExecutableReport;
   readonly configProjections: readonly HarnessDoctorProjectionReport[];
+  readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly harnesses: {
     readonly codex: HarnessDoctorHarnessReport;
     readonly opencode: HarnessDoctorHarnessReport;
@@ -55,6 +56,7 @@ export interface HarnessDoctorProjectionReport {
   readonly kind: string;
   readonly status: string;
   readonly path: string;
+  readonly permissionIntegrity?: TrustedExecutionIntegrity;
 }
 
 export interface HarnessDoctorOptions {
@@ -153,6 +155,7 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
     projectRoot: options.projectRoot,
     kilnCli,
     configProjections,
+    permissionIntegrity: aggregateDoctorPermissionIntegrity(configProjections),
     harnesses: {
       codex,
       opencode,
@@ -174,9 +177,30 @@ export function renderHarnessDoctorText(report: HarnessDoctorReport): string {
   lines.push("");
   appendExecutable(lines, "Kiln CLI", report.kilnCli);
   appendConfigProjections(lines, report.configProjections);
+  appendPermissionIntegrity(lines, report.permissionIntegrity);
   appendHarness(lines, "Codex", report.harnesses.codex);
   appendHarness(lines, "OpenCode", report.harnesses.opencode);
   return `${lines.join("\n")}\n`;
+}
+
+function appendPermissionIntegrity(
+  lines: string[],
+  permissionIntegrity: readonly TrustedExecutionIntegrity[],
+): void {
+  if (permissionIntegrity.length === 0) {
+    return;
+  }
+  lines.push("  Permission integrity:");
+  for (const integrity of permissionIntegrity) {
+    lines.push(`    - ${integrity.harness}: ${integrity.classification}`);
+    lines.push(`      desired=${integrity.desired.profile} persisted=${integrity.persistedNative?.profile ?? "-"} session=${integrity.sessionOverride?.profile ?? "-"} effective=${integrity.effectiveRuntime?.profile ?? "-"}`);
+    lines.push(`      sources desired=${integrity.desired.source} persisted=${integrity.persistedNative?.source ?? "-"} effective=${integrity.effectiveRuntime?.source ?? "-"}`);
+    lines.push(`      proof desired=${integrity.desired.proof} persisted=${integrity.persistedNative?.proof ?? "-"} effective=${integrity.effectiveRuntime?.proof ?? "-"}`);
+    lines.push(`      enforcement=${integrity.enforcement.strength} approval=${integrity.enforcement.approvalControl} sandbox=${integrity.enforcement.filesystemSandbox} network=${integrity.enforcement.networkBoundary}`);
+    lines.push(`      verified=${integrity.lastVerifiedAt ?? "-"} approval required=${integrity.remediationRequiresApproval ? "yes" : "no"}`);
+    lines.push(`      action=${integrity.recommendation}`);
+  }
+  lines.push("");
 }
 
 async function resolveHarnessReport(
@@ -379,5 +403,14 @@ function projectProjection(projection: KilnProjectionTargetSnapshot): HarnessDoc
     kind: projection.kind,
     status: projection.status,
     path: projection.path,
+    ...(projection.permissionIntegrity ? { permissionIntegrity: projection.permissionIntegrity } : {}),
   };
+}
+
+function aggregateDoctorPermissionIntegrity(
+  projections: readonly HarnessDoctorProjectionReport[],
+): readonly TrustedExecutionIntegrity[] {
+  return projections
+    .map((projection) => projection.permissionIntegrity)
+    .filter((integrity): integrity is TrustedExecutionIntegrity => integrity !== undefined);
 }

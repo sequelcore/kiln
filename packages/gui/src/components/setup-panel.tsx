@@ -4,6 +4,7 @@ import type {
   KilnConfigSourceStatus,
   KilnProjectionTargetStatus,
   OperatorThemeName,
+  TrustedExecutionIntegrity,
 } from "@kilnai/gateway-contracts";
 import {
   AlertTriangle,
@@ -159,6 +160,8 @@ export function SetupPanel(props: SetupPanelProps) {
               </Card>
             </section>
 
+            <PermissionIntegrityCard integrity={props.snapshot.permissionIntegrity} />
+
             <SetupSourceInventory snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
           </div>
         ) : null}
@@ -169,12 +172,21 @@ export function SetupPanel(props: SetupPanelProps) {
 
 function summarizeSetup(snapshot: KilnConfigSetupSnapshot | null | undefined) {
   const actionCount = setupActionItems(snapshot).length;
+  const permissionIssueCount = permissionIntegrityIssues(snapshot?.permissionIntegrity ?? []).length;
   if (!snapshot) {
     return {
       actionCount: 0,
       title: "Setup Status Unavailable",
       description: "Kiln setup status will appear when the gateway responds.",
       badge: "Waiting",
+    };
+  }
+  if (permissionIssueCount > 0 && actionCount === 0) {
+    return {
+      actionCount: permissionIssueCount,
+      title: "Permission Integrity Needs Attention",
+      description: "Setup files may be aligned, but trusted execution evidence is mismatched, stale, failed, or unproven.",
+      badge: `${permissionIssueCount} Permission ${permissionIssueCount === 1 ? "Issue" : "Issues"}`,
     };
   }
   if (actionCount === 0) {
@@ -191,6 +203,48 @@ function summarizeSetup(snapshot: KilnConfigSetupSnapshot | null | undefined) {
     description: "Run the safe actions below first. Review-only drift actions stay blocked until inspected.",
     badge: `${actionCount} Action${actionCount === 1 ? "" : "s"}`,
   };
+}
+
+function PermissionIntegrityCard(props: { readonly integrity: readonly TrustedExecutionIntegrity[] }) {
+  if (props.integrity.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label="Permission Integrity">
+      <Card>
+        <CardHeader>
+          <CardTitle><h3>Permission Integrity</h3></CardTitle>
+          <CardDescription>Trusted execution evidence is reported from the shared config-status contract.</CardDescription>
+        </CardHeader>
+        <CardContent className="divide-y divide-border/70 p-0">
+          {props.integrity.map((integrity) => (
+            <div key={integrity.harness} className="grid gap-2 px-4 py-4 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-foreground">{integrity.harness}</span>
+                <Badge variant={integrity.classification === "current-verified" ? "outline" : "destructive"}>
+                  {integrity.classification}
+                </Badge>
+                {integrity.remediationRequiresApproval ? <Badge variant="outline">approval required</Badge> : null}
+              </div>
+              <p className="text-muted-foreground">
+                desired {integrity.desired.profile}; persisted {integrity.persistedNative?.profile ?? "-"}; effective {integrity.effectiveRuntime?.profile ?? "unproven"}
+              </p>
+              <p className="text-muted-foreground">
+                enforcement {integrity.enforcement.strength}; source {integrity.effectiveRuntime?.source ?? "unavailable"}; verified {integrity.lastVerifiedAt ?? "unverified"}
+              </p>
+              <p className="text-foreground">{integrity.recommendation}</p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function permissionIntegrityIssues(
+  integrity: readonly TrustedExecutionIntegrity[],
+): readonly TrustedExecutionIntegrity[] {
+  return integrity.filter((entry) => entry.classification !== "current-verified");
 }
 
 function setupActionItems(snapshot: KilnConfigSetupSnapshot | null | undefined): readonly KilnConfigSetupAction[] {

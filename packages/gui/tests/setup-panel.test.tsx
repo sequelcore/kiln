@@ -1,7 +1,56 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { KilnConfigSetupSnapshot } from "@kilnai/gateway-contracts";
+import type { KilnConfigSetupSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { SetupPanel } from "../src/components/setup-panel.js";
+
+function permissionIntegrity(): TrustedExecutionIntegrity {
+  return {
+    harness: "codex",
+    desired: {
+      profile: "trusted-full-access",
+      source: "operator-local-config",
+      observedAt: "2026-07-01T15:00:00.000Z",
+      verifiedAt: "2026-07-01T15:00:01.000Z",
+      freshness: "current",
+      proof: "proven",
+    },
+    persistedNative: {
+      profile: "restricted",
+      source: "native-config",
+      observedAt: "2026-07-01T15:01:00.000Z",
+      verifiedAt: "2026-07-01T15:01:01.000Z",
+      freshness: "current",
+      proof: "proven",
+      projectionOwnership: "kiln-managed",
+    },
+    effectiveRuntime: {
+      profile: "workspace-write",
+      source: "runtime-observation",
+      observedAt: "2026-07-01T15:02:00.000Z",
+      verifiedAt: "2026-07-01T15:02:01.000Z",
+      freshness: "current",
+      proof: "proven",
+    },
+    enforcement: {
+      approvalControl: "enforced",
+      filesystemSandbox: "enforced",
+      networkBoundary: "enforced",
+      strength: "strong",
+    },
+    authorization: {
+      status: "authorized",
+      scope: "operator-local",
+      authorizedBy: "operator",
+      authorizedAt: "2026-07-01T14:59:00.000Z",
+      revocable: true,
+    },
+    semanticLoss: [],
+    classification: "runtime-policy-mismatch",
+    recommendation: "Restart Codex with proven Full Access or choose a narrower trusted profile.",
+    remediationRequiresApproval: true,
+    lastVerifiedAt: "2026-07-01T15:02:01.000Z",
+  };
+}
 
 function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnConfigSetupSnapshot {
   return {
@@ -21,6 +70,7 @@ function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnCo
       },
     ],
     nativeProjections: [],
+    permissionIntegrity: [],
     recommendedActions: ["adopt-project-context", "sync-repo-shims"],
     ...overrides,
   };
@@ -85,6 +135,40 @@ describe("SetupPanel", () => {
     expect(screen.getByText("Configuration Is Current")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Required Setup Actions" })).toHaveTextContent("No setup actions are required.");
     expect(screen.queryByRole("button", { name: "Current" })).not.toBeInTheDocument();
+  });
+
+  it("warns when permission integrity is mismatched even without setup repair actions", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          projectContext: {
+            path: "C:/workspace/kiln/.kiln/project-context.md",
+            status: "valid",
+            recommendation: "none",
+          },
+          repoShims: [],
+          nativeProjections: [],
+          permissionIntegrity: [permissionIntegrity()],
+          recommendedActions: ["none"],
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("Configuration Is Current")).not.toBeInTheDocument();
+    expect(screen.getByText("Permission Integrity Needs Attention")).toBeInTheDocument();
+    const integrity = screen.getByRole("region", { name: "Permission Integrity" });
+    expect(integrity).toHaveTextContent("codex");
+    expect(integrity).toHaveTextContent("runtime-policy-mismatch");
+    expect(integrity).toHaveTextContent("desired trusted-full-access");
+    expect(integrity).toHaveTextContent("persisted restricted");
+    expect(integrity).toHaveTextContent("effective workspace-write");
+    expect(integrity).toHaveTextContent("approval required");
+    expect(integrity).toHaveTextContent("Restart Codex with proven Full Access");
   });
 
   it("presents setup sources as comparable inventories instead of a path dump", () => {

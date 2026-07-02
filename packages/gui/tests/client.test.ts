@@ -510,6 +510,7 @@ describe("GuiGatewayClient", () => {
         recommendation: "none",
       }],
       nativeProjections: [],
+      permissionIntegrity: [],
       recommendedActions: ["none"],
     }), {
       status: 200,
@@ -546,6 +547,7 @@ describe("GuiGatewayClient", () => {
           recommendation: "none",
         }],
         nativeProjections: [],
+        permissionIntegrity: [],
         recommendedActions: ["none"],
       },
     }), {

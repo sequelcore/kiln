@@ -153,7 +153,10 @@ describe("config-status", () => {
     const health = await readConfigStatusView(snapshot, "health");
     const setup = await readConfigStatusView(snapshot, "setup");
 
-    expect(permissions.value).toEqual({ approval: "on-request", sandbox: "read-only" });
+    expect(permissions.value).toEqual({
+      policy: { approval: "on-request", sandbox: "read-only" },
+      permissionIntegrity: [],
+    });
     expect(JSON.stringify(health.value)).toContain("harnessCapabilities");
     expect(health.value).toMatchObject({
       harnessCapabilities: expect.arrayContaining([
@@ -451,6 +454,28 @@ describe("config-status", () => {
         }),
       }),
     ]));
+    expect(snapshot.permissionIntegrity).toEqual([
+      expect.objectContaining({
+        harness: "codex",
+        classification: "effective-policy-unproven",
+      }),
+    ]);
+    expect(snapshot.setup.permissionIntegrity).toEqual(snapshot.permissionIntegrity);
+
+    const permissionsView = await readConfigStatusView(snapshot, "permissions");
+
+    expect(permissionsView.value).toMatchObject({
+      policy: {
+        approval: "on-request",
+        sandbox: "read-only",
+      },
+      permissionIntegrity: [
+        expect.objectContaining({
+          harness: "codex",
+          classification: "effective-policy-unproven",
+        }),
+      ],
+    });
   });
 
   it("does not report missing default after an owned stale native default is removed", async () => {

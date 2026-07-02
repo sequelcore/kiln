@@ -362,6 +362,7 @@ export interface KilnConfigSetupSnapshot {
   };
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
   readonly nativeProjections: readonly KilnProjectionTargetSnapshot[];
+  readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly skills?: KilnSkillCatalogSnapshot;
   readonly recommendedActions: readonly KilnConfigSetupAction[];
 }
@@ -388,6 +389,7 @@ export interface KilnConfigStatusSnapshot {
   readonly effectiveConfig?: Record<string, unknown>;
   readonly errors: readonly string[];
   readonly projections: readonly KilnProjectionTargetSnapshot[];
+  readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly skills?: KilnSkillCatalogSnapshot;
   readonly setup: KilnConfigSetupSnapshot;
   readonly harnessCapabilities: readonly KilnHarnessCapabilitySnapshot[];
@@ -495,6 +497,7 @@ export const KilnConfigSetupSnapshotSchema = z.object({
   }),
   repoShims: z.array(KilnRepoShimProjectionSnapshotSchema),
   nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
+  permissionIntegrity: z.array(TrustedExecutionIntegritySchema),
   skills: KilnSkillCatalogSnapshotSchema.optional(),
   recommendedActions: z.array(z.enum(KILN_CONFIG_SETUP_ACTIONS)),
 });
@@ -516,4 +519,37 @@ export const KilnConfigSetupActionResultSchema = z.object({
   message: z.string(),
   errors: z.array(z.string()),
   setup: KilnConfigSetupSnapshotSchema,
+});
+
+export const KilnConfigStatusSnapshotSchema = z.object({
+  generatedAt: z.string().datetime(),
+  project: z.object({
+    rootPath: z.string(),
+    projectName: z.string(),
+    hasGitRoot: z.boolean(),
+    hasKilnYaml: z.boolean(),
+    kilnYaml: KilnConfigSourceSnapshotSchema,
+    projectContext: KilnConfigSourceSnapshotSchema,
+  }),
+  global: KilnConfigSourceSnapshotSchema,
+  effectiveConfigStatus: z.enum(KILN_CONFIG_SOURCE_STATUSES),
+  effectiveConfig: z.record(z.string(), z.unknown()).optional(),
+  errors: z.array(z.string()),
+  projections: z.array(KilnProjectionTargetSnapshotSchema),
+  permissionIntegrity: z.array(TrustedExecutionIntegritySchema),
+  skills: KilnSkillCatalogSnapshotSchema.optional(),
+  setup: KilnConfigSetupSnapshotSchema,
+  harnessCapabilities: z.array(z.object({
+    harness: z.string(),
+    displayName: z.string(),
+    runtimeConfigInjection: z.string(),
+    nativeProjection: z.string(),
+    nativeConfigImport: z.string(),
+    mcpRuntimeTools: z.string(),
+    hooks: z.string(),
+    crossHarnessManagedInvocation: z.object({
+      adapterId: z.string(),
+      supportedProviderIds: z.array(z.string()),
+    }),
+  })),
 });

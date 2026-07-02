@@ -98,6 +98,7 @@ export async function readConfigStatusSnapshot(
   );
 
   const projectionState = await readProjectionSnapshots(rootPath, errors, effectiveConfig ?? undefined);
+  const permissionIntegrity = aggregatePermissionIntegrity(projectionState.projections);
   const skillCatalog = effectiveConfig
     ? readSkillCatalogStatus({
       projectPath: rootPath,
@@ -110,6 +111,7 @@ export async function readConfigStatusSnapshot(
     projectContext,
     repoShims: projectionState.repoShims,
     projections: projectionState.projections,
+    permissionIntegrity,
     skillCatalog,
   });
 
@@ -128,6 +130,7 @@ export async function readConfigStatusSnapshot(
     ...(effectiveConfig ? { effectiveConfig: effectiveConfig as unknown as Record<string, unknown> } : {}),
     errors,
     projections: projectionState.projections,
+    permissionIntegrity,
     ...(skillCatalog ? { skills: skillCatalog } : {}),
     setup,
     harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
@@ -477,7 +480,10 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
     case "skills":
       return snapshot.skills ?? { entries: [] };
     case "permissions":
-      return config?.permissions ?? null;
+      return {
+        policy: config?.permissions ?? null,
+        permissionIntegrity: snapshot.permissionIntegrity,
+      };
     case "memory": {
       const memoryStorage = resolveCliMemoryStorage(snapshot.project.rootPath);
       return {
@@ -506,6 +512,7 @@ function buildSetupSnapshot(input: {
   readonly projectContext: KilnConfigSourceSnapshot;
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
   readonly projections: readonly KilnProjectionTargetSnapshot[];
+  readonly permissionIntegrity: KilnConfigStatusSnapshot["permissionIntegrity"];
   readonly skillCatalog?: ReturnType<typeof readSkillCatalogStatus>;
 }): KilnConfigSetupSnapshot {
   const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
@@ -524,9 +531,18 @@ function buildSetupSnapshot(input: {
     },
     repoShims: input.repoShims,
     nativeProjections,
+    permissionIntegrity: input.permissionIntegrity,
     ...(input.skillCatalog ? { skills: input.skillCatalog } : {}),
     recommendedActions: actions,
   };
+}
+
+function aggregatePermissionIntegrity(
+  projections: readonly KilnProjectionTargetSnapshot[],
+): KilnConfigStatusSnapshot["permissionIntegrity"] {
+  return projections
+    .map((projection) => projection.permissionIntegrity)
+    .filter((integrity): integrity is NonNullable<KilnProjectionTargetSnapshot["permissionIntegrity"]> => integrity !== undefined);
 }
 
 function projectContextRecommendationFor(source: KilnConfigSourceSnapshot): KilnConfigSetupAction {

@@ -3,9 +3,69 @@ import {
   TRUSTED_EXECUTION_CLASSIFICATIONS,
   TRUSTED_EXECUTION_EVIDENCE_FRESHNESS,
   TRUSTED_EXECUTION_PROOF_STATUSES,
+  KilnConfigSetupSnapshotSchema,
+  KilnConfigStatusSnapshotSchema,
   KilnProjectionTargetSnapshotSchema,
   TrustedExecutionIntegritySchema,
+  type TrustedExecutionIntegrity,
 } from "../src/config-status.js";
+
+function trustedIntegrity(overrides: Partial<TrustedExecutionIntegrity> = {}): TrustedExecutionIntegrity {
+  return {
+    harness: "codex",
+    desired: {
+      profile: "trusted-full-access",
+      source: "operator-local-config",
+      observedAt: "2026-07-01T15:00:00.000Z",
+      verifiedAt: "2026-07-01T15:00:01.000Z",
+      freshness: "current",
+      proof: "proven",
+    },
+    persistedNative: {
+      profile: "restricted",
+      source: "native-config",
+      observedAt: "2026-07-01T15:01:00.000Z",
+      verifiedAt: "2026-07-01T15:01:01.000Z",
+      freshness: "current",
+      proof: "proven",
+      projectionOwnership: "kiln-managed",
+    },
+    sessionOverride: {
+      profile: "trusted-full-access",
+      source: "desktop-ui-selection",
+      observedAt: "2026-07-01T15:02:00.000Z",
+      freshness: "current",
+      proof: "inferred",
+    },
+    effectiveRuntime: {
+      profile: "workspace-write",
+      source: "runtime-observation",
+      observedAt: "2026-07-01T15:03:00.000Z",
+      verifiedAt: "2026-07-01T15:03:01.000Z",
+      freshness: "current",
+      proof: "proven",
+    },
+    enforcement: {
+      approvalControl: "enforced",
+      filesystemSandbox: "enforced",
+      networkBoundary: "enforced",
+      strength: "strong",
+    },
+    authorization: {
+      status: "authorized",
+      scope: "operator-local",
+      authorizedBy: "operator",
+      authorizedAt: "2026-07-01T14:59:00.000Z",
+      revocable: true,
+    },
+    semanticLoss: [],
+    classification: "runtime-policy-mismatch",
+    recommendation: "Reconcile Codex runtime authority with the operator-selected trusted profile before unattended execution.",
+    remediationRequiresApproval: true,
+    lastVerifiedAt: "2026-07-01T15:03:01.000Z",
+    ...overrides,
+  };
+}
 
 describe("KilnProjectionTargetSnapshotSchema", () => {
   it("preserves structured native projection metadata for operator surfaces", () => {
@@ -111,6 +171,69 @@ describe("KilnProjectionTargetSnapshotSchema", () => {
       managedFieldCount: -1,
       updatedAt: "not-a-date",
     })).toThrow();
+  });
+});
+
+describe("KilnConfig setup and status permission integrity", () => {
+  it("exposes provider-neutral permission integrity at setup level without mining native projections", () => {
+    const integrity = trustedIntegrity();
+    const parsed = KilnConfigSetupSnapshotSchema.parse({
+      projectRoot: "C:/repo/kiln",
+      projectContext: {
+        path: "C:/repo/kiln/.kiln/project-context.md",
+        status: "valid",
+        recommendation: "none",
+      },
+      repoShims: [],
+      nativeProjections: [{
+        targetId: "codex-config",
+        path: "C:/Users/test/.codex/config.toml",
+        kind: "native",
+        status: "managed",
+        permissionIntegrity: integrity,
+      }],
+      permissionIntegrity: [integrity],
+      recommendedActions: [],
+    });
+
+    expect(parsed.permissionIntegrity).toEqual([integrity]);
+  });
+
+  it("exposes the same permission integrity aggregate at status level for every operator surface", () => {
+    const integrity = trustedIntegrity();
+    const setup = {
+      projectRoot: "C:/repo/kiln",
+      projectContext: {
+        path: "C:/repo/kiln/.kiln/project-context.md",
+        status: "valid",
+        recommendation: "none",
+      },
+      repoShims: [],
+      nativeProjections: [],
+      permissionIntegrity: [integrity],
+      recommendedActions: [],
+    };
+
+    const parsed = KilnConfigStatusSnapshotSchema.parse({
+      generatedAt: "2026-07-01T15:05:00.000Z",
+      project: {
+        rootPath: "C:/repo/kiln",
+        projectName: "kiln",
+        hasGitRoot: true,
+        hasKilnYaml: true,
+        kilnYaml: { path: "C:/repo/kiln/.kiln/kiln.yaml", status: "valid" },
+        projectContext: { path: "C:/repo/kiln/.kiln/project-context.md", status: "valid" },
+      },
+      global: { path: "C:/Users/test/.kiln/config.yaml", status: "valid" },
+      effectiveConfigStatus: "valid",
+      errors: [],
+      projections: [],
+      permissionIntegrity: [integrity],
+      setup,
+      harnessCapabilities: [],
+    });
+
+    expect(parsed.permissionIntegrity).toEqual(parsed.setup.permissionIntegrity);
   });
 });
 

@@ -335,13 +335,38 @@ export function createOperatorWorkspaceConfigHealthSummary(
       source: projection.path,
     });
   }
+  for (const integrity of setup.permissionIntegrity) {
+    if (integrity.classification === "current-verified") {
+      continue;
+    }
+    items.push({
+      id: `permission-integrity:${integrity.harness}`,
+      status: permissionIntegrityStatus(integrity.classification),
+      summary: `${displayHarnessName(integrity.harness)} permission integrity is ${integrity.classification}.`,
+      recommendation: integrity.recommendation,
+    });
+  }
   return {
-    status: setup.recommendedActions.some((action) => action !== "none")
+    status: setup.recommendedActions.some((action) => action !== "none") || items.length > 0
       ? summarizeHealthStatus(items.map((item) => item.status))
       : "healthy",
     issueCount: items.length,
     items,
   };
+}
+
+function permissionIntegrityStatus(classification: string): OperatorWorkspaceHealthStatus {
+  if (classification === "runtime-policy-mismatch" || classification === "dangerous-unapproved-broadening") {
+    return "blocked";
+  }
+  return "degraded";
+}
+
+function displayHarnessName(harness: string): string {
+  if (harness === "codex") return "Codex";
+  if (harness === "claude-code") return "Claude Code";
+  if (harness === "opencode") return "OpenCode";
+  return harness;
 }
 
 const EMPTY_WORK_SUMMARY: OperatorWorkspaceWorkSummary = {

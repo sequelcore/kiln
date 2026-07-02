@@ -1074,6 +1074,7 @@ describe("startGuiGateway static mount", () => {
         },
         repoShims: [],
         nativeProjections: [],
+        permissionIntegrity: [],
         recommendedActions: ["none" as const],
       },
     }));

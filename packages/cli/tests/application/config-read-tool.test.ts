@@ -37,8 +37,11 @@ describe("KilnConfigReadTool", () => {
 
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.output)).toEqual({
-      approval: "on-request",
-      sandbox: "read-only",
+      policy: {
+        approval: "on-request",
+        sandbox: "read-only",
+      },
+      permissionIntegrity: [],
     });
   });
 

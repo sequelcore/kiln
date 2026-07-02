@@ -1,6 +1,6 @@
 # 05 - Trusted Execution Integrity
 
-Status: Active; Slice 3 complete
+Status: Active; Slice 4 complete
 Started: 2026-07-01
 
 ## Objective
@@ -58,8 +58,10 @@ reports and inference. Kiln terminology remains provider-neutral.
    execution fails closed when proof is unproven, stale, partial, failed, or
    mismatched; runtime-owned observations are separated from caller input; and
    replay re-evaluates authority freshness before recovery.
-4. **Next - doctor and shared surfaces.** Project one read-only status
-   contract through CLI, GUI, TUI, setup, Gateway, and model-callable reads.
+4. **Complete - doctor and shared surfaces.** CLI config-status, model-callable
+   config reads, `kiln doctor`, Gateway setup/status contracts, GUI setup, TUI
+   setup output, and operator workspace health now consume the shared
+   permission-integrity aggregate instead of re-mining native projection state.
 5. **Pending - canonical documentation and closure.** Promote durable doctrine,
    record verification and reviews, then remove this active roadmap.
 
@@ -133,9 +135,27 @@ mismatch, replay freshness, raw observer errors, and post-start
 launch-before-proof races. The remaining live managed-agent proof suites were
 not run because they require separately authorized live credentials.
 
-Final closure requires the canonical workspace test, typecheck, build, GUI E2E,
-projection consistency, stale-reference scan, `git diff --check`, and a clean
-worktree. Credentialed live probes require separate operator authorization.
+Slice 4 closeout on 2026-07-02:
+
+```bash
+bun run --cwd packages/gateway-contracts test -- tests/config-status.test.ts tests/operator-workspace-home.test.ts
+bun run --cwd packages/cli test -- tests/application/config-status.test.ts tests/application/config-read-tool.test.ts tests/application/harness-doctor.test.ts
+bun run --cwd packages/gui test -- tests/setup-panel.test.tsx
+bun run --cwd packages/tui test -- tests/setup-format.test.ts
+bun run --cwd packages/runtime test -- tests/gateway/gui-gateway.test.ts tests/gateway/tui-gateway-clear.test.ts
+bun run typecheck
+git diff --check
+```
+
+Independent Slice 4 review found no blocking issues. The reviewer verified
+that doctor remains read-only, generated shims remain excluded, GUI and TUI
+project shared permission-integrity evidence without turning UI selection into
+runtime proof, and stale, unproven, or mismatched evidence is not promoted.
+
+Final closure still requires the canonical workspace test, typecheck, build,
+GUI E2E, projection consistency, stale-reference scan, `git diff --check`, and
+a clean worktree. Credentialed live probes require separate operator
+authorization.
 
 ## Completion Criteria
 
