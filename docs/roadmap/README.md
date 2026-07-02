@@ -37,7 +37,7 @@ architecture program needs additional sections:
 | [01-native-operator-surface.md](./01-native-operator-surface.md) | Active benchmark-validation track | Slices 1 and 2 are complete. Slice 3, workload fixture governance, is next. | Implement Slice 3 before any live native or browser benchmark execution. |
 | [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open. Provider/model eligibility is now canonicalized; remaining items are narrowed to public-release UX truth, skill/plugin diagnostics, event density, context usage, and live validation. | Close fake or unavailable operator-facing states before public release. |
 | [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
-| [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 0 in progress, Slice 1 complete | A bounded live baseline exposed provider-tool compatibility, route-error classification, subscription-economic evidence, and cumulative token-pressure gaps. Benchmark-integrity prerequisites are now repaired in normal execution paths. | Run a bounded post-repair pilot with explicit operator authorization before `k=5`; then resume Slice 2 stable-prefix work. |
+| [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 0 in progress, Slice 1 complete | The authorized post-repair pilot completed across four live routes. Kimi tool identity and DeepSeek execution repairs held, but every route remained at `passAtK = 0.5` with partial `tool-read-file` accuracy, 420k-940k input-token pressure, and non-comparable subscription economics. | Repair the shared tool-read quality failure and input-token pressure before `k >= 5`, route promotion, or Slice 2 optimization claims. |
 
 ## Canonical References
 
@@ -95,8 +95,10 @@ Use these documents as the source of truth before starting roadmap work:
    Active long-term architecture program opened on 2026-06-30. Slice 1 closed
    on 2026-07-01 in commit `f1f4baef`; the former research-turn budgeting
    roadmap is merged here as the first measured workload. Slice 0
-   benchmark-integrity prerequisites closed on 2026-07-02; a bounded
-   post-repair pilot is next, then Slice 2.
+   benchmark-integrity prerequisites closed on 2026-07-02. The authorized
+   post-repair pilot completed without meeting the quality gate; shared
+   tool-read accuracy and input-token pressure are the next Slice 0 work
+   before Slice 2.
    Scope is the
    provider-neutral control loop that maximizes verified engineering value per
    token, dollar, second, and agent turn through attributable measurement,

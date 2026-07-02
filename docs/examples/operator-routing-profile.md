@@ -47,7 +47,8 @@ Observed state:
   defaults. This is expected evidence layering, not a reason to flatten policy.
 
 No live provider probes, paid inference, destructive checks, or credentialed
-model calls are required to use this example.
+model calls are required to use this example. The diagnostic pilot described
+below was separately and explicitly authorized.
 
 Benchmark-integrity repairs completed on 2026-07-02 now make follow-up route
 comparisons safer to interpret:
@@ -200,9 +201,17 @@ should not silently repair native config.
 - Re-run discovery and suitability review when an eligible provider catalog
   adds or materially changes a frontier model; update canonical config and
   this example only after the route is actually available and evidenced.
-- Run a bounded post-repair benchmark pilot before promoting route changes;
-  keep `k >= 5` comparisons opt-in because they can use credentials, quota,
-  network, or paid inference.
+- The authorized 2026-07-02 post-repair `k=1` pilot completed through the
+  normal benchmark path. Codex GPT-5.5 and Kimi K2.7 Code used about 420k input
+  tokens; DeepSeek V4 Pro and GLM 5.2 used about 860k and 940k respectively.
+  Every route produced `passAtK = 0.5` because `tool-read-file` tool-call
+  accuracy remained partial. Kimi's prior tool-name rejection was fixed and
+  DeepSeek's prior upstream 400 did not reproduce, but no route qualifies for
+  promotion or comparative ranking from one sample.
+- Diagnose the shared tool-read quality failure and cumulative input-token
+  pressure before running `k >= 5`. Keep larger comparisons opt-in because
+  they can use credentials, quota, network, or paid inference, and treat
+  subscription economics as non-comparable until metered evidence exists.
 - Consider pruning or ranking the visible OpenCode model catalog in operator
   surfaces so the large discovered catalog does not bury eligible routes.
 - Review competing Codex executables on `PATH`; current Codex auth and model

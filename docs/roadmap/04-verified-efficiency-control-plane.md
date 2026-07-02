@@ -7,8 +7,10 @@ Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
 work started on 2026-07-02 and exposed provider-tool compatibility, route-error
 classification, and subscription-economic evidence blockers. The
 provider-neutral benchmark-integrity prerequisites closed on 2026-07-02 in
-commits `d0d9ecf9`, `41d28e5f`, `e74eb1b3`, and `bd2c0480`. Slices 2 through
-12 are not started.
+commits `d0d9ecf9`, `41d28e5f`, `e74eb1b3`, and `bd2c0480`. An authorized
+post-repair pilot then proved those repairs on four live routes, but every
+route remained below the quality gate and no route was promoted. Slices 2
+through 12 are not started.
 
 ## Objective
 
@@ -263,7 +265,7 @@ contracts but must not create parallel legacy paths.
 
 | Slice | Status | Progress | Next Action |
 | --- | --- | --- | --- |
-| Slice 0 - Baseline And Reproduction | In progress | A bounded live tool-agent pilot ran on 2026-07-02. Successful routes exposed 421k-521k cumulative input-token pressure; Kimi rejected canonical dotted tool names; DeepSeek routes returned upstream 400 errors; Qwen returned transient 503; subscription economics were not comparable. Provider-neutral tool identity, route-failure classification, comparable cost evidence, and typed benchmark evidence are now implemented. | Run a bounded post-repair pilot with explicit operator authorization before any `k=5` comparison or routing promotion. |
+| Slice 0 - Baseline And Reproduction | In progress | The authorized post-repair `kiln-tool-agent` pilot completed on 2026-07-02 across Codex GPT-5.5, Kimi K2.7 Code, GLM 5.2, and DeepSeek V4 Pro. All routes completed through the normal benchmark path and emitted typed evidence, but each produced `passAtK = 0.5` because `tool-read-file` tool-call accuracy remained partial. Kimi accepted the repaired tool identity and DeepSeek completed without reproducing the earlier upstream 400. Input-token totals ranged from 419,972 to 940,391; subscription cost evidence remained explicitly non-comparable. | Diagnose and repair the provider-neutral `tool-read-file` quality failure and cumulative input-token pressure before any `k >= 5` comparison or routing promotion. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
 | Slice 2 - Stable Prefix And Cache Topology | Next | Not started. | Prove byte-stable reusable request regions without changing admitted information. |
 | Slice 3 - Progressive Context And Tool Loading | Planned | Not started. | Start after stable-prefix evidence exists. |
@@ -307,6 +309,32 @@ Closed prerequisite commits:
 - `41d28e5f fix(routing): classify provider route failures`
 - `e74eb1b3 feat(cost): expose comparable execution cost evidence`
 - `bd2c0480 feat(benchmark): emit reproducible baseline evidence`
+
+Post-repair pilot evidence:
+
+- the operator explicitly authorized live network, credential, quota, and
+  possible subscription-inference use on 2026-07-02;
+- four sequential `k=1` runs used the normal `kiln benchmark run-internal`
+  path with profile `kiln-tool-agent`;
+- Codex GPT-5.5 recorded 424,726 input tokens, 1,281 output tokens, and
+  94,489 ms;
+- Kimi K2.7 Code recorded 419,972 input tokens, 2,481 output tokens, and
+  114,256 ms;
+- GLM 5.2 recorded 940,391 input tokens, 3,267 output tokens, and 108,503 ms;
+- DeepSeek V4 Pro recorded 859,793 input tokens, 6,778 output tokens, and
+  166,363 ms;
+- every route recorded `passAtK = 0.5`; the search-contract item passed while
+  `tool-read-file` tool-call accuracy remained partial;
+- every route reported subscription economics with zero per-call metered
+  amount and `comparable = false`; this is honest evidence, not proof of zero
+  economic cost;
+- local typed artifacts are retained under `.kiln/benchmarks/` as
+  `post-repair-gpt-5.5-k1.json`, `post-repair-kimi-k2.7-code-k1.json`,
+  `post-repair-glm-5.2-k1.json`, and
+  `post-repair-deepseek-v4-pro-k1.json`;
+- the artifacts remain operator-local and ignored by Git. Their results are
+  diagnostic only: `k=1`, a failed quality threshold, and non-comparable
+  subscription economics prohibit route ranking or promotion.
 
 Exit gate:
 
