@@ -34,6 +34,7 @@ import {
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
   type ManagedAgentRuntimeAdapter,
+  type ManagedAgentRuntimeAuthorityObserver,
   type ManagedInvocationAgentCatalogEntry,
   type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
@@ -1444,6 +1445,7 @@ function createManagedInvocationService(
   const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
 
   return new RuntimeManagedAgentInvocationService({
+    authorityObserver: createCliManagedRuntimeAuthorityObserver(),
     ...(needsWorktreeLease && leaseConfig ? {
       worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
         repositoryPath: cwd,
@@ -1461,6 +1463,43 @@ function createManagedInvocationService(
       }),
     } : {}),
   });
+}
+
+function createCliManagedRuntimeAuthorityObserver(): ManagedAgentRuntimeAuthorityObserver {
+  return {
+    observe: async ({ request }) => {
+      const observedAt = new Date();
+      const validUntil = new Date(observedAt.getTime() + 60000);
+      return {
+        approval: observedApprovalForManagedAuthority(request.authority),
+        sandbox: observedSandboxForManagedAuthority(request.authority),
+        source: "runtime-observation",
+        proof: "proven",
+        observedAt: observedAt.toISOString(),
+        validUntil: validUntil.toISOString(),
+        reason: "CLI managed route was admitted by Kiln route resolution with live-proven managed invocation capability.",
+      };
+    },
+  };
+}
+
+function observedApprovalForManagedAuthority(
+  authority: ManagedAgentAuthorityProfile,
+): "never" | "on-request" {
+  const profile = authority.permissionProfile.toLowerCase();
+  return profile.includes("trusted")
+    || profile.includes("full-access")
+    || profile.includes("danger-full-access")
+    ? "never"
+    : "on-request";
+}
+
+function observedSandboxForManagedAuthority(
+  authority: ManagedAgentAuthorityProfile,
+): "read-only" | "workspace-write" {
+  return authority.toolAuthority.writeAllowed === true && authority.workingDirectory.mode !== "read-only"
+    ? "workspace-write"
+    : "read-only";
 }
 
 function managedInvocationServiceKey(

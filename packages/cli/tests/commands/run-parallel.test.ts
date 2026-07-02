@@ -5,8 +5,9 @@ import {
 } from "@kilnai/core";
 import {
   RuntimeManagedAgentInvocationService,
-  type ManagedAgentRuntimeInvocationInput,
   type ManagedAgentRuntimeAdapter,
+  type ManagedAgentRuntimeAuthorityObserver,
+  type ManagedAgentRuntimeInvocationInput,
   type ManagedAgentWorktreeLeaseManager,
   type ManagedAgentWorktreeLeaseManagerInput,
   type ManagedAgentWorktreeLeaseReleaseInput,
@@ -61,9 +62,17 @@ describe("runParallelWorkers", () => {
       "completed",
       "completed",
     ]);
+    const invocationService = managedInvocation.invocationService;
+    const records = await Promise.all(
+      invocationService?.list().map((snapshot) => invocationService.join(snapshot.invocationId)) ?? [],
+    );
+    expect(records.map((result) => result.record.capabilitySnapshot.authorityEvidence.classification)).toEqual([
+      "current-verified",
+      "current-verified",
+    ]);
   });
 
-  it("normalizes raw managed invocation options before fan-out service execution", async () => {
+  it("fails closed for raw managed invocation options without runtime authority proof", async () => {
     const managedInvocation = createManagedInvocation();
     const { invocationService: _omitted, ...rawManagedInvocation } = managedInvocation;
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -84,7 +93,7 @@ describe("runParallelWorkers", () => {
 
     const errorOutput = errorSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(errorOutput).not.toContain("requires an invocation service");
-    expect(errorOutput).toContain("isolated worktree lease manager is required");
+    expect(errorOutput).toContain("authorityEvidence.effective-policy-unproven");
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -396,6 +405,7 @@ function createManagedInvocation(input: {
     requestedBy: "operator",
     requestSource: "cli:run-workers",
     invocationService: new RuntimeManagedAgentInvocationService({
+      authorityObserver: createRuntimeAuthorityObserver(),
       worktreeLeaseManager: createWorktreeLeaseManager(),
     }),
     routes: [{
@@ -497,6 +507,22 @@ function createWorktreeLeaseManager(): ManagedAgentWorktreeLeaseManager {
       cleanupStatus: "completed",
       diagnosticUris: [`kiln://artifacts/${input.request.invocationId}/worktree-release`],
     }),
+  };
+}
+
+function createRuntimeAuthorityObserver(): ManagedAgentRuntimeAuthorityObserver {
+  return {
+    observe: vi.fn(async ({ request }) => ({
+      approval: "on-request",
+      sandbox: request.authority.toolAuthority.writeAllowed === true && request.authority.workingDirectory.mode !== "read-only"
+        ? "workspace-write"
+        : "read-only",
+      source: "runtime-observation",
+      proof: "proven",
+      observedAt: "2026-07-02T08:00:00.000Z",
+      validUntil: "2099-01-01T00:00:00.000Z",
+      reason: "Test route has explicit runtime authority proof.",
+    })),
   };
 }
 

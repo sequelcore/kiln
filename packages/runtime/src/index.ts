@@ -156,6 +156,7 @@ export type {
   ManagedAgentWorktreeLeaseReleaseInput,
   ManagedGitWorktreeLeaseManagerConfig,
   ManagedAgentRuntimeAdapter,
+  ManagedAgentRuntimeAuthorityObserver,
   ManagedAgentRuntimeInvocationInput,
   ManagedAgentRuntimeInvocationResult,
   ManagedAgentRuntimeInvocationSnapshot,
