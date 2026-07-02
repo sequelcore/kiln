@@ -947,7 +947,9 @@ describe("managed invocation runtime tool", () => {
         memoryWriteProposalUris: [],
       },
     }));
-    await flushMicrotasks();
+    await waitForCondition(() =>
+      session.sessionEvents.some((event) => event.kind === "agent_invocation_completed")
+    );
 
     const completedStatusBeforeJoin = await surface.callBuiltinTools.get("managed_agent.status")?.({
       invocationId: started.metadata.invocationId,
@@ -2660,7 +2662,9 @@ describe("managed invocation runtime tool", () => {
         memoryWriteProposalUris: [],
       },
     }));
-    await flushMicrotasks();
+    await waitForCondition(() =>
+      session.sessionEvents.some((event) => event.kind === "agent_invocation_completed")
+    );
 
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "agent_invocation_requested",

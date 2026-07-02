@@ -14,6 +14,11 @@ interface ThemeSwitcherProps {
   readonly onThemeSelected?: (theme: KilnTheme) => void;
 }
 
+const FALLBACK_THEME_NAMES = ["kiln-dark", "kiln-graphite", "kiln-light", "system-follow"] as const;
+const THEME_NAMES = Array.isArray(OPERATOR_THEME_NAMES) && OPERATOR_THEME_NAMES.length > 0
+  ? OPERATOR_THEME_NAMES
+  : FALLBACK_THEME_NAMES;
+
 export function ThemeSwitcher(props: ThemeSwitcherProps) {
   const theme = useUiStore((s) => s.theme);
   const setTheme = useUiStore((s) => s.setTheme);
@@ -38,9 +43,9 @@ export function ThemeSwitcher(props: ThemeSwitcherProps) {
       </SelectTrigger>
       <SelectContent align="end">
         <SelectGroup>
-          {OPERATOR_THEME_NAMES.map((name) => (
+          {THEME_NAMES.map((name) => (
             <SelectItem key={name} value={name}>
-              {OPERATOR_THEME_LABELS[name]}
+              {OPERATOR_THEME_LABELS[name] ?? name}
             </SelectItem>
           ))}
         </SelectGroup>

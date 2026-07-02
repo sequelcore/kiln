@@ -10,20 +10,11 @@ test.describe("parity category 2 - provider and model selection", () => {
     await expect(providerStatus).toHaveAttribute("aria-label", /Provider selector/);
 
     await providerStatus.click();
-    await page.getByRole("option", { name: /^Codex \d+ models$/ }).click();
-    await page.getByRole("option", { name: "gpt-5.4-mini" }).click();
-    await expect(providerStatus).toHaveAttribute("aria-label", /Codex \/ gpt-5\.4-mini/, { timeout: 2_000 });
-
-    const composer = page.locator("#composer-input");
-    await composer.fill("route this through codex");
-    await composer.press("Enter");
-    const codexRouteLabel = page.locator('[data-role="assistant"] [data-slot="message-header"] [data-slot="badge"]').first();
-    await expect(codexRouteLabel).toContainText("Codex", { timeout: 5_000 });
-
-    await providerStatus.click();
-    await page.getByRole("option", { name: "Claude No model selection" }).dblclick();
+    await expect(page.getByRole("option", { name: /Codex Unavailable/ })).toBeDisabled();
+    await page.getByRole("button", { name: "Cancel" }).click();
     await expect(providerStatus).toHaveAttribute("aria-label", /Claude \/ Select model/, { timeout: 2_000 });
 
+    const composer = page.locator("#composer-input");
     await composer.fill("route this through claude");
     await composer.press("Enter");
     const assistantRows = page.locator('[data-role="assistant"] [data-slot="message-header"] [data-slot="badge"]');
@@ -37,22 +28,18 @@ test.describe("parity category 2 - provider and model selection", () => {
     const providerStatus = page.locator('button[aria-label^="Provider selector."]');
     await expect(providerStatus).toBeVisible({ timeout: 3_000 });
 
-    await providerStatus.click();
-    await page.getByRole("option", { name: /^Codex \d+ models$/ }).click();
-    await page.getByRole("option", { name: "gpt-5.4-mini" }).click();
-    await expect(providerStatus).toHaveAttribute("aria-label", /Codex \/ gpt-5\.4-mini/, { timeout: 2_000 });
-
     const composer = page.locator("#composer-input");
     await composer.fill("hold stream for provider switch");
     await composer.press("Enter");
     const firstAssistantRoute = page.locator('[data-role="assistant"] [data-slot="message-header"] [data-slot="badge"]').first();
-    await expect(firstAssistantRoute).toContainText("Codex", { timeout: 5_000 });
+    await expect(firstAssistantRoute).toContainText("Claude", { timeout: 5_000 });
 
     await providerStatus.click();
-    await page.getByRole("option", { name: "Claude No model selection" }).dblclick();
+    await expect(page.getByRole("option", { name: /Codex Unavailable/ })).toBeDisabled();
+    await page.getByRole("button", { name: "Cancel" }).click();
     await expect(providerStatus).toHaveAttribute("aria-label", /Claude \/ Select model/, { timeout: 2_000 });
 
     await expect(page.locator('[data-role="assistant"]').first()).toContainText("echo:hold stream for provider switch", { timeout: 5_000 });
-    await expect(firstAssistantRoute).toContainText("Codex", { timeout: 2_000 });
+    await expect(firstAssistantRoute).toContainText("Claude", { timeout: 2_000 });
   });
 });

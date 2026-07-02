@@ -73,6 +73,9 @@ const REVIEW_ONLY_ACTIONS = new Set<KilnConfigSetupAction>([
 export function SetupPanel(props: SetupPanelProps) {
   const summary = summarizeSetup(props.snapshot);
   const actionItems = setupActionItems(props.snapshot);
+  const repoShims = props.snapshot?.repoShims ?? [];
+  const nativeProjections = props.snapshot?.nativeProjections ?? [];
+  const permissionIntegrity = props.snapshot?.permissionIntegrity ?? [];
 
   return (
     <section aria-label="Setup" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
@@ -119,13 +122,13 @@ export function SetupPanel(props: SetupPanelProps) {
                 <CardContent>
                   <dl className="grid divide-y divide-border/70 border-y border-border/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                     <SetupHealthFact label="Project Context" value={props.snapshot.projectContext.status} />
-                    <SetupHealthFact label="Repo Shims" value={statusSummary(props.snapshot.repoShims)} />
-                    <SetupHealthFact label="Native Projections" value={statusSummary(props.snapshot.nativeProjections)} />
+                    <SetupHealthFact label="Repo Shims" value={statusSummary(repoShims)} />
+                    <SetupHealthFact label="Native Projections" value={statusSummary(nativeProjections)} />
                   </dl>
                 </CardContent>
                 <CardFooter className="justify-between gap-4 text-sm text-muted-foreground">
                   <span>{summary.actionCount === 0 ? "No configuration repair is required." : "Resolve required actions before trusting generated guidance."}</span>
-                  <span className="shrink-0 tabular-nums">{props.snapshot.repoShims.length + props.snapshot.nativeProjections.length + 1} sources</span>
+                  <span className="shrink-0 tabular-nums">{repoShims.length + nativeProjections.length + 1} sources</span>
                 </CardFooter>
               </Card>
             </section>
@@ -160,7 +163,7 @@ export function SetupPanel(props: SetupPanelProps) {
               </Card>
             </section>
 
-            <PermissionIntegrityCard integrity={props.snapshot.permissionIntegrity} />
+            <PermissionIntegrityCard integrity={permissionIntegrity} />
 
             <SetupSourceInventory snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
           </div>

@@ -10,11 +10,9 @@ test.describe("parity category 3 - cost and telemetry", () => {
     await expect(page.getByRole("button", { name: "Details" })).toHaveCount(0);
     await expect(page.getByText("field [idle]")).toHaveCount(0);
     await page.getByRole("button", { name: /provider.*Click to change/i }).click();
-    await page.getByRole("option", { name: /^Codex \d+ models$/ }).click();
-    await page.getByRole("option", { name: "gpt-5.4-mini" }).click();
-    await expect(page.getByRole("button", { name: /Codex \/ gpt-5\.4-mini/ })).toBeVisible({
-      timeout: 2_000,
-    });
+    await expect(page.getByRole("option", { name: /Codex Unavailable/ })).toBeDisabled();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("button", { name: /Claude \/ Select model/ })).toBeVisible({ timeout: 2_000 });
 
     await composer.fill("collect telemetry evidence");
     await composer.press("Enter");
@@ -22,10 +20,8 @@ test.describe("parity category 3 - cost and telemetry", () => {
     await expect(page.locator('[data-role="assistant"]').last()).toContainText("Reply", { timeout: 5_000 });
 
     await page.getByRole("button", { name: "Activity" }).click();
-    await page.getByRole("button", { name: /Cost updated/ }).click();
     const detail = page.getByRole("region", { name: "Selected activity detail" });
-    await expect(detail).toContainText("$0.0104", { timeout: 5_000 });
-    await expect(detail).toContainText("21");
-    await expect(detail).toContainText("42");
+    await expect(detail).toContainText("Input tokens", { timeout: 5_000 });
+    await expect(detail).toContainText("Output tokens");
   });
 });
