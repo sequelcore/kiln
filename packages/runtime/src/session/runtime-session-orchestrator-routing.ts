@@ -457,10 +457,18 @@ async function invokeManagedMultimodalDelegation(input: {
   readonly requirements: RuntimeMultimodalRequirements;
   readonly decision: ReturnType<typeof planMultimodalRoute>;
 }): Promise<RuntimeMultimodalDelegationExecutionResult> {
+  const observedRuntimeAuthority = input.route.observedRuntimeAuthority;
   const service = new RuntimeManagedAgentInvocationService({
     credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
       allowedRouteIds: runtimeMultimodalCredentialRouteIds(input.route),
     }),
+    ...(observedRuntimeAuthority
+      ? {
+          authorityObserver: {
+            observe: async () => observedRuntimeAuthority,
+          },
+        }
+      : {}),
   });
   const resourceUris = input.requirements.artifacts.map((artifact) => artifact.uri);
   const invocationId = createRuntimeMultimodalDelegationInvocationId(
@@ -476,6 +484,10 @@ async function invokeManagedMultimodalDelegation(input: {
     profile: input.route.profile,
     requestedBy: "runtime",
     requestSource: "runtime-multimodal-delegation",
+    executionIntent: {
+      attendance: "unattended",
+      lifecycle: "automation",
+    },
     requestedAuthority: input.route.requestedAuthority ?? "read_only",
     providerRoute: input.route.providerRoute,
     adapterKind: input.route.adapter.descriptor.adapterKind,

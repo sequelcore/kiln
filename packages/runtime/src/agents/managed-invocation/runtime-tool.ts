@@ -1280,6 +1280,9 @@ async function prepareManagedInvocationRequest(
     profile: parsed.input.profile,
     requestedBy: options.requestedBy ?? "assistant",
     requestSource: options.requestSource ?? "runtime-tool",
+    executionIntent: toolName === MANAGED_AGENT_START_TOOL_NAME
+      ? { attendance: "unattended", lifecycle: "background" }
+      : { attendance: "attended", lifecycle: "foreground" },
     requestedAuthority,
     ...(authorityApproval.authorityApproval ? { authorityApproval: authorityApproval.authorityApproval } : {}),
     providerRoute: {

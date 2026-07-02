@@ -342,6 +342,10 @@ function buildFanOutChildInvocationRequest(input: {
     profile: FAN_OUT_PROFILE,
     requestedBy: input.requestedBy,
     requestSource: input.requestSource,
+    executionIntent: {
+      attendance: "unattended",
+      lifecycle: "background",
+    },
     requestedAuthority: input.requestedAuthority,
     providerRoute: {
       providerId: input.route.providerId,

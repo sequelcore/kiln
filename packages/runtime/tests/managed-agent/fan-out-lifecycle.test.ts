@@ -45,6 +45,8 @@ describe("runManagedAgentFanOutLifecycle", () => {
     ]);
     expect(result.childRecords[0]?.record?.parentSessionId).toBe("parent-session");
     expect(result.childRecords[0]?.record?.authority.workingDirectory.path).toContain("fan-out-test:child:1");
+    expect(result.childRecords[0]?.record?.capabilitySnapshot.authorityEvidence.requested.source).toBe("managed-invocation-request");
+    expect(result.childRecords[0]?.record?.capabilitySnapshot.authorityEvidence.classification).toBe("current-verified");
   });
 
   it("maps failed joined children into orchestration evidence", async () => {
@@ -245,6 +247,16 @@ function createManagedInvocation(input: {
     requestSource: "runtime-test",
     invocationService: new RuntimeManagedAgentInvocationService({
       worktreeLeaseManager: createWorktreeLeaseManager(input.failAcquireOrdinals ?? new Set()),
+      authorityObserver: {
+        observe: async () => ({
+          approval: "on-request" as const,
+          sandbox: "workspace-write" as const,
+          source: "runtime-observation" as const,
+          proof: "proven" as const,
+          observedAt: "2026-07-02T08:00:00.000Z",
+          validUntil: "2099-01-01T00:00:00.000Z",
+        }),
+      },
     }),
     routes: [{
       routeId: "test-write",
@@ -357,6 +369,10 @@ function createAdapter(input: {
       cleanup: { supported: true },
     }),
     invoke: async ({ request, admission, abortSignal }: ManagedAgentRuntimeInvocationInput) => {
+      expect(request.executionIntent).toEqual({
+        attendance: "unattended",
+        lifecycle: "background",
+      });
       const ordinal = Number(request.invocationId.split(":").at(-1));
       if (input.holdOrdinals.has(ordinal) && !abortSignal.aborted) {
         await new Promise<void>((resolve) => {

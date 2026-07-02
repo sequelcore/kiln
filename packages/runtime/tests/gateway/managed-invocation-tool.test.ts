@@ -26,6 +26,7 @@ import {
   ManagedAgentLeaseAcquireError,
   ManagedAgentWorktreeReviewRequiredError,
   ManagedRuntimeCredentialRouteLeaseManager,
+  ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
   createManagedAgentInvocationResourceProvider,
 } from "../../src/agents/managed-invocation/index.js";
@@ -393,16 +394,60 @@ function makeAbortableDeferredAdapter(): {
   return { adapter, terminal, signal: () => signal };
 }
 
+function makeRuntimeAuthorityObserver() {
+  return {
+    observe: vi.fn(async ({ request }: { readonly request: ManagedAgentInvocationRequest }) => {
+      const permissionProfile = request.authority.permissionProfile.toLowerCase();
+      const observedAt = new Date(Date.now()).toISOString();
+      const validUntil = new Date(Date.now() + 60_000).toISOString();
+      return {
+        approval: permissionProfile.includes("trusted") || permissionProfile.includes("full-access") || permissionProfile.includes("danger-full-access")
+          ? "never" as const
+          : "on-request" as const,
+        sandbox: request.authority.toolAuthority.writeAllowed === true && request.authority.workingDirectory.mode !== "read-only"
+          ? "workspace-write" as const
+          : "read-only" as const,
+        source: "runtime-observation" as const,
+        proof: "proven" as const,
+        observedAt,
+        validUntil,
+      };
+    }),
+  };
+}
+
+function makeObservedRuntimeInvocationService(
+  options: NonNullable<ConstructorParameters<typeof RuntimeManagedAgentInvocationService>[0]> = {},
+): RuntimeManagedAgentInvocationService {
+  return new RuntimeManagedAgentInvocationService({
+    ...options,
+    authorityObserver: options.authorityObserver ?? makeRuntimeAuthorityObserver(),
+  });
+}
+
 function makeSurface(
   adapter = makeAdapter(),
   sessionEventSink?: ManagedInvocationSessionEventSink,
   artifactStore?: MemoryArtifactResourceStore,
+  options: { readonly observeRuntimeAuthority?: boolean } = {},
 ) {
+  const observeRuntimeAuthority = options.observeRuntimeAuthority ?? true;
   return createAttachedRuntimeBuiltinToolSurface({
     ...(artifactStore ? { builtinToolOptions: { artifactResources: { store: artifactStore } } } : {}),
     managedInvocation: {
       ...(sessionEventSink ? { sessionEventSink } : {}),
       ...(artifactStore ? { artifactStore } : {}),
+      invocationService: observeRuntimeAuthority
+        ? makeObservedRuntimeInvocationService({
+          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+            allowedRouteIds: ["credential-route:opencode:primary"],
+          }),
+        })
+        : new RuntimeManagedAgentInvocationService({
+          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+            allowedRouteIds: ["credential-route:opencode:primary"],
+          }),
+        }),
       routes: [{
         routeId: "opencode-readonly",
         routeSource: "explicit-managed-route",
@@ -810,6 +855,14 @@ describe("managed invocation runtime tool", () => {
       },
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect(adapter.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({
+        executionIntent: {
+          attendance: "unattended",
+          lifecycle: "background",
+        },
+      }),
+    }));
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "agent_invocation_requested",
       "agent_invocation_started",
@@ -1133,6 +1186,37 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_started",
       "agent_invocation_completed",
     ]);
+  });
+
+  it("fails closed when background managed_agent.start cannot prove runtime authority", async () => {
+    const adapter = makeAdapter();
+    const surface = makeSurface(adapter, undefined, undefined, { observeRuntimeAuthority: false });
+    const session = makeSession();
+
+    const result = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Start without runtime authority proof.",
+      requestedAuthority: "read_only",
+    }, {
+      session,
+      toolCall: {
+        id: "tool-call-bg-unproven",
+        name: "managed_agent.start",
+        input: {},
+      },
+    }) as { readonly isError: boolean; readonly metadata?: { readonly missingCapabilities?: readonly string[] } };
+
+    expect(result).toMatchObject({
+      isError: true,
+      metadata: {
+        missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+      },
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
   });
 
   it("projects managed child progress events before terminal join", async () => {
@@ -1590,6 +1674,12 @@ describe("managed invocation runtime tool", () => {
     const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
+        invocationService: makeObservedRuntimeInvocationService({
+          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+            allowedRouteIds: ["credential-route:opencode-sandbox"],
+          }),
+          sandboxLeaseManager: new ManagedRuntimeSandboxLeaseManager(),
+        }),
         routes: [{
           ...route,
           profiles: {
@@ -1724,7 +1814,7 @@ describe("managed invocation runtime tool", () => {
 
   it("cancels managed_agent.start through the parent runtime abort signal", async () => {
     const { adapter, terminal, signal } = makeAbortableDeferredAdapter();
-    const invocationService = new RuntimeManagedAgentInvocationService({
+    const invocationService = makeObservedRuntimeInvocationService({
       credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
         allowedRouteIds: ["credential-route:opencode-readonly"],
       }),
@@ -1785,6 +1875,12 @@ describe("managed invocation runtime tool", () => {
     const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
+        invocationService: makeObservedRuntimeInvocationService({
+          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+            allowedRouteIds: ["credential-route:opencode-sandbox"],
+          }),
+          sandboxLeaseManager: new ManagedRuntimeSandboxLeaseManager(),
+        }),
         routes: [{
           ...route,
           profiles: {
@@ -1927,6 +2023,12 @@ describe("managed invocation runtime tool", () => {
     const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
+        invocationService: makeObservedRuntimeInvocationService({
+          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+            allowedRouteIds: ["credential-route:opencode-sandbox"],
+          }),
+          sandboxLeaseManager: new ManagedRuntimeSandboxLeaseManager(),
+        }),
         routes: [{
           ...route,
           profiles: {
@@ -2049,7 +2151,7 @@ describe("managed invocation runtime tool", () => {
     });
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
-        invocationService: new RuntimeManagedAgentInvocationService({
+        invocationService: makeObservedRuntimeInvocationService({
           worktreeLeaseManager,
           credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
             allowedRouteIds: ["credential-route:opencode:primary"],
@@ -2207,7 +2309,7 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         sessionEventSink,
-        invocationService: new RuntimeManagedAgentInvocationService({
+        invocationService: makeObservedRuntimeInvocationService({
           worktreeLeaseManager,
         }),
         routes: [{
@@ -2358,7 +2460,7 @@ describe("managed invocation runtime tool", () => {
     });
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
-        invocationService: new RuntimeManagedAgentInvocationService({
+        invocationService: makeObservedRuntimeInvocationService({
           worktreeLeaseManager,
           credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
             allowedRouteIds: ["credential-route:opencode:primary"],
@@ -3129,7 +3231,7 @@ describe("managed invocation runtime tool", () => {
 
   it("keeps managed child lineage and route provenance when cancel join fails", async () => {
     const { adapter, terminal } = makeAbortableDeferredAdapter();
-    const invocationService = new RuntimeManagedAgentInvocationService({
+    const invocationService = makeObservedRuntimeInvocationService({
       credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
         allowedRouteIds: ["credential-route:opencode-readonly"],
       }),
@@ -4814,7 +4916,7 @@ describe("managed invocation runtime tool", () => {
         });
       }),
     };
-    const invocationService = new RuntimeManagedAgentInvocationService();
+    const invocationService = makeObservedRuntimeInvocationService();
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         invocationService,

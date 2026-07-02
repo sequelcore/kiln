@@ -15,6 +15,7 @@ import type {
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityProfile,
   ManagedAgentInvocationContextMode,
+  ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
 } from "@kilnai/core";
@@ -103,6 +104,7 @@ export interface RuntimeMultimodalDelegationRoute {
   readonly profile: ManagedAgentAdmissionProfile;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly providerRoute: ManagedAgentProviderRoute;
+  readonly observedRuntimeAuthority?: ManagedAgentObservedRuntimeAuthorityEvidence;
   readonly authority: ManagedAgentAuthorityProfile;
   readonly contextMode?: ManagedAgentInvocationContextMode;
   readonly agentProfile?: string;

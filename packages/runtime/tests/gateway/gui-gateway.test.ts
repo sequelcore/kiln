@@ -47,6 +47,7 @@ import type {
 import { createManagedInvocationLifecycleToolExecutors } from "../../src/agents/managed-invocation/runtime-tool.js";
 import {
   ManagedAgentWorktreeReviewRequiredError,
+  ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
   type ManagedAgentWorktreeLeaseManager,
   type ManagedAgentRuntimeAdapter,
@@ -224,6 +225,21 @@ function makeGuiOperatorDiscoveryFromModels(
   });
 }
 
+function makeGuiRuntimeAuthorityObserver() {
+  return {
+    observe: vi.fn(async ({ request }: { readonly request: ManagedAgentInvocationRequest }) => ({
+      approval: "on-request" as const,
+      sandbox: request.authority.toolAuthority.writeAllowed === true && request.authority.workingDirectory.mode !== "read-only"
+        ? "workspace-write" as const
+        : "read-only" as const,
+      source: "runtime-observation" as const,
+      proof: "proven" as const,
+      observedAt: "2026-07-02T08:00:00.000Z",
+      validUntil: "2099-01-01T00:00:00.000Z",
+    })),
+  };
+}
+
 function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
   const adapter: ManagedAgentRuntimeAdapter = {
     descriptor: defineManagedAgentAdapterDescriptor({
@@ -297,6 +313,12 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
   };
 
   return {
+    invocationService: new RuntimeManagedAgentInvocationService({
+      authorityObserver: makeGuiRuntimeAuthorityObserver(),
+      credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+        allowedRouteIds: ["credential-route:opencode:runtime-selected"],
+      }),
+    }),
     routes: [{
       routeId: "opencode-readonly",
       routeSource: "explicit-managed-route",
@@ -360,7 +382,9 @@ function makeManagedWriteConflictFixture(): {
     readonly task: "Apply the approved runtime edit.";
   };
 } {
-  const invocationService = new RuntimeManagedAgentInvocationService();
+  const invocationService = new RuntimeManagedAgentInvocationService({
+    authorityObserver: makeGuiRuntimeAuthorityObserver(),
+  });
   const releaseActive = { resolve: undefined as (() => void) | undefined };
   const activeCompleted = new Promise<void>((resolve) => {
     releaseActive.resolve = resolve;
@@ -547,6 +571,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
     }),
   };
   const invocationService = new RuntimeManagedAgentInvocationService({
+    authorityObserver: makeGuiRuntimeAuthorityObserver(),
     worktreeLeaseManager,
   });
   const adapter: ManagedAgentRuntimeAdapter = {
@@ -3725,7 +3750,9 @@ describe("startGuiGateway static mount", () => {
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const invocationService = new RuntimeManagedAgentInvocationService();
+    const invocationService = new RuntimeManagedAgentInvocationService({
+      authorityObserver: makeGuiRuntimeAuthorityObserver(),
+    });
     const baseManagedInvocation = makeManagedInvocationOptions();
     const baseRoute = baseManagedInvocation.routes[0]!;
     const controlRoute = {
@@ -3945,7 +3972,9 @@ describe("startGuiGateway static mount", () => {
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const invocationService = new RuntimeManagedAgentInvocationService();
+    const invocationService = new RuntimeManagedAgentInvocationService({
+      authorityObserver: makeGuiRuntimeAuthorityObserver(),
+    });
     const baseManagedInvocation = makeManagedInvocationOptions();
     const baseRoute = baseManagedInvocation.routes[0]!;
     const controlRoute = {
@@ -4169,7 +4198,9 @@ describe("startGuiGateway static mount", () => {
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const invocationService = new RuntimeManagedAgentInvocationService();
+    const invocationService = new RuntimeManagedAgentInvocationService({
+      authorityObserver: makeGuiRuntimeAuthorityObserver(),
+    });
     const baseManagedInvocation = makeManagedInvocationOptions();
     const baseRoute = baseManagedInvocation.routes[0]!;
     const controlRoute = {
@@ -4668,7 +4699,9 @@ describe("startGuiGateway static mount", () => {
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const invocationService = new RuntimeManagedAgentInvocationService();
+    const invocationService = new RuntimeManagedAgentInvocationService({
+      authorityObserver: makeGuiRuntimeAuthorityObserver(),
+    });
     const baseManagedInvocation = makeManagedInvocationOptions();
     const baseRoute = baseManagedInvocation.routes[0]!;
     const controlRoute = {

@@ -491,6 +491,14 @@ describe("RuntimeSessionOrchestrator model routing", () => {
           surface: "cli-harness",
           model: "gpt-4o",
         },
+        observedRuntimeAuthority: {
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "runtime-observation",
+          proof: "proven",
+          observedAt: "2026-07-02T08:00:00.000Z",
+          validUntil: "2099-01-01T00:00:00.000Z",
+        },
         authority: {
           authorityProfileId: "authority:managed-vision:readonly",
           permissionProfile: "read-only",
@@ -525,6 +533,10 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const request = (managedAdapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]
       .request as ManagedAgentInvocationRequest;
     expect(request.input.resourceUris).toEqual([artifactUri]);
+    expect(request.executionIntent).toEqual({
+      attendance: "unattended",
+      lifecycle: "automation",
+    });
   });
 
   it("delegates image admission to a managed auxiliary route when the active route lacks vision", async () => {
@@ -543,6 +555,14 @@ describe("RuntimeSessionOrchestrator model routing", () => {
           providerId: "openai",
           surface: "cli-harness",
           model: "gpt-4o",
+        },
+        observedRuntimeAuthority: {
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "runtime-observation",
+          proof: "proven",
+          observedAt: "2026-07-02T08:00:00.000Z",
+          validUntil: "2099-01-01T00:00:00.000Z",
         },
         authority: {
           authorityProfileId: "authority:managed-vision:readonly",
@@ -581,6 +601,10 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       .request as ManagedAgentInvocationRequest;
     expect(request.requestSource).toBe("runtime-multimodal-delegation");
     expect(request.requestedAuthority).toBe("read_only");
+    expect(request.executionIntent).toEqual({
+      attendance: "unattended",
+      lifecycle: "automation",
+    });
     expect(request.input.resourceUris).toEqual(["kiln://runtime/session-artifact/0"]);
     expect(request.input.context).toMatchObject({
       mode: "resources",
