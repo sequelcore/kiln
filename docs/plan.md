@@ -229,6 +229,19 @@ DeepSeek V4 Pro failed the tool-trajectory score for the search item. These
 samples are sufficient evidence for the bounded repair claim, not for global
 model ranking or personal configuration promotion.
 
+Viable-route `k=5` comparison, authorized on 2026-07-02:
+
+| Route | passAtK | Input tokens | Output tokens | Requests | Duration |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Codex GPT-5.5 | 1.0 | 192,637 | 6,702 | 48 | 374,166 ms |
+| Kimi K2.7 Code | 1.0 | 388,909 | 12,851 | 67 | 470,523 ms |
+
+Both routes qualify as internal baselines for the `kiln-tool-agent` profile.
+For this profile and workstation, Codex GPT-5.5 remains the primary route
+because it matched Kimi's quality while using materially less input, output,
+request, and latency budget. Kimi remains an eligible fallback/specialist route.
+This is an internal routing decision, not a public model leaderboard claim.
+
 ## Verification And Commit Sequence
 
 1. `feat(benchmark): persist per-round execution evidence`

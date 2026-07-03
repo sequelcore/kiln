@@ -62,6 +62,22 @@ comparisons safer to interpret:
 - internal benchmark baselines emit typed evidence artifacts for transcript,
   tool calls, diagnostics, usage, route, cost, and result.
 
+The authorized post-repair `kiln-tool-agent` pilots recorded the following
+bounded evidence through the normal benchmark path:
+
+| Route | k | passAtK | Input tokens | Requests | Status |
+|---|---:|---:|---:|---:|---|
+| `codex-oauth/gpt-5.5` | 1 | 1.0 | 37,354 | 9 | Passed bounded pilot. |
+| `opencode-go/kimi-k2.7-code` | 1 | 1.0 | 76,496 | 17 | Passed bounded pilot. |
+| `opencode-go/glm-5.2` | 1 | 0.5 | 19,023 | 5 | Failed readiness on search latency. |
+| `opencode-go/deepseek-v4-pro` | 1 | 0.5 | 71,366 | 15 | Failed search tool trajectory. |
+| `codex-oauth/gpt-5.5` | 5 | 1.0 | 192,637 | 48 | Internal baseline ready for this profile. |
+| `opencode-go/kimi-k2.7-code` | 5 | 1.0 | 388,909 | 67 | Internal baseline ready for this profile. |
+
+These numbers validate the token-pressure repair and the local routing shape
+for this workstation. They do not rank general model capability, because the
+dataset is intentionally small and specific to Kiln read-only tool-agent work.
+
 ## Routing Policy
 
 The current global routing shape is:
@@ -196,22 +212,37 @@ Use `doctor` as read-only evidence. It should diagnose drift, competing
 executables, catalog status, auth state, and permission-integrity layers; it
 should not silently repair native config.
 
+## Public Benchmark Readiness
+
+Benchmark evidence can support public marketing only after the claim is scoped
+to Kiln's governance value rather than broad model superiority. A publishable
+claim should separate:
+
+- model performance on a named task profile;
+- Kiln's provider-neutral tool projection and authority governance;
+- token-pressure reduction relative to an earlier Kiln execution path;
+- non-comparable subscription economics from metered cost.
+
+Before publishing, require resolvable artifacts, profile and dataset versions,
+commit, provider/model identifiers, scorer set, `k`, config hash, transcripts,
+tool calls, diagnostics, usage evidence, failed cases, and explicit
+limitations. Current `k=5` evidence is suitable for internal routing decisions
+and product narrative exploration, not yet a public leaderboard or broad model
+claim.
+
 ## Current Follow-Up Items
 
 - Re-run discovery and suitability review when an eligible provider catalog
   adds or materially changes a frontier model; update canonical config and
   this example only after the route is actually available and evidenced.
-- The authorized 2026-07-02 post-repair `k=1` pilot completed through the
-  normal benchmark path. Codex GPT-5.5 and Kimi K2.7 Code used about 420k input
-  tokens; DeepSeek V4 Pro and GLM 5.2 used about 860k and 940k respectively.
-  Every route produced `passAtK = 0.5` because `tool-read-file` tool-call
-  accuracy remained partial. Kimi's prior tool-name rejection was fixed and
-  DeepSeek's prior upstream 400 did not reproduce, but no route qualifies for
-  promotion or comparative ranking from one sample.
-- Diagnose the shared tool-read quality failure and cumulative input-token
-  pressure before running `k >= 5`. Keep larger comparisons opt-in because
-  they can use credentials, quota, network, or paid inference, and treat
-  subscription economics as non-comparable until metered evidence exists.
+- Treat `codex-oauth/gpt-5.5` as the primary route for this
+  `kiln-tool-agent` profile. It matched Kimi's `passAtK = 1.0` at `k=5` while
+  using about half the input tokens and fewer provider requests.
+- Keep `opencode-go/kimi-k2.7-code` as an eligible fallback or specialist
+  route for this profile. It passed `k=5`, but used more token and request
+  budget in this local comparison.
+- Do not promote GLM 5.2 or DeepSeek V4 Pro for this profile until their
+  failed `k=1` cases are diagnosed and revalidated.
 - Consider pruning or ranking the visible OpenCode model catalog in operator
   surfaces so the large discovered catalog does not bury eligible routes.
 - Review competing Codex executables on `PATH`; current Codex auth and model
