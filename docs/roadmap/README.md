@@ -38,6 +38,7 @@ architecture program needs additional sections:
 | [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open. Provider/model eligibility is now canonicalized; remaining items are narrowed to public-release UX truth, skill/plugin diagnostics, event density, context usage, and live validation. | Close fake or unavailable operator-facing states before public release. |
 | [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 0 in progress, Slice 1 complete | The authorized post-repair pilot completed across four live routes. Kimi tool identity and DeepSeek execution repairs held, but every route remained at `passAtK = 0.5` with partial `tool-read-file` accuracy, 420k-940k input-token pressure, and non-comparable subscription economics. | Repair the shared tool-read quality failure and input-token pressure before `k >= 5`, route promotion, or Slice 2 optimization claims. |
+| [05-skill-capability-plane.md](./05-skill-capability-plane.md) | Active research and configuration-hardening track | Initial personal skill audit confirmed backup coverage, installed selected high-leverage skills, and repaired broken local skill resources. | Define the Kiln skill evidence contract before automatic admission, update, or promotion behavior. |
 
 ## Canonical References
 
@@ -103,6 +104,13 @@ Use these documents as the source of truth before starting roadmap work:
    provider-neutral control loop that maximizes verified engineering value per
    token, dollar, second, and agent turn through attributable measurement,
    bounded efficiency actuators, and evidence-gated policy promotion.
+
+5. [Skill Capability Plane](./05-skill-capability-plane.md)
+   Active on 2026-07-03. Scope is the governed skill capability plane:
+   installed-skill inventory, local repair, cross-harness visibility, evidence
+   contracts, value evaluation, and curated operations. Skills must reduce
+   token pressure and cloned-repository dependence; they must not become a new
+   always-loaded template pile.
 
 ## Deferred Roadmaps
 
