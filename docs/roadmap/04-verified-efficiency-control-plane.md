@@ -372,6 +372,13 @@ quality while using materially less input, output, request, and latency budget.
 Kimi remains an eligible fallback or specialist route. This is a bounded local
 routing decision, not a public leaderboard or broad model-capability claim.
 
+Reasoning-effort limitation: the operator's global config declares a normalized
+reasoning policy, but these benchmark runs did not explicitly fix, vary, or
+record resolved reasoning effort. The evidence therefore compares provider
+routes under the current execution path, not effort levels. Any future
+effort-sensitive promotion must include resolved effort, support/omission
+evidence, and effort policy identity in the benchmark config hash.
+
 Exit gate:
 
 - the same workload can be rerun through supported execution surfaces;
@@ -550,6 +557,9 @@ Work:
   tool, and verification signals;
 - evaluate model cascades and reasoning-effort controls behind provider
   capability adapters;
+- make benchmark runs able to fix or sweep normalized reasoning effort, record
+  the resolved effort or omission reason, and include that evidence in
+  reproducibility hashes;
 - include cache invalidation, retry risk, and verifier cost in route decisions;
 - require escalation paths for uncertain or failed cheap routes;
 - keep static deterministic routing as the rollback policy.

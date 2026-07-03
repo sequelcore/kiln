@@ -157,6 +157,14 @@ supported reasoning efforts, Kiln may send the requested normalized effort. If
 the selected route does not advertise effort support, Kiln omits the setting by
 default instead of inventing a provider-specific value.
 
+The global workstation config already declares this policy. The authorized
+`kiln-tool-agent` benchmark runs did not explicitly set or vary reasoning
+effort from the benchmark command, so their results should be interpreted as
+route baselines under the current execution path, not as `medium` versus
+`high` or `xhigh` effort comparisons. Future effort-sensitive comparisons must
+record the resolved effort, include it in the benchmark config hash, and report
+when a selected route omits effort because support is unknown or unavailable.
+
 ## Managed Agents
 
 Managed routes use the same evidence plane as interactive routing:
