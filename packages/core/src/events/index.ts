@@ -203,6 +203,7 @@ export interface CostUpdateEvent extends KilnEvent {
 /** Tool called event */
 export interface ToolCalledEvent extends KilnEvent {
   readonly type: "tool_called";
+  readonly toolCallId: string;
   readonly toolName: string;
   readonly taskId?: string;
   readonly workerIndex?: number;
@@ -243,6 +244,7 @@ export interface TaskCompletedEvent extends KilnEvent {
 /** Tool result event */
 export interface ToolResultEvent extends KilnEvent {
   readonly type: "tool_result";
+  readonly toolCallId: string;
   readonly toolName: string;
   readonly taskId?: string;
   readonly durationMs: number;

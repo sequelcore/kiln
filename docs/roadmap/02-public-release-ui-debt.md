@@ -50,7 +50,7 @@ focused component, typecheck, build, and browser validation evidence.
 
 ## Progress Snapshot
 
-Updated: 2026-07-01
+Updated: 2026-07-02
 
 The following GUI foundations have been implemented and verified. Their stable
 behavior belongs in the canonical GUI and architecture documentation; this
@@ -349,7 +349,7 @@ Verification:
 
 ### Tool Execution Continuity, Structured Output Visualizers, And Long-Thread Navigation
 
-Status: In progress; Slice 0 complete, Slice 1 next
+Status: In progress; Slice 1 complete, Slice 2 next
 
 Problem:
 
@@ -384,6 +384,33 @@ Slice 0 evidence and decisions:
 - Runtime events remain canonical. The GUI derives presentation keyed by
   `toolCallId` and must not manufacture lifecycle transitions or merge calls by
   tool name.
+
+Slice 1 evidence:
+
+- Runtime event contracts require `toolCallId` for `tool_called` and
+  `tool_result`.
+- Tool execution producers carry the same identity from invocation to terminal
+  result across success, failure, cache-hit, denied, rate-limited,
+  invalid-input, and blocked paths.
+- Dev-tool execution preserves upstream tool call identity when supplied and
+  generates a local identity only for internal calls without one.
+- Dev-tool authorization denial and approval-required failures now emit a
+  terminal `tool_result` before rethrowing, so native/dev-tool activity does not
+  remain permanently active in operator surfaces.
+- Dangerous-command blocks now emit terminal output and policy metadata on the
+  same correlated `tool_result`.
+- Canonical session projection fails fast when runtime tool events are missing
+  `toolCallId`, preventing GUI, CLI, or TUI surfaces from rebuilding identity
+  from order or tool name.
+- Canonical session projection no longer correlates same-name tool results by
+  FIFO order; interleaved completions stay attached to their originating
+  execution identity.
+- Replay coverage proves persisted runtime events keep their original
+  `toolCallId` through canonical projection.
+- Work-item projection preserves the parent tool execution identity.
+- Focused runtime tests, `@kilnai/core` tests (272 files, 3443 tests),
+  `@kilnai/runtime` tests (185 files, 2476 tests, 5 skipped live files),
+  workspace typecheck, and `git diff --check` passed on 2026-07-02.
 
 Required outcome:
 

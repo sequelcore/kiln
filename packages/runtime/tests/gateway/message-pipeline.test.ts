@@ -2703,6 +2703,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_called",
+          toolCallId: "tool-write",
           toolName: "write",
           toolInput: { filePath: "src/demo.txt", content: "hello" },
           timestamp: new Date("2026-04-23T19:00:02.000Z"),
@@ -2710,6 +2711,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-write",
           toolName: "write",
           durationMs: 12,
           success: true,
@@ -2815,6 +2817,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-work-start-failed",
           toolName: "work_item.execution.start",
           durationMs: 120000,
           success: false,
@@ -3136,6 +3139,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-assess",
           toolName: "work_governance.assess",
           durationMs: 2,
           success: true,
@@ -3147,6 +3151,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-work-item-update",
           toolName: "work_item.update",
           durationMs: 2,
           success: true,
@@ -3172,6 +3177,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-managed-scout",
           toolName: "managed_agent.invoke",
           durationMs: 31000,
           success: true,
@@ -3391,6 +3397,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-work-start-paused",
           toolName: "work_item.execution.start",
           durationMs: 2,
           success: false,
@@ -3407,6 +3414,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-managed-scout",
           toolName: "managed_agent.invoke",
           durationMs: 31000,
           success: true,
@@ -3711,6 +3719,7 @@ describe("processAdmittedTurn", () => {
         processMessage: vi.fn().mockImplementation(async () => {
           eventBus.emit({
             type: "tool_result",
+            toolCallId: `tool-managed-${status}`,
             toolName: "managed_agent.invoke",
             durationMs: 120000,
             success: false,

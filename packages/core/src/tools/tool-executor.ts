@@ -25,6 +25,7 @@ import { buildBuiltinInvocationEffectResolvers } from "./infrastructure/invocati
 const KILN_TIMEOUT_UNIT_SCHEMA_KEY = "x-kiln-timeout-unit";
 
 export interface DevToolExecutionRequest extends ToolExecutionRequest {
+  readonly toolCallId?: string;
   readonly sandbox?: unknown;
   readonly retry?: RetryConfig;
 }

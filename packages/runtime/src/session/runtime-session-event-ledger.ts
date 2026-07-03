@@ -145,9 +145,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
   let sequence = session.nextSessionEventSequence();
   const nextSequence = () => sequence++;
   const pendingApprovalIds: string[] = [];
-  const pendingToolCallIds = new Map<string, string[]>();
   let approvalOrdinal = 0;
-  let toolOrdinal = 0;
   let previousTotalCostUsd = 0;
 
   events.push(createSessionEvent<"turn_started">({
@@ -219,10 +217,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         break;
       }
       case "tool_called": {
-        const toolCallId = `${turnId}:tool:${++toolOrdinal}`;
-        const pending = pendingToolCallIds.get(runtimeEvent.toolName) ?? [];
-        pending.push(toolCallId);
-        pendingToolCallIds.set(runtimeEvent.toolName, pending);
+        const toolCallId = requireRuntimeToolCallId(runtimeEvent, turnId);
         events.push(createSessionEvent<"tool_call_started">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
@@ -238,11 +233,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         break;
       }
       case "tool_result": {
-        const pending = pendingToolCallIds.get(runtimeEvent.toolName);
-        const toolCallId = pending?.shift() ?? `${turnId}:tool:${++toolOrdinal}`;
-        if (pending && pending.length === 0) {
-          pendingToolCallIds.delete(runtimeEvent.toolName);
-        }
+        const toolCallId = requireRuntimeToolCallId(runtimeEvent, turnId);
         events.push(createSessionEvent<"tool_call_completed">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
@@ -866,6 +857,18 @@ function makeSource(
   component: string,
 ): SessionEventSource {
   return { actor, surface, component };
+}
+
+function requireRuntimeToolCallId(
+  runtimeEvent: ToolCalledEvent | ToolResultEvent,
+  turnId: string,
+): string {
+  if (typeof runtimeEvent.toolCallId === "string" && runtimeEvent.toolCallId.trim().length > 0) {
+    return runtimeEvent.toolCallId;
+  }
+  throw new Error(
+    `Runtime ${runtimeEvent.type} event for tool "${runtimeEvent.toolName}" in turn "${turnId}" is missing toolCallId.`,
+  );
 }
 
 function formatContinuityReason(continuity: RuntimeContinuitySnapshot): string {

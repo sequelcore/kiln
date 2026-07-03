@@ -1,6 +1,6 @@
 # Tool Execution Continuity, Structured Output Visualizers, and Long-Thread Navigation
 
-Status: Slice 0 complete; Slice 1 next
+Status: Slice 1 complete; Slice 2 next
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/02-public-release-ui-debt.md`
 
@@ -79,7 +79,7 @@ Slice 0 is complete as research and planning evidence only.
 
 ### Slice 1 - Tool Lifecycle Contract and Projection
 
-Status: Next
+Status: Complete
 
 - Add failing contract and projection tests for lifecycle transitions keyed by
   `toolCallId`, including interleaved calls, failures, interruption, replay, and
@@ -91,6 +91,36 @@ Status: Next
 
 Gate: focused contract/runtime tests, replay fixture, typecheck, and contract
 review pass before GUI lifecycle work begins.
+
+Slice 1 evidence:
+
+- Runtime event contracts now require `toolCallId` on `tool_called` and
+  `tool_result` events.
+- Runtime orchestration emits the provider/native tool call id through start,
+  success, failure, cache-hit, denied, rate-limited, invalid-input, and
+  blocked-result paths.
+- Dev-tool execution preserves upstream tool call identity when a provider or
+  harness supplies it, and generates a local identity only for internal calls
+  without one.
+- Dev-tool authorization denial and approval-required failures now emit a
+  terminal `tool_result` before rethrowing, so native/dev-tool activity does not
+  remain permanently active in operator surfaces.
+- Dangerous-command blocks now emit terminal output and policy metadata on the
+  same correlated `tool_result`.
+- Canonical session projection fails fast when runtime tool events are missing
+  `toolCallId`, so surfaces cannot silently rebuild identity from order or tool
+  name.
+- Canonical session projection no longer correlates results through FIFO queues
+  keyed by tool name; interleaved same-name tool calls complete under their own
+  originating `toolCallId`.
+- Replay coverage proves persisted runtime events keep their original
+  `toolCallId` through canonical projection.
+- Work-item lifecycle projection preserves the same tool execution identity as
+  the parent tool result.
+- Focused runtime tests, `@kilnai/core` tests (272 files, 3443 tests),
+  `@kilnai/runtime` tests (185 files, 2476 tests, 5 skipped live files),
+  workspace typecheck, and `git diff --check` passed on 2026-07-02 before
+  moving to Slice 2.
 
 ### Slice 2 - Continuous Tool Execution Rows
 

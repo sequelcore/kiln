@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { EventBus } from "../events/event-bus.js";
 import type {
   ToolAuthorizedEvent,
@@ -69,9 +70,11 @@ export class OrchestratorDevToolSupport {
   ): Promise<DevToolExecutionResult> {
     const startedAt = Date.now();
     const { sessionId, taskId } = this.deps.getSessionContext();
+    const toolCallId = request.toolCallId ?? randomUUID();
 
     const calledEvent: ToolCalledEvent = {
       type: "tool_called",
+      toolCallId,
       toolName: request.name,
       toolInput: request.input,
       taskId,
@@ -109,6 +112,7 @@ export class OrchestratorDevToolSupport {
 
       const resultEvent: ToolResultEvent = {
         type: "tool_result",
+        toolCallId,
         toolName: request.name,
         taskId,
         durationMs: Date.now() - startedAt,
@@ -148,6 +152,21 @@ export class OrchestratorDevToolSupport {
           };
           this.deps.eventBus.emit(authorizedEvent);
         }
+        const resultEvent: ToolResultEvent = {
+          type: "tool_result",
+          toolCallId,
+          toolName: request.name,
+          taskId,
+          durationMs: Date.now() - startedAt,
+          success: false,
+          isError: true,
+          resultSummary: error.message.slice(0, 200),
+          resolvedEffect: context.resolvedEffect,
+          authority: context.authority,
+          timestamp: new Date(),
+          sessionId,
+        };
+        this.deps.eventBus.emit(resultEvent);
         throw error;
       }
 
@@ -156,6 +175,7 @@ export class OrchestratorDevToolSupport {
         : "Tool execution failed";
       const resultEvent: ToolResultEvent = {
         type: "tool_result",
+        toolCallId,
         toolName: request.name,
         taskId,
         durationMs: Date.now() - startedAt,

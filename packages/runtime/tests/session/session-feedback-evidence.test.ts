@@ -29,12 +29,14 @@ describe("runtime session feedback evidence", () => {
       runtimeEvents: [
         {
           type: "tool_called",
+          toolCallId: "tool-shell-typecheck",
           toolName: "shell_command",
           toolInput: { command: "bun run --filter @kilnai/runtime typecheck" },
           timestamp: new Date("2026-05-18T10:00:01.000Z"),
         },
         {
           type: "tool_result",
+          toolCallId: "tool-shell-typecheck",
           toolName: "shell_command",
           durationMs: 3000,
           success: false,

@@ -12,6 +12,7 @@ import type {
 import { textParts, EventBus, normalizeToolInput } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ToolResultSanitizer, SanitizationResult } from "@kilnai/core";
 import type { AuditLog } from "@kilnai/core";
@@ -1726,6 +1727,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
     it("skips tool execution when authorization denied", async () => {
       const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
       const toolFn = vi.fn().mockResolvedValue("should not run");
 
       const authorizer: ToolAuthorizer = {
@@ -1741,6 +1744,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
         capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
         toolAuthorizer: authorizer,
       });
@@ -1748,6 +1752,22 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("delete stuff"));
 
       expect(toolFn).not.toHaveBeenCalled();
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            success: false,
+            isError: true,
+            resultSummary: "Authorization denied: Authorization denied",
+          }),
+        ]);
     });
 
     it("waits for approval and executes tool after continue()", async () => {
@@ -1868,6 +1888,22 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         output: "Approval denied: rejected by user",
         resultSummary: "Approval denied: rejected by user",
       });
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            success: false,
+            isError: true,
+            resultSummary: "Approval denied: rejected by user",
+          }),
+        ]);
     });
 
     it("uses per-call authority descriptor before toolAuthorizer fallback", async () => {
@@ -1916,12 +1952,15 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
     it("fails closed for malformed per-call authority descriptor", async () => {
       const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
       const toolFn = vi.fn().mockResolvedValue("should not run");
 
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
       });
 
       const perCallConfig: PerCallToolConfig = {
@@ -1944,6 +1983,22 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       );
 
       expect(toolFn).not.toHaveBeenCalled();
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            success: false,
+            isError: true,
+            resultSummary: "Authorization denied: Invalid authority descriptor; execution denied",
+          }),
+        ]);
     });
 
     it("allowed execution audit append includes authority metadata", async () => {
@@ -2028,6 +2083,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   describe("dangerous command enforcement", () => {
     it("deny decision blocks dangerous command before tool execution", async () => {
       const provider = makeCommandProvider("rm -rf /tmp/cache");
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
       const toolFn = vi.fn().mockResolvedValue("should not run");
       const detector = {
         evaluate: vi.fn().mockReturnValue({
@@ -2042,6 +2099,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["bash", toolFn]]),
         dangerousCommandDetector: detector,
+        eventBus,
       });
 
       const result = await orchestrator.processMessage(makeSession(), textParts("cleanup"));
@@ -2053,6 +2111,18 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         success: false,
         resultSummary: "Dangerous command blocked: Detected destructive Unix command pattern. (destructive_unix)",
       });
+      expect(emitSpy.mock.calls.filter((call) => call[0].type === "tool_result")).toEqual([
+        [expect.objectContaining({
+          toolCallId: "tc-cmd-1",
+          toolName: "bash",
+          success: false,
+          isError: true,
+          output: "Dangerous command blocked: Detected destructive Unix command pattern. (destructive_unix)",
+          metadata: expect.objectContaining({
+            toolName: "bash",
+          }),
+        })],
+      ]);
     });
 
     it("ask decision blocks ambiguous command before tool execution", async () => {
@@ -2618,6 +2688,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(toolCalledEvents).toHaveLength(1);
       expect(toolCalledEvents[0]![0]).toMatchObject({
         type: "tool_called",
+        toolCallId: "tc-1",
         toolName: "get_data",
         toolInput: { query: "test" },
       });
@@ -2685,6 +2756,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(resultEvents).toHaveLength(1);
       expect(resultEvents[0]![0]).toMatchObject({
         type: "tool_result",
+        toolCallId: "tc-1",
         toolName: "get_data",
         success: true,
         output: "some result data",
@@ -2912,10 +2984,12 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
       };
 
+      const eventBus = new EventBus(100);
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["write", toolFn]]),
+        eventBus,
       });
 
       await orchestrator.processMessage(makeSession(), textParts("write file"));
@@ -2933,6 +3007,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
     it("turns malformed tool arguments into a tool error instead of crashing execution", async () => {
       let callCount = 0;
+      const eventBus = new EventBus(100);
       const toolFn = vi.fn().mockResolvedValue("should not run");
       const provider: ProviderAdapter = {
         name: "mock",
@@ -2970,16 +3045,33 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["write", toolFn]]),
+        eventBus,
       });
 
       const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
 
       expect(toolFn).not.toHaveBeenCalled();
       expect(result.toolExecutions?.[0]).toMatchObject({
+        toolCallId: "tc-write-invalid-1",
         toolName: "write",
         success: false,
       });
       expect(getReinjectedToolResultFromSecondCall(provider)).toContain("Invalid input for tool \"write\"");
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-write-invalid-1",
+            toolName: "write",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-write-invalid-1",
+            toolName: "write",
+            success: false,
+            isError: true,
+          }),
+        ]);
     });
 
     it("stops retrying the same malformed tool call and falls back to a final text response", async () => {
@@ -3202,12 +3294,14 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   describe("per-call tool config", () => {
     it("blocks tool not in allowlist", async () => {
       const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
       const toolFn = vi.fn().mockResolvedValue("should not run");
 
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
       });
 
       const perCallConfig: PerCallToolConfig = {
@@ -3217,6 +3311,46 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, perCallConfig);
 
       expect(toolFn).not.toHaveBeenCalled();
+    });
+
+    it("emits correlated tool activity when executor allowlist blocks a tool call", async () => {
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
+      const emitError = vi.fn();
+      const executor = new RuntimeSessionToolExecutor(
+        { provider: makeProvider() },
+        eventBus,
+        async () => ({ approved: true }),
+        emitError,
+      );
+
+      const result = await executor.executeToolCalls(
+        makeSession(),
+        [{ id: "tc-1", name: "get_data", input: { query: "test" } }],
+        { toolAllowlist: new Set(["other_tool"]) },
+      );
+
+      expect(result.resultParts).toEqual([
+        expect.objectContaining({
+          toolUseId: "tc-1",
+          isError: true,
+        }),
+      ]);
+      expect(emitSpy.mock.calls.filter((call) => call[0].type === "tool_called")).toEqual([
+        [expect.objectContaining({
+          toolCallId: "tc-1",
+          toolName: "get_data",
+        })],
+      ]);
+      expect(emitSpy.mock.calls.filter((call) => call[0].type === "tool_result")).toEqual([
+        [expect.objectContaining({
+          toolCallId: "tc-1",
+          toolName: "get_data",
+          success: false,
+          isError: true,
+        })],
+      ]);
+      expect(emitError).not.toHaveBeenCalled();
     });
 
     it("allows tool in allowlist", async () => {
@@ -3306,6 +3440,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
     it("blocks tool when rate limited", async () => {
       const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
       const toolFn = vi.fn().mockResolvedValue("should not run");
 
       const rateLimiter: RateLimiter = {
@@ -3318,6 +3453,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
       });
 
       const perCallConfig: PerCallToolConfig = {
@@ -3329,6 +3465,22 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       expect(toolFn).not.toHaveBeenCalled();
       expect(rateLimiter.check).toHaveBeenCalledWith("tenant-1", "get_data");
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            success: false,
+            isError: true,
+            resultSummary: "Rate limit exceeded for tool \"get_data\". Try again in 30 seconds.",
+          }),
+        ]);
     });
 
     it("records rate limit after successful execution", async () => {
@@ -3406,6 +3558,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       const toolResults = eventBus.history().filter((event) => event.type === "tool_result");
       expect(toolResults).toHaveLength(2);
+      expect(toolResults.map((event) => event.toolCallId)).toEqual(["search-1", "search-2"]);
       expect(toolResults[0]?.toolUsage).toEqual({
         scope: "turn",
         toolName: "web_search",

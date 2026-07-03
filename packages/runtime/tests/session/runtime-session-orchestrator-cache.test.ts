@@ -278,7 +278,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     expect(result.queued).toBe(false);
   });
 
-  it("does not emit tool_called event on cache hit", async () => {
+  it("emits correlated tool activity on cache hit", async () => {
     toolCache.set("get_weather", { city: "London" }, "sunny, 20C", 60);
 
     const provider = makeProviderWithToolCall();
@@ -296,8 +296,18 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
 
     await orchestrator.processMessage(makeSession(), textParts("weather in London"));
 
-    // tool_called should NOT be emitted on cache hit (cache check is before emitToolCalled)
     const toolCalledEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_called");
-    expect(toolCalledEvents).toHaveLength(0);
+    expect(toolCalledEvents).toHaveLength(1);
+    const toolCallId = toolCalledEvents[0]?.[0].toolCallId;
+    expect(toolCallId).toEqual(expect.any(String));
+
+    const toolResultEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_result");
+    expect(toolResultEvents).toEqual([
+      [expect.objectContaining({
+        toolCallId,
+        toolName: "get_weather",
+        success: true,
+      })],
+    ]);
   });
 });

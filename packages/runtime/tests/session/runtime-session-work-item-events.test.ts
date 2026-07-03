@@ -100,6 +100,7 @@ describe("runtime work item session events", () => {
         {
           type: "tool_called",
           sessionId: session.id,
+          toolCallId: "work-item-update-1",
           timestamp,
           toolName: "work_item.update",
           toolInput: {
@@ -109,6 +110,7 @@ describe("runtime work item session events", () => {
         {
           type: "tool_result",
           sessionId: session.id,
+          toolCallId: "work-item-update-1",
           timestamp,
           toolName: "work_item.update",
           durationMs: 12,
@@ -144,7 +146,7 @@ describe("runtime work item session events", () => {
       expect.objectContaining({
         kind: "work_item_updated",
         operation: "update",
-        toolCallId: expect.stringContaining(":tool:1"),
+        toolCallId: "work-item-update-1",
         workItem: expect.objectContaining({
           id: "work-1",
           summary: "Validate managed agent work evidence",
@@ -222,6 +224,7 @@ describe("runtime work item session events", () => {
         {
           type: "tool_called",
           sessionId: session.id,
+          toolCallId: "work-item-execution-start-1",
           timestamp,
           toolName: "work_item.execution.start",
           toolInput: { id: "work-1" },
@@ -229,6 +232,7 @@ describe("runtime work item session events", () => {
         {
           type: "tool_result",
           sessionId: session.id,
+          toolCallId: "work-item-execution-start-1",
           timestamp,
           toolName: "work_item.execution.start",
           durationMs: 8,
@@ -244,6 +248,7 @@ describe("runtime work item session events", () => {
         {
           type: "tool_called",
           sessionId: session.id,
+          toolCallId: "work-item-execution-finish-1",
           timestamp,
           toolName: "work_item.execution.finish",
           toolInput: { id: "work-1" },
@@ -251,6 +256,7 @@ describe("runtime work item session events", () => {
         {
           type: "tool_result",
           sessionId: session.id,
+          toolCallId: "work-item-execution-finish-1",
           timestamp,
           toolName: "work_item.execution.finish",
           durationMs: 9,
@@ -274,6 +280,7 @@ describe("runtime work item session events", () => {
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "work_item_execution_started",
+        toolCallId: "work-item-execution-start-1",
         workItem: expect.objectContaining({ id: "work-1" }),
         attempt: expect.objectContaining({
           id: "goal-1:work-1:attempt:1",
@@ -282,6 +289,7 @@ describe("runtime work item session events", () => {
       }),
       expect.objectContaining({
         kind: "work_item_execution_finished",
+        toolCallId: "work-item-execution-finish-1",
         workItem: expect.objectContaining({
           id: "work-1",
           status: "completed",

@@ -80,6 +80,7 @@ describe("Orchestrator native tool execution path", () => {
 
     const called = toolEvents[0] as ToolCalledEvent;
     expect(called.type).toBe("tool_called");
+    expect(called.toolCallId).toEqual(expect.any(String));
     expect(called.toolName).toBe("echo");
     expect(called.toolInput).toEqual({ message: "hello" });
     expect(called.taskId).toBe("execute native tool");
@@ -99,6 +100,7 @@ describe("Orchestrator native tool execution path", () => {
 
     const executed = toolEvents[2] as ToolResultEvent;
     expect(executed.type).toBe("tool_result");
+    expect(executed.toolCallId).toBe(called.toolCallId);
     expect(executed.toolName).toBe("echo");
     expect(executed.taskId).toBe("execute native tool");
     expect(executed.success).toBe(true);
@@ -109,6 +111,80 @@ describe("Orchestrator native tool execution path", () => {
     expect(executed.authority).toMatchObject({ level: 1, allowed: true });
     expect(executed.durationMs).toBeGreaterThanOrEqual(0);
     expect(executed.sessionId).toBe(sessionId);
+  });
+
+  it("preserves upstream tool call identity through native tool execution", async () => {
+    const orchestrator = new Orchestrator();
+    orchestrator.start("execute correlated native tool");
+    orchestrator.registerDevTool(
+      makeTool(
+        "echo",
+        async (input) => ({
+          output: JSON.stringify(input.input),
+          isError: false,
+        }),
+      ),
+    );
+
+    await orchestrator.executeDevTool({
+      toolCallId: "provider-tool-call-1",
+      name: "echo",
+      input: { message: "hello" },
+    });
+
+    const toolEvents = orchestrator.eventBus.history().filter((event) => {
+      return event.type === "tool_called" || event.type === "tool_result";
+    });
+
+    expect(toolEvents).toHaveLength(2);
+    expect(toolEvents[0]).toMatchObject({
+      type: "tool_called",
+      toolCallId: "provider-tool-call-1",
+      toolName: "echo",
+    });
+    expect(toolEvents[1]).toMatchObject({
+      type: "tool_result",
+      toolCallId: "provider-tool-call-1",
+      toolName: "echo",
+      success: true,
+    });
+  });
+
+  it("emits the same native tool identity when execution fails", async () => {
+    const orchestrator = new Orchestrator();
+    orchestrator.start("execute failing native tool");
+    orchestrator.registerDevTool(
+      makeTool("explode", async () => {
+        throw new Error("boom");
+      }),
+    );
+
+    await expect(
+      orchestrator.executeDevTool({
+        toolCallId: "provider-tool-call-failed",
+        name: "explode",
+        input: {},
+      }),
+    ).rejects.toThrow("Tool \"explode\" failed after 3 attempts");
+
+    const toolEvents = orchestrator.eventBus.history().filter((event) => {
+      return event.type === "tool_called" || event.type === "tool_result";
+    });
+
+    expect(toolEvents).toHaveLength(2);
+    expect(toolEvents[0]).toMatchObject({
+      type: "tool_called",
+      toolCallId: "provider-tool-call-failed",
+      toolName: "explode",
+    });
+    expect(toolEvents[1]).toMatchObject({
+      type: "tool_result",
+      toolCallId: "provider-tool-call-failed",
+      toolName: "explode",
+      success: false,
+      isError: true,
+      resultSummary: "Tool \"explode\" failed after 3 attempts",
+    });
   });
 
   it("returns INTERNAL_ERROR when tool is not registered", async () => {
@@ -153,6 +229,7 @@ describe("Orchestrator native tool execution path", () => {
     expect(toolEvents.map((event) => event.type)).toEqual([
       "tool_called",
       "tool_authorized",
+      "tool_result",
     ]);
 
     const authorized = toolEvents[1] as ToolAuthorizedEvent;
@@ -161,6 +238,12 @@ describe("Orchestrator native tool execution path", () => {
 
     const called = toolEvents[0] as ToolCalledEvent;
     expect(called.authorizationLevel).toBeUndefined();
+
+    const result = toolEvents[2] as ToolResultEvent;
+    expect(result.toolCallId).toBe(called.toolCallId);
+    expect(result.success).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(result.authority).toEqual(authorized.authority);
   });
 
   it("injects role sandbox policy when role is provided", async () => {
