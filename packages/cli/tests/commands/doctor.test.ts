@@ -61,4 +61,75 @@ describe("doctorCommand", () => {
 
     consoleSpy.mockRestore();
   });
+
+  it("prints skill catalog health in json diagnostics", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await doctorCommand(MOCK_APP_CONFIG, {
+      json: true,
+      projectRoot: "C:\\repo",
+      env: { USERPROFILE: "C:\\Users\\R3XED", PATH: "" },
+      fileExists: () => false,
+      runVersion: vi.fn(async () => undefined),
+      readConfigStatus: vi.fn(async () => ({
+        projections: [],
+        skills: {
+          entries: [{
+            name: "project-ui",
+            description: "Project UI workflow.",
+            origin: "project",
+            configured: true,
+            builtIn: false,
+            sourcePath: "C:\\repo\\.kiln\\skills\\project-ui\\SKILL.md",
+            projections: [{
+              target: "codex",
+              displayName: "Codex",
+              path: "C:\\Users\\R3XED\\.codex\\skills\\project-ui\\SKILL.md",
+              status: "missing",
+            }],
+            admission: {
+              state: "available",
+              reason: "Configured Kiln skill.",
+            },
+          }],
+        },
+      })),
+      discoverModels: vi.fn(async () => ({
+        codexModels: [],
+        codexDiscovery: {
+          models: [],
+          status: "cli_missing",
+          reason: "Codex CLI executable was not found.",
+          authState: "not_required",
+        },
+        opencodeModels: [],
+        opencodeDiscovery: {
+          models: [],
+          status: "cli_missing",
+          reason: "OpenCode CLI executable was not found.",
+          authState: "not_required",
+        },
+      })),
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+    });
+
+    const parsed = JSON.parse(consoleSpy.mock.calls[0]?.[0] as string) as {
+      readonly skills?: {
+        readonly entries: readonly {
+          readonly name: string;
+          readonly origin: string;
+          readonly projections: readonly { readonly status: string }[];
+        }[];
+      };
+    };
+    expect(parsed.skills?.entries).toEqual([
+      expect.objectContaining({
+        name: "project-ui",
+        origin: "project",
+        projections: [expect.objectContaining({ status: "missing" })],
+      }),
+    ]);
+
+    consoleSpy.mockRestore();
+  });
 });

@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { discoverGuiCliOperatorModels } from "@kilnai/runtime";
-import type { KilnProjectionTargetSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
+import type { KilnConfigStatusSnapshot, KilnProjectionTargetSnapshot, KilnSkillCatalogSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { readConfigStatusSnapshot } from "./config-status.js";
 
 export interface HarnessDoctorProviderDiscovery {
@@ -45,6 +45,7 @@ export interface HarnessDoctorReport {
   readonly kilnCli: HarnessDoctorExecutableReport;
   readonly configProjections: readonly HarnessDoctorProjectionReport[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
+  readonly skills?: KilnSkillCatalogSnapshot;
   readonly harnesses: {
     readonly codex: HarnessDoctorHarnessReport;
     readonly opencode: HarnessDoctorHarnessReport;
@@ -67,6 +68,7 @@ export interface HarnessDoctorOptions {
   readonly runVersion?: (path: string) => Promise<string | undefined>;
   readonly discoverModels?: () => Promise<HarnessDoctorModelDiscovery>;
   readonly readConfigProjections?: (projectRoot: string | undefined) => Promise<readonly HarnessDoctorProjectionReport[]>;
+  readonly readConfigStatus?: (projectRoot: string | undefined) => Promise<Pick<KilnConfigStatusSnapshot, "projections" | "skills">>;
 }
 
 interface HarnessDefinition {
@@ -124,7 +126,8 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
     codex: true,
     opencode: true,
   })))();
-  const configProjections = await (options.readConfigProjections ?? readHarnessConfigProjections)(options.projectRoot);
+  const configDiagnostics = await readHarnessConfigDiagnostics(options);
+  const configProjections = configDiagnostics.projections;
   const generatedAt = (options.now ?? (() => new Date()))().toISOString();
 
   const kilnCli = await resolveExecutableReport(
@@ -156,6 +159,7 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
     kilnCli,
     configProjections,
     permissionIntegrity: aggregateDoctorPermissionIntegrity(configProjections),
+    ...(configDiagnostics.skills ? { skills: configDiagnostics.skills } : {}),
     harnesses: {
       codex,
       opencode,
@@ -178,9 +182,64 @@ export function renderHarnessDoctorText(report: HarnessDoctorReport): string {
   appendExecutable(lines, "Kiln CLI", report.kilnCli);
   appendConfigProjections(lines, report.configProjections);
   appendPermissionIntegrity(lines, report.permissionIntegrity);
+  appendSkillCatalog(lines, report.skills);
   appendHarness(lines, "Codex", report.harnesses.codex);
   appendHarness(lines, "OpenCode", report.harnesses.opencode);
   return `${lines.join("\n")}\n`;
+}
+
+function appendSkillCatalog(
+  lines: string[],
+  skills: KilnSkillCatalogSnapshot | undefined,
+): void {
+  if (!skills || skills.entries.length === 0) {
+    return;
+  }
+  const configured = skills.entries.filter((entry) => entry.configured);
+  const nativeOnly = skills.entries.filter((entry) => entry.origin === "native-harness");
+  const projectionIssues = skills.entries.filter((entry) =>
+    entry.projections.some((projection) => projection.status !== "projected")
+  ).sort(compareSkillCatalogIssuePriority);
+  lines.push("  Skill catalog:");
+  lines.push(`    Configured: ${configured.length}`);
+  lines.push(`    Native-only: ${nativeOnly.length}`);
+  lines.push(`    Projection issues: ${projectionIssues.length}`);
+  for (const entry of projectionIssues.slice(0, 12)) {
+    const issues = entry.projections
+      .filter((projection) => projection.status !== "projected")
+      .map((projection) => `${projection.target}:${projection.status}`)
+      .join(", ");
+    lines.push(`    - ${entry.name}: ${issues}`);
+  }
+  if (projectionIssues.length > 12) {
+    lines.push(`    ... ${projectionIssues.length - 12} more skill projection issues`);
+  }
+  lines.push("");
+}
+
+function compareSkillCatalogIssuePriority(
+  left: KilnSkillCatalogSnapshot["entries"][number],
+  right: KilnSkillCatalogSnapshot["entries"][number],
+): number {
+  const originDelta = skillOriginPriority(left.origin) - skillOriginPriority(right.origin);
+  if (originDelta !== 0) {
+    return originDelta;
+  }
+  return left.name.localeCompare(right.name);
+}
+
+function skillOriginPriority(origin: KilnSkillCatalogSnapshot["entries"][number]["origin"]): number {
+  switch (origin) {
+    case "project":
+      return 0;
+    case "user":
+      return 1;
+    case "builtin":
+      return 2;
+    case "native-harness":
+      return 3;
+  }
+  return 4;
 }
 
 function appendPermissionIntegrity(
@@ -392,9 +451,27 @@ async function defaultRunVersion(path: string): Promise<string | undefined> {
   }
 }
 
-async function readHarnessConfigProjections(projectRoot: string | undefined): Promise<readonly HarnessDoctorProjectionReport[]> {
-  const snapshot = await readConfigStatusSnapshot({ projectPath: projectRoot });
-  return snapshot.projections.map(projectProjection);
+async function readHarnessConfigDiagnostics(options: HarnessDoctorOptions): Promise<{
+  readonly projections: readonly HarnessDoctorProjectionReport[];
+  readonly skills?: KilnSkillCatalogSnapshot;
+}> {
+  if (options.readConfigStatus) {
+    const snapshot = await options.readConfigStatus(options.projectRoot);
+    return {
+      projections: snapshot.projections.map(projectProjection),
+      ...(snapshot.skills ? { skills: snapshot.skills } : {}),
+    };
+  }
+  if (options.readConfigProjections) {
+    return {
+      projections: await options.readConfigProjections(options.projectRoot),
+    };
+  }
+  const snapshot = await readConfigStatusSnapshot({ projectPath: options.projectRoot });
+  return {
+    projections: snapshot.projections.map(projectProjection),
+    ...(snapshot.skills ? { skills: snapshot.skills } : {}),
+  };
 }
 
 function projectProjection(projection: KilnProjectionTargetSnapshot): HarnessDoctorProjectionReport {

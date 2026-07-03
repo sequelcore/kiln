@@ -343,6 +343,23 @@ describe("statusCommand", () => {
     }
   });
 
+  it("shows skill catalog health from canonical Kiln status evidence", async () => {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
+    writeSkill(join(kilnDir, "skills"), "project-ui", "Project UI workflow.");
+
+    await statusCommand(MOCK_APP_CONFIG, tempDir);
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Skill catalog:");
+    expect(output).toContain("Selection mode: advisory");
+    expect(output).toContain("Configured:");
+    expect(output).toContain("project=1");
+    expect(output).toContain("project-ui");
+    expect(output).toContain("sync-native-projections");
+  });
+
   it("shows missing web provider env diagnostics", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
@@ -366,3 +383,17 @@ describe("statusCommand", () => {
     expect(output).toContain("Issues: web.search_provider_env_missing:KILN_TEST_MISSING_WEB_KEY");
   });
 });
+
+function writeSkill(root: string, name: string, description: string): void {
+  const skillDir = join(root, name);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "SKILL.md"), [
+    "---",
+    `name: ${name}`,
+    `description: ${description}`,
+    "---",
+    "",
+    "Skill body.",
+    "",
+  ].join("\n"), "utf-8");
+}
