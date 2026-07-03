@@ -1178,6 +1178,50 @@ describe("Transcript", () => {
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
   });
 
+  it("renders markdown-like web text output as a document instead of raw text", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:web-search",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed web_search",
+            summary: "5 sources for FIFA World Cup 2026 fixtures",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "markdown",
+              title: "FIFA World Cup 2026 fixtures July 3 2026 matches",
+              summary: "5 sources for FIFA World Cup 2026 fixtures",
+              preview: {
+                text: [
+                  "5 sources for FIFA World Cup 2026 fixtures July 3 2026 matches",
+                  "",
+                  "1. Matches | FIFA World Cup 2026",
+                  "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures",
+                  "2. FIFA World Cup 2026 | Fixtures, groups, teams & more",
+                  "[Fixtures](https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fixtures)",
+                ].join("\n"),
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const documentOutput = screen.getByRole("region", { name: "Document" });
+    expect(within(documentOutput).getByRole("list")).toBeInTheDocument();
+    expect(within(documentOutput).getByRole("link", { name: "Fixtures" })).toHaveAttribute(
+      "href",
+      "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fixtures",
+    );
+    expect(screen.queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
+  });
+
   it("renders indented file tree output as a bounded hierarchical list", () => {
     render(
       <Transcript

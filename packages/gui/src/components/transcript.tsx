@@ -563,7 +563,8 @@ function ToolResultPresentationDetails(props: {
   if (!presentation) return null;
   const contentLabel = toolResultContentLabel(presentation.outputKind);
   const preview = presentation.presentationIntent ? undefined : presentation.preview;
-  const showTitle = !presentation.fields.some((item) => item.value === presentation.title);
+  const fields = presentation.fields ?? [];
+  const showTitle = !fields.some((item) => item.value === presentation.title);
   return (
     <div
       data-testid="tool-output-details"
@@ -572,7 +573,7 @@ function ToolResultPresentationDetails(props: {
       {showTitle ? (
         <p className="truncate text-sm font-medium leading-5 text-foreground">{presentation.title}</p>
       ) : null}
-      <MetaList items={presentation.fields} />
+      <MetaList items={fields} />
       {presentation.presentationIntent ? (
         <PresentationIntentDetails intent={presentation.presentationIntent} />
       ) : null}
@@ -1315,7 +1316,7 @@ function TranscriptNavigationRail(props: {
   const fallbackVisibleAnchorId = visibleMessageIds.find((messageId) => (
     props.anchors.some((anchor) => anchor.id === messageId)
   ));
-  const activeAnchorId = currentAnchorId ?? fallbackVisibleAnchorId ?? latest?.id;
+  const activeAnchorId = fallbackVisibleAnchorId ?? currentAnchorId ?? latest?.id;
   const expanded = inspectedIndex !== null;
 
   return (

@@ -473,8 +473,9 @@ Slice 5 evidence:
 - User turns, assistant replies, tool executions, failures, milestones, and live
   activity receive explicit anchor kinds.
 - Current-position feedback uses the official message-scroller visibility hook;
-  `currentAnchorId` is the single reader-position authority, while hover/focus
-  only selects and magnifies nearby marks for visual inspection.
+  visible semantic anchors drive the rail's active mark, while `currentAnchorId`
+  remains a fallback for scroller anchoring state. Hover/focus only selects and
+  magnifies nearby marks for visual inspection.
 - Pointer navigation scrolls only on explicit operator action, and the existing
   `MessageScrollerButton` remains the live-edge control.
 - Focused transcript tests, workspace typecheck, full `@kilnai/gui` tests, GUI
@@ -492,6 +493,12 @@ Slice 5 evidence:
   official message-scroller control; hover/focus selection uses a neutral
   foreground treatment so it remains visually distinct from the primary active
   reader-position mark.
+- The rail now highlights visible assistant replies and other semantic blocks
+  without making those rows `scrollAnchor`s, preserving MessageScroller turn
+  anchoring while matching Codex-style reading position feedback.
+- Markdown-like web/search text output is classified at the shared Gateway
+  contract layer and rendered as bounded document output instead of raw
+  monospaced `Text output`.
 
 Required outcome:
 

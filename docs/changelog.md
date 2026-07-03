@@ -14,11 +14,13 @@ baseline. Active and deferred execution tracks live in
   is available.
 - Added continuous GUI tool-execution rows keyed by canonical `toolCallId`,
   contract-driven bounded structured-output visualizers, a semantic long-thread
-  navigation trail with MessageScroller-owned active position, proximity zoom on
-  hover/focus, and replay/restore deduplication by `eventId`. Active tool
-  treatment is a compact inline trace with text/icon state and optional shimmer,
-  while aggregate thinking/execution activity uses a restrained `border-beam`;
-  all motion is suppressed under reduced motion.
+  navigation trail with visible-block active position, proximity zoom on
+  hover/focus, and replay/restore deduplication by `eventId`. Markdown-like
+  web/search text outputs render as bounded document output instead of raw
+  monospaced text. Active tool treatment is a compact inline trace with
+  text/icon state and optional shimmer, while aggregate thinking/execution
+  activity uses a restrained `border-beam`; all motion is suppressed under
+  reduced motion.
 - Added provider-neutral benchmark integrity for efficiency work: provider tool
   names round-trip to canonical Kiln identities, route failures are classified
   from shared route-health evidence, execution economics distinguish metered,

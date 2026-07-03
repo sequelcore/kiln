@@ -73,7 +73,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(page.getByRole("button", { name: "Jump to latest" })).toBeAttached();
     const currentAnchors = rail.locator('[aria-current="location"]');
     await expect(currentAnchors).toHaveCount(1);
-    await expect(currentAnchors).toHaveAttribute("aria-label", "Jump to user turn 1");
+    await expect(currentAnchors).toHaveAttribute("aria-label", "Jump to assistant reply 2");
 
     await page.getByLabel("Transcript").evaluate((viewport) => {
       let scrollTop = viewport.scrollTop;

@@ -655,9 +655,21 @@ function classifyTextOutput(filePath: string | null, text: string): ToolResultOu
   const trimmed = text.trim();
   if (trimmed.length === 0) return "empty";
   const language = languageForPath(filePath);
-  if (language === "markdown" || /^#\s/u.test(trimmed)) return "markdown";
+  if (language === "markdown" || isMarkdownLikeText(trimmed)) return "markdown";
   if (language) return "code";
   return "text";
+}
+
+function isMarkdownLikeText(trimmed: string): boolean {
+  if (/^#{1,6}\s+\S/mu.test(trimmed)) return true;
+  if (/```/u.test(trimmed)) return true;
+  if (/^\s{0,3}>\s+\S/mu.test(trimmed)) return true;
+  if (/\[[^\]\n]+\]\([^)]+\)/u.test(trimmed)) return true;
+  if (/^\s{0,3}\|.+\|\s*$/mu.test(trimmed)) return true;
+  const listLines = trimmed
+    .split(/\r?\n/u)
+    .filter((line) => /^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+)\S/u.test(line));
+  return listLines.length >= 2;
 }
 
 function summarizeTextOutput(
