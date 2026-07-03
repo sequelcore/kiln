@@ -1,6 +1,6 @@
 # Token Pressure Diagnosis And Repair Plan
 
-Status: Slices 1-4 complete; Slice 5 local validation complete; live pilot requires explicit opt-in
+Status: Slices 1-5 complete; bounded live pilot recorded
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/04-verified-efficiency-control-plane.md`, Slice 0
 
@@ -199,7 +199,7 @@ per-round evidence.
 
 Owner: existing benchmark runner and operator routing example.
 
-Status: Local deterministic validation complete; live pilot pending explicit operator authorization.
+Status: Complete.
 
 - Run local deterministic and fixture tests before any credentialed probe.
 - With explicit operator authorization, run one sequential `k=1` pilot on the
@@ -211,6 +211,23 @@ Status: Local deterministic validation complete; live pilot pending explicit ope
 
 Gate: benchmark readiness passes for the bounded claim being made; no route or
 personal config promotion from a single sample.
+
+Pilot result, authorized on 2026-07-02:
+
+| Route | passAtK | Input tokens | Previous input | Delta | Requests | Tool schema bytes/request |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Codex GPT-5.5 | 1.0 | 37,354 | 424,726 | -91.2% | 9 | 4,895 |
+| Kimi K2.7 Code | 1.0 | 76,496 | 419,972 | -81.8% | 17 | 4,895 |
+| GLM 5.2 | 0.5 | 19,023 | 940,391 | -98.0% | 5 | 4,895 |
+| DeepSeek V4 Pro | 0.5 | 71,366 | 859,793 | -91.7% | 15 | 4,895 |
+
+The pilot confirms the token-pressure repair: all four routes now send the
+authority-admitted deferred tool surface instead of the broad built-in tool
+surface. Only Codex GPT-5.5 and Kimi K2.7 Code met the two-item quality gate in
+this `k=1` pilot. GLM 5.2 failed readiness on latency for the search item, and
+DeepSeek V4 Pro failed the tool-trajectory score for the search item. These
+samples are sufficient evidence for the bounded repair claim, not for global
+model ranking or personal configuration promotion.
 
 ## Verification And Commit Sequence
 
