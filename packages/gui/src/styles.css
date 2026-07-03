@@ -321,7 +321,7 @@ body {
 }
 
 [data-selected="true"] .thread-navigation-mark {
-  background: var(--primary);
+  background: var(--foreground);
   opacity: 1;
   transform: scaleX(1) scaleY(1.6);
 }

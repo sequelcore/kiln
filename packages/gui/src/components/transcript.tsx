@@ -1367,16 +1367,6 @@ function TranscriptNavigationRail(props: {
           );
         })}
       </div>
-      {latest ? (
-        <button
-          type="button"
-          className="pointer-events-auto mt-2 flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Return to latest thread anchor"
-          onClick={() => jumpToAnchor(latest.id)}
-        >
-          <ChevronDown className="size-3.5" aria-hidden="true" />
-        </button>
-      ) : null}
     </nav>
   );
 }
@@ -1531,8 +1521,11 @@ export function Transcript(props: TranscriptProps) {
           <MessageScrollerButton
             direction="end"
             aria-label={hasLiveActivity ? "Live response below" : "Jump to latest"}
-            variant={hasLiveActivity ? "default" : "secondary"}
-            className="shadow-[var(--shadow-elevated)]"
+            variant="outline"
+            className={cn(
+              "border-border/70 bg-background/95 text-muted-foreground shadow-[var(--shadow-elevated)] backdrop-blur hover:bg-muted hover:text-foreground",
+              hasLiveActivity ? "border-primary/35 bg-primary/10 text-primary hover:border-border/70 hover:bg-muted hover:text-foreground" : null,
+            )}
           />
         </MessageScroller>
       </MessageScrollerProvider>

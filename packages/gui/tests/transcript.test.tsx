@@ -1624,7 +1624,7 @@ describe("Transcript", () => {
     expect(userAnchor).toHaveAttribute("data-thread-anchor-kind", "user");
     expect(toolAnchor).toHaveAttribute("data-thread-anchor-kind", "tool");
     expect(within(rail).getByRole("button", { name: "Jump to tool failure 3" })).toHaveAttribute("data-thread-anchor-kind", "failure");
-    expect(within(rail).getByRole("button", { name: "Return to latest thread anchor" })).toBeInTheDocument();
+    expect(within(rail).queryByRole("button", { name: "Return to latest thread anchor" })).not.toBeInTheDocument();
     expect(within(rail).getByText("Investigate the trace").closest('[data-role="thread-anchor-preview"]')).toBeInTheDocument();
     expect(within(rail).getAllByRole("button").filter((button) => button.getAttribute("aria-current") === "location")).toHaveLength(1);
     expect(assistantAnchor).toHaveAttribute("aria-current", "location");

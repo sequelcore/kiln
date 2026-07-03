@@ -69,7 +69,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(rail).toBeVisible();
     await expect(rail.getByRole("button", { name: "Jump to user turn 1" })).toBeVisible();
     await expect(rail.getByRole("button", { name: "Jump to assistant reply 2" })).toBeVisible();
-    await expect(rail.getByRole("button", { name: "Return to latest thread anchor" })).toBeVisible();
+    await expect(rail.getByRole("button", { name: "Return to latest thread anchor" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Jump to latest" })).toBeAttached();
     const currentAnchors = rail.locator('[aria-current="location"]');
     await expect(currentAnchors).toHaveCount(1);
@@ -93,16 +93,22 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     });
     const firstTurn = rail.getByRole("button", { name: "Jump to user turn 1" });
     const distantTurn = rail.getByRole("button", { name: "Jump to assistant reply 4" });
-    await firstTurn.hover();
+    await distantTurn.hover();
     await expect(rail).toHaveAttribute("data-expanded", "true");
-    await expect(firstTurn).toHaveAttribute("data-selected", "true");
-    await expect(firstTurn.locator('[data-role="thread-anchor-preview"]')).toBeVisible();
-    await expect(firstTurn.locator('[data-role="thread-anchor-preview"]')).toContainText("navigation rail first turn");
-    const hoveredWidth = await firstTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
-    const distantWidth = await distantTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
-    expect(hoveredWidth).toBeGreaterThan(distantWidth);
-    await expect(firstTurn.locator(".thread-navigation-mark")).toHaveCSS("opacity", "1");
-    await expect(distantTurn.locator(".thread-navigation-mark")).toHaveCSS("opacity", "0.28");
+    await expect(distantTurn).toHaveAttribute("data-selected", "true");
+    await expect(distantTurn.locator('[data-role="thread-anchor-preview"]')).toBeVisible();
+    await expect(distantTurn.locator('[data-role="thread-anchor-preview"]')).toContainText("Reply");
+    const selectedWidth = await distantTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
+    const currentWidth = await firstTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
+    expect(selectedWidth).toBeGreaterThan(currentWidth);
+    await expect(distantTurn.locator(".thread-navigation-mark")).toHaveCSS("opacity", "1");
+    const currentBackground = await currentAnchors.locator(".thread-navigation-mark").evaluate((element) => (
+      getComputedStyle(element).backgroundColor
+    ));
+    const hoveredBackground = await distantTurn.locator(".thread-navigation-mark").evaluate((element) => (
+      getComputedStyle(element).backgroundColor
+    ));
+    expect(hoveredBackground).not.toBe(currentBackground);
 
     await firstTurn.focus();
     await page.keyboard.press("Enter");
@@ -113,14 +119,6 @@ test.describe("parity category 5 - theming and visual behavior", () => {
       delete (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop;
     });
     await rail.getByRole("button", { name: "Jump to assistant reply 2" }).click();
-    await expect.poll(async () => page.evaluate(() => (
-      (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop
-    ))).toEqual(expect.any(Number));
-
-    await page.evaluate(() => {
-      delete (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop;
-    });
-    await rail.getByRole("button", { name: "Return to latest thread anchor" }).click();
     await expect.poll(async () => page.evaluate(() => (
       (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop
     ))).toEqual(expect.any(Number));

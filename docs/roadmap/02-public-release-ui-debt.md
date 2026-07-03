@@ -488,6 +488,10 @@ Slice 5 evidence:
   behavior in Chromium: one active mark, proximity zoom on hover/focus, subdued
   distant marks, preview cards, keyboard activation, and no duplicated scroll
   authority outside `MessageScroller`.
+- The rail no longer renders a second "return to latest" arrow beside the
+  official message-scroller control; hover/focus selection uses a neutral
+  foreground treatment so it remains visually distinct from the primary active
+  reader-position mark.
 
 Required outcome:
 
