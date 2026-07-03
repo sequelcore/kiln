@@ -191,7 +191,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         input: { path: "docs/roadmap/02-public-release-ui-debt.md" },
         toolCallId: "parity-live-tool-2",
       };
-      await delay(1_200);
+      await delay(2_500);
       yield {
         type: "tool_result",
         toolName: "read",

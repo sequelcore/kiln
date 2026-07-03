@@ -15,8 +15,8 @@ baseline. Active and deferred execution tracks live in
 - Added continuous GUI tool-execution rows keyed by canonical `toolCallId`,
   contract-driven bounded structured-output visualizers, a semantic long-thread
   navigation rail, and replay/restore deduplication by `eventId`. Active tool
-  treatment remains accessible without animation and disables the adopted
-  border-beam motion under reduced-motion preference.
+  treatment is a compact inline trace with text/icon state, optional shimmer
+  while running, and reduced-motion suppression for shimmer and spinner motion.
 - Added provider-neutral benchmark integrity for efficiency work: provider tool
   names round-trip to canonical Kiln identities, route failures are classified
   from shared route-health evidence, execution economics distinguish metered,

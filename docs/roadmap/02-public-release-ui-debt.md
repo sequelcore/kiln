@@ -378,9 +378,9 @@ Slice 0 evidence and decisions:
   navigable.
 - shadcn MessageScroller hooks are a behavioral reference for live-edge
   following and reader-intent preservation, not a new dependency requirement.
-- shadcn border beam examples are a visual reference, not a dependency. A local
-  active beam may supplement status text and iconography, must remain subtle,
-  and must become static under reduced motion.
+- shadcn border beam examples were evaluated as visual references, not adopted
+  as a dependency. Active tool rows should remain compact inline traces with
+  status text, iconography, and reduced-motion-safe shimmer only when useful.
 - Runtime events remain canonical. The GUI derives presentation keyed by
   `toolCallId` and must not manufacture lifecycle transitions or merge calls by
   tool name.
@@ -422,9 +422,8 @@ Slice 2 evidence:
 - Completed starts collapse into their terminal execution row by canonical
   `toolCallId`; running calls remain visible as running rows until terminal
   evidence arrives.
-- Running rows expose explicit state, text, iconography, shimmer treatment, and
-  a subtle local active beam. Motion is supplemental and disabled under reduced
-  motion.
+- Running rows expose explicit state, text, iconography, and optional shimmer
+  treatment. Shimmer and spinner motion are disabled under reduced motion.
 - Focused gateway projection tests, focused GUI transcript tests, full
   `@kilnai/gui` tests, GUI build, GUI E2E, and workspace typecheck passed on
   2026-07-02.
@@ -450,11 +449,11 @@ Slice 4 evidence:
 - GUI transcript structured-output details now expose bounded containers for
   approved visualizers, with explicit table overflow boundaries and JSON preview
   width constraints.
-- `border-beam` is adopted for active non-nested tool rows after package
-  evaluation confirmed MIT licensing, React compatibility, and successful GUI
-  build. The wrapper degrades safely where `window.matchMedia` is unavailable.
+- Active non-nested tool rows use a compact inline trace instead of decorative
+  beam framing so operational activity stays subordinate to assistant prose.
 - Active execution state remains represented by text, iconography, and
-  `data-state`; the beam is decorative and supplemental, not the only signal.
+  `data-state`; optional shimmer is supplemental and suppressed with spinner
+  motion under reduced-motion preference.
 - No interactive tree/file dependency was introduced because current behavior
   does not require navigation, virtualization, keyboard traversal, lazy loading,
   or file actions.
@@ -491,9 +490,8 @@ Required outcome:
 - Preserve readable raw evidence for unknown or invalid payloads.
 - Introduce a tree/file explorer dependency only when approved behavior requires
   navigation, virtualization, keyboard traversal, lazy loading, or file actions.
-- Use the adopted MIT-licensed `border-beam` dependency only as supplemental
-  active-row decoration. Kiln's semantic wrapper owns transcript bounds and
-  disables all descendant animation under reduced motion.
+- Keep active-row treatment compact and inline. Kiln's semantic wrapper owns
+  transcript bounds and disables shimmer/spinner animation under reduced motion.
 - Keep every visualizer bounded by the transcript column; expansion may grow
   vertically or scroll internally, never widen the chat layout.
 - Add a compact, accessible navigation rail based on durable semantic anchors,
@@ -521,8 +519,8 @@ Verification:
   the same execution row.
 - GUI tests cover JSON inspection, invalid fallback, output classification,
   bounded horizontal layout, and large representative payloads.
-- Accessibility and browser checks prove active state is not motion-only and the
-  beam is static under reduced motion.
+- Accessibility and browser checks prove active state is not motion-only and
+  shimmer/spinner motion is suppressed under reduced motion.
 - Playwright covers desktop and compact navigation, keyboard use, live streaming,
   reader-away-from-edge behavior, return to latest, interruption, and restore.
 - GUI typecheck, tests, build, relevant E2E, operator live validation, and review
@@ -532,9 +530,9 @@ Subtrack closeout evidence (2026-07-03):
 
 - Browser-backed gateway fixtures prove two concurrent live tools remain
   distinct through out-of-order success/failure completion.
-- Playwright proves reduced-motion suppression for the active beam, keyboard and
-  pointer rail navigation, return to latest, compact rail hiding, persisted
-  duplicate suppression, and canonical restore ordering.
+- Playwright proves reduced-motion suppression for active inline tool rows,
+  keyboard and pointer rail navigation, return to latest, compact rail hiding,
+  persisted duplicate suppression, and canonical restore ordering.
 - Focused contract/runtime/GUI tests cover interleaving, interruption, delayed
   terminal evidence, malformed structured-output fallback, and bounded large
   payloads. Final workspace gates and independent review are recorded in the

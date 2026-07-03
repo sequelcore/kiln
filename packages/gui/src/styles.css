@@ -288,8 +288,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   [data-role="tool-event"]::after,
-  [data-role="active-tool-beam"],
-  [data-role="active-tool-beam"] * {
+  [data-role="tool-event"] .shimmer,
+  [data-role="tool-event"] .animate-spin {
     animation: none !important;
   }
 }

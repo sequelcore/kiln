@@ -242,7 +242,7 @@ describe("Transcript", () => {
 
     const toolEvent = screen.getByRole("article").querySelector('[data-role="tool-event"]');
     expect(toolEvent).toHaveAttribute("data-state", "interrupted");
-    expect(toolEvent).toHaveClass("border-warning/45");
+    expect(toolEvent).toHaveClass("text-warning");
   });
 
   it("keeps JSON-shaped tool output compact in inline rows and details", () => {
@@ -1472,12 +1472,13 @@ describe("Transcript", () => {
     expect(rows[2]).toHaveAttribute("data-role", "assistant");
     expect(rows[1]).toHaveTextContent("Using patch");
     expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveAttribute("data-state", "running");
-    expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveClass("border-primary/35");
+    expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveClass("text-xs");
+    expect(rows[1]!.querySelector('[data-role="active-tool-beam"]')).not.toBeInTheDocument();
     expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Activity phase: Using patch" })).toBeInTheDocument();
   });
 
-  it("uses a decorative beam wrapper for active tool rows without replacing accessible state", () => {
+  it("renders active tool rows as compact inline trace entries", () => {
     render(
       <Transcript
         entries={[
@@ -1500,10 +1501,9 @@ describe("Transcript", () => {
     const toolEvent = toolRow.querySelector('[data-role="tool-event"]');
     expect(toolEvent).toHaveAttribute("data-state", "running");
     expect(toolEvent).toHaveTextContent("Execution in progress");
-    const beam = toolRow.querySelector('[data-role="active-tool-beam"]');
-    expect(beam).not.toHaveAttribute("aria-hidden");
-    expect(beam).toHaveAttribute("data-motion", "decorative");
-    expect(beam).toHaveClass("max-w-full", "overflow-visible");
+    expect(toolEvent).toHaveClass("py-1", "text-xs");
+    expect(toolEvent?.querySelector(".shimmer")).toBeInTheDocument();
+    expect(toolRow.querySelector('[data-role="active-tool-beam"]')).not.toBeInTheDocument();
   });
 
   it("renders canonical tool presentation details in transcript instead of raw structured input", () => {

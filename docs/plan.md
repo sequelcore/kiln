@@ -72,7 +72,7 @@ Slice 0 is complete as research and planning evidence only.
 | Output presentation intent | Gateway/shared presentation contracts | Select and bound the renderer |
 | Transcript following | Existing message-scroller integration | Preserve reader intent and live edge |
 | Long-thread anchors | Shared transcript projection | Render rail, focus, and navigation |
-| Motion preference | Browser/OS preference and GUI tokens | Disable active beam motion |
+| Motion preference | Browser/OS preference and GUI tokens | Disable inline shimmer/spinner motion |
 | Restore/replay fidelity | Runtime session persistence | Rehydrate without local identity repair |
 
 ## Delivery Slices
@@ -129,7 +129,7 @@ Status: Complete
 - Render tool usage outside prose bubbles as stable transcript rows tied to the
   canonical lifecycle projection.
 - Keep active, completed, failed, and interrupted states visible and accessible.
-- Add the restrained active beam with a static reduced-motion treatment.
+- Add restrained inline active treatment with reduced-motion suppression.
 
 Gate: component tests cover concurrent and terminal states; browser validation
 proves no disappearance, overlap, width growth, or motion-only semantics.
@@ -144,9 +144,9 @@ Slice 2 evidence:
   tool stacks into assistant prose bubbles or live activity bubbles.
 - Completed starts collapse into their terminal execution row by canonical
   `toolCallId`; still-running calls remain visible as running rows.
-- Running rows expose `data-state="running"`, status text, iconography, shimmer
-  text, and a local active beam. The beam is supplemental and disables animation
-  under `prefers-reduced-motion`.
+- Running rows expose `data-state="running"`, status text, iconography, and
+  shimmer text. Shimmer and spinner motion are disabled under
+  `prefers-reduced-motion`.
 - Focused gateway projection tests, focused GUI transcript tests, full
   `@kilnai/gui` tests, GUI build, GUI E2E, and workspace typecheck passed on
   2026-07-02 before moving to Slice 3.
@@ -176,10 +176,9 @@ cross-surface review confirms no GUI-owned semantic fork.
   only where the shared intent supplies sufficient evidence.
 - Adopt an interactive tree/file dependency only if navigation, virtualization,
   keyboard traversal, lazy loading, or file actions are approved requirements.
-- Adopted `border-beam` for active non-nested tool rows after validating the
-  package is MIT-licensed, React-compatible, and production-build safe. The
-  component degrades to a static bounded wrapper in environments without
-  `window.matchMedia`; accessible state remains text, icon, and `data-state`.
+- Active non-nested tool rows intentionally use a compact inline trace instead
+  of decorative beam framing. Accessible state remains text, icon, and
+  `data-state`; reduced motion suppresses shimmer and spinner motion.
 - Structured output details now expose explicit bounded containers for
   transcript-column visualizers, including table overflow boundaries and JSON
   preview width constraints.
@@ -250,9 +249,9 @@ Status: Complete
   reduced-motion treatment, `eventId` replay deduplication, and semantic
   long-thread navigation behavior.
 - Browser-backed parity fixtures prove concurrent live tool rows stay distinct
-  while completing out of order, reduced motion disables the active beam
-  animation, keyboard and pointer navigation reach canonical anchors, return to
-  latest targets the final anchor, and compact viewports hide the rail.
+  while completing out of order, reduced motion disables inline row animation,
+  keyboard and pointer navigation reach canonical anchors, return to latest
+  targets the final anchor, and compact viewports hide the rail.
 - Focused contract, runtime, GUI, and Playwright gates plus GUI test/build,
   workspace typecheck, `git diff --check`, and final review passed on
   2026-07-03.
@@ -279,8 +278,8 @@ gate, and receives review before its commit. Only files for that slice are stage
   renderer path, or duplicate navigation model.
 - Contract changes roll back with their producers, consumers, fixtures, and
   projections as one atomic slice.
-- If a visualizer or beam fails its gate, retain the readable fallback and status
-  treatment while removing only the unvalidated enhancement.
+- If a visualizer or active-row treatment fails its gate, retain the readable
+  fallback and status treatment while removing only the unvalidated enhancement.
 - If the rail fails restore or reader-intent gates, remove the rail without
   changing the existing message-scroller behavior.
 

@@ -13,7 +13,6 @@ import {
   type ToolResultOutputKind,
 } from "@kilnai/gateway-contracts";
 import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, FileText, Folder, LoaderCircle, Terminal } from "lucide-react";
-import { BorderBeam } from "border-beam";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
@@ -929,41 +928,6 @@ function toolEventTooltipText(entry: TimelineEventEntry): string {
   return `${toolName} result attached to this assistant turn. Expand for details.`;
 }
 
-function ActiveToolBeamFrame(props: {
-  readonly active: boolean;
-  readonly children: ReactNode;
-}) {
-  if (!props.active) return <>{props.children}</>;
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return (
-      <div
-        className="max-w-full overflow-visible rounded-lg"
-        data-motion="decorative"
-        data-role="active-tool-beam"
-      >
-        {props.children}
-      </div>
-    );
-  }
-  return (
-    <BorderBeam
-      active
-      borderRadius={8}
-      className="max-w-full overflow-visible rounded-lg"
-      colorVariant="ocean"
-      data-motion="decorative"
-      data-role="active-tool-beam"
-      duration={2.3}
-      size="pulse-inner"
-      staticColors
-      strength={0.55}
-      theme="auto"
-    >
-      {props.children}
-    </BorderBeam>
-  );
-}
-
 function ToolEventCard(props: {
   readonly entry: TimelineEventEntry;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
@@ -980,83 +944,81 @@ function ToolEventCard(props: {
       : props.entry.tone === "warning"
         ? "interrupted"
         : "complete";
-  const activeBeam = props.entry.tone === "running" && !props.nested;
 
   return (
     <div className="w-full min-w-0 flex-1">
-      <ActiveToolBeamFrame active={activeBeam}>
-        <div
-          data-role="tool-event"
-          data-state={state}
+      <div
+        data-role="tool-event"
+        data-state={state}
+        className={cn(
+          "group/tool relative flex min-w-0 items-center gap-2 py-1 text-xs leading-5 text-muted-foreground",
+          props.nested ? "px-0" : "px-0.5",
+          props.entry.tone === "error" ? "text-destructive" : null,
+          props.entry.tone === "warning" ? "text-warning" : null,
+        )}
+      >
+        <Icon
+          aria-hidden="true"
           className={cn(
-            "relative flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-transparent bg-background/70 px-2.5 py-1.5 text-sm",
-            props.nested ? "bg-transparent px-0" : "shadow-sm",
-            props.entry.tone === "running"
-              ? "border-primary/35 bg-primary/5 before:absolute before:inset-y-1 before:left-0 before:w-px before:rounded-full before:bg-primary"
-              : null,
-            props.entry.tone === "warning" ? "border-warning/45 bg-warning/5" : null,
-            props.entry.tone === "error" ? "border-destructive/45 bg-destructive/5" : null,
+            "size-3.5 shrink-0 text-muted-foreground/80",
+            props.entry.tone === "running" ? "animate-spin text-primary" : null,
+            props.entry.tone === "error" ? "text-destructive" : null,
           )}
-        >
-          <Icon
-            aria-hidden="true"
-            className={cn(
-              "shrink-0 text-muted-foreground",
-              props.entry.tone === "running" ? "animate-spin" : null,
-              props.entry.tone === "error" ? "text-destructive" : null,
-            )}
-          />
-          <TooltipProvider delay={400}>
-            <Tooltip>
-              <TooltipTrigger
-                render={(
-                  <Badge
-                    variant={eventBadgeVariant(props.entry)}
-                    className="max-w-[11rem] cursor-default truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                )}
-              >
-                {props.entry.title}
-              </TooltipTrigger>
-              <TooltipContent side="top" align="start">
-                {toolEventTooltipText(props.entry)}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          {summary ? (
-            <span
-              className={cn(
-                "relative z-10 min-w-0 flex-1 truncate text-muted-foreground",
-                props.entry.tone === "running" ? "shimmer" : null,
+        />
+        <TooltipProvider delay={400}>
+          <Tooltip>
+            <TooltipTrigger
+              render={(
+                <span
+                  className={cn(
+                    "min-w-0 max-w-[15rem] cursor-default truncate font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    props.entry.tone === "running" ? "shimmer text-primary" : null,
+                    props.entry.tone === "error" ? "text-destructive" : null,
+                  )}
+                />
               )}
-              title={summary}
             >
-              {summary}
-            </span>
-          ) : null}
-          <time
-            dateTime={props.entry.createdAt}
-            className="hidden shrink-0 font-mono text-[10px] text-muted-foreground/70 sm:inline"
-            title={props.entry.createdAt}
+              {props.entry.title}
+            </TooltipTrigger>
+            <TooltipContent side="top" align="start">
+              {toolEventTooltipText(props.entry)}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        {summary ? (
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-muted-foreground/80",
+              props.entry.tone === "running" ? "shimmer" : null,
+            )}
+            title={summary}
           >
-            {new Date(props.entry.createdAt).toLocaleTimeString()}
-          </time>
-          {hasDetails ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label={open ? "Hide details" : "Show details"}
-              aria-expanded={open}
-              onClick={() => setOpen((value) => !value)}
-            >
-              {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
-            </Button>
-          ) : null}
-        </div>
-      </ActiveToolBeamFrame>
+            {summary}
+          </span>
+        ) : null}
+        <time
+          dateTime={props.entry.createdAt}
+          className="hidden shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/60 sm:inline"
+          title={props.entry.createdAt}
+        >
+          {new Date(props.entry.createdAt).toLocaleTimeString()}
+        </time>
+        {hasDetails ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="size-5 text-muted-foreground/60 opacity-70 hover:opacity-100"
+            aria-label={open ? "Hide details" : "Show details"}
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
+          </Button>
+        ) : null}
+      </div>
       {open ? (
-        <div className={cn("w-full min-w-0", props.nested ? "mt-2 pl-7" : "mt-3")}>
+        <div className={cn("w-full min-w-0 border-l border-border/60", props.nested ? "mt-2 pl-4" : "mt-2 ml-2 pl-4")}>
           <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />
         </div>
       ) : null}
@@ -1070,8 +1032,7 @@ function InlineToolEventRow(props: {
 }) {
   return (
     <article data-role="tool" className="mx-auto flex w-full max-w-3xl justify-start px-1">
-      <div className="flex min-w-0 max-w-[min(42rem,94%)] flex-1 gap-2">
-        <span className="mt-2 h-auto w-px shrink-0 rounded-full bg-border" aria-hidden="true" />
+      <div className="min-w-0 max-w-[min(42rem,94%)] flex-1 pl-5 sm:pl-8">
         <ToolEventCard entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
       </div>
     </article>

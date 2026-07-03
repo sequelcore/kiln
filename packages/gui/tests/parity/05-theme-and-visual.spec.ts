@@ -118,8 +118,8 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const runningRows = page.locator('[data-role="tool-event"][data-state="running"]');
     await expect(runningRows).toHaveCount(2, { timeout: 5_000 });
     const activeBeams = page.locator('[data-role="active-tool-beam"]');
-    await expect(activeBeams).toHaveCount(2);
-    expect(await activeBeams.evaluateAll((elements) => elements.every((element) => {
+    await expect(activeBeams).toHaveCount(0);
+    expect(await runningRows.evaluateAll((elements) => elements.every((element) => {
       return [element, ...Array.from(element.querySelectorAll("*"))]
         .every((candidate) => getComputedStyle(candidate).animationName === "none");
     }))).toBe(true);
