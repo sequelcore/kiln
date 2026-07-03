@@ -1,6 +1,6 @@
 # Tool Execution Continuity, Structured Output Visualizers, and Long-Thread Navigation
 
-Status: Slice 1 complete; Slice 2 next
+Status: Slice 2 complete; Slice 3 next
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/02-public-release-ui-debt.md`
 
@@ -124,6 +124,8 @@ Slice 1 evidence:
 
 ### Slice 2 - Continuous Tool Execution Rows
 
+Status: Complete
+
 - Render tool usage outside prose bubbles as stable transcript rows tied to the
   canonical lifecycle projection.
 - Keep active, completed, failed, and interrupted states visible and accessible.
@@ -131,6 +133,23 @@ Slice 1 evidence:
 
 Gate: component tests cover concurrent and terminal states; browser validation
 proves no disappearance, overlap, width growth, or motion-only semantics.
+
+Slice 2 evidence:
+
+- Shared transcript projection now supports `anchorToolEventsToAssistant: false`,
+  preserving the existing default for consumers that still need assistant-owned
+  grouping while allowing the GUI transcript to render tool events as first-class
+  rows.
+- GUI transcript rendering opts into standalone tool rows and no longer injects
+  tool stacks into assistant prose bubbles or live activity bubbles.
+- Completed starts collapse into their terminal execution row by canonical
+  `toolCallId`; still-running calls remain visible as running rows.
+- Running rows expose `data-state="running"`, status text, iconography, shimmer
+  text, and a local active beam. The beam is supplemental and disables animation
+  under `prefers-reduced-motion`.
+- Focused gateway projection tests, focused GUI transcript tests, full
+  `@kilnai/gui` tests, GUI build, GUI E2E, and workspace typecheck passed on
+  2026-07-02 before moving to Slice 3.
 
 ### Slice 3 - Structured Output Classification
 

@@ -276,6 +276,22 @@ body {
   background: transparent;
 }
 
+@keyframes kiln-tool-row-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role="tool-event"]::after {
+    animation: none;
+  }
+}
+
 .markdown-body {
   line-height: 1.45;
   min-width: 0;

@@ -103,7 +103,7 @@ describe("Transcript", () => {
     expect(screen.getByLabelText("Audio artifact preview")).toHaveAttribute("src", "data:audio/wav;base64,BAUG");
   });
 
-  it("groups tool activity into the following assistant message bubble", () => {
+  it("renders tool activity as a stable row before the following assistant message", () => {
     render(
       <Transcript
         entries={[
@@ -134,16 +134,17 @@ describe("Transcript", () => {
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveAttribute("data-role", "user");
-    expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    const activity = within(rows[1]!).getByTestId("assistant-tool-events");
-    expect(activity).toHaveTextContent("1 tool event");
+    expect(rows[1]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveAttribute("data-role", "assistant");
     expect(rows[1]).not.toHaveTextContent("Using read");
     expect(rows[1]).not.toHaveTextContent("Execution in progress");
     expect(rows[1]).toHaveTextContent("Completed read");
-    expect(within(activity).queryByText("# Session Model")).not.toBeInTheDocument();
-    expect(rows[1]).toHaveTextContent("Here is the summary.");
+    expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveAttribute("data-state", "complete");
+    expect(rows[1]).toHaveTextContent("# Session Model");
+    expect(rows[2]).toHaveTextContent("Here is the summary.");
+    expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
   });
 
   it("summarizes multiple assistant tool events until details are requested", () => {
@@ -177,24 +178,21 @@ describe("Transcript", () => {
     );
 
     const rows = screen.getAllByRole("article");
-    const activity = within(rows[1]!).getByTestId("assistant-tool-events");
-    expect(activity).toHaveClass("w-full", "min-w-0");
-    expect(activity).toHaveTextContent("2 tool events");
-    expect(activity).toHaveTextContent("Completed read");
-    expect(activity).toHaveTextContent("Completed patch");
-    expect(activity.querySelectorAll('[data-role="tool-event"]')).toHaveLength(0);
+    expect(rows).toHaveLength(4);
+    expect(rows[1]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveAttribute("data-role", "tool");
+    expect(rows[3]).toHaveAttribute("data-role", "assistant");
+    expect(rows[1]).toHaveTextContent("Completed read");
+    expect(rows[2]).toHaveTextContent("Completed patch");
+    expect(within(rows[3]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
 
-    fireEvent.click(within(activity).getByRole("button", { name: "Show activity details" }));
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Show details" }));
 
-    expect(activity.querySelectorAll('[data-role="tool-event"]')).toHaveLength(2);
-    expect(activity.querySelector('[data-role="tool-event"]')?.parentElement).toHaveClass("w-full", "min-w-0");
-    expect(activity.firstElementChild).not.toHaveTextContent("Completed read");
-    expect(activity.firstElementChild).not.toHaveTextContent("Completed patch");
-    expect(within(activity).getByText("# Session Model")).toBeInTheDocument();
-    expect(within(activity).getByText("1 file changed")).toBeInTheDocument();
+    expect(within(rows[1]!).getByText("# Session Model")).toBeInTheDocument();
+    expect(rows[2]).toHaveTextContent("1 file changed");
   });
 
-  it("renders trailing same-turn tool activity before the previous assistant content", () => {
+  it("renders trailing same-turn tool activity as a standalone operational row", () => {
     render(
       <Transcript
         entries={[
@@ -215,14 +213,36 @@ describe("Transcript", () => {
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toHaveTextContent("1 tool event");
-    expect(rows[1]).toHaveTextContent("Completed write");
     expect(rows[1]).toHaveTextContent("Created im_alive.txt with:");
-    const assistantText = rows[1]!.textContent ?? "";
-    expect(assistantText.indexOf("Completed write")).toBeLessThan(assistantText.indexOf("Created im_alive.txt with:"));
-    expect(rows[2]).toHaveAttribute("data-role", "user");
+    expect(within(rows[1]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
+    expect(rows[2]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveTextContent("Completed write");
+    expect(rows[3]).toHaveAttribute("data-role", "user");
+  });
+
+  it("marks interrupted tool rows distinctly from completed rows", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-interrupted",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Interrupted shell",
+            summary: "Operator stopped execution",
+            tone: "warning",
+            details: { toolCallId: "call_shell_1", status: "interrupted" },
+          },
+        ]}
+      />,
+    );
+
+    const toolEvent = screen.getByRole("article").querySelector('[data-role="tool-event"]');
+    expect(toolEvent).toHaveAttribute("data-state", "interrupted");
+    expect(toolEvent).toHaveClass("border-warning/45");
   });
 
   it("keeps JSON-shaped tool output compact in inline rows and details", () => {
@@ -1320,7 +1340,7 @@ describe("Transcript", () => {
     expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
   });
 
-  it("keeps live tool events inside the active assistant bubble before final text arrives", () => {
+  it("keeps live tool events visible as rows before final text arrives", () => {
     render(
       <Transcript
         entries={[
@@ -1351,13 +1371,14 @@ describe("Transcript", () => {
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveAttribute("data-role", "user");
-    expect(rows[1]).toHaveAttribute("data-role", "assistant");
+    expect(rows[1]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveAttribute("data-role", "assistant");
     expect(screen.queryByText("Using patch")).not.toBeInTheDocument();
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toHaveTextContent("1 tool event");
     expect(rows[1]).toHaveTextContent("Completed patch");
-    expect(rows[1]).toHaveTextContent("Responding");
+    expect(rows[2]).toHaveTextContent("Responding");
+    expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
   });
 
   it("does not duplicate the responding state when an assistant message is already streaming", () => {
@@ -1372,12 +1393,11 @@ describe("Transcript", () => {
     expect(screen.queryByRole("status", { name: "Activity phase: Responding" })).not.toBeInTheDocument();
   });
 
-  it("does not render a separate activity row once an assistant shell anchors live tools", () => {
+  it("keeps the activity row separate from live tool rows", () => {
     render(
       <Transcript
         entries={[
           messageEntry("1", "user", "patch the file"),
-          messageEntry("2", "assistant", "", true),
           {
             id: "timeline:event:tool-started",
             type: "event",
@@ -1395,13 +1415,15 @@ describe("Transcript", () => {
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveAttribute("data-role", "user");
-    expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toHaveTextContent("1 tool event");
+    expect(rows[1]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveAttribute("data-role", "assistant");
     expect(rows[1]).toHaveTextContent("Using patch");
-    expect(within(rows[1]!).queryByLabelText("Streaming")).not.toBeInTheDocument();
-    expect(screen.queryByRole("status", { name: "Activity phase: Using patch" })).not.toBeInTheDocument();
+    expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveAttribute("data-state", "running");
+    expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveClass("border-primary/35");
+    expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Activity phase: Using patch" })).toBeInTheDocument();
   });
 
   it("renders canonical tool presentation details in transcript instead of raw structured input", () => {
@@ -1448,7 +1470,7 @@ describe("Transcript", () => {
     const row = screen.getAllByRole("article")[1]!;
     expect(row).toHaveTextContent("gpt-5.5");
     expect(row).toHaveTextContent("direct-provider");
-    fireEvent.click(within(row).getByRole("button", { name: "Show activity details" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Show details" }));
     expect(row).toHaveTextContent("architecture-reviewer");
     expect(row).toHaveTextContent("ddd-review");
     expect(row).not.toHaveTextContent("Structured value");

@@ -922,14 +922,27 @@ function ToolEventCard(props: {
   const Icon = eventIcon(props.entry);
   const summary = eventSummaryText(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
+  const state = props.entry.tone === "running"
+    ? "running"
+    : props.entry.tone === "error"
+      ? "error"
+      : props.entry.tone === "warning"
+        ? "interrupted"
+        : "complete";
 
   return (
     <div className="w-full min-w-0 flex-1">
       <div
         data-role="tool-event"
+        data-state={state}
         className={cn(
-          "flex min-w-0 items-center gap-2 rounded-lg bg-background/70 px-2.5 py-1.5 text-sm",
+          "relative flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-transparent bg-background/70 px-2.5 py-1.5 text-sm",
           props.nested ? "bg-transparent px-0" : "shadow-sm",
+          props.entry.tone === "running"
+            ? "border-primary/35 bg-primary/5 before:absolute before:inset-y-1 before:left-0 before:w-px before:rounded-full before:bg-primary after:pointer-events-none after:absolute after:inset-0 after:-translate-x-full after:bg-[linear-gradient(110deg,transparent,rgba(255,255,255,0.11),transparent)] after:animate-[kiln-tool-row-shimmer_1.6s_ease-in-out_infinite] motion-reduce:after:animate-none"
+            : null,
+          props.entry.tone === "warning" ? "border-warning/45 bg-warning/5" : null,
+          props.entry.tone === "error" ? "border-destructive/45 bg-destructive/5" : null,
         )}
       >
         <Icon
@@ -958,7 +971,13 @@ function ToolEventCard(props: {
           </Tooltip>
         </TooltipProvider>
         {summary ? (
-          <span className="min-w-0 flex-1 truncate text-muted-foreground" title={summary}>
+          <span
+            className={cn(
+              "relative z-10 min-w-0 flex-1 truncate text-muted-foreground",
+              props.entry.tone === "running" ? "shimmer" : null,
+            )}
+            title={summary}
+          >
             {summary}
           </span>
         ) : null}
@@ -1002,84 +1021,6 @@ function InlineToolEventRow(props: {
         <ToolEventCard entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
       </div>
     </article>
-  );
-}
-
-function AssistantToolEventStack(props: {
-  readonly entries: readonly TimelineEventEntry[];
-  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
-}) {
-  const [open, setOpen] = useState(() => props.entries.some((entry) => shouldAutoOpenToolEventDetails(entry)));
-  const eventCount = props.entries.length;
-  const visibleEntries = props.entries.slice(0, 3);
-  const hasErrors = props.entries.some((entry) => entry.tone === "error");
-  const hasRunning = props.entries.some((entry) => entry.tone === "running");
-  const summary = visibleEntries.map((entry) => entry.title).join(", ");
-  const statusSummary = props.entries
-    .map((entry) => (entry.tone === "running" || entry.tone === "error" ? eventSummaryText(entry) : null))
-    .find((value): value is string => Boolean(value));
-  const overflowCount = Math.max(0, eventCount - visibleEntries.length);
-  const headerSummary = !open && summary ? `${summary}${overflowCount > 0 ? ` +${overflowCount}` : ""}` : null;
-  const statusLabel = hasErrors ? "Needs attention" : hasRunning ? "Running" : "Activity";
-  return (
-    <div
-      data-testid="assistant-tool-events"
-      className={cn(
-        "w-full min-w-0 rounded-xl border border-border/70 bg-background/55 px-2.5 py-2",
-        hasErrors ? "border-destructive/50 bg-destructive/5" : null,
-      )}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        {hasRunning ? (
-          <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-        ) : hasErrors ? (
-          <CircleAlert aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />
-        ) : (
-          <Terminal aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
-        <Badge
-          variant={hasErrors ? "destructive" : "secondary"}
-          className="shrink-0"
-        >
-          {statusLabel}
-        </Badge>
-        <span className="shrink-0 text-sm text-muted-foreground">
-          {eventCount} tool {eventCount === 1 ? "event" : "events"}
-        </span>
-        {headerSummary || statusSummary ? (
-          <span
-            className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
-            title={[headerSummary, statusSummary].filter(Boolean).join(" · ")}
-          >
-            {headerSummary ? <span className="text-foreground">{headerSummary}</span> : null}
-            {headerSummary && statusSummary ? <span> · </span> : null}
-            {statusSummary}
-          </span>
-        ) : <span className="min-w-0 flex-1" aria-hidden="true" />}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={open ? "Hide activity details" : "Show activity details"}
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
-        </Button>
-      </div>
-      {open ? (
-        <div className="mt-2 flex w-full min-w-0 flex-col gap-2">
-          {props.entries.map((entry) => (
-            <ToolEventCard
-              key={entry.id}
-              entry={entry}
-              loadResourceDataUrl={props.loadResourceDataUrl}
-              nested
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -1213,8 +1154,6 @@ function AssistantActivityRow(props: {
   readonly phase: ActivityPhase;
   readonly toolName?: string;
   readonly details?: string;
-  readonly toolEvents?: readonly TimelineEventEntry[];
-  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   return (
     <article data-role="assistant" className="mx-auto flex w-full max-w-3xl justify-start">
@@ -1222,14 +1161,6 @@ function AssistantActivityRow(props: {
         <header className="sr-only">
           <span>Assistant</span>
         </header>
-        {props.toolEvents && props.toolEvents.length > 0 ? (
-          <div className="mb-2">
-            <AssistantToolEventStack
-              entries={props.toolEvents}
-              loadResourceDataUrl={props.loadResourceDataUrl}
-            />
-          </div>
-        ) : null}
         <ActivityPhaseIndicator
           phase={props.phase}
           toolName={props.toolName}
@@ -1307,18 +1238,9 @@ function renderTranscriptEntries(
   },
 ): ReactNode[] {
   const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
-  const eventEntriesById = new Map(entries.flatMap((entry) => (
-    entry.type === "event" ? [[entry.id, entry] as const] : []
-  )));
   const items = projectConversationTurnItems<ActivityPhase>(
     entries.map((entry) => toConversationProjectionInput(entry)),
-    activity ? { activity } : {},
-  );
-  const eventEntries = (eventIds: readonly string[]): readonly TimelineEventEntry[] => (
-    eventIds.flatMap((id) => {
-      const entry = eventEntriesById.get(id);
-      return entry ? [entry] : [];
-    })
+    { ...(activity ? { activity } : {}), anchorToolEventsToAssistant: false },
   );
 
   return items.map((item) => {
@@ -1346,8 +1268,6 @@ function renderTranscriptEntries(
             phase={item.phase}
             toolName={item.toolName}
             details={item.details}
-            toolEvents={eventEntries(item.eventIds)}
-            loadResourceDataUrl={loadResourceDataUrl}
           />
         </MessageScrollerItem>
       );
@@ -1363,18 +1283,6 @@ function renderTranscriptEntries(
         <MessageRow
           message={entry.message}
           loadResourceDataUrl={loadResourceDataUrl}
-          beforeContent={item.beforeEventIds.length > 0 ? (
-            <AssistantToolEventStack
-              entries={eventEntries(item.beforeEventIds)}
-              loadResourceDataUrl={loadResourceDataUrl}
-            />
-          ) : undefined}
-          afterContent={item.afterEventIds.length > 0 ? (
-            <AssistantToolEventStack
-              entries={eventEntries(item.afterEventIds)}
-              loadResourceDataUrl={loadResourceDataUrl}
-            />
-          ) : undefined}
         />
       </MessageScrollerItem>
     );

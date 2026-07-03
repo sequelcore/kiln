@@ -349,7 +349,7 @@ Verification:
 
 ### Tool Execution Continuity, Structured Output Visualizers, And Long-Thread Navigation
 
-Status: In progress; Slice 1 complete, Slice 2 next
+Status: In progress; Slice 2 complete, Slice 3 next
 
 Problem:
 
@@ -411,6 +411,23 @@ Slice 1 evidence:
 - Focused runtime tests, `@kilnai/core` tests (272 files, 3443 tests),
   `@kilnai/runtime` tests (185 files, 2476 tests, 5 skipped live files),
   workspace typecheck, and `git diff --check` passed on 2026-07-02.
+
+Slice 2 evidence:
+
+- Shared conversation projection now supports standalone tool-event rows through
+  `anchorToolEventsToAssistant: false` while preserving the default grouped
+  assistant behavior for other consumers.
+- GUI transcript uses standalone operational rows for tool calls instead of
+  rendering tool usage inside assistant prose bubbles.
+- Completed starts collapse into their terminal execution row by canonical
+  `toolCallId`; running calls remain visible as running rows until terminal
+  evidence arrives.
+- Running rows expose explicit state, text, iconography, shimmer treatment, and
+  a subtle local active beam. Motion is supplemental and disabled under reduced
+  motion.
+- Focused gateway projection tests, focused GUI transcript tests, full
+  `@kilnai/gui` tests, GUI build, GUI E2E, and workspace typecheck passed on
+  2026-07-02.
 
 Required outcome:
 
