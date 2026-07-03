@@ -485,6 +485,10 @@ Slice 5 evidence:
   to aggregate live activity, kept individual tool traces beam-free, replaced
   global DOM navigation with `MessageScroller.scrollToMessage`, and verified
   navigation plus reduced-motion behavior in Chromium.
+- The aggregate live activity row no longer renders an isolated ellipsis for
+  thinking state. The beamed live surface must carry visible phase text plus
+  accessible status evidence, so operators can distinguish thinking, tool use,
+  approval wait, and streaming without guessing.
 - The 2026-07-03 rail interaction correction verified the Codex-like gutter
   behavior in Chromium: one active mark, proximity zoom on hover/focus, subdued
   distant marks, preview cards, keyboard activation, and no duplicated scroll

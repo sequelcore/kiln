@@ -1419,7 +1419,8 @@ describe("Transcript", () => {
     );
 
     expect(screen.getByRole("status", { name: "Activity phase: Thinking" })).toBeInTheDocument();
-    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(document.querySelector('[data-role="typing-dots"]')).not.toBeInTheDocument();
     expect(document.querySelector('[data-role="live-activity-beam"]')).toHaveAttribute("data-state", "thinking");
     expect(screen.getAllByRole("article").at(-1)).toHaveAttribute("data-role", "assistant");
   });

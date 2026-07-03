@@ -19,8 +19,8 @@ baseline. Active and deferred execution tracks live in
   web/search text outputs render as bounded document output instead of raw
   monospaced text. Active tool treatment is a compact inline trace with
   text/icon state and optional shimmer, while aggregate thinking/execution
-  activity uses a restrained `border-beam`; all motion is suppressed under
-  reduced motion.
+  activity uses a restrained `border-beam` with visible phase text instead of an
+  isolated ellipsis; all motion is suppressed under reduced motion.
 - Added provider-neutral benchmark integrity for efficiency work: provider tool
   names round-trip to canonical Kiln identities, route failures are classified
   from shared route-health evidence, execution economics distinguish metered,
