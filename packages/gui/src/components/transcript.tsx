@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { BorderBeam } from "border-beam";
 import {
   projectConversationTurnItems,
   type ConversationProjectionInput,
@@ -27,6 +28,7 @@ import {
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  useMessageScroller,
   useMessageScrollerVisibility,
 } from "@/components/ui/message-scroller";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -80,6 +82,7 @@ const KILN_JSON_VIEW_STYLE = {
 interface TranscriptNavigationAnchor {
   readonly id: string;
   readonly label: string;
+  readonly preview: string;
   readonly kind: "user" | "assistant" | "tool" | "failure" | "milestone" | "live";
 }
 
@@ -1172,16 +1175,27 @@ function AssistantActivityRow(props: {
 }) {
   return (
     <article data-role="assistant" className="mx-auto flex w-full max-w-3xl justify-start">
-      <div className="min-w-0 max-w-[min(44rem,90%)] rounded-2xl rounded-tl-md bg-muted/35 px-3.5 py-2.5 shadow-sm">
-        <header className="sr-only">
-          <span>Assistant</span>
-        </header>
-        <ActivityPhaseIndicator
-          phase={props.phase}
-          toolName={props.toolName}
-          details={props.details}
-        />
-      </div>
+      <BorderBeam
+        active
+        colorVariant="mono"
+        data-role="live-activity-beam"
+        data-state={props.phase}
+        duration={2.8}
+        size="pulse-inner"
+        strength={0.45}
+        theme="auto"
+      >
+        <div className="min-w-0 max-w-[min(44rem,90%)] rounded-2xl rounded-tl-md border border-border/60 bg-muted/35 px-3.5 py-2.5 shadow-sm">
+          <header className="sr-only">
+            <span>Assistant</span>
+          </header>
+          <ActivityPhaseIndicator
+            phase={props.phase}
+            toolName={props.toolName}
+            details={props.details}
+          />
+        </div>
+      </BorderBeam>
     </article>
   );
 }
@@ -1239,6 +1253,13 @@ function transcriptAnchorKind(entry: TimelineEntry): TranscriptNavigationAnchor[
   return entry.tone === "error" ? "failure" : "milestone";
 }
 
+function transcriptAnchorPreview(entry: TimelineEntry): string {
+  if (entry.type === "message") {
+    return compactDisplayText(entry.message.content, 96);
+  }
+  return compactDisplayText(entry.summary ?? entry.title, 96);
+}
+
 function deriveTranscriptNavigationAnchors(
   items: readonly ConversationProjectionItem<ActivityPhase>[],
   entriesById: ReadonlyMap<string, TimelineEntry>,
@@ -1250,6 +1271,7 @@ function deriveTranscriptNavigationAnchors(
         return {
           id: "assistant-activity",
           label: "Live edge",
+          preview: "Current assistant activity",
           kind: "live",
         } satisfies TranscriptNavigationAnchor;
       }
@@ -1260,25 +1282,30 @@ function deriveTranscriptNavigationAnchors(
       return {
         id: item.entryId,
         label,
+        preview: transcriptAnchorPreview(entry),
         kind: transcriptAnchorKind(entry),
       } satisfies TranscriptNavigationAnchor;
     })
     .filter((entry): entry is TranscriptNavigationAnchor => entry !== null);
   return hasLiveActivity && !anchors.some((anchor) => anchor.id === "assistant-activity")
-    ? [...anchors, { id: "assistant-activity", label: "Live edge", kind: "live" }]
+    ? [...anchors, {
+        id: "assistant-activity",
+        label: "Live edge",
+        preview: "Current assistant activity",
+        kind: "live" as const,
+      }]
     : anchors;
 }
 
 function TranscriptNavigationRail(props: {
   readonly anchors: readonly TranscriptNavigationAnchor[];
 }) {
+  const { scrollToMessage } = useMessageScroller();
   const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
   if (props.anchors.length < 3) return null;
 
   const jumpToAnchor = (anchorId: string) => {
-    const target = Array.from(document.querySelectorAll("[data-thread-anchor-id]"))
-      .find((element) => element.getAttribute("data-thread-anchor-id") === anchorId);
-    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    scrollToMessage(anchorId, { align: "center", behavior: "smooth" });
   };
 
   const latest = props.anchors.at(-1);
@@ -1286,9 +1313,10 @@ function TranscriptNavigationRail(props: {
   return (
     <nav
       aria-label="Thread navigation"
-      className="pointer-events-none absolute inset-y-4 left-2 z-10 hidden w-7 flex-col items-center justify-center gap-1 sm:flex"
+      data-role="thread-navigation-trail"
+      className="pointer-events-none absolute inset-y-4 left-2 z-10 hidden w-8 flex-col items-start justify-center sm:flex"
     >
-      <div className="flex max-h-full flex-col items-center gap-1 rounded-full border border-border/70 bg-background/80 px-1.5 py-2 shadow-sm backdrop-blur">
+      <div className="flex max-h-full flex-col items-start gap-1.5 py-2">
         {props.anchors.map((anchor, index) => {
           const isCurrent = currentAnchorId === anchor.id || visibleMessageIds.includes(anchor.id);
           return (
@@ -1301,20 +1329,34 @@ function TranscriptNavigationRail(props: {
               data-thread-anchor-kind={anchor.kind}
               data-current={isCurrent ? "true" : "false"}
               className={cn(
-                "pointer-events-auto size-2.5 rounded-full border border-muted-foreground/50 bg-muted-foreground/35 transition-colors hover:border-primary hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                isCurrent ? "border-foreground bg-foreground" : null,
-                anchor.kind === "failure" ? "border-destructive/80 bg-destructive/70" : null,
-                anchor.kind === "live" ? "border-primary bg-primary" : null,
+                "group/anchor pointer-events-auto relative flex h-2 w-6 items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               )}
               onClick={() => jumpToAnchor(anchor.id)}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "h-px w-2 rounded-full bg-muted-foreground/45 transition-[width,background-color] group-hover/anchor:w-5 group-focus-visible/anchor:w-5",
+                  isCurrent ? "w-5 bg-foreground" : null,
+                  anchor.kind === "failure" ? "bg-destructive" : null,
+                  anchor.kind === "live" ? "w-5 bg-primary" : null,
+                )}
+              />
+              <span
+                data-role="thread-anchor-preview"
+                className="pointer-events-none absolute left-full top-1/2 ml-2 hidden w-64 -translate-y-1/2 rounded-md border border-border bg-popover px-3 py-2 text-left shadow-[var(--shadow-elevated)] group-hover/anchor:block group-focus-visible/anchor:block"
+              >
+                <span className="block text-xs font-semibold text-foreground">{anchor.label}</span>
+                <span className="mt-1 block line-clamp-3 text-xs leading-5 text-muted-foreground">{anchor.preview}</span>
+              </span>
+            </button>
           );
         })}
       </div>
       {latest ? (
         <button
           type="button"
-          className="pointer-events-auto mt-2 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="pointer-events-auto mt-2 flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Return to latest thread anchor"
           onClick={() => jumpToAnchor(latest.id)}
         >

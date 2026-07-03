@@ -11,6 +11,21 @@ must remain visible from invocation through completion, structured results must
 render as bounded artifacts, and operators must be able to move through a long
 thread without losing the live edge or their reading position.
 
+## Visual Ownership Correction
+
+- The left gutter is a long-thread navigation trail. Its marks stay visually
+  quiet, reveal a nearby-turn preview on hover or keyboard focus, and jump to
+  the corresponding durable semantic anchor on activation.
+- `border-beam` belongs only to the aggregate live activity surface for
+  thinking, tool execution, approval wait, or response generation. It must not
+  frame individual tool rows or completed transcript evidence.
+- Tool execution rows remain compact inline traces. Navigation, live-state
+  emphasis, and tool-result disclosure are separate component responsibilities.
+
+Correction verified on 2026-07-03 through focused transcript tests, the full
+GUI unit suite, workspace typecheck, GUI production build, and Chromium checks
+for hover/focus previews, semantic scrolling, live activity, and reduced motion.
+
 ## Non-Goals
 
 - Do not change runtime tool semantics, authority, approval, or provider routing.

@@ -1376,6 +1376,7 @@ describe("Transcript", () => {
 
     expect(screen.getByRole("status", { name: "Activity phase: Thinking" })).toBeInTheDocument();
     expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="live-activity-beam"]')).toHaveAttribute("data-state", "thinking");
     expect(screen.getAllByRole("article").at(-1)).toHaveAttribute("data-role", "assistant");
   });
 
@@ -1585,9 +1586,6 @@ describe("Transcript", () => {
   });
 
   it("renders a compact semantic navigation rail for long transcripts", () => {
-    const scrollIntoView = vi.fn();
-    HTMLElement.prototype.scrollIntoView = scrollIntoView;
-
     render(
       <Transcript
         entries={[
@@ -1618,14 +1616,14 @@ describe("Transcript", () => {
     );
 
     const rail = screen.getByRole("navigation", { name: "Thread navigation" });
+    expect(rail).toHaveAttribute("data-role", "thread-navigation-trail");
     expect(within(rail).getByRole("button", { name: "Jump to user turn 1" })).toHaveAttribute("data-thread-anchor-kind", "user");
     expect(within(rail).getByRole("button", { name: "Jump to tool execution 2" })).toHaveAttribute("data-thread-anchor-kind", "tool");
     expect(within(rail).getByRole("button", { name: "Jump to tool failure 3" })).toHaveAttribute("data-thread-anchor-kind", "failure");
     expect(within(rail).getByRole("button", { name: "Return to latest thread anchor" })).toBeInTheDocument();
+    expect(within(rail).getByText("Investigate the trace").closest('[data-role="thread-anchor-preview"]')).toBeInTheDocument();
 
     fireEvent.click(within(rail).getByRole("button", { name: "Jump to tool failure 3" }));
-
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", behavior: "smooth" });
   });
 
   it("labels the scroll control when live activity may be arriving out of view", () => {

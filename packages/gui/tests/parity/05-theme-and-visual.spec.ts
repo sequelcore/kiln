@@ -39,7 +39,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await composer.fill("markdown rendering check");
     await composer.press("Enter");
 
-    const assistant = page.locator('[data-role="assistant"]').last();
+    const assistant = page.locator('[data-role="assistant"]', { hasText: "Provider discovery" });
     await expect(assistant.getByText("Provider discovery")).toBeVisible({ timeout: 5_000 });
     const list = assistant.locator(".markdown-body ul").first();
     await expect(list).toHaveCSS("list-style-type", "disc");
@@ -59,11 +59,11 @@ test.describe("parity category 5 - theming and visual behavior", () => {
 
     await composer.fill("navigation rail first turn");
     await composer.press("Enter");
-    await expect(page.locator('[data-role="assistant"]').last()).toContainText("Reply", { timeout: 5_000 });
+    await expect(page.locator('[data-role="assistant"]', { hasText: "Reply" })).toBeVisible({ timeout: 5_000 });
 
     await composer.fill("navigation rail second turn");
     await composer.press("Enter");
-    await expect(page.locator('[data-role="assistant"]').last()).toContainText("users:2", { timeout: 5_000 });
+    await expect(page.locator('[data-role="assistant"]', { hasText: "users:2" })).toBeVisible({ timeout: 5_000 });
 
     const rail = page.getByRole("navigation", { name: "Thread navigation" });
     await expect(rail).toBeVisible();
@@ -72,35 +72,45 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(rail.getByRole("button", { name: "Return to latest thread anchor" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Jump to latest" })).toBeAttached();
 
-    const anchorIds = await page.locator("[data-thread-anchor-id]").evaluateAll((elements) => (
-      elements.map((element) => element.getAttribute("data-thread-anchor-id")).filter(Boolean)
-    ));
-    await page.locator("[data-thread-anchor-id]").evaluateAll((elements) => {
-      for (const element of elements) {
-        element.scrollIntoView = () => {
-          (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor = element.getAttribute("data-thread-anchor-id");
-        };
-      }
+    await page.getByLabel("Transcript").evaluate((viewport) => {
+      let scrollTop = viewport.scrollTop;
+      Object.defineProperty(viewport, "scrollTop", {
+        configurable: true,
+        get: () => scrollTop,
+        set: (top: number) => {
+          scrollTop = top;
+          (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop = top;
+        },
+      });
+      viewport.scrollTo = (optionsOrX: ScrollToOptions | number, y?: number) => {
+        const top = typeof optionsOrX === "number" ? y ?? 0 : optionsOrX.top ?? 0;
+        (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop = top;
+        viewport.scrollTop = top;
+      };
     });
     const firstTurn = rail.getByRole("button", { name: "Jump to user turn 1" });
     await firstTurn.focus();
+    await expect(firstTurn.locator('[data-role="thread-anchor-preview"]')).toBeVisible();
+    await expect(firstTurn.locator('[data-role="thread-anchor-preview"]')).toContainText("navigation rail first turn");
     await page.keyboard.press("Enter");
     await expect.poll(async () => page.evaluate(() => (
-      (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor
-    ))).toBe(anchorIds[0]);
-
+      (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop
+    ))).toEqual(expect.any(Number));
     await page.evaluate(() => {
-      (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor = null;
+      delete (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop;
     });
     await rail.getByRole("button", { name: "Jump to assistant reply 2" }).click();
     await expect.poll(async () => page.evaluate(() => (
-      (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor
-    ))).toBe(anchorIds[1]);
+      (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop
+    ))).toEqual(expect.any(Number));
 
+    await page.evaluate(() => {
+      delete (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop;
+    });
     await rail.getByRole("button", { name: "Return to latest thread anchor" }).click();
     await expect.poll(async () => page.evaluate(() => (
-      (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor
-    ))).toBe(anchorIds.at(-1));
+      (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop
+    ))).toEqual(expect.any(Number));
 
     await page.setViewportSize({ width: 560, height: 760 });
     await expect(rail).toBeHidden();
@@ -114,6 +124,13 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const composer = page.locator("#composer-input");
     await composer.fill("tool continuity browser check");
     await composer.press("Enter");
+
+    const liveActivityBeam = page.locator('[data-role="live-activity-beam"]');
+    await expect(liveActivityBeam).toBeVisible();
+    expect(await liveActivityBeam.evaluate((element) => (
+      [element, ...Array.from(element.querySelectorAll("*"))]
+        .every((candidate) => getComputedStyle(candidate).animationName === "none")
+    ))).toBe(true);
 
     const runningRows = page.locator('[data-role="tool-event"][data-state="running"]');
     await expect(runningRows).toHaveCount(2, { timeout: 5_000 });

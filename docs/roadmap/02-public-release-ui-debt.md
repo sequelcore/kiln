@@ -378,9 +378,11 @@ Slice 0 evidence and decisions:
   navigable.
 - shadcn MessageScroller hooks are a behavioral reference for live-edge
   following and reader-intent preservation, not a new dependency requirement.
-- shadcn border beam examples were evaluated as visual references, not adopted
-  as a dependency. Active tool rows should remain compact inline traces with
-  status text, iconography, and reduced-motion-safe shimmer only when useful.
+- The maintained `border-beam` package is adopted only for the aggregate live
+  activity surface. It communicates thinking or active execution and must not
+  decorate individual tool rows or terminal evidence.
+- Active tool rows remain compact inline traces with status text, iconography,
+  and reduced-motion-safe shimmer only when useful.
 - Runtime events remain canonical. The GUI derives presentation keyed by
   `toolCallId` and must not manufacture lifecycle transitions or merge calls by
   tool name.
@@ -462,8 +464,9 @@ Slice 4 evidence:
 
 Slice 5 evidence:
 
-- GUI transcript now renders a compact semantic navigation rail for long
-  threads.
+- GUI transcript renders long-thread navigation as a quiet gutter trail rather
+  than a permanent dot capsule. Marks expand and reveal nearby-turn previews on
+  hover/focus, then delegate semantic scrolling to `MessageScroller`.
 - Rail anchors are derived from the same conversation projection that renders
   transcript rows, so collapsed tool starts/completions do not create dead
   navigation targets.
@@ -476,6 +479,10 @@ Slice 5 evidence:
 - Focused transcript tests, workspace typecheck, full `@kilnai/gui` tests, GUI
   build, focused Playwright visual coverage, and full GUI E2E passed on
   2026-07-03.
+- The 2026-07-03 visual-ownership correction restored `border-beam` exclusively
+  to aggregate live activity, kept individual tool traces beam-free, replaced
+  global DOM navigation with `MessageScroller.scrollToMessage`, and verified
+  navigation plus reduced-motion behavior in Chromium.
 
 Required outcome:
 
@@ -494,8 +501,9 @@ Required outcome:
   transcript bounds and disables shimmer/spinner animation under reduced motion.
 - Keep every visualizer bounded by the transcript column; expansion may grow
   vertically or scroll internally, never widen the chat layout.
-- Add a compact, accessible navigation rail based on durable semantic anchors,
-  with current-position feedback and an explicit return-to-latest action.
+- Add a compact, accessible gutter navigation trail based on durable semantic
+  anchors, with nearby-turn previews on hover/focus, current-position feedback,
+  and an explicit return-to-latest action.
 - Preserve execution identity, output classification, anchor ordering, and
   terminal state across interruption, replay, reconnect, and session restore.
 

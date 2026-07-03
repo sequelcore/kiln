@@ -179,6 +179,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
     const chunks = responseChunks(prompt, userTurns);
 
     if (prompt.toLowerCase().includes("tool continuity browser check")) {
+      await delay(800);
       yield {
         type: "tool_use",
         toolName: "read",
