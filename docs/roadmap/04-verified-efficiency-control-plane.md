@@ -840,8 +840,8 @@ require dual readers, migration shims, or permanent compatibility branches.
 
 ## Initial Execution Order
 
-1. Slice 0: conditional baseline and reproduction if Slice 2 needs broader
-   pre-optimization evidence.
+1. Slice 0: complete; baseline and reproduction evidence is available for
+   starting Slice 2 without broader pre-optimization sampling.
 2. Slice 1: complete.
 3. Slice 2: stable prefix and cache topology.
 4. Slice 3: progressive context and tool loading.
