@@ -144,7 +144,7 @@ reasoningPolicy:
   default: medium
   unsupported: omit
   byTask:
-    architecture-review: xhigh
+    architecture-review: high
     backend-coding: high
     frontend-design: high
     test-writing: high
@@ -161,9 +161,11 @@ The global workstation config already declares this policy. The authorized
 `kiln-tool-agent` benchmark runs did not explicitly set or vary reasoning
 effort from the benchmark command, so their results should be interpreted as
 route baselines under the current execution path, not as `medium` versus
-`high` or `xhigh` effort comparisons. Future effort-sensitive comparisons must
-record the resolved effort, include it in the benchmark config hash, and report
-when a selected route omits effort because support is unknown or unavailable.
+`high` effort comparisons. `xhigh` remains an explicit opt-in experiment only,
+because it can consume quota disproportionately on subscription plans. Future
+effort-sensitive comparisons must record the resolved effort, include it in the
+benchmark config hash, and report when a selected route omits effort because
+support is unknown or unavailable.
 
 ## Managed Agents
 

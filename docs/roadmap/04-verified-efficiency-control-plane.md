@@ -378,6 +378,9 @@ record resolved reasoning effort. The evidence therefore compares provider
 routes under the current execution path, not effort levels. Any future
 effort-sensitive promotion must include resolved effort, support/omission
 evidence, and effort policy identity in the benchmark config hash.
+For the current workstation budget, `high` is the maximum default effort;
+`xhigh` is reserved for explicit opt-in experiments or rare critical reviews
+after token, latency, and quota impact are measured.
 
 Exit gate:
 
@@ -560,6 +563,8 @@ Work:
 - make benchmark runs able to fix or sweep normalized reasoning effort, record
   the resolved effort or omission reason, and include that evidence in
   reproducibility hashes;
+- treat `xhigh` as a budget-gated experimental tier until it proves
+  non-inferior value per token against `high` for a declared task class;
 - include cache invalidation, retry risk, and verifier cost in route decisions;
 - require escalation paths for uncertain or failed cheap routes;
 - keep static deterministic routing as the rollback policy.
