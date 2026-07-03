@@ -101,4 +101,27 @@ test.describe("parity category 1 - session lifecycle", () => {
     expect(freshFrame).toMatchObject({ sessionIntent: "fresh" });
     expect(freshFrame?.continuationSessionId).toBeUndefined();
   });
+
+  test("restores persisted tool continuity once and preserves canonical conversation order", async ({ page }) => {
+    await page.goto("/");
+    await waitForGuiReady(page);
+
+    await page.getByRole("button", { name: /Summarize parity checklist/ }).click();
+
+    const transcript = page.getByLabel("Transcript");
+    await expect(transcript).toContainText("Read the persisted parity plan");
+    await expect(transcript).toContainText("Persisted parity plan contents");
+    await expect(transcript).toContainText("The persisted parity plan is ready.");
+    await expect(transcript.getByText("Persisted parity plan contents", { exact: true })).toHaveCount(1);
+    await expect(transcript).not.toContainText("duplicate-must-not-render.md");
+    await expect(transcript).not.toContainText("Duplicate terminal payload");
+
+    const visibleText = await transcript.innerText();
+    expect(visibleText.indexOf("Read the persisted parity plan")).toBeLessThan(
+      visibleText.indexOf("Persisted parity plan contents"),
+    );
+    expect(visibleText.indexOf("Persisted parity plan contents")).toBeLessThan(
+      visibleText.indexOf("The persisted parity plan is ready."),
+    );
+  });
 });

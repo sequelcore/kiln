@@ -528,13 +528,21 @@ function appendSessionEvent(
   events: readonly GuiSessionEvent[],
   event: GuiSessionEvent,
 ): readonly GuiSessionEvent[] {
-  const next = events.some((candidate) => candidate.eventId === event.eventId)
-    ? events.map((candidate) => candidate.eventId === event.eventId ? event : candidate)
-    : [...events, event];
+  if (events.some((candidate) => candidate.eventId === event.eventId)) {
+    return events;
+  }
+  const next = [...events, event];
   return [...next].sort((a, b) => {
     const sequenceCompare = a.sequence - b.sequence;
     return sequenceCompare === 0 ? a.eventId.localeCompare(b.eventId) : sequenceCompare;
   });
+}
+
+function canonicalSessionEvents(events: readonly GuiSessionEvent[]): readonly GuiSessionEvent[] {
+  return events.reduce<readonly GuiSessionEvent[]>(
+    (canonical, event) => appendSessionEvent(canonical, event),
+    [],
+  );
 }
 
 function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
@@ -577,7 +585,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         streaming: false,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
@@ -617,7 +625,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         sessionEventMessageId: messageId,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
@@ -662,7 +670,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         sessionEventMessageId: messageId,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
@@ -683,7 +691,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         streaming: false,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
@@ -697,7 +705,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       lastRoutedProvider = provider.provider ?? lastRoutedProvider;
       lastRoutedModel = provider.model ?? lastRoutedModel;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -723,7 +731,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         startedAt: event.timestamp,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -763,7 +771,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         completedAt: event.timestamp,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -791,7 +799,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const changeType = normalizeLoadedChangeType(change?.changeType);
       if (!path || !changeType) continue;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -815,7 +823,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       inputTokens += inputDelta;
       outputTokens += outputDelta;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -835,7 +843,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     if (event.kind === "lifecycle_attribution_recorded") {
       const presentation = presentOperatorEventPayload(event.kind, payload);
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -852,7 +860,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     if (isWorkItemTimelineEventKind(event.kind)) {
       const presentation = presentOperatorEventPayload(event.kind, payload);
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -869,7 +877,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (isWorkflowLifecycleTimelineEventKind(event.kind)) {
       timelineEntries.push(workflowLifecycleTimelineEntry({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         kind: event.kind,
         payload,
         timestamp: event.timestamp,
@@ -881,7 +889,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_requested") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -896,7 +904,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_started") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -911,7 +919,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_completed") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -926,7 +934,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_failed") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -941,7 +949,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_cancelled") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -959,7 +967,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const strategy = readString(payload.decision);
       if (!strategy) continue;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -986,7 +994,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       lastAuthorityStatus = readAuthorityStatus(payload.authorityStatus) ?? lastAuthorityStatus;
       turnCounter += 1;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -1001,7 +1009,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "approval_requested") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -1019,7 +1027,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const resolution = isObjectRecord(payload.resolution) ? payload.resolution : null;
       const decision = readString(resolution?.decision) ?? "resolved";
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -1035,7 +1043,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "turn_started") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -1944,7 +1952,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   viewSessionDetail: (detail) => {
-    const loaded = mapSessionDetailToLoadedState(detail);
+    const sessionEvents = canonicalSessionEvents(detail.events);
+    const loaded = mapSessionDetailToLoadedState({ ...detail, events: sessionEvents });
     clearStoredContinuationTarget();
     set({
       selectedSessionId: detail.id,
@@ -1952,7 +1961,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       continuationTargetId: detail.id,
       messages: loaded.messages,
       timelineEntries: loaded.timelineEntries,
-      sessionEvents: detail.events,
+      sessionEvents,
       currentAssistant: null,
       status: "ready",
       activity: null,
@@ -2148,6 +2157,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
     if (state.status === "running" && state.liveSessionId !== event.kilnSessionId) {
       set({ liveSessionId: event.kilnSessionId });
+    }
+    if (state.sessionEvents.some((candidate) => candidate.eventId === event.eventId)) {
+      return;
     }
     const payload = isObjectRecord(event.payload) ? event.payload : {};
     set({ sessionEvents: appendSessionEvent(state.sessionEvents, event) });

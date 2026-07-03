@@ -703,6 +703,162 @@ describe("session-store", () => {
     ]);
   });
 
+  it("deduplicates replayed live events and enriches restored tool rows with delayed terminal evidence", () => {
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-tool-restore",
+      meta: {
+        kilnSessionId: "session-tool-restore",
+        title: "Restored tool session",
+        task: "Restored tool session",
+        startedAt: "2026-07-03T12:00:00.000Z",
+      },
+      events: [
+        {
+          eventId: "evt-user",
+          kilnSessionId: "session-tool-restore",
+          sequence: 1,
+          timestamp: "2026-07-03T12:00:00.000Z",
+          kind: "user_message",
+          turnId: "turn-1",
+          payload: { content: "Read the plan" },
+        },
+        {
+          eventId: "evt-tool-start",
+          kilnSessionId: "session-tool-restore",
+          sequence: 2,
+          timestamp: "2026-07-03T12:00:01.000Z",
+          kind: "tool_call_started",
+          turnId: "turn-1",
+          payload: {
+            toolCallId: "tool-restore-1",
+            toolName: "read",
+            input: { path: "docs/plan.md" },
+          },
+        },
+        {
+          eventId: "evt-tool-start",
+          kilnSessionId: "session-tool-restore",
+          sequence: 2,
+          timestamp: "2026-07-03T12:00:01.000Z",
+          kind: "tool_call_started",
+          turnId: "turn-1",
+          payload: {
+            toolCallId: "tool-restore-1",
+            toolName: "read",
+            input: { path: "duplicate-must-not-replace.md" },
+          },
+        },
+      ],
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-tool-start",
+      kilnSessionId: "session-tool-restore",
+      sequence: 2,
+      timestamp: "2026-07-03T12:00:01.000Z",
+      kind: "tool_call_started",
+      turnId: "turn-1",
+      payload: {
+        toolCallId: "tool-restore-1",
+        toolName: "read",
+        input: { path: "docs/plan.md" },
+      },
+    });
+    const completedEvent = {
+      eventId: "evt-tool-complete",
+      kilnSessionId: "session-tool-restore",
+      sequence: 3,
+      timestamp: "2026-07-03T12:00:02.000Z",
+      kind: "tool_call_completed",
+      turnId: "turn-1",
+      payload: {
+        toolCallId: "tool-restore-1",
+        toolName: "read",
+        output: "plan contents",
+        status: { state: "succeeded" },
+      },
+    } as const;
+    useSessionStore.getState().onSessionEvent(completedEvent);
+    useSessionStore.getState().onSessionEvent(completedEvent);
+
+    const state = useSessionStore.getState();
+    const toolRows = state.timelineEntries.filter((entry) => (
+      entry.type === "event"
+      && (entry.eventKind === "tool_call_started" || entry.eventKind === "tool_call_completed")
+    ));
+    expect(toolRows.map((entry) => entry.id)).toEqual([
+      "timeline:evt-tool-start",
+      "timeline:evt-tool-complete",
+    ]);
+    expect(state.sessionEvents.map((event) => event.eventId)).toEqual([
+      "evt-user",
+      "evt-tool-start",
+      "evt-tool-complete",
+    ]);
+    const toolLog = deriveToolCallLog(state.timelineEntries);
+    expect(toolLog).toEqual([
+      expect.objectContaining({
+        callId: "tool-restore-1",
+        toolName: "read",
+        input: { path: "docs/plan.md" },
+        status: "success",
+        result: expect.stringContaining("plan contents"),
+      }),
+    ]);
+  });
+
+  it("preserves an interrupted restored tool as terminal when its completion event is replayed", () => {
+    const interruptedEvent = {
+      eventId: "evt-tool-interrupted",
+      kilnSessionId: "session-tool-interrupted",
+      sequence: 2,
+      timestamp: "2026-07-03T12:05:02.000Z",
+      kind: "tool_call_completed",
+      turnId: "turn-interrupted",
+      payload: {
+        toolCallId: "tool-interrupted-1",
+        toolName: "shell",
+        status: { state: "cancelled" },
+      },
+    } as const;
+    useSessionStore.getState().viewSessionDetail({
+      id: "session-tool-interrupted",
+      meta: {
+        kilnSessionId: "session-tool-interrupted",
+        title: "Interrupted tool session",
+        task: "Interrupted tool session",
+        startedAt: "2026-07-03T12:05:00.000Z",
+      },
+      events: [
+        {
+          eventId: "evt-tool-interrupted-start",
+          kilnSessionId: "session-tool-interrupted",
+          sequence: 1,
+          timestamp: "2026-07-03T12:05:01.000Z",
+          kind: "tool_call_started",
+          turnId: "turn-interrupted",
+          payload: {
+            toolCallId: "tool-interrupted-1",
+            toolName: "shell",
+            input: { command: "bun run build" },
+          },
+        },
+        interruptedEvent,
+      ],
+    });
+
+    useSessionStore.getState().onSessionEvent(interruptedEvent);
+
+    expect(deriveToolCallLog(useSessionStore.getState().timelineEntries)).toEqual([
+      expect.objectContaining({
+        callId: "tool-interrupted-1",
+        input: { command: "bun run build" },
+        status: "error",
+      }),
+    ]);
+    expect(useSessionStore.getState().sessionEvents).toHaveLength(2);
+  });
+
   it("tracks session telemetry from cost updates and canonical file-change events", () => {
     useSessionStore.setState({
       activeProvider: "claude",

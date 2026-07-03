@@ -1,6 +1,6 @@
 # Tool Execution Continuity, Structured Output Visualizers, and Long-Thread Navigation
 
-Status: Slice 5 complete; Slice 6 next
+Status: Slice 6 complete; Slice 7 next
 Updated: 2026-07-03
 Roadmap owner: `docs/roadmap/02-public-release-ui-debt.md`
 
@@ -217,6 +217,20 @@ keyboard, live streaming, and reader-away-from-edge behavior pass.
   persisted events using canonical identities.
 - Cover reconnect, interrupted stream, delayed result, duplicate delivery, and
   session restore without duplicate rows or lost terminal states.
+- The GUI canonicalizes persisted batches and rejects repeated live delivery by
+  `eventId` before applying transcript, lifecycle, structured-output, approval,
+  or telemetry projections. Restored and live timeline rows use the same
+  `eventId`-derived identity. Delayed terminal evidence remains a distinct event
+  and enriches the original execution through canonical `toolCallId`
+  correlation.
+- Focused GUI tests cover restored starts, delayed completion, repeated start and
+  completion delivery, and restored interruption without reviving a terminal
+  row. The runtime replay fixture preserves original event and tool-call
+  identities.
+- Chromium restore validation loads a persisted batch containing conflicting
+  duplicate start and completion deliveries through the real GUI gateway detail
+  endpoint, then verifies first-seen evidence, one terminal result, and canonical
+  user, tool, and assistant ordering.
 
 Gate: runtime/GUI integration fixtures and browser restore validation produce the
 same visible identities and ordering as the original session.

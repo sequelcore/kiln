@@ -8,7 +8,7 @@ import {
   type CreateMemoryRecordInput,
   type MemoryProvenance,
 } from "@kilnai/core";
-import type { GuiSessionSummary, KilnConfigSetupSnapshot } from "@kilnai/gateway-contracts";
+import type { GuiSessionDetail, GuiSessionSummary, KilnConfigSetupSnapshot } from "@kilnai/gateway-contracts";
 
 function parseGatewayPort(): number {
   const raw = process.env.GUI_GATEWAY_PORT ?? "0";
@@ -83,6 +83,92 @@ const sessionSummaries: GuiSessionSummary[] = [
     taskSummary: "Refactor command routing",
   },
 ];
+
+const restoredSessionDetail: GuiSessionDetail = {
+  id: "claude-session-1",
+  meta: {
+    kilnSessionId: "claude-session-1",
+    title: "Summarize parity checklist",
+    task: "Summarize parity checklist",
+    startedAt: "2026-07-03T12:00:00.000Z",
+    completedAt: "2026-07-03T12:00:03.000Z",
+    lastProvider: "claude",
+  },
+  events: [
+    {
+      eventId: "parity-user-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 1,
+      timestamp: "2026-07-03T12:00:00.000Z",
+      kind: "user_message",
+      turnId: "parity-turn-1",
+      payload: { content: "Read the persisted parity plan" },
+    },
+    {
+      eventId: "parity-tool-start-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 2,
+      timestamp: "2026-07-03T12:00:01.000Z",
+      kind: "tool_call_started",
+      turnId: "parity-turn-1",
+      payload: {
+        toolCallId: "parity-tool-1",
+        toolName: "read",
+        input: { path: "docs/plan.md" },
+      },
+    },
+    {
+      eventId: "parity-tool-start-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 2,
+      timestamp: "2026-07-03T12:00:01.000Z",
+      kind: "tool_call_started",
+      turnId: "parity-turn-1",
+      payload: {
+        toolCallId: "parity-tool-1",
+        toolName: "read",
+        input: { path: "duplicate-must-not-render.md" },
+      },
+    },
+    {
+      eventId: "parity-tool-complete-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 3,
+      timestamp: "2026-07-03T12:00:02.000Z",
+      kind: "tool_call_completed",
+      turnId: "parity-turn-1",
+      payload: {
+        toolCallId: "parity-tool-1",
+        toolName: "read",
+        output: "Persisted parity plan contents",
+        status: { state: "succeeded" },
+      },
+    },
+    {
+      eventId: "parity-tool-complete-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 3,
+      timestamp: "2026-07-03T12:00:02.000Z",
+      kind: "tool_call_completed",
+      turnId: "parity-turn-1",
+      payload: {
+        toolCallId: "parity-tool-1",
+        toolName: "read",
+        output: "Duplicate terminal payload",
+        status: { state: "succeeded" },
+      },
+    },
+    {
+      eventId: "parity-assistant-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 4,
+      timestamp: "2026-07-03T12:00:03.000Z",
+      kind: "assistant_message",
+      turnId: "parity-turn-1",
+      payload: { content: "The persisted parity plan is ready." },
+    },
+  ],
+};
 
 const fakeSessionFactory: CliSessionFactory = () => ({
   async *run(options) {
@@ -174,6 +260,7 @@ async function main(): Promise<void> {
     getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
     getSetupSnapshot: async () => setupSnapshot,
     listSessions: async () => sessionSummaries.slice(0, 20),
+    getSessionDetail: async (sessionId) => sessionId === restoredSessionDetail.id ? restoredSessionDetail : null,
     builtinToolOptions: {
       memoryResources: { repository: memoryRepository },
     },
