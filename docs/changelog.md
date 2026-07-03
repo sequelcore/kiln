@@ -8,6 +8,12 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Fixed GUI Full Access execution integrity: an explicitly attended operator
+  turn now authorizes Kiln-owned workspace mutation tools through bounded
+  session/tenant/route evidence, while managed and unattended children continue
+  to fail closed without their own goal and work-item authority envelopes. The
+  selector remains separate from native harness sandbox proof and canonical
+  provider permission state.
 - Fixed GUI provider/model selection eligibility so fresh authenticated
   account-scoped catalogs such as Codex OAuth and OpenCode Go/Zen are selectable
   while large harness-only catalogs remain diagnostic until entitlement evidence

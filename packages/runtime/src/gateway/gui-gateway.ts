@@ -1755,6 +1755,23 @@ export function buildGuiTurnPerCallConfig(
     builtinToolSurface,
     executionMode,
     requestedAuthority,
+    authorityContext: {
+      executionUse: "operator_interactive",
+      sessionPolicy: {
+        maximumAuthority: "destructive",
+        reason: "The attended operator controls authority for this GUI session.",
+      },
+      tenantPolicy: {
+        subjectId: GUI_TENANT_ID,
+        maximumAuthority: "destructive",
+        reason: "The local GUI tenant permits attended operator execution.",
+      },
+      routePolicy: {
+        subjectId: "gui-runtime",
+        maximumAuthority: "destructive",
+        reason: "The attached Kiln GUI runtime enforces per-turn authority.",
+      },
+    },
   });
 }
 

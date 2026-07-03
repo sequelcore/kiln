@@ -270,6 +270,7 @@ export interface WorkItemAuthorityPolicyBound extends EffectiveTurnAuthorityPoli
 }
 
 export interface EffectiveTurnAuthorityAdmissionContext {
+  readonly executionUse?: "operator_interactive" | "managed_unattended";
   readonly sessionPolicy?: EffectiveTurnAuthorityPolicyBound;
   readonly tenantPolicy?: EffectiveTurnAuthorityPolicyBound;
   readonly routePolicy?: EffectiveTurnAuthorityPolicyBound;

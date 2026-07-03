@@ -428,4 +428,31 @@ describe("GUI authority forwarding", () => {
 
     expect(cfg.reasoningEffort).toBe("high");
   });
+
+  it("treats GUI Full Access as attended Kiln runtime authority", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      "destructive",
+    );
+
+    expect(cfg.authorityContext).toMatchObject({ executionUse: "operator_interactive" });
+    expect(cfg.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      requestedAuthority: "destructive",
+      admittedAuthority: "destructive",
+      completeness: "authoritative",
+      sandboxProjection: "workspace_write",
+    });
+    expect(cfg.toolAuthority?.get("write")).toMatchObject({
+      level: 4,
+      allowed: true,
+      requiresApproval: false,
+    });
+  });
 });

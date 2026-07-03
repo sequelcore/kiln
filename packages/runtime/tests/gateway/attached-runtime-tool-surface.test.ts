@@ -613,6 +613,63 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(config.effectiveTurnAuthority?.completeness).toBe("authoritative");
   });
 
+  it("admits workspace mutation tools for governed destructive execute authority", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface();
+    const config = buildAttachedRuntimePerCallToolConfig({
+      tenantId: "tenant-1",
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      activeModelCapabilities: { supportsFunctionTools: true },
+      builtinToolSurface: runtimeSurface,
+      executionMode: "execute",
+      requestedAuthority: "destructive",
+      authorityContext: {
+        sessionPolicy: {
+          maximumAuthority: "destructive",
+          reason: "Session permits governed destructive execution.",
+        },
+        tenantPolicy: {
+          subjectId: "tenant-1",
+          maximumAuthority: "destructive",
+          reason: "Tenant permits governed destructive execution.",
+        },
+        routePolicy: {
+          subjectId: "gui-runtime",
+          maximumAuthority: "destructive",
+          reason: "GUI runtime route permits governed destructive execution.",
+        },
+        goalEnvelope: {
+          goalRunId: "goal-1",
+          maximumAuthority: "destructive",
+          reason: "Operator goal permits workspace mutation.",
+        },
+        workItemAuthority: {
+          workItemId: "work-1",
+          maximumAuthority: "destructive",
+          reason: "Materialized work item permits workspace mutation.",
+        },
+      },
+    });
+
+    expect(config.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      requestedAuthority: "destructive",
+      admittedAuthority: "destructive",
+      sourcePolicy: "runtime_surface_projection",
+      completeness: "authoritative",
+      sandboxProjection: "workspace_write",
+    });
+    expect(config.toolAllowlist?.has("write")).toBe(true);
+    expect(config.toolAllowlist?.has("edit")).toBe(true);
+    expect(config.toolAllowlist?.has("patch")).toBe(true);
+    expect(config.toolAuthority?.get("write")).toMatchObject({
+      level: 4,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Governed destructive execution admitted by effective turn authority.",
+    });
+  });
+
   it("keeps effectiveTurnAuthority in lockstep with returned allowlist and authority map", () => {
     const config = buildAttachedRuntimePerCallToolConfig({
       tenantId: "tenant-1",

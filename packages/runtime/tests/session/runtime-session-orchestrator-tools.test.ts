@@ -17,6 +17,21 @@ import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ToolResultSanitizer, SanitizationResult } from "@kilnai/core";
 import type { AuditLog } from "@kilnai/core";
 
+async function waitForAssertion(assertion: () => void, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  throw lastError;
+}
+
 function makeProvider(toolCallsOnRound?: number): ProviderAdapter {
   let callCount = 0;
   return {
@@ -1799,7 +1814,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const session = makeSession();
       const pending = orchestrator.processMessage(session, textParts("delete stuff"));
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(approvalRequested).toHaveBeenCalledTimes(1);
       });
 
@@ -1830,7 +1845,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       const pending = orchestrator.processMessage(makeSession(), textParts("delegate destructive work"));
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(approvalRequested).toHaveBeenCalledTimes(1);
       });
 
@@ -1871,7 +1886,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const session = makeSession();
       const pending = orchestrator.processMessage(session, textParts("delete stuff"));
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(approvalRequested).toHaveBeenCalledTimes(1);
       });
 
@@ -1946,6 +1961,58 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         perCallConfig,
       );
 
+      expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(authorizer.authorize).not.toHaveBeenCalled();
+    });
+
+    it("executes governed destructive write authority without runtime approval prompt", async () => {
+      const provider = makeToolCallProvider({
+        id: "tc-write-1",
+        name: "write",
+        input: { filePath: "packages/core/tests/context/stable-prefix.test.ts", content: "test" },
+      });
+      const eventBus = new EventBus();
+      const approvalRequested = vi.fn();
+      eventBus.on("approval_requested", approvalRequested);
+      const toolFn = vi.fn().mockResolvedValue({ output: "Wrote file", isError: false });
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 4,
+          allowed: false,
+          requiresApproval: true,
+          reason: "Irreversible workspace mutation requires confirmation",
+        }),
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes a file", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["write", toolFn]]),
+        toolAuthorizer: authorizer,
+        eventBus,
+      });
+
+      const perCallConfig: PerCallToolConfig = {
+        toolAuthority: new Map<string, AuthorityDescriptor>([[
+          "write",
+          {
+            level: 4,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Governed destructive execution admitted by effective turn authority.",
+          },
+        ]]),
+      };
+
+      await orchestrator.processMessage(
+        makeSession(),
+        textParts("write the test"),
+        undefined,
+        undefined,
+        perCallConfig,
+      );
+
+      expect(approvalRequested).not.toHaveBeenCalled();
       expect(toolFn).toHaveBeenCalledTimes(1);
       expect(authorizer.authorize).not.toHaveBeenCalled();
     });

@@ -1109,7 +1109,12 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   const executeConfig: PerCallToolConfig = {
     ...config,
     toolAllowlist: new Set<string>(builtinToolSurface.toolDefinitions.map((tool) => tool.name)),
-    toolAuthority: builtinToolSurface.toolAuthority,
+    toolAuthority: buildEffectiveRuntimeToolAuthority({
+      baseAuthority: builtinToolSurface.toolAuthority,
+      capabilities: builtinToolSurface.capabilities,
+      requestedAuthority,
+      authorityContext: input.authorityContext,
+    }),
     toolCallMetadata: builtinToolSurface.toolCallMetadata,
     additionalTools: builtinToolSurface.toolDefinitions,
     perCallCapabilities: builtinToolSurface.capabilities,
@@ -1122,6 +1127,64 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     sandboxProjection: "workspace_write",
     requestedAuthority,
   })!);
+}
+
+function buildEffectiveRuntimeToolAuthority(input: {
+  readonly baseAuthority: ReadonlyMap<string, AuthorityDescriptor>;
+  readonly capabilities: ReadonlyMap<string, Capability>;
+  readonly requestedAuthority: OperatorTurnRequestedAuthority;
+  readonly authorityContext: EffectiveTurnAuthorityAdmissionContext | undefined;
+}): ReadonlyMap<string, AuthorityDescriptor> {
+  if (!hasGovernedDestructiveTurnAuthority(input.requestedAuthority, input.authorityContext)) {
+    return input.baseAuthority;
+  }
+
+  const projected = new Map(input.baseAuthority);
+  for (const [toolName, descriptor] of input.baseAuthority.entries()) {
+    const capability = input.capabilities.get(toolName);
+    if (descriptor.level < 4 || descriptor.allowed || !isDestructiveRuntimeCapability(capability)) {
+      continue;
+    }
+    projected.set(toolName, {
+      level: 4,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Governed destructive execution admitted by effective turn authority.",
+    });
+  }
+  return projected;
+}
+
+function hasGovernedDestructiveTurnAuthority(
+  requestedAuthority: OperatorTurnRequestedAuthority,
+  authorityContext: EffectiveTurnAuthorityAdmissionContext | undefined,
+): boolean {
+  if (requestedAuthority !== "destructive") {
+    return false;
+  }
+  if (authorityContext?.executionUse === "operator_interactive") {
+    return authorityContext.sessionPolicy?.maximumAuthority === "destructive"
+      && authorityContext.tenantPolicy?.maximumAuthority === "destructive"
+      && authorityContext.routePolicy?.maximumAuthority === "destructive";
+  }
+  return authorityContext?.goalEnvelope?.maximumAuthority === "destructive"
+    && authorityContext.workItemAuthority?.maximumAuthority === "destructive";
+}
+
+function isDestructiveRuntimeCapability(capability: Capability | undefined): boolean {
+  const envelope = capability?.effectEnvelope ?? (capability ? getBuiltinEffectEnvelope(capability.name) : undefined);
+  if (!envelope) {
+    return false;
+  }
+  return envelope.operation === "mutate"
+    && (
+      envelope.reversibility === "irreversible"
+      || envelope.reversibility === "unknown"
+      || envelope.identityUse === "privileged"
+      || envelope.identityUse === "unknown"
+      || envelope.dataEgress === "unknown"
+      || envelope.consequences.includes("unknown")
+    );
 }
 
 function recordRuntimeAuthoritySnapshot(

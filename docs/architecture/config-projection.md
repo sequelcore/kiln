@@ -181,6 +181,15 @@ uses Kiln's governed proposal, approval, and apply lifecycle. Conversely, an
 operator-approved personal trusted profile is not unexplained drift when the
 authorization evidence is current and scoped to the local operator.
 
+Kiln's own attended operator surface has a narrower, enforceable meaning. When
+an operator explicitly selects Full Access for a GUI turn, the attached Kiln
+runtime records `operator_interactive` execution use and applies session,
+tenant, and route bounds before admitting Kiln-owned local tools. This is valid
+authority for that attended Kiln turn; it is not evidence about a native
+harness sandbox, is not persisted as provider policy, and is not inherited by
+managed, background, or unattended children. Those children continue to require
+their own goal, work-item, route, and effective-runtime authority evidence.
+
 Projection remains idempotent and preserves unmanaged native fields. When a
 harness cannot preserve Kiln's canonical semantics, the adapter must emit
 lossy or unsupported evidence and fail closed for authority-sensitive
