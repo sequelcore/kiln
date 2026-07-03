@@ -26,6 +26,13 @@ Correction verified on 2026-07-03 through focused transcript tests, the full
 GUI unit suite, workspace typecheck, GUI production build, and Chromium checks
 for hover/focus previews, semantic scrolling, live activity, and reduced motion.
 
+The 2026-07-03 interaction correction follows the official shadcn
+`MessageScroller` semantics: `currentAnchorId` is the single reader-position
+authority, while `visibleMessageIds` is visibility evidence only. The gutter
+trail magnifies by proximity on hover/focus, keeps exactly one current
+`aria-current` location, uses selected hover/focus state only for visual
+inspection, and leaves all other marks subdued.
+
 ## Non-Goals
 
 - Do not change runtime tool semantics, authority, approval, or provider routing.

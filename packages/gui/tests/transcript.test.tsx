@@ -1617,13 +1617,30 @@ describe("Transcript", () => {
 
     const rail = screen.getByRole("navigation", { name: "Thread navigation" });
     expect(rail).toHaveAttribute("data-role", "thread-navigation-trail");
-    expect(within(rail).getByRole("button", { name: "Jump to user turn 1" })).toHaveAttribute("data-thread-anchor-kind", "user");
-    expect(within(rail).getByRole("button", { name: "Jump to tool execution 2" })).toHaveAttribute("data-thread-anchor-kind", "tool");
+    const userAnchor = within(rail).getByRole("button", { name: "Jump to user turn 1" });
+    const toolAnchor = within(rail).getByRole("button", { name: "Jump to tool execution 2" });
+    const failureAnchor = within(rail).getByRole("button", { name: "Jump to tool failure 3" });
+    const assistantAnchor = within(rail).getByRole("button", { name: "Jump to assistant reply 4" });
+    expect(userAnchor).toHaveAttribute("data-thread-anchor-kind", "user");
+    expect(toolAnchor).toHaveAttribute("data-thread-anchor-kind", "tool");
     expect(within(rail).getByRole("button", { name: "Jump to tool failure 3" })).toHaveAttribute("data-thread-anchor-kind", "failure");
     expect(within(rail).getByRole("button", { name: "Return to latest thread anchor" })).toBeInTheDocument();
     expect(within(rail).getByText("Investigate the trace").closest('[data-role="thread-anchor-preview"]')).toBeInTheDocument();
+    expect(within(rail).getAllByRole("button").filter((button) => button.getAttribute("aria-current") === "location")).toHaveLength(1);
+    expect(assistantAnchor).toHaveAttribute("aria-current", "location");
 
-    fireEvent.click(within(rail).getByRole("button", { name: "Jump to tool failure 3" }));
+    fireEvent.mouseEnter(toolAnchor);
+    expect(rail).toHaveAttribute("data-expanded", "true");
+    expect(toolAnchor).toHaveAttribute("data-selected", "true");
+    expect(toolAnchor).toHaveAttribute("data-proximity", "0");
+    expect(userAnchor).toHaveAttribute("data-proximity", "1");
+    expect(failureAnchor).toHaveAttribute("data-proximity", "1");
+    expect(assistantAnchor).toHaveAttribute("data-proximity", "2");
+
+    fireEvent.mouseLeave(rail);
+    expect(rail).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.click(failureAnchor);
   });
 
   it("labels the scroll control when live activity may be arriving out of view", () => {

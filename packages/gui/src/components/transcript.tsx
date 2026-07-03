@@ -1300,6 +1300,8 @@ function deriveTranscriptNavigationAnchors(
 function TranscriptNavigationRail(props: {
   readonly anchors: readonly TranscriptNavigationAnchor[];
 }) {
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const { scrollToMessage } = useMessageScroller();
   const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
   if (props.anchors.length < 3) return null;
@@ -1309,16 +1311,28 @@ function TranscriptNavigationRail(props: {
   };
 
   const latest = props.anchors.at(-1);
+  const inspectedIndex = hoveredIndex ?? focusedIndex;
+  const fallbackVisibleAnchorId = visibleMessageIds.find((messageId) => (
+    props.anchors.some((anchor) => anchor.id === messageId)
+  ));
+  const activeAnchorId = currentAnchorId ?? fallbackVisibleAnchorId ?? latest?.id;
+  const expanded = inspectedIndex !== null;
 
   return (
     <nav
       aria-label="Thread navigation"
+      data-expanded={expanded ? "true" : "false"}
       data-role="thread-navigation-trail"
-      className="pointer-events-none absolute inset-y-4 left-2 z-10 hidden w-8 flex-col items-start justify-center sm:flex"
+      className="pointer-events-none absolute inset-y-4 left-2 z-10 hidden w-10 flex-col items-start justify-center sm:flex"
+      onMouseLeave={() => setHoveredIndex(null)}
     >
       <div className="flex max-h-full flex-col items-start gap-1.5 py-2">
         {props.anchors.map((anchor, index) => {
-          const isCurrent = currentAnchorId === anchor.id || visibleMessageIds.includes(anchor.id);
+          const isCurrent = activeAnchorId === anchor.id;
+          const isSelected = inspectedIndex === index;
+          const proximity = inspectedIndex === null
+            ? "far"
+            : String(Math.min(Math.abs(inspectedIndex - index), 3));
           return (
             <button
               key={anchor.id}
@@ -1328,19 +1342,19 @@ function TranscriptNavigationRail(props: {
               title={anchor.label}
               data-thread-anchor-kind={anchor.kind}
               data-current={isCurrent ? "true" : "false"}
+              data-proximity={proximity}
+              data-selected={isSelected ? "true" : "false"}
               className={cn(
-                "group/anchor pointer-events-auto relative flex h-2 w-6 items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "group/anchor pointer-events-auto relative flex h-2 w-8 origin-left items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               )}
+              onBlur={() => setFocusedIndex(null)}
               onClick={() => jumpToAnchor(anchor.id)}
+              onFocus={() => setFocusedIndex(index)}
+              onMouseEnter={() => setHoveredIndex(index)}
             >
               <span
                 aria-hidden="true"
-                className={cn(
-                  "h-px w-2 rounded-full bg-muted-foreground/45 transition-[width,background-color] group-hover/anchor:w-5 group-focus-visible/anchor:w-5",
-                  isCurrent ? "w-5 bg-foreground" : null,
-                  anchor.kind === "failure" ? "bg-destructive" : null,
-                  anchor.kind === "live" ? "w-5 bg-primary" : null,
-                )}
+                className="thread-navigation-mark"
               />
               <span
                 data-role="thread-anchor-preview"

@@ -71,6 +71,9 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(rail.getByRole("button", { name: "Jump to assistant reply 2" })).toBeVisible();
     await expect(rail.getByRole("button", { name: "Return to latest thread anchor" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Jump to latest" })).toBeAttached();
+    const currentAnchors = rail.locator('[aria-current="location"]');
+    await expect(currentAnchors).toHaveCount(1);
+    await expect(currentAnchors).toHaveAttribute("aria-label", "Jump to user turn 1");
 
     await page.getByLabel("Transcript").evaluate((viewport) => {
       let scrollTop = viewport.scrollTop;
@@ -89,9 +92,19 @@ test.describe("parity category 5 - theming and visual behavior", () => {
       };
     });
     const firstTurn = rail.getByRole("button", { name: "Jump to user turn 1" });
-    await firstTurn.focus();
+    const distantTurn = rail.getByRole("button", { name: "Jump to assistant reply 4" });
+    await firstTurn.hover();
+    await expect(rail).toHaveAttribute("data-expanded", "true");
+    await expect(firstTurn).toHaveAttribute("data-selected", "true");
     await expect(firstTurn.locator('[data-role="thread-anchor-preview"]')).toBeVisible();
     await expect(firstTurn.locator('[data-role="thread-anchor-preview"]')).toContainText("navigation rail first turn");
+    const hoveredWidth = await firstTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
+    const distantWidth = await distantTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
+    expect(hoveredWidth).toBeGreaterThan(distantWidth);
+    await expect(firstTurn.locator(".thread-navigation-mark")).toHaveCSS("opacity", "1");
+    await expect(distantTurn.locator(".thread-navigation-mark")).toHaveCSS("opacity", "0.28");
+
+    await firstTurn.focus();
     await page.keyboard.press("Enter");
     await expect.poll(async () => page.evaluate(() => (
       (window as unknown as { __kilnScrollTop?: number }).__kilnScrollTop

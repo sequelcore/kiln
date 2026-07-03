@@ -286,6 +286,46 @@ body {
   }
 }
 
+.thread-navigation-mark {
+  width: 2rem;
+  height: 1px;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  opacity: 0.28;
+  transform: scaleX(0.25) scaleY(1);
+  transform-origin: left center;
+  transition:
+    opacity 180ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease;
+}
+
+[data-thread-anchor-kind="failure"] .thread-navigation-mark {
+  background: var(--destructive);
+}
+
+[data-proximity="2"] .thread-navigation-mark {
+  opacity: 0.5;
+  transform: scaleX(0.5) scaleY(1);
+}
+
+[data-proximity="1"] .thread-navigation-mark {
+  opacity: 0.72;
+  transform: scaleX(0.75) scaleY(1.2);
+}
+
+[data-current="true"] .thread-navigation-mark {
+  background: var(--primary);
+  opacity: 1;
+  transform: scaleX(0.625) scaleY(1.25);
+}
+
+[data-selected="true"] .thread-navigation-mark {
+  background: var(--primary);
+  opacity: 1;
+  transform: scaleX(1) scaleY(1.6);
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-role="tool-event"]::after,
   [data-role="tool-event"] .shimmer,
@@ -293,6 +333,10 @@ body {
   [data-role="live-activity-beam"],
   [data-role="live-activity-beam"] * {
     animation: none !important;
+  }
+
+  .thread-navigation-mark {
+    transition: none;
   }
 }
 

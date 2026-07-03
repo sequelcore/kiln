@@ -473,7 +473,8 @@ Slice 5 evidence:
 - User turns, assistant replies, tool executions, failures, milestones, and live
   activity receive explicit anchor kinds.
 - Current-position feedback uses the official message-scroller visibility hook;
-  the rail marks visible/current anchors without owning scroll state.
+  `currentAnchorId` is the single reader-position authority, while hover/focus
+  only selects and magnifies nearby marks for visual inspection.
 - Pointer navigation scrolls only on explicit operator action, and the existing
   `MessageScrollerButton` remains the live-edge control.
 - Focused transcript tests, workspace typecheck, full `@kilnai/gui` tests, GUI
@@ -483,6 +484,10 @@ Slice 5 evidence:
   to aggregate live activity, kept individual tool traces beam-free, replaced
   global DOM navigation with `MessageScroller.scrollToMessage`, and verified
   navigation plus reduced-motion behavior in Chromium.
+- The 2026-07-03 rail interaction correction verified the Codex-like gutter
+  behavior in Chromium: one active mark, proximity zoom on hover/focus, subdued
+  distant marks, preview cards, keyboard activation, and no duplicated scroll
+  authority outside `MessageScroller`.
 
 Required outcome:
 
