@@ -1178,7 +1178,7 @@ describe("Transcript", () => {
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
   });
 
-  it("renders markdown-like web text output as a document instead of raw text", () => {
+  it("renders web search output as structured search results instead of raw text", () => {
     render(
       <Transcript
         entries={[
@@ -1191,9 +1191,27 @@ describe("Transcript", () => {
             summary: "5 sources for FIFA World Cup 2026 fixtures",
             tone: "success",
             toolPresentation: {
-              outputKind: "markdown",
+              outputKind: "search_results",
+              classification: {
+                source: "tool-metadata",
+                reason: "web/search metadata identifies search result output",
+                confidence: "high",
+              },
               title: "FIFA World Cup 2026 fixtures July 3 2026 matches",
               summary: "5 sources for FIFA World Cup 2026 fixtures",
+              fields: [],
+              searchResults: [
+                {
+                  title: "Matches | FIFA World Cup 2026",
+                  url: "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures",
+                  source: "fifa.com",
+                },
+                {
+                  title: "FIFA World Cup 2026 | Fixtures, groups, teams & more",
+                  url: "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fixtures",
+                  source: "fifa.com",
+                },
+              ],
               preview: {
                 text: [
                   "5 sources for FIFA World Cup 2026 fixtures July 3 2026 matches",
@@ -1213,12 +1231,13 @@ describe("Transcript", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show details" }));
 
-    const documentOutput = screen.getByRole("region", { name: "Document" });
-    expect(within(documentOutput).getByRole("list")).toBeInTheDocument();
-    expect(within(documentOutput).getByRole("link", { name: "Fixtures" })).toHaveAttribute(
+    const searchResultsOutput = screen.getByRole("region", { name: "Search results" });
+    expect(within(searchResultsOutput).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(searchResultsOutput).getByRole("link", { name: "Matches | FIFA World Cup 2026" })).toHaveAttribute(
       "href",
-      "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fixtures",
+      "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures",
     );
+    expect(screen.queryByRole("region", { name: "Document" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
   });
 

@@ -16,8 +16,9 @@ baseline. Active and deferred execution tracks live in
   contract-driven bounded structured-output visualizers, a semantic long-thread
   navigation trail with visible-block active position, proximity zoom on
   hover/focus, and replay/restore deduplication by `eventId`. Markdown-like
-  web/search text outputs render as bounded document output instead of raw
-  monospaced text. Active tool treatment is a compact inline trace with
+  web/search tool output is promoted to structured search-result evidence and
+  rendered as source/result rows instead of raw monospaced text or generic
+  document markdown. Active tool treatment is a compact inline trace with
   text/icon state and optional shimmer, while aggregate thinking/execution
   activity uses a restrained `border-beam` with visible phase text instead of an
   isolated ellipsis; all motion is suppressed under reduced motion.

@@ -12,8 +12,9 @@ import {
   type ComparisonTablePresentationCell,
   type PresentationIntentResourceLink,
   type ToolResultOutputKind,
+  type ToolResultSearchResult,
 } from "@kilnai/gateway-contracts";
-import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, FileText, Folder, LoaderCircle, Terminal } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal } from "lucide-react";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
@@ -296,6 +297,8 @@ function toolResultContentLabel(outputKind: ToolResultOutputKind): string {
       return "Directory tree";
     case "code":
       return "Source";
+    case "search_results":
+      return "Search results";
     case "table":
       return "Table";
     case "image":
@@ -344,6 +347,55 @@ function ToolResultContent(props: {
       )}
     </section>
   );
+}
+
+function SearchResultsList(props: { readonly results: readonly ToolResultSearchResult[] }) {
+  return (
+    <section aria-label="Search results">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Search results</p>
+        <Badge variant="outline" className="h-5 px-1.5 py-0 font-mono text-[10px]">
+          {props.results.length} {props.results.length === 1 ? "result" : "results"}
+        </Badge>
+      </div>
+      <ol className="max-h-72 overflow-auto rounded-md border border-border/70 bg-background/35">
+        {props.results.map((result, index) => (
+          <li key={`${result.url}:${index}`} className="border-t border-border/50 first:border-t-0">
+            <div className="grid grid-cols-[2ch_1fr] gap-3 px-3 py-2.5">
+              <span className="pt-0.5 text-right font-mono text-[10px] leading-5 text-muted-foreground tabular-nums">
+                {index + 1}
+              </span>
+              <div className="min-w-0">
+                <a
+                  className="inline-flex max-w-full items-center gap-1.5 text-sm font-medium leading-5 text-foreground underline-offset-4 hover:text-primary hover:underline"
+                  href={result.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <span className="truncate">{result.title}</span>
+                  <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </a>
+                <p className="mt-0.5 truncate font-mono text-[10px] leading-4 text-muted-foreground">
+                  {result.source ?? hostForUrl(result.url) ?? result.url}
+                </p>
+                {result.snippet ? (
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{result.snippet}</p>
+                ) : null}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function hostForUrl(value: string): string | null {
+  try {
+    return new URL(value).hostname.replace(/^www\./u, "");
+  } catch {
+    return null;
+  }
 }
 
 function formatBytes(value: number | undefined): string | null {
@@ -562,7 +614,7 @@ function ToolResultPresentationDetails(props: {
   const presentation = props.entry.toolPresentation;
   if (!presentation) return null;
   const contentLabel = toolResultContentLabel(presentation.outputKind);
-  const preview = presentation.presentationIntent ? undefined : presentation.preview;
+  const preview = presentation.presentationIntent || presentation.searchResults?.length ? undefined : presentation.preview;
   const fields = presentation.fields ?? [];
   const showTitle = !fields.some((item) => item.value === presentation.title);
   return (
@@ -576,6 +628,9 @@ function ToolResultPresentationDetails(props: {
       <MetaList items={fields} />
       {presentation.presentationIntent ? (
         <PresentationIntentDetails intent={presentation.presentationIntent} />
+      ) : null}
+      {presentation.searchResults?.length ? (
+        <SearchResultsList results={presentation.searchResults} />
       ) : null}
       {isBrowserCapturePresentation(presentation) ? (
         <>

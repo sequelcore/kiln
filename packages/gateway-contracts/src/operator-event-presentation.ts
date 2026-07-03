@@ -24,6 +24,7 @@ export type ToolResultOutputKind =
   | "text"
   | "markdown"
   | "code"
+  | "search_results"
   | "table"
   | "tree"
   | "diff"
@@ -43,6 +44,13 @@ export interface ToolResultRawAvailability {
   readonly available: boolean;
   readonly resourceUri?: string;
   readonly reason?: string;
+}
+
+export interface ToolResultSearchResult {
+  readonly title: string;
+  readonly url: string;
+  readonly snippet?: string;
+  readonly source?: string;
 }
 
 export type ToolResultClassificationSource =
@@ -67,6 +75,7 @@ export interface ToolResultPresentation {
   readonly fields: readonly OperatorEventDetailItem[];
   readonly presentationIntent?: PresentationIntent;
   readonly preview?: ToolResultPreview;
+  readonly searchResults?: readonly ToolResultSearchResult[];
   readonly resourceLinks?: readonly ToolResultResourceLinkPresentation[];
   readonly raw: ToolResultRawAvailability;
 }
@@ -613,6 +622,197 @@ function projectOcrPresentation(
   };
 }
 
+function isSearchResultTool(toolName: string, metadata: Record<string, unknown> | undefined): boolean {
+  const metadataToolName = readString(metadata?.toolName);
+  const kind = readString(metadata?.kind);
+  const operation = readString(metadata?.operation);
+  const normalizedNames = [toolName, metadataToolName]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase().replace(/[^a-z0-9]+/g, "_"));
+  return (kind === "web" && operation === "search")
+    || normalizedNames.some((value) => value === "web_search" || value.endsWith("_web_search"));
+}
+
+function projectSearchResultsPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation | null {
+  const outputRecord = parseOutputRecord(output);
+  const outputMetadata = asRecord(outputRecord?.metadata);
+  const effectiveMetadata = metadata || outputMetadata
+    ? {
+        ...(outputMetadata ?? {}),
+        ...(metadata ?? {}),
+      }
+    : undefined;
+  if (!isSearchResultTool(toolName, effectiveMetadata)) return null;
+  const text = readSearchOutputText(output, outputRecord);
+  const searchResults = dedupeSearchResults([
+    ...readSearchResultsFromRecord(effectiveMetadata),
+    ...readSearchResultsFromRecord(outputRecord),
+    ...parseSearchResultsText(text),
+  ]);
+  if (searchResults.length === 0) return null;
+  const summary = compactText(text);
+  const preview = compactPreview(text);
+  const fields = [
+    field("Results", searchResults.length),
+    field("Query", effectiveMetadata?.query),
+    field("Source", readString(effectiveMetadata?.toolName) ?? toolName),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "search_results",
+    classification: toolResultClassification("tool-metadata", "web/search metadata identifies search result output", { confidence: "high" }),
+    title: toolResultTitle(toolName, effectiveMetadata, "Search results"),
+    ...(summary ? { summary } : {}),
+    fields,
+    ...(preview ? { preview } : {}),
+    searchResults,
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function readSearchOutputText(output: string | undefined, outputRecord: Record<string, unknown> | null): string {
+  const direct = readString(outputRecord?.output);
+  if (direct) return direct;
+  if (Array.isArray(outputRecord?.output)) {
+    return outputRecord.output
+      .filter((item): item is string => typeof item === "string")
+      .join("\n");
+  }
+  return output ?? "";
+}
+
+function readSearchResultsFromRecord(value: Record<string, unknown> | null | undefined): readonly ToolResultSearchResult[] {
+  if (!value) return [];
+  const candidates = [value.results, value.sources, value.items, value.searchResults];
+  return candidates.flatMap((candidate) => Array.isArray(candidate) ? candidate.map(readSearchResultRecord) : [])
+    .filter((result): result is ToolResultSearchResult => result !== null);
+}
+
+function readSearchResultRecord(value: unknown): ToolResultSearchResult | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const title = readString(record.title) ?? readString(record.name) ?? readString(record.label);
+  const url = readString(record.url) ?? readString(record.uri) ?? readString(record.link) ?? readString(record.href);
+  if (!title || !url || !isHttpUrl(url)) return null;
+  const snippet = readString(record.snippet) ?? readString(record.summary) ?? readString(record.description);
+  const source = readString(record.source) ?? readString(record.domain) ?? readString(record.provider);
+  return {
+    title: cleanSearchTitle(title),
+    url,
+    ...(snippet ? { snippet } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+
+function parseSearchResultsText(text: string): readonly ToolResultSearchResult[] {
+  const results: ToolResultSearchResult[] = [];
+  let current: { title: string; url?: string; snippets: string[] } | null = null;
+  for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/u);
+    const link = readMarkdownLink(line);
+    const url = link?.url ?? readFirstHttpUrl(line);
+    if (numbered) {
+      if (current) pushSearchResult(results, current);
+      const numberedText = numbered[1] ?? "";
+      const numberedLink = readMarkdownLink(numberedText);
+      current = {
+        title: cleanSearchTitle(numberedLink?.title ?? numberedText),
+        ...(numberedLink?.url ? { url: numberedLink.url } : {}),
+        snippets: [],
+      };
+      continue;
+    }
+    if (url) {
+      if (current) {
+        current.url = url;
+        if (link?.title && current.title === cleanSearchTitle(link.title)) {
+          continue;
+        }
+        if (link?.title && current.title.length === 0) {
+          current.title = cleanSearchTitle(link.title);
+        }
+      } else if (link?.title) {
+        current = { title: cleanSearchTitle(link.title), url, snippets: [] };
+      }
+      continue;
+    }
+    if (current && !/^\d+\s+sources?\s+for\s+/iu.test(line)) {
+      current.snippets.push(line);
+    }
+  }
+  if (current) pushSearchResult(results, current);
+  return results;
+}
+
+function pushSearchResult(
+  results: ToolResultSearchResult[],
+  value: { title: string; url?: string; snippets: string[] },
+): void {
+  if (!value.url || !isHttpUrl(value.url)) return;
+  const title = cleanSearchTitle(value.title);
+  if (!title) return;
+  const snippet = compactText(value.snippets.join(" "));
+  results.push({
+    title,
+    url: value.url,
+    ...(snippet ? { snippet } : {}),
+    source: hostForUrl(value.url),
+  });
+}
+
+function dedupeSearchResults(results: readonly ToolResultSearchResult[]): readonly ToolResultSearchResult[] {
+  const seen = new Set<string>();
+  const unique: ToolResultSearchResult[] = [];
+  for (const result of results) {
+    if (seen.has(result.url)) continue;
+    seen.add(result.url);
+    unique.push(result);
+  }
+  return unique.slice(0, 12);
+}
+
+function readMarkdownLink(value: string): { readonly title: string; readonly url: string } | null {
+  const match = value.match(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/u);
+  if (!match?.[1] || !match[2]) return null;
+  return { title: match[1], url: match[2] };
+}
+
+function readFirstHttpUrl(value: string): string | null {
+  const match = value.match(/https?:\/\/[^\s)]+/u);
+  return match?.[0] ?? null;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function hostForUrl(value: string): string | undefined {
+  try {
+    return new URL(value).hostname.replace(/^www\./u, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanSearchTitle(value: string): string {
+  return value
+    .replace(/\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\)/u, "$1")
+    .replace(/https?:\/\/\S+/gu, "")
+    .trim();
+}
+
 function projectTextPresentation(
   toolName: string,
   output: string | undefined,
@@ -912,6 +1112,10 @@ function projectToolResultPresentation(
   }
   if (kind === "media" && operation === "ocr" && metadata) {
     return projectOcrPresentation(toolName, output, metadata, resourceLinks);
+  }
+  const searchResultsPresentation = projectSearchResultsPresentation(toolName, output, metadata, resourceLinks);
+  if (searchResultsPresentation) {
+    return searchResultsPresentation;
   }
   if (operation === "read_many" && resourceLinks.length > 0) {
     return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);

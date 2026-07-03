@@ -497,6 +497,7 @@ export type {
   ToolResultPresentation,
   ToolResultPreview,
   ToolResultRawAvailability,
+  ToolResultSearchResult,
 } from "./operator-event-presentation.js";
 
 export {

@@ -500,9 +500,9 @@ Slice 5 evidence:
 - The rail now highlights visible assistant replies and other semantic blocks
   without making those rows `scrollAnchor`s, preserving MessageScroller turn
   anchoring while matching Codex-style reading position feedback.
-- Markdown-like web/search text output is classified at the shared Gateway
-  contract layer and rendered as bounded document output instead of raw
-  monospaced `Text output`.
+- Web/search tool output is classified at the shared Gateway contract layer as
+  structured `search_results` evidence and rendered as source/result rows
+  instead of raw monospaced `Text output` or generic document markdown.
 
 Required outcome:
 
