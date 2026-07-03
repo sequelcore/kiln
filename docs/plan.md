@@ -1,6 +1,6 @@
 # Tool Execution Continuity, Structured Output Visualizers, and Long-Thread Navigation
 
-Status: Slice 3 complete; Slice 4 next
+Status: Slice 4 complete; Slice 5 next
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/02-public-release-ui-debt.md`
 
@@ -176,6 +176,17 @@ cross-surface review confirms no GUI-owned semantic fork.
   only where the shared intent supplies sufficient evidence.
 - Adopt an interactive tree/file dependency only if navigation, virtualization,
   keyboard traversal, lazy loading, or file actions are approved requirements.
+- Adopted `border-beam` for active non-nested tool rows after validating the
+  package is MIT-licensed, React-compatible, and production-build safe. The
+  component degrades to a static bounded wrapper in environments without
+  `window.matchMedia`; accessible state remains text, icon, and `data-state`.
+- Structured output details now expose explicit bounded containers for
+  transcript-column visualizers, including table overflow boundaries and JSON
+  preview width constraints.
+- No interactive tree/file dependency was added because Slice 4 does not require
+  navigation, virtualization, keyboard traversal, lazy loading, or file actions.
+- Focused transcript tests, full `@kilnai/gui` tests, GUI typecheck, GUI build,
+  GUI E2E, and browser validation passed on 2026-07-02 before moving to Slice 5.
 
 Gate: focused GUI tests, accessibility checks, representative large payloads,
 horizontal-boundary tests, typecheck, build, and browser inspection pass.

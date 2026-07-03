@@ -349,7 +349,7 @@ Verification:
 
 ### Tool Execution Continuity, Structured Output Visualizers, And Long-Thread Navigation
 
-Status: In progress; Slice 3 complete, Slice 4 next
+Status: In progress; Slice 4 complete, Slice 5 next
 
 Problem:
 
@@ -444,6 +444,22 @@ Slice 3 evidence:
 - Focused operator-event presentation tests, full gateway-contract tests,
   focused GUI transcript tests, focused TUI gateway-session tests, and workspace
   typecheck passed on 2026-07-02.
+
+Slice 4 evidence:
+
+- GUI transcript structured-output details now expose bounded containers for
+  approved visualizers, with explicit table overflow boundaries and JSON preview
+  width constraints.
+- `border-beam` is adopted for active non-nested tool rows after package
+  evaluation confirmed MIT licensing, React compatibility, and successful GUI
+  build. The wrapper degrades safely where `window.matchMedia` is unavailable.
+- Active execution state remains represented by text, iconography, and
+  `data-state`; the beam is decorative and supplemental, not the only signal.
+- No interactive tree/file dependency was introduced because current behavior
+  does not require navigation, virtualization, keyboard traversal, lazy loading,
+  or file actions.
+- Focused transcript tests, full `@kilnai/gui` tests, GUI typecheck, GUI build,
+  GUI E2E, and browser validation passed on 2026-07-02.
 
 Required outcome:
 

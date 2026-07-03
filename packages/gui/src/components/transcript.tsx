@@ -12,6 +12,7 @@ import {
   type ToolResultOutputKind,
 } from "@kilnai/gateway-contracts";
 import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, FileText, Folder, LoaderCircle, Terminal } from "lucide-react";
+import { BorderBeam } from "border-beam";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
 import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
@@ -259,7 +260,7 @@ function JsonPreviewText(props: { readonly text: string }) {
   const data = parseJsonPreview(props.text);
   if (!data) return <ToolPreviewText text={props.text} outputKind="code" />;
   return (
-    <div className="max-h-56 overflow-auto rounded-md bg-background/35 px-3 py-2 font-mono text-[11px] leading-5 text-foreground">
+    <div className="max-h-56 max-w-full overflow-auto rounded-md bg-background/35 px-3 py-2 font-mono text-[11px] leading-5 text-foreground">
       <JsonView
         aria-label="JSON output"
         compactTopLevel
@@ -441,7 +442,11 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
   if (props.intent.kind === "comparison_table") {
     const intent = props.intent;
     return (
-      <div className="mt-2 overflow-x-auto rounded-lg border border-border/70 bg-background/55">
+      <div
+        data-output-kind="table"
+        data-testid="tool-output-table"
+        className="mt-2 max-w-full overflow-x-auto rounded-lg border border-border/70 bg-background/55"
+      >
         <table className="min-w-full table-fixed border-collapse text-left text-xs">
           <thead className="bg-muted/40 text-[10px] font-semibold uppercase text-muted-foreground">
             <tr>
@@ -550,7 +555,10 @@ function ToolResultPresentationDetails(props: {
   const preview = presentation.presentationIntent ? undefined : presentation.preview;
   const showTitle = !presentation.fields.some((item) => item.value === presentation.title);
   return (
-    <div className="mt-3 flex flex-col gap-2 border-l border-border/60 pl-3">
+    <div
+      data-testid="tool-output-details"
+      className="mt-3 flex max-w-full flex-col gap-2 overflow-hidden border-l border-border/60 pl-3"
+    >
       {showTitle ? (
         <p className="truncate text-sm font-medium leading-5 text-foreground">{presentation.title}</p>
       ) : null}
@@ -913,6 +921,41 @@ function toolEventTooltipText(entry: TimelineEventEntry): string {
   return `${toolName} result attached to this assistant turn. Expand for details.`;
 }
 
+function ActiveToolBeamFrame(props: {
+  readonly active: boolean;
+  readonly children: ReactNode;
+}) {
+  if (!props.active) return <>{props.children}</>;
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return (
+      <div
+        className="max-w-full overflow-visible rounded-lg"
+        data-motion="decorative"
+        data-role="active-tool-beam"
+      >
+        {props.children}
+      </div>
+    );
+  }
+  return (
+    <BorderBeam
+      active
+      borderRadius={8}
+      className="max-w-full overflow-visible rounded-lg"
+      colorVariant="ocean"
+      data-motion="decorative"
+      data-role="active-tool-beam"
+      duration={2.3}
+      size="pulse-inner"
+      staticColors
+      strength={0.55}
+      theme="auto"
+    >
+      {props.children}
+    </BorderBeam>
+  );
+}
+
 function ToolEventCard(props: {
   readonly entry: TimelineEventEntry;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
@@ -929,78 +972,81 @@ function ToolEventCard(props: {
       : props.entry.tone === "warning"
         ? "interrupted"
         : "complete";
+  const activeBeam = props.entry.tone === "running" && !props.nested;
 
   return (
     <div className="w-full min-w-0 flex-1">
-      <div
-        data-role="tool-event"
-        data-state={state}
-        className={cn(
-          "relative flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-transparent bg-background/70 px-2.5 py-1.5 text-sm",
-          props.nested ? "bg-transparent px-0" : "shadow-sm",
-          props.entry.tone === "running"
-            ? "border-primary/35 bg-primary/5 before:absolute before:inset-y-1 before:left-0 before:w-px before:rounded-full before:bg-primary after:pointer-events-none after:absolute after:inset-0 after:-translate-x-full after:bg-[linear-gradient(110deg,transparent,rgba(255,255,255,0.11),transparent)] after:animate-[kiln-tool-row-shimmer_1.6s_ease-in-out_infinite] motion-reduce:after:animate-none"
-            : null,
-          props.entry.tone === "warning" ? "border-warning/45 bg-warning/5" : null,
-          props.entry.tone === "error" ? "border-destructive/45 bg-destructive/5" : null,
-        )}
-      >
-        <Icon
-          aria-hidden="true"
+      <ActiveToolBeamFrame active={activeBeam}>
+        <div
+          data-role="tool-event"
+          data-state={state}
           className={cn(
-            "shrink-0 text-muted-foreground",
-            props.entry.tone === "running" ? "animate-spin" : null,
-            props.entry.tone === "error" ? "text-destructive" : null,
+            "relative flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-transparent bg-background/70 px-2.5 py-1.5 text-sm",
+            props.nested ? "bg-transparent px-0" : "shadow-sm",
+            props.entry.tone === "running"
+              ? "border-primary/35 bg-primary/5 before:absolute before:inset-y-1 before:left-0 before:w-px before:rounded-full before:bg-primary"
+              : null,
+            props.entry.tone === "warning" ? "border-warning/45 bg-warning/5" : null,
+            props.entry.tone === "error" ? "border-destructive/45 bg-destructive/5" : null,
           )}
-        />
-        <TooltipProvider delay={400}>
-          <Tooltip>
-            <TooltipTrigger
-              render={(
-                <Badge
-                  variant={eventBadgeVariant(props.entry)}
-                  className="max-w-[11rem] cursor-default truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              )}
-            >
-              {props.entry.title}
-            </TooltipTrigger>
-            <TooltipContent side="top" align="start">
-              {toolEventTooltipText(props.entry)}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        {summary ? (
-          <span
-            className={cn(
-              "relative z-10 min-w-0 flex-1 truncate text-muted-foreground",
-              props.entry.tone === "running" ? "shimmer" : null,
-            )}
-            title={summary}
-          >
-            {summary}
-          </span>
-        ) : null}
-        <time
-          dateTime={props.entry.createdAt}
-          className="hidden shrink-0 font-mono text-[10px] text-muted-foreground/70 sm:inline"
-          title={props.entry.createdAt}
         >
-          {new Date(props.entry.createdAt).toLocaleTimeString()}
-        </time>
-        {hasDetails ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={open ? "Hide details" : "Show details"}
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
+          <Icon
+            aria-hidden="true"
+            className={cn(
+              "shrink-0 text-muted-foreground",
+              props.entry.tone === "running" ? "animate-spin" : null,
+              props.entry.tone === "error" ? "text-destructive" : null,
+            )}
+          />
+          <TooltipProvider delay={400}>
+            <Tooltip>
+              <TooltipTrigger
+                render={(
+                  <Badge
+                    variant={eventBadgeVariant(props.entry)}
+                    className="max-w-[11rem] cursor-default truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                )}
+              >
+                {props.entry.title}
+              </TooltipTrigger>
+              <TooltipContent side="top" align="start">
+                {toolEventTooltipText(props.entry)}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          {summary ? (
+            <span
+              className={cn(
+                "relative z-10 min-w-0 flex-1 truncate text-muted-foreground",
+                props.entry.tone === "running" ? "shimmer" : null,
+              )}
+              title={summary}
+            >
+              {summary}
+            </span>
+          ) : null}
+          <time
+            dateTime={props.entry.createdAt}
+            className="hidden shrink-0 font-mono text-[10px] text-muted-foreground/70 sm:inline"
+            title={props.entry.createdAt}
           >
-            {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
-          </Button>
-        ) : null}
-      </div>
+            {new Date(props.entry.createdAt).toLocaleTimeString()}
+          </time>
+          {hasDetails ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={open ? "Hide details" : "Show details"}
+              aria-expanded={open}
+              onClick={() => setOpen((value) => !value)}
+            >
+              {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
+            </Button>
+          ) : null}
+        </div>
+      </ActiveToolBeamFrame>
       {open ? (
         <div className={cn("w-full min-w-0", props.nested ? "mt-2 pl-7" : "mt-3")}>
           <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />

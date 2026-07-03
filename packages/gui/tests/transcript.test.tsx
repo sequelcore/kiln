@@ -454,6 +454,57 @@ describe("Transcript", () => {
     expect(screen.getByText("4,200")).toHaveAttribute("data-cell-kind", "number");
   });
 
+  it("keeps structured visualizers bounded inside the transcript column", () => {
+    const longValue = "very-long-unbroken-value-".repeat(16);
+
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:bounded-table",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed managed_agent.invoke",
+            summary: "2 routes compared",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "table",
+              classification: {
+                source: "presentation-intent",
+                reason: "validated presentation intent selected renderer",
+              },
+              title: "Managed child comparison",
+              summary: "2 routes compared",
+              fields: [{ label: "Intent", value: "comparison_table" }],
+              presentationIntent: {
+                kind: "comparison_table",
+                title: "Managed child comparison",
+                columns: [
+                  { key: "routeId", label: "Route" },
+                  { key: "evidence", label: "Evidence" },
+                ],
+                rows: [
+                  { routeId: "codex-oauth-readonly", evidence: longValue },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+
+    const details = screen.getByTestId("tool-output-details");
+    expect(details).toHaveClass("max-w-full", "overflow-hidden");
+    const tableRegion = screen.getByTestId("tool-output-table");
+    expect(tableRegion).toHaveAttribute("data-output-kind", "table");
+    expect(tableRegion).toHaveClass("max-w-full", "overflow-x-auto");
+    expect(within(tableRegion).getByText(longValue)).toHaveClass("break-words");
+  });
+
   it("renders route-unavailable managed invocation intents without raw envelopes", () => {
     render(
       <Transcript
@@ -1424,6 +1475,35 @@ describe("Transcript", () => {
     expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveClass("border-primary/35");
     expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Activity phase: Using patch" })).toBeInTheDocument();
+  });
+
+  it("uses a decorative beam wrapper for active tool rows without replacing accessible state", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "patch the file"),
+          {
+            id: "timeline:event:tool-started",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Using patch",
+            summary: "Execution in progress",
+            tone: "running",
+            details: { toolCallId: "call_patch_1" },
+          },
+        ]}
+      />,
+    );
+
+    const toolRow = screen.getAllByRole("article")[1]!;
+    const toolEvent = toolRow.querySelector('[data-role="tool-event"]');
+    expect(toolEvent).toHaveAttribute("data-state", "running");
+    expect(toolEvent).toHaveTextContent("Execution in progress");
+    const beam = toolRow.querySelector('[data-role="active-tool-beam"]');
+    expect(beam).not.toHaveAttribute("aria-hidden");
+    expect(beam).toHaveAttribute("data-motion", "decorative");
+    expect(beam).toHaveClass("max-w-full", "overflow-visible");
   });
 
   it("renders canonical tool presentation details in transcript instead of raw structured input", () => {
