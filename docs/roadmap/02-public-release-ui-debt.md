@@ -349,7 +349,7 @@ Verification:
 
 ### Tool Execution Continuity, Structured Output Visualizers, And Long-Thread Navigation
 
-Status: In progress; Slice 4 complete, Slice 5 next
+Status: In progress; Slice 5 complete, Slice 6 next
 
 Problem:
 
@@ -460,6 +460,23 @@ Slice 4 evidence:
   or file actions.
 - Focused transcript tests, full `@kilnai/gui` tests, GUI typecheck, GUI build,
   GUI E2E, and browser validation passed on 2026-07-02.
+
+Slice 5 evidence:
+
+- GUI transcript now renders a compact semantic navigation rail for long
+  threads.
+- Rail anchors are derived from the same conversation projection that renders
+  transcript rows, so collapsed tool starts/completions do not create dead
+  navigation targets.
+- User turns, assistant replies, tool executions, failures, milestones, and live
+  activity receive explicit anchor kinds.
+- Current-position feedback uses the official message-scroller visibility hook;
+  the rail marks visible/current anchors without owning scroll state.
+- Pointer navigation scrolls only on explicit operator action, and the existing
+  `MessageScrollerButton` remains the live-edge control.
+- Focused transcript tests, workspace typecheck, full `@kilnai/gui` tests, GUI
+  build, focused Playwright visual coverage, and full GUI E2E passed on
+  2026-07-03.
 
 Required outcome:
 

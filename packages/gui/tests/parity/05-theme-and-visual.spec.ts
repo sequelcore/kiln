@@ -49,4 +49,27 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(table.locator("td", { hasText: "fixed" })).toBeVisible();
     await expect(table.locator("..")).toHaveCSS("overflow-x", "auto");
   });
+
+  test("shows a compact long-thread navigation rail without covering latest controls", async ({ page }) => {
+    await page.goto("/");
+    await waitForGuiReady(page);
+
+    const composer = page.locator("#composer-input");
+    await expect(composer).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
+
+    await composer.fill("navigation rail first turn");
+    await composer.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').last()).toContainText("Reply", { timeout: 5_000 });
+
+    await composer.fill("navigation rail second turn");
+    await composer.press("Enter");
+    await expect(page.locator('[data-role="assistant"]').last()).toContainText("users:2", { timeout: 5_000 });
+
+    const rail = page.getByRole("navigation", { name: "Thread navigation" });
+    await expect(rail).toBeVisible();
+    await expect(rail.getByRole("button", { name: "Jump to user turn 1" })).toBeVisible();
+    await expect(rail.getByRole("button", { name: "Jump to assistant reply 2" })).toBeVisible();
+    await expect(rail.getByRole("button", { name: "Return to latest thread anchor" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Jump to latest" })).toBeAttached();
+  });
 });

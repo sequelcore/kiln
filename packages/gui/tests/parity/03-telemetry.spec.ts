@@ -9,10 +9,11 @@ test.describe("parity category 3 - cost and telemetry", () => {
     await expect(composer).toBeEnabled({ timeout: 5_000 });
     await expect(page.getByRole("button", { name: "Details" })).toHaveCount(0);
     await expect(page.getByText("field [idle]")).toHaveCount(0);
-    await page.getByRole("button", { name: /provider.*Click to change/i }).click();
+    const providerStatus = page.locator('button[aria-label^="Provider selector."]');
+    await providerStatus.click();
     await expect(page.getByRole("option", { name: /Codex Unavailable/ })).toBeDisabled();
     await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("button", { name: /Claude \/ Select model/ })).toBeVisible({ timeout: 2_000 });
+    await expect(providerStatus).toHaveAttribute("aria-label", /Provider selector/, { timeout: 2_000 });
 
     await composer.fill("collect telemetry evidence");
     await composer.press("Enter");

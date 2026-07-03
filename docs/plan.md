@@ -1,7 +1,7 @@
 # Tool Execution Continuity, Structured Output Visualizers, and Long-Thread Navigation
 
-Status: Slice 4 complete; Slice 5 next
-Updated: 2026-07-02
+Status: Slice 5 complete; Slice 6 next
+Updated: 2026-07-03
 Roadmap owner: `docs/roadmap/02-public-release-ui-debt.md`
 
 ## Objective
@@ -193,11 +193,20 @@ horizontal-boundary tests, typecheck, build, and browser inspection pass.
 
 ### Slice 5 - Long-Thread Navigation Rail
 
+Status: Complete
+
 - Derive ordered semantic anchors for user turns, assistant turns, tool
   executions, failures, and other approved milestones.
 - Add keyboard and pointer navigation, current-position feedback, and return to
   latest without stealing scroll position from a reader inspecting history.
 - Keep the rail compact and responsive without covering transcript or composer.
+- Initial GUI implementation derives rail anchors from the same canonical
+  conversation projection that renders transcript rows, marks the current
+  scroller-visible anchor through the official message-scroller visibility hook,
+  and scrolls only on explicit operator action.
+- Focused transcript tests, workspace typecheck, full `@kilnai/gui` tests, GUI
+  build, focused Playwright visual coverage, and full GUI E2E passed on
+  2026-07-03.
 
 Gate: deterministic anchor tests and Playwright coverage for desktop, compact,
 keyboard, live streaming, and reader-away-from-edge behavior pass.

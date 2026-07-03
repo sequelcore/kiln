@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
   projectConversationTurnItems,
   type ConversationProjectionInput,
+  type ConversationProjectionItem,
   formatOperatorEventValue,
   operatorEmptyStatePhraseAt,
   type PresentationIntent,
@@ -27,6 +28,7 @@ import {
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  useMessageScrollerVisibility,
 } from "@/components/ui/message-scroller";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -75,6 +77,12 @@ const KILN_JSON_VIEW_STYLE = {
   quotesForFieldNames: true,
   stringifyStringValues: true,
 } as const;
+
+interface TranscriptNavigationAnchor {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: "user" | "assistant" | "tool" | "failure" | "milestone" | "live";
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -1243,6 +1251,119 @@ function EmptyTranscript() {
   );
 }
 
+function transcriptAnchorLabel(entry: TimelineEntry): string | null {
+  if (entry.type === "message") {
+    if (entry.message.role === "user") return "User turn";
+    if (entry.message.role === "assistant") return "Assistant reply";
+    if (entry.message.role === "error") return "Error";
+    return null;
+  }
+  if (isToolEvent(entry)) {
+    return entry.tone === "error" ? "Tool failure" : "Tool execution";
+  }
+  if (entry.eventKind === "approval_requested") return "Approval";
+  if (entry.tone === "error") return "Failure";
+  return null;
+}
+
+function transcriptAnchorKind(entry: TimelineEntry): TranscriptNavigationAnchor["kind"] {
+  if (entry.type === "message") {
+    if (entry.message.role === "user") return "user";
+    if (entry.message.role === "assistant") return "assistant";
+    return "failure";
+  }
+  if (isToolEvent(entry)) {
+    return entry.tone === "error" ? "failure" : "tool";
+  }
+  return entry.tone === "error" ? "failure" : "milestone";
+}
+
+function deriveTranscriptNavigationAnchors(
+  items: readonly ConversationProjectionItem<ActivityPhase>[],
+  entriesById: ReadonlyMap<string, TimelineEntry>,
+  hasLiveActivity: boolean,
+): readonly TranscriptNavigationAnchor[] {
+  const anchors = items
+    .map((item) => {
+      if (item.kind === "activity") {
+        return {
+          id: "assistant-activity",
+          label: "Live edge",
+          kind: "live",
+        } satisfies TranscriptNavigationAnchor;
+      }
+      const entry = entriesById.get(item.entryId);
+      if (!entry) return null;
+      const label = transcriptAnchorLabel(entry);
+      if (!label) return null;
+      return {
+        id: item.entryId,
+        label,
+        kind: transcriptAnchorKind(entry),
+      } satisfies TranscriptNavigationAnchor;
+    })
+    .filter((entry): entry is TranscriptNavigationAnchor => entry !== null);
+  return hasLiveActivity && !anchors.some((anchor) => anchor.id === "assistant-activity")
+    ? [...anchors, { id: "assistant-activity", label: "Live edge", kind: "live" }]
+    : anchors;
+}
+
+function TranscriptNavigationRail(props: {
+  readonly anchors: readonly TranscriptNavigationAnchor[];
+}) {
+  const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
+  if (props.anchors.length < 3) return null;
+
+  const jumpToAnchor = (anchorId: string) => {
+    const target = Array.from(document.querySelectorAll("[data-thread-anchor-id]"))
+      .find((element) => element.getAttribute("data-thread-anchor-id") === anchorId);
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  };
+
+  const latest = props.anchors.at(-1);
+
+  return (
+    <nav
+      aria-label="Thread navigation"
+      className="pointer-events-none absolute inset-y-4 left-2 z-10 hidden w-7 flex-col items-center justify-center gap-1 sm:flex"
+    >
+      <div className="flex max-h-full flex-col items-center gap-1 rounded-full border border-border/70 bg-background/80 px-1.5 py-2 shadow-sm backdrop-blur">
+        {props.anchors.map((anchor, index) => {
+          const isCurrent = currentAnchorId === anchor.id || visibleMessageIds.includes(anchor.id);
+          return (
+            <button
+              key={anchor.id}
+              type="button"
+              aria-label={`Jump to ${anchor.label.toLowerCase()} ${index + 1}`}
+              aria-current={isCurrent ? "location" : undefined}
+              title={anchor.label}
+              data-thread-anchor-kind={anchor.kind}
+              data-current={isCurrent ? "true" : "false"}
+              className={cn(
+                "pointer-events-auto size-2.5 rounded-full border border-muted-foreground/50 bg-muted-foreground/35 transition-colors hover:border-primary hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isCurrent ? "border-foreground bg-foreground" : null,
+                anchor.kind === "failure" ? "border-destructive/80 bg-destructive/70" : null,
+                anchor.kind === "live" ? "border-primary bg-primary" : null,
+              )}
+              onClick={() => jumpToAnchor(anchor.id)}
+            />
+          );
+        })}
+      </div>
+      {latest ? (
+        <button
+          type="button"
+          className="pointer-events-auto mt-2 flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Return to latest thread anchor"
+          onClick={() => jumpToAnchor(latest.id)}
+        >
+          <ChevronDown className="size-3.5" aria-hidden="true" />
+        </button>
+      ) : null}
+    </nav>
+  );
+}
+
 function toolCallIdFromTimelineEntry(entry: TimelineEventEntry): string | null {
   const details = asRecord(entry.details);
   return readString(details?.toolCallId);
@@ -1268,26 +1389,32 @@ function toConversationProjectionInput(entry: TimelineEntry): ConversationProjec
   };
 }
 
+function projectTranscriptItems(
+  entries: readonly TimelineEntry[],
+  activity?: {
+    readonly phase: ActivityPhase;
+    readonly toolName?: string;
+    readonly details?: string;
+  },
+): readonly ConversationProjectionItem<ActivityPhase>[] {
+  return projectConversationTurnItems<ActivityPhase>(
+    entries.map((entry) => toConversationProjectionInput(entry)),
+    { ...(activity ? { activity } : {}), anchorToolEventsToAssistant: false },
+  );
+}
+
 function shouldAutoOpenToolEventDetails(entry: TimelineEventEntry): boolean {
   return entry.eventKind === "tool_call_completed" && entry.tone === "error";
 }
 
 function renderTranscriptEntries(
   entries: readonly TimelineEntry[],
+  items: readonly ConversationProjectionItem<ActivityPhase>[],
   onApprove: TranscriptProps["onApprove"],
   onDeny: TranscriptProps["onDeny"],
   loadResourceDataUrl: TranscriptProps["loadResourceDataUrl"],
-  activity?: {
-    readonly phase: ActivityPhase;
-    readonly toolName?: string;
-    readonly details?: string;
-  },
 ): ReactNode[] {
   const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
-  const items = projectConversationTurnItems<ActivityPhase>(
-    entries.map((entry) => toConversationProjectionInput(entry)),
-    { ...(activity ? { activity } : {}), anchorToolEventsToAssistant: false },
-  );
 
   return items.map((item) => {
     if (item.kind === "event") {
@@ -1302,14 +1429,14 @@ function renderTranscriptEntries(
           : <TimelineEventRow entry={entry} loadResourceDataUrl={loadResourceDataUrl} />;
       }
       return (
-        <MessageScrollerItem key={entry.id} messageId={entry.id}>
+        <MessageScrollerItem key={entry.id} messageId={entry.id} data-thread-anchor-id={entry.id}>
           {row}
         </MessageScrollerItem>
       );
     }
     if (item.kind === "activity") {
       return (
-        <MessageScrollerItem key="assistant-activity" messageId="assistant-activity">
+        <MessageScrollerItem key="assistant-activity" messageId="assistant-activity" data-thread-anchor-id="assistant-activity">
           <AssistantActivityRow
             phase={item.phase}
             toolName={item.toolName}
@@ -1324,6 +1451,7 @@ function renderTranscriptEntries(
       <MessageScrollerItem
         key={entry.id}
         messageId={entry.id}
+        data-thread-anchor-id={entry.id}
         scrollAnchor={entry.message.role === "user"}
       >
         <MessageRow
@@ -1345,6 +1473,16 @@ export function Transcript(props: TranscriptProps) {
     && props.activityPhase !== "idle"
     && !hasStreamingAssistant;
   const hasLiveActivity = hasStreamingAssistant || Boolean(showAssistantActivity);
+  const activity = showAssistantActivity
+    ? {
+        phase: props.activityPhase!,
+        toolName: props.activityToolName,
+        details: props.activityDetails,
+      }
+    : undefined;
+  const projectedItems = projectTranscriptItems(props.entries, activity);
+  const entriesById = new Map(props.entries.map((entry) => [entry.id, entry]));
+  const navigationAnchors = deriveTranscriptNavigationAnchors(projectedItems, entriesById, hasLiveActivity);
 
   return (
     <section className="relative flex h-full min-h-0 flex-col">
@@ -1355,6 +1493,7 @@ export function Transcript(props: TranscriptProps) {
         scrollPreviousItemPeek={64}
       >
         <MessageScroller>
+          <TranscriptNavigationRail anchors={navigationAnchors} />
           <MessageScrollerViewport aria-label="Transcript" preserveScrollOnPrepend>
             <MessageScrollerContent className="gap-3 px-4 py-4">
               {props.entries.length === 0 && !showAssistantActivity ? (
@@ -1364,16 +1503,10 @@ export function Transcript(props: TranscriptProps) {
               ) : (
                 renderTranscriptEntries(
                   props.entries,
+                  projectedItems,
                   props.onApprove,
                   props.onDeny,
                   props.loadResourceDataUrl,
-                  showAssistantActivity
-                    ? {
-                        phase: props.activityPhase!,
-                        toolName: props.activityToolName,
-                        details: props.activityDetails,
-                      }
-                    : undefined,
                 )
               )}
             </MessageScrollerContent>

@@ -1584,6 +1584,50 @@ describe("Transcript", () => {
     expect(transcript.querySelector('[data-message-id="timeline:assistant-reply"]')).toHaveAttribute("data-scroll-anchor", "false");
   });
 
+  it("renders a compact semantic navigation rail for long transcripts", () => {
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+
+    render(
+      <Transcript
+        entries={[
+          messageEntry("user-1", "user", "Investigate the trace"),
+          {
+            id: "timeline:event:tool-started",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Using read",
+            summary: "Execution in progress",
+            tone: "running",
+            details: { toolCallId: "call_read_1" },
+          },
+          {
+            id: "timeline:event:tool-failed",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Failed shell",
+            summary: "Command failed",
+            tone: "error",
+            details: { toolCallId: "call_shell_1", status: "failed" },
+          },
+          messageEntry("assistant-1", "assistant", "The shell command failed."),
+        ]}
+      />,
+    );
+
+    const rail = screen.getByRole("navigation", { name: "Thread navigation" });
+    expect(within(rail).getByRole("button", { name: "Jump to user turn 1" })).toHaveAttribute("data-thread-anchor-kind", "user");
+    expect(within(rail).getByRole("button", { name: "Jump to tool execution 2" })).toHaveAttribute("data-thread-anchor-kind", "tool");
+    expect(within(rail).getByRole("button", { name: "Jump to tool failure 3" })).toHaveAttribute("data-thread-anchor-kind", "failure");
+    expect(within(rail).getByRole("button", { name: "Return to latest thread anchor" })).toBeInTheDocument();
+
+    fireEvent.click(within(rail).getByRole("button", { name: "Jump to tool failure 3" }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", behavior: "smooth" });
+  });
+
   it("labels the scroll control when live activity may be arriving out of view", () => {
     render(
       <Transcript
