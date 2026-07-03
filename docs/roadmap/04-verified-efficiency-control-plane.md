@@ -1,6 +1,6 @@
 # 04 - Verified Efficiency Control Plane
 
-Status: Active architecture program; Slice 0 in progress, Slice 1 complete
+Status: Active architecture program; Slice 0 and Slice 1 complete
 
 Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
 (`feat(runtime): record lifecycle attribution ledger`). Slice 0 live baseline
@@ -8,9 +8,11 @@ work started on 2026-07-02 and exposed provider-tool compatibility, route-error
 classification, and subscription-economic evidence blockers. The
 provider-neutral benchmark-integrity prerequisites closed on 2026-07-02 in
 commits `d0d9ecf9`, `41d28e5f`, `e74eb1b3`, and `bd2c0480`. An authorized
-post-repair pilot then proved those repairs on four live routes, but every
-route remained below the quality gate and no route was promoted. Slices 2
-through 12 are not started.
+post-repair pilot then proved the token-pressure repair on four live routes,
+and an authorized `k=5` comparison promoted only the bounded local routing
+decision for `kiln-tool-agent`: Codex GPT-5.5 remains primary and Kimi K2.7
+Code remains an eligible fallback/specialist route. Slices 2 through 12 are
+not started.
 
 ## Objective
 
@@ -265,7 +267,7 @@ contracts but must not create parallel legacy paths.
 
 | Slice | Status | Progress | Next Action |
 | --- | --- | --- | --- |
-| Slice 0 - Baseline And Reproduction | In progress | The authorized post-repair `kiln-tool-agent` pilot completed on 2026-07-02 across Codex GPT-5.5, Kimi K2.7 Code, GLM 5.2, and DeepSeek V4 Pro. All routes completed through the normal benchmark path and emitted typed evidence, but each produced `passAtK = 0.5` because `tool-read-file` tool-call accuracy remained partial. Kimi accepted the repaired tool identity and DeepSeek completed without reproducing the earlier upstream 400. Input-token totals ranged from 419,972 to 940,391; subscription cost evidence remained explicitly non-comparable. | Diagnose and repair the provider-neutral `tool-read-file` quality failure and cumulative input-token pressure before any `k >= 5` comparison or routing promotion. |
+| Slice 0 - Baseline And Reproduction | Complete | The authorized 2026-07-02 `kiln-tool-agent` work established the pre-repair pressure source, repaired provider-neutral benchmark prerequisites, validated the post-repair `k=1` baseline across four live routes, and ran a viable-route `k=5` comparison for Codex GPT-5.5 and Kimi K2.7 Code. The old 419,972-940,391 input-token pressure was primarily a Kiln request-shaping/tool-projection problem. The remaining GPT-5.5 versus Kimi difference is model and harness behavior under the same Kiln control plane. | Start Slice 2 stable prefix and cache topology before making broader savings or public benchmark claims. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
 | Slice 2 - Stable Prefix And Cache Topology | Next | Not started. | Prove byte-stable reusable request regions without changing admitted information. |
 | Slice 3 - Progressive Context And Tool Loading | Planned | Not started. | Start after stable-prefix evidence exists. |
@@ -281,7 +283,7 @@ contracts but must not create parallel legacy paths.
 
 ### Slice 0 - Baseline And Reproduction
 
-Status: In progress since 2026-07-02.
+Status: Complete on 2026-07-02.
 
 Goal: establish the current token and quality baseline before changing
 behavior.
@@ -310,7 +312,7 @@ Closed prerequisite commits:
 - `e74eb1b3 feat(cost): expose comparable execution cost evidence`
 - `bd2c0480 feat(benchmark): emit reproducible baseline evidence`
 
-Post-repair pilot evidence:
+Token-pressure diagnostic evidence before the tool-projection repair:
 
 - the operator explicitly authorized live network, credential, quota, and
   possible subscription-inference use on 2026-07-02;
@@ -332,17 +334,53 @@ Post-repair pilot evidence:
   `post-repair-gpt-5.5-k1.json`, `post-repair-kimi-k2.7-code-k1.json`,
   `post-repair-glm-5.2-k1.json`, and
   `post-repair-deepseek-v4-pro-k1.json`;
-- the artifacts remain operator-local and ignored by Git. Their results are
-  diagnostic only: `k=1`, a failed quality threshold, and non-comparable
-  subscription economics prohibit route ranking or promotion.
+- the artifacts remain operator-local and ignored by Git.
+
+That evidence identified two separate causes:
+
+- the extreme 419,972-940,391 input-token pressure was primarily Kiln's
+  responsibility because benchmark sessions advertised too much tool surface
+  and resent large stable request regions across tool rounds;
+- route-to-route differences after the repair are primarily model and harness
+  behavior under the same Kiln control plane: how often a model calls tools,
+  how much supporting exploration it performs, and when it stops.
+
+Post-repair `k=1` validation evidence:
+
+| Route | passAtK | Input tokens | Prior input | Delta | Requests | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Codex GPT-5.5 | 1.0 | 37,354 | 424,726 | -91.2% | 9 | Passed bounded pilot. |
+| Kimi K2.7 Code | 1.0 | 76,496 | 419,972 | -81.8% | 17 | Passed bounded pilot. |
+| GLM 5.2 | 0.5 | 19,023 | 940,391 | -98.0% | 5 | Failed readiness on search latency. |
+| DeepSeek V4 Pro | 0.5 | 71,366 | 859,793 | -91.7% | 15 | Failed search tool trajectory. |
+
+The post-repair pilot proved the bounded token-pressure repair: all four
+routes used the authority-admitted deferred tool surface and a reduced request
+envelope. GLM 5.2 and DeepSeek V4 Pro were not promoted for this profile
+because quality gates matter before token savings.
+
+Viable-route `k=5` comparison evidence:
+
+| Route | passAtK | Input tokens | Output tokens | Requests | Duration |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Codex GPT-5.5 | 1.0 | 192,637 | 6,702 | 48 | 374,166 ms |
+| Kimi K2.7 Code | 1.0 | 388,909 | 12,851 | 67 | 470,523 ms |
+
+Both routes qualify as internal baselines for `kiln-tool-agent`. Codex GPT-5.5
+remains the primary route for this profile because it matched Kimi's verified
+quality while using materially less input, output, request, and latency budget.
+Kimi remains an eligible fallback or specialist route. This is a bounded local
+routing decision, not a public leaderboard or broad model-capability claim.
 
 Exit gate:
 
 - the same workload can be rerun through supported execution surfaces;
 - token totals reconcile with provider usage or document the discrepancy;
-- verified outcome and evidence completeness are scored independently of cost.
-- any post-repair live pilot is explicitly authorized because it may use
-  network, credentials, quota, or paid inference.
+- verified outcome and evidence completeness are scored independently of cost;
+- any live pilot is explicitly authorized because it may use network,
+  credentials, quota, or paid inference;
+- local route promotion is bounded to the measured profile and does not become
+  a public marketing claim.
 
 ### Slice 1 - Lifecycle Attribution Ledger
 
@@ -628,6 +666,9 @@ Work:
 - report quality and verification beside savings;
 - publish benchmark methodology, fixtures, limitations, and reproducible
   reports before making performance claims;
+- define the evidence threshold for any future public harness-comparison
+  roadmap covering Codex CLI, Claude Code, OpenCode, Gentle AI, Headroom, or
+  other agent harnesses;
 - promote stable contracts into architecture and guides.
 
 Exit gate:
@@ -636,6 +677,8 @@ Exit gate:
 - operators can trace a saving to its action and verification result;
 - public claims reproduce from committed fixtures and disclose vendor or
   provider dependencies.
+- any marketing-facing benchmark program is opened only after this slice can
+  supply reproducible artifacts, methodology, failed cases, and limitations.
 
 ## Benchmark Program
 
@@ -764,6 +807,12 @@ require dual readers, migration shims, or permanent compatibility branches.
 - The former research-turn token-budgeting roadmap has been merged into this
   roadmap. The research-turn incident is the first measured workload here, not
   a separate policy owner.
+- A possible future public benchmark and harness-comparison roadmap belongs
+  after Slice 12 evidence gates. Roadmap 04 owns the science: attribution,
+  reproducibility, cross-surface evidence, and promotion policy. A later
+  marketing-facing roadmap may package comparisons against Codex CLI, Claude
+  Code, OpenCode, Gentle AI, Headroom, or other harnesses only after those
+  gates are satisfied.
 - `docs/architecture/harness-integration-capabilities.md` and
   `docs/architecture/managed-agents.md` supply route identity and capability
   evidence required for cross-harness comparison.
