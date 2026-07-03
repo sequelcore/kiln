@@ -1,267 +1,196 @@
-# Token Pressure Diagnosis And Repair Plan
+# Tool Execution Continuity, Structured Output Visualizers, and Long-Thread Navigation
 
-Status: Slices 1-5 complete; bounded live pilot recorded
+Status: Slice 0 complete; Slice 1 next
 Updated: 2026-07-02
-Roadmap owner: `docs/roadmap/04-verified-efficiency-control-plane.md`, Slice 0
+Roadmap owner: `docs/roadmap/02-public-release-ui-debt.md`
 
 ## Objective
 
-Make Kiln's tool-agent execution proportional to task complexity without
-weakening authority, tool correctness, evidence, or provider neutrality. The
-immediate target is to explain and reduce the 419,972-940,391 cumulative input
-tokens observed in the authorized two-item `kiln-tool-agent` pilot before any
-`k >= 5` route comparison.
+Make long-running GUI conversations trustworthy and navigable. Tool execution
+must remain visible from invocation through completion, structured results must
+render as bounded artifacts, and operators must be able to move through a long
+thread without losing the live edge or their reading position.
 
 ## Non-Goals
 
-- Do not hide provider-reported usage or redefine cumulative tokens downward.
-- Do not optimize one provider through a benchmark-only prompt or tool path.
-- Do not rank models from the current `k=1` samples.
-- Do not weaken read-only authority or expose tools the active authority cannot
-  execute.
-- Do not add a second context, tool-catalog, routing, or usage owner.
-- Do not start Roadmap 04 learning or adaptive-routing slices early.
+- Do not change runtime tool semantics, authority, approval, or provider routing.
+- Do not infer tool completion or identity from presentation order or tool name.
+- Do not replace the canonical transcript/event contract with GUI-local state.
+- Do not adopt a visualizer, animation, or scroller dependency without a product
+  behavior and evidence gate.
+- Do not redesign the complete workbench, composer, or inspector.
+- Do not claim implementation complete from static mocks or component tests alone.
 
-## Diagnosis
+## Research and Evidence Basis
 
-### 1. The pressure is primarily real cumulative provider input
+Slice 0 is complete as research and planning evidence only.
 
-`RuntimeSessionOrchestrator` sends the complete conversation history and the
-effective tool definitions on every tool round. Runtime telemetry adds each
-provider response's usage into session totals. The benchmark projects those
-totals without suppressing them.
+- Codex captures show tool usage embedded in assistant bubbles, active execution
+  remaining visible while the response streams, completed output attached to the
+  same execution identity, and a compact rail for moving among meaningful thread
+  positions.
+- The current GUI can lose visible activity when transient events are replaced or
+  regrouped, and tool usage inside prose bubbles is harder to scan than a stable
+  execution row.
+- shadcn MessageScroller hooks are a behavioral reference for live-edge following,
+  reader-intent preservation, and return-to-latest controls. They are not a new
+  dependency requirement; Kiln keeps its existing official headless scroller
+  integration unless evidence proves a gap.
+- shadcn border beam examples are a visual reference for restrained active-state
+  motion. They are not a dependency. Any equivalent effect must be local,
+  compositor-friendly, non-semantic, and disabled under reduced motion.
+- Existing JSON and static tree renderers prove the initial structured-output
+  path, but do not establish continuity, interactive exploration, or long-thread
+  navigation as complete.
 
-The post-repair pilot recorded:
+## Decisions
 
-| Route | Read item | Search item | Total input | Tool calls |
-| --- | ---: | ---: | ---: | ---: |
-| Codex GPT-5.5 | 152,192 | 272,534 | 424,726 | 9 |
-| Kimi K2.7 Code | 168,408 | 251,564 | 419,972 | 28 |
-| GLM 5.2 | 670,823 | 269,568 | 940,391 | 27 |
-| DeepSeek V4 Pro | 244,812 | 614,981 | 859,793 | 32 |
+1. `toolCallId` is the runtime identity for one tool execution across requested,
+   active, succeeded, failed, interrupted, replayed, and restored states.
+2. Runtime events remain canonical. The GUI may derive presentation state but may
+   not manufacture lifecycle transitions or merge executions by tool name.
+3. Active execution remains represented after surrounding assistant content
+   changes; completion updates the same execution row instead of replacing it
+   with an unrelated result card.
+4. Active emphasis uses status, text, and iconography first. A subtle beam may
+   supplement the state, never encode it alone, and is static when reduced motion
+   is requested.
+5. Structured output selection is contract-driven. Unknown or invalid payloads
+   retain a readable raw fallback.
+6. Visualizers remain bounded by the transcript column. Internal scrolling or
+   vertical expansion must not widen the conversation layout.
+7. The navigation rail indexes durable semantic anchors, not arbitrary pixel
+   offsets. It preserves reader intent and offers an explicit return to latest.
+8. Restored sessions must reconstruct the same execution identity, output
+   classification, anchor order, and terminal state as the live session.
 
-The artifact does not retain per-round usage, so exact round-level attribution
-is not currently reproducible. There is no evidence that the item totals are a
-simple double-counting defect.
+## Ownership
 
-### 2. Read-only benchmark authority does not constrain the advertised tools
+| Concern | Canonical owner | GUI responsibility |
+| --- | --- | --- |
+| Tool lifecycle and `toolCallId` | Runtime and shared event contracts | Project lifecycle into stable rows |
+| Output presentation intent | Gateway/shared presentation contracts | Select and bound the renderer |
+| Transcript following | Existing message-scroller integration | Preserve reader intent and live edge |
+| Long-thread anchors | Shared transcript projection | Render rail, focus, and navigation |
+| Motion preference | Browser/OS preference and GUI tokens | Disable active beam motion |
+| Restore/replay fidelity | Runtime session persistence | Rehydrate without local identity repair |
 
-The benchmark sets `{ approval: "never", sandbox: "read-only" }`, but does not
-set `requestedAuthority: "read_only"` on the session. The direct-provider
-session therefore takes the `auto` branch and does not create a read-only tool
-allowlist. Runtime execution still denies forbidden effects, but the model sees
-schemas for tools it cannot use.
+## Delivery Slices
 
-The default built-in surface contains 47 tools and serializes to 79,290 bytes
-before benchmark-specific config, governance, or managed-agent tools are
-added. The existing deferred projection contains eight discovery/read tools
-and serializes to 12,500 bytes, an 84% schema-byte reduction. This is diagnostic
-evidence, not yet a promotion decision.
+### Slice 1 - Tool Lifecycle Contract and Projection
 
-### 3. Every tool round resends stable and growing request regions
+Status: Next
 
-Each provider request receives:
+- Add failing contract and projection tests for lifecycle transitions keyed by
+  `toolCallId`, including interleaved calls, failures, interruption, replay, and
+  restore.
+- Define the minimum canonical fields needed by every surface without adding a
+  GUI-only lifecycle owner.
+- Prove that activity cannot disappear because prose, grouping, or result events
+  arrive later.
 
-- the provider system prompt and Kiln executable guidance;
-- all effective tool schemas;
-- the complete conversation history;
-- prior tool calls and raw tool results.
+Gate: focused contract/runtime tests, replay fixture, typecheck, and contract
+review pass before GUI lifecycle work begins.
 
-The tool surface is stable but is not currently evidenced as a cache-aligned
-prefix. Tool outputs and history grow each round. `read_many` permits up to
-60,000 bytes in the observed GPT-5.5 search trajectory, while other routes
-repeated `read` and `resource_read` calls. These costs compound rather than
-remaining one-time inputs.
+### Slice 2 - Continuous Tool Execution Rows
 
-### 4. The execution envelope is too broad for this task class
+- Render tool usage outside prose bubbles as stable transcript rows tied to the
+  canonical lifecycle projection.
+- Keep active, completed, failed, and interrupted states visible and accessible.
+- Add the restrained active beam with a static reduced-motion treatment.
 
-The benchmark grants up to 32 tool rounds to two bounded read-only questions.
-Observed routes used 3-27 tool calls per item. The envelope prevents an
-unbounded loop, but it does not express a task-class budget, diminishing-return
-gate, or evidence-completeness stop condition.
+Gate: component tests cover concurrent and terminal states; browser validation
+proves no disappearance, overlap, width growth, or motion-only semantics.
 
-### 5. The current quality failure is partly a benchmark-contract defect
+### Slice 3 - Structured Output Classification
 
-`tool-read-file` declares one expected `read` call and no allowed extra tools.
-The scorer treats every additional `read`, `grep`, or `resource_read` as a
-precision error and requires every scorer to equal 1.0 for the item to pass.
-GPT-5.5 returned the requested authority profiles correctly but scored 0.5 for
-the trajectory `read, grep, read`.
+- Normalize JSON, source, markdown, tree, diff, table, image, resource bundle,
+  unknown, and invalid payload intents before renderer selection.
+- Preserve raw evidence and explicit fallback reasons.
+- Keep classification provider-neutral and reusable by GUI, CLI, and TUI.
 
-Tool efficiency should be measured, but exact single-call conformance is not a
-valid proxy for answer correctness when bounded supporting reads are allowed.
-Outcome correctness, required-tool recall, prohibited effects, redundant
-calls, and token efficiency need separate evidence.
+Gate: contract fixtures cover each intent, malformed payloads, and unknown types;
+cross-surface review confirms no GUI-owned semantic fork.
 
-### 6. Benchmark reproducibility evidence is incomplete
+### Slice 4 - Bounded Output Visualizers
 
-The config hash currently covers profile, dataset, provider, model, and scorer
-names. It does not cover the effective system prompt, authority profile, tool
-catalog/schema snapshot, execution envelope, instruction/context projection,
-or runtime policy that materially determine token use.
+- Retain the maintained JSON inspector and static bounded tree renderer.
+- Add or refine source, markdown, diff, table, image, and resource-bundle views
+  only where the shared intent supplies sufficient evidence.
+- Adopt an interactive tree/file dependency only if navigation, virtualization,
+  keyboard traversal, lazy loading, or file actions are approved requirements.
 
-Evidence URIs are created in an in-memory artifact store. The JSON records the
-URIs and aggregate consistency results, but a later process cannot resolve the
-referenced transcript, usage, route, cost, or diagnostics content. Per-round
-usage and request-region attribution are also absent. Current artifacts are
-diagnostic, not independently replayable or public-ready.
+Gate: focused GUI tests, accessibility checks, representative large payloads,
+horizontal-boundary tests, typecheck, build, and browser inspection pass.
 
-## Architectural Decisions
+### Slice 5 - Long-Thread Navigation Rail
 
-1. Provider-reported per-call usage remains authoritative; Kiln records both
-   per-call deltas and cumulative session totals.
-2. Advertised tools must be the intersection of canonical capability,
-   effective authority, task admission, and provider support.
-3. Execution denial is not a substitute for request-time tool projection.
-4. Stable prompt/tool regions receive identities and hashes before cache or
-   prefix optimization claims are made.
-5. Raw tool evidence remains canonical outside model context; model-facing
-   history may use typed lossless or explicit reversible projections only.
-6. Tool efficiency and task correctness are separate benchmark dimensions.
-7. Benchmark artifacts must survive the producing process and resolve from the
-   emitted report.
+- Derive ordered semantic anchors for user turns, assistant turns, tool
+  executions, failures, and other approved milestones.
+- Add keyboard and pointer navigation, current-position feedback, and return to
+  latest without stealing scroll position from a reader inspecting history.
+- Keep the rail compact and responsive without covering transcript or composer.
 
-## Slice 1 - Reproducible Per-Round Evidence
+Gate: deterministic anchor tests and Playwright coverage for desktop, compact,
+keyboard, live streaming, and reader-away-from-edge behavior pass.
 
-Owner: core benchmark contracts plus runtime telemetry projection.
+### Slice 6 - Restore, Replay, and Interruption Continuity
 
-Status: Complete.
+- Rehydrate lifecycle rows, structured outputs, anchors, and live-edge state from
+  persisted events using canonical identities.
+- Cover reconnect, interrupted stream, delayed result, duplicate delivery, and
+  session restore without duplicate rows or lost terminal states.
 
-- Record one row per provider request with provider/model, round, input,
-  output, cache read/write, tool-schema identity, stable-prefix identity,
-  conversation bytes, tool-result bytes, and stop reason.
-- Persist benchmark artifacts in a durable local artifact store and prove every
-  emitted URI resolves in a fresh process.
-- Hash the effective authority profile, system prompt, instruction/context
-  projection, tool catalog schemas, execution envelope, scorer configuration,
-  and provider/model route.
-- Keep aggregate totals as a reconciliation over per-round evidence.
+Gate: runtime/GUI integration fixtures and browser restore validation produce the
+same visible identities and ordering as the original session.
 
-Gate: failing tests first; artifact fresh-process resolution; per-round totals
-reconcile exactly; core/runtime/CLI suites; typecheck; review.
+### Slice 7 - Public-Release Validation and Promotion
 
-## Slice 2 - Authority-Aligned Tool Projection
+- Run focused tests, GUI typecheck, GUI build, relevant repository tests, and
+  GUI E2E in that order.
+- Perform operator validation on long live conversations, concurrent tools,
+  interruption, restore, structured payloads, compact layout, and reduced motion.
+- Promote stable behavior to architecture and GUI guides; update Roadmap 02 only
+  from recorded evidence.
 
-Owner: CLI benchmark session construction and existing core tool projection.
+Gate: review has no blocking findings, all required checks pass, residual risks
+are recorded, and no implementation claim exceeds the captured evidence.
 
-Status: Complete.
+## Commit Sequence
 
-- Project the benchmark profile's canonical
-  `foundation-readonly-plan` authority into `requestedAuthority: "read_only"`.
-- Derive the effective tool surface from admitted authority instead of sending
-  tools that execution policy will later deny.
-- Reuse the canonical deferred tool-catalog mechanism; do not create a
-  benchmark-only allowlist.
-- Prove equivalent projection in normal CLI/runtime execution for the same
-  authority and task evidence.
+1. `feat(events): preserve tool execution identity`
+2. `feat(gui): render continuous tool execution rows`
+3. `feat(events): classify structured tool output`
+4. `feat(gui): render bounded structured tool output`
+5. `feat(gui): add long-thread navigation rail`
+6. `fix(gui): preserve execution continuity across restore`
+7. `docs(gui): promote validated transcript behavior`
 
-Gate: forbidden tools are absent from provider requests; required read/search
-tools remain available; authority remains fail-closed; no provider-specific
-branch; measured schema and token deltas are recorded.
+Each slice starts with failing tests, changes one concern, passes its focused
+gate, and receives review before its commit. Only files for that slice are staged.
 
-## Slice 3 - Tool-Use Quality And Budget Contract
+## Rollback
 
-Owner: core eval dataset/scorers and runtime execution envelope policy.
+- Revert the affected slice commit; do not retain a shadow lifecycle, legacy
+  renderer path, or duplicate navigation model.
+- Contract changes roll back with their producers, consumers, fixtures, and
+  projections as one atomic slice.
+- If a visualizer or beam fails its gate, retain the readable fallback and status
+  treatment while removing only the unvalidated enhancement.
+- If the rail fails restore or reader-intent gates, remove the rail without
+  changing the existing message-scroller behavior.
 
-Status: Complete.
+## Completion Criteria
 
-- Split answer correctness, expected-tool recall, prohibited-tool use,
-  redundant-call rate, and token/round efficiency into explicit scores.
-- Permit bounded supporting reads where the fixture semantics allow them.
-- Add task-class tool-round and tool-output budgets with explicit finalization
-  behavior; do not hard-code one model's observed trajectory.
-- Detect repeated equivalent reads and evidence-complete continuation before
-  another provider round is admitted.
-
-Gate: fixtures distinguish a correct supported answer from wasteful repetition;
-prohibited effects still fail the item; the same scorer semantics apply across
-providers.
-
-## Slice 4 - Stable Prefix And Progressive Tool Loading
-
-Owner: Roadmap 04 Slices 2 and 3 through existing context/tool owners.
-
-Status: Complete.
-
-- Make stable system, instruction, and tool-catalog regions byte-identical and
-  cache-evidenced where the provider supports it.
-- Start with the minimal authority/task-admitted tools plus catalog discovery;
-  retrieve additional schemas only through governed selection.
-- Keep `ContextGovernor` authoritative for model-facing context admission.
-- Measure uncached input, cached input, latency, task success, and replay
-  fidelity independently.
-
-Gate: non-inferior task success; no authority or capability loss; provider
-limitations remain explicit; cache and progressive-loading gains reconcile to
-per-round evidence.
-
-## Slice 5 - Bounded Live Validation
-
-Owner: existing benchmark runner and operator routing example.
-
-Status: Complete.
-
-- Run local deterministic and fixture tests before any credentialed probe.
-- With explicit operator authorization, run one sequential `k=1` pilot on the
-  same four routes.
-- Compare request regions, calls, tokens, cache evidence, latency, correctness,
-  and redundant-call rate against the 2026-07-02 artifacts.
-- Run `k >= 5` only when artifacts resolve, quality meets the profile gate, and
-  the economics requested for comparison are comparable.
-
-Gate: benchmark readiness passes for the bounded claim being made; no route or
-personal config promotion from a single sample.
-
-Pilot result, authorized on 2026-07-02:
-
-| Route | passAtK | Input tokens | Previous input | Delta | Requests | Tool schema bytes/request |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Codex GPT-5.5 | 1.0 | 37,354 | 424,726 | -91.2% | 9 | 4,895 |
-| Kimi K2.7 Code | 1.0 | 76,496 | 419,972 | -81.8% | 17 | 4,895 |
-| GLM 5.2 | 0.5 | 19,023 | 940,391 | -98.0% | 5 | 4,895 |
-| DeepSeek V4 Pro | 0.5 | 71,366 | 859,793 | -91.7% | 15 | 4,895 |
-
-The pilot confirms the token-pressure repair: all four routes now send the
-authority-admitted deferred tool surface instead of the broad built-in tool
-surface. Only Codex GPT-5.5 and Kimi K2.7 Code met the two-item quality gate in
-this `k=1` pilot. GLM 5.2 failed readiness on latency for the search item, and
-DeepSeek V4 Pro failed the tool-trajectory score for the search item. These
-samples are sufficient evidence for the bounded repair claim, not for global
-model ranking or personal configuration promotion.
-
-Viable-route `k=5` comparison, authorized on 2026-07-02:
-
-| Route | passAtK | Input tokens | Output tokens | Requests | Duration |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Codex GPT-5.5 | 1.0 | 192,637 | 6,702 | 48 | 374,166 ms |
-| Kimi K2.7 Code | 1.0 | 388,909 | 12,851 | 67 | 470,523 ms |
-
-Both routes qualify as internal baselines for the `kiln-tool-agent` profile.
-For this profile and workstation, Codex GPT-5.5 remains the primary route
-because it matched Kimi's quality while using materially less input, output,
-request, and latency budget. Kimi remains an eligible fallback/specialist route.
-This is an internal routing decision, not a public model leaderboard claim.
-
-## Verification And Commit Sequence
-
-1. `feat(benchmark): persist per-round execution evidence`
-2. `fix(authority): project admitted tools into provider requests`
-3. `fix(eval): separate tool correctness from call efficiency`
-4. `feat(efficiency): align stable prefixes and progressive tools`
-5. Documentation/status commit after the bounded pilot.
-
-Each production slice begins with intentional failing tests, changes one
-authority owner, runs focused and package verification, receives review, and
-commits only related files. Rollback reverts the slice commit; no compatibility
-shim, shadow path, or legacy tool projection remains.
-
-## Residual Risks
-
-- Tokenization and cache semantics differ by provider, so byte measurements
-  cannot be presented as provider-equivalent token counts.
-- A smaller tool surface may reduce discovery quality unless deferred catalog
-  retrieval is reliable and visible to the model.
-- Tool-loop limits can truncate legitimate research or coding work if applied
-  without task-class and evidence-completeness signals.
-- Subscription routes remain economically non-comparable without metered or
-  quota-value evidence even after token attribution improves.
+- Every tool execution has one durable `toolCallId`-keyed presentation from
+  invocation through terminal or interrupted state.
+- Active activity remains visible, uses accessible semantics, and respects
+  reduced motion.
+- Every supported structured output selects a bounded contract-driven renderer;
+  unknown and invalid payloads remain readable.
+- The navigation rail moves through durable anchors, preserves reader intent,
+  and returns explicitly to the live edge.
+- Live, interrupted, replayed, and restored sessions produce equivalent identity,
+  ordering, terminal state, and output presentation.
+- Focused tests, typecheck, build, E2E, browser validation, and final review pass;
+  stable doctrine is promoted before Roadmap 02 is marked complete.

@@ -347,40 +347,90 @@ Verification:
 - CLI/TUI snapshot or contract tests cover equivalent event output density.
 - Documentation states the event presentation density rule for future surfaces.
 
-### Structured Tool Output Visualizers
+### Tool Execution Continuity, Structured Output Visualizers, And Long-Thread Navigation
 
-Status: Partially implemented
+Status: In progress; Slice 0 complete, Slice 1 next
 
 Problem:
 
+- Tool usage is currently presented inside assistant bubbles, where execution
+  can be difficult to distinguish from prose and expensive to scan in long
+  conversations.
+- Active tool activity can disappear when transient events are replaced,
+  regrouped, or followed by later assistant/result events. The runtime identity
+  must be the canonical `toolCallId`, not tool name, render position, or a
+  GUI-generated key.
 - Tool calls can emit JSON, source, markdown, trees, diffs, tables, images, and
-  resource bundles.
-- Public GUI quality requires each output type to render as the user's expected
-  artifact, not as a generic preview card or repeated raw envelope.
-- JSON now uses a lightweight inspector in the GUI, and directory tree previews
-  render as a bounded hierarchical list. Tree/file outputs still need a product
-  decision before becoming interactive explorers.
+  resource bundles. Public GUI quality requires each output type to render as
+  the expected artifact, not as a generic preview card or repeated raw envelope.
+- JSON uses a lightweight inspector and directory trees use a bounded static
+  hierarchy, but this does not complete lifecycle continuity or the remaining
+  structured-output behaviors.
+- Long threads lack a compact semantic navigation rail. Operators need to move
+  among meaningful turns and tool executions while preserving reader intent and
+  retaining an explicit return to the live edge.
+
+Slice 0 evidence and decisions:
+
+- Codex captures establish the reference behavior: tool execution is separate
+  from prose, active state persists through streaming, completion updates the
+  same execution identity, and meaningful thread positions are directly
+  navigable.
+- shadcn MessageScroller hooks are a behavioral reference for live-edge
+  following and reader-intent preservation, not a new dependency requirement.
+- shadcn border beam examples are a visual reference, not a dependency. A local
+  active beam may supplement status text and iconography, must remain subtle,
+  and must become static under reduced motion.
+- Runtime events remain canonical. The GUI derives presentation keyed by
+  `toolCallId` and must not manufacture lifecycle transitions or merge calls by
+  tool name.
 
 Required outcome:
 
-- Keep JSON rendering on a maintained, lightweight inspector instead of a local
-  tokenizer.
-- Keep static directory tree output as a bounded hierarchy instead of a raw
-  monospaced preview block.
-- Use native contract presentation intents for tables, resource bundles,
-  screenshots, and markdown.
-- Introduce a dedicated tree/file explorer library only when tool output needs
+- Render each tool execution as one stable transcript row outside assistant
+  prose, retaining active, succeeded, failed, interrupted, replayed, and restored
+  states under the same `toolCallId`.
+- Ensure later prose, grouping, or result events cannot make active execution
+  disappear; completion updates the existing row.
+- Keep JSON on the maintained lightweight inspector and static directory trees
+  as bounded hierarchies. Select source, markdown, diff, table, image, and
+  resource-bundle views from shared presentation intents.
+- Preserve readable raw evidence for unknown or invalid payloads.
+- Introduce a tree/file explorer dependency only when approved behavior requires
   navigation, virtualization, keyboard traversal, lazy loading, or file actions.
 - Keep every visualizer bounded by the transcript column; expansion may grow
   vertically or scroll internally, never widen the chat layout.
+- Add a compact, accessible navigation rail based on durable semantic anchors,
+  with current-position feedback and an explicit return-to-latest action.
+- Preserve execution identity, output classification, anchor ordering, and
+  terminal state across interruption, replay, reconnect, and session restore.
+
+Delivery:
+
+- Slice 1: canonical tool lifecycle contract and `toolCallId` projection.
+- Slice 2: continuous execution rows and reduced-motion-safe active treatment.
+- Slice 3: shared structured-output classification and readable fallbacks.
+- Slice 4: bounded visualizers for approved presentation intents.
+- Slice 5: semantic long-thread navigation rail.
+- Slice 6: interruption, replay, reconnect, and restore continuity.
+- Slice 7: public-release verification, live validation, review, and doctrine
+  promotion.
 
 Verification:
 
-- GUI tests cover JSON inspector rendering, invalid JSON fallback, and bounded
-  horizontal layout.
-- Contract tests classify structured tool outputs before they reach surfaces.
-- Research notes compare any future tree/file explorer dependency with the
-  current static renderer before adoption.
+- Contract/runtime tests cover lifecycle transitions, interleaved calls,
+  failures, interruption, replay, duplicate delivery, and restore by
+  `toolCallId`.
+- GUI tests prove active activity does not disappear and terminal events update
+  the same execution row.
+- GUI tests cover JSON inspection, invalid fallback, output classification,
+  bounded horizontal layout, and large representative payloads.
+- Accessibility and browser checks prove active state is not motion-only and the
+  beam is static under reduced motion.
+- Playwright covers desktop and compact navigation, keyboard use, live streaming,
+  reader-away-from-edge behavior, return to latest, interruption, and restore.
+- GUI typecheck, tests, build, relevant E2E, operator live validation, and review
+  must pass before implementation is marked complete.
 
 ## Promotion Gates
 
