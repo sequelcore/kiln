@@ -287,8 +287,10 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-role="tool-event"]::after {
-    animation: none;
+  [data-role="tool-event"]::after,
+  [data-role="active-tool-beam"],
+  [data-role="active-tool-beam"] * {
+    animation: none !important;
   }
 }
 

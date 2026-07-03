@@ -1,6 +1,6 @@
 # Tool Execution Continuity, Structured Output Visualizers, and Long-Thread Navigation
 
-Status: Slice 6 complete; Slice 7 next
+Status: Complete
 Updated: 2026-07-03
 Roadmap owner: `docs/roadmap/02-public-release-ui-debt.md`
 
@@ -237,12 +237,25 @@ same visible identities and ordering as the original session.
 
 ### Slice 7 - Public-Release Validation and Promotion
 
+Status: Complete
+
 - Run focused tests, GUI typecheck, GUI build, relevant repository tests, and
   GUI E2E in that order.
 - Perform operator validation on long live conversations, concurrent tools,
   interruption, restore, structured payloads, compact layout, and reduced motion.
 - Promote stable behavior to architecture and GUI guides; update Roadmap 02 only
   from recorded evidence.
+- Architecture, operator-surface, GUI-guide, changelog, and roadmap doctrine now
+  record the validated `toolCallId` continuity model, bounded visualizer policy,
+  reduced-motion treatment, `eventId` replay deduplication, and semantic
+  long-thread navigation behavior.
+- Browser-backed parity fixtures prove concurrent live tool rows stay distinct
+  while completing out of order, reduced motion disables the active beam
+  animation, keyboard and pointer navigation reach canonical anchors, return to
+  latest targets the final anchor, and compact viewports hide the rail.
+- Focused contract, runtime, GUI, and Playwright gates plus GUI test/build,
+  workspace typecheck, `git diff --check`, and final review passed on
+  2026-07-03.
 
 Gate: review has no blocking findings, all required checks pass, residual risks
 are recorded, and no implementation claim exceeds the captured evidence.
@@ -284,4 +297,4 @@ gate, and receives review before its commit. Only files for that slice are stage
 - Live, interrupted, replayed, and restored sessions produce equivalent identity,
   ordering, terminal state, and output presentation.
 - Focused tests, typecheck, build, E2E, browser validation, and final review pass;
-  stable doctrine is promoted before Roadmap 02 is marked complete.
+  stable doctrine is promoted before this Roadmap 02 subtrack is marked complete.

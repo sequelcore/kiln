@@ -336,6 +336,26 @@ container for Markdown tables so long evidence tables remain inspectable in
 narrow chat layouts without changing the global shadcn `Table` component used
 by product UI.
 
+Tool execution is operational evidence, not assistant prose. GUI renders each
+execution as a standalone row correlated by canonical `toolCallId`; interleaved
+calls remain distinct, and terminal evidence replaces progress for that
+execution without hiding unrelated calls. Active rows use text, icon, and state
+attributes. The decorative border beam is supplemental and all descendant
+animation is disabled under `prefers-reduced-motion: reduce`.
+
+Structured tool results select bounded renderers from the shared presentation
+contract. JSON, source, Markdown, diffs, tables, images, trees, and resource
+bundles remain inside the transcript width and expose readable fallback text
+when intent validation fails. Raw payloads remain inspector evidence rather
+than normal conversation content.
+
+The semantic navigation rail indexes projected user turns, assistant replies,
+tool executions, and failures. Keyboard or pointer activation scrolls to the
+selected canonical anchor; return-to-latest targets the final anchor. The rail
+is hidden on compact viewports where it would compete with conversation width.
+Saved-session batches and live reconnect delivery deduplicate by `eventId`, so
+restore cannot duplicate rows or revive terminal executions.
+
 ## Resource Reads
 
 GUI resource previews read through the shared `OperatorResourceReadResult`

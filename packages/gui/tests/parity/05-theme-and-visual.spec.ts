@@ -71,5 +71,64 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(rail.getByRole("button", { name: "Jump to assistant reply 2" })).toBeVisible();
     await expect(rail.getByRole("button", { name: "Return to latest thread anchor" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Jump to latest" })).toBeAttached();
+
+    const anchorIds = await page.locator("[data-thread-anchor-id]").evaluateAll((elements) => (
+      elements.map((element) => element.getAttribute("data-thread-anchor-id")).filter(Boolean)
+    ));
+    await page.locator("[data-thread-anchor-id]").evaluateAll((elements) => {
+      for (const element of elements) {
+        element.scrollIntoView = () => {
+          (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor = element.getAttribute("data-thread-anchor-id");
+        };
+      }
+    });
+    const firstTurn = rail.getByRole("button", { name: "Jump to user turn 1" });
+    await firstTurn.focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => page.evaluate(() => (
+      (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor
+    ))).toBe(anchorIds[0]);
+
+    await page.evaluate(() => {
+      (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor = null;
+    });
+    await rail.getByRole("button", { name: "Jump to assistant reply 2" }).click();
+    await expect.poll(async () => page.evaluate(() => (
+      (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor
+    ))).toBe(anchorIds[1]);
+
+    await rail.getByRole("button", { name: "Return to latest thread anchor" }).click();
+    await expect.poll(async () => page.evaluate(() => (
+      (window as unknown as { __kilnScrolledAnchor?: string | null }).__kilnScrolledAnchor
+    ))).toBe(anchorIds.at(-1));
+
+    await page.setViewportSize({ width: 560, height: 760 });
+    await expect(rail).toBeHidden();
+  });
+
+  test("keeps concurrent tool executions distinct and reduced-motion safe", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/");
+    await waitForGuiReady(page);
+
+    const composer = page.locator("#composer-input");
+    await composer.fill("tool continuity browser check");
+    await composer.press("Enter");
+
+    const runningRows = page.locator('[data-role="tool-event"][data-state="running"]');
+    await expect(runningRows).toHaveCount(2, { timeout: 5_000 });
+    const activeBeams = page.locator('[data-role="active-tool-beam"]');
+    await expect(activeBeams).toHaveCount(2);
+    expect(await activeBeams.evaluateAll((elements) => elements.every((element) => {
+      return [element, ...Array.from(element.querySelectorAll("*"))]
+        .every((candidate) => getComputedStyle(candidate).animationName === "none");
+    }))).toBe(true);
+
+    const completedRow = page.locator('[data-role="tool-event"][data-state="complete"]');
+    const failedRow = page.locator('[data-role="tool-event"][data-state="error"]');
+    await expect(completedRow).toHaveCount(1, { timeout: 5_000 });
+    await expect(failedRow).toHaveCount(1, { timeout: 5_000 });
+    await expect(completedRow).toContainText("First tool result");
+    await expect(failedRow).toContainText("Second tool failed");
   });
 });

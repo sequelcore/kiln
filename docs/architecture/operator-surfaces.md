@@ -76,6 +76,12 @@ Required operator evidence includes:
 - governed work-item lifecycle, expected evidence, provided evidence,
   verification gates, and residual-risk closeout status
 - session replay data with stable IDs
+- tool execution continuity keyed by canonical `toolCallId`, with repeated
+  `eventId` delivery deduplicated before presentation
+- bounded structured-output presentation with readable fallback for invalid or
+  unsupported intents
+- durable semantic transcript anchors and explicit live-edge navigation on
+  surfaces that present long conversations
 - execution-mode transitions and planning submissions
 - managed child invocation capability snapshots: admitted route id and health,
   provider/model proof, adapter/execution mode, authority profile,

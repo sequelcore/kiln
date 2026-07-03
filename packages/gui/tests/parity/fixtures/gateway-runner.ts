@@ -178,6 +178,38 @@ const fakeSessionFactory: CliSessionFactory = () => ({
     const prompt = options.prompt.trim();
     const chunks = responseChunks(prompt, userTurns);
 
+    if (prompt.toLowerCase().includes("tool continuity browser check")) {
+      yield {
+        type: "tool_use",
+        toolName: "read",
+        input: { path: "docs/plan.md" },
+        toolCallId: "parity-live-tool-1",
+      };
+      yield {
+        type: "tool_use",
+        toolName: "read",
+        input: { path: "docs/roadmap/02-public-release-ui-debt.md" },
+        toolCallId: "parity-live-tool-2",
+      };
+      await delay(1_200);
+      yield {
+        type: "tool_result",
+        toolName: "read",
+        output: "Second tool failed",
+        outputSummary: "Second tool failed",
+        toolCallId: "parity-live-tool-2",
+        isError: true,
+      };
+      yield {
+        type: "tool_result",
+        toolName: "read",
+        output: "First tool result",
+        outputSummary: "First tool result",
+        toolCallId: "parity-live-tool-1",
+        isError: false,
+      };
+    }
+
     for (const chunk of chunks) {
       await delay(70);
       yield { type: "text_delta", content: chunk };

@@ -248,11 +248,16 @@ Transcript layout is also shared projection, not a GUI-only rendering rule.
 
 `@kilnai/gateway-contracts` owns the conversation-turn projection used to place
 assistant messages, tool activity, and operator events into a stable transcript
-sequence. Tool start and completion events anchor to the assistant turn that
-owns the same `turnId` when that message exists. While the assistant message is
-still streaming or has not arrived yet, tool activity may appear as live
-activity; once the owning assistant turn is present, the same canonical events
-project inside that turn.
+sequence. Consumers choose whether tool events remain grouped with their owning
+assistant turn or render as standalone operational rows; both modes consume the
+same projection and canonical identities. A surface must not infer grouping,
+execution identity, or completion from tool name or presentation order.
+
+One tool execution is correlated by `toolCallId` from start through success,
+failure, interruption, replay, and restore. `eventId` identifies each immutable
+session event and deduplicates repeated persisted or live delivery. Restored and
+live projections must therefore produce the same row identity, ordering, and
+terminal evidence without manufacturing repair events.
 
 Completed tool-start rows may collapse into their matching completion event so
 normal transcript surfaces show the final evidence instead of duplicated

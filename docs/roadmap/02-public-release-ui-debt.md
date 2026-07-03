@@ -349,7 +349,7 @@ Verification:
 
 ### Tool Execution Continuity, Structured Output Visualizers, And Long-Thread Navigation
 
-Status: In progress; Slice 6 complete, Slice 7 next
+Status: Subtrack complete; public-release UI roadmap remains in progress
 
 Problem:
 
@@ -491,10 +491,9 @@ Required outcome:
 - Preserve readable raw evidence for unknown or invalid payloads.
 - Introduce a tree/file explorer dependency only when approved behavior requires
   navigation, virtualization, keyboard traversal, lazy loading, or file actions.
-- Evaluate `border-beam` (`Jakubantalik/border-beam`, MIT) as the preferred
-  active-row beam implementation during Slice 4. Adopt it only if it maps cleanly
-  to Kiln tokens, respects reduced motion, does not widen transcript rows, and
-  passes bundle/build/browser gates; otherwise recreate the effect locally.
+- Use the adopted MIT-licensed `border-beam` dependency only as supplemental
+  active-row decoration. Kiln's semantic wrapper owns transcript bounds and
+  disables all descendant animation under reduced motion.
 - Keep every visualizer bounded by the transcript column; expansion may grow
   vertically or scroll internally, never widen the chat layout.
 - Add a compact, accessible navigation rail based on durable semantic anchors,
@@ -528,6 +527,20 @@ Verification:
   reader-away-from-edge behavior, return to latest, interruption, and restore.
 - GUI typecheck, tests, build, relevant E2E, operator live validation, and review
   must pass before implementation is marked complete.
+
+Subtrack closeout evidence (2026-07-03):
+
+- Browser-backed gateway fixtures prove two concurrent live tools remain
+  distinct through out-of-order success/failure completion.
+- Playwright proves reduced-motion suppression for the active beam, keyboard and
+  pointer rail navigation, return to latest, compact rail hiding, persisted
+  duplicate suppression, and canonical restore ordering.
+- Focused contract/runtime/GUI tests cover interleaving, interruption, delayed
+  terminal evidence, malformed structured-output fallback, and bounded large
+  payloads. Final workspace gates and independent review are recorded in the
+  completed implementation plan.
+- This closes only the tool-continuity/visualizer/navigation subtrack. Roadmap 02
+  remains active for its unrelated public-release UI debt and is not deleted.
 
 ## Promotion Gates
 
