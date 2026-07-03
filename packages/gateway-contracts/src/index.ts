@@ -491,6 +491,8 @@ export type {
   OperatorEventPresentation,
   OperatorEventSurface,
   OperatorEventTone,
+  ToolResultClassification,
+  ToolResultClassificationSource,
   ToolResultOutputKind,
   ToolResultPresentation,
   ToolResultPreview,

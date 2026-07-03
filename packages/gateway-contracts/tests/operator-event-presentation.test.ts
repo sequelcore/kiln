@@ -628,6 +628,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("3 child routes compared");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "table",
+      classification: {
+        source: "presentation-intent",
+        reason: "validated presentation intent selected renderer",
+      },
       title: "Managed child comparison",
       summary: "3 child routes compared",
       presentationIntent: {
@@ -641,6 +645,151 @@ describe("operator event presentation", () => {
       },
     });
     expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("projects validated resource bundle intents as resource link presentations", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-resource-bundle",
+      toolName: "managed_agent.invoke",
+      outputSummary: JSON.stringify({
+        output: "Artifacts are available for inspection.",
+        isError: false,
+        metadata: {
+          toolName: "managed_agent.invoke",
+          presentationIntent: {
+            kind: "resource_bundle",
+            title: "Managed invocation artifacts",
+            summary: "2 artifacts",
+            source: "managed_agent.invoke",
+            resources: [
+              {
+                uri: "kiln://artifacts/inv-1/plan",
+                title: "Plan",
+                mimeType: "text/markdown",
+                relation: "plan",
+              },
+              {
+                uri: "kiln://artifacts/inv-1/review",
+                title: "Review",
+                mimeType: "application/json",
+                relation: "review",
+              },
+            ],
+          },
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("2 artifacts");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "resource_links",
+      classification: {
+        source: "presentation-intent",
+        reason: "validated presentation intent selected renderer",
+      },
+      title: "Managed invocation artifacts",
+      summary: "2 artifacts",
+      presentationIntent: {
+        kind: "resource_bundle",
+        resources: [
+          expect.objectContaining({ uri: "kiln://artifacts/inv-1/plan" }),
+          expect.objectContaining({ uri: "kiln://artifacts/inv-1/review" }),
+        ],
+      },
+    });
+    expect(presentation.toolPresentation?.resourceLinks).toEqual([
+      expect.objectContaining({ uri: "kiln://artifacts/inv-1/plan" }),
+      expect.objectContaining({ uri: "kiln://artifacts/inv-1/review" }),
+    ]);
+  });
+
+  it("classifies every closed presentation intent kind before renderer selection", () => {
+    const cases = [
+      {
+        kind: "summary",
+        outputKind: "text",
+        intent: {
+          kind: "summary",
+          title: "Summary output",
+          summary: "Summary ready",
+          bullets: ["One fact"],
+        },
+      },
+      {
+        kind: "comparison_table",
+        outputKind: "table",
+        intent: {
+          kind: "comparison_table",
+          title: "Table output",
+          columns: [{ key: "route", label: "Route" }],
+          rows: [{ route: "codex" }],
+        },
+      },
+      {
+        kind: "risk_matrix",
+        outputKind: "text",
+        intent: {
+          kind: "risk_matrix",
+          title: "Risk output",
+          risks: [{ risk: "Renderer fork", severity: "high" }],
+        },
+      },
+      {
+        kind: "timeline",
+        outputKind: "text",
+        intent: {
+          kind: "timeline",
+          title: "Timeline output",
+          items: [{ order: 1, label: "Classified" }],
+        },
+      },
+      {
+        kind: "resource_bundle",
+        outputKind: "resource_links",
+        intent: {
+          kind: "resource_bundle",
+          title: "Bundle output",
+          resources: [{ uri: "kiln://artifacts/tool-output", title: "Tool output" }],
+        },
+      },
+      {
+        kind: "diagnostic_report",
+        outputKind: "text",
+        intent: {
+          kind: "diagnostic_report",
+          title: "Diagnostic output",
+          sections: [{ title: "Classification", status: "success" }],
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const presentation = presentOperatorEventPayload("tool_call_completed", {
+        toolCallId: `tool-${testCase.kind}`,
+        toolName: "managed_agent.invoke",
+        output: JSON.stringify({
+          output: `${testCase.kind} fallback text`,
+          isError: false,
+          metadata: {
+            toolName: "managed_agent.invoke",
+            presentationIntent: testCase.intent,
+          },
+        }),
+        status: { state: "succeeded" },
+      });
+
+      expect(presentation.toolPresentation).toMatchObject({
+        outputKind: testCase.outputKind,
+        classification: {
+          source: "presentation-intent",
+          reason: "validated presentation intent selected renderer",
+        },
+        presentationIntent: {
+          kind: testCase.kind,
+        },
+      });
+    }
   });
 
   it("projects route-unavailable managed tool results as structured operator tables", () => {
@@ -1206,6 +1355,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).not.toContain("\"output\"");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "markdown",
+      classification: {
+        source: "tool-metadata",
+        reason: "read output classified from file metadata and content",
+      },
       title: "docs/architecture/session-model.md",
       summary: "# Session Model",
       preview: {
@@ -1266,6 +1419,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("3 lines · 22 bytes");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "code",
+      classification: {
+        source: "tool-metadata",
+        reason: "read output classified from file metadata and content",
+      },
       title: "package.json",
       summary: "3 lines · 22 bytes",
       preview: {
@@ -1299,6 +1456,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("1 file changed, 1 addition, 1 removal");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "diff",
+      classification: {
+        source: "tool-metadata",
+        reason: "file mutation metadata carries diff evidence",
+      },
       title: "C:\\workspace\\kiln\\live_test_visibility.txt",
       preview: {
         text: "- kiln gui visibility baseline\n+ kiln gui visibility edit passed",
@@ -1339,6 +1500,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("55 entries under C:\\workspace\\kiln");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "tree",
+      classification: {
+        source: "tool-metadata",
+        reason: "inspection metadata identifies tree output",
+      },
       title: "C:\\workspace\\kiln",
       preview: {
         text: ".\npackages/\n  gui/\n    src/",
@@ -1484,6 +1649,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).not.toContain("--- C:");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "resource_links",
+      classification: {
+        source: "resource-link",
+        reason: "large read_many output is represented by resource links",
+      },
       title: "read_many full output",
       summary: "24 files read, 109 skipped, 200000 bytes, truncated",
     });
@@ -1544,6 +1713,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("Capture 1: Example Domain");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "image",
+      classification: {
+        source: "resource-link",
+        reason: "browser snapshot resource links identify image output",
+      },
       title: "Browser screenshots",
       summary: "Capture 1: Example Domain",
       raw: {
@@ -1736,5 +1909,36 @@ describe("operator event presentation", () => {
 
     expect(failure.summary).toBe("OCR backend unavailable: tesseract executable was not found on PATH.");
     expect(failure.summary).not.toContain("{");
+  });
+
+  it("records fallback evidence when a supplied presentation intent is invalid", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-invalid-intent",
+      toolName: "managed_agent.invoke",
+      output: JSON.stringify({
+        output: "Managed invocation produced a textual fallback.",
+        isError: false,
+        metadata: {
+          toolName: "managed_agent.invoke",
+          presentationIntent: {
+            kind: "comparison_table",
+            title: "Broken comparison",
+            rows: [{ route: "codex" }],
+          },
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "text",
+      classification: {
+        source: "fallback",
+        reason: "invalid presentation intent fell back to textual output",
+      },
+    });
+    expect(presentation.toolPresentation?.classification.fallbackReason).toContain("columns");
+    expect(presentation.toolPresentation?.preview?.text).toBe("Managed invocation produced a textual fallback.");
+    expect(JSON.stringify(presentation.toolPresentation)).not.toContain("\"presentationIntent\"");
   });
 });

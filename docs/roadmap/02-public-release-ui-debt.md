@@ -349,7 +349,7 @@ Verification:
 
 ### Tool Execution Continuity, Structured Output Visualizers, And Long-Thread Navigation
 
-Status: In progress; Slice 2 complete, Slice 3 next
+Status: In progress; Slice 3 complete, Slice 4 next
 
 Problem:
 
@@ -429,6 +429,22 @@ Slice 2 evidence:
   `@kilnai/gui` tests, GUI build, GUI E2E, and workspace typecheck passed on
   2026-07-02.
 
+Slice 3 evidence:
+
+- Shared `ToolResultPresentation` carries explicit output classification with
+  source, reason, confidence, and fallback reason where applicable.
+- Valid presentation intents now classify table and resource-bundle outputs from
+  contract evidence before renderer selection.
+- File reads, source/code, markdown, diffs, trees, resource-linked outputs,
+  browser screenshots, commands, stat, OCR, and fallback text carry
+  provider-neutral classification evidence.
+- Invalid or unsupported presentation intents do not leak raw envelopes or
+  vanish silently; they fall back to readable text with validation failure
+  evidence.
+- Focused operator-event presentation tests, full gateway-contract tests,
+  focused GUI transcript tests, focused TUI gateway-session tests, and workspace
+  typecheck passed on 2026-07-02.
+
 Required outcome:
 
 - Render each tool execution as one stable transcript row outside assistant
@@ -442,6 +458,10 @@ Required outcome:
 - Preserve readable raw evidence for unknown or invalid payloads.
 - Introduce a tree/file explorer dependency only when approved behavior requires
   navigation, virtualization, keyboard traversal, lazy loading, or file actions.
+- Evaluate `border-beam` (`Jakubantalik/border-beam`, MIT) as the preferred
+  active-row beam implementation during Slice 4. Adopt it only if it maps cleanly
+  to Kiln tokens, respects reduced motion, does not widen transcript rows, and
+  passes bundle/build/browser gates; otherwise recreate the effect locally.
 - Keep every visualizer bounded by the transcript column; expansion may grow
   vertically or scroll internally, never widen the chat layout.
 - Add a compact, accessible navigation rail based on durable semantic anchors,

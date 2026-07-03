@@ -45,8 +45,23 @@ export interface ToolResultRawAvailability {
   readonly reason?: string;
 }
 
+export type ToolResultClassificationSource =
+  | "presentation-intent"
+  | "tool-metadata"
+  | "resource-link"
+  | "content-heuristic"
+  | "fallback";
+
+export interface ToolResultClassification {
+  readonly source: ToolResultClassificationSource;
+  readonly reason: string;
+  readonly fallbackReason?: string;
+  readonly confidence?: "low" | "medium" | "high";
+}
+
 export interface ToolResultPresentation {
   readonly outputKind: ToolResultOutputKind;
+  readonly classification: ToolResultClassification;
   readonly title: string;
   readonly summary?: string;
   readonly fields: readonly OperatorEventDetailItem[];
@@ -300,6 +315,22 @@ function toolResultRawAvailability(resourceLinks: readonly ToolResultResourceLin
     : { available: false, reason: "No raw output resource" };
 }
 
+function toolResultClassification(
+  source: ToolResultClassificationSource,
+  reason: string,
+  options: {
+    readonly fallbackReason?: string;
+    readonly confidence?: "low" | "medium" | "high";
+  } = {},
+): ToolResultClassification {
+  return {
+    source,
+    reason,
+    ...(options.fallbackReason ? { fallbackReason: options.fallbackReason } : {}),
+    ...(options.confidence ? { confidence: options.confidence } : {}),
+  };
+}
+
 function toolResultTitle(toolName: string, metadata: Record<string, unknown> | undefined, fallback: string): string {
   return readString(metadata?.filePath)
     ?? readString(metadata?.path)
@@ -329,6 +360,7 @@ function projectDiffPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "diff",
+    classification: toolResultClassification("tool-metadata", "file mutation metadata carries diff evidence", { confidence: "high" }),
     title: toolResultTitle(toolName, metadata, "Diff"),
     summary,
     fields,
@@ -351,6 +383,9 @@ function projectResourceLinkPresentation(
   const summary = readString(metadata.operation) === "read_many"
     ? formatReadManySummary(metadata)
     : compactText(output ?? resourceLinks[0]?.title ?? `${toolName} output`);
+  const reason = readString(metadata.operation) === "read_many"
+    ? "large read_many output is represented by resource links"
+    : "resource links carry external output evidence";
   const fileCount = readMetadataNumber(metadata, "fileCount");
   const skippedCount = readMetadataNumber(metadata, "skippedCount");
   const totalBytes = readMetadataNumber(metadata, "totalBytes");
@@ -363,6 +398,7 @@ function projectResourceLinkPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "resource_links",
+    classification: toolResultClassification("resource-link", reason, { confidence: "high" }),
     title: resourceLinks[0]?.title ?? toolResultTitle(toolName, metadata, `${toolName} output`),
     summary,
     fields,
@@ -413,6 +449,7 @@ function projectBrowserScreenshotPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "image",
+    classification: toolResultClassification("resource-link", "browser snapshot resource links identify image output", { confidence: "high" }),
     title: "Browser screenshots",
     summary,
     fields,
@@ -455,6 +492,7 @@ function projectCommandPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "command",
+    classification: toolResultClassification("tool-metadata", "command metadata identifies command output", { confidence: "high" }),
     title: toolResultTitle(toolName, metadata, "Command"),
     summary,
     fields,
@@ -480,6 +518,7 @@ function projectTreePresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "tree",
+    classification: toolResultClassification("tool-metadata", "inspection metadata identifies tree output", { confidence: "high" }),
     title: path ?? toolName,
     summary,
     fields,
@@ -530,6 +569,7 @@ function projectStatPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "text",
+    classification: toolResultClassification("tool-metadata", "inspection metadata identifies stat output", { confidence: "high" }),
     title: path ?? toolName,
     summary: [type, formatBytes(size)].filter((value): value is string => Boolean(value)).join(" · ") || "Metadata read",
     fields,
@@ -563,6 +603,7 @@ function projectOcrPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: text ? "text" : "empty",
+    classification: toolResultClassification("tool-metadata", "media metadata identifies OCR output", { confidence: "high" }),
     title: path ?? toolName,
     summary: text ? compactText(text) : fallbackSummary,
     fields,
@@ -577,6 +618,7 @@ function projectTextPresentation(
   output: string | undefined,
   metadata: Record<string, unknown> | undefined,
   resourceLinks: readonly ToolResultResourceLinkPresentation[],
+  classificationOverride?: ToolResultClassification,
 ): ToolResultPresentation {
   const text = output ?? "";
   const filePath = readString(metadata?.filePath);
@@ -590,8 +632,16 @@ function projectTextPresentation(
     field("Bytes", totalBytes),
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   const preview = compactPreview(text);
+  const operation = readString(metadata?.operation);
+  const classification = classificationOverride
+    ?? (operation === "read" || toolName === "read"
+      ? toolResultClassification("tool-metadata", "read output classified from file metadata and content", { confidence: "high" })
+      : languageForPath(filePath)
+        ? toolResultClassification("tool-metadata", "file extension metadata selected source renderer", { confidence: "medium" })
+        : toolResultClassification("content-heuristic", "text output classified from content", { confidence: "medium" }));
   return {
     outputKind,
+    classification,
     title: toolResultTitle(toolName, metadata, toolName),
     summary: summarizeTextOutput(outputKind, text, totalLines, totalBytes),
     fields,
@@ -712,6 +762,7 @@ function projectPresentationIntentToolPresentation(
   const resourceLinks = intentResourceLinks.length > 0 ? intentResourceLinks : fallbackResourceLinks;
   return {
     outputKind: presentationIntentOutputKind(intent),
+    classification: toolResultClassification("presentation-intent", "validated presentation intent selected renderer", { confidence: "high" }),
     title: intent.title,
     summary: presentationIntentBrief(intent),
     fields: presentationIntentFields(intent),
@@ -726,7 +777,7 @@ function readPresentationIntent(
   envelope: ReturnType<typeof parseOperatorToolResultEnvelope>,
   output: string | undefined,
   metadata: Record<string, unknown> | undefined,
-): PresentationIntent | undefined {
+): { readonly intent?: PresentationIntent; readonly invalidReason?: string } {
   const outputRecord = parseOutputRecord(output);
   const candidates = [
     metadata?.presentationIntent,
@@ -734,12 +785,14 @@ function readPresentationIntent(
     payload.presentationIntent,
     outputRecord?.presentationIntent,
   ];
+  let invalidReason: string | undefined;
   for (const candidate of candidates) {
     if (candidate === undefined) continue;
     const parsed = parsePresentationIntent(candidate);
-    if (parsed.ok) return parsed.intent;
+    if (parsed.ok) return { intent: parsed.intent };
+    invalidReason ??= parsed.error;
   }
-  return undefined;
+  return invalidReason ? { invalidReason } : {};
 }
 
 function projectConfigToolPresentation(toolName: string, output: string | undefined): ToolResultPresentation | undefined {
@@ -779,6 +832,7 @@ function projectConfigToolPresentation(toolName: string, output: string | undefi
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: toolName === "kiln_config.propose_change" ? "diff" : "text",
+    classification: toolResultClassification("tool-metadata", "config tool output uses canonical config mutation metadata", { confidence: "high" }),
     title: toolName === "kiln_config.propose_change"
       ? "Kiln config proposal"
       : toolName === "kiln_config.apply_change"
@@ -807,10 +861,16 @@ function projectToolResultPresentation(
   const payloadResourceLinks = parseOperatorToolResultResourceLinks(payloadMetadata?.resourceLinks);
   const resourceLinks = payloadResourceLinks.length > 0 ? payloadResourceLinks : envelope?.resourceLinks ?? [];
   const presentationIntent = readPresentationIntent(payload, envelope, output, metadata);
-  if (!output && !metadata && resourceLinks.length === 0 && !presentationIntent) return undefined;
-  if (presentationIntent) {
-    return projectPresentationIntentToolPresentation(presentationIntent, resourceLinks);
+  if (!output && !metadata && resourceLinks.length === 0 && !presentationIntent.intent && !presentationIntent.invalidReason) return undefined;
+  if (presentationIntent.intent) {
+    return projectPresentationIntentToolPresentation(presentationIntent.intent, resourceLinks);
   }
+  const fallbackClassification = presentationIntent.invalidReason
+    ? toolResultClassification("fallback", "invalid presentation intent fell back to textual output", {
+        fallbackReason: presentationIntent.invalidReason,
+        confidence: "medium",
+      })
+    : undefined;
   const configPresentation = projectConfigToolPresentation(toolName, output);
   if (configPresentation) {
     return configPresentation;
@@ -845,12 +905,12 @@ function projectToolResultPresentation(
     return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
   }
   if (operation === "read" || toolName === "read") {
-    return projectTextPresentation(toolName, output, metadata, resourceLinks);
+    return projectTextPresentation(toolName, output, metadata, resourceLinks, fallbackClassification);
   }
   if (resourceLinks.length > 0) {
     return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
   }
-  return projectTextPresentation(toolName, output, metadata, resourceLinks);
+  return projectTextPresentation(toolName, output, metadata, resourceLinks, fallbackClassification);
 }
 
 function toolResultText(payload: Record<string, unknown>): string | null {

@@ -1,6 +1,6 @@
 # Tool Execution Continuity, Structured Output Visualizers, and Long-Thread Navigation
 
-Status: Slice 2 complete; Slice 3 next
+Status: Slice 3 complete; Slice 4 next
 Updated: 2026-07-02
 Roadmap owner: `docs/roadmap/02-public-release-ui-debt.md`
 
@@ -157,6 +157,14 @@ Slice 2 evidence:
   unknown, and invalid payload intents before renderer selection.
 - Preserve raw evidence and explicit fallback reasons.
 - Keep classification provider-neutral and reusable by GUI, CLI, and TUI.
+- Shared `ToolResultPresentation` now carries provider-neutral classification
+  evidence with source, reason, confidence, and fallback reason where applicable.
+- Valid presentation intents select table/resource-link render families from
+  contract evidence; malformed intents fall back to readable text with recorded
+  validation failure details instead of leaking raw envelopes.
+- Focused operator-event presentation tests, full gateway-contract tests,
+  focused GUI transcript tests, focused TUI gateway-session tests, and workspace
+  typecheck passed on 2026-07-02 before moving to Slice 4.
 
 Gate: contract fixtures cover each intent, malformed payloads, and unknown types;
 cross-surface review confirms no GUI-owned semantic fork.
