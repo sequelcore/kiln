@@ -329,10 +329,8 @@ export function projectGuiProviderModelDiscovery(
       evaluatedAt: observedAt,
       requiredStates: [
         "discovered",
-        "configured",
         "authenticated",
         "entitled",
-        "capabilityCompatible",
         "policyAdmitted",
         "routeHealthy",
       ],

@@ -143,7 +143,7 @@ describe("normalizeProviderCatalogObservation", () => {
     expect(stale).toMatchObject({ classification: "stale", catalogEvidenceCurrent: false });
   });
 
-  it("normalizes runtime adapter families without treating authentication as entitlement", () => {
+  it("normalizes runtime adapter families without treating generic authentication as entitlement", () => {
     const normalized = normalizeRuntimeProviderDiscoveryCatalog({
       providerId: "openrouter",
       family: "openrouter",
@@ -177,8 +177,39 @@ describe("normalizeProviderCatalogObservation", () => {
       discovered: "confirmed",
       authenticated: "confirmed",
       entitled: "unknown",
+      policyAdmitted: "confirmed",
+      routeHealthy: "confirmed",
       selectable: "unknown",
     });
+  });
+
+  it("treats fresh authenticated account-scoped service catalogs as selectable entitlement evidence", () => {
+    const normalized = normalizeRuntimeProviderDiscoveryCatalog({
+      providerId: "opencode-go",
+      family: "opencode-service",
+      observedAt,
+      freshness: "fresh",
+      discovery: {
+        models: ["deepseek-v4-flash"],
+        status: "available",
+        reason: "OpenCode Go models discovered.",
+        authState: "authenticated",
+      },
+    });
+
+    expect(normalized.routes[0].states).toMatchObject({
+      discovered: "confirmed",
+      authenticated: "confirmed",
+      entitled: "confirmed",
+      policyAdmitted: "confirmed",
+      routeHealthy: "confirmed",
+      selectable: "confirmed",
+    });
+    expect(normalized.routes[0].observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ state: "entitled", authority: "provider-authoritative" }),
+      expect.objectContaining({ state: "policyAdmitted", authority: "runtime-observed" }),
+      expect.objectContaining({ state: "routeHealthy", authority: "runtime-observed" }),
+    ]));
   });
 
   it("keeps stale authenticated OpenCode service catalogs diagnostic and fail-closed", () => {
@@ -214,8 +245,8 @@ describe("normalizeProviderCatalogObservation", () => {
       },
     });
     expect(normalized.routes.every((route) => route.states.authenticated === "confirmed")).toBe(true);
-    expect(normalized.routes.every((route) => route.states.entitled === "unknown")).toBe(true);
-    expect(normalized.routes.every((route) => route.states.selectable === "unknown")).toBe(true);
+    expect(normalized.routes.every((route) => route.states.entitled === "confirmed")).toBe(true);
+    expect(normalized.routes.every((route) => route.states.selectable === "confirmed")).toBe(true);
     expect(normalized.routes.every((route) =>
       route.observations.every((observation) => observation.freshness === "stale")
     )).toBe(true);

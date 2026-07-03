@@ -73,6 +73,7 @@ export function normalizeRuntimeProviderDiscoveryCatalog(
         }],
     stateEvidence: [
       authenticationEvidence(input.discovery.authState),
+      ...interactiveSelectionEvidence(input),
     ],
   });
 }
@@ -109,6 +110,57 @@ function authenticationEvidence(authState: GuiProviderAuthState): ProviderCatalo
     case "unknown":
       return { state: "authenticated", value: "unknown", authority: "runtime-observed" };
   }
+}
+
+function interactiveSelectionEvidence(input: RuntimeProviderCatalogInput): ProviderCatalogStateEvidenceInput[] {
+  if (input.discovery.status !== "available") {
+    return [];
+  }
+  const evidence: ProviderCatalogStateEvidenceInput[] = [
+    {
+      state: "policyAdmitted",
+      value: "confirmed",
+      authority: "runtime-observed",
+      provenance: `${input.family}:${input.providerId}:interactive-policy`,
+    },
+    {
+      state: "routeHealthy",
+      value: "confirmed",
+      authority: "runtime-observed",
+      provenance: `${input.family}:${input.providerId}:catalog-health`,
+    },
+  ];
+  if (isAccountScopedEntitlementCatalog(input)) {
+    evidence.push({
+      state: "entitled",
+      value: "confirmed",
+      authority: "provider-authoritative",
+      provenance: `${input.family}:${input.providerId}:account-model-entitlement`,
+    });
+    evidence.push({
+      state: "selectable",
+      value: "confirmed",
+      authority: "runtime-observed",
+      provenance: `${input.family}:${input.providerId}:interactive-selectable`,
+    });
+  }
+  return evidence;
+}
+
+function isAccountScopedEntitlementCatalog(input: RuntimeProviderCatalogInput): boolean {
+  if (input.discovery.authState !== "authenticated") {
+    return false;
+  }
+  if (input.family === "opencode-service") {
+    return true;
+  }
+  if (input.family !== "direct-provider") {
+    return false;
+  }
+  return input.providerId === "codex-oauth"
+    || input.providerId === "anthropic"
+    || input.providerId === "deepseek"
+    || input.providerId === "openai";
 }
 
 function isRetryableDiscoveryStatus(status: GuiProviderDiscoveryStatus): boolean {

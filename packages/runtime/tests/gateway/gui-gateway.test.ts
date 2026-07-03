@@ -1336,7 +1336,7 @@ describe("startGuiGateway static mount", () => {
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.4"] }));
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openrouter: ["openrouter/free"] }));
     const setProvider = vi.fn();
     const setModel = vi.fn();
     vi.stubGlobal("Bun", {
@@ -1354,7 +1354,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        resolveProviderPreference: () => ({ provider: "codex-oauth", model: "gpt-5.4" }),
+        resolveProviderPreference: () => ({ provider: "openrouter", model: "openrouter/free" }),
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -1855,7 +1855,7 @@ describe("startGuiGateway static mount", () => {
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openrouter: ["openrouter/free"] }))
       .mockImplementationOnce(() => new Promise(() => undefined));
     const setProvider = vi.fn();
     const setModel = vi.fn();
@@ -1889,7 +1889,7 @@ describe("startGuiGateway static mount", () => {
 
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "provider", provider: "openai", model: GPT4O, requestId: "request-drift" }),
+          data: JSON.stringify({ type: "provider", provider: "openrouter", model: "openrouter/free", requestId: "request-drift" }),
         }),
         wsCtx,
       );
@@ -1914,7 +1914,7 @@ describe("startGuiGateway static mount", () => {
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ "codex-oauth": ["gpt-5.4"] }))
+      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openrouter: ["openrouter/free"] }))
       .mockImplementationOnce(() => new Promise(() => undefined));
     const setProvider = vi.fn();
     const setModel = vi.fn();
@@ -1953,9 +1953,9 @@ describe("startGuiGateway static mount", () => {
         new MessageEvent("message", {
           data: JSON.stringify({
             type: "provider",
-            provider: "codex-oauth",
-            model: "gpt-5.4",
-            requestId: "request-codex-oauth",
+            provider: "openrouter",
+            model: "openrouter/free",
+            requestId: "request-openrouter",
           }),
         }),
         wsCtx,
@@ -5456,22 +5456,18 @@ describe("projectGuiOperatorModels", () => {
         status: "fresh",
       },
       routeHealth: {
-        status: "unknown",
+        status: "healthy",
       },
       policyAdmission: {
         use: "interactive",
-        status: "unknown",
+        status: "admitted",
       },
       eligibility: {
         eligible: false,
       },
     });
     expect(projection.entries[0].eligibility.reasonCodes).toEqual(expect.arrayContaining([
-      "missing-configured-evidence",
       "missing-entitlement-evidence",
-      "missing-capability-evidence",
-      "missing-policy-evidence",
-      "missing-route-health-evidence",
     ]));
   });
 
@@ -5496,18 +5492,65 @@ describe("projectGuiOperatorModels", () => {
       credentialEvidence: { state: "authenticated" },
       entitlementEvidence: { state: "unknown" },
       routeHealth: { status: "healthy" },
-      policyAdmission: { use: "interactive", status: "unknown" },
+      policyAdmission: { use: "interactive", status: "admitted" },
       eligibility: {
         eligible: false,
         reasonCodes: expect.arrayContaining([
-          "missing-configured-evidence",
           "missing-entitlement-evidence",
-          "missing-capability-evidence",
-          "missing-policy-evidence",
         ]),
       },
     });
     expect(projection.entries[0].eligibility.reasonCodes).not.toContain("missing-route-health-evidence");
+  });
+
+  it("marks account-scoped direct service models eligible for interactive GUI selection", () => {
+    const projection = projectGuiProviderModelDiscovery([{
+      provider: "opencode-go",
+      available: true,
+      models: ["deepseek-v4-flash"],
+      status: "available",
+      reason: "OpenCode Go models discovered.",
+      authState: "authenticated",
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    }, {
+      provider: "codex-oauth",
+      available: true,
+      models: ["gpt-5.5"],
+      status: "available",
+      reason: "Codex OAuth models discovered.",
+      authState: "authenticated",
+      lastCheckedAt: "2026-07-01T12:00:00.000Z",
+    }], {
+      observedAt: "2026-07-01T12:00:00.000Z",
+    });
+
+    expect(projection.entries).toHaveLength(2);
+    expect(projection.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        providerRoute: {
+          providerId: "opencode-go",
+          providerModelId: "deepseek-v4-flash",
+          scope: "opencode-service",
+        },
+        credentialEvidence: expect.objectContaining({ state: "authenticated" }),
+        entitlementEvidence: expect.objectContaining({ state: "confirmed" }),
+        routeHealth: expect.objectContaining({ status: "healthy" }),
+        policyAdmission: expect.objectContaining({ use: "interactive", status: "admitted" }),
+        eligibility: { eligible: true, reasonCodes: [] },
+      }),
+      expect.objectContaining({
+        providerRoute: {
+          providerId: "codex-oauth",
+          providerModelId: "gpt-5.5",
+          scope: "direct-provider",
+        },
+        credentialEvidence: expect.objectContaining({ state: "authenticated" }),
+        entitlementEvidence: expect.objectContaining({ state: "confirmed" }),
+        routeHealth: expect.objectContaining({ status: "healthy" }),
+        policyAdmission: expect.objectContaining({ use: "interactive", status: "admitted" }),
+        eligibility: { eligible: true, reasonCodes: [] },
+      }),
+    ]));
   });
 
   it("keeps stale catalog entries visible but fail-closed in the provider-model projection", () => {

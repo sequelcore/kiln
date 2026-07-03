@@ -8,6 +8,10 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Fixed GUI provider/model selection eligibility so fresh authenticated
+  account-scoped catalogs such as Codex OAuth and OpenCode Go/Zen are selectable
+  while large harness-only catalogs remain diagnostic until entitlement evidence
+  is available.
 - Added continuous GUI tool-execution rows keyed by canonical `toolCallId`,
   contract-driven bounded structured-output visualizers, a semantic long-thread
   navigation rail, and replay/restore deduplication by `eventId`. Active tool
