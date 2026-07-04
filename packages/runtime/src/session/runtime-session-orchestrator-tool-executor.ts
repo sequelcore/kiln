@@ -278,16 +278,6 @@ function normalizeFileChangeType(value: unknown): "created" | "modified" | "dele
   return "modified";
 }
 
-function legacyFileOperationFromToolName(toolName: string): "write" | "edit" | undefined {
-  if (toolName === "write") {
-    return "write";
-  }
-  if (toolName === "edit") {
-    return "edit";
-  }
-  return undefined;
-}
-
 function maybeNumber(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
@@ -646,7 +636,6 @@ export class RuntimeSessionToolExecutor {
         );
 
         const fileChanges = this.extractFileChangesFromToolResult(
-          normalizedToolCall.name,
           normalizedToolCall.input,
           execution.resultValueRaw,
         );
@@ -1127,7 +1116,6 @@ export class RuntimeSessionToolExecutor {
   }
 
   private extractFileChangesFromToolResult(
-    toolName: string,
     toolInput: Record<string, unknown>,
     resultValue: unknown,
   ): readonly {
@@ -1170,8 +1158,7 @@ export class RuntimeSessionToolExecutor {
       });
     }
 
-    const legacyOperation = legacyFileOperationFromToolName(toolName);
-    const operation = sharedFileMetadata?.operation ?? legacyOperation;
+    const operation = sharedFileMetadata?.operation;
 
     if (operation !== "write" && operation !== "edit") {
       return undefined;

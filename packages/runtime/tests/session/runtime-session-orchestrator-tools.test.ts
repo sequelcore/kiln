@@ -2836,42 +2836,33 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       });
     });
 
-    it.each(["write", "edit"] as const)(
-      "captures structured file changes from %s tool metadata",
-      async (toolName) => {
-        const provider = makeToolCallProvider(
-          {
-            id: "tc-write-1",
-            name: toolName,
-            input: { filePath: "src/demo.txt", content: "updated" },
-          },
-          "writing file...",
-        );
+    it("requires shared file operation metadata before recording file-change evidence", async () => {
+      const provider = makeToolCallProvider(
+        {
+          id: "tc-write-1",
+          name: "write",
+          input: { filePath: "src/demo.txt", content: "updated" },
+        },
+        "writing file...",
+      );
 
-        const orchestrator = new RuntimeSessionOrchestrator({
-          provider,
-          tools: [{ name: toolName, description: "Writes files", inputSchema: {}, tags: new Set() }],
-          builtinTools: new Map([[
-            toolName,
-            vi.fn().mockResolvedValue({
-              output: "Wrote 7 characters",
-              isError: false,
-              metadata: { filePath: "C:/workspace/src/demo.txt" },
-            }),
-          ]]),
-        });
-
-        const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
-
-        expect(result.toolExecutions?.[0]?.fileChanges).toEqual([
-          expect.objectContaining({
-            path: "C:/workspace/src/demo.txt",
-            changeType: "modified",
-            linesAdded: 1,
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([[
+          "write",
+          vi.fn().mockResolvedValue({
+            output: "Wrote 7 characters",
+            isError: false,
+            metadata: { filePath: "C:/workspace/src/demo.txt" },
           }),
-        ]);
-      },
-    );
+        ]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
+
+      expect(result.toolExecutions?.[0]?.fileChanges).toBeUndefined();
+    });
 
     it("uses shared file metadata as the source of truth for file-change evidence", async () => {
       const provider = makeToolCallProvider(
