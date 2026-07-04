@@ -30,6 +30,10 @@ The config projection boundary is owned by the CLI config layer.
 - `packages/cli/src/config/config-merger.ts` merges global and project config.
 - `packages/cli/src/config/native-*-projection.ts` owns native file IO for
   permissions, hooks, agents, and skills.
+- `packages/cli/src/application/global-instruction-shim-projection.ts` owns
+  generated global instruction entrypoints for native harness startup:
+  `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, and
+  `~/.config/opencode/AGENTS.md`.
 - `packages/cli/src/application/instruction-profile-loader.ts` owns canonical
   instruction profile loading from Kiln filesystem config.
 - `packages/cli/src/config/native-projection-state.ts` owns install-state,
@@ -65,8 +69,10 @@ Instruction profiles, agents, and skills are canonical filesystem config, not
 inline YAML fields. Global definitions live under `~/.kiln/instructions/`,
 `~/.kiln/agents/`, and `~/.kiln/skills/`; project definitions live under
 `.kiln/instructions/`, `.kiln/agents/`, and `.kiln/skills/`. Native harness
-agent and skill files remain generated projections, and `AGENTS.md` may project
-active instruction profile ids and canonical file paths for direct harness use.
+agent, skill, and global instruction files remain generated projections.
+Repo-local `AGENTS.md` and `CLAUDE.md` may reference active instruction profile
+ids and canonical file paths for project startup, but they must not duplicate
+global doctrine or global agent rosters.
 Kiln core built-in skills are lowest-precedence product defaults controlled by
 `skills.builtin` activation policy. They are projected like other skills during
 native sync, but user and project skills with the same id override them.
@@ -92,6 +98,25 @@ backup under `.kiln/backups/<target-id>/`. New files are not backed up.
 If global config marks a known harness engine as `enabled: false`, sync first
 uninstalls recorded managed projections for that harness and excludes that
 harness from new permission, hook, agent, and skill projection writes.
+
+`kiln sync --global-instructions` projects global Kiln instruction profiles
+into the official native harness user-level instruction entrypoints:
+
+- Codex: `~/.codex/AGENTS.md`
+- Claude Code: `~/.claude/CLAUDE.md`
+- OpenCode: `~/.config/opencode/AGENTS.md`
+
+These files are signed whole-file projections recorded in install-state.
+Unmanaged files, including symlinked entrypoints with no install-state
+ownership, block until explicit adoption backs them up. Managed drift blocks
+until explicit force. Symlinked entrypoints that Kiln already owns are treated
+as stale because each harness target needs independent metadata, hash
+ownership, and drift classification.
+
+Global instruction shims include the direct-provider boundary: `codex-oauth`,
+`opencode-go`, and `opencode-zen` are Kiln direct providers governed by Kiln
+runtime authority. Native Codex/OpenCode/Claude CLI permission files apply only
+to explicit native harness routes, not to Kiln direct-provider execution.
 
 ## Native Route Defaults
 
@@ -201,16 +226,17 @@ Global native projections and repo-local instruction shims are different target
 families.
 
 Global native projections write into harness-owned user config locations such as
-Claude Code, Codex, and OpenCode config, agent, and skill directories. They make
-direct standalone harness use see Kiln's canonical operator doctrine and agent
-roster.
+Claude Code, Codex, and OpenCode config, instruction, agent, and skill
+directories. They make direct standalone harness use see Kiln's canonical
+operator doctrine and projected capabilities.
 
 Repo shims write into a specific project root, such as generated `AGENTS.md` and
 generated `CLAUDE.md`. They are scoped project entrypoints for harnesses that
 load repository guidance before Kiln runtime exists. Repo shims must be derived
-from the merged canonical config for that project: global config, global
-instruction profiles, global agents, global skills, project `kiln.yaml`, and
-project `.kiln/instructions|agents|skills`.
+from the merged canonical config for that project: global config, active
+instruction profile references, project `kiln.yaml`, project context, and
+project `.kiln/instructions|agents|skills`. Global doctrine and global agent
+rosters belong to global native projections, not repo-local shim bodies.
 
 Repo-shim projection must resolve the project root before writing. The durable
 resolution order is:

@@ -12,6 +12,7 @@ import { adoptNativeHarnessSkills } from "../config/native-skill-adoption.js";
 import { writeProjectContextAdoption } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import { writeRepoShimProjections } from "./repo-shim-projection.js";
+import { syncGlobalInstructionShimProjections } from "./global-instruction-shim-projection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 
 export interface ExecuteConfigSetupActionInput {
@@ -36,14 +37,20 @@ export async function executeConfigSetupAction(
         return await syncRepoShims(projectPath, input.action);
       case "sync-native-projections":
         return await syncNativeProjections(projectPath, input.action, input.userHome);
+      case "sync-global-instruction-shims":
+        return await syncGlobalInstructionShims(projectPath, input.action, input.userHome);
       case "review-project-context":
         return await result(input.action, "blocked", "Review the project context before replacing it.", [], projectPath);
       case "review-and-force-sync-repo-shims":
         return await result(input.action, "blocked", "Review repo-shim drift before running a force sync.", [], projectPath);
       case "adopt-or-back-up-native-guidance":
         return await adoptNativeGuidance(projectPath, input.action, input.userHome);
+      case "adopt-or-back-up-global-instructions":
+        return await adoptGlobalInstructions(projectPath, input.action, input.userHome);
       case "review-native-projection-drift":
         return await result(input.action, "blocked", "Review native projection drift before overwriting managed fields.", [], projectPath);
+      case "review-global-instruction-drift":
+        return await result(input.action, "blocked", "Review global instruction shim drift before overwriting managed files.", [], projectPath);
     }
   } catch (error) {
     return result(input.action, "failed", errorMessage(error), [errorMessage(error)], projectPath);
@@ -84,6 +91,28 @@ async function syncRepoShims(
   );
 }
 
+async function syncGlobalInstructionShims(
+  projectPath: string,
+  action: KilnConfigSetupAction,
+  userHome?: string,
+): Promise<KilnConfigSetupActionResult> {
+  const sync = await syncGlobalInstructionShimProjections(projectPath, {
+    userHome,
+    disabledHarnesses: [],
+  });
+  if (sync.errors.length > 0) {
+    return result(action, "failed", "Global instruction shim sync failed.", sync.errors, projectPath, userHome);
+  }
+  return result(
+    action,
+    sync.synced > 0 ? "applied" : "noop",
+    sync.synced > 0 ? "Global instruction shims synced." : "Global instruction shims are already current.",
+    [],
+    projectPath,
+    userHome,
+  );
+}
+
 async function syncNativeProjections(
   projectPath: string,
   action: KilnConfigSetupAction,
@@ -114,6 +143,29 @@ async function syncNativeProjections(
   }
 
   return result(action, "applied", "Native projections synced.", [], projectPath, userHome);
+}
+
+async function adoptGlobalInstructions(
+  projectPath: string,
+  action: KilnConfigSetupAction,
+  userHome?: string,
+): Promise<KilnConfigSetupActionResult> {
+  const sync = await syncGlobalInstructionShimProjections(projectPath, {
+    userHome,
+    disabledHarnesses: [],
+    adoptUnmanaged: true,
+  });
+  if (sync.errors.length > 0) {
+    return result(action, "failed", "Global instruction adoption failed.", sync.errors, projectPath, userHome);
+  }
+  return result(
+    action,
+    sync.synced > 0 ? "applied" : "noop",
+    sync.synced > 0 ? "Global instructions adopted and projected." : "No unmanaged global instructions need adoption.",
+    [],
+    projectPath,
+    userHome,
+  );
 }
 
 async function adoptNativeGuidance(

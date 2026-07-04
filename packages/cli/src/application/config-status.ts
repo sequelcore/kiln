@@ -51,6 +51,7 @@ import {
   readRepoShimProjectionStatuses,
   readWorkflowSnapshotManifestStatus,
 } from "./repo-shim-projection.js";
+import { readGlobalInstructionShimProjectionSnapshots } from "./global-instruction-shim-projection.js";
 import { readSkillCatalogStatus } from "../config/skill-catalog-status.js";
 import { resolveCliMemoryStorage } from "./cli-memory-storage.js";
 
@@ -97,7 +98,12 @@ export async function readConfigStatusSnapshot(
     ...sourceErrors("project context", projectContext),
   );
 
-  const projectionState = await readProjectionSnapshots(rootPath, errors, effectiveConfig ?? undefined);
+  const projectionState = await readProjectionSnapshots(
+    rootPath,
+    errors,
+    effectiveConfig ?? undefined,
+    options.userHome ?? homedir(),
+  );
   const permissionIntegrity = aggregatePermissionIntegrity(projectionState.projections);
   const skillCatalog = effectiveConfig
     ? readSkillCatalogStatus({
@@ -241,6 +247,7 @@ async function readProjectionSnapshots(
   projectPath: string,
   errors: string[],
   effectiveConfig?: KilnYaml,
+  userHome?: string,
 ): Promise<{
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
@@ -284,8 +291,26 @@ async function readProjectionSnapshots(
   }
 
   try {
+    const globalInstructionShims = await readGlobalInstructionShimProjectionSnapshots(projectPath, { userHome });
+    for (const shim of globalInstructionShims) {
+      projections.push({
+        targetId: shim.targetId,
+        path: shim.filePath,
+        kind: "global-instruction-shim" as const,
+        status: shim.status,
+        ...(shim.details ? { details: shim.details } : {}),
+      });
+    }
+  } catch (error) {
+    errors.push(`global-instruction-shims: ${errorMessage(error)}`);
+  }
+
+  try {
     const installState = readNativeProjectionInstallState(join(projectPath, ".kiln"));
     for (const target of Object.values(installState.targets)) {
+      if (isGlobalInstructionShimTargetId(target.targetId)) {
+        continue;
+      }
       const routeIntegrity = readNativeRouteIntegrity(target, effectiveConfig);
       const status = readNativeProjectionStatus(target);
       projections.push({
@@ -307,6 +332,12 @@ async function readProjectionSnapshots(
     projections: projections.sort((left, right) => left.targetId.localeCompare(right.targetId)),
     repoShims: repoShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
   };
+}
+
+function isGlobalInstructionShimTargetId(targetId: string): boolean {
+  return targetId === "codex-global-instructions"
+    || targetId === "claude-global-instructions"
+    || targetId === "opencode-global-instructions";
 }
 
 function readNativeProjectionStatus(target: NativeProjectionTargetState): KilnProjectionTargetSnapshot["status"] {
@@ -516,11 +547,15 @@ function buildSetupSnapshot(input: {
   readonly skillCatalog?: ReturnType<typeof readSkillCatalogStatus>;
 }): KilnConfigSetupSnapshot {
   const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
+  const globalInstructionShims = input.projections.filter((projection) =>
+    projection.kind === "global-instruction-shim"
+  );
   const projectContextRecommendation = projectContextRecommendationFor(input.projectContext);
   const actions = uniqueSetupActions([
     projectContextRecommendation,
     ...input.repoShims.map((shim) => shim.recommendation),
     ...nativeProjections.map(nativeProjectionRecommendation),
+    ...globalInstructionShims.map(globalInstructionShimRecommendation),
     ...skillProjectionRecommendations(input.skillCatalog),
   ]);
   return {
@@ -530,6 +565,7 @@ function buildSetupSnapshot(input: {
       recommendation: projectContextRecommendation,
     },
     repoShims: input.repoShims,
+    globalInstructionShims,
     nativeProjections,
     permissionIntegrity: input.permissionIntegrity,
     ...(input.skillCatalog ? { skills: input.skillCatalog } : {}),
@@ -574,6 +610,19 @@ function nativeProjectionRecommendation(projection: KilnProjectionTargetSnapshot
   }
   if (projection.status === "drifted") {
     return "review-native-projection-drift";
+  }
+  return "none";
+}
+
+function globalInstructionShimRecommendation(projection: KilnProjectionTargetSnapshot): KilnConfigSetupAction {
+  if (projection.status === "missing" || projection.status === "stale") {
+    return "sync-global-instruction-shims";
+  }
+  if (projection.status === "drifted") {
+    return "review-global-instruction-drift";
+  }
+  if (projection.status === "unmanaged") {
+    return "adopt-or-back-up-global-instructions";
   }
   return "none";
 }

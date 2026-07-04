@@ -185,6 +185,12 @@ describe("KilnConfig setup and status permission integrity", () => {
         recommendation: "none",
       },
       repoShims: [],
+      globalInstructionShims: [{
+        targetId: "codex-global-instructions",
+        path: "C:/Users/test/.codex/AGENTS.md",
+        kind: "global-instruction-shim",
+        status: "missing",
+      }],
       nativeProjections: [{
         targetId: "codex-config",
         path: "C:/Users/test/.codex/config.toml",
@@ -209,6 +215,7 @@ describe("KilnConfig setup and status permission integrity", () => {
         recommendation: "none",
       },
       repoShims: [],
+      globalInstructionShims: [],
       nativeProjections: [],
       permissionIntegrity: [integrity],
       recommendedActions: [],

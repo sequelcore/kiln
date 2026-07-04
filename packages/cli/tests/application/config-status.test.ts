@@ -67,7 +67,11 @@ describe("config-status", () => {
   it("reads effective config and projection status from canonical sources", async () => {
     writeProjectConfig(tempDir);
 
-    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, now: new Date("2026-05-07T12:00:00.000Z") });
+    const snapshot = await readConfigStatusSnapshot({
+      projectPath: tempDir,
+      userHome: join(tempDir, "home"),
+      now: new Date("2026-05-07T12:00:00.000Z"),
+    });
 
     expect(snapshot.generatedAt).toBe("2026-05-07T12:00:00.000Z");
     expect(snapshot.project.projectName).toBe("status-project");
@@ -93,9 +97,27 @@ describe("config-status", () => {
           recommendation: "sync-repo-shims",
         }),
       ]),
+      globalInstructionShims: expect.arrayContaining([
+        expect.objectContaining({
+          targetId: "codex-global-instructions",
+          kind: "global-instruction-shim",
+          status: "missing",
+        }),
+        expect.objectContaining({
+          targetId: "claude-global-instructions",
+          kind: "global-instruction-shim",
+          status: "missing",
+        }),
+        expect.objectContaining({
+          targetId: "opencode-global-instructions",
+          kind: "global-instruction-shim",
+          status: "missing",
+        }),
+      ]),
       recommendedActions: expect.arrayContaining([
         "adopt-project-context",
         "sync-repo-shims",
+        "sync-global-instruction-shims",
       ]),
     });
   });

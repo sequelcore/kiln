@@ -32,9 +32,17 @@ const TARGET_ALIASES: Readonly<Record<string, string>> = {
   "codex-config": "codex-config",
   opencode: "opencode-config",
   "opencode-config": "opencode-config",
+  "codex-instructions": "codex-global-instructions",
+  "claude-instructions": "claude-global-instructions",
+  "opencode-instructions": "opencode-global-instructions",
 };
 
 const HARNESS_TARGETS = new Set(["claude", "codex", "opencode"]);
+const GLOBAL_INSTRUCTION_TARGETS = [
+  "codex-global-instructions",
+  "claude-global-instructions",
+  "opencode-global-instructions",
+] as const;
 
 export async function uninstallCommand(
   _appConfig: KilnAppConfig,
@@ -125,6 +133,9 @@ function resolveTargetIds(state: NativeProjectionInstallState, target: string | 
   const normalized = target?.trim();
   if (!normalized) {
     return Object.keys(state.targets);
+  }
+  if (normalized === "instructions" || normalized === "global-instructions") {
+    return GLOBAL_INSTRUCTION_TARGETS.filter((targetId) => state.targets[targetId] !== undefined);
   }
   if (HARNESS_TARGETS.has(normalized)) {
     const targetIds = Object.keys(state.targets).filter((targetId) => targetId.startsWith(`${normalized}-`));

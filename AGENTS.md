@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:250eccdd5c676af0525fa9464a41e6a02fbce5415008023adb2d7f1c753eb2da
+contentHash: sha256:ada339ae34c31e74f179869c75176243674441f50aa62db4a313a357b2f75352
 -->
 # Agents
 
@@ -72,31 +72,6 @@ Follow the resolved Kiln work-governance policy before choosing direct execution
 - Evidence before done: surface-map, risk-hypothesis, plan, tests, typecheck, residual-risk
 - Projection is not authority: if required delegation, review, approval, or tool capability is unavailable in this harness, do not simulate it or create project memory workarounds.
 - Record missing harness/tool/route capability as a `capability` pause requirement, continue locally only when the required evidence gates can still be satisfied, or ask the operator for explicit authorization.
-
-## Agents
-
-| Name | Display | Role | Tools | Provider Route | Skills | Instruction Profiles |
-|------|---------|------|-------|----------------|--------|----------------------|
-| adversarial-reviewer (global) | Herkabe | Adversarial reviewer | read, grep, glob | codex-oauth/codex-auto-review | - | - |
-| architect (global) | Piama | Software architect | read, grep, glob, web | codex-oauth/gpt-5.5 | - | - |
-| architecture-planner (global) | Lloyd | Architecture planner | read, grep, glob | codex-oauth/gpt-5.5 | - | - |
-| backend-coder (global) | DeepSeek | Backend and runtime implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | opencode-go/deepseek-v4-pro | - | - |
-| coder (global) | Reese | Coding implementation specialist; tasks: backend-coding, test-writing | read, grep, glob, write, bash | codex-oauth/gpt-5.5 | - | - |
-| ddd-validator (global) | Ida | DDD and Clean Architecture validator | read, grep, glob | - | - | - |
-| fast-coder (global) | Stevie | Fast implementation specialist; tasks: mechanical-edit | read, grep, glob, write, bash | opencode-go/deepseek-v4-flash | - | - |
-| frontend-coder (global) | Kimi | Frontend implementation specialist; tasks: frontend-design | read, grep, glob, write, bash | opencode-go/kimi-k2.7-code | - | - |
-| opencode (global) | Craig | OpenCode implementation worker; tasks: mechanical-edit | read, grep, glob, write, bash | opencode-go/deepseek-v4-flash | - | - |
-| planner (global) | Hal | Implementation planner | read, grep, glob | codex-oauth/gpt-5.5 | - | - |
-| react-ts-reviewer (global) | Cynthia | React TypeScript reviewer | read, grep, glob | - | - | - |
-| refactoring-specialist (global) | Jamie | Refactoring specialist; tasks: mechanical-edit, backend-coding | read, grep, glob, write, bash | opencode-go/glm-5.2 | - | - |
-| research-writer (global) | Qwen | Research documentation implementation specialist; tasks: research | read, grep, glob, write, web | opencode-go/qwen3.7-max | - | - |
-| researcher (global) | Abe | Technical researcher; tasks: research | read, grep, glob, web | opencode-go/qwen3.7-max | - | - |
-| reviewer (global) | Lois | Code quality reviewer | read, grep, glob | codex-oauth/codex-auto-review | - | - |
-| scout (global) | Dewey | Read-only context scout; tasks: research | read, grep, glob | opencode-go/deepseek-v4-flash | - | - |
-| service-coder (global) | GLM | Service and adapter implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | opencode-go/glm-5.2 | - | - |
-| spring-boot-reviewer (global) | Spangler | Spring Boot reviewer | read, grep, glob | - | - | - |
-| tdd (global) | Malcolm | TDD guide; tasks: test-writing | read, grep, glob, write, bash | codex-oauth/gpt-5.5 | - | - |
-| visual-researcher (global) | Qwen | Visual reference research specialist; tasks: frontend-design, research | read, grep, glob, web | opencode-go/qwen3.7-max | - | - |
 
 ## Usage
 

@@ -158,9 +158,9 @@ describe("repo-shim-projection", () => {
     expect(agents).toContain("- Orchestrate/delegate for: architecture, ui");
     expect(agents).toContain("Projection is not authority");
     expect(agents).toContain("Record missing harness/tool/route capability as a `capability` pause requirement");
-    expect(agents).toContain("| planner (global) | Hal | Planning specialist");
-    expect(agents).toContain("| Name | Display | Role | Tools | Provider Route | Skills | Instruction Profiles |");
-    expect(agents).toContain("codex-oauth/gpt-5.4");
+    expect(agents).not.toContain("| planner (global) | Hal | Planning specialist");
+    expect(agents).not.toContain("| Name | Display | Role | Tools | Provider Route | Skills | Instruction Profiles |");
+    expect(agents).not.toContain("codex-oauth/gpt-5.4");
     expect(agents).toContain("sequel-engineering (global): ~/.kiln/instructions/sequel-engineering.md");
     expect(claude).toContain("kiln:repo-shim:v1");
     expect(claude).toContain("target: claude");

@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, relative } from "node:path";
-import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import {
   findInstructionProfile,
   loadInstructionProfiles,
@@ -88,7 +87,6 @@ interface SignedProjection {
 
 interface RepoShimProjectionContext {
   readonly projectPath: string;
-  readonly agents: readonly KilnAgentDefinition[];
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: KilnYaml | null;
   readonly repoContext: ProjectContextEvidence;
@@ -222,13 +220,11 @@ export async function readWorkflowSnapshotManifestStatus(projectPath: string): P
 }
 
 async function loadRepoShimProjectionContext(projectPath: string): Promise<RepoShimProjectionContext> {
-  const agents = await loadAgentDefinitions(projectPath);
   const instructionProfiles = loadInstructionProfiles(projectPath);
   const kilnYaml = await loadKilnConfig(projectPath);
   const repoContext = collectProjectContextEvidence(projectPath);
   return {
     projectPath,
-    agents,
     instructionProfiles,
     kilnYaml,
     repoContext,
@@ -245,7 +241,6 @@ function repoRootIdentity(repoContext: ProjectContextEvidence): string {
 function writeRepoShimTarget(input: {
   readonly projectPath: string;
   readonly target: RepoShimTarget;
-  readonly agents: readonly KilnAgentDefinition[];
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: KilnYaml | null;
   readonly repoContext: ProjectContextEvidence;
@@ -312,7 +307,6 @@ function repoShimTargetResult(
 function renderRepoShimBody(input: {
   readonly projectPath: string;
   readonly target: RepoShimTarget;
-  readonly agents: readonly KilnAgentDefinition[];
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: KilnYaml | null;
   readonly repoContext: ProjectContextEvidence;
@@ -325,7 +319,6 @@ function renderRepoShimBody(input: {
     ...renderAdoptedProjectContextSection(input.adoptedProjectContext),
     ...renderActiveInstructionProfilesSection(input),
     ...renderWorkGovernanceSection(input.kilnYaml),
-    ...renderAgentsSection(input.agents),
     ...renderUsageSection(),
   ].join("\n");
 }
@@ -467,23 +460,6 @@ function renderWorkGovernanceSection(kilnYaml: KilnYaml | null): readonly string
   ];
 }
 
-function renderAgentsSection(agents: readonly KilnAgentDefinition[]): readonly string[] {
-  const rows = [...agents]
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map(formatAgentRow);
-  return [
-    "## Agents",
-    "",
-    "| Name | Display | Role | Tools | Provider Route | Skills | Instruction Profiles |",
-    "|------|---------|------|-------|----------------|--------|----------------------|",
-    ...rows,
-    "",
-    ...(rows.length === 0
-      ? ["No agent profiles defined. Create `.kiln/agents/<name>.md` or `~/.kiln/agents/<name>.md` to add one.", ""]
-      : []),
-  ];
-}
-
 function renderUsageSection(): readonly string[] {
   return [
     "## Usage",
@@ -499,26 +475,6 @@ function formatDirectExecution(
   config: NonNullable<KilnYaml["workGovernance"]>["directExecution"],
 ): string {
   return formatDirectExecutionFields(config, "configured");
-}
-
-function formatAgentRow(agent: KilnAgentDefinition): string {
-  const tools = agent.tools && agent.tools.length > 0 ? agent.tools.join(", ") : "-";
-  const skills = agent.skills && agent.skills.length > 0 ? agent.skills.join(", ") : "-";
-  const taskAffinity = agent.taskAffinity && agent.taskAffinity.length > 0 ? `; tasks: ${agent.taskAffinity.join(", ")}` : "";
-  const displayName = agent.displayName ?? "-";
-  const instructionProfiles = agent.instructionProfiles && agent.instructionProfiles.length > 0
-    ? agent.instructionProfiles.join(", ")
-    : "-";
-  return `| ${agent.name} (${agent.scope}) | ${displayName} | ${agent.role}${taskAffinity} | ${tools} | ${formatAgentProviderRoute(agent)} | ${skills} | ${instructionProfiles} |`;
-}
-
-function formatAgentProviderRoute(agent: KilnAgentDefinition): string {
-  if (!agent.providerRoute) {
-    return "-";
-  }
-  return agent.providerRoute.model
-    ? `${agent.providerRoute.providerId}/${agent.providerRoute.model}`
-    : agent.providerRoute.providerId;
 }
 
 function formatProfilePath(profile: KilnInstructionProfileDefinition, projectPath: string): string {
