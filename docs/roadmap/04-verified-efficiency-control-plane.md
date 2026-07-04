@@ -1,6 +1,7 @@
 # 04 - Verified Efficiency Control Plane
 
-Status: Active architecture program; Slice 0 and Slice 1 complete
+Status: Active architecture program; Slice 0 and Slice 1 complete; Slice 2
+requires restart after failed GUI implementation attempt
 
 Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
 (`feat(runtime): record lifecycle attribution ledger`). Slice 0 live baseline
@@ -11,8 +12,10 @@ commits `d0d9ecf9`, `41d28e5f`, `e74eb1b3`, and `bd2c0480`. An authorized
 post-repair pilot then proved the token-pressure repair on four live routes,
 and an authorized `k=5` comparison promoted only the bounded local routing
 decision for `kiln-tool-agent`: Codex GPT-5.5 remains primary and Kimi K2.7
-Code remains an eligible fallback/specialist route. Slices 2 through 12 are
-not started.
+Code remains an eligible fallback/specialist route. Slice 2 was attempted
+through Kiln GUI on 2026-07-03, but the attempt was reverted before commit
+because it violated the stable-prefix contract and left incomplete workflow
+evidence. Slices 2 through 12 are not started.
 
 ## Objective
 
@@ -269,7 +272,7 @@ contracts but must not create parallel legacy paths.
 | --- | --- | --- | --- |
 | Slice 0 - Baseline And Reproduction | Complete | The authorized 2026-07-02 `kiln-tool-agent` work established the pre-repair pressure source, repaired provider-neutral benchmark prerequisites, validated the post-repair `k=1` baseline across four live routes, and ran a viable-route `k=5` comparison for Codex GPT-5.5 and Kimi K2.7 Code. The old 419,972-940,391 input-token pressure was primarily a Kiln request-shaping/tool-projection problem. The remaining GPT-5.5 versus Kimi difference is model and harness behavior under the same Kiln control plane. | Start Slice 2 stable prefix and cache topology before making broader savings or public benchmark claims. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
-| Slice 2 - Stable Prefix And Cache Topology | Next | Not started. | Prove byte-stable reusable request regions without changing admitted information. |
+| Slice 2 - Stable Prefix And Cache Topology | Next | Not started. A 2026-07-03 Kiln GUI implementation attempt was reverted before commit. See the failed-attempt audit below. | Restart from TDD with real stable-prefix semantics and integrate with existing provider-request evidence instead of adding prompt-visible cache metadata. |
 | Slice 3 - Progressive Context And Tool Loading | Planned | Not started. | Start after stable-prefix evidence exists. |
 | Slice 4 - Typed Lossless Reduction | Planned | Not started. | Start after progressive-loading measurements identify high-volume structured artifacts. |
 | Slice 5 - Reversible Context Projection | Planned | Not started. | Start after typed reductions have preservation contracts. |
@@ -436,7 +439,8 @@ Closure evidence:
 
 ### Slice 2 - Stable Prefix And Cache Topology
 
-Status: Next; not started.
+Status: Next; not started. A failed GUI implementation attempt on 2026-07-03
+was reverted before commit.
 
 Goal: reduce repeated prefill cost without changing admitted information.
 
@@ -454,6 +458,64 @@ Exit gate:
 - cache gains do not change authority, tool availability, or outputs beyond
   expected provider nondeterminism;
 - tenant and authority partition tests prevent invalid cache reuse.
+
+Failed-attempt audit, 2026-07-03:
+
+- The Kiln GUI session correctly started with `work_governance.assess`, which
+  recommended orchestration because the task was multi-file, runtime-related,
+  and verification-heavy.
+- The session then used `read`, `resource_read`, `grep`, `tree`, `git`, `glob`,
+  and `read_many` to scout the roadmap and affected core/runtime surfaces.
+- Governance setup was attempted through `work_item.update`, `goal.create`,
+  and `work_item.execution.start`. The first `work_item.update` failed because
+  its work-classification provenance source id did not match the created work
+  item. The session recovered from that input error but continued with a noisy
+  control-flow path.
+- `work_item.execution.start` initially paused because `managedInvocationId`
+  was required for managed delegation. The session later proceeded without
+  clear managed-child implementation evidence, so the effective workflow became
+  direct execution despite the orchestration recommendation.
+- Two `write` tool calls failed with `Irreversible workspace mutation requires
+  confirmation`, but subsequent `patch` calls successfully mutated the
+  workspace. That mismatch is authority-surface drift and must not be treated
+  as a valid implementation path for governed work.
+- The attempted implementation created a parallel stable-prefix contract that
+  filtered all segments marked stable instead of requiring a leading contiguous
+  stable prefix. That would permit unsafe reuse when stable content appears
+  after volatile turn-local content.
+- The attempted implementation used a local 32-bit FNV-style hash while
+  existing request evidence uses `sha256:*` hashes. Slice 2 must use canonical
+  evidence-grade hashing and must not create a weaker parallel identity scheme.
+- Runtime prompt assembly was changed to inject cache topology into the model
+  system prompt. That increases prompt bytes and changes model-visible content,
+  contradicting the goal of reducing repeated prefill without changing admitted
+  information.
+- Test execution was noisy and environment-confused: `bunx`, `cmd /c`, and
+  `bun` failed in the monitor shell before the session fell back to `npm exec`
+  and workspace npm scripts. Future GUI execution must select the correct
+  command surface up front.
+- Verification polling was excessive: the session used many `monitor_read`
+  calls, started a final core-test monitor, and ended without an assistant
+  closeout, commit, work-item completion, or clean evidence summary because the
+  model token budget was exhausted.
+- All code and test changes from this failed attempt were reverted. The only
+  retained artifact is this audit so the next Slice 2 attempt does not reuse
+  the invalid design or the invalid workflow evidence.
+
+Restart requirements:
+
+- Start with failing tests for a true leading stable prefix: once a volatile
+  segment appears, later content cannot be part of the reusable prefix for that
+  request.
+- Reuse or extend existing provider-request evidence and `sha256:*` hashing
+  rather than adding a parallel cache-identity scheme.
+- Do not put cache topology into the model-visible prompt. Cache evidence must
+  be telemetry/control-plane evidence unless a later slice explicitly proves a
+  model-visible disclosure requirement.
+- Treat mismatched `write` denial plus `patch` success as an authority bug or
+  pause condition for governed GUI work, not as permission to continue silently.
+- Close the slice only after focused tests, typecheck, build, review evidence,
+  roadmap evidence, commit, and clean worktree status are all present.
 
 ### Slice 3 - Progressive Context And Tool Loading
 
