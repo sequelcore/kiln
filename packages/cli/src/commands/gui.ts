@@ -27,7 +27,10 @@ import {
   readProviderDiscoveryCache,
   writeProviderDiscoveryCache,
 } from "../config/provider-discovery-cache.js";
-import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection,
+} from "../config/builtin-tool-surface-config.js";
 import { resolveProjectMemoryScope } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime } from "../config/operator-voice.js";
@@ -150,7 +153,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       },
     });
   startupProfiler.mark("builtin-tool-options-loaded");
-  let builtinToolOptions = createSessionBuiltinToolOptions({
+  let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -159,7 +162,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       ...createKilnConfigTools(cwd),
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
-  });
+  }, "execute"));
   startupProfiler.mark("builtin-tool-options-created");
   let managedRouteGlobalConfig = globalConfig;
   let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);

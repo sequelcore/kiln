@@ -48,7 +48,10 @@ import {
   readProviderDiscoveryCache,
   writeProviderDiscoveryCache,
 } from "../config/provider-discovery-cache.js";
-import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection,
+} from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   createDefaultRegistry,
@@ -1255,7 +1258,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       },
     });
   startupProfiler.mark("builtin-tool-options-loaded");
-  let builtinToolOptions = createSessionBuiltinToolOptions({
+  let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -1264,7 +1267,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       ...createKilnConfigTools(cwd),
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
-  });
+  }, "execute"));
   startupProfiler.mark("builtin-tool-options-created");
   let managedRouteGlobalConfig = globalConfig;
   let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);

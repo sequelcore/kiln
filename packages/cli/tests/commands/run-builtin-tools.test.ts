@@ -512,6 +512,10 @@ describe("run command builtin tool wiring", () => {
     );
     expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
       id: "surface-options",
+      toolProjection: expect.objectContaining({
+        mode: "deferred",
+        alwaysOnTools: expect.arrayContaining(["read", "write", "work_item.update"]),
+      }),
       workItemStore: expect.any(Object),
       additionalTools: expect.arrayContaining([
         expect.objectContaining({ name: "kiln_config.read" }),

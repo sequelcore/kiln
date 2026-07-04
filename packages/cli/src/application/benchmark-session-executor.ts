@@ -33,7 +33,10 @@ import { readKilnYaml } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "./instruction-profile-context.js";
 import { withWorkGovernanceContext } from "./work-governance-context.js";
-import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection,
+} from "../config/builtin-tool-surface-config.js";
 import { createKilnConfigTools } from "./config-tools.js";
 import { createWorkGovernanceTools } from "./work-governance-tool.js";
 import { createKilnRuntimeManagedInvocationAttachment } from "./managed-invocation-attachment.js";
@@ -48,7 +51,6 @@ import { resolveProjectRoot } from "./project-root-resolver.js";
 
 export const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
 export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 8 } } as const;
-const BENCHMARK_ALWAYS_ON_TOOLS = ["read", "grep", "glob", "read_many"] as const;
 
 export interface BenchmarkSessionExecutorFlags {
   readonly provider?: string;
@@ -124,12 +126,8 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     });
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
-    let builtinToolOptions = createSessionBuiltinToolOptions({
+    let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
       ...configuredBuiltinToolOptions,
-      toolProjection: {
-        mode: "deferred",
-        alwaysOnTools: BENCHMARK_ALWAYS_ON_TOOLS,
-      },
       workItemStore,
       goalRunStore,
       additionalTools: [
@@ -137,7 +135,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         ...createKilnConfigTools(cwd),
         ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
       ],
-    });
+    }, "read-only"));
     const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
     const managedAgentProviderModels = await discoverManagedAgentProviderModels();
     const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {

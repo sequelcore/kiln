@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "@kilnai/core";
 import { describe, expect, it, vi } from "vitest";
-import { loadConfiguredBuiltinToolSurfaceOptions } from "../../src/config/builtin-tool-surface-config.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection,
+} from "../../src/config/builtin-tool-surface-config.js";
 import type { KilnAppConfig } from "../../src/config.js";
 
 vi.mock("@kilnai/runtime", () => ({
@@ -77,6 +80,60 @@ describe("builtin tool surface config", () => {
     } finally {
       rmSync(projectPath, { recursive: true, force: true });
     }
+  });
+
+  it("projects read-only runtime tools without admitting mutating capabilities", () => {
+    const surface = createDefaultBuiltinToolSurface(withProgressiveRuntimeToolProjection({
+      toolProjection: {
+        mode: "deferred",
+        alwaysOnTools: ["monitor_list"],
+      },
+      additionalTools: [
+        {
+          name: "work_item.update",
+          description: "Update governed work item.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          execute: async () => ({ output: "updated", isError: false }),
+        },
+        {
+          name: "kiln_config.apply_change",
+          description: "Apply config change.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          execute: async () => ({ output: "applied", isError: false }),
+        },
+      ],
+    }, "read-only"));
+
+    expect(surface.toolNames).toContain("tool_catalog_search");
+    expect(surface.toolNames).toContain("read");
+    expect(surface.toolNames).toContain("web_search");
+    expect(surface.toolNames).toContain("monitor_list");
+    expect(surface.toolNames).not.toContain("write");
+    expect(surface.toolNames).not.toContain("work_item.update");
+    expect(surface.toolNames).not.toContain("kiln_config.apply_change");
+    expect(surface.toolNames).not.toContain("browser_session_start");
+    expect(surface.registry.has("kiln_config.apply_change")).toBe(true);
+    expect(surface.registry.has("browser_session_start")).toBe(true);
+    expect(surface.bridge.listTools().map((tool) => tool.name)).toContain("browser_session_start");
+  });
+
+  it("projects execution tools while deferring specialized capabilities", () => {
+    const surface = createDefaultBuiltinToolSurface(withProgressiveRuntimeToolProjection({
+      additionalTools: [{
+        name: "work_item.update",
+        description: "Update governed work item.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        execute: async () => ({ output: "updated", isError: false }),
+      }],
+    }, "execute"));
+
+    expect(surface.toolNames).toContain("tool_catalog_search");
+    expect(surface.toolNames).toContain("read");
+    expect(surface.toolNames).toContain("write");
+    expect(surface.toolNames).toContain("web_search");
+    expect(surface.toolNames).toContain("work_item.update");
+    expect(surface.toolNames).not.toContain("browser_session_start");
+    expect(surface.registry.has("browser_session_start")).toBe(true);
   });
 });
 

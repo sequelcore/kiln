@@ -847,23 +847,33 @@ describe("default builtin tool surface", () => {
     });
   });
 
-  it("supports surface-owned read-only additional tools in deferred projection", async () => {
+  it("admits only explicitly requested surface-owned tools in deferred projection", async () => {
     const surface = createDefaultBuiltinToolSurface({
-      additionalTools: [{
-        name: "kiln_config.read",
-        description: "Read config.",
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
-        effectEnvelope: READ_ONLY_EFFECT,
-        execute: async () => ({ output: "{}", isError: false }),
-      }],
+      additionalTools: [
+        {
+          name: "kiln_config.read",
+          description: "Read config.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          effectEnvelope: READ_ONLY_EFFECT,
+          execute: async () => ({ output: "{}", isError: false }),
+        },
+        {
+          name: "kiln_config.apply_change",
+          description: "Apply config.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          execute: async () => ({ output: "applied", isError: false }),
+        },
+      ],
       toolProjection: {
         mode: "deferred",
-        alwaysOnTools: ["read"],
+        alwaysOnTools: ["read", "kiln_config.read"],
       },
     });
 
     expect(surface.toolNames).toContain("kiln_config.read");
+    expect(surface.toolNames).not.toContain("kiln_config.apply_change");
     expect(surface.registry.has("kiln_config.read")).toBe(true);
+    expect(surface.registry.has("kiln_config.apply_change")).toBe(true);
     await expect(surface.bridge.execute({
       name: "kiln_config.read",
       input: {},

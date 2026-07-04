@@ -70,7 +70,10 @@ import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
-import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection,
+} from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   createCliTranscriptBudgetUsageReader,
@@ -1051,7 +1054,7 @@ export async function runCommand(
     });
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
-  let builtinToolOptions = createSessionBuiltinToolOptions({
+  let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -1064,7 +1067,7 @@ export async function runCommand(
         ownerSessionId: approvalMemorySessionId,
       }),
     ],
-  });
+  }, "execute"));
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {

@@ -79,6 +79,30 @@ vi.mock("../../src/config/provider-route-candidates.js", () => ({
 
 vi.mock("../../src/config/builtin-tool-surface-config.js", () => ({
   loadConfiguredBuiltinToolSurfaceOptions: benchmarkExecutorMocks.loadBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection: vi.fn((options, profile) => ({
+    ...options,
+    toolProjection: {
+      mode: "deferred",
+      alwaysOnTools: profile === "read-only" ? [
+        "read",
+        "read_many",
+        "grep",
+        "glob",
+        "tree",
+        "stat",
+        "git",
+        "json_query",
+        "code_intelligence",
+        "web_search",
+        "web_fetch",
+        "web_extract",
+        "kiln_config.read",
+        "work_governance.assess",
+        "work_profile.list",
+        "work_item.list",
+      ] : [],
+    },
+  })),
 }));
 
 vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
@@ -325,9 +349,21 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(benchmarkExecutorMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
       toolProjection: {
         mode: "deferred",
-        alwaysOnTools: ["read", "grep", "glob", "read_many"],
+        alwaysOnTools: expect.arrayContaining([
+          "read",
+          "read_many",
+          "web_search",
+          "work_item.list",
+        ]),
       },
     }));
+    const projectedTools = benchmarkExecutorMocks.createSessionBuiltinToolOptions.mock.calls[0]?.[0]
+      ?.toolProjection?.alwaysOnTools;
+    expect(projectedTools).not.toContain("bash");
+    expect(projectedTools).not.toContain("write");
+    expect(projectedTools).not.toContain("kiln_config.propose_change");
+    expect(projectedTools).not.toContain("kiln_config.apply_change");
+    expect(projectedTools).not.toContain("work_item.update");
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("[tool] status"));
