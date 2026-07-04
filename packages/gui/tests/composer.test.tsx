@@ -180,6 +180,7 @@ describe("Composer", () => {
     const options = within(inputSurface as HTMLElement).getByRole("group", { name: "Message options" });
     expect(options).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Attach audio file" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Attach image" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText(/Turn authority/)).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("status", { name: "Context usage unavailable" })).toBeInTheDocument();
@@ -193,6 +194,7 @@ describe("Composer", () => {
     renderComposer();
 
     expect(screen.getByRole("button", { name: "Attach audio file" })).toHaveClass("bg-background/60");
+    expect(screen.getByRole("button", { name: "Attach image" })).toHaveClass("bg-background/60");
     expect(screen.getByRole("button", { name: "Plan" })).toHaveClass("bg-background/60");
     expect(screen.getByRole("button", { name: "Record voice" })).toHaveClass("bg-background/60");
     expect(screen.getByRole("status", { name: "Context usage unavailable" })).toHaveClass("border", "bg-background/60");
@@ -204,6 +206,7 @@ describe("Composer", () => {
     const options = screen.getByRole("group", { name: "Message options" });
     const orderedControls = [
       within(options).getByRole("button", { name: "Attach audio file" }),
+      within(options).getByRole("button", { name: "Attach image" }),
       within(options).getByRole("button", { name: "Plan" }),
       within(options).getByLabelText(/Turn authority/),
       within(options).getByRole("status", { name: "Context usage unavailable" }),
@@ -367,6 +370,53 @@ describe("Composer", () => {
         },
       ], "Voice input");
     });
+  });
+
+  it("attaches an image file and submits canonical image parts", async () => {
+    const { onSubmitParts } = renderComposer();
+    const file = new File(["abc"], "queja.png", { type: "image/png" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Attach image" }));
+    fireEvent.change(screen.getByLabelText("Image file input"), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() => {
+      expect(onSubmitParts).toHaveBeenCalledWith([
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "YWJj",
+        },
+      ], "Image: queja.png");
+    });
+  });
+
+  it("submits pasted image clipboard data as canonical image parts", async () => {
+    const { onSubmitParts } = renderComposer();
+    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    const file = new File(["abc"], "clipboard.png", { type: "image/png" });
+    const pasteEvent = new Event("paste", { bubbles: true, cancelable: true }) as Event & {
+      clipboardData?: {
+        readonly files: readonly File[];
+      };
+    };
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: { files: [file] },
+    });
+
+    fireEvent(textarea, pasteEvent);
+
+    await waitFor(() => {
+      expect(onSubmitParts).toHaveBeenCalledWith([
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "YWJj",
+        },
+      ], "Image: clipboard.png");
+    });
+    expect(pasteEvent.defaultPrevented).toBe(true);
   });
 
   it("renders reasoning effort as part of the composer model controls", () => {

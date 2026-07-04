@@ -1,4 +1,4 @@
-import type { FormEventHandler, KeyboardEventHandler, ReactNode } from "react";
+import type { ClipboardEventHandler, FormEventHandler, KeyboardEventHandler, ReactNode } from "react";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import type { CommandPaletteItem } from "./command-menu-surface.js";
 import { ComposerCommandMenu } from "./composer-command-menu.js";
@@ -27,6 +27,7 @@ export function ComposerFrame(props: {
   readonly onSubmit: FormEventHandler<HTMLFormElement>;
   readonly onDraftChange: (value: string) => void;
   readonly onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
+  readonly onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
   const hasRuntimeControls = Boolean(props.providerControl || props.reasoningControl || props.authorityControl);
 
@@ -58,6 +59,7 @@ export function ComposerFrame(props: {
             rows={1}
             onChange={(event) => props.onDraftChange(event.target.value)}
             onKeyDown={props.onKeyDown}
+            onPaste={props.onPaste}
             className="min-h-14 max-h-44 px-3 py-2.5 text-sm leading-6"
             placeholder="Message Kiln"
           />

@@ -1,4 +1,8 @@
-import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import {
+  createImageInputParts,
+  imageInputDisplayText,
+} from "@kilnai/gateway-contracts/image-input-parts";
 import {
   createVoiceInputParts,
   selectVoiceInputCaptureMimeType,
@@ -28,6 +32,7 @@ export function Composer(props: ComposerProps) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioFileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startedAtRef = useRef<number>(0);
   const canSubmit = props.status === "ready" && draft.trim().length > 0;
@@ -38,6 +43,7 @@ export function Composer(props: ComposerProps) {
     && typeof MediaRecorder !== "undefined";
   const voiceButtonDisabled = !canCaptureVoice || (isBusy && voiceState !== "recording") || voiceState === "encoding";
   const fileButtonDisabled = !props.onSubmitParts || isBusy || voiceState !== "idle";
+  const imageButtonDisabled = !props.onSubmitParts || isBusy || voiceState !== "idle";
 
   function handleDraftChange(value: string): void {
     if (value.trim() === "/") {
@@ -132,6 +138,43 @@ export function Composer(props: ComposerProps) {
     void submitAudioFile(file);
   }
 
+  async function submitImageFile(file: File): Promise<void> {
+    if (!props.onSubmitParts || imageButtonDisabled) {
+      return;
+    }
+
+    try {
+      const parts = await createImageInputParts({ image: file });
+      props.onSubmitParts(parts, imageInputDisplayText(file.name));
+    } catch (error) {
+      console.warn("[Composer] Image file input failed:", error);
+    }
+  }
+
+  function handleImageFileChange(event: ChangeEvent<HTMLInputElement>): void {
+    const [file] = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    if (!file) {
+      return;
+    }
+    void submitImageFile(file);
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>): void {
+    if (!props.onSubmitParts || imageButtonDisabled) {
+      return;
+    }
+
+    const clipboardData = event.clipboardData as DataTransfer | undefined;
+    const image = Array.from(clipboardData?.files ?? []).find((file) => file.type.startsWith("image/"));
+    if (!image) {
+      return;
+    }
+
+    event.preventDefault();
+    void submitImageFile(image);
+  }
+
   function submitDraft(): void {
     if (!canSubmit) {
       return;
@@ -176,17 +219,21 @@ export function Composer(props: ComposerProps) {
       onSubmit={handleSubmit}
       onDraftChange={handleDraftChange}
       onKeyDown={handleComposerKeyDown}
+      onPaste={handlePaste}
       leadingActions={(
         <ComposerLeadingActions
           planMode={props.planMode}
           canSubmit={canSubmit}
           fileButtonDisabled={fileButtonDisabled}
+          imageButtonDisabled={imageButtonDisabled}
           voiceButtonDisabled={voiceButtonDisabled}
           voiceState={voiceState}
           audioFileInputRef={audioFileInputRef}
+          imageFileInputRef={imageFileInputRef}
           onTogglePlanMode={() => props.onTogglePlanMode(!props.planMode)}
           onToggleVoiceCapture={toggleVoiceCapture}
           onAudioFileChange={handleAudioFileChange}
+          onImageFileChange={handleImageFileChange}
         />
       )}
       trailingActions={(
@@ -194,12 +241,15 @@ export function Composer(props: ComposerProps) {
           planMode={props.planMode}
           canSubmit={canSubmit}
           fileButtonDisabled={fileButtonDisabled}
+          imageButtonDisabled={imageButtonDisabled}
           voiceButtonDisabled={voiceButtonDisabled}
           voiceState={voiceState}
           audioFileInputRef={audioFileInputRef}
+          imageFileInputRef={imageFileInputRef}
           onTogglePlanMode={() => props.onTogglePlanMode(!props.planMode)}
           onToggleVoiceCapture={toggleVoiceCapture}
           onAudioFileChange={handleAudioFileChange}
+          onImageFileChange={handleImageFileChange}
         />
       )}
     />
