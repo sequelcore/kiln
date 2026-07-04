@@ -2,7 +2,7 @@ import { translatePermission } from "../../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import {
   asRecord,
-  createPermissionProjectionIntegrity,
+  createPermissionProjection,
   PERMISSION_PROJECTION_TARGET_IDS,
   toPermissionSyncMetadata,
   type PermissionProjection,
@@ -26,7 +26,7 @@ export function translateClaudePermissionProjection(input: {
     deny.push("Write", "Edit", "Bash", "NotebookEdit", "WebFetch");
   }
 
-  return {
+  return createPermissionProjection({
     targetId: PERMISSION_PROJECTION_TARGET_IDS.claude,
     managedFields: ["permissions", "kiln.permissionSync"],
     document: {
@@ -37,7 +37,7 @@ export function translateClaudePermissionProjection(input: {
         permissionSync: toPermissionSyncMetadata(translated),
       },
     },
-    integrity: createPermissionProjectionIntegrity({
+    integrity: {
       harness: "claude-code",
       policy: input.policy,
       translated,
@@ -50,6 +50,6 @@ export function translateClaudePermissionProjection(input: {
         networkBoundary: "not-enforced",
         strength: "rules-only",
       },
-    }),
-  };
+    },
+  });
 }

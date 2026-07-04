@@ -4,7 +4,7 @@ import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 import { createInstagramWebhookRoutes } from "../../src/gateway/instagram-webhook-routes.js";
 import type { InstagramWebhookConfig } from "../../src/gateway/instagram-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
-import { SessionRegistry } from "../../src/session/session-registry.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";

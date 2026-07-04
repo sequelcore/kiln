@@ -1194,7 +1194,7 @@ function parseGuiOutboundFrame(data: unknown): GuiOutboundFrame | null {
 }
 
 async function collectAppGatewayRuntimeSessions(config: GatewayServerConfig): Promise<readonly RuntimeSession[]> {
-  const registries = new Set<import("../session/session-registry.js").SessionRegistry>();
+  const registries = new Set<import("../session/persistence/session-registry.js").SessionRegistry>();
   for (const app of config.apps) {
     if (app.providerAdapterRuntime) {
       registries.add(app.providerAdapterRuntime.sessionRegistry);

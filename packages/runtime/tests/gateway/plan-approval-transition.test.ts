@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createSessionEvent, type PlanSubmissionInput } from "@kilnai/core";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { approvePlanExecutionTransition } from "../../src/gateway/plan-approval-transition.js";
-import { SessionRegistry } from "../../src/session/session-registry.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 
 describe("approvePlanExecutionTransition", () => {
   it("approves the latest ready plan and appends a canonical plan_approved event", async () => {

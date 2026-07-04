@@ -5,7 +5,7 @@ import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
-import type { SessionRegistry } from "../../src/session/session-registry.js";
+import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { Capability, TenantConfig, ToolDefinition } from "@kilnai/core";
 import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";

@@ -13,6 +13,14 @@ import type { KilnAppConfig } from "../config.js";
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
 
+const LEGACY_SYNC_FLAGS: Readonly<Record<string, SyncTargetId>> = {
+  "--permissions": "permissions",
+  "--hooks": "hooks",
+  "--agents": "agents",
+  "--repo-shims": "repo-shims",
+  "--skills": "skills",
+};
+
 export interface SyncFlags {
   readonly targets: readonly SyncTargetId[];
   readonly force: boolean;
@@ -24,13 +32,9 @@ export function parseSyncFlags(args: readonly string[]): SyncFlags {
   const explicitTargets = readFlagValues(args, "--target").flatMap((value) =>
     value.split(",").map((target) => target.trim()).filter(Boolean)
   );
-  const legacyFlagTargets: SyncTargetId[] = [
-    args.includes("--permissions") ? "permissions" : undefined,
-    args.includes("--hooks") ? "hooks" : undefined,
-    args.includes("--agents") ? "agents" : undefined,
-    args.includes("--repo-shims") ? "repo-shims" : undefined,
-    args.includes("--skills") ? "skills" : undefined,
-  ].filter((target): target is SyncTargetId => target !== undefined);
+  const legacyFlagTargets = Object.entries(LEGACY_SYNC_FLAGS)
+    .filter(([flag]) => args.includes(flag))
+    .map(([, target]) => target);
 
   const requestedTargets = [...explicitTargets, ...legacyFlagTargets].map(parseSyncTargetId);
   const targets = [...new Set(requestedTargets)];
@@ -55,6 +59,10 @@ export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
 
 function isSyncTargetSelected(flags: SyncFlags, target: SyncTargetId): boolean {
   return flags.syncAll || flags.targets.includes(target);
+}
+
+function isForceSyncTargetSelected(flags: SyncFlags, target: SyncTargetId): boolean {
+  return flags.force && isSyncTargetSelected(flags, target);
 }
 
 function parseSyncTargetId(target: string): SyncTargetId {
@@ -128,11 +136,11 @@ export async function syncCommand(
     process.exit(1);
   }
   const forceNativeProjectionSync = requiresForceSyncConfirmation(flags);
-  const forcePermissionSync = flags.force && isSyncTargetSelected(flags, "permissions");
-  const forceHookSync = flags.force && isSyncTargetSelected(flags, "hooks");
-  const forceAgentSync = flags.force && isSyncTargetSelected(flags, "agents");
-  const forceRepoShimSync = flags.force && isSyncTargetSelected(flags, "repo-shims");
-  const forceSkillSync = flags.force && isSyncTargetSelected(flags, "skills");
+  const forcePermissionSync = isForceSyncTargetSelected(flags, "permissions");
+  const forceHookSync = isForceSyncTargetSelected(flags, "hooks");
+  const forceAgentSync = isForceSyncTargetSelected(flags, "agents");
+  const forceRepoShimSync = isForceSyncTargetSelected(flags, "repo-shims");
+  const forceSkillSync = isForceSyncTargetSelected(flags, "skills");
 
   const projectRoot = resolveProjectRoot({ explicitPath: flags.projectPath });
   const root = projectRoot.rootPath;

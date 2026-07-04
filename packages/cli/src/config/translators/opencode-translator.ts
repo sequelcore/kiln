@@ -1,7 +1,7 @@
 import { translatePermission } from "../../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import {
-  createPermissionProjectionIntegrity,
+  createPermissionProjection,
   PERMISSION_PROJECTION_TARGET_IDS,
   type PermissionProjection,
 } from "./permission-projection.js";
@@ -34,11 +34,11 @@ export function translateOpenCodePermissionProjection(input: {
     delete document.model;
   }
 
-  return {
+  return createPermissionProjection({
     targetId: PERMISSION_PROJECTION_TARGET_IDS.opencode,
     managedFields,
     document,
-    integrity: createPermissionProjectionIntegrity({
+    integrity: {
       harness: "opencode",
       policy: input.policy,
       translated,
@@ -51,6 +51,6 @@ export function translateOpenCodePermissionProjection(input: {
         networkBoundary: "not-enforced",
         strength: "rules-only",
       },
-    }),
-  };
+    },
+  });
 }

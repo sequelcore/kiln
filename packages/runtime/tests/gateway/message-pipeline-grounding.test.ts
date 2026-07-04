@@ -5,7 +5,7 @@ import type { ModelCapabilityRegistry } from "@kilnai/core";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
-import type { SessionRegistry } from "../../src/session/session-registry.js";
+import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 

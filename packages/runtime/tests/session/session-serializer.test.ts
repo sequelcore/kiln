@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createSessionEvent, textParts } from "@kilnai/core";
 import type { ContentPart } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
+import { serializeSession, deserializeSession } from "../../src/session/persistence/session-serializer.js";
 import type { SessionMode } from "../../src/session/session-mode.js";
 
 function makeSession(overrides: {

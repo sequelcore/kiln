@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { KilnError } from "@kilnai/core";
-import { SessionRegistry } from "../../src/session/session-registry.js";
-import type { SessionStore } from "../../src/session/session-store.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
+import type { SessionStore } from "../../src/session/persistence/session-store.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
+import { serializeSession, deserializeSession } from "../../src/session/persistence/session-serializer.js";
 
 describe("SessionRegistry", () => {
   describe("getOrCreate", () => {

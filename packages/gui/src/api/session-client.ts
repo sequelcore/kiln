@@ -2,11 +2,6 @@ import { type GuiOutboundFrame, type GuiInboundFrame, type GuiSessionConnectionS
 
 export type { GuiInboundFrame, GuiOutboundFrame, GuiSessionConnectionState };
 
-export { GuiWsClient, type GuiConnectionState } from "../lib/ws-client.js";
-export { waitForGateway, type GatewayTimeoutError } from "../lib/wait-for-gateway.js";
-export { getStableUserId } from "../lib/stable-user-id.js";
-export { useGuiWs } from "../lib/use-gui-ws.js";
-
 export class GuiSessionClient {
   private ws: WebSocket | null = null;
   private connectTimeoutId: number | null = null;

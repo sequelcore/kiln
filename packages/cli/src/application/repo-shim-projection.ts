@@ -579,22 +579,12 @@ function writeWorkflowSnapshotManifest(
   const existingHash = existing ? readManifestHash(existing) : null;
 
   if (existingHash === workflowSnapshot.manifest.hash) {
-    return {
-      path: manifestPath,
-      written: false,
-      status: "unchanged",
-      errors: [],
-    };
+    return workflowSnapshotResult(manifestPath, false);
   }
 
-  mkdirSync(join(projectPath, ".kiln", "projections"), { recursive: true });
+  ensureWorkflowProjectionDir(projectPath);
   writeFileSync(manifestPath, `${JSON.stringify(workflowSnapshot.manifest, null, 2)}\n`, "utf-8");
-  return {
-    path: manifestPath,
-    written: true,
-    status: "written",
-    errors: [],
-  };
+  return workflowSnapshotResult(manifestPath, true);
 }
 
 function workflowSnapshotManifestPath(projectPath: string): string {
@@ -638,26 +628,29 @@ function writeWorkflowSnapshotProjection(
   const existing = existsSync(snapshotPath) ? readFileSync(snapshotPath, "utf-8") : null;
 
   if (existing === content) {
-    return {
-      path: snapshotPath,
-      written: false,
-      status: "unchanged",
-      errors: [],
-    };
+    return workflowSnapshotResult(snapshotPath, false);
   }
 
-  mkdirSync(join(projectPath, ".kiln", "projections"), { recursive: true });
+  ensureWorkflowProjectionDir(projectPath);
   writeFileSync(snapshotPath, content, "utf-8");
-  return {
-    path: snapshotPath,
-    written: true,
-    status: "written",
-    errors: [],
-  };
+  return workflowSnapshotResult(snapshotPath, true);
 }
 
 function workflowSnapshotMarkdownPath(projectPath: string): string {
   return join(projectPath, WORKFLOW_SNAPSHOT_MARKDOWN_FILE);
+}
+
+function ensureWorkflowProjectionDir(projectPath: string): void {
+  mkdirSync(join(projectPath, ".kiln", "projections"), { recursive: true });
+}
+
+function workflowSnapshotResult(path: string, written: boolean): WorkflowSnapshotProjectionResult {
+  return {
+    path,
+    written,
+    status: written ? "written" : "unchanged",
+    errors: [],
+  };
 }
 
 function renderWorkflowSnapshotMarkdown(workflowSnapshot: WorkflowSnapshotExport): string {

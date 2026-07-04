@@ -16,7 +16,7 @@ import {
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeBudgetAdmissionPort } from "../session/runtime-budget-admission.js";
-import { SessionRegistry } from "../session/session-registry.js";
+import { SessionRegistry } from "../session/persistence/session-registry.js";
 import {
   textParts,
   extractText,

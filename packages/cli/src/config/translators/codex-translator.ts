@@ -2,7 +2,7 @@ import { translatePermission } from "../../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import {
   asRecord,
-  createPermissionProjectionIntegrity,
+  createPermissionProjection,
   PERMISSION_PROJECTION_TARGET_IDS,
   toPermissionSyncMetadata,
   type PermissionProjection,
@@ -43,11 +43,11 @@ export function translateCodexPermissionProjection(input: {
     delete document.model;
   }
 
-  return {
+  return createPermissionProjection({
     targetId: PERMISSION_PROJECTION_TARGET_IDS.codex,
     managedFields,
     document,
-    integrity: createPermissionProjectionIntegrity({
+    integrity: {
       harness: "codex",
       policy: input.policy,
       translated,
@@ -57,8 +57,8 @@ export function translateCodexPermissionProjection(input: {
         networkBoundary: "enforced",
         strength: "strong",
       },
-    }),
-  };
+    },
+  });
 }
 
 

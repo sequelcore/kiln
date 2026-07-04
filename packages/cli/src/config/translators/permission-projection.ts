@@ -11,16 +11,21 @@ export const PERMISSION_PROJECTION_TARGET_IDS = {
   opencode: "opencode-config",
 } as const;
 
-export interface PermissionProjectionInput {
-  readonly policy: unknown;
-  readonly existingDocument: Record<string, unknown>;
-}
-
 export interface PermissionProjection {
   readonly targetId: string;
   readonly document: Record<string, unknown>;
   readonly managedFields: readonly string[];
   readonly integrity: TrustedExecutionIntegrity;
+}
+
+export interface PermissionProjectionIntegrityInput {
+  readonly harness: TrustedExecutionIntegrity["harness"];
+  readonly policy: KilnPermissionPolicy;
+  readonly translated: BackendConfig;
+  readonly semanticLoss?: readonly string[];
+  readonly enforcement: TrustedExecutionIntegrity["enforcement"];
+  readonly recommendation?: string;
+  readonly now?: Date;
 }
 
 export interface PermissionSyncMetadata {
@@ -50,15 +55,21 @@ export function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
-export function createPermissionProjectionIntegrity(input: {
-  readonly harness: TrustedExecutionIntegrity["harness"];
-  readonly policy: KilnPermissionPolicy;
-  readonly translated: BackendConfig;
-  readonly semanticLoss?: readonly string[];
-  readonly enforcement: TrustedExecutionIntegrity["enforcement"];
-  readonly recommendation?: string;
-  readonly now?: Date;
-}): TrustedExecutionIntegrity {
+export function createPermissionProjection(input: {
+  readonly targetId: string;
+  readonly document: Record<string, unknown>;
+  readonly managedFields: readonly string[];
+  readonly integrity: PermissionProjectionIntegrityInput;
+}): PermissionProjection {
+  return {
+    targetId: input.targetId,
+    document: input.document,
+    managedFields: input.managedFields,
+    integrity: createPermissionProjectionIntegrity(input.integrity),
+  };
+}
+
+export function createPermissionProjectionIntegrity(input: PermissionProjectionIntegrityInput): TrustedExecutionIntegrity {
   const observedAt = (input.now ?? new Date()).toISOString();
   const profile = trustedExecutionProfileFromPolicy(input.policy);
   const semanticLoss = [

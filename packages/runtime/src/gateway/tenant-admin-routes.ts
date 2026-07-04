@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import type { TenantConfig } from "@kilnai/core";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { TenantNotFoundError, TenantValidationFailedError } from "../tenant/tenant-registry.js";
-import type { SessionRegistry } from "../session/session-registry.js";
+import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import { requireBearer } from "./auth-middleware.js";
 
 /**

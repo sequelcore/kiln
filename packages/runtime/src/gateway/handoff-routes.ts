@@ -3,7 +3,7 @@
 
 import { Hono } from "hono";
 import { KilnError, textParts } from "@kilnai/core";
-import type { SessionRegistry } from "../session/session-registry.js";
+import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import type { WebChannel } from "../channels/web-channel.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";

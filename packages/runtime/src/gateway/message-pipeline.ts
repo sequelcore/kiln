@@ -52,7 +52,7 @@ import {
   formatEffectiveTurnAuthorityGuidance,
   projectEffectiveTurnAuthorityPerCallConfig,
 } from "../session/effective-turn-authority.js";
-import type { SessionRegistry } from "../session/session-registry.js";
+import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";

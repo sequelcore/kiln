@@ -39,7 +39,7 @@ import { createGatewayApp } from "./gateway-routes.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
 import { createDefaultRuntimeMultimodalTransformRoutes } from "../session/runtime-multimodal-transforms.js";
-import { SessionRegistry } from "../session/session-registry.js";
+import { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { DelegationTarget, DelegationRegistry } from "./delegation-handler.js";
 import { TenantRegistry } from "../tenant/tenant-registry.js";
 import { assertValidStartupConfig } from "./config-validator.js";
@@ -69,14 +69,6 @@ import {
   mountGuiStaticAssets,
   resolveGuiDistPath,
 } from "./gui-static-assets.js";
-
-export type { LoadedApp, GatewayServerConfig } from "./gateway-routes.js";
-export { createGatewayApp } from "./gateway-routes.js";
-export type { DevRoutesConfig } from "./dev-routes.js";
-export { createDevRoutes } from "./dev-routes.js";
-export type { AppGraphResponse, AppGraphTeam, AppGraphAgent, AppGraphRouter, EvalExperimentSummary } from "./dev-routes-types.js";
-export { createDevInspectorHtml } from "./dev-inspector.js";
-export { ApprovalGateRegistry } from "./approval-registry.js";
 
 type MetaVoiceChannelType = "whatsapp" | "instagram" | "messenger";
 
@@ -120,12 +112,6 @@ export function assertMetaVoicePublicMediaConfig(input: {
     );
   }
 }
-export type { ApprovalTarget } from "./approval-registry.js";
-export { DevOrchestrator } from "./dev-orchestrator.js";
-export type { DevOrchestratorConfig, DevRunResult } from "./dev-orchestrator.js";
-export { DevTokenStore } from "./dev-token-store.js";
-export type { DevToken } from "./dev-token-store.js";
-
 export interface ProviderSubsystemHealth {
   readonly status: "ok" | "degraded" | "error";
   readonly details: Record<string, string>;

@@ -6,7 +6,7 @@ import type { ArtifactResourceStore, ContentPart, TenantConfig, RetrievalPipelin
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { textParts, extractText } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
-import type { SessionRegistry } from "../session/session-registry.js";
+import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import { checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";

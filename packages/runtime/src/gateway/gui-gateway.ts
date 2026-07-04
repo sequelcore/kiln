@@ -18,7 +18,7 @@ import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.
 import type { ExecutionSessionEvent } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
-import { SessionRegistry } from "../session/session-registry.js";
+import { SessionRegistry } from "../session/persistence/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
