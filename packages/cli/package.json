@@ -20,7 +20,9 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --maxWorkers=1 --reporter=verbose"
+    "test": "vitest run --maxWorkers=1 --reporter=dot --silent=passed-only",
+    "test:verbose": "vitest run --maxWorkers=1 --reporter=verbose",
+    "test:profile": "vitest run --maxWorkers=1 --reporter=json --outputFile=../../.kiln/cli-vitest-profile.json"
   },
   "license": "Apache-2.0",
   "repository": {

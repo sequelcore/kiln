@@ -19,8 +19,9 @@
     "build": "tsc",
     "build:windows-uia": "native\\windows-uia\\build.cmd",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --maxWorkers=1",
-    "test:live": "vitest run tests/managed-agent/*.live.test.ts --maxWorkers=1"
+    "test": "vitest run --maxWorkers=1 --exclude \"tests/managed-agent/*.live.test.ts\" --silent=passed-only",
+    "test:profile": "vitest run --maxWorkers=1 --exclude \"tests/managed-agent/*.live.test.ts\" --reporter=json --outputFile=../../.kiln/runtime-vitest-profile.json",
+    "test:live": "vitest run --dir tests/managed-agent .live.test --maxWorkers=1"
   },
   "license": "Apache-2.0",
   "repository": {

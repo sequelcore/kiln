@@ -7,12 +7,23 @@ type PackageJson = {
 };
 
 describe("CLI test harness", () => {
-  it("keeps the package test command diagnostic under workspace filters", () => {
+  it("keeps the default package test command bounded and low-noise", () => {
     const packageJson = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     ) as PackageJson;
 
-    expect(packageJson.scripts?.test).toContain("--reporter=verbose");
+    expect(packageJson.scripts?.test).toContain("--maxWorkers=1");
+    expect(packageJson.scripts?.test).toContain("--reporter=dot");
+    expect(packageJson.scripts?.test).toContain("--silent=passed-only");
+    expect(packageJson.scripts?.test).not.toContain("--reporter=verbose");
+  });
+
+  it("keeps verbose CLI test diagnostics explicit", () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as PackageJson;
+
+    expect(packageJson.scripts?.["test:verbose"]).toContain("--reporter=verbose");
   });
 
   it("bounds test, hook, and teardown lifecycle stalls", () => {
