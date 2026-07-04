@@ -38,8 +38,8 @@ architecture program needs additional sections:
 | [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open. Provider/model eligibility is now canonicalized; remaining items are narrowed to public-release UX truth, skill/plugin diagnostics, event density, context usage, and live validation. | Close fake or unavailable operator-facing states before public release. |
 | [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
 | [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slice 0 in progress, Slice 1 complete | The authorized post-repair pilot completed across four live routes. Kimi tool identity and DeepSeek execution repairs held, but every route remained at `passAtK = 0.5` with partial `tool-read-file` accuracy, 420k-940k input-token pressure, and non-comparable subscription economics. | Repair the shared tool-read quality failure and input-token pressure before `k >= 5`, route promotion, or Slice 2 optimization claims. |
-| [05-skill-capability-plane.md](./05-skill-capability-plane.md) | Active research and configuration-hardening track | Initial personal skill audit confirmed backup coverage, installed selected high-leverage skills, and repaired broken local skill resources. | Define the Kiln skill evidence contract before automatic admission, update, or promotion behavior. |
-| [06-cross-harness-kiln-control-plane.md](./06-cross-harness-kiln-control-plane.md) | Active research and architecture program | Opened on 2026-07-04 to make Kiln the portable control plane for tools, agents, routes, permissions, setup, status, and replay across Codex, Claude Code, OpenCode, and Kiln surfaces. | Close Slice 0 vocabulary and direct-provider/native-harness boundary evidence before adding new adapters. |
+| [05-skill-capability-plane.md](./05-skill-capability-plane.md) | Active research and configuration-hardening track | Initial personal skill audit confirmed backup coverage, installed selected high-leverage skills, repaired broken local skill resources, and now tracks a planned repo-instruction authoring skill for canonical project context. | Define the Kiln skill evidence contract before automatic admission, update, promotion behavior, or repo-instruction authoring automation. |
+| [06-cross-harness-kiln-control-plane.md](./06-cross-harness-kiln-control-plane.md) | Active research and architecture program | Opened on 2026-07-04 to make Kiln the portable control plane for tools, agents, routes, permissions, setup, status, replay, and instruction-profile provenance across Codex, Claude Code, OpenCode, and Kiln surfaces. Slice 1A now tracks optional built-in instruction profiles without confusing them with operator-owned global profiles. | Close Slice 0 vocabulary and direct-provider/native-harness boundary evidence before adding new adapters; keep Slice 1A scoped to profile catalog/provenance/adoption semantics. |
 
 ## Canonical References
 
@@ -111,14 +111,16 @@ Use these documents as the source of truth before starting roadmap work:
    installed-skill inventory, local repair, cross-harness visibility, evidence
    contracts, value evaluation, and curated operations. Skills must reduce
    token pressure and cloned-repository dependence; they must not become a new
-   always-loaded template pile.
+   always-loaded template pile. A planned repo-instruction authoring skill will
+   help improve canonical `.kiln/project-context.md` so Kiln can project better
+   repo `AGENTS.md` and `CLAUDE.md` shims without manual shim edits.
 
 6. [Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md)
    Active on 2026-07-04. Scope is the cross-harness control plane: using Kiln
    tools, agents, direct providers, native harness adapters, setup diagnostics,
-   route authority, cost evidence, cancellation, result handoff, and replay from
-   Codex, Claude Code, OpenCode, Kiln GUI, Kiln TUI, and Kiln CLI without shell
-   workaround routing tables.
+   route authority, cost evidence, instruction-profile provenance,
+   cancellation, result handoff, and replay from Codex, Claude Code, OpenCode,
+   Kiln GUI, Kiln TUI, and Kiln CLI without shell workaround routing tables.
 
 ## Deferred Roadmaps
 

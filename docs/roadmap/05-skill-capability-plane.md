@@ -32,11 +32,16 @@ template dumps, cloned reference repositories, or always-loaded context.
   Cursor-compatible `.agents`, and future harnesses.
 - Optional curated installation recommendations based on operator needs and
   measured value.
+- Curated project-context authoring skills that help create high-quality
+  repo-level `AGENTS.md` and `CLAUDE.md` projections through Kiln-owned
+  canonical context instead of manual shim edits.
 
 ## Non-Goals
 
 - No bulk installing every popular skill.
 - No prompt-only policy that bypasses Kiln contracts.
+- No skill may write durable doctrine directly into generated repo shims such
+  as `AGENTS.md` or `CLAUDE.md`.
 - No resurrecting legacy "generate a prompt for another harness" workflows as
   first-class skill behavior.
 - No deleting operator skills without explicit approval.
@@ -58,6 +63,11 @@ template dumps, cloned reference repositories, or always-loaded context.
   it should be reviewed for overlap with `clear-writing` and Kiln's canonical
   handoff/memory/documentation flows. It must not create durable loose
   documents or commits by default once Kiln owns the workflow natively.
+- A future repo-instruction authoring skill should not replace Kiln repo shim
+  projection. Kiln already owns generated repo `AGENTS.md` and `CLAUDE.md`;
+  the skill should help discover repository facts, draft canonical
+  `.kiln/project-context.md` updates, identify missing commands or references,
+  and then rely on `kiln sync --repo-shims` to project harness entrypoints.
 
 ## Research Basis
 
@@ -166,6 +176,39 @@ Gates:
 - No automatic update may overwrite locally modified operator skills without
   evidence and explicit approval.
 - Every installed skill must remain inspectable and removable.
+
+### Slice 6 - Repo Instruction Authoring Skill
+
+Status: Planned
+
+Goal: provide a curated skill for creating the best possible repo-level
+agent-facing context while preserving Kiln as the owner of generated
+`AGENTS.md` and `CLAUDE.md` shims.
+
+Work:
+
+- define a built-in skill, tentatively `repo-instruction-authoring`, that
+  scouts repository evidence before drafting guidance;
+- make the skill author or patch canonical `.kiln/project-context.md` and
+  supporting reviewed notes, not generated repo shims;
+- require evidence for package manager, commands, architecture references,
+  test gates, domain boundaries, generated-file rules, and known local
+  conventions;
+- keep global doctrine out of repo context and keep executable routing,
+  provider, model, agent, and permission policy in Kiln config;
+- add diagnostics that explain when repo shims are stale and should be
+  regenerated through Kiln sync.
+
+Gates:
+
+- the skill cannot recommend direct manual edits to generated `AGENTS.md` or
+  `CLAUDE.md`;
+- generated repo shims can be traced back to `.kiln/project-context.md` plus
+  active instruction profiles;
+- tests or fixtures cover missing package manager evidence, ambiguous test
+  commands, generated-file drift, and stale repo shim status;
+- the skill proves value through clearer repo context, fewer duplicated
+  instructions, and fewer harness-specific markdown patches.
 
 ## Promotion Gates
 

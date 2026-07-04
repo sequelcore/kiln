@@ -50,6 +50,8 @@ Kiln needs to own this boundary natively.
   replay, and audit evidence across harness boundaries.
 - Reduce duplicated global markdown, local scripts, and plugin-specific
   routing tables.
+- Offer optional Kiln built-in instruction profiles without confusing them
+  with operator-owned global profiles.
 - Make quota-aware and cost-aware delegation a measured control-plane policy
   instead of a prompt convention.
 
@@ -59,6 +61,8 @@ Kiln needs to own this boundary natively.
   identity, and plugin identity.
 - Global instruction shims, repo shims, native projections, setup/status, and
   install-state drift.
+- Built-in instruction profile catalog, profile adoption, profile provenance,
+  and local override semantics.
 - Kiln tool exposure inside native harnesses.
 - Managed agent invocation across harnesses and providers.
 - Direct-provider-first route policy for `codex-oauth`, `opencode-go`, and
@@ -76,6 +80,7 @@ Kiln needs to own this boundary natively.
 - Hide cross-harness calls behind shell scripts without status, cancellation,
   or replay evidence.
 - Duplicate model rankings or routing policy in generated markdown.
+- Treat operator-owned global profiles as if they were built-in Kiln doctrine.
 - Promote a provider or harness based on vibes, screenshots, or one-off
   anecdotes.
 - Add compatibility shims for obsolete harness configs.
@@ -150,6 +155,10 @@ shape through governed routes where possible.
 - Direct-provider doctrine now states that `codex-oauth`, `opencode-go`, and
   `opencode-zen` are governed by Kiln runtime authority, not native CLI
   permission files.
+- Current `sequel-engineering` instruction doctrine is an operator-owned
+  global profile under `~/.kiln/instructions`, not a packaged Kiln built-in.
+  Kiln has built-in skills today, but built-in instruction profiles remain a
+  future product capability.
 
 ## Route Policy
 
@@ -236,6 +245,34 @@ Exit gate:
   independently owned;
 - repo `AGENTS.md` and `CLAUDE.md` contain project context, not global rosters;
 - setup can show the exact target behind any recommended action.
+
+### Slice 1A - Built-In Instruction Profile Catalog
+
+Status: Planned.
+
+Goal: let Kiln offer curated built-in instruction profiles while preserving a
+clean boundary between packaged doctrine and operator-owned customization.
+
+Work:
+
+- define a built-in instruction profile registry separate from
+  `~/.kiln/instructions`;
+- report profile provenance as `builtin`, `global`, or `project` in status and
+  setup surfaces;
+- support adopting a built-in profile into the operator's global config without
+  mutating the packaged source;
+- preserve local overrides as explicit operator-owned files;
+- prevent built-in profiles from containing volatile provider rankings,
+  credentials, route tables, agent rosters, or permission assumptions.
+
+Exit gate:
+
+- `sequel-engineering` or any future packaged profile can be identified as
+  built-in versus locally customized;
+- setup/status can explain whether a profile is inherited, adopted, overridden,
+  stale, or unmanaged;
+- generated global and repo shims keep profile provenance clear and do not
+  duplicate executable config.
 
 ### Slice 2 - Kiln Tool Surface In Native Harnesses
 
