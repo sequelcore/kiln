@@ -479,6 +479,16 @@ export type {
 } from "./voice-input-parts.js";
 
 export {
+  createImageInputParts,
+  imageInputDisplayText,
+} from "./image-input-parts.js";
+export type {
+  ImageInputBlobLike,
+  ImageInputImagePart,
+  ImageInputPartsInput,
+} from "./image-input-parts.js";
+
+export {
   formatOperatorEventValue,
   operatorEventTargetsConversation,
   operatorEventTargetsSurface,

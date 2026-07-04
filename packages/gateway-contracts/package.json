@@ -18,6 +18,11 @@
       "types": "./dist/voice-input-parts.d.ts",
       "development": "./src/voice-input-parts.ts",
       "import": "./dist/voice-input-parts.js"
+    },
+    "./image-input-parts": {
+      "types": "./dist/image-input-parts.d.ts",
+      "development": "./src/image-input-parts.ts",
+      "import": "./dist/image-input-parts.js"
     }
   },
   "types": "./dist/index.d.ts",
