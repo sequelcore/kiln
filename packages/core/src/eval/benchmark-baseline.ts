@@ -25,7 +25,8 @@ export type BenchmarkEvidenceArtifactKind =
   | "diagnostics"
   | "usage"
   | "route"
-  | "cost";
+  | "cost"
+  | "cache-topology";
 
 export interface BenchmarkEvidenceArtifact {
   readonly kind: BenchmarkEvidenceArtifactKind;
@@ -96,7 +97,7 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     surface: "tool-calling",
     purpose: "Measures structured tool/function-call correctness under Kiln authority.",
     authorityProfile: "foundation-readonly-plan",
-    requiredScorers: ["tool-calling-accuracy", "tool-trajectory", "latency", "cost"],
+    requiredScorers: ["tool-calling-accuracy", "tool-trajectory", "latency", "cost", "cache-topology"],
     minimumPassAtK: 0.9,
     minimumK: 5,
     reproducibilityRequirements: [
@@ -313,6 +314,7 @@ function missingEvidenceArtifacts(baseline: BenchmarkBaselineResult): readonly B
     "usage",
     "route",
     "cost",
+    "cache-topology",
   ];
   return required.filter((kind) => !present.has(kind));
 }

@@ -23,14 +23,63 @@ const REQUIRED_EVIDENCE_ARTIFACTS = [
   "usage",
   "route",
   "cost",
+  "cache-topology",
   "result",
 ] as const;
+
+const CACHE_TOPOLOGY_METADATA = {
+  providerRequests: [{
+    stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    stablePrefixBytes: 120,
+    stablePrefixRegionCount: 2,
+    volatileRegionBytes: 40,
+    cacheRegions: [
+      { source: "tool_schema", stability: "stable", hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", bytes: 80, includedInStablePrefix: true },
+      { source: "system", stability: "stable", hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", bytes: 40, includedInStablePrefix: true },
+      { source: "messages", stability: "volatile", hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", bytes: 40, includedInStablePrefix: false },
+    ],
+    cachePartition: {
+      hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      dimensions: [
+        { source: "tenant", hash: "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+        { source: "route", hash: "sha256:2222222222222222222222222222222222222222222222222222222222222222" },
+        { source: "policy", hash: "sha256:3333333333333333333333333333333333333333333333333333333333333333" },
+        { source: "authority", hash: "sha256:4444444444444444444444444444444444444444444444444444444444444444" },
+      ],
+    },
+  }],
+  cacheInvalidReuseProbes: [{
+    stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    leftPartitionHash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    rightPartitionHash: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    changedDimension: "tenant",
+  }],
+  cacheGainComparisons: [{
+    stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    baselineInputTokens: 2000,
+    candidateInputTokens: 2000,
+    baselineCachedInputTokens: 0,
+    candidateCachedInputTokens: 1200,
+    baselineLatencyMs: 1500,
+    candidateLatencyMs: 900,
+    baselineCostUsd: 0.02,
+    candidateCostUsd: 0.012,
+  }],
+} as const;
 
 function evidenceArtifacts(): readonly { readonly kind: string; readonly uri: string }[] {
   return REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => ({
     kind,
     uri: `kiln://artifacts/benchmark-baselines/${kind}/content`,
   }));
+}
+
+function artifactIdFromUri(uri: string): string {
+  const match = uri.match(/^kiln:\/\/artifacts\/benchmark-baselines\/(artifact_\d+)\/content$/u);
+  if (!match) {
+    throw new Error(`Unexpected benchmark artifact URI: ${uri}`);
+  }
+  return match[1]!;
 }
 
 describe("benchmarkCommand", () => {
@@ -159,6 +208,7 @@ describe("benchmarkCommand", () => {
           metadata: {
             activeAgentId: context.profile.id,
             toolCalls: [{ name: "status" }],
+            ...CACHE_TOPOLOGY_METADATA,
           },
         }),
       },
@@ -186,7 +236,8 @@ describe("benchmarkCommand", () => {
       };
     };
     expect(written.artifactRoot).toBe(`${outputPath}.artifacts`);
-    expect(existsSync(join(written.artifactRoot, "benchmark-baselines", "artifact_7.json"))).toBe(true);
+    const resultArtifact = written.baseline.evidenceArtifacts.find((artifact) => artifact.kind === "result")!;
+    expect(existsSync(join(written.artifactRoot, "benchmark-baselines", `${artifactIdFromUri(resultArtifact.uri)}.json`))).toBe(true);
     expect(written.baseline).toMatchObject({
       profileId: "kiln-tool-agent",
       k: 1,
@@ -215,6 +266,7 @@ describe("benchmarkCommand", () => {
       metadata: {
         activeAgentId: "kiln-tool-agent",
         toolCalls: [{ name: "status" }],
+        ...CACHE_TOPOLOGY_METADATA,
       },
     });
     writeFileSync(
@@ -290,6 +342,7 @@ describe("benchmarkCommand", () => {
           metadata: {
             activeAgentId: context.profile.id,
             toolCalls: [{ name: "status" }],
+            ...CACHE_TOPOLOGY_METADATA,
           },
         }),
       },

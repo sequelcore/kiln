@@ -18,6 +18,11 @@ export type {
   ExecutionSessionEvent,
   ExecutionSessionRunOptions,
   ExecutionSessionToolResultResourceLink,
+  ProviderRequestCachePartitionDimensionEvidence,
+  ProviderRequestCachePartitionDimensionSource,
+  ProviderRequestCachePartitionEvidence,
+  ProviderRequestCacheRegionEvidence,
+  ProviderRequestCacheRegionSource,
   ProviderRequestEvidence,
 } from "./execution-session-event.js";
 

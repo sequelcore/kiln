@@ -47,8 +47,43 @@ export interface ProviderRequestEvidence {
   readonly messageHash: string;
   readonly toolSchemaHash: string;
   readonly stablePrefixHash: string;
+  readonly stablePrefixBytes: number;
+  readonly stablePrefixRegionCount: number;
+  readonly volatileRegionBytes: number;
+  readonly cacheRegions: readonly ProviderRequestCacheRegionEvidence[];
+  readonly cachePartition: ProviderRequestCachePartitionEvidence;
   readonly toolCount: number;
   readonly stopReason?: string;
+}
+
+export type ProviderRequestCacheRegionSource =
+  | "tool_schema"
+  | "system"
+  | "messages";
+
+export interface ProviderRequestCacheRegionEvidence {
+  readonly source: ProviderRequestCacheRegionSource;
+  readonly stability: "stable" | "volatile";
+  readonly bytes: number;
+  readonly hash: string;
+  readonly includedInStablePrefix: boolean;
+}
+
+export type ProviderRequestCachePartitionDimensionSource =
+  | "tenant"
+  | "route"
+  | "policy"
+  | "authority";
+
+export interface ProviderRequestCachePartitionDimensionEvidence {
+  readonly source: ProviderRequestCachePartitionDimensionSource;
+  readonly hash: string;
+  readonly evidenceBasis: string;
+}
+
+export interface ProviderRequestCachePartitionEvidence {
+  readonly hash: string;
+  readonly dimensions: readonly ProviderRequestCachePartitionDimensionEvidence[];
 }
 
 export type ExecutionSessionEvent =

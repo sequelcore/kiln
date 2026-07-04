@@ -1,7 +1,6 @@
 # 04 - Verified Efficiency Control Plane
 
-Status: Active architecture program; Slice 0 and Slice 1 complete; Slice 2
-requires restart after failed GUI implementation attempt
+Status: Active architecture program; Slice 0, Slice 1, and Slice 2 complete.
 
 Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
 (`feat(runtime): record lifecycle attribution ledger`). Slice 0 live baseline
@@ -15,7 +14,10 @@ decision for `kiln-tool-agent`: Codex GPT-5.5 remains primary and Kimi K2.7
 Code remains an eligible fallback/specialist route. Slice 2 was attempted
 through Kiln GUI on 2026-07-03, but the attempt was reverted before commit
 because it violated the stable-prefix contract and left incomplete workflow
-evidence. Slices 2 through 12 are not started.
+evidence. Slice 2 restarted on 2026-07-04 from TDD and closed with stable
+prefix topology evidence, cache partition evidence, benchmark readiness,
+cache-gain comparison evidence, and rollback/non-inferiority promotion gates.
+Slices 3 through 12 are not started.
 
 ## Objective
 
@@ -270,9 +272,9 @@ contracts but must not create parallel legacy paths.
 
 | Slice | Status | Progress | Next Action |
 | --- | --- | --- | --- |
-| Slice 0 - Baseline And Reproduction | Complete | The authorized 2026-07-02 `kiln-tool-agent` work established the pre-repair pressure source, repaired provider-neutral benchmark prerequisites, validated the post-repair `k=1` baseline across four live routes, and ran a viable-route `k=5` comparison for Codex GPT-5.5 and Kimi K2.7 Code. The old 419,972-940,391 input-token pressure was primarily a Kiln request-shaping/tool-projection problem. The remaining GPT-5.5 versus Kimi difference is model and harness behavior under the same Kiln control plane. | Start Slice 2 stable prefix and cache topology before making broader savings or public benchmark claims. |
+| Slice 0 - Baseline And Reproduction | Complete | The authorized 2026-07-02 `kiln-tool-agent` work established the pre-repair pressure source, repaired provider-neutral benchmark prerequisites, validated the post-repair `k=1` baseline across four live routes, and ran a viable-route `k=5` comparison for Codex GPT-5.5 and Kimi K2.7 Code. The old 419,972-940,391 input-token pressure was primarily a Kiln request-shaping/tool-projection problem. The remaining GPT-5.5 versus Kimi difference is model and harness behavior under the same Kiln control plane. | Closed; Slice 2 is now complete. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
-| Slice 2 - Stable Prefix And Cache Topology | Next | Not started. A 2026-07-03 Kiln GUI implementation attempt was reverted before commit. See the failed-attempt audit below. | Restart from TDD with real stable-prefix semantics and integrate with existing provider-request evidence instead of adding prompt-visible cache metadata. |
+| Slice 2 - Stable Prefix And Cache Topology | Complete | Closed on 2026-07-04 from TDD. Runtime provider-request evidence records leading stable-prefix topology, region hashes, stable-prefix bytes, stable-prefix region count, volatile-region bytes, and cache partition hashes for tenant, route, policy, and authority scope without changing provider request construction or model-visible prompts. Benchmark readiness requires `cache-topology` scorer and artifact evidence for `kiln-tool-agent`, including baseline/candidate cache-gain comparison evidence. Cache-policy promotion has a rollback and non-inferiority gate. | Start Slice 3 progressive context and tool loading. |
 | Slice 3 - Progressive Context And Tool Loading | Planned | Not started. | Start after stable-prefix evidence exists. |
 | Slice 4 - Typed Lossless Reduction | Planned | Not started. | Start after progressive-loading measurements identify high-volume structured artifacts. |
 | Slice 5 - Reversible Context Projection | Planned | Not started. | Start after typed reductions have preservation contracts. |
@@ -439,8 +441,9 @@ Closure evidence:
 
 ### Slice 2 - Stable Prefix And Cache Topology
 
-Status: Next; not started. A failed GUI implementation attempt on 2026-07-03
-was reverted before commit.
+Status: Complete on 2026-07-04. A failed GUI implementation attempt on
+2026-07-03 was reverted before commit. The restart began on 2026-07-04 with
+focused TDD for leading stable-prefix evidence.
 
 Goal: reduce repeated prefill cost without changing admitted information.
 
@@ -458,6 +461,65 @@ Exit gate:
 - cache gains do not change authority, tool availability, or outputs beyond
   expected provider nondeterminism;
 - tenant and authority partition tests prevent invalid cache reuse.
+
+Restart evidence, 2026-07-04:
+
+- Runtime provider-request telemetry now computes a true leading stable prefix:
+  after the first volatile request region, later regions are excluded from the
+  reusable prefix evidence for that request.
+- Evidence uses `sha256:*` hashes and records stable-prefix bytes,
+  stable-prefix region count, volatile-region bytes, and per-region
+  source/stability/hash metadata.
+- Cache partition evidence now hashes tenant, route, policy, and authority
+  dimensions separately and records one combined partition hash. Raw tenant ids
+  and authority envelope contents are not exposed in provider-request evidence.
+- Benchmark readiness now treats cache topology as first-class evidence for
+  `kiln-tool-agent`: the profile requires a `cache-topology` scorer and a
+  `cache-topology` evidence artifact. The scorer validates stable-prefix
+  fields, region ordering, partition dimensions, invalid-reuse probes, and
+  measured baseline/candidate cache-gain comparison evidence.
+- `BenchmarkBaselineRunner` now emits a `cache-topology` evidence artifact
+  from result metadata. The artifact carries provider request topology,
+  invalid-reuse probes, and cache-gain comparisons beside the existing usage,
+  route, cost, transcript, tool-call, and diagnostic artifacts.
+- Cache policy promotion now has an explicit pure eval gate:
+  `evaluateCachePolicyPromotion` requires rollback to the baseline policy,
+  distinct candidate policy identity, matching dataset/items, unchanged output,
+  unchanged authority evidence, unchanged tool trajectory, non-inferior
+  non-cache scorer results, and positive cached-input-token delta.
+- Region evidence omits serialized prompt, message, and tool-schema content;
+  cache topology remains telemetry/control-plane evidence rather than
+  model-visible prompt content.
+- Focused TDD evidence:
+  `bun test packages/runtime/tests/session/runtime-session-orchestrator-cache.test.ts`
+  passed with 10 tests and 49 assertions after partition evidence was added.
+- Verification evidence: `bun run --filter @kilnai/runtime typecheck`,
+  `bun run typecheck`, `bun run build`, `bun run --filter @kilnai/runtime test`,
+  `bun run --filter @kilnai/core test`,
+  `bun run --filter @kilnai/core test -- tests/eval/experiment-comparator.test.ts`,
+  `bun run --filter @kilnai/core test -- tests/eval/benchmark-runner.test.ts`,
+  `bun run --filter @kilnai/core test -- tests/eval/benchmark-baseline.test.ts tests/eval/benchmark-scorers.test.ts`,
+  `bun run --filter @kilnai/cli test -- tests/application/benchmark-session-executor.test.ts tests/commands/benchmark.test.ts`,
+  and `git diff --check` passed. The runtime suite passed 185 files and 2484
+  tests, the core suite passed 272 files and 3449 tests, the focused
+  experiment-comparator tests passed 9 tests, and the focused CLI benchmark
+  tests passed 14 tests.
+- This evidence establishes and verifies the promotion boundary for Slice 2.
+  Cache gains remain evidence-gated by rollback and non-inferiority checks;
+  no prompt-visible cache instructions, provider-specific hidden truncation,
+  or legacy compatibility path was introduced.
+
+Research basis for this restart:
+
+- OpenAI prompt caching, Anthropic prompt caching, and Gemini context caching
+  all optimize repeated input by reusing stable cached context rather than
+  changing the admitted task information.
+- SGLang RadixAttention and vLLM automatic prefix-caching documentation model
+  the same inference principle at the serving layer: reuse KV cache for shared
+  prefixes and compute only the suffix.
+- The implementation therefore records prefix topology and hashes first. It
+  does not introduce prompt-visible cache instructions, lossy summaries,
+  provider-specific hidden truncation, or a second context owner.
 
 Failed-attempt audit, 2026-07-03:
 
@@ -905,7 +967,7 @@ require dual readers, migration shims, or permanent compatibility branches.
 1. Slice 0: complete; baseline and reproduction evidence is available for
    starting Slice 2 without broader pre-optimization sampling.
 2. Slice 1: complete.
-3. Slice 2: stable prefix and cache topology.
+3. Slice 2: complete.
 4. Slice 3: progressive context and tool loading.
 5. Slice 4: typed lossless reduction.
 6. Slice 5: reversible context projection.

@@ -327,6 +327,7 @@ function requireEvidenceArtifactKind(value: unknown, index: number): BenchmarkEv
     "usage",
     "route",
     "cost",
+    "cache-topology",
   ];
   if (typeof value === "string" && allowed.includes(value as BenchmarkEvidenceArtifactKind)) {
     return value as BenchmarkEvidenceArtifactKind;

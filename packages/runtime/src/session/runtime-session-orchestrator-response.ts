@@ -2,7 +2,7 @@ import type { ContentPart, ProviderAdapter, ToolCall } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./runtime-session-orchestrator.types.js";
-import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type OrchestratorResponseUsage, type ProviderRequestRegionEvidence } from "./runtime-session-orchestrator-telemetry.js";
+import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type OrchestratorResponseUsage, type ProviderRequestCachePartitionInput, type ProviderRequestRegionEvidence } from "./runtime-session-orchestrator-telemetry.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
 
 export interface FinalizeRuntimeSessionResponseInput {
@@ -67,6 +67,7 @@ export async function requestRuntimeSessionFallbackResponse(
   system: string,
   session: RuntimeSession,
   maxTokens: number | undefined,
+  cachePartition?: ProviderRequestCachePartitionInput,
 ): Promise<{
   readonly parts: readonly ContentPart[];
   readonly toolCalls: readonly ToolCall[];
@@ -96,6 +97,7 @@ export async function requestRuntimeSessionFallbackResponse(
       system,
       messages,
       toolCount: 0,
+      cachePartition,
       ...(response.stopReason ? { stopReason: response.stopReason } : {}),
     }),
   };

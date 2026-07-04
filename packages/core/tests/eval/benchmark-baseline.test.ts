@@ -15,6 +15,7 @@ const REQUIRED_EVIDENCE_ARTIFACTS: readonly BenchmarkEvidenceArtifactKind[] = [
   "usage",
   "route",
   "cost",
+  "cache-topology",
   "result",
 ];
 
@@ -87,6 +88,7 @@ describe("benchmark baseline readiness", () => {
       "missing required scorer tool-trajectory",
       "missing required scorer latency",
       "missing required scorer cost",
+      "missing required scorer cache-topology",
       "missing result artifact URI",
       "missing required evidence artifact result",
       "missing required evidence artifact transcript",
@@ -95,6 +97,7 @@ describe("benchmark baseline readiness", () => {
       "missing required evidence artifact usage",
       "missing required evidence artifact route",
       "missing required evidence artifact cost",
+      "missing required evidence artifact cache-topology",
       "missing config hash",
       "missing dataset version",
     ]);

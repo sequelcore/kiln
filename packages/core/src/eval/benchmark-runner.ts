@@ -192,6 +192,15 @@ export class BenchmarkBaselineRunner {
           costEvidence: readMetadata(result, "costEvidence"),
         })),
       },
+      {
+        kind: "cache-topology",
+        title: "cache topology evidence",
+        value: collectResultEvidence(consistency, (result) => ({
+          providerRequests: readArrayMetadata(result, "providerRequests"),
+          cacheInvalidReuseProbes: readArrayMetadata(result, "cacheInvalidReuseProbes"),
+          cacheGainComparisons: readArrayMetadata(result, "cacheGainComparisons"),
+        })),
+      },
     ];
 
     return evidence.map((entry) => {

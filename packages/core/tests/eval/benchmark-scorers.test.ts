@@ -71,4 +71,136 @@ describe("createBenchmarkProfileScorers", () => {
       },
     })).resolves.toMatchObject({ score: 0, reasoning: expect.stringContaining("tool budget") });
   });
+
+  it("scores cache topology only when request evidence includes prefix partition and invalid-reuse probes", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-tool-agent")!;
+    const scorer = createBenchmarkProfileScorers(profile).find((entry) => entry.name === "cache-topology")!;
+
+    await expect(scorer.score({
+      input: "Use stable tools.",
+      output: "done",
+      metadata: {
+        providerRequests: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          stablePrefixBytes: 120,
+          stablePrefixRegionCount: 2,
+          volatileRegionBytes: 40,
+          cacheRegions: [
+            { source: "tool_schema", stability: "stable", hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", bytes: 80, includedInStablePrefix: true },
+            { source: "system", stability: "stable", hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", bytes: 40, includedInStablePrefix: true },
+            { source: "messages", stability: "volatile", hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", bytes: 40, includedInStablePrefix: false },
+          ],
+          cachePartition: {
+            hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            dimensions: [
+              { source: "tenant", hash: "sha256:1111111111111111111111111111111111111111111111111111111111111111", evidenceBasis: "session tenant identity" },
+              { source: "route", hash: "sha256:2222222222222222222222222222222222222222222222222222222222222222", evidenceBasis: "provider route identity" },
+              { source: "policy", hash: "sha256:3333333333333333333333333333333333333333333333333333333333333333", evidenceBasis: "policy identity" },
+              { source: "authority", hash: "sha256:4444444444444444444444444444444444444444444444444444444444444444", evidenceBasis: "authority scope" },
+            ],
+          },
+        }],
+        cacheInvalidReuseProbes: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          leftPartitionHash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          rightPartitionHash: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          changedDimension: "tenant",
+        }],
+        cacheGainComparisons: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          baselineInputTokens: 2000,
+          candidateInputTokens: 2000,
+          baselineCachedInputTokens: 0,
+          candidateCachedInputTokens: 1200,
+          baselineLatencyMs: 1500,
+          candidateLatencyMs: 900,
+          baselineCostUsd: 0.02,
+          candidateCostUsd: 0.012,
+        }],
+      },
+    })).resolves.toMatchObject({ score: 1 });
+
+    await expect(scorer.score({
+      input: "Use stable tools.",
+      output: "done",
+      metadata: {
+        providerRequests: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          stablePrefixBytes: 120,
+          stablePrefixRegionCount: 2,
+          volatileRegionBytes: 40,
+          cacheRegions: [],
+          cachePartition: {
+            hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            dimensions: [],
+          },
+        }],
+      },
+    })).resolves.toMatchObject({ score: 0, reasoning: expect.stringContaining("partition") });
+
+    await expect(scorer.score({
+      input: "Use stable tools.",
+      output: "done",
+      metadata: {
+        providerRequests: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          stablePrefixBytes: 120,
+          stablePrefixRegionCount: 2,
+          volatileRegionBytes: 40,
+          cacheRegions: [
+            { source: "tool_schema", stability: "stable", hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", bytes: 80, includedInStablePrefix: true },
+            { source: "messages", stability: "volatile", hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", bytes: 40, includedInStablePrefix: false },
+          ],
+          cachePartition: {
+            hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            dimensions: [
+              { source: "tenant", hash: "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+              { source: "route", hash: "sha256:2222222222222222222222222222222222222222222222222222222222222222" },
+              { source: "policy", hash: "sha256:3333333333333333333333333333333333333333333333333333333333333333" },
+              { source: "authority", hash: "sha256:4444444444444444444444444444444444444444444444444444444444444444" },
+            ],
+          },
+        }],
+        cacheGainComparisons: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          baselineInputTokens: 2000,
+          candidateInputTokens: 2000,
+          baselineCachedInputTokens: 0,
+          candidateCachedInputTokens: 1200,
+        }],
+      },
+    })).resolves.toMatchObject({ score: 0, reasoning: expect.stringContaining("invalid-reuse") });
+
+    await expect(scorer.score({
+      input: "Use stable tools.",
+      output: "done",
+      metadata: {
+        providerRequests: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          stablePrefixBytes: 120,
+          stablePrefixRegionCount: 2,
+          volatileRegionBytes: 40,
+          cacheRegions: [
+            { source: "tool_schema", stability: "stable", hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", bytes: 80, includedInStablePrefix: true },
+            { source: "messages", stability: "volatile", hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", bytes: 40, includedInStablePrefix: false },
+          ],
+          cachePartition: {
+            hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            dimensions: [
+              { source: "tenant", hash: "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+              { source: "route", hash: "sha256:2222222222222222222222222222222222222222222222222222222222222222" },
+              { source: "policy", hash: "sha256:3333333333333333333333333333333333333333333333333333333333333333" },
+              { source: "authority", hash: "sha256:4444444444444444444444444444444444444444444444444444444444444444" },
+            ],
+          },
+        }],
+        cacheInvalidReuseProbes: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          leftPartitionHash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          rightPartitionHash: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          changedDimension: "tenant",
+        }],
+      },
+    })).resolves.toMatchObject({ score: 0, reasoning: expect.stringContaining("cache gain") });
+  });
 });

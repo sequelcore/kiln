@@ -11,9 +11,10 @@ import {
 import type { RuntimeSession } from "./runtime-session.js";
 import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
 import { finalizeRuntimeSessionResponse, requestRuntimeSessionFallbackResponse } from "./runtime-session-orchestrator-response.js";
-import { resolveRuntimeSessionRouting } from "./runtime-session-orchestrator-routing.js";
+import { resolveRuntimeSessionRouting, type RuntimeSessionRoutingResolution } from "./runtime-session-orchestrator-routing.js";
 import {
   measureProviderRequestRegions,
+  type ProviderRequestCachePartitionInput,
   RuntimeSessionExecutionTelemetry,
 } from "./runtime-session-orchestrator-telemetry.js";
 import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-executor.js";
@@ -263,6 +264,12 @@ export class RuntimeSessionOrchestrator {
         });
       }
 
+      const cachePartition = buildRuntimeProviderRequestCachePartition(
+        session,
+        routing,
+        perCallConfig,
+        executionEnvelope,
+      );
       const response = await routing.effectiveProvider.createMessage({
         sessionId: session.id,
         system: routing.invocationSystem,
@@ -288,6 +295,7 @@ export class RuntimeSessionOrchestrator {
           messages: session.conversationHistory,
           tools: toolsForRound,
           toolCount: toolsForRound?.length ?? 0,
+          cachePartition,
           ...(response.stopReason ? { stopReason: response.stopReason } : {}),
         }),
       );
@@ -369,6 +377,7 @@ export class RuntimeSessionOrchestrator {
           routing.invocationSystem,
           session,
           this.deps.maxTokens,
+          cachePartition,
         );
         const fallbackUsageTotals = this.telemetry.recordResponse(
           session.id,
@@ -454,6 +463,7 @@ export class RuntimeSessionOrchestrator {
       routing.invocationSystem,
       session,
       this.deps.maxTokens,
+      buildRuntimeProviderRequestCachePartition(session, routing, perCallConfig, executionEnvelope),
     );
     const usageTotals = this.telemetry.recordResponse(
       session.id,
@@ -1090,6 +1100,54 @@ function isToolContinuationStopReason(stopReason: string | undefined): boolean {
 
 function errorToMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function buildRuntimeProviderRequestCachePartition(
+  session: RuntimeSession,
+  routing: RuntimeSessionRoutingResolution,
+  perCallConfig: PerCallToolConfig | undefined,
+  executionEnvelope: RuntimeExecutionEnvelope | undefined,
+): ProviderRequestCachePartitionInput {
+  return {
+    tenantId: perCallConfig?.tenantId ?? session.tenantId,
+    provider: routing.routingDecision?.provider
+      ?? routing.executionIdentity?.provider
+      ?? routing.effectiveProvider.name,
+    model: routing.routingDecision?.model
+      ?? routing.executionIdentity?.model,
+    canonicalModel: routing.routingDecision?.canonicalModel
+      ?? routing.executionIdentity?.canonicalModel,
+    reasoningEffort: perCallConfig?.reasoningEffort,
+    policyIdentity: {
+      executionEnvelope,
+      modelRoutingPolicy: projectModelRoutingPolicy(perCallConfig?.modelRoutingPolicy),
+      toolAllowlist: perCallConfig?.toolAllowlist ? [...perCallConfig.toolAllowlist].sort() : undefined,
+    },
+    authority: {
+      effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,
+      authorityContext: perCallConfig?.authorityContext,
+    },
+  };
+}
+
+function projectModelRoutingPolicy(
+  policy: PerCallToolConfig["modelRoutingPolicy"] | undefined,
+): Record<string, unknown> | undefined {
+  if (!policy) {
+    return undefined;
+  }
+  return {
+    task: policy.task,
+    rankingEvidence: policy.rankingEvidence,
+    routeCapabilities: policy.routeCapabilities
+      ? [...policy.routeCapabilities.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([route, capabilities]) => ({
+          route,
+          supportedReasoningEfforts: capabilities.supportedReasoningEfforts,
+        }))
+      : undefined,
+  };
 }
 
 function toPublicRoutingDecision(

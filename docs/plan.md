@@ -1,59 +1,58 @@
-# Interactive Full-Access Authority Integrity
+# Verified Efficiency Slice 2 - Stable Prefix Evidence
 
 Status: Complete
-Updated: 2026-07-03
+Updated: 2026-07-04
 
 ## Objective
 
-Make Kiln GUI Full Access an explicit, enforceable authorization for an attended
-operator turn in Kiln's own runtime, while preserving fail-closed authority for
-managed, background, and unattended execution.
+Record provider-request cache topology for a true leading stable prefix without
+changing admitted context, prompt-visible content, routing, or provider
+behavior.
 
 ## Decisions
 
-- Model execution use explicitly at the runtime authority boundary; do not infer
-  it from provider, model output, tool name, or presence of a GUI.
-- An attended operator's Full Access request may authorize Kiln-owned local
-  mutation tools when session, tenant, and route bounds admit it.
-- Managed or unattended destructive execution still requires goal and work-item
-  authority envelopes and cannot inherit an interactive selector.
-- Kiln's selector is not proof of a native harness sandbox and is never persisted
-  as canonical provider permission evidence.
+- Cache eligibility is evidence first. No savings policy is promoted in this
+  slice.
+- A stable prefix is contiguous from the start of the provider request. Once a
+  volatile region appears, later stable regions are not reusable prefix
+  material for that request.
+- Request identities use `sha256:*` hashes only.
+- Cache topology is telemetry/control-plane evidence and must not be injected
+  into model-visible prompts.
 
 ## Slices
 
-1. Add failing authority and GUI regressions for attended Full Access and
-   managed fail-closed behavior.
-2. Introduce the minimum execution-use evidence in the runtime admission
-   contract and project it from the attended GUI operator entry point.
-3. Align attached runtime tool authority with the admitted turn snapshot.
-4. Run focused runtime tests, runtime package tests, workspace typecheck/build,
-   security and code review, then update canonical architecture documentation.
+1. Add focused failing tests for leading-prefix topology and hash shape.
+2. Extend runtime provider-request evidence with stable-prefix bytes, region
+   count, volatile bytes, and region-level hashes.
+3. Partition cache evidence by tenant, route, policy, and authority scope using
+   hashes rather than raw identifiers.
+4. Add benchmark readiness and scoring evidence for cache topology without
+   adding private benchmark prompt/tool paths.
+5. Emit reproducible cache-topology benchmark artifacts with baseline/candidate
+   cache-gain comparison evidence.
+6. Add cache-policy promotion gate evidence: rollback must restore the baseline
+   policy, and candidate behavior must be non-inferior on output, authority,
+   tool trajectory, and non-cache scorers.
+7. Preserve existing provider request construction and benchmark metadata
+   projection.
+8. Run focused runtime/eval tests, workspace typecheck/build, and
+   review before closing.
 
 ## Verification
 
-- `bun test packages/runtime/tests/session/effective-turn-authority.test.ts`
-- `bun test packages/runtime/tests/gateway/gui-gateway-authority.test.ts`
-- `bun test packages/runtime/tests/gateway/attached-runtime-tool-surface.test.ts`
-- `bun test packages/runtime/tests/session/runtime-session-orchestrator-tools.test.ts`
-- `bun run --filter @kilnai/runtime test`
+- `bun test packages/runtime/tests/session/runtime-session-orchestrator-cache.test.ts`
+- `bun run --filter @kilnai/core test -- tests/eval/experiment-comparator.test.ts`
+- `bun run --filter @kilnai/core test -- tests/eval/benchmark-runner.test.ts`
+- `bun run --filter @kilnai/core test -- tests/eval/benchmark-baseline.test.ts tests/eval/benchmark-scorers.test.ts`
+- `bun run --filter @kilnai/cli test -- tests/application/benchmark-session-executor.test.ts`
+- `bun run --filter @kilnai/core test`
+- `bun run --filter @kilnai/runtime typecheck`
 - `bun run typecheck`
 - `bun run build`
 - `git diff --check`
 
 ## Residual-Risk Gate
 
-No native harness permission state may be claimed from this change. Background
-children must remain blocked without their own fresh authority evidence.
-
-## Completion Evidence
-
-- Focused effective-authority tests: 5 passed.
-- Focused GUI authority tests: 17 passed.
-- Focused attached runtime surface tests: 36 passed.
-- Focused runtime tool-orchestrator tests: 70 passed.
-- Full `@kilnai/runtime` suite: 185 files and 2483 tests passed; 5 live
-  proof files and 9 credentialed tests remained intentionally skipped.
-- Workspace typecheck and production build passed.
-- Security review confirmed incomplete interactive evidence fails closed and
-  managed/unattended execution cannot inherit the GUI selector.
+No public benchmark or policy-promotion claim may be made from this slice alone.
+It supplies request-topology evidence for later measurement.

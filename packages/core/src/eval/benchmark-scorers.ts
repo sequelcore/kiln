@@ -30,6 +30,8 @@ function createBenchmarkScorer(name: string): Scorer {
       return new LatencyScorer(DEFAULT_BENCHMARK_MAX_LATENCY_MS);
     case "cost":
       return new CostScorer(DEFAULT_BENCHMARK_MAX_COST_USD);
+    case "cache-topology":
+      return new CacheTopologyEvidenceScorer();
     case "tool-trajectory":
       return new ToolTrajectoryEvidenceScorer();
     case "handoff-quality":
@@ -41,6 +43,225 @@ function createBenchmarkScorer(name: string): Scorer {
     default:
       return new EvidencePresenceScorer(name);
   }
+}
+
+class CacheTopologyEvidenceScorer implements Scorer {
+  readonly name = "cache-topology";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const requests = readProviderRequests(input.metadata);
+    if (requests.length === 0) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: "missing provider request cache topology evidence",
+      };
+    }
+    const invalidRequest = requests.find((request) => !hasValidCacheTopology(request));
+    if (invalidRequest) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: `provider request ${readRequestIndex(invalidRequest)} is missing stable-prefix, region, or partition evidence`,
+      };
+    }
+    const invalidProbe = invalidReuseProbeFailure(input.metadata);
+    if (invalidProbe) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: invalidProbe,
+      };
+    }
+    const invalidCacheGain = invalidCacheGainComparisonFailure(input.metadata, requests);
+    if (invalidCacheGain) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: invalidCacheGain,
+      };
+    }
+    return {
+      name: this.name,
+      score: 1,
+      reasoning: "stable-prefix topology, cache partition, and cache gain evidence observed",
+    };
+  }
+}
+
+function readProviderRequests(metadata: Record<string, unknown> | undefined): readonly Record<string, unknown>[] {
+  const raw = metadata?.providerRequests;
+  return Array.isArray(raw)
+    ? raw.filter((entry): entry is Record<string, unknown> => isRecord(entry))
+    : [];
+}
+
+function hasValidCacheTopology(request: Record<string, unknown>): boolean {
+  return isSha256(request.stablePrefixHash)
+    && isPositiveNumber(request.stablePrefixBytes)
+    && isPositiveNumber(request.stablePrefixRegionCount)
+    && isNonNegativeNumber(request.volatileRegionBytes)
+    && hasValidCacheRegions(request.cacheRegions)
+    && hasValidCachePartition(request.cachePartition);
+}
+
+function hasValidCacheRegions(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) {
+    return false;
+  }
+  let seenVolatile = false;
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      return false;
+    }
+    const stability = entry.stability;
+    const included = entry.includedInStablePrefix;
+    if (stability !== "stable" && stability !== "volatile") {
+      return false;
+    }
+    if (!isSha256(entry.hash) || !isPositiveNumber(entry.bytes) || typeof included !== "boolean") {
+      return false;
+    }
+    if (seenVolatile && included) {
+      return false;
+    }
+    if (stability === "volatile") {
+      seenVolatile = true;
+    }
+    if (included && stability !== "stable") {
+      return false;
+    }
+  }
+  return true;
+}
+
+function hasValidCachePartition(value: unknown): boolean {
+  if (!isRecord(value) || !isSha256(value.hash) || !Array.isArray(value.dimensions)) {
+    return false;
+  }
+  const required = new Set(["tenant", "route", "policy", "authority"]);
+  for (const dimension of value.dimensions) {
+    if (!isRecord(dimension) || typeof dimension.source !== "string" || !isSha256(dimension.hash)) {
+      return false;
+    }
+    required.delete(dimension.source);
+  }
+  return required.size === 0;
+}
+
+function invalidReuseProbeFailure(metadata: Record<string, unknown> | undefined): string | undefined {
+  const raw = metadata?.cacheInvalidReuseProbes;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return "cache invalid-reuse probe evidence is missing";
+  }
+  for (const probe of raw) {
+    if (!isRecord(probe)) {
+      return "cache invalid-reuse probe is malformed";
+    }
+    if (!isSha256(probe.stablePrefixHash) || !isSha256(probe.leftPartitionHash) || !isSha256(probe.rightPartitionHash)) {
+      return "cache invalid-reuse probe is missing hash evidence";
+    }
+    if (probe.leftPartitionHash === probe.rightPartitionHash) {
+      return "cache invalid-reuse probe did not separate partition hashes";
+    }
+    if (typeof probe.changedDimension !== "string" || probe.changedDimension.trim().length === 0) {
+      return "cache invalid-reuse probe is missing changed dimension";
+    }
+  }
+  return undefined;
+}
+
+function invalidCacheGainComparisonFailure(
+  metadata: Record<string, unknown> | undefined,
+  requests: readonly Record<string, unknown>[],
+): string | undefined {
+  const raw = metadata?.cacheGainComparisons;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return "cache gain comparison evidence is missing";
+  }
+  const observedStablePrefixHashes = new Set(
+    requests
+      .map((request) => request.stablePrefixHash)
+      .filter((hash): hash is string => isSha256(hash)),
+  );
+  for (const comparison of raw) {
+    if (!isRecord(comparison)) {
+      return "cache gain comparison is malformed";
+    }
+    if (!isSha256(comparison.stablePrefixHash)) {
+      return "cache gain comparison is missing stable-prefix hash evidence";
+    }
+    if (!observedStablePrefixHashes.has(comparison.stablePrefixHash)) {
+      return "cache gain comparison references an unobserved stable-prefix hash";
+    }
+    if (
+      !isPositiveNumber(comparison.baselineInputTokens)
+      || !isPositiveNumber(comparison.candidateInputTokens)
+      || !isNonNegativeNumber(comparison.baselineCachedInputTokens)
+      || !isPositiveNumber(comparison.candidateCachedInputTokens)
+    ) {
+      return "cache gain comparison is missing token measurements";
+    }
+    if (comparison.baselineInputTokens !== comparison.candidateInputTokens) {
+      return "cache gain comparison must use the same baseline and candidate input-token fixture";
+    }
+    if (comparison.candidateCachedInputTokens <= comparison.baselineCachedInputTokens) {
+      return "cache gain comparison did not improve cached input tokens";
+    }
+    const latencyFailure = optionalImprovementFailure(
+      comparison.baselineLatencyMs,
+      comparison.candidateLatencyMs,
+      "latency",
+    );
+    if (latencyFailure) {
+      return latencyFailure;
+    }
+    const costFailure = optionalImprovementFailure(
+      comparison.baselineCostUsd,
+      comparison.candidateCostUsd,
+      "cost",
+    );
+    if (costFailure) {
+      return costFailure;
+    }
+  }
+  return undefined;
+}
+
+function optionalImprovementFailure(
+  baseline: unknown,
+  candidate: unknown,
+  metric: string,
+): string | undefined {
+  if (baseline === undefined && candidate === undefined) {
+    return undefined;
+  }
+  if (!isNonNegativeNumber(baseline) || !isNonNegativeNumber(candidate)) {
+    return `cache gain comparison is missing ${metric} measurements`;
+  }
+  return candidate <= baseline
+    ? undefined
+    : `cache gain comparison regressed ${metric}`;
+}
+
+function readRequestIndex(request: Record<string, unknown>): string {
+  return typeof request.requestIndex === "number" ? String(request.requestIndex) : "unknown";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 class ToolTrajectoryEvidenceScorer implements Scorer {

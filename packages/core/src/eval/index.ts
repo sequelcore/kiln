@@ -36,8 +36,13 @@ export type {
   BenchmarkItemExecutionContext,
   BenchmarkItemExecutor,
 } from "./benchmark-runner.js";
-export { compareExperiments } from "./experiment-comparator.js";
-export type { ComparisonResult, ScorerComparison } from "./experiment-comparator.js";
+export { compareExperiments, evaluateCachePolicyPromotion } from "./experiment-comparator.js";
+export type {
+  CachePolicyPromotionInput,
+  CachePolicyPromotionResult,
+  ComparisonResult,
+  ScorerComparison,
+} from "./experiment-comparator.js";
 export { ConsistencyRunner } from "./consistency-runner.js";
 export type { ConsistencyRunnerConfig, ConsistencyResult, ConsistencyItemResult, ExperimentExecutor } from "./consistency-runner.js";
 export {

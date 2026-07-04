@@ -37,9 +37,48 @@ export interface ProviderRequestRegionEvidence {
   readonly messageHash: string;
   readonly toolSchemaHash: string;
   readonly stablePrefixHash: string;
+  readonly stablePrefixBytes: number;
+  readonly stablePrefixRegionCount: number;
+  readonly volatileRegionBytes: number;
+  readonly cacheRegions: readonly {
+    readonly source: ProviderRequestCacheRegionSource;
+    readonly stability: "stable" | "volatile";
+    readonly bytes: number;
+    readonly hash: string;
+    readonly includedInStablePrefix: boolean;
+  }[];
+  readonly cachePartition: ProviderRequestCachePartitionEvidence;
   readonly toolCount: number;
   readonly stopReason?: string;
 }
+
+type ProviderRequestCachePartitionDimensionSource =
+  | "tenant"
+  | "route"
+  | "policy"
+  | "authority";
+
+type ProviderRequestCachePartitionEvidence = {
+  readonly hash: string;
+  readonly dimensions: readonly {
+    readonly source: ProviderRequestCachePartitionDimensionSource;
+    readonly hash: string;
+    readonly evidenceBasis: string;
+  }[];
+};
+
+type ProviderRequestCacheRegionSource =
+  | "tool_schema"
+  | "system"
+  | "messages";
+
+type InternalProviderRequestCacheRegion = {
+  readonly source: ProviderRequestCacheRegionSource;
+  readonly stability: "stable" | "volatile";
+  readonly bytes: number;
+  readonly hash: string;
+  readonly serialized: string;
+};
 
 export function measureProviderRequestRegions(input: {
   readonly system: string;
@@ -47,10 +86,33 @@ export function measureProviderRequestRegions(input: {
   readonly tools?: unknown;
   readonly toolCount: number;
   readonly stopReason?: string;
+  readonly requestRegionOrder?: readonly ProviderRequestCacheRegionSource[];
+  readonly cachePartition?: ProviderRequestCachePartitionInput;
 }): ProviderRequestRegionEvidence {
   const system = serializeForEvidence(input.system);
   const messages = serializeForEvidence(input.messages);
   const tools = serializeForEvidence(input.tools ?? []);
+  const regionsBySource: Record<ProviderRequestCacheRegionSource, InternalProviderRequestCacheRegion> = {
+    system: createCacheRegion("system", "stable", system),
+    messages: createCacheRegion("messages", "volatile", messages),
+    tool_schema: createCacheRegion("tool_schema", "stable", tools),
+  };
+  const regionOrder: readonly ProviderRequestCacheRegionSource[] =
+    input.requestRegionOrder ?? ["tool_schema", "system", "messages"];
+  const cacheRegions: readonly InternalProviderRequestCacheRegion[] = regionOrder
+    .map((source) => requireCacheRegion(regionsBySource, source));
+  const stablePrefixRegions = leadingStableRegions(cacheRegions);
+  const stablePrefixBytes = stablePrefixRegions.reduce((total, region) => total + region.bytes, 0);
+  const cacheRegionsWithPrefix = cacheRegions.map((region, index) => ({
+    source: region.source,
+    stability: region.stability,
+    bytes: region.bytes,
+    hash: region.hash,
+    includedInStablePrefix: index < stablePrefixRegions.length,
+  }));
+  const volatileRegionBytes = cacheRegionsWithPrefix
+    .filter((region) => !region.includedInStablePrefix)
+    .reduce((total, region) => total + region.bytes, 0);
   return {
     systemBytes: byteLength(system),
     messageBytes: byteLength(messages),
@@ -58,9 +120,33 @@ export function measureProviderRequestRegions(input: {
     systemHash: hashSerialized(system),
     messageHash: hashSerialized(messages),
     toolSchemaHash: hashSerialized(tools),
-    stablePrefixHash: hashSerialized(`${system}\n${tools}`),
+    stablePrefixHash: hashStablePrefix(stablePrefixRegions),
+    stablePrefixBytes,
+    stablePrefixRegionCount: stablePrefixRegions.length,
+    volatileRegionBytes,
+    cacheRegions: cacheRegionsWithPrefix,
+    cachePartition: buildCachePartitionEvidence(input.cachePartition),
     toolCount: input.toolCount,
     ...(input.stopReason ? { stopReason: input.stopReason } : {}),
+  };
+}
+
+export interface ProviderRequestCachePartitionInput {
+  readonly tenantId?: string;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly canonicalModel?: string;
+  readonly reasoningEffort?: string;
+  readonly policyIdentity?: unknown;
+  readonly authority?: {
+    readonly effectiveTurnAuthority?: unknown;
+    readonly authorityContext?: unknown;
+    readonly requestedAuthority?: string;
+    readonly admittedAuthority?: string;
+    readonly sourcePolicy?: string;
+    readonly completeness?: string;
+    readonly sandboxProjection?: string;
+    readonly policyInputs?: readonly unknown[];
   };
 }
 
@@ -265,4 +351,106 @@ function byteLength(serialized: string): number {
 
 function hashSerialized(serialized: string): string {
   return `sha256:${createHash("sha256").update(serialized, "utf8").digest("hex")}`;
+}
+
+function createCacheRegion(
+  source: ProviderRequestCacheRegionSource,
+  stability: "stable" | "volatile",
+  serialized: string,
+): InternalProviderRequestCacheRegion {
+  return {
+    source,
+    stability,
+    bytes: byteLength(serialized),
+    hash: hashSerialized(serialized),
+    serialized,
+  };
+}
+
+function leadingStableRegions<T extends { readonly stability: "stable" | "volatile" }>(
+  regions: readonly T[],
+): readonly T[] {
+  const prefix: T[] = [];
+  for (const region of regions) {
+    if (region.stability !== "stable") {
+      break;
+    }
+    prefix.push(region);
+  }
+  return prefix;
+}
+
+function hashStablePrefix(
+  regions: readonly {
+    readonly source: ProviderRequestCacheRegionSource;
+    readonly hash: string;
+    readonly serialized: string;
+  }[],
+): string {
+  return hashSerialized(JSON.stringify(regions.map((region) => ({
+    source: region.source,
+    hash: region.hash,
+    content: region.serialized,
+  }))));
+}
+
+function buildCachePartitionEvidence(
+  input: ProviderRequestCachePartitionInput | undefined,
+): ProviderRequestCachePartitionEvidence {
+  const tenantValue = {
+    tenantId: input?.tenantId ?? "unknown",
+  };
+  const routeValue = {
+    provider: input?.provider ?? "unknown",
+    model: input?.model ?? "unknown",
+    canonicalModel: input?.canonicalModel ?? "unknown",
+    reasoningEffort: input?.reasoningEffort ?? "default",
+  };
+  const policyValue = input?.policyIdentity ?? { policy: "default" };
+  const authorityValue = input?.authority ?? { authority: "unknown" };
+  const dimensions = [
+    cachePartitionDimension("tenant", tenantValue, "session tenant identity"),
+    cachePartitionDimension("route", routeValue, "provider route identity"),
+    cachePartitionDimension("policy", policyValue, "efficiency and routing policy identity"),
+    cachePartitionDimension("authority", authorityValue, "effective turn authority scope"),
+  ] satisfies readonly ProviderRequestCachePartitionEvidence["dimensions"][number][];
+  return {
+    hash: hashSerialized(stableStringify(dimensions.map((dimension) => ({
+      source: dimension.source,
+      hash: dimension.hash,
+    })))),
+    dimensions,
+  };
+}
+
+function cachePartitionDimension(
+  source: ProviderRequestCachePartitionDimensionSource,
+  value: unknown,
+  evidenceBasis: string,
+): ProviderRequestCachePartitionEvidence["dimensions"][number] {
+  return {
+    source,
+    hash: hashSerialized(stableStringify(value)),
+    evidenceBasis,
+  };
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, item]) => item !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(",")}}`;
+}
+
+function requireCacheRegion(
+  regionsBySource: Readonly<Record<ProviderRequestCacheRegionSource, InternalProviderRequestCacheRegion>>,
+  source: ProviderRequestCacheRegionSource,
+): InternalProviderRequestCacheRegion {
+  return regionsBySource[source];
 }
