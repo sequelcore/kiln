@@ -120,7 +120,7 @@ function authorityDescriptorFromCapability(
 
 function isReadOnlyCapability(toolName: string, capability: Capability | undefined): boolean {
   const effect = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName) ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
-  return effect.operation === "observe" && effect.dataEgress === "none";
+  return effect.operation !== "mutate";
 }
 
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
@@ -179,11 +179,18 @@ function toolResultToSessionEvent(event: ToolResultEvent): Extract<ExecutionSess
 
 function deriveCapabilities(
   config: ProviderSessionConfig,
-  builtinToolNames: readonly string[],
+  toolDefinitions: readonly ToolDefinition[],
+  materializableTools: ReadonlyMap<string, ToolDefinition>,
 ): SessionCapabilities {
   const executionMode = resolveExecutionMode(config);
   const supportedTools = executionMode === "kiln-executable"
-    ? [...builtinToolNames]
+    ? (() => {
+      const names = new Set(toolDefinitions.map((tool) => tool.name));
+      for (const name of materializableTools.keys()) {
+        names.add(name);
+      }
+      return [...names];
+    })()
     : [];
   return {
     mcp: false,
@@ -209,6 +216,7 @@ export class ProviderSession implements IKilnSession {
   private readonly contextTracker: ProviderContextTracker;
   private readonly builtinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   private readonly toolDefinitions: readonly ToolDefinition[];
+  private readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
   private readonly capabilityMap: ReadonlyMap<string, Capability>;
   private readonly eventBus: EventBus;
 
@@ -231,11 +239,13 @@ export class ProviderSession implements IKilnSession {
     });
     this.builtinTools = builtinToolSurface.callBuiltinTools;
     this.toolDefinitions = builtinToolSurface.toolDefinitions;
-    this.capabilityMap = builtinToolSurface.capabilities;
+    this.materializableTools = builtinToolSurface.materializableTools;
+    this.capabilityMap = builtinToolSurface.materializableCapabilities;
     this.eventBus = new EventBus(100);
     this._capabilities = deriveCapabilities(
       config,
-      builtinToolSurface.toolDefinitions.map((tool) => tool.name),
+      builtinToolSurface.toolDefinitions,
+      this.materializableTools,
     );
   }
 
@@ -489,10 +499,14 @@ export class ProviderSession implements IKilnSession {
     turnId: string | undefined,
   ): PerCallToolConfig {
     if (!requestedAuthority || requestedAuthority === "auto") {
+      const admittedToolNames = new Set(this.materializableTools.keys());
       return {
         ...(turnId ? { turnId } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(abortSignal ? { abortSignal } : {}),
+        toolAllowlist: admittedToolNames,
+        additionalTools: this.toolDefinitions,
+        perCallCapabilities: filterCapabilityMap(this.capabilityMap, admittedToolNames),
         ...(requestedAuthority ? {
           effectiveTurnAuthority: {
             executionMode: "execute",
@@ -501,7 +515,7 @@ export class ProviderSession implements IKilnSession {
             sourcePolicy: "runtime_surface_projection",
             reason: "cli direct-provider requested turn authority",
             completeness: "partial",
-            toolCount: this.toolDefinitions.length,
+            toolCount: admittedToolNames.size,
             deniedToolCount: 0,
             policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
               executionMode: "execute",
@@ -516,7 +530,7 @@ export class ProviderSession implements IKilnSession {
 
     const admittedToolNames = new Set<string>();
     const toolAuthority = new Map<string, AuthorityDescriptor>();
-    for (const tool of this.toolDefinitions) {
+    for (const tool of this.materializableTools.values()) {
       const capability = this.capabilityMap.get(tool.name);
       const authority = authorityDescriptorFromCapability(tool.name, capability);
       if (!authority || !authority.allowed || authority.requiresApproval) {
@@ -552,7 +566,7 @@ export class ProviderSession implements IKilnSession {
         reason: "cli direct-provider requested turn authority",
         completeness: "authoritative",
         toolCount: admittedToolNames.size,
-        deniedToolCount: Math.max(0, this.toolDefinitions.length - admittedToolNames.size),
+        deniedToolCount: Math.max(0, this.materializableTools.size - admittedToolNames.size),
         policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
           executionMode: "execute",
           requestedAuthority,
@@ -595,6 +609,7 @@ export class ProviderSession implements IKilnSession {
       provider: adapter,
       model: this.resolvedModel,
       tools: this.toolDefinitions,
+      materializableTools: this.materializableTools,
       builtinTools: this.builtinTools,
       eventBus: this.eventBus,
       toolAuthorizer: authorizer,

@@ -1,4 +1,11 @@
-import type { BudgetAdmissionRouteCandidate, ContentPart, EventBus, ToolCall, ToolDefinition } from "@kilnai/core";
+import type {
+  BudgetAdmissionRouteCandidate,
+  ContentPart,
+  EventBus,
+  ProviderRequestToolMaterializationDecisionEvidence,
+  ToolCall,
+  ToolDefinition,
+} from "@kilnai/core";
 import {
   extractText,
   getInvalidToolInputDetails,
@@ -9,10 +16,16 @@ import {
   type ProviderRequestEvidence,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
+import {
+  admitProgressiveTool,
+  readProgressiveToolCatalogSearchMetadata,
+  type ProgressiveToolAdmissionDecision,
+} from "./progressive-tool-admission.js";
 import { RuntimeSessionApprovalGate } from "./runtime-session-orchestrator-approvals.js";
 import { finalizeRuntimeSessionResponse, requestRuntimeSessionFallbackResponse } from "./runtime-session-orchestrator-response.js";
 import { resolveRuntimeSessionRouting, type RuntimeSessionRoutingResolution } from "./runtime-session-orchestrator-routing.js";
 import {
+  buildProviderRequestToolProjectionEvidence,
   measureProviderRequestRegions,
   type ProviderRequestCachePartitionInput,
   RuntimeSessionExecutionTelemetry,
@@ -202,6 +215,8 @@ export class RuntimeSessionOrchestrator {
       callBuiltinTools,
     );
     const budgetRouteModel = routing.routingDecision?.model ?? this.model;
+    let projectedRoundTools = routing.effectiveTools;
+    let pendingMaterializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[] = [];
 
     let managedInvocationTransitionReserveUsed = false;
     for (let round = 0; this.canStartToolRound(round, managedInvocationTransitionReserveUsed, toolExecutions, executionEnvelope); round++) {
@@ -243,7 +258,7 @@ export class RuntimeSessionOrchestrator {
 
       const toolsForRound = routing.hasTools
         ? managedInvocationTransitionToolsForRound(
-            routing.effectiveTools,
+            projectedRoundTools,
             transitionOnlyRound ? pendingTransitionForRound : undefined,
           )
         : undefined;
@@ -295,10 +310,19 @@ export class RuntimeSessionOrchestrator {
           messages: session.conversationHistory,
           tools: toolsForRound,
           toolCount: toolsForRound?.length ?? 0,
+          toolProjection: buildProviderRequestToolProjectionEvidence({
+            projectedTools: toolsForRound,
+            materializableTools: materializableToolsForEvidence(
+              this.deps.materializableTools,
+              perCallConfig?.toolAllowlist,
+            ),
+            materializationDecisions: pendingMaterializationDecisions,
+          }),
           cachePartition,
           ...(response.stopReason ? { stopReason: response.stopReason } : {}),
         }),
       );
+      pendingMaterializationDecisions = [];
 
       if (!routing.hasTools || response.toolCalls.length === 0) {
         const pendingTransition = pendingManagedInvocationTransition(toolExecutions);
@@ -342,7 +366,9 @@ export class RuntimeSessionOrchestrator {
       }
       session.addAssistantMessage(assistantParts);
 
-      const executableToolCalls = transitionOnlyToolCalls?.allowed ?? normalizedToolCalls;
+      const transitionAdmittedToolCalls = transitionOnlyToolCalls?.allowed ?? normalizedToolCalls;
+      const projectedRoundToolCalls = partitionProjectedRoundToolCalls(transitionAdmittedToolCalls, toolsForRound);
+      const executableToolCalls = projectedRoundToolCalls.allowed;
       const repeatedInvalidToolAttempt = this.detectRepeatedInvalidToolAttempt(
         executableToolCalls,
         invalidToolCallAttempts,
@@ -409,11 +435,20 @@ export class RuntimeSessionOrchestrator {
       const blockedTransitionOnlyCalls = transitionOnlyToolCalls && transitionOnlyToolCalls.blocked.length > 0
         ? buildManagedInvocationTransitionOnlyBlockedResults(transitionOnlyToolCalls.blocked, pendingTransitionForRound!)
         : undefined;
+      const blockedProjectedRoundCalls = projectedRoundToolCalls.blocked.length > 0
+        ? buildProjectedRoundBlockedResults(projectedRoundToolCalls.blocked)
+        : undefined;
       if (executableToolCalls.length === 0) {
         if (blockedTransitionOnlyCalls) {
           toolExecutions.push(...blockedTransitionOnlyCalls.toolExecutions);
-          session.addUserMessage(blockedTransitionOnlyCalls.resultParts);
         }
+        if (blockedProjectedRoundCalls) {
+          toolExecutions.push(...blockedProjectedRoundCalls.toolExecutions);
+        }
+        session.addUserMessage([
+          ...(blockedTransitionOnlyCalls?.resultParts ?? []),
+          ...(blockedProjectedRoundCalls?.resultParts ?? []),
+        ]);
         continue;
       }
 
@@ -427,11 +462,21 @@ export class RuntimeSessionOrchestrator {
       toolExecutions.push(
         ...(blockedTransitionOnlyCalls?.toolExecutions ?? []),
         ...execution.toolExecutions,
+        ...(blockedProjectedRoundCalls?.toolExecutions ?? []),
       );
       session.addUserMessage([
         ...(blockedTransitionOnlyCalls?.resultParts ?? []),
         ...execution.resultParts,
+        ...(blockedProjectedRoundCalls?.resultParts ?? []),
       ]);
+      const progressiveAdmission = admitProgressivelyMaterializedTools(
+        projectedRoundTools,
+        execution.toolExecutions,
+        this.deps.materializableTools,
+        perCallConfig?.toolAllowlist,
+      );
+      projectedRoundTools = progressiveAdmission.tools;
+      pendingMaterializationDecisions = progressiveAdmission.decisions;
     }
 
     const pendingTransition = pendingManagedInvocationTransition(toolExecutions);
@@ -676,6 +721,30 @@ function partitionManagedInvocationTransitionToolCalls(
   return { allowed, blocked };
 }
 
+function partitionProjectedRoundToolCalls(
+  toolCalls: readonly ToolCall[],
+  toolsForRound: readonly ToolDefinition[] | undefined,
+): {
+  readonly allowed: readonly ToolCall[];
+  readonly blocked: readonly ToolCall[];
+} {
+  if (!toolsForRound) {
+    return { allowed: toolCalls, blocked: [] };
+  }
+
+  const projectedToolNames = new Set(toolsForRound.map((tool) => tool.name));
+  const allowed: ToolCall[] = [];
+  const blocked: ToolCall[] = [];
+  for (const toolCall of toolCalls) {
+    if (projectedToolNames.has(toolCall.name)) {
+      allowed.push(toolCall);
+    } else {
+      blocked.push(toolCall);
+    }
+  }
+  return { allowed, blocked };
+}
+
 function buildManagedInvocationTransitionOnlyBlockedResults(
   toolCalls: readonly ToolCall[],
   pending: PendingManagedInvocationTransition,
@@ -705,6 +774,44 @@ function buildManagedInvocationTransitionOnlyBlockedResults(
       resultSummary: content.slice(0, 200),
     })),
   };
+}
+
+function buildProjectedRoundBlockedResults(
+  toolCalls: readonly ToolCall[],
+): {
+  readonly resultParts: readonly ContentPart[];
+  readonly toolExecutions: readonly ToolExecutionSummary[];
+} {
+  return {
+    resultParts: toolCalls.map((toolCall) => {
+      const content = formatProjectedRoundBlockedToolMessage(toolCall.name);
+      return {
+        type: "tool_result" as const,
+        toolUseId: toolCall.id,
+        content,
+        isError: true,
+      };
+    }),
+    toolExecutions: toolCalls.map((toolCall) => {
+      const content = formatProjectedRoundBlockedToolMessage(toolCall.name);
+      return {
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        input: toolCall.input,
+        durationMs: 0,
+        success: false,
+        output: content,
+        resultSummary: content.slice(0, 200),
+      };
+    }),
+  };
+}
+
+function formatProjectedRoundBlockedToolMessage(toolName: string): string {
+  return [
+    `Tool "${toolName}" is not available in the current provider round's projected tool schema.`,
+    "If this tool was just discovered through tool_catalog_search, retry it in the next provider round after the schema is materialized.",
+  ].join("\n");
 }
 
 function finalizeManagedInvocationTransitionRequired(input: {
@@ -740,6 +847,73 @@ function finalizeManagedInvocationTransitionRequired(input: {
     routingDecision: input.routingDecision,
     preLlmEscalation: input.preLlmEscalation,
   });
+}
+
+function materializableToolsForEvidence(
+  materializableTools: ReadonlyMap<string, ToolDefinition> | undefined,
+  toolAllowlist: ReadonlySet<string> | undefined,
+): ReadonlyMap<string, ToolDefinition> | undefined {
+  if (!materializableTools || !toolAllowlist) {
+    return undefined;
+  }
+  const scoped = new Map<string, ToolDefinition>();
+  for (const [name, tool] of materializableTools.entries()) {
+    if (toolAllowlist.has(name)) {
+      scoped.set(name, tool);
+    }
+  }
+  return scoped;
+}
+
+function admitProgressivelyMaterializedTools(
+  tools: readonly ToolDefinition[] | undefined,
+  executions: readonly ToolExecutionSummary[],
+  materializableTools: ReadonlyMap<string, ToolDefinition> | undefined,
+  turnToolAllowlist: ReadonlySet<string> | undefined,
+): {
+  readonly tools: readonly ToolDefinition[] | undefined;
+  readonly decisions: readonly ProviderRequestToolMaterializationDecisionEvidence[];
+} {
+  if (!tools || !materializableTools || materializableTools.size === 0 || !turnToolAllowlist) {
+    return { tools, decisions: [] };
+  }
+
+  let nextTools = tools;
+  const decisions: ProviderRequestToolMaterializationDecisionEvidence[] = [];
+  for (const execution of executions) {
+    const catalogMetadata = readProgressiveToolCatalogSearchMetadata(execution.metadata);
+    const admission = admitProgressiveTool(
+      nextTools,
+      materializableTools,
+      turnToolAllowlist,
+      execution.metadata,
+    );
+    nextTools = admission.tools;
+    if (catalogMetadata) {
+      const decision = materializationDecision(admission.decision);
+      const canExposeToolName = decision !== "outside_authority";
+      decisions.push({
+        decision,
+        toolName: canExposeToolName ? catalogMetadata.materializableToolName : "<redacted>",
+        ...(execution.toolCallId ? { sourceToolCallId: execution.toolCallId } : {}),
+        sourceToolName: execution.toolName,
+        catalog: {
+          ...(canExposeToolName && catalogMetadata.exact ? { exact: catalogMetadata.exact } : {}),
+          ...(canExposeToolName && catalogMetadata.resultCount !== undefined ? { resultCount: catalogMetadata.resultCount } : {}),
+          ...(canExposeToolName && catalogMetadata.totalIndexed !== undefined ? { totalIndexed: catalogMetadata.totalIndexed } : {}),
+          ...(canExposeToolName && catalogMetadata.includedSchemas !== undefined ? { includedSchemas: catalogMetadata.includedSchemas } : {}),
+          ...(canExposeToolName ? { stale: catalogMetadata.stale } : {}),
+        },
+      });
+    }
+  }
+  return { tools: nextTools, decisions };
+}
+
+function materializationDecision(
+  decision: ProgressiveToolAdmissionDecision,
+): ProviderRequestToolMaterializationDecisionEvidence["decision"] {
+  return decision === "admitted" ? "materialized" : decision;
 }
 
 function pendingManagedInvocationTransition(

@@ -24,6 +24,10 @@ export type {
   ProviderRequestCacheRegionEvidence,
   ProviderRequestCacheRegionSource,
   ProviderRequestEvidence,
+  ProviderRequestToolMaterializationDecision,
+  ProviderRequestToolMaterializationDecisionEvidence,
+  ProviderRequestToolProjectionEvidence,
+  ProviderRequestToolProjectionSetEvidence,
 } from "./execution-session-event.js";
 
 /** Streaming granularity levels, from coarsest to finest */

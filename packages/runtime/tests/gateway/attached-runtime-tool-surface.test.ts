@@ -2262,9 +2262,59 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_CONTEXT_TOOLS]);
+    expect(runtimeSurface.callBuiltinTools.has("browser_session_start")).toBe(true);
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_CONTEXT_TOOLS]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).not.toContain("browser_session_start");
     expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_CONTEXT_TOOLS]);
+  });
+
+  it("separates the initial deferred projection from the canonical materializable catalog", () => {
+    const canonicalSurface = createDefaultBuiltinToolSurface();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read"],
+        },
+      },
+    });
+    const canonicalBrowserSessionStart = canonicalSurface.toolDefinitions.find(
+      (tool) => tool.name === "browser_session_start",
+    );
+    const canonicalBrowserSessionStartCapability = canonicalSurface.capabilities.get("browser_session_start");
+    const canonicalCatalogSearchCapability = canonicalSurface.capabilities.get("tool_catalog_search");
+
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toContain("tool_catalog_search");
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).not.toContain("browser_session_start");
+    expect(runtimeSurface.materializableTools).toBeInstanceOf(Map);
+    expect(runtimeSurface.materializableTools.get("browser_session_start")).toEqual(canonicalBrowserSessionStart);
+    expect(runtimeSurface.materializableCapabilities).toBeInstanceOf(Map);
+    expect(runtimeSurface.materializableCapabilities.get("browser_session_start")).toEqual(
+      canonicalBrowserSessionStartCapability,
+    );
+    expect(runtimeSurface.materializableCapabilities.get("tool_catalog_search")).toEqual(
+      canonicalCatalogSearchCapability,
+    );
+  });
+
+  it("does not admit runtime-attached tools into the materializable catalog", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      operatorSurface: {
+        theme: {
+          setTheme: vi.fn(),
+        },
+      },
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read"],
+        },
+      },
+    });
+
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toContain("operator_set_theme");
+    expect(runtimeSurface.materializableTools.has("operator_set_theme")).toBe(false);
+    expect(runtimeSurface.materializableCapabilities.has("operator_set_theme")).toBe(false);
   });
 
   it("can explicitly expose code intelligence in deferred runtime projection", () => {
@@ -2277,12 +2327,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "code_intelligence",
       "tool_catalog_search",
       ...ALWAYS_ON_CONTEXT_TOOLS,
-    ]);
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "code_intelligence",
@@ -2301,12 +2351,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "read_many",
       "tool_catalog_search",
       ...ALWAYS_ON_CONTEXT_TOOLS,
-    ]);
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "read_many",
@@ -2325,7 +2375,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "monitor_start",
       "monitor_read",
@@ -2333,7 +2383,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       "monitor_list",
       "tool_catalog_search",
       ...ALWAYS_ON_CONTEXT_TOOLS,
-    ]);
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "monitor_start",
@@ -2355,13 +2405,13 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "task_list",
       "task_update",
       "tool_catalog_search",
       ...ALWAYS_ON_CONTEXT_TOOLS,
-    ]);
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "task_list",
@@ -2381,12 +2431,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "operator_elicit",
       "tool_catalog_search",
       ...ALWAYS_ON_CONTEXT_TOOLS,
-    ]);
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "operator_elicit",

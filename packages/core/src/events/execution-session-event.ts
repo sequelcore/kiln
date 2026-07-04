@@ -53,7 +53,42 @@ export interface ProviderRequestEvidence {
   readonly cacheRegions: readonly ProviderRequestCacheRegionEvidence[];
   readonly cachePartition: ProviderRequestCachePartitionEvidence;
   readonly toolCount: number;
+  readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly stopReason?: string;
+}
+
+export interface ProviderRequestToolProjectionEvidence {
+  readonly projected: ProviderRequestToolProjectionSetEvidence;
+  readonly materializable: ProviderRequestToolProjectionSetEvidence;
+  readonly materializedAdditions: readonly string[];
+  readonly materializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[];
+}
+
+export interface ProviderRequestToolProjectionSetEvidence {
+  readonly names: readonly string[];
+  readonly count: number;
+  readonly hash: string;
+}
+
+export type ProviderRequestToolMaterializationDecision =
+  | "materialized"
+  | "already_materialized"
+  | "outside_authority"
+  | "not_found"
+  | "not_materializable";
+
+export interface ProviderRequestToolMaterializationDecisionEvidence {
+  readonly decision: ProviderRequestToolMaterializationDecision;
+  readonly toolName: string;
+  readonly sourceToolCallId?: string;
+  readonly sourceToolName: string;
+  readonly catalog: {
+    readonly exact?: string;
+    readonly resultCount?: number;
+    readonly totalIndexed?: number;
+    readonly includedSchemas?: boolean;
+    readonly stale?: boolean;
+  };
 }
 
 export type ProviderRequestCacheRegionSource =

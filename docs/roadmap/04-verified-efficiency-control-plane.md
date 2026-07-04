@@ -1,7 +1,7 @@
 # 04 - Verified Efficiency Control Plane
 
 Status: Active architecture program; Slice 0, Slice 1, and Slice 2 complete;
-Slice 3 in progress.
+Slice 3 paused pending Roadmap 06 cross-harness control-plane work.
 
 Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
 (`feat(runtime): record lifecycle attribution ledger`). Slice 0 live baseline
@@ -18,7 +18,10 @@ because it violated the stable-prefix contract and left incomplete workflow
 evidence. Slice 2 restarted on 2026-07-04 from TDD and closed with stable
 prefix topology evidence, cache partition evidence, benchmark readiness,
 cache-gain comparison evidence, and rollback/non-inferiority promotion gates.
-Slice 3 started on 2026-07-04. Slices 4 through 12 are not started.
+Slice 3 started on 2026-07-04 and is paused until Roadmap 06 establishes the
+cross-harness Kiln control-plane boundary needed for tool and agent exposure
+from Codex App, Claude Code, OpenCode, and Kiln surfaces. Slices 4 through 12
+are not started.
 
 ## Objective
 
@@ -276,7 +279,7 @@ contracts but must not create parallel legacy paths.
 | Slice 0 - Baseline And Reproduction | Complete | The authorized 2026-07-02 `kiln-tool-agent` work established the pre-repair pressure source, repaired provider-neutral benchmark prerequisites, validated the post-repair `k=1` baseline across four live routes, and ran a viable-route `k=5` comparison for Codex GPT-5.5 and Kimi K2.7 Code. The old 419,972-940,391 input-token pressure was primarily a Kiln request-shaping/tool-projection problem. The remaining GPT-5.5 versus Kimi difference is model and harness behavior under the same Kiln control plane. | Closed; Slice 2 is now complete. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
 | Slice 2 - Stable Prefix And Cache Topology | Complete | Closed on 2026-07-04 from TDD. Runtime provider-request evidence records leading stable-prefix topology, region hashes, stable-prefix bytes, stable-prefix region count, volatile-region bytes, and cache partition hashes for tenant, route, policy, and authority scope without changing provider request construction or model-visible prompts. Benchmark readiness requires `cache-topology` scorer and artifact evidence for `kiln-tool-agent`, including baseline/candidate cache-gain comparison evidence. Cache-policy promotion has a rollback and non-inferiority gate. | Start Slice 3 progressive context and tool loading. |
-| Slice 3 - Progressive Context And Tool Loading | In Progress | Started on 2026-07-04. Runtime surfaces now share one progressive tool projection helper with explicit authority profiles instead of per-command eager or duplicated projection policy. Read-only benchmark sessions expose only read/research/control-plane inspection tools; CLI run, TUI, and GUI select the execute profile for edit/shell/config/work-governance mutation tools. Both profiles leave `tool_catalog_search` and canonical registry discovery intact and defer specialized tools such as browser sessions. This is grounded in ToolLLM/API-Bank/Gorilla/Toolformer, Anthropic Tool Search, MCP discovery semantics, and cloned Claude Code/Codex/OpenCode harness patterns. | Add dynamic schema-load/tool-reference admission before narrowing either authority profile. |
+| Slice 3 - Progressive Context And Tool Loading | Paused | Started on 2026-07-04. Runtime surfaces now share one progressive tool projection helper with explicit authority profiles instead of per-command eager or duplicated projection policy. Read-only benchmark sessions expose only read/research/control-plane inspection tools; CLI run, TUI, and GUI select the execute profile for edit/shell/config/work-governance mutation tools. Both profiles leave `tool_catalog_search` and canonical registry discovery intact and defer specialized tools such as browser sessions. Exact, non-stale catalog search results can now materialize one already-authorized canonical tool schema for the next provider round, while same-response calls to hidden tools are blocked. This is grounded in ToolLLM/API-Bank/Gorilla/Toolformer, Anthropic Tool Search, MCP discovery semantics, and cloned Claude Code/Codex/OpenCode harness patterns. | Resume only after Roadmap 06 defines and verifies cross-harness Kiln tool/agent exposure from Codex App, Claude Code, OpenCode, and Kiln surfaces. Then add telemetry/replay evidence and non-inferiority measurements before narrowing either authority profile further. |
 | Slice 4 - Typed Lossless Reduction | Planned | Not started. | Start after progressive-loading measurements identify high-volume structured artifacts. |
 | Slice 5 - Reversible Context Projection | Planned | Not started. | Start after typed reductions have preservation contracts. |
 | Slice 6 - Context Utility Allocation | Planned | Not started. | Start after lossless and reversible projection data exists. |
@@ -582,7 +585,9 @@ Restart requirements:
 
 ### Slice 3 - Progressive Context And Tool Loading
 
-Status: In Progress; started on 2026-07-04.
+Status: Paused; started on 2026-07-04. Resume only after Roadmap 06 defines
+and verifies the cross-harness Kiln tool/agent exposure boundary needed for
+Codex App, Claude Code, OpenCode, and Kiln surfaces.
 
 Goal: stop admitting procedural context and tool schemas before they are
 needed.
@@ -610,21 +615,53 @@ Initial evidence on 2026-07-04:
   but remains present in the canonical registry and bridge.
 - Core projection tests prove surface-owned config mutation tools remain in the
   canonical registry but are absent from read-only provider-facing definitions
+  unless the selected profile explicitly admits them.
 - Removing implicit `kiln_config.*` admission from Core's deferred projection is
   an intentional authority-contract change: consumers must explicitly name
   configuration capabilities in their admitted surface instead of inheriting
   them from projection mode.
-  unless the selected profile explicitly admits them.
 - External basis: ToolLLM/API-Bank/Gorilla/Toolformer separate tool discovery
   or retrieval from execution; Anthropic Tool Search and cloned Claude Code,
   Codex, and OpenCode harnesses defer full schemas behind searchable catalogs.
 
+Next-round materialization evidence on 2026-07-04:
+
+- `tool_catalog_search` now emits structured `materializableToolName` metadata
+  only for exact, schema-including, non-stale, single-result catalog matches.
+- Runtime admission is a pure fail-closed decision: materialization requires a
+  canonical definition, the current turn allowlist, and non-duplication.
+- Runtime orchestration keeps executable authority separate from provider-facing
+  schemas: newly materialized tools are appended only to later provider rounds.
+- Same-response calls to tools absent from the current projected schema return
+  deterministic error `tool_result` parts and execution summaries without
+  invoking the executor.
+- Attached runtime and CLI surfaces now carry initial definitions separately
+  from materializable definitions and capabilities, while the executable
+  registry remains canonical.
+- Direct-provider CLI sessions now pass an explicit materializable authority
+  allowlist in `auto` and explicit authority modes so catalog discovery can see
+  authorized hidden tools without exposing their schemas in the first round.
+- Runtime-attached tools such as operator UI, plan, and managed-agent controls
+  remain visible when their surface admits them, but they are not eligible for
+  catalog-metadata materialization because they are not canonical Core catalog
+  entries.
+- Verification covered focused Core/Runtime/CLI suites, full Runtime, workspace
+  `bun run test`, `bun run typecheck`, `bun run build`, and `git diff --check`.
+- Provider request evidence now includes replayable progressive tool projection
+  evidence per round: projected tool names/count/hash, materializable catalog
+  names/count/hash, materialized additions, and sanitized catalog-search
+  materialization decisions linked to the source tool call. The evidence avoids
+  serialized schemas and descriptions, and materializable names are scoped to
+  the current turn allowlist so unauthorized hidden tools are not leaked through
+  replay telemetry.
+
 Current residual risk:
 
-- Kiln does not yet have provider-neutral dynamic `tool_reference` or
-  next-round schema admission for hidden tools. The authority-aligned profiles
-  must not be narrowed further until that path exists and non-inferiority is
-  proven.
+- Kiln still needs representative non-inferiority measurements before narrowing
+  either initial authority profile further.
+- Resuming before Roadmap 06 closes the cross-harness tool/agent exposure
+  boundary would risk optimizing the wrong provider-facing tool surface for
+  Codex App and native harness dogfooding.
 
 Exit gate:
 
@@ -1000,7 +1037,8 @@ require dual readers, migration shims, or permanent compatibility branches.
    starting Slice 2 without broader pre-optimization sampling.
 2. Slice 1: complete.
 3. Slice 2: complete.
-4. Slice 3: progressive context and tool loading.
+4. Slice 3: paused; resume after Roadmap 06 cross-harness control-plane
+   boundary work.
 5. Slice 4: typed lossless reduction.
 6. Slice 5: reversible context projection.
 7. Slice 6: context utility allocation.

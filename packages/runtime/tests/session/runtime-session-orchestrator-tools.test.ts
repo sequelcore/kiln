@@ -3350,6 +3350,470 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   });
 
   describe("per-call tool config", () => {
+    it("materializes an authorized exact catalog result for the next provider round", async () => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const deferredTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser"]),
+      };
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding the browser tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "catalog-search-1",
+              name: "tool_catalog_search",
+              input: { exact: "browser_session_start", includeSchemas: true },
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("browser tool is available"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [deferredTool.name] }),
+        isError: false,
+        metadata: {
+          toolName: "tool_catalog_search",
+          kind: "catalog",
+          operation: "search",
+          exact: deferredTool.name,
+          resultCount: 1,
+          totalIndexed: 2,
+          includedSchemas: true,
+          stale: false,
+          materializableToolName: deferredTool.name,
+        },
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [catalogTool],
+        materializableTools: new Map([[deferredTool.name, deferredTool]]),
+        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
+        toolAllowlist: new Set([catalogTool.name, deferredTool.name]),
+      });
+
+      expect(catalogSearch).toHaveBeenCalledWith(
+        { exact: deferredTool.name, includeSchemas: true },
+        expect.any(Object),
+      );
+      const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls as Array<[
+        { readonly tools?: readonly ToolDefinition[] },
+      ]>;
+      const firstRoundToolNames = calls[0]?.[0].tools?.map((tool) => tool.name) ?? [];
+      const secondRoundToolNames = calls[1]?.[0].tools?.map((tool) => tool.name) ?? [];
+
+      expect(firstRoundToolNames).toEqual([catalogTool.name]);
+      expect(secondRoundToolNames).toContain(catalogTool.name);
+      expect(secondRoundToolNames).toContain(deferredTool.name);
+      expect(secondRoundToolNames.filter((name) => name === deferredTool.name)).toHaveLength(1);
+
+      const providerRequests = result.providerRequests as Array<{
+        readonly toolProjection?: {
+          readonly projected?: {
+            readonly names?: readonly string[];
+            readonly count?: number;
+            readonly hash?: string;
+          };
+          readonly materializable?: {
+            readonly names?: readonly string[];
+            readonly count?: number;
+            readonly hash?: string;
+          };
+          readonly materializedAdditions?: readonly string[];
+          readonly materializationDecisions?: readonly {
+            readonly decision?: string;
+            readonly toolName?: string;
+            readonly sourceToolCallId?: string;
+            readonly sourceToolName?: string;
+            readonly catalog?: {
+              readonly exact?: string;
+              readonly resultCount?: number;
+              readonly totalIndexed?: number;
+              readonly includedSchemas?: boolean;
+              readonly stale?: boolean;
+            };
+          }[];
+        };
+      }> | undefined;
+      expect(providerRequests).toHaveLength(2);
+      expect(providerRequests?.[0]?.toolProjection).toEqual({
+        projected: {
+          names: [catalogTool.name],
+          count: 1,
+          hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+        materializable: {
+          names: [deferredTool.name],
+          count: 1,
+          hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+        materializedAdditions: [],
+        materializationDecisions: [],
+      });
+      expect(providerRequests?.[1]?.toolProjection).toEqual({
+        projected: {
+          names: [catalogTool.name, deferredTool.name],
+          count: 2,
+          hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+        materializable: {
+          names: [deferredTool.name],
+          count: 1,
+          hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+        materializedAdditions: [deferredTool.name],
+        materializationDecisions: [{
+          decision: "materialized",
+          toolName: deferredTool.name,
+          sourceToolCallId: "catalog-search-1",
+          sourceToolName: catalogTool.name,
+          catalog: {
+            exact: deferredTool.name,
+            resultCount: 1,
+            totalIndexed: 2,
+            includedSchemas: true,
+            stale: false,
+          },
+        }],
+      });
+      const serializedProviderRequests = JSON.stringify(providerRequests);
+      expect(serializedProviderRequests).not.toContain("inputSchema");
+      expect(serializedProviderRequests).not.toContain("Starts a browser session");
+      expect(serializedProviderRequests).not.toContain("Searches the tool catalog");
+    });
+
+    it("scopes provider request materializable tool projection to the per-call allowlist", async () => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const browserSnapshotTool: ToolDefinition = {
+        name: "browser_snapshot",
+        description: "Reads the current browser snapshot",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser", "readonly"]),
+      };
+      const browserSessionStartTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser", "mutation"]),
+      };
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding the browser snapshot tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "catalog-search-snapshot",
+              name: catalogTool.name,
+              input: { exact: browserSnapshotTool.name, includeSchemas: true },
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("browser snapshot is available"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [browserSnapshotTool.name] }),
+        isError: false,
+        metadata: {
+          toolName: catalogTool.name,
+          kind: "catalog",
+          operation: "search",
+          exact: browserSnapshotTool.name,
+          resultCount: 1,
+          totalIndexed: 2,
+          includedSchemas: true,
+          stale: false,
+          materializableToolName: browserSnapshotTool.name,
+        },
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [catalogTool],
+        materializableTools: new Map([
+          [browserSnapshotTool.name, browserSnapshotTool],
+          [browserSessionStartTool.name, browserSessionStartTool],
+        ]),
+        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("inspect browser"), undefined, undefined, {
+        toolAllowlist: new Set([catalogTool.name, browserSnapshotTool.name]),
+      });
+
+      expect(catalogSearch).toHaveBeenCalledWith(
+        { exact: browserSnapshotTool.name, includeSchemas: true },
+        expect.any(Object),
+      );
+      const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls as Array<[
+        { readonly tools?: readonly ToolDefinition[] },
+      ]>;
+      expect(calls[0]?.[0].tools?.map((tool) => tool.name)).toEqual([catalogTool.name]);
+      expect(calls[1]?.[0].tools?.map((tool) => tool.name)).toEqual([
+        catalogTool.name,
+        browserSnapshotTool.name,
+      ]);
+
+      const providerRequests = result.providerRequests as Array<{
+        readonly toolProjection?: {
+          readonly materializable?: {
+            readonly names?: readonly string[];
+            readonly count?: number;
+            readonly hash?: string;
+          };
+        };
+      }> | undefined;
+      const materializableProjection = providerRequests?.[0]?.toolProjection?.materializable;
+      expect(materializableProjection).toEqual({
+        names: [browserSnapshotTool.name],
+        count: 1,
+        hash: "sha256:d830717a1f5349854b858b3f979270e267557dcfcad347be2ce9ce231c8337c8",
+      });
+      expect(materializableProjection?.names).not.toContain(browserSessionStartTool.name);
+      expect(JSON.stringify(providerRequests)).not.toContain(browserSessionStartTool.name);
+    });
+
+    it("does not leak outside-authority materialization target names through provider request decisions", async () => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const browserSessionStartTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser", "mutation"]),
+      };
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding disallowed browser session tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "catalog-search-disallowed",
+              name: catalogTool.name,
+              input: { exact: browserSessionStartTool.name, includeSchemas: true },
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("disallowed tool was not exposed"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [browserSessionStartTool.name] }),
+        isError: false,
+        metadata: {
+          toolName: catalogTool.name,
+          kind: "catalog",
+          operation: "search",
+          exact: browserSessionStartTool.name,
+          resultCount: 1,
+          totalIndexed: 2,
+          includedSchemas: true,
+          stale: false,
+          materializableToolName: browserSessionStartTool.name,
+        },
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [catalogTool],
+        materializableTools: new Map([[browserSessionStartTool.name, browserSessionStartTool]]),
+        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
+        toolAllowlist: new Set([catalogTool.name]),
+      });
+
+      const providerRequests = result.providerRequests as Array<{
+        readonly toolProjection?: {
+          readonly materializable?: {
+            readonly names?: readonly string[];
+          };
+          readonly materializationDecisions?: readonly {
+            readonly decision?: string;
+            readonly toolName?: string;
+            readonly catalog?: {
+              readonly exact?: string;
+            };
+          }[];
+        };
+      }> | undefined;
+      expect(providerRequests?.[0]?.toolProjection?.materializable?.names).toEqual([]);
+      expect(providerRequests?.[1]?.toolProjection?.materializationDecisions).toEqual([{
+        decision: "outside_authority",
+        toolName: "<redacted>",
+        sourceToolCallId: "catalog-search-disallowed",
+        sourceToolName: catalogTool.name,
+        catalog: {},
+      }]);
+      expect(JSON.stringify(providerRequests)).not.toContain(browserSessionStartTool.name);
+    });
+
+    it("does not execute a newly materialized tool until the next provider round", async () => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const browserTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser"]),
+      };
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding and starting the browser tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [
+              {
+                id: "catalog-search-1",
+                name: catalogTool.name,
+                input: { exact: browserTool.name, includeSchemas: true },
+              },
+              {
+                id: "browser-start-premature",
+                name: browserTool.name,
+                input: {},
+              },
+            ],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("starting the now-materialized browser tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "browser-start-next-round",
+              name: browserTool.name,
+              input: {},
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("browser started"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [browserTool.name] }),
+        isError: false,
+        metadata: {
+          toolName: catalogTool.name,
+          kind: "catalog",
+          operation: "search",
+          exact: browserTool.name,
+          resultCount: 1,
+          totalIndexed: 2,
+          includedSchemas: true,
+          stale: false,
+          materializableToolName: browserTool.name,
+        },
+      });
+      const browserSessionStart = vi.fn().mockResolvedValue({
+        output: "browser-session-1",
+        isError: false,
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [catalogTool],
+        materializableTools: new Map([[browserTool.name, browserTool]]),
+        builtinTools: new Map([
+          [catalogTool.name, catalogSearch],
+          [browserTool.name, browserSessionStart],
+        ]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
+        toolAllowlist: new Set([catalogTool.name, browserTool.name]),
+      });
+
+      expect(catalogSearch).toHaveBeenCalledTimes(1);
+      expect(browserSessionStart).toHaveBeenCalledTimes(1);
+      const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls as Array<[
+        { readonly tools?: readonly ToolDefinition[] },
+      ]>;
+      expect(calls[0]?.[0].tools?.map((tool) => tool.name)).toEqual([catalogTool.name]);
+      expect(calls[1]?.[0].tools?.map((tool) => tool.name)).toContain(browserTool.name);
+      const firstRoundResults = getLastToolResultPartsFromCall(provider, 1);
+      expect(firstRoundResults).toEqual([
+        expect.objectContaining({ toolUseId: "catalog-search-1" }),
+        expect.objectContaining({
+          toolUseId: "browser-start-premature",
+          content: expect.stringContaining("next provider round"),
+        }),
+      ]);
+    });
+
     it("blocks tool not in allowlist", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);

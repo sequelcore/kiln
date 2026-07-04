@@ -383,6 +383,7 @@ export interface CatalogToolResultMetadata<TToolName extends CatalogToolName = C
   readonly totalIndexed: number;
   readonly includedSchemas?: boolean;
   readonly stale?: boolean;
+  readonly materializableToolName?: string;
   readonly verbosity?: ToolOutputVerbosity;
 }
 

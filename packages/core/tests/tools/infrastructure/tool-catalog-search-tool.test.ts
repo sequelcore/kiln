@@ -70,6 +70,64 @@ describe("ToolCatalogSearchTool", () => {
     expect(result.isError).toBe(false);
     expect(result.output).toContain("git");
   });
+
+  it("identifies a successful exact schema lookup as materializable", async () => {
+    const catalog = ToolCatalogIndex.fromTools([
+      fakeTool("browser_session_start", { readOnly: true, idempotent: true }),
+      fakeTool("tool_catalog_search", { readOnly: true, idempotent: true }),
+    ]);
+    const tool = new ToolCatalogSearchTool(() => catalog);
+
+    const result = await tool.execute({
+      name: "tool_catalog_search",
+      input: { exact: "browser_session_start", includeSchemas: true, verbosity: "structured" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      materializableToolName: "browser_session_start",
+    });
+  });
+
+  it.each([
+    ["query", { query: "browser session", includeSchemas: true }],
+    ["prefix", { prefix: "browser_session", includeSchemas: true }],
+    ["missing exact", { exact: "missing_tool", includeSchemas: true }],
+  ])("does not identify a %s lookup as materializable", async (_scenario, input) => {
+    const catalog = ToolCatalogIndex.fromTools([
+      fakeTool("browser_session_start", { readOnly: true, idempotent: true }),
+      fakeTool("tool_catalog_search", { readOnly: true, idempotent: true }),
+    ]);
+    const tool = new ToolCatalogSearchTool(() => catalog);
+
+    const result = await tool.execute({
+      name: "tool_catalog_search",
+      input: { ...input, verbosity: "structured" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).not.toHaveProperty("materializableToolName");
+  });
+
+  it("does not identify a stale exact schema lookup as materializable", async () => {
+    const catalog = ToolCatalogIndex.fromTools([
+      fakeTool("browser_session_start", { readOnly: true, idempotent: true }),
+      fakeTool("tool_catalog_search", { readOnly: true, idempotent: true }),
+    ]);
+    const tool = new ToolCatalogSearchTool(() => catalog);
+
+    const result = await tool.execute(
+      {
+        name: "tool_catalog_search",
+        input: { exact: "browser_session_start", includeSchemas: true, verbosity: "structured" },
+      },
+      { allowedToolNames: ["tool_catalog_search"] },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({ stale: true });
+    expect(result.metadata).not.toHaveProperty("materializableToolName");
+  });
 });
 
 function fakeTool(name: string, annotations: NonNullable<DevTool["annotations"]>): DevTool {

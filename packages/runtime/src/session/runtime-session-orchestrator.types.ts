@@ -79,6 +79,7 @@ export interface OrchestratorDeps {
   readonly maxTokens?: number;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly tools?: readonly ToolDefinition[];
+  readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
   readonly mcpClients?: readonly McpClient[];
   readonly builtinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly eventBus?: EventBus;

@@ -11,6 +11,8 @@ import type {
   MultimodalCapability,
   MultimodalTransportModality,
   ProviderRequestEvidence,
+  ProviderRequestToolMaterializationDecisionEvidence,
+  ProviderRequestToolProjectionEvidence,
 } from "@kilnai/core";
 import { computeUsageCostUsd, resolveExecutionCostEvidence, resolveExecutionPricing } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
@@ -49,6 +51,7 @@ export interface ProviderRequestRegionEvidence {
   }[];
   readonly cachePartition: ProviderRequestCachePartitionEvidence;
   readonly toolCount: number;
+  readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly stopReason?: string;
 }
 
@@ -85,6 +88,7 @@ export function measureProviderRequestRegions(input: {
   readonly messages: unknown;
   readonly tools?: unknown;
   readonly toolCount: number;
+  readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly stopReason?: string;
   readonly requestRegionOrder?: readonly ProviderRequestCacheRegionSource[];
   readonly cachePartition?: ProviderRequestCachePartitionInput;
@@ -127,7 +131,27 @@ export function measureProviderRequestRegions(input: {
     cacheRegions: cacheRegionsWithPrefix,
     cachePartition: buildCachePartitionEvidence(input.cachePartition),
     toolCount: input.toolCount,
+    ...(input.toolProjection ? { toolProjection: input.toolProjection } : {}),
     ...(input.stopReason ? { stopReason: input.stopReason } : {}),
+  };
+}
+
+export function buildProviderRequestToolProjectionEvidence(input: {
+  readonly projectedTools: readonly { readonly name: string }[] | undefined;
+  readonly materializableTools: ReadonlyMap<string, unknown> | undefined;
+  readonly materializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[];
+}): ProviderRequestToolProjectionEvidence {
+  const projectedNames = input.projectedTools?.map((tool) => tool.name) ?? [];
+  const materializableNames = input.materializableTools
+    ? [...input.materializableTools.keys()]
+    : [];
+  return {
+    projected: toolProjectionSet(projectedNames),
+    materializable: toolProjectionSet(materializableNames),
+    materializedAdditions: input.materializationDecisions
+      .filter((decision) => decision.decision === "materialized")
+      .map((decision) => decision.toolName),
+    materializationDecisions: input.materializationDecisions,
   };
 }
 
@@ -351,6 +375,14 @@ function byteLength(serialized: string): number {
 
 function hashSerialized(serialized: string): string {
   return `sha256:${createHash("sha256").update(serialized, "utf8").digest("hex")}`;
+}
+
+function toolProjectionSet(names: readonly string[]): ProviderRequestToolProjectionEvidence["projected"] {
+  return {
+    names,
+    count: names.length,
+    hash: hashSerialized(JSON.stringify(names)),
+  };
 }
 
 function createCacheRegion(

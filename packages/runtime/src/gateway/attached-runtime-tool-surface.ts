@@ -23,6 +23,8 @@ import {
   createDefaultBuiltinToolSurface,
   createSessionBuiltinToolOptions,
   isDirectProviderId,
+  projectDevToolCapabilities,
+  projectDevToolDefinitions,
   projectToolResourceDescriptor,
   projectToolResultResourceLinks,
   resolveDirectProviderExecutionProfile,
@@ -76,6 +78,8 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly callBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
+  readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
+  readonly materializableCapabilities: ReadonlyMap<string, Capability>;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
   readonly toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>;
   readonly analysisStateStore?: AnalysisStateStore;
@@ -445,6 +449,8 @@ export function createAttachedRuntimeBuiltinToolSurface(
 
   const callBuiltinTools = new Map(baseSurface.callBuiltinTools);
   const capabilities = new Map(baseSurface.capabilities);
+  const materializableTools = new Map(baseSurface.materializableTools);
+  const materializableCapabilities = new Map(baseSurface.materializableCapabilities);
   const toolAuthority = new Map(baseSurface.toolAuthority);
   const toolCallMetadata = new Map(baseSurface.toolCallMetadata);
   const toolDefinitions = [...baseSurface.toolDefinitions];
@@ -454,15 +460,19 @@ export function createAttachedRuntimeBuiltinToolSurface(
     callBuiltinTools.set(GOAL_CREATE_TOOL_NAME, createSessionAwareGoalCreateExecutor(goalCreateExecutor));
   }
 
+  const registerRuntimeTool = (tool: ToolDefinition, capability: Capability): void => {
+    toolDefinitions.push(tool);
+    capabilities.set(tool.name, capability);
+    toolAuthority.set(tool.name, authorityFromCapability(tool.name, capability));
+  };
+
   if (!themeController && options.executionMode !== "plan" && !managedInvocation && !goalCreateExecutor) {
     return baseSurface;
   }
 
   if (themeController) {
     callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, themeController));
-    capabilities.set(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
-    toolAuthority.set(OPERATOR_SET_THEME_TOOL.name, authorityFromCapability(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY));
-    toolDefinitions.push(OPERATOR_SET_THEME_TOOL);
+    registerRuntimeTool(OPERATOR_SET_THEME_TOOL, OPERATOR_SET_THEME_CAPABILITY);
   }
 
   if (options.executionMode === "plan") {
@@ -481,25 +491,19 @@ export function createAttachedRuntimeBuiltinToolSurface(
         specificationStateStore,
       ),
     );
-    capabilities.set(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY);
-    toolAuthority.set(SUBMIT_PLAN_TOOL.name, authorityFromCapability(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY));
-    toolDefinitions.push(SUBMIT_PLAN_TOOL);
+    registerRuntimeTool(SUBMIT_PLAN_TOOL, SUBMIT_PLAN_CAPABILITY);
 
     callBuiltinTools.set(
       SUBMIT_SPECIFICATION_TOOL.name,
       async (input) => executeSubmitSpecification(input, specificationStateStore),
     );
-    capabilities.set(SUBMIT_SPECIFICATION_TOOL.name, SUBMIT_SPECIFICATION_CAPABILITY);
-    toolAuthority.set(SUBMIT_SPECIFICATION_TOOL.name, authorityFromCapability(SUBMIT_SPECIFICATION_TOOL.name, SUBMIT_SPECIFICATION_CAPABILITY));
-    toolDefinitions.push(SUBMIT_SPECIFICATION_TOOL);
+    registerRuntimeTool(SUBMIT_SPECIFICATION_TOOL, SUBMIT_SPECIFICATION_CAPABILITY);
 
     callBuiltinTools.set(
       RECORD_CLARIFICATION_TOOL.name,
       async (input) => executeRecordClarification(input, specificationStateStore),
     );
-    capabilities.set(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY);
-    toolAuthority.set(RECORD_CLARIFICATION_TOOL.name, authorityFromCapability(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY));
-    toolDefinitions.push(RECORD_CLARIFICATION_TOOL);
+    registerRuntimeTool(RECORD_CLARIFICATION_TOOL, RECORD_CLARIFICATION_CAPABILITY);
   }
 
   if (managedInvocation) {
@@ -520,18 +524,27 @@ export function createAttachedRuntimeBuiltinToolSurface(
         ),
       );
     }
-    const managedCapabilities = [
-      [MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY],
-      [MANAGED_AGENT_START_TOOL.name, MANAGED_AGENT_START_CAPABILITY],
-      [MANAGED_AGENT_STATUS_TOOL.name, MANAGED_AGENT_STATUS_CAPABILITY],
-      [MANAGED_AGENT_LIST_TOOL.name, MANAGED_AGENT_LIST_CAPABILITY],
-      [MANAGED_AGENT_JOIN_TOOL.name, MANAGED_AGENT_JOIN_CAPABILITY],
-      [MANAGED_AGENT_CANCEL_TOOL.name, MANAGED_AGENT_CANCEL_CAPABILITY],
+    const managedToolDefinitions = [
+      createManagedAgentInvokeToolDefinition(managedInvocationOptions),
+      createManagedAgentStartToolDefinition(managedInvocationOptions),
+      MANAGED_AGENT_STATUS_TOOL,
+      MANAGED_AGENT_LIST_TOOL,
+      MANAGED_AGENT_JOIN_TOOL,
+      MANAGED_AGENT_CANCEL_TOOL,
     ] as const;
-    for (const [toolName, capability] of managedCapabilities) {
-      capabilities.set(toolName, capability);
-      const authority = authorityFromCapability(toolName, capability);
-      toolAuthority.set(toolName, authority);
+    const managedCapabilities = [
+      MANAGED_AGENT_INVOKE_CAPABILITY,
+      MANAGED_AGENT_START_CAPABILITY,
+      MANAGED_AGENT_STATUS_CAPABILITY,
+      MANAGED_AGENT_LIST_CAPABILITY,
+      MANAGED_AGENT_JOIN_CAPABILITY,
+      MANAGED_AGENT_CANCEL_CAPABILITY,
+    ] as const;
+    for (const [index, tool] of managedToolDefinitions.entries()) {
+      const capability = managedCapabilities[index];
+      if (capability) {
+        registerRuntimeTool(tool, capability);
+      }
     }
     toolCallMetadata.set(
       MANAGED_AGENT_INVOKE_TOOL.name,
@@ -541,18 +554,14 @@ export function createAttachedRuntimeBuiltinToolSurface(
       MANAGED_AGENT_START_TOOL.name,
       createManagedInvocationToolCallMetadataResolver(managedInvocationOptions),
     );
-    toolDefinitions.push(createManagedAgentInvokeToolDefinition(managedInvocationOptions));
-    toolDefinitions.push(createManagedAgentStartToolDefinition(managedInvocationOptions));
-    toolDefinitions.push(MANAGED_AGENT_STATUS_TOOL);
-    toolDefinitions.push(MANAGED_AGENT_LIST_TOOL);
-    toolDefinitions.push(MANAGED_AGENT_JOIN_TOOL);
-    toolDefinitions.push(MANAGED_AGENT_CANCEL_TOOL);
   }
 
   return {
     callBuiltinTools,
     toolDefinitions,
     capabilities,
+    materializableTools,
+    materializableCapabilities,
     toolAuthority,
     toolCallMetadata,
     analysisStateStore: baseSurface.analysisStateStore,
@@ -1008,10 +1017,13 @@ function buildRuntimeSurface(
   if (options.requireSessionStores && (!analysisStateStore || !planStateStore || !specificationStateStore)) {
     throw new Error("Runtime builtin tool surface requires analysis, plan, and specification state stores.");
   }
+  const materializableToolDefinitions = projectDevToolDefinitions(coreSurface.registry.list());
   return {
     callBuiltinTools: buildBuiltinToolExecutors(coreSurface),
     toolDefinitions: coreSurface.toolDefinitions,
     capabilities: coreSurface.capabilities,
+    materializableTools: new Map(materializableToolDefinitions.map((tool) => [tool.name, tool] as const)),
+    materializableCapabilities: projectDevToolCapabilities(coreSurface.registry.list()),
     toolAuthority: buildBuiltinToolAuthority(coreSurface.capabilities),
     toolCallMetadata: new Map(),
     analysisStateStore,
@@ -1304,7 +1316,8 @@ function buildBuiltinToolExecutors(
   surface: DefaultBuiltinToolSurface,
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
   const executors = new Map<string, RuntimeBuiltinToolExecutor>();
-  for (const toolName of surface.toolNames) {
+  for (const tool of surface.registry.list()) {
+    const toolName = tool.name;
     executors.set(toolName, async (input, context) => {
       const sandbox = mergeToolSandboxContext(context?.sandbox, context?.allowedToolNames);
       const execution = await surface.bridge.execute({

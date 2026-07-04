@@ -28,6 +28,7 @@ const runtimeMocks = vi.hoisted(() => ({
   orchestratorConstructor: vi.fn(),
   addUserMessage: vi.fn(),
   addAssistantMessage: vi.fn(),
+  attachedToolSurfaceOverride: undefined as unknown,
 }));
 
 const coreSurfaceMocks = vi.hoisted(() => ({
@@ -255,6 +256,9 @@ vi.mock("@kilnai/runtime", () => {
         };
       };
     }) => {
+      if (runtimeMocks.attachedToolSurfaceOverride) {
+        return runtimeMocks.attachedToolSurfaceOverride;
+      }
       const coreSurface = coreSurfaceMocks.createDefaultBuiltinToolSurface();
       const callBuiltinTools = new Map<string, (input: Record<string, unknown>) => Promise<unknown>>();
       for (const toolName of coreSurface.toolNames as readonly string[]) {
@@ -266,8 +270,23 @@ vi.mock("@kilnai/runtime", () => {
       }
       const toolDefinitions = [...coreSurface.toolDefinitions];
       const capabilities = new Map(coreSurface.capabilities);
+      const materializableTools = new Map(toolDefinitions.map((tool) => [tool.name, tool] as const));
+      const materializableCapabilities = new Map(capabilities);
       if (options?.operatorSurface?.theme) {
         const themeController = options.operatorSurface.theme;
+        const operatorSetThemeTool = {
+          name: "operator_set_theme",
+          description: "Mock operator theme tool",
+          inputSchema: { type: "object", properties: {}, required: ["theme"] },
+          tags: new Set<string>(["operator-ui"]),
+        };
+        const operatorSetThemeCapability = {
+          name: "operator_set_theme",
+          description: "Mock operator theme tool",
+          schema: { type: "object", properties: {}, required: ["theme"] },
+          tags: ["operator-ui"],
+          annotations: { idempotent: true },
+        };
         callBuiltinTools.set("operator_set_theme", async (input: Record<string, unknown>) => (
           themeController.setTheme({
             theme: typeof input.theme === "string" ? input.theme : "",
@@ -275,24 +294,15 @@ vi.mock("@kilnai/runtime", () => {
             ...(typeof input.reason === "string" ? { reason: input.reason } : {}),
           })
         ));
-        toolDefinitions.push({
-          name: "operator_set_theme",
-          description: "Mock operator theme tool",
-          inputSchema: { type: "object", properties: {}, required: ["theme"] },
-          tags: new Set<string>(["operator-ui"]),
-        });
-        capabilities.set("operator_set_theme", {
-          name: "operator_set_theme",
-          description: "Mock operator theme tool",
-          schema: { type: "object", properties: {}, required: ["theme"] },
-          tags: ["operator-ui"],
-          annotations: { idempotent: true },
-        });
+        toolDefinitions.push(operatorSetThemeTool);
+        capabilities.set("operator_set_theme", operatorSetThemeCapability);
       }
       return {
         callBuiltinTools,
         toolDefinitions,
         capabilities,
+        materializableTools,
+        materializableCapabilities,
         toolAuthority: new Map(),
       };
     }),
@@ -396,6 +406,73 @@ function baseConfig(overrides: Partial<ProviderSessionConfig> = {}): ProviderSes
   };
 }
 
+function deferredCatalogSurface(materializableTool: {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: { readonly type: string; readonly properties: Record<string, unknown>; readonly required: readonly string[] };
+  readonly tags: ReadonlySet<string>;
+}, materializableEffect: "observe" | "mutate") {
+  const catalogSearchTool = {
+    name: "tool_catalog_search",
+    description: "Search the canonical tool catalog",
+    inputSchema: { type: "object", properties: {}, required: [] },
+    tags: new Set<string>(["catalog"]),
+  };
+  const catalogSearchCapability = {
+    name: catalogSearchTool.name,
+    description: catalogSearchTool.description,
+    schema: catalogSearchTool.inputSchema,
+    tags: ["catalog"],
+    annotations: { readOnly: true },
+    effectEnvelope: {
+      operation: "observe",
+      boundaries: ["process"],
+      dataEgress: "metadata",
+      identityUse: "none",
+      reversibility: "reversible",
+      consequences: [],
+      idempotency: "idempotent",
+    },
+  };
+  const materializableCapability = {
+    name: materializableTool.name,
+    description: materializableTool.description,
+    schema: materializableTool.inputSchema,
+    tags: [...materializableTool.tags],
+    annotations: { readOnly: materializableEffect === "observe" },
+    effectEnvelope: {
+      operation: materializableEffect,
+      boundaries: ["process"],
+      dataEgress: "metadata",
+      identityUse: "none",
+      reversibility: materializableEffect === "observe" ? "reversible" : "compensatable",
+      consequences: materializableEffect === "observe" ? [] : ["local-state"],
+      idempotency: materializableEffect === "observe" ? "idempotent" : "non-idempotent",
+    },
+  };
+
+  return {
+    catalogSearchTool,
+    catalogSearchCapability,
+    materializableCapability,
+    surface: {
+      callBuiltinTools: new Map(),
+      toolDefinitions: [catalogSearchTool],
+      capabilities: new Map([[catalogSearchTool.name, catalogSearchCapability]]),
+      materializableTools: new Map([
+        [catalogSearchTool.name, catalogSearchTool],
+        [materializableTool.name, materializableTool],
+      ]),
+      materializableCapabilities: new Map([
+        [catalogSearchTool.name, catalogSearchCapability],
+        [materializableTool.name, materializableCapability],
+      ]),
+      toolAuthority: new Map(),
+      toolCallMetadata: new Map(),
+    },
+  };
+}
+
 describe("ProviderSession implements IKilnSession", () => {
   it("declares implements IKilnSession", () => {
     const session: IKilnSession = new ProviderSession(baseConfig());
@@ -454,6 +531,7 @@ describe("ProviderSession.run()", () => {
     runtimeMocks.orchestratorConstructor.mockReset();
     runtimeMocks.addUserMessage.mockReset();
     runtimeMocks.addAssistantMessage.mockReset();
+    runtimeMocks.attachedToolSurfaceOverride = undefined;
     coreSurfaceMocks.createDefaultBuiltinToolSurface.mockClear();
     coreSurfaceMocks.bridgeExecute.mockClear();
   });
@@ -770,7 +848,7 @@ describe("ProviderSession.run()", () => {
       requestedAuthority: "read_only",
       admittedAuthority: "read_only",
       toolCount: 1,
-      deniedToolCount: 1,
+      deniedToolCount: 0,
     });
   });
 
@@ -960,6 +1038,285 @@ describe("ProviderSession.run()", () => {
       ]),
       capabilityMap: expect.any(Map),
       builtinTools: expect.any(Map),
+    }));
+  });
+
+  it("keeps deferred provider tools materializable without admitting mutating tools to the initial read-only projection", async () => {
+    const catalogSearchTool = {
+      name: "tool_catalog_search",
+      description: "Search the canonical tool catalog",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      tags: new Set<string>(["catalog"]),
+    };
+    const browserSessionStartTool = {
+      name: "browser_session_start",
+      description: "Start a browser session",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      tags: new Set<string>(["browser"]),
+    };
+    const browserSessionStartCapability = {
+      name: browserSessionStartTool.name,
+      description: browserSessionStartTool.description,
+      schema: browserSessionStartTool.inputSchema,
+      tags: ["browser"],
+      annotations: { readOnly: false },
+      effectEnvelope: {
+        operation: "mutate",
+        boundaries: ["process"],
+        dataEgress: "metadata",
+        identityUse: "none",
+        reversibility: "compensatable",
+        consequences: ["local-state"],
+        idempotency: "non-idempotent",
+      },
+    };
+    const catalogSearchCapability = {
+      name: catalogSearchTool.name,
+      description: catalogSearchTool.description,
+      schema: catalogSearchTool.inputSchema,
+      tags: ["catalog"],
+      annotations: { readOnly: true },
+      effectEnvelope: {
+        operation: "observe",
+        boundaries: ["process"],
+        dataEgress: "metadata",
+        identityUse: "none",
+        reversibility: "reversible",
+        consequences: [],
+        idempotency: "idempotent",
+      },
+    };
+    runtimeMocks.attachedToolSurfaceOverride = {
+      callBuiltinTools: new Map(),
+      toolDefinitions: [catalogSearchTool],
+      capabilities: new Map([[catalogSearchTool.name, catalogSearchCapability]]),
+      materializableTools: new Map([
+        [catalogSearchTool.name, catalogSearchTool],
+        [browserSessionStartTool.name, browserSessionStartTool],
+      ]),
+      materializableCapabilities: new Map([
+        [catalogSearchTool.name, catalogSearchCapability],
+        [browserSessionStartTool.name, browserSessionStartCapability],
+      ]),
+      toolAuthority: new Map(),
+      toolCallMetadata: new Map(),
+    };
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      requestedAuthority: "read_only",
+      builtinToolOptions: {
+        toolProjection: { mode: "deferred" },
+      },
+    }));
+
+    await collectEvents(session.run({ prompt: "find browser_session_start before using it" }));
+
+    const orchestratorConfig = runtimeMocks.orchestratorConstructor.mock.calls[0]?.[0] as {
+      tools?: readonly { name: string }[];
+      materializableTools?: ReadonlyMap<string, { name: string }>;
+      capabilityMap?: ReadonlyMap<string, { effectEnvelope?: { operation?: string } }>;
+    };
+    expect(orchestratorConfig.tools?.map((tool) => tool.name)).toEqual(["tool_catalog_search"]);
+    expect(orchestratorConfig.tools?.map((tool) => tool.name)).not.toContain("browser_session_start");
+    expect(orchestratorConfig.materializableTools?.get("browser_session_start")).toEqual(browserSessionStartTool);
+    expect(orchestratorConfig.capabilityMap?.get("browser_session_start")?.effectEnvelope?.operation).toBe("mutate");
+  });
+
+  it("admits deferred provider tools for auto authority so catalog discovery can materialize and execute them on the next round", async () => {
+    const browserSessionStartTool = {
+      name: "browser_session_start",
+      description: "Start a browser session",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      tags: new Set<string>(["browser"]),
+    };
+    const { surface } = deferredCatalogSurface(browserSessionStartTool, "mutate");
+    runtimeMocks.attachedToolSurfaceOverride = surface;
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "browser session started" }],
+      toolExecutions: [
+        {
+          toolCallId: "call_catalog_1",
+          toolName: "tool_catalog_search",
+          input: { query: "browser session" },
+          durationMs: 3,
+          success: true,
+          output: "browser_session_start",
+          resultSummary: "found browser_session_start",
+        },
+        {
+          toolCallId: "call_browser_start_1",
+          toolName: "browser_session_start",
+          input: {},
+          durationMs: 8,
+          success: true,
+          output: "session-1",
+          resultSummary: "started browser session",
+        },
+      ],
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      builtinToolOptions: {
+        toolProjection: { mode: "deferred" },
+      },
+    }));
+
+    const events = await collectEvents(session.run({ prompt: "discover then start a browser session" }));
+
+    const orchestratorConfig = runtimeMocks.orchestratorConstructor.mock.calls[0]?.[0] as {
+      tools?: readonly { name: string }[];
+      materializableTools?: ReadonlyMap<string, { name: string }>;
+    };
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      toolAllowlist?: ReadonlySet<string>;
+      perCallCapabilities?: ReadonlyMap<string, unknown>;
+    } | undefined;
+    expect(orchestratorConfig.tools?.map((tool) => tool.name)).toEqual(["tool_catalog_search"]);
+    expect(orchestratorConfig.materializableTools?.get("browser_session_start")).toEqual(browserSessionStartTool);
+    expect([...(perCallConfig?.toolAllowlist ?? [])]).toEqual([
+      "tool_catalog_search",
+      "browser_session_start",
+    ]);
+    expect([...(perCallConfig?.perCallCapabilities?.keys() ?? [])]).toEqual([
+      "tool_catalog_search",
+      "browser_session_start",
+    ]);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "tool_use",
+      toolName: "tool_catalog_search",
+      toolCallId: "call_catalog_1",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "tool_use",
+      toolName: "browser_session_start",
+      toolCallId: "call_browser_start_1",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "tool_result",
+      toolName: "browser_session_start",
+      output: "session-1",
+      outputSummary: "started browser session",
+    }));
+  });
+
+  it("admits hidden read-only materializable provider tools under explicit read_only authority after catalog discovery", async () => {
+    const browserSnapshotTool = {
+      name: "browser_snapshot",
+      description: "Capture the current browser accessibility snapshot",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      tags: new Set<string>(["browser"]),
+    };
+    const { surface } = deferredCatalogSurface(browserSnapshotTool, "observe");
+    runtimeMocks.attachedToolSurfaceOverride = surface;
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "snapshot captured" }],
+      toolExecutions: [
+        {
+          toolCallId: "call_catalog_1",
+          toolName: "tool_catalog_search",
+          input: { query: "browser snapshot" },
+          durationMs: 2,
+          success: true,
+          output: "browser_snapshot",
+          resultSummary: "found browser_snapshot",
+        },
+        {
+          toolCallId: "call_browser_snapshot_1",
+          toolName: "browser_snapshot",
+          input: {},
+          durationMs: 4,
+          success: true,
+          output: "snapshot tree",
+          resultSummary: "captured browser snapshot",
+        },
+      ],
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      requestedAuthority: "read_only",
+      builtinToolOptions: {
+        toolProjection: { mode: "deferred" },
+      },
+    }));
+
+    const events = await collectEvents(session.run({ prompt: "discover then inspect the browser" }));
+
+    const orchestratorConfig = runtimeMocks.orchestratorConstructor.mock.calls[0]?.[0] as {
+      tools?: readonly { name: string }[];
+      materializableTools?: ReadonlyMap<string, { name: string }>;
+    };
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      toolAllowlist?: ReadonlySet<string>;
+      additionalTools?: readonly { readonly name: string }[];
+      perCallCapabilities?: ReadonlyMap<string, unknown>;
+      effectiveTurnAuthority?: {
+        admittedAuthority?: string;
+        toolCount?: number;
+        deniedToolCount?: number;
+      };
+    } | undefined;
+    expect(orchestratorConfig.tools?.map((tool) => tool.name)).toEqual(["tool_catalog_search"]);
+    expect(orchestratorConfig.materializableTools?.get("browser_snapshot")).toEqual(browserSnapshotTool);
+    expect(perCallConfig?.additionalTools?.map((tool) => tool.name)).toEqual(["tool_catalog_search"]);
+    expect([...(perCallConfig?.toolAllowlist ?? [])]).toEqual([
+      "tool_catalog_search",
+      "browser_snapshot",
+    ]);
+    expect([...(perCallConfig?.perCallCapabilities?.keys() ?? [])]).toEqual([
+      "tool_catalog_search",
+      "browser_snapshot",
+    ]);
+    expect(perCallConfig?.effectiveTurnAuthority).toMatchObject({
+      admittedAuthority: "read_only",
+      toolCount: 2,
+      deniedToolCount: 0,
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "tool_use",
+      toolName: "tool_catalog_search",
+      toolCallId: "call_catalog_1",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "tool_use",
+      toolName: "browser_snapshot",
+      toolCallId: "call_browser_snapshot_1",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "tool_result",
+      toolName: "browser_snapshot",
+      output: "snapshot tree",
+      outputSummary: "captured browser snapshot",
     }));
   });
 
