@@ -42,8 +42,9 @@ export function Composer(props: ComposerProps) {
     && Boolean(navigator.mediaDevices?.getUserMedia)
     && typeof MediaRecorder !== "undefined";
   const voiceButtonDisabled = !canCaptureVoice || (isBusy && voiceState !== "recording") || voiceState === "encoding";
-  const fileButtonDisabled = !props.onSubmitParts || isBusy || voiceState !== "idle";
-  const imageButtonDisabled = !props.onSubmitParts || isBusy || voiceState !== "idle";
+  const mediaFileInputDisabled = !props.onSubmitParts || isBusy || voiceState !== "idle";
+  const fileButtonDisabled = mediaFileInputDisabled;
+  const imageButtonDisabled = mediaFileInputDisabled;
 
   function handleDraftChange(value: string): void {
     if (value.trim() === "/") {
@@ -116,44 +117,57 @@ export function Composer(props: ComposerProps) {
     void startVoiceCapture();
   }
 
-  async function submitAudioFile(file: File): Promise<void> {
-    if (!props.onSubmitParts || fileButtonDisabled) {
+  async function submitMediaFile(input: {
+    readonly file: File;
+    readonly disabled: boolean;
+    readonly createParts: (file: File) => Promise<readonly unknown[]>;
+    readonly displayContent: string;
+    readonly failureMessage: string;
+  }): Promise<void> {
+    if (!props.onSubmitParts || input.disabled) {
       return;
     }
 
     try {
-      const parts = await createVoiceInputParts({ audio: file });
-      props.onSubmitParts(parts, voiceInputDisplayText());
+      const parts = await input.createParts(input.file);
+      props.onSubmitParts(parts, input.displayContent);
     } catch (error) {
-      console.warn("[Composer] Audio file input failed:", error);
+      console.warn(input.failureMessage, error);
     }
+  }
+
+  function selectedInputFile(event: ChangeEvent<HTMLInputElement>): File | undefined {
+    const [file] = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    return file;
   }
 
   function handleAudioFileChange(event: ChangeEvent<HTMLInputElement>): void {
-    const [file] = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = "";
+    const file = selectedInputFile(event);
     if (!file) {
       return;
     }
-    void submitAudioFile(file);
+    void submitMediaFile({
+      file,
+      disabled: fileButtonDisabled,
+      createParts: (audio) => createVoiceInputParts({ audio }),
+      displayContent: voiceInputDisplayText(),
+      failureMessage: "[Composer] Audio file input failed:",
+    });
   }
 
   async function submitImageFile(file: File): Promise<void> {
-    if (!props.onSubmitParts || imageButtonDisabled) {
-      return;
-    }
-
-    try {
-      const parts = await createImageInputParts({ image: file });
-      props.onSubmitParts(parts, imageInputDisplayText(file.name));
-    } catch (error) {
-      console.warn("[Composer] Image file input failed:", error);
-    }
+    return submitMediaFile({
+      file,
+      disabled: imageButtonDisabled,
+      createParts: (image) => createImageInputParts({ image }),
+      displayContent: imageInputDisplayText(file.name),
+      failureMessage: "[Composer] Image file input failed:",
+    });
   }
 
   function handleImageFileChange(event: ChangeEvent<HTMLInputElement>): void {
-    const [file] = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = "";
+    const file = selectedInputFile(event);
     if (!file) {
       return;
     }
