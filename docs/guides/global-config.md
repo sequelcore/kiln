@@ -268,7 +268,7 @@ runtime session loop.
 routing:
   routes:
     - provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6-terra
     - provider: openrouter
       model: openrouter/free
     - provider: codex
@@ -294,7 +294,7 @@ engines:
 routing:
   routes:
     - provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6-terra
     - provider: openrouter
       model: openrouter/free
     - provider: codex
@@ -310,7 +310,7 @@ reasoningPolicy:
     mechanical-edit: low
 modelTaskSuitability:
   - provider: codex-oauth
-    model: gpt-5.4-mini
+    model: gpt-5.6-terra
     task: frontend-design
     level: limited
     reason: Prefer a visual-design-specialized route when available.
@@ -392,7 +392,11 @@ engines:
 routing:
   routes:
     - provider: codex-oauth
-      model: gpt-5.5
+      model: gpt-5.6-terra
+    - provider: codex-oauth
+      model: gpt-5.6
+    - provider: codex-oauth
+      model: gpt-5.6-luna
     - provider: opencode-go
       model: kimi-k2.6
     - provider: opencode-go
@@ -574,7 +578,7 @@ instructionProfiles:
   - sequel-engineering
 providerRoute:
   providerId: codex-oauth
-  model: gpt-5.4-mini
+  model: gpt-5.6-terra
 ---
 
 Evaluate the assigned scope against Kiln architecture doctrine. Report risks,
@@ -612,7 +616,7 @@ managedAgents:
     - id: codex-oauth-readonly-timeout-proof
       kind: direct
       provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6-luna
       profiles:
         - foundation-readonly-plan
       workingDirectory: read-only
@@ -652,7 +656,7 @@ managedAgents:
     - id: codex-oauth-critical-approved-write
       kind: direct
       provider: codex-oauth
-      model: gpt-5.5
+      model: gpt-5.6
       profiles:
         - foundation-apply-approved-writes
       workingDirectory: isolated-worktree
@@ -810,7 +814,7 @@ managedAgents:
     - id: codex-cloud-readonly
       kind: harness
       provider: codex-cloud
-      model: gpt-5.5
+      model: gpt-5.6
       profiles:
         - foundation-readonly-plan
       remoteHarness:
