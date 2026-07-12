@@ -77,6 +77,10 @@ export const TRUSTED_EXECUTION_EVIDENCE_SOURCES = [
   "managed-child-observation",
 ] as const;
 
+export const KILN_SETUP_HARNESSES = ["codex", "claude-code", "opencode"] as const;
+
+export type KilnSetupHarness = typeof KILN_SETUP_HARNESSES[number];
+
 const TRUSTED_EXECUTION_PROFILE_AUTHORITY: Readonly<Record<typeof TRUSTED_EXECUTION_PROFILES[number], number>> = {
   restricted: 0,
   "workspace-write": 1,
@@ -110,7 +114,7 @@ const TrustedExecutionEvidenceSchema = z.object({
 });
 
 export const TrustedExecutionIntegritySchema = z.object({
-  harness: z.enum(["codex", "claude-code", "opencode"]),
+  harness: z.enum(KILN_SETUP_HARNESSES),
   desired: TrustedExecutionEvidenceSchema,
   persistedNative: TrustedExecutionEvidenceSchema.optional(),
   sessionOverride: TrustedExecutionEvidenceSchema.optional(),
@@ -326,6 +330,12 @@ export interface KilnProjectionTargetSnapshot {
   };
 }
 
+export interface KilnGlobalInstructionShimSetupSnapshot extends KilnProjectionTargetSnapshot {
+  readonly kind: "global-instruction-shim";
+  readonly harness: KilnSetupHarness;
+  readonly recommendation: KilnConfigSetupAction;
+}
+
 export interface KilnRepoShimProjectionSnapshot {
   readonly target: "agents" | "claude";
   readonly targetId: string;
@@ -347,6 +357,21 @@ export type KilnConfigSetupAction =
   | "review-native-projection-drift"
   | "review-global-instruction-drift";
 
+export const GUI_EXECUTABLE_CONFIG_SETUP_ACTIONS = [
+  "adopt-project-context",
+  "sync-repo-shims",
+  "sync-native-projections",
+  "sync-global-instruction-shims",
+] as const satisfies readonly KilnConfigSetupAction[];
+
+export function isGuiExecutableConfigSetupAction(
+  action: KilnConfigSetupAction,
+): action is typeof GUI_EXECUTABLE_CONFIG_SETUP_ACTIONS[number] {
+  return GUI_EXECUTABLE_CONFIG_SETUP_ACTIONS.includes(
+    action as typeof GUI_EXECUTABLE_CONFIG_SETUP_ACTIONS[number],
+  );
+}
+
 export interface KilnHarnessCapabilitySnapshot {
   readonly harness: string;
   readonly displayName: string;
@@ -367,7 +392,7 @@ export interface KilnConfigSetupSnapshot {
     readonly recommendation: KilnConfigSetupAction;
   };
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
-  readonly globalInstructionShims: readonly KilnProjectionTargetSnapshot[];
+  readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
   readonly nativeProjections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly skills?: KilnSkillCatalogSnapshot;
@@ -461,6 +486,12 @@ export const KilnProjectionTargetSnapshotSchema = z.object({
   }).optional(),
 });
 
+export const KilnGlobalInstructionShimSetupSnapshotSchema = KilnProjectionTargetSnapshotSchema.extend({
+  kind: z.literal("global-instruction-shim"),
+  harness: z.enum(KILN_SETUP_HARNESSES),
+  recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
+});
+
 export const KilnRepoShimProjectionSnapshotSchema = z.object({
   target: z.enum(["agents", "claude"]),
   targetId: z.string(),
@@ -503,7 +534,7 @@ export const KilnConfigSetupSnapshotSchema = z.object({
     recommendation: z.enum(KILN_CONFIG_SETUP_ACTIONS),
   }),
   repoShims: z.array(KilnRepoShimProjectionSnapshotSchema),
-  globalInstructionShims: z.array(KilnProjectionTargetSnapshotSchema),
+  globalInstructionShims: z.array(KilnGlobalInstructionShimSetupSnapshotSchema),
   nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
   permissionIntegrity: z.array(TrustedExecutionIntegritySchema),
   skills: KilnSkillCatalogSnapshotSchema.optional(),

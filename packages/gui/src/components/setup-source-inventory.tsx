@@ -39,12 +39,62 @@ const STATUS_TONE: Record<KilnConfigSourceStatus | KilnProjectionTargetStatus, "
   drifted: "destructive",
 };
 
+const PROJECTION_UPDATED_AT_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
 export function SetupSourceInventory(props: SetupSourceInventoryProps) {
   return (
     <section aria-label="Setup Details" className="flex flex-col gap-6">
       <CanonicalSourcesCard snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
+      <GlobalInstructionShimsCard projections={props.snapshot.globalInstructionShims} />
       <NativeProjectionsCard projections={props.snapshot.nativeProjections} />
     </section>
+  );
+}
+
+function GlobalInstructionShimsCard(props: { readonly projections: KilnConfigSetupSnapshot["globalInstructionShims"] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle><h3>Global Instruction Shims</h3></CardTitle>
+        <CardDescription>Managed global instruction entrypoints for each supported harness.</CardDescription>
+        <CardAction><Badge variant="outline">{props.projections.length} targets</Badge></CardAction>
+      </CardHeader>
+      <CardContent className="p-0">
+        {props.projections.length === 0 ? (
+          <p className="px-4 py-5 text-sm text-muted-foreground">No global instruction shims are configured.</p>
+        ) : (
+          <Table aria-label="Global instruction shims">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Target</TableHead>
+                <TableHead>Harness</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Recommendation</TableHead>
+                <TableHead className="text-right">Path</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {props.projections.map((projection) => (
+                <TableRow key={projection.targetId}>
+                  <TableCell className="font-medium text-foreground">{projection.targetId}</TableCell>
+                  <TableCell>{projection.harness}</TableCell>
+                  <TableCell><Badge variant={STATUS_TONE[projection.status]}>{projection.status}</Badge></TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{projection.recommendation}</TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" variant="ghost" size="icon-xs" aria-label={`Copy path for ${projection.targetId}`} onClick={() => void copyText(projection.path)}>
+                      <Clipboard aria-hidden="true" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -196,7 +246,7 @@ function nativeProjectionMetadata(projection: KilnConfigSetupSnapshot["nativePro
     parts.push(`${projection.managedFieldCount} managed field${projection.managedFieldCount === 1 ? "" : "s"}`);
   }
   if (projection.updatedAt) {
-    parts.push(`Updated ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(projection.updatedAt))}`);
+    parts.push(`Updated ${PROJECTION_UPDATED_AT_FORMATTER.format(new Date(projection.updatedAt))}`);
   }
   if (parts.length > 0) {
     return parts.join(" · ");

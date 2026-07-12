@@ -266,6 +266,7 @@ const setupSnapshot: KilnConfigSetupSnapshot = {
       recommendation: "none",
     },
   ],
+  globalInstructionShims: [],
   nativeProjections: [],
   permissionIntegrity: [],
   recommendedActions: ["none"],

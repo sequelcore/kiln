@@ -53,6 +53,8 @@ export type {
   KilnConfigSetupActionRequest,
   KilnConfigSetupActionResult,
   KilnConfigSetupActionStatus,
+  KilnGlobalInstructionShimSetupSnapshot,
+  KilnSetupHarness,
   KilnConfigSetupSnapshot,
   KilnConfigSourceSnapshot,
   KilnConfigSourceStatus,
@@ -71,6 +73,8 @@ export type {
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,
+  KILN_SETUP_HARNESSES,
+  GUI_EXECUTABLE_CONFIG_SETUP_ACTIONS,
   KILN_CONFIG_SETUP_ACTION_STATUSES,
   KILN_CONFIG_SETUP_ACTIONS,
   KILN_CONFIG_SOURCE_STATUSES,
@@ -90,6 +94,7 @@ export {
   KilnSkillCatalogSnapshotEntrySchema,
   KilnSkillCatalogSnapshotSchema,
   KilnSkillProjectionTargetSnapshotSchema,
+  isGuiExecutableConfigSetupAction,
   TrustedExecutionIntegritySchema,
 } from "./config-status.js";
 

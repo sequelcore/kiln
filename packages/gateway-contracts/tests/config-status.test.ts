@@ -187,9 +187,11 @@ describe("KilnConfig setup and status permission integrity", () => {
       repoShims: [],
       globalInstructionShims: [{
         targetId: "codex-global-instructions",
+        harness: "codex",
         path: "C:/Users/test/.codex/AGENTS.md",
         kind: "global-instruction-shim",
         status: "missing",
+        recommendation: "sync-global-instruction-shims",
       }],
       nativeProjections: [{
         targetId: "codex-config",
@@ -203,6 +205,27 @@ describe("KilnConfig setup and status permission integrity", () => {
     });
 
     expect(parsed.permissionIntegrity).toEqual([integrity]);
+    expect(parsed.globalInstructionShims[0]).toMatchObject({ harness: "codex" });
+  });
+
+  it("requires the canonical harness identity on every global instruction shim", () => {
+    const shim = {
+      targetId: "claude-global-instructions",
+      path: "C:/Users/test/.claude/CLAUDE.md",
+      kind: "global-instruction-shim",
+      status: "stale",
+      recommendation: "sync-global-instruction-shims",
+    };
+
+    expect(() => KilnConfigSetupSnapshotSchema.parse({
+      projectRoot: "C:/repo/kiln",
+      projectContext: { path: "C:/repo/kiln/.kiln/project-context.md", status: "valid", recommendation: "none" },
+      repoShims: [],
+      globalInstructionShims: [shim],
+      nativeProjections: [],
+      permissionIntegrity: [],
+      recommendedActions: ["sync-global-instruction-shims"],
+    })).toThrow();
   });
 
   it("exposes the same permission integrity aggregate at status level for every operator surface", () => {

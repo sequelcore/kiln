@@ -100,18 +100,24 @@ describe("config-status", () => {
       globalInstructionShims: expect.arrayContaining([
         expect.objectContaining({
           targetId: "codex-global-instructions",
+          harness: "codex",
           kind: "global-instruction-shim",
           status: "missing",
+          recommendation: "sync-global-instruction-shims",
         }),
         expect.objectContaining({
           targetId: "claude-global-instructions",
+          harness: "claude-code",
           kind: "global-instruction-shim",
           status: "missing",
+          recommendation: "sync-global-instruction-shims",
         }),
         expect.objectContaining({
           targetId: "opencode-global-instructions",
+          harness: "opencode",
           kind: "global-instruction-shim",
           status: "missing",
+          recommendation: "sync-global-instruction-shims",
         }),
       ]),
       recommendedActions: expect.arrayContaining([

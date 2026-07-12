@@ -68,6 +68,7 @@ import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-fram
 import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
+  isGuiExecutableConfigSetupAction,
   OperatorResourceReadRequestSchema,
   buildOperatorToolResultPayload,
   projectOperatorResourceReadResult,
@@ -493,12 +494,22 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   });
 
   app.post("/gui/api/config/setup/actions", async (c) => {
-    if (!options.executeSetupAction) {
+    if (!options.executeSetupAction || !options.getSetupSnapshot) {
       return c.json({ error: "setup_action_unavailable" }, 404);
     }
     const parsed = KilnConfigSetupActionRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "invalid_setup_action" }, 400);
+    }
+    if (!isGuiExecutableConfigSetupAction(parsed.data.action)) {
+      const result: KilnConfigSetupActionResult = {
+        action: parsed.data.action,
+        status: "blocked",
+        message: "This setup action is review-only in the GUI.",
+        errors: [`GUI setup action '${parsed.data.action}' is not executable.`],
+        setup: await options.getSetupSnapshot(),
+      };
+      return c.json(KilnConfigSetupActionResultSchema.parse(result));
     }
     const result = await options.executeSetupAction(parsed.data.action);
     return c.json(KilnConfigSetupActionResultSchema.parse(result));

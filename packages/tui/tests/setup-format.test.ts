@@ -11,6 +11,7 @@ function setupSnapshot(): KilnConfigSetupSnapshot {
       recommendation: "none",
     },
     repoShims: [],
+    globalInstructionShims: [],
     nativeProjections: [],
     permissionIntegrity: [{
       harness: "codex",
@@ -73,5 +74,63 @@ describe("formatSetupSnapshot", () => {
     expect(output).toContain("effective=workspace-write");
     expect(output).toContain("approval required=yes");
     expect(output).toContain("Restart Codex with proven Full Access");
+  });
+
+  it("formats global instruction projection setup actions", () => {
+    const output = formatSetupSnapshot({
+      ...setupSnapshot(),
+      recommendedActions: [
+        "sync-global-instruction-shims",
+        "adopt-or-back-up-global-instructions",
+        "review-global-instruction-drift",
+      ],
+    });
+
+    expect(output).toContain(
+      "actions: sync global instruction shims, adopt or back up global instructions, review global instruction drift",
+    );
+  });
+
+  it("renders each global instruction shim target, harness, status, and recommendation", () => {
+    const output = formatSetupSnapshot({
+      ...setupSnapshot(),
+      globalInstructionShims: [
+        {
+          targetId: "codex-global-instructions",
+          harness: "codex",
+          path: "C:/Users/test/.codex/AGENTS.md",
+          kind: "global-instruction-shim",
+          status: "stale",
+          recommendation: "sync-global-instruction-shims",
+        },
+        {
+          targetId: "claude-global-instructions",
+          harness: "claude-code",
+          path: "C:/Users/test/.claude/CLAUDE.md",
+          kind: "global-instruction-shim",
+          status: "unmanaged",
+          recommendation: "adopt-or-back-up-global-instructions",
+        },
+        {
+          targetId: "opencode-global-instructions",
+          harness: "opencode",
+          path: "C:/Users/test/.config/opencode/AGENTS.md",
+          kind: "global-instruction-shim",
+          status: "drifted",
+          recommendation: "review-global-instruction-drift",
+        },
+      ],
+    });
+
+    expect(output).toContain("C:/Users/test/.codex/AGENTS.md");
+    expect(output).toContain("C:/Users/test/.claude/CLAUDE.md");
+    expect(output).toContain("C:/Users/test/.config/opencode/AGENTS.md");
+    expect(output).toContain("codex-global-instructions: harness=codex status=stale recommendation=sync global instruction shims");
+    expect(output).toContain("claude-global-instructions: harness=claude-code status=unmanaged recommendation=adopt or back up global instructions");
+    expect(output).toContain("opencode-global-instructions: harness=opencode status=drifted recommendation=review global instruction drift");
+  });
+
+  it("renders an explicit empty global instruction shim state", () => {
+    expect(formatSetupSnapshot(setupSnapshot())).toContain("global instruction shims:\n  - none");
   });
 });

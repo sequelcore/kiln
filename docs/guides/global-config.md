@@ -1034,8 +1034,9 @@ harness capability diagnostics.
 The `setup` view is the operator-facing setup read model: project-context
 status, repo-shim status, native projection status, skill projection/admission
 status, and recommended actions such as `adopt-project-context`,
-`sync-repo-shims`, `sync-native-projections`, or
-`adopt-or-back-up-native-guidance`.
+`sync-repo-shims`, `sync-native-projections`,
+`sync-global-instruction-shims`, `adopt-or-back-up-global-instructions`, or
+`review-global-instruction-drift`.
 The model-callable `kiln_config.read` tool exposes the same views to admitted
 runtime tool surfaces. Setup surfaces should consume the same contract rather
 than parsing YAML or native files directly.
@@ -1047,15 +1048,24 @@ Operator surfaces expose the same setup read model:
 - GUI: the Setup sidebar mode reads the gateway endpoint
   `/gui/api/config/setup` and can execute safe setup actions through
   `POST /gui/api/config/setup/actions`.
-- TUI: `/setup` renders the same project-context, repo-shim, native projection,
-  and action summary in the terminal session.
+- TUI: `/setup` renders the same project-context, repo-shim, global instruction
+  shim, native projection, and action summary in the terminal session.
 
 The GUI action endpoint is intentionally narrower than the CLI. It delegates to
-CLI-owned setup services and permits only non-force project-context adoption,
-repo-shim sync, and native projection sync. Review-only or drift-sensitive
-actions return blocked results so the operator can use the explicit CLI review,
+CLI-owned setup services and permits non-force project-context adoption,
+repo-shim sync, native projection sync, and safe global-instruction-shim sync.
+The gateway, not the button state, enforces that executable set. Valid but
+disallowed requests return a blocked setup result and never reach the CLI
+mutation service.
+Global shim sync writes only missing or stale Kiln-managed targets; unmanaged
+files and drifted managed files are blocked by the CLI-owned projection service.
+Adoption or backup of native or global guidance, force sync, and drift review
+remain review-only in the GUI so the operator can use the explicit CLI review,
 force-sync, import, or config proposal flow. Model-callable mutation still goes
 through the config proposal lifecycle below.
+
+Global instruction shim status includes canonical shared `harness` identity
+(`codex`, `claude-code`, or `opencode`), which GUI and TUI display directly.
 
 ## Governed Config Mutation
 

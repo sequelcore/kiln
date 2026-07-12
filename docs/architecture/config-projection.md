@@ -329,10 +329,12 @@ must not mutate configuration or native provider files.
 
 For setup surfaces, `KilnConfigStatusSnapshot.setup` is the domain-specific
 read model. It contains project-context status, repo-shim status, native
-projection status, permission-integrity status, skill projection/admission
-diagnostics, and deterministic recommended actions such as
-`adopt-project-context`, `sync-repo-shims`, `sync-native-projections`, or
-`adopt-or-back-up-native-guidance`. Native skill adoption is explicit: setup
+projection status, global instruction shim status, permission-integrity
+status, skill projection/admission diagnostics, and deterministic recommended
+actions such as `adopt-project-context`, `sync-repo-shims`,
+`sync-native-projections`, `sync-global-instruction-shims`,
+`adopt-or-back-up-global-instructions`, or
+`review-global-instruction-drift`. Native skill adoption is explicit: setup
 may copy parseable, non-conflicting harness-local skills into the canonical
 global Kiln registry, then run native skill projection so every supported
 harness sees the same governed copy. Conflicting same-name native skills block
@@ -348,12 +350,21 @@ re-reading YAML, repo shims, or native harness files.
 
 GUI setup actions use a separate governed action boundary:
 `POST /gui/api/config/setup/actions`. The runtime validates the request through
-the shared gateway contract and delegates to CLI-owned setup services. Only
-non-force actions may execute from the GUI: project-context adoption,
-repo-shim sync, native projection sync, and governed native skill adoption when
-there are no same-name content conflicts. Review-only, force, or
+the shared gateway contract, enforces the shared GUI-executable action allowlist,
+and delegates only allowed actions to CLI-owned setup services. Button disabled
+state is defense in depth, not the authority boundary: valid but disallowed
+actions return a deterministic blocked setup result and never reach CLI mutation
+services. GUI may
+execute project-context adoption, repo-shim sync, native projection sync, and
+safe global instruction shim sync. The global sync service itself blocks
+unmanaged files and managed drift unless the CLI receives a separate explicit
+adoption or force request. Adoption or backup actions, force, and
 drift-sensitive actions return blocked results and keep the operator in an
 explicit review flow.
+
+Global instruction shim setup snapshots carry canonical `harness` identity from
+the shared setup contract (`codex`, `claude-code`, or `opencode`); GUI and TUI
+render that field directly and do not derive identity from target IDs.
 
 This boundary is not model-callable config mutation. Agents still use
 `kiln_config.read` for setup inspection and `kiln_config.propose_change` /

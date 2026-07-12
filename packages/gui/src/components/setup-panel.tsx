@@ -6,6 +6,7 @@ import type {
   OperatorThemeName,
   TrustedExecutionIntegrity,
 } from "@kilnai/gateway-contracts";
+import { isGuiExecutableConfigSetupAction } from "@kilnai/gateway-contracts";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -50,6 +51,9 @@ const ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
   "review-and-force-sync-repo-shims": "Review Shim Drift",
   "adopt-or-back-up-native-guidance": "Review Native Guidance",
   "review-native-projection-drift": "Review Native Drift",
+  "sync-global-instruction-shims": "Sync Global Instruction Shims",
+  "adopt-or-back-up-global-instructions": "Review Global Instructions",
+  "review-global-instruction-drift": "Review Global Instruction Drift",
 };
 
 const ACTION_DESCRIPTIONS: Record<KilnConfigSetupAction, string> = {
@@ -61,19 +65,16 @@ const ACTION_DESCRIPTIONS: Record<KilnConfigSetupAction, string> = {
   "review-and-force-sync-repo-shims": "Repo shims drifted from generated output; review before forcing replacement.",
   "adopt-or-back-up-native-guidance": "Native guidance is unmanaged; review before adopting or backing it up.",
   "review-native-projection-drift": "Native projection files drifted; review before overwriting managed fields.",
+  "sync-global-instruction-shims": "Generate managed global instruction shims from canonical Kiln doctrine.",
+  "adopt-or-back-up-global-instructions": "Global instruction files are unmanaged; review before adopting or backing them up.",
+  "review-global-instruction-drift": "Global instruction shims drifted; review before replacing managed files.",
 };
-
-const REVIEW_ONLY_ACTIONS = new Set<KilnConfigSetupAction>([
-  "review-project-context",
-  "review-and-force-sync-repo-shims",
-  "adopt-or-back-up-native-guidance",
-  "review-native-projection-drift",
-]);
 
 export function SetupPanel(props: SetupPanelProps) {
   const summary = summarizeSetup(props.snapshot);
   const actionItems = setupActionItems(props.snapshot);
   const repoShims = props.snapshot?.repoShims ?? [];
+  const globalInstructionShims = props.snapshot?.globalInstructionShims ?? [];
   const nativeProjections = props.snapshot?.nativeProjections ?? [];
   const permissionIntegrity = props.snapshot?.permissionIntegrity ?? [];
 
@@ -120,15 +121,16 @@ export function SetupPanel(props: SetupPanelProps) {
                   </CardAction>
                 </CardHeader>
                 <CardContent>
-                  <dl className="grid divide-y divide-border/70 border-y border-border/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                  <dl className="grid divide-y divide-border/70 border-y border-border/70 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
                     <SetupHealthFact label="Project Context" value={props.snapshot.projectContext.status} />
                     <SetupHealthFact label="Repo Shims" value={statusSummary(repoShims)} />
+                    <SetupHealthFact label="Global Instruction Shims" value={statusSummary(globalInstructionShims)} />
                     <SetupHealthFact label="Native Projections" value={statusSummary(nativeProjections)} />
                   </dl>
                 </CardContent>
                 <CardFooter className="justify-between gap-4 text-sm text-muted-foreground">
                   <span>{summary.actionCount === 0 ? "No configuration repair is required." : "Resolve required actions before trusting generated guidance."}</span>
-                  <span className="shrink-0 tabular-nums">{repoShims.length + nativeProjections.length + 1} sources</span>
+                  <span className="shrink-0 tabular-nums">{repoShims.length + globalInstructionShims.length + nativeProjections.length + 1} sources</span>
                 </CardFooter>
               </Card>
             </section>
@@ -196,7 +198,7 @@ function summarizeSetup(snapshot: KilnConfigSetupSnapshot | null | undefined) {
     return {
       actionCount,
       title: "Configuration Is Current",
-      description: "Global config, project context, repo shims, and native projections are aligned.",
+      description: "Global config, project context, repo shims, global instruction shims, and native projections are aligned.",
       badge: "Current",
     };
   }
@@ -299,7 +301,7 @@ function SetupActionRow(props: {
   readonly disabled: boolean;
   readonly onExecute: (action: KilnConfigSetupAction) => void;
 }) {
-  const reviewOnly = REVIEW_ONLY_ACTIONS.has(props.action);
+  const reviewOnly = !isGuiExecutableConfigSetupAction(props.action);
   return (
     <div className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
       <div className="flex min-w-0 gap-3">

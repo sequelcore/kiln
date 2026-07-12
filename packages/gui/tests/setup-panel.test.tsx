@@ -69,6 +69,7 @@ function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnCo
         recommendation: "sync-repo-shims",
       },
     ],
+    globalInstructionShims: [],
     nativeProjections: [],
     permissionIntegrity: [],
     recommendedActions: ["adopt-project-context", "sync-repo-shims"],
@@ -227,5 +228,98 @@ describe("SetupPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preview Project Context" }));
 
     expect(onPreviewSource).toHaveBeenCalledWith("C:/workspace/kiln/.kiln/project-context.md");
+  });
+
+  it("renders global instruction shim targets in overview and inventory from the shared setup snapshot", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          globalInstructionShims: [
+            {
+              targetId: "codex-global-instructions",
+              harness: "codex",
+              path: "C:/Users/test/.codex/AGENTS.md",
+              kind: "global-instruction-shim",
+              status: "stale",
+              recommendation: "sync-global-instruction-shims",
+            },
+            {
+              targetId: "claude-global-instructions",
+              harness: "claude-code",
+              path: "C:/Users/test/.claude/CLAUDE.md",
+              kind: "global-instruction-shim",
+              status: "unmanaged",
+              recommendation: "adopt-or-back-up-global-instructions",
+            },
+            {
+              targetId: "opencode-global-instructions",
+              harness: "opencode",
+              path: "C:/Users/test/.config/opencode/AGENTS.md",
+              kind: "global-instruction-shim",
+              status: "drifted",
+              recommendation: "review-global-instruction-drift",
+            },
+          ],
+          recommendedActions: [
+            "sync-global-instruction-shims",
+            "adopt-or-back-up-global-instructions",
+            "review-global-instruction-drift",
+          ],
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("3 Actions Need Attention")).toBeInTheDocument();
+    expect(screen.getByText("5 sources")).toBeInTheDocument();
+    expect(screen.getAllByText("Global Instruction Shims")).toHaveLength(2);
+    const inventory = screen.getByRole("table", { name: "Global instruction shims" });
+    expect(inventory).toHaveTextContent("codex-global-instructions");
+    expect(inventory).toHaveTextContent("claude-global-instructions");
+    expect(inventory).toHaveTextContent("opencode-global-instructions");
+    expect(inventory).toHaveTextContent("codex");
+    expect(inventory).toHaveTextContent("claude-code");
+    expect(inventory).toHaveTextContent("opencode");
+    expect(inventory).toHaveTextContent("stale");
+    expect(inventory).toHaveTextContent("unmanaged");
+    expect(inventory).toHaveTextContent("drifted");
+    expect(inventory).toHaveTextContent("sync-global-instruction-shims");
+    expect(inventory).toHaveTextContent("adopt-or-back-up-global-instructions");
+    expect(inventory).toHaveTextContent("review-global-instruction-drift");
+  });
+
+  it("executes safe global sync once but blocks global adoption and drift review actions", () => {
+    const onExecuteAction = vi.fn();
+
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          recommendedActions: [
+            "sync-global-instruction-shims",
+            "adopt-or-back-up-global-instructions",
+            "review-global-instruction-drift",
+          ],
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={onExecuteAction}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    const actions = screen.getByRole("region", { name: "Required Setup Actions" });
+    fireEvent.click(within(actions).getByRole("button", { name: "Sync Global Instruction Shims" }));
+    fireEvent.click(within(actions).getByRole("button", { name: "Review Global Instructions" }));
+    fireEvent.click(within(actions).getByRole("button", { name: "Review Global Instruction Drift" }));
+
+    expect(onExecuteAction).toHaveBeenCalledTimes(1);
+    expect(onExecuteAction).toHaveBeenCalledWith("sync-global-instruction-shims");
+    expect(within(actions).getByRole("button", { name: "Review Global Instructions" })).toBeDisabled();
+    expect(within(actions).getByRole("button", { name: "Review Global Instruction Drift" })).toBeDisabled();
   });
 });

@@ -9,6 +9,7 @@ import type {
   KilnConfigSetupSnapshot,
   KilnConfigSourceSnapshot,
   KilnConfigStatusSnapshot,
+  KilnGlobalInstructionShimSetupSnapshot,
   KilnHarnessCapabilitySnapshot,
   KilnProjectionTargetSnapshot,
   KilnRepoShimProjectionSnapshot,
@@ -116,6 +117,7 @@ export async function readConfigStatusSnapshot(
     rootPath,
     projectContext,
     repoShims: projectionState.repoShims,
+    globalInstructionShims: projectionState.globalInstructionShims,
     projections: projectionState.projections,
     permissionIntegrity,
     skillCatalog,
@@ -251,9 +253,11 @@ async function readProjectionSnapshots(
 ): Promise<{
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
 }> {
   const projections: KilnProjectionTargetSnapshot[] = [];
   const repoShimSnapshots: KilnRepoShimProjectionSnapshot[] = [];
+  const globalInstructionShimSnapshots: KilnGlobalInstructionShimSetupSnapshot[] = [];
 
   try {
     const repoShims = await readRepoShimProjectionStatuses(projectPath);
@@ -293,6 +297,15 @@ async function readProjectionSnapshots(
   try {
     const globalInstructionShims = await readGlobalInstructionShimProjectionSnapshots(projectPath, { userHome });
     for (const shim of globalInstructionShims) {
+      globalInstructionShimSnapshots.push({
+        targetId: shim.targetId,
+        harness: shim.harness === "claude" ? "claude-code" : shim.harness,
+        path: shim.filePath,
+        kind: "global-instruction-shim",
+        status: shim.status,
+        ...(shim.details ? { details: shim.details } : {}),
+        recommendation: globalInstructionShimRecommendationForStatus(shim.status),
+      });
       projections.push({
         targetId: shim.targetId,
         path: shim.filePath,
@@ -331,6 +344,7 @@ async function readProjectionSnapshots(
   return {
     projections: projections.sort((left, right) => left.targetId.localeCompare(right.targetId)),
     repoShims: repoShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
+    globalInstructionShims: globalInstructionShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
   };
 }
 
@@ -542,20 +556,19 @@ function buildSetupSnapshot(input: {
   readonly rootPath: string;
   readonly projectContext: KilnConfigSourceSnapshot;
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: KilnConfigStatusSnapshot["permissionIntegrity"];
   readonly skillCatalog?: ReturnType<typeof readSkillCatalogStatus>;
 }): KilnConfigSetupSnapshot {
   const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
-  const globalInstructionShims = input.projections.filter((projection) =>
-    projection.kind === "global-instruction-shim"
-  );
+  const globalInstructionShims = input.globalInstructionShims;
   const projectContextRecommendation = projectContextRecommendationFor(input.projectContext);
   const actions = uniqueSetupActions([
     projectContextRecommendation,
     ...input.repoShims.map((shim) => shim.recommendation),
     ...nativeProjections.map(nativeProjectionRecommendation),
-    ...globalInstructionShims.map(globalInstructionShimRecommendation),
+    ...globalInstructionShims.map((projection) => projection.recommendation),
     ...skillProjectionRecommendations(input.skillCatalog),
   ]);
   return {
@@ -614,14 +627,16 @@ function nativeProjectionRecommendation(projection: KilnProjectionTargetSnapshot
   return "none";
 }
 
-function globalInstructionShimRecommendation(projection: KilnProjectionTargetSnapshot): KilnConfigSetupAction {
-  if (projection.status === "missing" || projection.status === "stale") {
+function globalInstructionShimRecommendationForStatus(
+  status: KilnGlobalInstructionShimSetupSnapshot["status"],
+): KilnConfigSetupAction {
+  if (status === "missing" || status === "stale") {
     return "sync-global-instruction-shims";
   }
-  if (projection.status === "drifted") {
+  if (status === "drifted") {
     return "review-global-instruction-drift";
   }
-  if (projection.status === "unmanaged") {
+  if (status === "unmanaged") {
     return "adopt-or-back-up-global-instructions";
   }
   return "none";

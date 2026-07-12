@@ -12,6 +12,9 @@ const SETUP_ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
   "review-and-force-sync-repo-shims": "review shim drift",
   "adopt-or-back-up-native-guidance": "adopt native guidance",
   "review-native-projection-drift": "review native drift",
+  "sync-global-instruction-shims": "sync global instruction shims",
+  "adopt-or-back-up-global-instructions": "adopt or back up global instructions",
+  "review-global-instruction-drift": "review global instruction drift",
 };
 
 export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
@@ -20,6 +23,12 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
     : SETUP_ACTION_LABELS.none;
   const repoShims = snapshot.repoShims.length > 0
     ? snapshot.repoShims.map((shim) => `  - ${shim.target}: ${shim.status}`).join("\n")
+    : "  - none";
+  const globalInstructionShims = snapshot.globalInstructionShims.length > 0
+    ? snapshot.globalInstructionShims.map((shim) => [
+      `  - ${shim.targetId}: harness=${shim.harness} status=${shim.status} recommendation=${SETUP_ACTION_LABELS[shim.recommendation]}`,
+      `    target=${shim.path}`,
+    ].join("\n")).join("\n")
     : "  - none";
   const nativeProjections = snapshot.nativeProjections.length > 0
     ? snapshot.nativeProjections.map((projection) => `  - ${projection.targetId}: ${projection.status}`).join("\n")
@@ -38,6 +47,8 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
     `actions: ${actions}`,
     "repo shims:",
     repoShims,
+    "global instruction shims:",
+    globalInstructionShims,
     "native projections:",
     nativeProjections,
     "permission integrity:",
