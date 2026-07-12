@@ -35,8 +35,10 @@ bun packages\cli\src\index.ts config read agents
 Observed state:
 
 - `route` resolves the default worker to `codex-oauth`.
-- Codex OAuth is authenticated and advertises `gpt-5.5`, `gpt-5.4`, and
-  `gpt-5.4-mini`.
+- Current OpenAI model guidance recommends GPT-5.6 Sol for frontier work,
+  GPT-5.6 Terra for balanced workday tasks, and GPT-5.6 Luna for fast,
+  cost-sensitive work. Local Codex CLI discovery may lag that rollout and
+  should be treated as route-readiness evidence, not as durable model policy.
 - OpenCode is authenticated and advertises a large model catalog. That catalog
   is diagnostic evidence, not entitlement or route authority.
 - Repo shims are current.
@@ -88,9 +90,11 @@ routing:
   fallback: opencode-go
   routes:
     - provider: codex-oauth
-      model: gpt-5.5
+      model: gpt-5.6-terra
     - provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6
+    - provider: codex-oauth
+      model: gpt-5.6-luna
     - provider: opencode-go
       model: kimi-k2.7-code
     - provider: opencode-go
@@ -121,8 +125,8 @@ a stale catalog selectable.
 
 | Task | Preferred route | Reason |
 |---|---|---|
-| Architecture, planning, high-risk coding | `codex-oauth/gpt-5.5` | Highest-quality primary delegated route for complex Kiln work. |
-| TDD and regression design | `codex-oauth/gpt-5.5` | Strong default for edge-case reasoning and contract changes. |
+| Workday coding and tests | `codex-oauth/gpt-5.6-terra` | Balanced default for normal Kiln implementation and regression work. |
+| Architecture, planning, high-risk coding | `codex-oauth/gpt-5.6` | Sol alias for complex Kiln work that needs the highest reasoning headroom. |
 | Final review | `codex-oauth/codex-auto-review` | Review-specialized route; not a general implementation model. |
 | Frontend implementation | `opencode-go/kimi-k2.7-code` | Specialist route for React, TypeScript, layout, and visual work. |
 | Backend/runtime implementation | `opencode-go/deepseek-v4-pro` | Specialist route for runtime contracts, provider routing, and debugging. |
@@ -177,9 +181,10 @@ Managed routes use the same evidence plane as interactive routing:
 - background/unattended children require proven runtime authority;
 - parent Full Access does not automatically prove child authority.
 
-For this workstation, Codex OAuth handles critical planning, TDD, primary
-coding, and review. OpenCode Go handles specialized implementation routes when
-the task class matches and the route is eligible.
+For this workstation, Codex OAuth Terra handles workday coding and tests, Codex
+OAuth Sol handles critical planning and difficult changes, and Codex review
+handles final review. OpenCode Go handles specialized implementation routes
+when the task class matches and the route is eligible.
 
 ## Permission Integrity
 
@@ -245,9 +250,9 @@ claim.
 - Re-run discovery and suitability review when an eligible provider catalog
   adds or materially changes a frontier model; update canonical config and
   this example only after the route is actually available and evidenced.
-- Treat `codex-oauth/gpt-5.5` as the primary route for this
-  `kiln-tool-agent` profile. It matched Kimi's `passAtK = 1.0` at `k=5` while
-  using about half the input tokens and fewer provider requests.
+- Treat `codex-oauth/gpt-5.6-terra` as the workday route for this profile and
+  `codex-oauth/gpt-5.6` as the critical route until a fresh benchmark sweep
+  distinguishes Terra and Sol under Kiln tool-agent workloads.
 - Keep `opencode-go/kimi-k2.7-code` as an eligible fallback or specialist
   route for this profile. It passed `k=5`, but used more token and request
   budget in this local comparison.

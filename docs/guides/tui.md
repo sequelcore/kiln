@@ -179,7 +179,7 @@ That means the header shown above an assistant message reflects the provider/mod
 
 The TUI consumes the same provider discovery result as the GUI. When the active
 provider/model advertises `supportedReasoningEfforts`, the sidebar appends the
-current effort next to the model label, for example `gpt-5.4 · medium`.
+current effort next to the model label, for example `gpt-5.6-terra · medium`.
 
 At startup, the TUI may display cached provider discovery as `stale`
 diagnostics. Stale entries are unavailable until background runtime discovery

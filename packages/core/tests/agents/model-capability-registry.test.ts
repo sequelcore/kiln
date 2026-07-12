@@ -38,12 +38,12 @@ describe("ModelCapabilityRegistry", () => {
   });
 
   it("getByProvider() resolves direct-api profiles", () => {
-    const openaiProfile = registry.getByProvider("openai", "gpt-5.4");
+    const openaiProfile = registry.getByProvider("openai", "gpt-5.6");
 
     expect(openaiProfile).toBeDefined();
     expect(openaiProfile!.provider).toBe("openai");
-    expect(openaiProfile!.inputPer1M).toBe(2.5);
-    expect(openaiProfile!.outputPer1M).toBe(15);
+    expect(openaiProfile!.inputPer1M).toBe(5);
+    expect(openaiProfile!.outputPer1M).toBe(30);
   });
 
   it("projects multimodal capabilities only when the provider adapter can serialize them", () => {
@@ -55,9 +55,9 @@ describe("ModelCapabilityRegistry", () => {
       toolResultModalities: ["text"],
     });
 
-    expect(registry.modalityCapabilities("codex-oauth", "gpt-5.4")).toMatchObject({
+    expect(registry.modalityCapabilities("codex-oauth", "gpt-5.6")).toMatchObject({
       provider: "codex-oauth",
-      model: "gpt-5.4",
+      model: "gpt-5.6",
       supportedCapabilities: [],
       inputModalities: ["text"],
       toolResultModalities: ["text"],
@@ -104,7 +104,7 @@ describe("ModelCapabilityRegistry", () => {
   });
 
   it("returns static task suitability evidence for configured model routes", () => {
-    expect(registry.taskSuitability("codex-oauth", "gpt-5.5")).toEqual(
+    expect(registry.taskSuitability("codex-oauth", "gpt-5.6")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           task: "backend-coding",
@@ -141,7 +141,7 @@ describe("ModelCapabilityRegistry", () => {
         }),
       ]),
     );
-    expect(registry.taskSuitability("codex-oauth", "gpt-5.4-mini")).toEqual(
+    expect(registry.taskSuitability("codex-oauth", "gpt-5.6-luna")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           task: "mechanical-edit",

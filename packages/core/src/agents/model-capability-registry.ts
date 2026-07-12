@@ -156,6 +156,10 @@ const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   // Ollama / Local
   ["ollama-local", { supportsTools: false, supportsStreaming: true, supportsStructuredOutput: false, supportsVision: false, supportsAudio: false, maxContextTokens: 128_000 }],
   // OpenAI Codex (gpt-5 family)
+  ["gpt-5.6", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 1_050_000 }],
+  ["gpt-5.6-sol", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 1_050_000 }],
+  ["gpt-5.6-terra", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 1_050_000 }],
+  ["gpt-5.6-luna", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 1_050_000 }],
   ["gpt-5.5", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
   ["gpt-5.5-pro", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
   ["gpt-5.4", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 200_000 }],
@@ -174,6 +178,38 @@ const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
 ]);
 
 const TASK_SUITABILITY: ReadonlyMap<string, readonly ModelTaskSuitability[]> = new Map([
+  ["gpt-5.6", [
+    preferred("architecture-review", "Frontier Codex reasoning profile for complex architecture, security, research, and long-horizon agentic work."),
+    preferred("backend-coding", "Strongest default Codex route for difficult implementation, runtime contracts, and verification-heavy changes."),
+    preferred("test-writing", "Strong fit for TDD strategy, edge-case discovery, and regression planning."),
+    preferred("research", "Frontier synthesis profile when paired with governed source retrieval."),
+    capable("frontend-design", "Capable for frontend implementation; pair with explicit frontend-design skills for visual quality."),
+    capable("mechanical-edit", "Capable, but usually more model than repetitive edits require."),
+  ]],
+  ["gpt-5.6-sol", [
+    preferred("architecture-review", "Frontier Codex reasoning profile for complex architecture, security, research, and long-horizon agentic work."),
+    preferred("backend-coding", "Strongest default Codex route for difficult implementation, runtime contracts, and verification-heavy changes."),
+    preferred("test-writing", "Strong fit for TDD strategy, edge-case discovery, and regression planning."),
+    preferred("research", "Frontier synthesis profile when paired with governed source retrieval."),
+    capable("frontend-design", "Capable for frontend implementation; pair with explicit frontend-design skills for visual quality."),
+    capable("mechanical-edit", "Capable, but usually more model than repetitive edits require."),
+  ]],
+  ["gpt-5.6-terra", [
+    preferred("backend-coding", "Balanced Codex route for everyday implementation with strong capability at lower cost than Sol."),
+    preferred("test-writing", "Balanced fit for behavior tests and regression planning when Sol is unnecessary."),
+    capable("architecture-review", "Capable for architecture review; use Sol for high-risk boundary or security decisions."),
+    capable("research", "Good synthesis profile when paired with governed sources."),
+    capable("frontend-design", "Capable for frontend implementation; pair with explicit frontend-design skills for visual quality."),
+    capable("mechanical-edit", "Good fallback for bounded edits when Luna is too light."),
+  ]],
+  ["gpt-5.6-luna", [
+    preferred("mechanical-edit", "Fast, low-cost Codex route for repetitive edits, scout tasks, and small projections."),
+    capable("backend-coding", "Efficient fit for bounded implementation with clear scope."),
+    capable("test-writing", "Useful for small tests and mechanical test updates."),
+    capable("research", "Usable for bounded synthesis when sources are provided."),
+    limited("architecture-review", "Use Sol or Terra for architecture-sensitive decisions."),
+    limited("frontend-design", "Use with frontend-design skills or a stronger design-specialized route for visual work."),
+  ]],
   ["gpt-5.5", [
     preferred("architecture-review", "Frontier reasoning profile for architecture, boundary, and review decisions."),
     preferred("backend-coding", "Strong default for complex implementation when Codex OAuth quota is available."),

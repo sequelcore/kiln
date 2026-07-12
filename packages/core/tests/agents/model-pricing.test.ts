@@ -14,7 +14,7 @@ describe("MODEL_CATALOG", () => {
   });
 
   it("contains at least one entry per active provider", () => {
-    expect(MODEL_CATALOG.length).toBe(17);
+    expect(MODEL_CATALOG.length).toBe(21);
   });
 
   it("ollama is free", () => {

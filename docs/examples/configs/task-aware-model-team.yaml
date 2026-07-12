@@ -26,7 +26,11 @@ routing:
   fallback: opencode-zen
   routes:
     - provider: codex-oauth
-      model: gpt-5.5
+      model: gpt-5.6-terra
+    - provider: codex-oauth
+      model: gpt-5.6
+    - provider: codex-oauth
+      model: gpt-5.6-luna
     - provider: opencode-go
       model: kimi-k2.6
     - provider: opencode-go
@@ -43,7 +47,7 @@ routing:
       model: minimax-m2.5-free
   budgetAware: false
 models:
-  codex-oauth: gpt-5.5
+  codex-oauth: gpt-5.6-terra
   opencode-go: minimax-m2.7
   opencode-zen: minimax-m2.5-free
 reasoningPolicy:
@@ -58,10 +62,20 @@ reasoningPolicy:
     mechanical-edit: low
 modelTaskSuitability:
   - provider: codex-oauth
-    model: gpt-5.5
+    model: gpt-5.6
     task: architecture-review
     level: preferred
-    reason: Prefer the highest-reasoning subscription route for architecture decisions, backend-critical changes, and final review.
+    reason: Prefer GPT-5.6 Sol for architecture decisions, backend-critical changes, and final review.
+  - provider: codex-oauth
+    model: gpt-5.6-terra
+    task: backend-coding
+    level: preferred
+    reason: Prefer GPT-5.6 Terra as the balanced workday Codex route for everyday implementation.
+  - provider: codex-oauth
+    model: gpt-5.6-luna
+    task: mechanical-edit
+    level: preferred
+    reason: Prefer GPT-5.6 Luna for small bounded edits and repetitive low-risk work.
   - provider: opencode-go
     model: kimi-k2.6
     task: frontend-design
@@ -121,7 +135,7 @@ managedAgents:
     - id: codex-oauth-scout-readonly
       kind: direct
       provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6-luna
       profiles:
         - foundation-readonly-plan
       workingDirectory: project
@@ -141,7 +155,7 @@ managedAgents:
     - id: codex-oauth-critical-approved-write
       kind: direct
       provider: codex-oauth
-      model: gpt-5.5
+      model: gpt-5.6
       profiles:
         - foundation-apply-approved-writes
       workingDirectory: project

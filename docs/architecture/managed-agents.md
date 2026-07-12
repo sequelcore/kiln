@@ -809,7 +809,7 @@ live proof uses
 `KILN_LIVE_OPENAI_DIRECT_MODEL` when set and otherwise defaults to
 `gpt-4o-mini`; Codex OAuth subscription direct live proof uses
 `KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL` when set and otherwise defaults to
-`gpt-5.5`. Live tests must use isolated fixture workspaces, bounded tracked
+`gpt-5.6-terra`. Live tests must use isolated fixture workspaces, bounded tracked
 paths, read-only denial cases, approved-write positive cases, cleanup, and
 replay assertions.
 
@@ -830,7 +830,7 @@ request source when known. `providerRoute.model` is the effective child model
 after configured route defaults and runtime execution-profile resolution, not
 only a model override supplied by the parent assistant. Operator surfaces must
 render that identity as structured evidence, for example
-`foundation-readonly-plan via codex-oauth/gpt-5.4-mini`, rather than only
+`foundation-readonly-plan via codex-oauth/gpt-5.6-luna`, rather than only
 showing the tool name.
 
 Terminal events additionally carry managed invocation evidence: child lineage,
