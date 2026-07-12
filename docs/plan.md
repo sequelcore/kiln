@@ -1,6 +1,6 @@
 # Active Implementation Plan
 
-Updated: 2026-07-04
+Updated: 2026-07-11
 
 ## Objective
 
@@ -48,19 +48,39 @@ profiles, agents, skills, and project context.
   repository shims; render project-scoped overrides only.
 - Do not use Claude compatibility paths, Codex fallback filenames, symlinks, or
   dual readers.
+- The GUI gateway is the authority boundary for setup actions. It permits only
+  project-context adoption, repo-shim sync, native projection sync, and safe
+  global shim sync; disabled controls are defense in depth. Disallowed valid
+  actions return blocked results before CLI mutation ownership is invoked.
+- Global shim setup status carries canonical shared harness identity (`codex`,
+  `claude-code`, or `opencode`), rendered directly by GUI and TUI.
 
-## Implementation
+## Completion
 
-1. Add failing tests and the global instruction projection service for target
-   paths, signed deterministic rendering, classification, drift, backup,
-   adoption, and install-state ownership.
-2. Integrate global instruction targets into `kiln sync`, setup/status, and
-   ownership-aware uninstall using the shared contracts.
-3. Change repo-shim rendering and tests so repo files specialize inherited
-   global doctrine without duplicating it.
-4. Correct canonical Go/Zen doctrine and operator configuration, then migrate
-   existing unmanaged global files explicitly with byte-preserving backups.
-5. Update architecture/operator docs and roadmap evidence.
+1. The global instruction projection owner renders signed deterministic
+   Codex, Claude Code, and OpenCode entrypoints and uses shared install-state
+   ownership, drift, backup, adoption, force, and uninstall contracts.
+2. `kiln sync`, config setup/status, CLI status, TUI, and GUI consume the
+   shared global-instruction projection contract, including each target's
+   canonical recommendation in setup diagnostics.
+3. Repo shims specialize project identity and adopted context without copying
+   inherited global doctrine, global agents, routing, or native permissions.
+4. Isolated-home tests prove governed adoption or byte-preserving backup,
+   drift refusal, force, uninstall, and deterministic recreation. This work
+   intentionally did not mutate an operator's real home-directory projections.
+5. Architecture, operator-guide, and roadmap references are aligned with the
+   completed projection slice.
+6. Runtime negative tests prove valid review, adoption, force, and drift
+   actions cannot bypass the GUI boundary; safe global sync retains the
+   CLI-owned unmanaged and drift protections.
+
+Verification closed on 2026-07-11: three controlled focused Core repetitions
+passed 89/89 tests each; the one-worker Core suite passed 272 files / 3,454
+tests; normal `@kilnai/core` testing passed the same count; and the required
+root `typecheck`, `test`, `build`, `git diff --check`, and changed-files React
+Doctor gates all passed. Follow-up contention evidence isolated and hardened a
+sequential 205-file broad-glob test fixture without changing production
+behavior or timeouts. Slice 1 is complete.
 
 ## Verification
 
@@ -79,6 +99,6 @@ profiles, agents, skills, and project context.
 
 ## Residual-Risk Gate
 
-Do not migrate the operator's real global files or mark this correction closed
-until unmanaged-file backup, drift refusal, install-state ownership, status
-parity, and uninstall behavior pass in an isolated home.
+Do not migrate an operator's real global files without explicit authorization.
+The completed isolated-home evidence proves lifecycle behavior, but it is not
+live-home migration evidence.

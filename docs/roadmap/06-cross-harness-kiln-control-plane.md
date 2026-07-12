@@ -151,7 +151,11 @@ shape through governed routes where possible.
   - `<repo>/AGENTS.md`
   - `<repo>/CLAUDE.md`
 - Config status and setup expose global instruction shim state separately from
-  native projections.
+  native projections, including canonical shared harness identity.
+- Slice 1 closed on 2026-07-11 after controlled verification. The
+  runtime-enforced GUI action boundary proves disabled controls are not
+  authority, disallowed valid actions never enter CLI mutation services, and
+  safe global sync remains subject to CLI unmanaged and drift protections.
 - Direct-provider doctrine now states that `codex-oauth`, `opencode-go`, and
   `opencode-zen` are governed by Kiln runtime authority, not native CLI
   permission files.
@@ -226,7 +230,7 @@ Exit gate:
 
 ### Slice 1 - Global And Repo Projection Parity
 
-Status: In progress.
+Status: Complete on 2026-07-11.
 
 Goal: ensure every harness sees the same canonical Kiln doctrine without
 duplicated markdown policy.
@@ -245,6 +249,34 @@ Exit gate:
   independently owned;
 - repo `AGENTS.md` and `CLAUDE.md` contain project context, not global rosters;
 - setup can show the exact target behind any recommended action.
+
+Closure evidence:
+
+- `packages/cli/src/application/global-instruction-shim-projection.ts` owns
+  signed, independently tracked global entrypoints for Codex, Claude Code, and
+  OpenCode using shared native install-state, backup, drift, force, and
+  uninstall contracts.
+- Focused isolated-home CLI tests cover unmanaged adoption/byte-preserving
+  backup, managed ownership, drift refusal, explicit force, uninstall, and
+  deterministic recreation. The shared setup snapshot carries each global
+  shim's target identity, harness-visible target path, status, and canonical
+  recommendation; TUI and GUI tests prove those three targets are visible in
+  their setup diagnostics without re-evaluating projection policy.
+- Repo shim tests prove repository projections specialize inherited doctrine
+  without duplicating global doctrine, route policy, or native permission
+  state. Direct-provider tests preserve the independence of `codex-oauth`,
+  `opencode-go`, and `opencode-zen` from native harness permission files.
+- Controlled verification on 2026-07-11 passed three focused one-worker
+  repetitions (2 files / 89 tests each), the complete one-worker Core suite
+  (272 files / 3,454 tests), and normal `@kilnai/core` testing at the same
+  count. The root `bun run typecheck`, `bun run test`, `bun run build`,
+  `git diff --check`, and `npx react-doctor@latest --verbose --scope changed`
+  gates also passed. Follow-up suite evidence reproduced the broad-glob test's
+  sequential 205-file fixture exceeding Vitest's default timeout under
+  contention; that fixture now writes the same deterministic files concurrently
+  without changing production behavior, assertions, truncation limits, or
+  timeouts. The Codex OAuth timing tests remained green and no product defect
+  was found.
 
 ### Slice 1A - Built-In Instruction Profile Catalog
 
