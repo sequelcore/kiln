@@ -99,9 +99,11 @@ describe("shared output verbosity", () => {
     const tempDir = await makeTempDir();
     try {
       await mkdir(join(tempDir, "src"), { recursive: true });
-      for (let index = 0; index < 205; index += 1) {
-        await writeFile(join(tempDir, "src", `match-${String(index).padStart(3, "0")}.ts`), "export {};\n", "utf8");
-      }
+      const fixturePaths = Array.from(
+        { length: 205 },
+        (_, index) => join(tempDir, "src", `match-${String(index).padStart(3, "0")}.ts`),
+      );
+      await Promise.all(fixturePaths.map((path) => writeFile(path, "export {};\n", "utf8")));
 
       const tool = new GlobTool({
         environmentProvider: async () => ({}),
