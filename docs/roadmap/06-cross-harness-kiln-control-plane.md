@@ -1,7 +1,7 @@
 # 06 - Cross-Harness Kiln Control Plane
 
-Status: Active research and architecture program.
-Execution: Research - complete boundary/vocabulary evidence and approve one bounded dependency-unlock slice.
+Status: Active delivery track; Slices 0-2 are complete and one Slice 3 vertical slice is admitted.
+Execution: Ready - implement the admitted Codex App managed-agent invocation vertical slice only.
 Created: 2026-07-04.
 
 ## Objective
@@ -324,7 +324,7 @@ Exit gate:
 
 ### Slice 2 - Kiln Tool Surface In Native Harnesses
 
-Status: In progress: the Codex App read-only status/governance/capability sub-slice has recovered implementation and verification evidence, but remains awaiting a follow-up real Codex App revalidation; broader harness adapters remain planned.
+Status: Complete on 2026-07-13.
 
 Goal: make Kiln tools available from supported harnesses through governed
 adapters instead of shell workarounds.
@@ -358,18 +358,42 @@ acquisition failure. The recovery preserves degraded status and observed
 capability envelopes, makes project discovery independent of the process CWD,
 and validates evidence version, freshness, shape, and resolved governance at
 the canonical status-projection boundary. Governance remains fail-closed when
-its canonical policy evidence is missing or malformed. The sub-slice is not
-complete until a follow-up Codex App invocation verifies useful envelopes.
+its canonical policy evidence is missing or malformed.
+
+Implementation closed in `e2f925c1` and `2804e757`. Live Codex App acceptance
+on 2026-07-13 passed: all three project-local tools — `kiln_status_inspect`,
+`kiln_work_governance_inspect`, and `kiln_capability_inspect` — were discovered
+and invoked without `KILN_STATUS_EVIDENCE_INCOMPLETE`. The observed harness was
+`native-harness / codex / app` through `kiln-codex-app-mcp`; request IDs
+`codex-app-mcp-6` through `codex-app-mcp-8` were observed from
+`2026-07-13T20:29:09.330Z` to `2026-07-13T20:29:09.548Z`.
+
+- Status returned a useful degraded envelope with
+  `review-native-projection-drift` and `sync-global-instruction-shims`.
+- Governance returned `authority: authoritative` from `kiln-config-status`.
+- Capability returned `availability: available`, `mcpRuntimeTools: supported`,
+  and `bridgeProjection: current` from
+  `kiln-harness-integration-capabilities`.
+- Unrelated stale or drifted projections did not invalidate the directly
+  observed bridge capability. Diagnostics remained
+  `KILN_PROJECTION_STALE` and `KILN_PROJECTION_DRIFTED`.
+- The live envelopes exposed no paths, raw configuration, environment data,
+  credentials, secrets, exceptions, or stack traces.
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 
-Status: Planned.
+Status: Ready: only the first managed-agent invocation vertical slice is
+admitted.
 
 Goal: allow any admitted harness surface to invoke Kiln-managed agents through
 canonical routes.
 
 Work:
 
+- Implement only a Codex App → Kiln → OpenCode Go managed-agent invocation
+  that returns the canonical managed job identifier and status evidence. Do
+  not add cancellation, result fetch, replay, Claude adapters, or a second
+  provider route in this slice.
 - expose `managed_agent.invoke` or equivalent through harness adapters;
 - support background job ids, status, cancellation, result fetch, and replay
   references;
