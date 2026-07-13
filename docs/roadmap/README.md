@@ -34,7 +34,7 @@ item requires an explicit priority decision recorded here.
 
 | Order | Track | State | Bounded work item | Admission reason |
 | --- | --- | --- | --- | --- |
-| 1 | [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Ready | Slice 3 vertical slice: from Codex App, invoke one OpenCode Go managed-agent route through Kiln and return the canonical job identifier and status evidence. | Slice 2 passed live Codex App acceptance; the directly observed bridge is current despite unrelated projection drift. |
+| 1 | [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Ready | Slice 3B: expose the proven canonical managed-job boundary through the existing Codex App MCP adapter. | Slice 3A owns persistent admission, job identity, idempotency, status, and lifecycle; only adapter projection remains. |
 | 2 | [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Research | Define and verify cross-surface event-presentation density, then complete final live release validation. | Context usage is complete; CLI/TUI parity rules require evidence before shared event-density changes. |
 | 3 | [01 - Native Operator Surface](./01-native-operator-surface.md) | Queued | Slice 3: workload fixture governance. | The slice is bounded to Gateway contracts and tests, but it is not a public-release truth blocker. |
 | 4 | [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Resume Slice 3 telemetry, replay, and non-inferiority work. | Roadmap 06 must first define and verify the required cross-harness Kiln tool and agent exposure. |

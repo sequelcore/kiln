@@ -98,6 +98,39 @@ re-evaluates admission immediately before execution using the admitted
 capability snapshot, checks the adapter descriptor, and validates the returned
 record against the admitted request and snapshot.
 
+## Persistent Managed Jobs
+
+Runtime owns the persistent managed-job application boundary in
+`packages/runtime/src/managed-jobs`. It owns admitted submission, opaque job
+identity, idempotency, status, and honest restart recovery. All presentation
+surfaces are consumers; none may create private background-job state.
+
+The request permits only bounded objective text, a configured agent-profile
+identity, an idempotency identity, and optional parent invocation/turn lineage.
+It cannot choose provider, model, paths, environment, credentials, raw config,
+authority, governance evidence, or timeout. A trusted composition boundary
+supplies project identity; CLI resolves configured profiles/routes through
+adapters injected into Runtime, never through a Runtime-to-CLI dependency.
+
+The owner validates fresh, versioned authoritative governance before admission,
+profile/route resolution, persistence, or provider dispatch. It stores only
+safe evidence: project, profile, route/provider, governance source, timeout
+source, parent lineage, timestamps, lifecycle, and fingerprints. It does not
+persist objectives, credentials, environment values, paths, raw configuration,
+provider payloads, exception details, stack traces, or hidden reasoning.
+
+The same idempotency identity and normalized-request fingerprint returns one
+job; a changed request yields a stable conflict. Valid states are `queued`,
+`running`, `succeeded`, `failed`, `timed_out`, and `interrupted`. Terminal
+states are immutable. Because this slice does not resume provider work,
+nonterminal work recovered after restart becomes `interrupted`, never remains
+shown as running. Provider dispatch is a Runtime port; configured direct route
+identity remains `opencode-go`, with no shell or native-CLI subprocess path.
+
+This boundary exposes no MCP tool, cancellation, result retrieval, replay API,
+or new provider adapter. Slice 3B may only project submit/status through the
+existing Codex App MCP adapter.
+
 ## Lifecycle And Parallel Execution
 
 Managed invocations have a runtime-owned lifecycle. A parent may request a

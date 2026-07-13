@@ -186,6 +186,30 @@ export type {
   ManagedInvocationToolRoute,
 } from "./agents/managed-invocation/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
+export {
+  FilesystemManagedJobStore,
+  InMemoryManagedJobStore,
+  ManagedJobApplicationError,
+  ManagedJobApplicationService,
+  createRuntimeManagedJobInvocationPort,
+} from "./managed-jobs/index.js";
+export type {
+  ManagedJobDiagnosticCode,
+  ManagedJobGovernanceEvidence,
+  ManagedJobGovernancePort,
+  ManagedJobProfile,
+  ManagedJobProfilePort,
+  ManagedJobProjectPort,
+  ManagedJobRecord,
+  ManagedJobRoute,
+  ManagedJobRoutePort,
+  ManagedJobRuntimeInvocationPort,
+  ManagedJobRuntimeInvocationResolver,
+  ManagedJobState,
+  ManagedJobStore,
+  ManagedJobSubmission,
+  TrustedManagedJobProject,
+} from "./managed-jobs/index.js";
 export type {
   ProviderCatalogClassification,
   ProviderCatalogEvidence,
