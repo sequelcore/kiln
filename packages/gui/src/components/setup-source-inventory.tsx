@@ -2,6 +2,9 @@ import type {
   KilnConfigSetupSnapshot,
   KilnConfigSourceStatus,
   KilnProjectionTargetStatus,
+  KilnSkillAdmissionState,
+  KilnSkillCatalogProjectionStatus,
+  KilnSkillCatalogSnapshot,
 } from "@kilnai/gateway-contracts";
 import { Clipboard, Eye, FileCode2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +42,27 @@ const STATUS_TONE: Record<KilnConfigSourceStatus | KilnProjectionTargetStatus, "
   drifted: "destructive",
 };
 
+const SKILL_ADMISSION_TONE: Record<KilnSkillAdmissionState, "secondary" | "destructive" | "outline"> = {
+  available: "secondary",
+  admitted: "outline",
+  omitted: "secondary",
+  blocked: "destructive",
+  unavailable: "secondary",
+};
+
+const SKILL_PROJECTION_TONE: Record<KilnSkillCatalogProjectionStatus, "secondary" | "destructive" | "outline"> = {
+  missing: "secondary",
+  projected: "outline",
+  drifted: "destructive",
+  "unmanaged-native": "secondary",
+};
+
+const SKILL_PROJECTION_TARGETS = [
+  { target: "claude", displayName: "Claude Code" },
+  { target: "codex", displayName: "Codex" },
+  { target: "opencode", displayName: "OpenCode" },
+] as const;
+
 const PROJECTION_UPDATED_AT_FORMATTER = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -50,7 +74,81 @@ export function SetupSourceInventory(props: SetupSourceInventoryProps) {
       <CanonicalSourcesCard snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
       <GlobalInstructionShimsCard projections={props.snapshot.globalInstructionShims} />
       <NativeProjectionsCard projections={props.snapshot.nativeProjections} />
+      <SkillCatalogCard skills={props.snapshot.skills} />
     </section>
+  );
+}
+
+function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSnapshot | undefined }) {
+  const entries = props.skills?.entries;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle><h3>Skill Catalog</h3></CardTitle>
+        <CardDescription>
+          Available means Kiln governance may admit a skill; it does not mean the skill is loaded into this active session.
+        </CardDescription>
+        {entries ? <CardAction><Badge variant="outline">{entries.length} skills</Badge></CardAction> : null}
+      </CardHeader>
+      <CardContent className="p-0">
+        {entries === undefined ? (
+          <p role="status" aria-label="Skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">Skill diagnostics are unavailable from this setup snapshot.</p>
+        ) : entries.length === 0 ? (
+          <p role="status" aria-label="Skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">No skills are reported in this setup snapshot.</p>
+        ) : (
+          <Table aria-label="Skill catalog">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Skill</TableHead>
+                <TableHead>Origin</TableHead>
+                <TableHead>Identity</TableHead>
+                <TableHead>Admission</TableHead>
+                <TableHead>Native projections</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {entries.map((skill) => (
+                <TableRow key={`${skill.origin}:${skill.name}`}>
+                  <TableCell className="min-w-52 whitespace-normal align-top">
+                    <p className="font-medium text-foreground">{skill.name}</p>
+                    <p className="mt-0.5 max-w-sm text-xs leading-5 text-muted-foreground">{skill.description}</p>
+                  </TableCell>
+                  <TableCell className="align-top text-muted-foreground">{skill.origin}</TableCell>
+                  <TableCell className="align-top">
+                    <Badge variant="outline">{skill.builtIn ? "built-in" : skill.configured ? "configured" : "unconfigured"}</Badge>
+                  </TableCell>
+                  <TableCell className="min-w-56 whitespace-normal align-top">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={SKILL_ADMISSION_TONE[skill.admission.state]}>{skill.admission.state}</Badge>
+                      {skill.omissionReason ? <span className="font-mono text-xs text-muted-foreground">{skill.omissionReason}</span> : null}
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{skill.admission.reason}</p>
+                  </TableCell>
+                  <TableCell className="min-w-56 whitespace-normal align-top">
+                    <ul className="space-y-1.5">
+                      {SKILL_PROJECTION_TARGETS.map(({ target, displayName }) => {
+                        const projection = skill.projections.find((entry) => entry.target === target);
+                        return (
+                          <li key={target} className="flex items-center gap-2">
+                            <span className="min-w-20 text-xs text-muted-foreground">{projection?.displayName ?? displayName}</span>
+                            {projection ? <Badge variant={SKILL_PROJECTION_TONE[projection.status]}>{projection.status}</Badge> : <span className="text-xs text-muted-foreground">No projection reported</span>}
+                            {projection ? (
+                              <Button type="button" variant="ghost" size="icon-xs" aria-label={`Copy path for ${skill.name} in ${projection.displayName}`} onClick={() => void copyText(projection.path)}>
+                                <Clipboard aria-hidden="true" />
+                              </Button>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

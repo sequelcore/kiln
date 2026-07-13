@@ -1,7 +1,7 @@
 # 02 - Public Release UI Debt
 
 Status: Active release debt
-Execution: Ready - render existing shared skill catalog diagnostics in GUI and TUI Setup.
+Execution: Ready - add the contract-backed composer context-usage indicator.
 Started: 2026-06-28
 
 ## Objective
@@ -83,6 +83,12 @@ roadmap retains them only as context for the remaining release blockers.
   descriptions, quiet normal statuses, and workspace-backed previews for
   project-owned canonical files. Full paths remain available as explicit copy
   actions instead of dominating the page.
+- Rendered the shared skill catalog in GUI and TUI Setup. Both surfaces now
+  project configured/native origin, built-in/configured identity, admission and
+  omission evidence, and native projection status directly from the shared
+  setup snapshot. GUI makes paths explicit copy actions and states that
+  `available` means Kiln may admit a skill, not that it is loaded into the
+  active session.
 - Split oversized app-shell and workbench responsibilities into focused
   runtime, frame, provider, command, navigation, surface, and action modules.
 - Added cross-surface startup profiling and evidence-backed first-usable
@@ -254,8 +260,6 @@ Remaining debt:
 - Wire plugin/domain-package skills into the configured Kiln registry only
   after the plugin ownership, trust, and precedence contract is promoted from
   reserved model state to active config behavior.
-- Render the richer skill setup diagnostics in GUI/TUI with the same fields now
-  available in the shared setup contract.
 - Tighten operator-facing copy across CLI/GUI/TUI so `admission.state:
   available` is never presented as "actively loaded in this session" unless the
   skill was admitted by explicit request, agent profile defaults, or auto skill

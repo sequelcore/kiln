@@ -1,6 +1,7 @@
 import type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
+  KilnSkillCatalogSnapshot,
 } from "@kilnai/gateway-contracts";
 
 const SETUP_ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
@@ -41,6 +42,7 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
       `    action=${integrity.recommendation}`,
     ].join("\n")).join("\n")
     : "  - none";
+  const skills = formatSkillCatalog(snapshot.skills);
   return [
     `project: ${snapshot.projectRoot}`,
     `project context: ${snapshot.projectContext.status}`,
@@ -53,5 +55,27 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
     nativeProjections,
     "permission integrity:",
     permissionIntegrity,
+    "skills:",
+    skills,
   ].join("\n");
+}
+
+function formatSkillCatalog(skills: KilnSkillCatalogSnapshot | undefined): string {
+  if (skills === undefined) {
+    return "  - unavailable";
+  }
+  if (skills.entries.length === 0) {
+    return "  - none configured or reported";
+  }
+  return [...skills.entries]
+    .sort((left, right) => left.name.localeCompare(right.name) || left.origin.localeCompare(right.origin))
+    .map((skill) => [
+      `  - ${skill.name}: origin=${skill.origin} identity=${skill.builtIn ? "built-in" : skill.configured ? "configured" : "unconfigured"} admission=${skill.admission.state}`,
+      `    admission reason=${skill.admission.reason}`,
+      ...(skill.omissionReason ? [`    omission reason=${skill.omissionReason}`] : []),
+      ...[...skill.projections]
+        .sort((left, right) => left.target.localeCompare(right.target))
+        .map((projection) => `    target=${projection.target} status=${projection.status} path=${projection.path}`),
+    ].join("\n"))
+    .join("\n");
 }

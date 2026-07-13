@@ -164,6 +164,12 @@ The status contract separates:
 - route/session admission into current procedural context
 - omission or unavailable reasons
 
+GUI Setup presents this as a diagnostic Skill Catalog with explicit copy-path
+controls; TUI Setup prints the same shared evidence deterministically. In both
+surfaces, `available` means Kiln governance may admit the skill. It does not
+mean the skill is already loaded in the active session; only `admitted` records
+that context state.
+
 This distinction is deliberate. A local Codex skill such as `shadcn` may exist
 under `~/.codex/skills`, but Kiln treats that as `native-harness` and
 `unmanaged-native` until it is adopted or installed into `~/.kiln/skills` or
