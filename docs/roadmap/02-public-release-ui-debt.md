@@ -1,6 +1,7 @@
 # 02 - Public Release UI Debt
 
-Status: Active
+Status: Active release debt
+Execution: Ready - render existing shared skill catalog diagnostics in GUI and TUI Setup.
 Started: 2026-06-28
 
 ## Objective
@@ -50,7 +51,7 @@ focused component, typecheck, build, and browser validation evidence.
 
 ## Progress Snapshot
 
-Updated: 2026-07-02
+Updated: 2026-07-12
 
 The following GUI foundations have been implemented and verified. Their stable
 behavior belongs in the canonical GUI and architecture documentation; this
@@ -166,7 +167,7 @@ Verification:
 
 ### Skill Catalog Projection and Admission Parity
 
-Status: Pending research
+Status: Partially implemented; GUI/TUI setup rendering is the current bounded task
 
 Problem:
 
@@ -255,11 +256,6 @@ Remaining debt:
   reserved model state to active config behavior.
 - Render the richer skill setup diagnostics in GUI/TUI with the same fields now
   available in the shared setup contract.
-- Repair the unrelated `@kilnai/cli` package test failure in
-  `tests/config/managed-agent-routes.test.ts`, where direct ordered-routing
-  route health now reports pending provider/model discovery for
-  `codex-oauth-readonly` and `openrouter-readonly` but the test still expects
-  those routes to be immediately available.
 - Tighten operator-facing copy across CLI/GUI/TUI so `admission.state:
   available` is never presented as "actively loaded in this session" unless the
   skill was admitted by explicit request, agent profile defaults, or auto skill

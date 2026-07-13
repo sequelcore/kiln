@@ -1,6 +1,7 @@
 # 00 - Rust Module Optimization
 
-Status: Active Rust optimization boundary
+Status: Guardrail
+Execution: Guardrail - no implementation is admitted until an approved module slice or ADR supplies parity and benchmark gates.
 Created: 2026-05-17
 
 This track owns staged Rust, WASM, and sidecar optimization for Kiln modules.

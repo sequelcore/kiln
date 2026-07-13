@@ -1,6 +1,7 @@
 # 01 - Native Operator Surface
 
 Status: Active native operator surface benchmark-validation track
+Execution: Queued - Slice 3 workload fixture governance is bounded and ready after higher-priority release work.
 Started: 2026-05-15
 
 This track owns the native operator surface. It continues from the completed
@@ -115,7 +116,7 @@ or attach work starts.
 
 ### Slice 3 - Workload Fixture Governance
 
-Status: next.
+Status: Queued after the public-release queue; bounded and ready for explicit reprioritization.
 
 Deliver:
 

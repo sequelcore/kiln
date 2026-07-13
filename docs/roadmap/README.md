@@ -1,234 +1,137 @@
 # Roadmap
 
-This directory contains active and deferred implementation tracks only.
-Completed programs are promoted into stable architecture, guide, or changelog
-documentation instead of being archived here.
+This directory contains unfinished implementation tracks and explicit decision
+boundaries. Stable behavior belongs in `docs/architecture/` and operator guides;
+completed delivery evidence belongs in `docs/changelog.md` or a release record.
 
-## How To Read This Roadmap
+## Operating Model
 
-- Active roadmap files describe scoped work that is still in progress.
-- Deferred items wait for a clear product or architecture trigger.
-- Completed implementation history belongs in `docs/changelog.md`.
-- Durable behavior belongs in canonical architecture and guide docs.
-- The status matrix below is the current progress index. Update it whenever a
-  roadmap slice starts, closes, defers, or changes owner.
+Roadmap numbers are stable track identifiers, not execution priority. Do not
+rename files when priorities change. The execution queue below is the canonical
+answer to "what should be worked on next?"
+
+Every track has one execution state:
+
+| State | Meaning |
+| --- | --- |
+| Ready | A bounded next item is admitted and can start without a missing dependency. |
+| Queued | The item is sequenced, but higher-priority work should close first. |
+| Research | Evidence or contract design is required before implementation admission. |
+| Blocked | A named dependency, approval, or promotion gate prevents progress. |
+| Deferred | The track is intentionally inactive until its documented trigger occurs. |
+| Guardrail | The document defines an admission boundary; it is not implementation work by itself. |
+
+Slice numbers are local to their track. A completed higher-numbered slice does
+not make an unstarted lower-numbered slice implicitly complete, and an
+unstarted slice is not automatically admitted merely because it appears next
+in a file.
+
+## Execution Queue
+
+The queue is ordered by product risk, dependency value, and bounded delivery
+cost. Only the first `Ready` item is the default next task. Starting another
+item requires an explicit priority decision recorded here.
+
+| Order | Track | State | Bounded work item | Admission reason |
+| --- | --- | --- | --- | --- |
+| 1 | [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Ready | Render the existing shared skill catalog diagnostics in GUI and TUI Setup, including origin, projection, admission state, and omission reason. | Release-facing truth is incomplete, while the shared contract already owns the semantics. This is render-only, testable, and independent of the TypeScript/Bun migration. |
+| 2 | [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Queued | Add the contract-backed composer context-usage indicator. | It is a public-release blocker, but it crosses Gateway, runtime, GUI, and E2E boundaries and should not be mixed into the smaller skill-diagnostics slice. |
+| 3 | [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Research | Define and verify cross-surface event-presentation density, then complete final live release validation. | The GUI symptom is known, but CLI/TUI parity rules require evidence before shared projection changes. |
+| 4 | [01 - Native Operator Surface](./01-native-operator-surface.md) | Queued | Slice 3: workload fixture governance. | The slice is bounded to Gateway contracts and tests, but it is not a public-release truth blocker. |
+| 5 | [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Research | Complete Slice 0 vocabulary/boundary evidence, then approve the smallest tool or managed-agent exposure slice needed to unblock Roadmap 04. | Cross-harness authority work is strategically important but broader and riskier than the release queue. |
+| 6 | [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Resume Slice 3 telemetry, replay, and non-inferiority work. | Roadmap 06 must first define and verify the required cross-harness Kiln tool and agent exposure. |
+| 7 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract before automatic operations or value promotion. | Inventory and repair evidence exist, but policy ownership and promotion evidence remain open. |
+
+The TypeScript 7 migration is not an executable Kiln roadmap item while the
+required Bun alias fix is unpublished. Its external dependency and follow-up
+belong in the Sequel infrastructure debt register, not in this queue.
+
+## Track Status
+
+| Track | State | Current position | Next admissible action or trigger |
+| --- | --- | --- | --- |
+| [00 - Rust Module Optimization](./00-rust-module-optimization.md) | Guardrail | Rust/WASM/sidecar ownership and promotion gates are defined; no production module is admitted. | Start only from an approved module slice or ADR with parity and benchmark evidence. |
+| [01 - Native Operator Surface](./01-native-operator-surface.md) | Queued | Slices 1 and 2 are complete. Slice 3 is specified and bounded. | Start Slice 3 after the public-release queue or an explicit reprioritization. |
+| [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Ready | Provider/model eligibility and several GUI foundations are complete. Skill diagnostics, authoritative context usage, event-density parity, and final live validation remain. | Render shared skill diagnostics in GUI/TUI as the current atomic task. |
+| [03 - Federated Harness Configuration Plane](./03-federated-harness-configuration-plane.md) | Deferred | No implementation is admitted. | Reopen only when capability matrices and projection benchmarks support thin or dynamic adapters. |
+| [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Slices 0-2 are complete. Slice 3 implementation is paused; Slices 4-12 are not admitted. | Resume only after Roadmap 06 supplies the named cross-harness dependency and the Slice 3 verification plan is re-approved. |
+| [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Inventory and local repair started; automatic admission, evaluation, and operations are not admitted. | Define the shared evidence/admission contract. GUI/TUI rendering of existing diagnostics remains owned by Roadmap 02. |
+| [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Research | Slice 1 is complete. Slice 0 and Slices 1A-9 remain unstarted or planned. | Complete boundary/vocabulary evidence and approve one bounded dependency-unlock slice; do not start the whole program at once. |
 
 ## Roadmap File Standard
 
-Every numbered roadmap file uses this professional shape unless a deeper
-architecture program needs additional sections:
+Every numbered roadmap file must use this shape:
 
 1. File name: `NN-kebab-case-title.md`.
 2. H1: `# NN - Title`.
-3. Metadata block: `Status:` plus `Started:` or `Created:` when known.
-4. Required sections: `Objective`, `Goals`, `Scope`, `Non-Goals`, `Research
-   Basis` when evidence exists or is required, `Delivery Slices` or equivalent
-   implementation slices, `Promotion Gates`, `Verification`, and `Completion
-   Criteria`.
-5. Sequel standards must be explicit when a roadmap could invite shortcuts:
-   no dead code, no legacy hacks, no duplicate owners, no prompt-only fixes, no
-   untested completion claims, and no unsupported compatibility shims.
+3. Metadata: `Status`, `Execution`, and `Created` or `Started` when known.
+4. Required sections: `Objective`, `Goals`, `Scope`, `Non-Goals`, delivery
+   slices, promotion gates, verification, and completion criteria. Add a
+   research basis when evidence is required.
+5. Every active track names one next admissible action or states the exact
+   blocker or trigger.
+6. Sequel standards remain explicit: no dead code, no legacy hacks, no
+   duplicate owners, no prompt-only fixes, no unsupported compatibility shims,
+   and no untested completion claims.
 
-## Roadmap Status Matrix
+When a slice starts, closes, blocks, or changes dependency, update both its
+track and this index in the same change. Do not keep a second active plan that
+duplicates this queue.
 
-| File | Status | Current Progress | Next Action |
-| --- | --- | --- | --- |
-| [00-rust-module-optimization.md](./00-rust-module-optimization.md) | Active boundary | Rust/WASM/sidecar ownership boundaries are defined. No production Rust slice is admitted yet. | Start only from an approved module slice or ADR with parity and benchmark evidence. |
-| [01-native-operator-surface.md](./01-native-operator-surface.md) | Active benchmark-validation track | Slices 1 and 2 are complete. Slice 3, workload fixture governance, is next. | Implement Slice 3 before any live native or browser benchmark execution. |
-| [02-public-release-ui-debt.md](./02-public-release-ui-debt.md) | Active release debt | Release-blocking GUI debt remains open. Provider/model eligibility is now canonicalized; remaining items are narrowed to public-release UX truth, skill/plugin diagnostics, event density, context usage, and live validation. | Close fake or unavailable operator-facing states before public release. |
-| [03-federated-harness-configuration-plane.md](./03-federated-harness-configuration-plane.md) | Deferred research | Waiting for cross-harness capability matrices and projection benchmarks. | Reopen only when evidence supports thin or dynamic native adapters. |
-| [04-verified-efficiency-control-plane.md](./04-verified-efficiency-control-plane.md) | Active; Slices 0-2 complete; Slice 3 paused pending Roadmap 06 | Slices 0-2 have closure evidence. Slice 3 has the bounded progressive-loading implementation but is paused until Roadmap 06 verifies cross-harness Kiln tool and agent exposure; Slices 4-12 remain unstarted. | Complete the Roadmap 06 dependency before resuming Slice 3 telemetry, replay, and non-inferiority work. |
-| [05-skill-capability-plane.md](./05-skill-capability-plane.md) | Active research and configuration-hardening track | Initial personal skill audit confirmed backup coverage, installed selected high-leverage skills, repaired broken local skill resources, and now tracks a planned repo-instruction authoring skill for canonical project context. | Define the Kiln skill evidence contract before automatic admission, update, promotion behavior, or repo-instruction authoring automation. |
-| [06-cross-harness-kiln-control-plane.md](./06-cross-harness-kiln-control-plane.md) | Active research and architecture program; Slice 1 complete | Slice 1 closed on 2026-07-11 after three controlled focused Core repetitions, controlled and normal Core suites, and all required root gates passed. Slice 1A remains out of scope. | Start only an approved Slice 1A or later bounded roadmap slice. |
+## Admission Rules
+
+- Scout code and canonical architecture before admitting implementation.
+- Keep one bounded concern per task; do not combine adjacent queue entries.
+- Prefer shared contracts over GUI-, TUI-, CLI-, provider-, or harness-local
+  policy.
+- Record dependencies as `Blocked`; do not leave them hidden inside prose.
+- Record evidence-only work as `Research`; do not imply production admission.
+- Promote stable behavior into architecture or guides when it closes.
+- Remove completed roadmap tracks after their durable doctrine and useful
+  delivery evidence have been promoted.
+- Do not start live native benchmarks, native UI, dispatch, gateway attach,
+  Rust/WASM/sidecar modules, or automatic skill operations without their named
+  promotion gates.
 
 ## Canonical References
 
-Use these documents as the source of truth before starting roadmap work:
+- [Work Governance](../architecture/work-governance.md) for admission,
+  delegation, verification, and closeout.
+- [Engineering Standards](../architecture/engineering-standards.md) for Clean
+  Architecture, parity, native boundaries, and verification.
+- [Operator Surfaces](../architecture/operator-surfaces.md) and
+  [Execution Surfaces](../architecture/execution-surfaces.md) for surface
+  ownership.
+- [Provider Model Discovery](../architecture/provider-model-discovery.md) for
+  route eligibility and stale discovery evidence.
+- [Harness Integration Capabilities](../architecture/harness-integration-capabilities.md)
+  and [Config Projection](../architecture/config-projection.md) for native
+  projection and setup health.
+- [Managed Agents](../architecture/managed-agents.md),
+  [Work Governance](../architecture/work-governance.md), and
+  [Context Resource Plane](../architecture/context-resource-plane.md) for
+  invocation authority, evidence, replay, and resources.
+- [Native Operator Surface](../architecture/native-operator-surface.md) and
+  [Benchmark Validation](../architecture/benchmark-validation.md) for native
+  benchmark promotion gates.
+- [Changelog](../changelog.md) for completed public delivery history.
 
-- `docs/architecture/work-governance.md` for work admission, delegation,
-  verification, and evidence closeout.
-- `docs/architecture/engineering-standards.md` for Clean Architecture,
-  cross-surface parity, native acceleration boundaries, and verification rules.
-- `docs/architecture/operator-surfaces.md` for GUI, TUI, CLI, native, IDE,
-  desktop, and remote operator surfaces.
-- `docs/architecture/execution-surfaces.md` for Kiln Operator Workspace, Kiln
-  Gateway runtime, and contract-first surface convergence.
-- `docs/architecture/provider-model-discovery.md` for provider/model
-  discovery, stale startup projections, cache behavior, and fail-closed
-  execution admission.
-- `docs/architecture/harness-integration-capabilities.md` and
-  `docs/architecture/config-projection.md` for harness capabilities, install
-  health, native projection, and governed config mutation.
-- `docs/architecture/managed-agents.md` and
-  `docs/architecture/context-resource-plane.md` for managed invocation,
-  resource reads, replay evidence, and model-facing resources.
-- `docs/architecture/native-operator-surface.md` for native operator surface
-  projection boundaries and promotion gates.
-- `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md` for
-  browser/computer use, controlled web research, tool execution, and operator
-  evidence.
-- `docs/architecture/memory.md` and `docs/guides/memory.md` for governed
-  memory, lifecycle policy, recall, and memory resources.
+## Deferred Backlog
 
-## Active Roadmaps
+These ideas are not admitted roadmap work:
 
-0. [Rust Module Optimization](./00-rust-module-optimization.md)
-   Active on 2026-05-17. Scope is the Rust optimization boundary:
-   Bun/TypeScript owns control-plane semantics while Rust/WASM/sidecars enter
-   as measured module hot paths or native helpers behind TypeScript-owned ports
-   that consume shared contracts.
-
-1. [Native Operator Surface](./01-native-operator-surface.md)
-   Active on 2026-05-15. Scope is the native operator surface benchmark path:
-   contract-only runner admission, orchestration planning, workload
-   governance, and approval evidence before live browser or native benchmark
-   execution.
-
-2. [Public Release UI Debt](./02-public-release-ui-debt.md)
-   Active on 2026-06-28. Scope is release-blocking GUI debt discovered during
-   live validation, starting with the composer context usage indicator. The
-   provider-model eligibility plane is complete and canonicalized; this
-   roadmap now owns only the remaining public-release UX truth, skill/plugin
-   diagnostics, event-density, context-usage, and final live-validation debt.
-   The GUI must not publish with a fake context percentage or an unavailable
-   state presented as authoritative.
-
-4. [Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md)
-   Active long-term architecture program opened on 2026-06-30. Slice 1 closed
-   on 2026-07-01 in commit `f1f4baef`; the former research-turn budgeting
-   roadmap is merged here as the first measured workload. Slice 0
-   benchmark-integrity prerequisites closed on 2026-07-02. The authorized
-   post-repair pilot completed without meeting the quality gate; shared
-   tool-read accuracy and input-token pressure are the next Slice 0 work
-   before Slice 2.
-   Scope is the
-   provider-neutral control loop that maximizes verified engineering value per
-   token, dollar, second, and agent turn through attributable measurement,
-   bounded efficiency actuators, and evidence-gated policy promotion.
-
-5. [Skill Capability Plane](./05-skill-capability-plane.md)
-   Active on 2026-07-03. Scope is the governed skill capability plane:
-   installed-skill inventory, local repair, cross-harness visibility, evidence
-   contracts, value evaluation, and curated operations. Skills must reduce
-   token pressure and cloned-repository dependence; they must not become a new
-   always-loaded template pile. A planned repo-instruction authoring skill will
-   help improve canonical `.kiln/project-context.md` so Kiln can project better
-   repo `AGENTS.md` and `CLAUDE.md` shims without manual shim edits.
-
-6. [Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md)
-   Active on 2026-07-04. Scope is the cross-harness control plane: using Kiln
-   tools, agents, direct providers, native harness adapters, setup diagnostics,
-   route authority, cost evidence, instruction-profile provenance,
-   cancellation, result handoff, and replay from Codex, Claude Code, OpenCode,
-   Kiln GUI, Kiln TUI, and Kiln CLI without shell workaround routing tables.
-
-## Deferred Roadmaps
-
-- [Federated Harness Configuration Plane](./03-federated-harness-configuration-plane.md).
-  Deferred until cross-harness capability matrices and projection benchmarks
-  can justify replacing selected full projections with thin or dynamic native
-  adapters without weakening standalone operation or governance.
-- OS-pack packaging for web extraction and browser helpers.
-  Deferred until controlled web primitives need platform-specific helper
-  binaries or dependencies.
-- Binary and PDF source artifacts for controlled web research.
-  Deferred until research workflows need reliable PDF text extraction, OCR, or
-  binary artifact handling.
-- Native web research contract.
-  Deferred until comparative research across papers, provider documentation,
-  community practice, and cloned harness repositories justifies a first-class
-  source-ranking, citation, extraction-evidence, recency, and budget contract
-  over the existing controlled web primitives.
-- Session evidence hardening.
-  Deferred until provider/model/reasoning/authority provenance gaps appear in
-  live surface traces or release validation, at which point the work should add
-  inspectable session evidence instead of relying on transcript prose.
-- Learning-based governance and routing.
-  Deferred until there are enough real workflow traces, eval data, and stable
-  runtime policies to justify machine-learned routing or governance advice.
-- Full external benchmark expansion.
-  Deferred until a stable product surface can support public benchmark claims
-  without benchmark-only prompt paths, tool schemas, or authority shortcuts.
-- Capability exposure research.
-  Research how mature agent harnesses expose internal capabilities across
-  operator commands, model-callable tools, resources, approvals, artifacts, and
-  replay evidence. Include papers, web research, cloned harnesses, and community
-  practice before deciding whether every durable agent-facing Kiln capability
-  must provide a governed tool contract in addition to CLI and resource
-  surfaces.
-- Cross-domain task taxonomy.
-  `clear-writing` is available as a governed built-in skill, but automatic
-  admission should wait for a task taxonomy that can represent writing,
-  editing, communication, education, support, and document workflows without
-  overloading engineering task classes such as `research` or
-  `mechanical-edit`. Research basis:
-  `docs/research/20-cross-domain-task-taxonomy.md`.
-
-## Completed Areas
-
-Stable doctrine for completed work lives in architecture and guide docs, not in
-roadmap files. Current completed areas include:
-
-- Harness installation health, provider/model readiness, local readiness
-  probes, and read-only doctor evidence.
-- GUI parity and operator surface foundations.
-- TUI and GUI gateway-backed operation.
-- Managed agent invocation, background and parallel lifecycle, route-source
-  provenance, parent-turn lineage, timeout diagnostics, and remote harness
-  route constraints.
-- Cross-harness read-only managed invocation adapters with shared native versus
-  adapter support status, fail-closed external caller admission, and no native
-  projection of unsupported provider/model strings.
-- Work governance, plan mode, goal execution, and evidence-gated closeout.
-- Config projection, native harness projection, and governed config mutation.
-- Agent context, instruction profiles, skills, and repo shims.
-- Memory Lattice, memory lifecycle policy, and context resource projection.
-- Provider credential pooling and provider/model discovery.
-- Provider-model eligibility plane: raw catalog evidence preservation, runtime
-  adapter normalization, canonical interactive and managed-agent eligibility,
-  Gateway projection, and GUI/TUI/CLI render-only operator selection.
-- Native harness route integrity: canonical default projection for supported
-  native harnesses, managed-field ownership for native `model`, credential-safe
-  route evidence, ambient fallback mismatch classification, and cross-surface
-  config/status diagnostics.
-- Operator-surface startup discovery staging and stale provider diagnostics.
-- Controlled web research, browser/computer use, and tool execution.
-- Native developer tool runtimes for repo search, globbing, JSON querying, and
-  governed memory search.
-- Multimodal artifact transport and capability-aware route admission.
-- Agent QA showcase recorder.
-- External benchmark validation platform.
-- CLI answer/json output contracts for exact-format evals and benchmark
-  harnesses.
-- CLI package test harness stability: deterministic single-worker Vitest
-  execution, verbose workspace-filter diagnostics, bounded test/hook/teardown
-  stalls, and hermetic default package verification.
-- Native operator surface foundation and embedded browser operator capability.
-- Native operator surface projection foundation with defer/no-promotion status.
-- Execution surfaces convergence: shared Operator Workspace home projection,
-  gateway target switcher, target-aware resource inspector, SDK/CLI resource
-  reads, and cross-surface documentation closeout.
-- Session feedback pipeline: local redacted feedback bundles, safe runtime
-  evidence selection, contract-backed surface previews, explicit issue-provider
-  approval, governed repair work-item materialization, and local draft
-  pull-request metadata gates.
-- Trusted execution integrity: provider-neutral permission evidence,
-  operator-local trusted execution profiles, canonical/native/session/effective
-  policy separation, Codex/Claude Code/OpenCode semantic capability evidence,
-  read-only doctor/status projection, shared CLI/GUI/TUI/Gateway surfaces, and
-  managed-agent requested/projected/observed authority checks.
-
-## Execution Priority
-
-1. Keep active roadmap work limited to the explicit scope in its roadmap file.
-2. Promote stable results into architecture or guide docs when a track closes.
-3. Delete completed roadmap files after doctrine is absorbed.
-4. Do not create near-duplicate roadmap files for one concern.
-5. Do not add background or parallel child execution paths outside
-   `docs/architecture/managed-agents.md` and core/runtime managed invocation
-   contracts.
-6. Do not start live native benchmark execution, native operator UI, dispatch
-   paths, or gateway attach loops without an approved native-surface roadmap
-   slice or ADR.
-7. Do not start Rust/WASM/sidecar modules without an approved Rust optimization
-   roadmap slice or ADR and the Rust module promotion gates in `00`.
+- OS-pack packaging for web extraction or browser helpers, until controlled web
+  primitives require platform-specific binaries.
+- Binary/PDF extraction, OCR, and a native web-research contract, until real
+  workflows justify their evidence and citation contracts.
+- Session-evidence hardening, until live traces expose a concrete provenance
+  gap.
+- Learning-based governance and routing, until enough stable workflow traces
+  and eval data exist.
+- Full external benchmark expansion, until the product surface can support
+  public claims without benchmark-only paths.
+- Capability-exposure research, until a bounded product decision requires a
+  unified tool/resource/approval contract.
+- Automatic cross-domain task taxonomy admission, until the research in
+  [Cross-Domain Task Taxonomy](../research/20-cross-domain-task-taxonomy.md) is
+  promoted into a provider-neutral contract.

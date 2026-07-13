@@ -2,6 +2,7 @@
 
 Status: Active architecture program; Slice 0, Slice 1, and Slice 2 complete;
 Slice 3 paused pending Roadmap 06 cross-harness control-plane work.
+Execution: Blocked - Roadmap 06 must define and verify the required cross-harness Kiln tool and agent exposure.
 
 Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
 (`feat(runtime): record lifecycle attribution ledger`). Slice 0 live baseline

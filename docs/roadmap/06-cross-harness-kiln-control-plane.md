@@ -1,6 +1,7 @@
 # 06 - Cross-Harness Kiln Control Plane
 
 Status: Active research and architecture program.
+Execution: Research - complete boundary/vocabulary evidence and approve one bounded dependency-unlock slice.
 Created: 2026-07-04.
 
 ## Objective
@@ -277,6 +278,9 @@ Closure evidence:
   without changing production behavior, assertions, truncation limits, or
   timeouts. The Codex OAuth timing tests remained green and no product defect
   was found.
+- Live migration of an operator's real home-directory instruction files remains
+  unauthorized and unverified. Isolated-home lifecycle evidence proves the
+  ownership contract; it does not authorize mutation of live operator files.
 
 ### Slice 1A - Built-In Instruction Profile Catalog
 

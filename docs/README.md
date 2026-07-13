@@ -29,7 +29,7 @@
   Versioned Kiln project files, ignored operator state, and gitignore guidance.
 
 - [Roadmap](roadmap/README.md)
-  Active, deferred, and completed implementation tracks.
+  Canonical execution queue, track states, dependencies, and admission boundaries.
 
 - [Changelog](changelog.md)
   Supported public change log beginning with the 2.0 baseline.
