@@ -436,6 +436,27 @@ bounded live acceptance only: restart Codex App and perform one managed-agent
 invocation through the new MCP surface. No result, cancellation, listing,
 configuration mutation, or provider/model selection is admitted by this slice.
 
+Managed-agent admission profiles are operator-configured route policy, not
+packaged built-ins. Codex App refreshes provider-model eligibility through the
+canonical staged route catalog synchronously during MCP startup before composing
+the managed-job application; this is provider metadata/eligibility discovery,
+not managed inference or job execution. The MCP adapter only projects that
+result and never selects a route itself. One pre-fix focused test accidentally
+used this default discovery before it was replaced with an injected local
+catalog; it may have performed metadata/eligibility discovery, but it could not
+have created a managed job or consumed billable inference.
+Capability inspection exposes a redacted profile summary with identity,
+admission state, direct-provider family, and stable diagnostic/action. It never
+exposes models, paths, credentials, permissions, configuration, or provider
+payloads. Zero eligible routes reports `profile_unavailable`, exactly one
+eligible OpenCode Go route reports admitted, and multiple eligible routes
+reports `route_unavailable` because profile-only invocation would be ambiguous.
+Provider-route availability alone is therefore not evidence that a profile is
+admitted. The current live blocker is two eligible OpenCode Go routes for the
+same read-only profile; the operator must make the canonical route policy
+unambiguous before the one remaining live acceptance can run. Slice 3 remains
+awaiting that acceptance.
+
 ### Slice 4 - Quota And Subscription-Aware Routing
 
 Status: Planned.

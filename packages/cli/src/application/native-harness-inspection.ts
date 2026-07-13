@@ -26,6 +26,15 @@ export interface NativeHarnessInspectionPort {
   readBridgeProjection?: (projectRoot: string) => Promise<BridgeProjectionState>;
   readProjectRoot?: () => Promise<NativeHarnessProjectRootResolution>;
   now?: () => Date;
+  managedProfiles?: readonly NativeHarnessManagedProfileSummary[];
+}
+
+export interface NativeHarnessManagedProfileSummary {
+  readonly id: string;
+  readonly availability: "admitted" | "unavailable" | "unresolved";
+  readonly providerId?: "opencode-go";
+  readonly diagnostic?: "profile_unavailable" | "route_unavailable" | "eligibility_unresolved";
+  readonly operatorAction?: string;
 }
 
 export interface NativeHarnessDiagnostic {
@@ -100,6 +109,7 @@ export interface NativeHarnessCapabilityResult {
       readonly supportedProviderIds: readonly string[];
     };
     readonly bridgeProjection: BridgeProjectionState | "unresolved";
+    readonly managedProfiles: readonly NativeHarnessManagedProfileSummary[];
   };
   readonly diagnostics: readonly NativeHarnessDiagnostic[];
 }
@@ -237,11 +247,26 @@ export function createNativeHarnessInspectionService(
           hooks: capability?.hooks ?? "unresolved",
           crossHarnessManagedInvocation: capability?.crossHarnessManagedInvocation ?? { adapterId: "unresolved", supportedProviderIds: [] },
           bridgeProjection,
+          managedProfiles: projectManagedProfiles(port.managedProfiles ?? []),
         },
         diagnostics: [...diagnostics, ...capabilityDiagnostics],
       };
     },
   };
+}
+
+function projectManagedProfiles(profiles: readonly NativeHarnessManagedProfileSummary[]): readonly NativeHarnessManagedProfileSummary[] {
+  return profiles.filter((profile) => profile.id === "foundation-readonly-plan"
+    && profile.providerId === "opencode-go"
+    && (profile.availability === "admitted" || profile.availability === "unavailable" || profile.availability === "unresolved")
+    && (profile.diagnostic === undefined || profile.diagnostic === "profile_unavailable" || profile.diagnostic === "route_unavailable" || profile.diagnostic === "eligibility_unresolved"))
+    .map((profile) => ({
+      id: profile.id,
+      availability: profile.availability,
+      providerId: profile.providerId,
+      ...(profile.diagnostic ? { diagnostic: profile.diagnostic } : {}),
+      ...(profile.operatorAction ? { operatorAction: profile.operatorAction } : {}),
+    }));
 }
 
 function unresolvedStatus(diagnostic: NativeHarnessDiagnostic, now: Date): NativeHarnessStatusResult {
@@ -292,6 +317,7 @@ function unresolvedCapability(diagnostic: NativeHarnessDiagnostic, now: Date): N
       hooks: "unresolved",
       crossHarnessManagedInvocation: { adapterId: "unresolved", supportedProviderIds: [] },
       bridgeProjection: "unresolved",
+      managedProfiles: [],
     },
     diagnostics: [diagnostic],
   };

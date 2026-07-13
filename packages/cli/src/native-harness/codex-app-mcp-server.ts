@@ -4,7 +4,7 @@ import {
   type NativeHarnessInspectionService,
 } from "../application/native-harness-inspection.js";
 import type { ManagedJobRecord } from "@kilnai/runtime";
-import { createCodexAppManagedJobApplicationService } from "../application/codex-app-managed-jobs.js";
+import { createCodexAppManagedJobApplicationComposition } from "../application/codex-app-managed-jobs.js";
 
 const INSPECTION_TOOL_NAMES = [
   "kiln_status_inspect",
@@ -214,7 +214,11 @@ export class CodexAppMcpServer {
 }
 
 export async function startCodexAppMcpServer(): Promise<void> {
-  const server = new CodexAppMcpServer({ managedJobs: await createCodexAppManagedJobApplicationService() });
+  const composition = await createCodexAppManagedJobApplicationComposition();
+  const server = new CodexAppMcpServer({
+    managedJobs: composition.service,
+    inspection: createNativeHarnessInspectionService({ managedProfiles: composition.profiles }),
+  });
   let closing = false;
   const close = async (): Promise<void> => {
     if (closing) return;

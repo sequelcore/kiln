@@ -181,6 +181,49 @@ describe("CodexAppMcpServer", () => {
     });
   });
 
+  it("projects only safe managed-profile admission summaries through capability inspection", async () => {
+    const result = await createServer(snapshot(), {
+      managedProfiles: [{
+        id: "foundation-readonly-plan",
+        availability: "unavailable",
+        providerId: "opencode-go",
+        diagnostic: "route_unavailable",
+        operatorAction: "Configure exactly one admitted managed-agent route for this profile.",
+      }],
+    }).callTool("kiln_capability_inspect", {});
+
+    expect(result.structuredContent).toMatchObject({
+      capability: {
+        managedProfiles: [{
+          id: "foundation-readonly-plan",
+          availability: "unavailable",
+          providerId: "opencode-go",
+          diagnostic: "route_unavailable",
+        }],
+      },
+    });
+    expect(JSON.stringify(result.structuredContent)).not.toContain("model");
+  });
+
+  it("fails closed when a managed-profile summary contains noncanonical metadata", async () => {
+    const result = await createServer(snapshot(), {
+      managedProfiles: [{
+        id: "foundation-readonly-plan",
+        availability: "unresolved",
+        providerId: "opencode-go",
+        diagnostic: "eligibility_unresolved",
+      }, {
+        id: "poisoned-profile",
+        availability: "admitted",
+        providerId: "opencode-go",
+      } as never],
+    }).callTool("kiln_capability_inspect", {});
+    expect(result.structuredContent).toMatchObject({
+      capability: { managedProfiles: [{ id: "foundation-readonly-plan", availability: "unresolved" }] },
+    });
+    expect(JSON.stringify(result.structuredContent)).not.toContain("poisoned-profile");
+  });
+
   it("fails closed for malformed input, unsupported operations, and mutation attempts", async () => {
     await expect(createServer().callTool("kiln_status_inspect", { extra: true })).resolves.toMatchObject({
       isError: true,

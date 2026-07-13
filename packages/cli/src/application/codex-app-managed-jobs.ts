@@ -11,7 +11,9 @@ import {
   type ManagedJobRuntimeInvocationResolver,
 } from "@kilnai/runtime";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
-import { resolveManagedInvocationToolOptions, type ManagedInvocationRouteResolution } from "../config/managed-agent-routes.js";
+import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
+import type { ManagedInvocationRouteResolution } from "../config/managed-agent-routes.js";
+import type { ManagedAgentProviderModelCatalogDiagnostics } from "../config/managed-agent-provider-models.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 import { discoverNativeHarnessProjectRoot } from "./native-harness-project-root.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
@@ -27,7 +29,32 @@ const ADMITTED_PROFILE_ID = "foundation-readonly-plan";
  * and Runtime retain route and provider authority; this adapter only connects
  * their already-admitted values to the persistent application owner.
  */
-export async function createCodexAppManagedJobApplicationService(): Promise<ManagedJobApplicationService> {
+export interface CreateCodexAppManagedJobApplicationCompositionOptions {
+  readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
+}
+
+export async function createCodexAppManagedJobApplicationService(
+  options?: CreateCodexAppManagedJobApplicationCompositionOptions,
+): Promise<ManagedJobApplicationService> {
+  return (await createCodexAppManagedJobApplicationComposition(options)).service;
+}
+
+export interface CodexAppManagedProfileSummary {
+  readonly id: string;
+  readonly availability: "admitted" | "unavailable" | "unresolved";
+  readonly providerId: "opencode-go";
+  readonly diagnostic?: "profile_unavailable" | "route_unavailable" | "eligibility_unresolved";
+  readonly operatorAction?: string;
+}
+
+export interface CodexAppManagedJobApplicationComposition {
+  readonly service: ManagedJobApplicationService;
+  readonly profiles: readonly CodexAppManagedProfileSummary[];
+}
+
+export async function createCodexAppManagedJobApplicationComposition(
+  options: CreateCodexAppManagedJobApplicationCompositionOptions = {},
+): Promise<CodexAppManagedJobApplicationComposition> {
   const root = discoverNativeHarnessProjectRoot();
   if (root.status !== "resolved") {
     throw new ManagedJobApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
@@ -35,8 +62,8 @@ export async function createCodexAppManagedJobApplicationService(): Promise<Mana
   const snapshot = await readConfigStatusSnapshot({ projectPath: root.rootPath });
   const config = snapshot.effectiveConfig as KilnYaml | undefined;
   const { registry } = createDefaultRegistry();
-  const resolution = config
-    ? await resolveManagedInvocationToolOptions(config, {
+  const catalog = config
+    ? await createStagedManagedInvocationRouteCatalog(config, {
       cwd: root.rootPath,
       registry,
       surface: "operator",
@@ -44,11 +71,12 @@ export async function createCodexAppManagedJobApplicationService(): Promise<Mana
         builtinToolOptions: createSessionBuiltinToolOptions(),
       }),
       builtinToolOptions: createSessionBuiltinToolOptions(),
-    })
-    : { routeHealth: [] } as ManagedInvocationRouteResolution;
-  const managedInvocation = resolution.managedInvocation;
+    }, options)
+    : undefined;
+  await catalog?.refreshNow();
+  const managedInvocation = catalog?.managedInvocation;
 
-  return new ManagedJobApplicationService({
+  const service = new ManagedJobApplicationService({
     project: { resolve: async () => ({ id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` }) },
     governance: {
       resolve: async () => {
@@ -89,6 +117,7 @@ export async function createCodexAppManagedJobApplicationService(): Promise<Mana
       : { invoke: async () => { throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route."); } },
     store: new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs")),
   });
+  return { service, profiles: summarizeCodexAppManagedProfiles(managedInvocation) };
 }
 
 function isConfiguredProfile(resolution: ManagedInvocationRouteResolution["managedInvocation"], id: string): boolean {
@@ -161,4 +190,24 @@ function runtimeResolver(resolution: NonNullable<ManagedInvocationRouteResolutio
       };
     },
   };
+}
+
+export function summarizeCodexAppManagedProfiles(resolution: ManagedInvocationRouteResolution["managedInvocation"]): readonly CodexAppManagedProfileSummary[] {
+  const routes = resolution?.routes.filter((route) => route.providerId === ADMITTED_PROVIDER_ID && route.profiles[ADMITTED_PROFILE_ID] !== undefined) ?? [];
+  if (routes.length === 1) return [{ id: ADMITTED_PROFILE_ID, availability: "admitted", providerId: ADMITTED_PROVIDER_ID }];
+  const unresolved = resolution?.unavailableRoutes?.some((route) => route.providerId === ADMITTED_PROVIDER_ID && route.profiles.includes(ADMITTED_PROFILE_ID)) ?? false;
+  if (unresolved) return [{
+    id: ADMITTED_PROFILE_ID,
+    availability: "unresolved",
+    providerId: ADMITTED_PROVIDER_ID,
+    diagnostic: "eligibility_unresolved",
+    operatorAction: "Refresh canonical managed-route eligibility evidence before invoking this profile.",
+  }];
+  return [{
+    id: ADMITTED_PROFILE_ID,
+    availability: "unavailable",
+    providerId: ADMITTED_PROVIDER_ID,
+    diagnostic: routes.length === 0 ? "profile_unavailable" : "route_unavailable",
+    operatorAction: routes.length === 0 ? "Configure an admitted managed-agent profile." : "Configure exactly one admitted managed-agent route for this profile.",
+  }];
 }
