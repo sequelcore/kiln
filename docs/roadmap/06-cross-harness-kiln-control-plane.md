@@ -382,8 +382,8 @@ and invoked without `KILN_STATUS_EVIDENCE_INCOMPLETE`. The observed harness was
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 
-Status: Slice 3A is complete: the canonical persistent managed-job application
-boundary is proven. Slice 3B is the only admitted next task.
+Status: Slice 3A and Slice 3B are implemented. Slice 3B awaits one bounded
+real Codex App/OpenCode Go acceptance; full Slice 3 remains incomplete.
 
 Goal: allow admitted harness surfaces to invoke Kiln-managed agents through
 canonical routes without giving a harness ownership of managed-job state.
@@ -420,6 +420,21 @@ or provider adapter.
 The only admitted successor is Slice 3B: a thin Codex App MCP adapter that
 projects submit/status through this owner. It must not duplicate admission,
 routing, persistence, lifecycle, or provider execution.
+
+#### Slice 3B Closeout
+
+The project-local Codex App adapter now projects exactly two managed-job
+operations: `kiln_managed_agent_invoke` and `kiln_managed_agent_status`.
+Production composition keeps the application owner, persistent store,
+governance, configured profile/route resolution, Runtime invocation bridge,
+and direct-provider adapter outside the MCP presentation layer. The admitted
+configuration boundary restricts this vertical slice to `opencode-go`.
+
+The implementation has deterministic adapter/application coverage and isolated
+stdio proofs from repository and unrelated working directories. It awaits one
+bounded live acceptance only: restart Codex App and perform one managed-agent
+invocation through the new MCP surface. No result, cancellation, listing,
+configuration mutation, or provider/model selection is admitted by this slice.
 
 ### Slice 4 - Quota And Subscription-Aware Routing
 

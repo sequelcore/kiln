@@ -199,8 +199,9 @@ export class ManagedJobApplicationService {
     try {
       const result = await this.options.runtime.invoke({ jobId: running.id, project, objective: request.objective, profile, route, ...(request.parent ? { parent: request.parent } : {}) });
       return this.transition(running.id, result.state, result.state === "timed_out" ? "provider_timeout" : result.state === "failed" ? "provider_rejected" : undefined);
-    } catch {
-      return this.transition(running.id, "failed", "invocation_failed");
+    } catch (error) {
+      const diagnostic = error instanceof ManagedJobApplicationError ? error.code : "invocation_failed";
+      return this.transition(running.id, diagnostic === "provider_timeout" ? "timed_out" : "failed", diagnostic);
     }
   }
 

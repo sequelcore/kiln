@@ -131,6 +131,33 @@ This boundary exposes no MCP tool, cancellation, result retrieval, replay API,
 or new provider adapter. Slice 3B may only project submit/status through the
 existing Codex App MCP adapter.
 
+### Codex App MCP projection
+
+The project-local Codex App MCP adapter exposes exactly
+`kiln_managed_agent_invoke` and `kiln_managed_agent_status`, alongside its
+three inspection tools. Invoke accepts only `objective`, `agentProfileId`, and
+`idempotencyKey`; status accepts only `jobId`. The adapter derives the caller
+from trusted harness composition and the project from its source checkout. It
+does not accept parent lineage, route, provider, model, paths, authority,
+configuration, environment, credentials, or timeout inputs.
+
+Production composition creates the Runtime `ManagedJobApplicationService`,
+uses the persistent `.kiln/managed-jobs` owner, canonical governance status,
+configured route resolution, Runtime invocation service, and existing direct
+provider adapter. The application route boundary admits exactly one configured
+`opencode-go` route for `foundation-readonly-plan`; an additional matching route
+or any other profile fails closed. The MCP adapter never makes that decision. Responses
+project only opaque job/lifecycle, profile/route, governance/timeout source,
+timestamps, caller/request evidence, and stable diagnostics. They never
+return objectives, raw provider data, storage paths, configuration, secrets,
+exceptions, or stacks.
+
+Idempotency remains entirely in the persistent owner: the same trusted caller,
+key, and normalized request returns the original job, while a changed request
+returns the canonical conflict. There is no MCP retry cache. This surface does
+not expose result retrieval, cancellation, listing, configuration mutation,
+bulk invocation, native CLI execution, or provider/model selection.
+
 ## Lifecycle And Parallel Execution
 
 Managed invocations have a runtime-owned lifecycle. A parent may request a

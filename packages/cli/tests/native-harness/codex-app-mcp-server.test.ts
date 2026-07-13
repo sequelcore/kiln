@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
+import type { ManagedJobRecord } from "@kilnai/runtime";
 import { discoverNativeHarnessProjectRoot } from "../../src/application/native-harness-project-root.js";
 import {
   CodexAppMcpServer,
@@ -77,16 +78,70 @@ function createServer(
   });
 }
 
+function managedJob(overrides: Partial<ManagedJobRecord> = {}): ManagedJobRecord {
+  return {
+    version: 1,
+    id: "managed-job-0001",
+    state: "succeeded",
+    projectId: "trusted-project",
+    agentProfileId: "go-profile",
+    routeId: "route-go",
+    providerId: "opencode-go",
+    governanceSource: "kiln-governance",
+    admissionId: "admission-001",
+    timeoutSource: "default",
+    requestFingerprint: "a".repeat(64),
+    idempotencyKeyHash: "b".repeat(64),
+    createdAt: OBSERVED_AT,
+    updatedAt: OBSERVED_AT,
+    ...overrides,
+  };
+}
+
 describe("CodexAppMcpServer", () => {
   afterEach(() => {
     rmSync(TEMPORARY_CWD, { recursive: true, force: true });
   });
-  it("discovers only the three read-only inspection tools", () => {
+  it("discovers the three inspection tools and exactly two managed-job tools", () => {
     expect(createServer().listTools().map((tool) => tool.name)).toEqual([
       "kiln_status_inspect",
       "kiln_work_governance_inspect",
       "kiln_capability_inspect",
+      "kiln_managed_agent_invoke",
+      "kiln_managed_agent_status",
     ]);
+  });
+
+  it("projects only trusted request identity into the canonical managed-job submit", async () => {
+    const submitted: unknown[] = [];
+    const server = new CodexAppMcpServer({
+      inspection: createNativeHarnessInspectionService(),
+      managedJobs: {
+        submit: async (input) => { submitted.push(input); return managedJob(); },
+        status: async () => managedJob(),
+      },
+      requestIdentity: () => ({ callerId: "trusted-codex-user", requestId: "trusted-request" }),
+    });
+
+    const result = await server.callTool("kiln_managed_agent_invoke", { objective: "  inspect bounded work  ", agentProfileId: "go-profile", idempotencyKey: "retry-1" });
+    expect(submitted).toEqual([{ objective: "inspect bounded work", agentProfileId: "go-profile", idempotencyKey: "retry-1", callerId: "trusted-codex-user" }]);
+    expect(result.structuredContent).toMatchObject({ job: { id: "managed-job-0001", routeId: "route-go" }, evidence: { callerId: "trusted-codex-user", requestId: "trusted-request" } });
+    expect(JSON.stringify(result)).not.toContain("objective");
+  });
+
+  it("rejects unknown invoke fields and malformed status identifiers before the application owner", async () => {
+    let calls = 0;
+    const server = new CodexAppMcpServer({ managedJobs: { submit: async () => { calls++; return managedJob(); }, status: async () => { calls++; return managedJob(); } } });
+    await expect(server.callTool("kiln_managed_agent_invoke", { objective: "work", agentProfileId: "go-profile", idempotencyKey: "key", provider: "opencode-go" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
+    await expect(server.callTool("kiln_managed_agent_status", { jobId: "not valid" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
+    expect(calls).toBe(0);
+  });
+
+  it("maps application diagnostics without exposing internal error text", async () => {
+    const server = new CodexAppMcpServer({ managedJobs: { submit: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "provider_rejected" }); }, status: async () => managedJob() } });
+    const result = await server.callTool("kiln_managed_agent_invoke", { objective: "work", agentProfileId: "go-profile", idempotencyKey: "key" });
+    expect(result).toMatchObject({ isError: true, structuredContent: { error: { code: "provider_rejected" } } });
+    expect(JSON.stringify(result)).not.toContain("secrets");
   });
 
   it("returns curated canonical status with Codex App evidence and no config paths", async () => {

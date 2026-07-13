@@ -122,6 +122,8 @@ describe("ManagedJobApplicationService", () => {
     await expect(failed.submit(request)).resolves.toMatchObject({ state: "failed", diagnostic: "provider_rejected" });
     const timedOut = new ManagedJobApplicationService(createOptions({ runtime: { invoke: async () => ({ state: "timed_out" }) } }));
     await expect(timedOut.submit(request)).resolves.toMatchObject({ state: "timed_out", diagnostic: "provider_timeout" });
+    const rejected = new ManagedJobApplicationService(createOptions({ runtime: { invoke: async () => { throw new ManagedJobApplicationError("provider_rejected", "hidden provider payload"); } } }));
+    await expect(rejected.submit(request)).resolves.toMatchObject({ state: "failed", diagnostic: "provider_rejected" });
   });
 
   it("recovers persisted nonterminal work as interrupted and preserves parent-child separation", async () => {

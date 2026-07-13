@@ -34,7 +34,7 @@ item requires an explicit priority decision recorded here.
 
 | Order | Track | State | Bounded work item | Admission reason |
 | --- | --- | --- | --- | --- |
-| 1 | [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Ready | Slice 3B: expose the proven canonical managed-job boundary through the existing Codex App MCP adapter. | Slice 3A owns persistent admission, job identity, idempotency, status, and lifecycle; only adapter projection remains. |
+| 1 | [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Acceptance | Restart Codex App and perform one bounded OpenCode Go managed-agent invocation through the Slice 3B MCP surface. | Slice 3B is implemented; live Codex App/OpenCode Go acceptance remains the sole admitted action. |
 | 2 | [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Research | Define and verify cross-surface event-presentation density, then complete final live release validation. | Context usage is complete; CLI/TUI parity rules require evidence before shared event-density changes. |
 | 3 | [01 - Native Operator Surface](./01-native-operator-surface.md) | Queued | Slice 3: workload fixture governance. | The slice is bounded to Gateway contracts and tests, but it is not a public-release truth blocker. |
 | 4 | [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Resume Slice 3 telemetry, replay, and non-inferiority work. | Roadmap 06 must first define and verify the required cross-harness Kiln tool and agent exposure. |
@@ -54,7 +54,7 @@ belong in the Sequel infrastructure debt register, not in this queue.
 | [03 - Federated Harness Configuration Plane](./03-federated-harness-configuration-plane.md) | Deferred | No implementation is admitted. | Reopen only when capability matrices and projection benchmarks support thin or dynamic adapters. |
 | [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Slices 0-2 are complete. Slice 3 implementation is paused; Slices 4-12 are not admitted. | Resume only after Roadmap 06 supplies the named cross-harness dependency and the Slice 3 verification plan is re-approved. |
 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Inventory and local repair started; automatic admission, evaluation, and operations are not admitted. | Define the shared evidence/admission contract. GUI/TUI rendering of existing diagnostics remains owned by Roadmap 02. |
-| [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Ready | Slices 0-2 are complete, including the passed Codex App read-only bridge acceptance. | Start only the admitted Slice 3 Codex App → Kiln → OpenCode Go invocation that returns canonical job identifier and status evidence. |
+| [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Acceptance | Slices 0-2 and Slice 3B are implemented; full Slice 3 is not complete. | Restart Codex App and perform one bounded OpenCode Go managed-agent invocation through the new MCP surface. |
 
 ## Roadmap File Standard
 
