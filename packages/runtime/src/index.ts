@@ -585,3 +585,18 @@ export { verifyHmacSha256 } from "./utils/hmac.js";
 export { CliSubscriptionExecutor } from "./execution/cli-subscription-executor.js";
 export type { CliSessionFactory, CliSessionFactoryContext, CliSession } from "./execution/cli-subscription-executor.js";
 
+// Context-usage projection (runtime normalization boundary)
+export {
+  normalizeContextUsageProjection,
+  restoreContextUsageProjection,
+} from "./session/context-usage-projection.js";
+export {
+  restoreGatewayContextUsageProjection,
+  toGatewayContextUsageProjection,
+} from "./gateway/context-usage-projection-mapper.js";
+export type {
+  ContextUsageRawUsage,
+  ContextUsageWindowEvidence,
+  NormalizeContextUsageProjectionInput,
+} from "./session/context-usage-projection.js";
+

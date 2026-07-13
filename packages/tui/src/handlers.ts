@@ -15,6 +15,7 @@ import {
 } from "@opentui/core";
 import {
   formatOperatorEventValue,
+  ContextUsageProjectionSchema,
   operatorIdentityInitials,
   projectAgentProfileIdentity,
   projectManagedAgentIdentity,
@@ -621,7 +622,9 @@ export async function sendMessage(
   update(ctx.state, "operatorWorkspaceHome", EMPTY_TUI_OPERATOR_WORKSPACE_HOME);
   update(ctx.state, "thinking", "");
   update(ctx.state, "thinkingVisible", false);
+  update(ctx.state, "contextUsage", undefined);
   renderSidebarCost();
+  renderSidebarTurns();
   ctx.renderSidebarManagedAgents?.();
   startSpinner();
   renderCommandBarStatus();
@@ -660,6 +663,14 @@ export async function sendMessage(
           if (event.usd) handleCostUpdate(ctx, event.usd, renderSidebarCost);
           break;
         case "activity":
+          if (event.activity === "context_usage") {
+            const contextUsage = ContextUsageProjectionSchema.safeParse(event.metadata?.contextUsage);
+            if (contextUsage.success) {
+              update(ctx.state, "contextUsage", contextUsage.data);
+              renderSidebarTurns();
+            }
+            break;
+          }
           handleActivity(
             ctx,
             event.activity,

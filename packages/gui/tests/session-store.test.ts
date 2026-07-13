@@ -48,6 +48,7 @@ function resetSessionStore(): void {
     providerAuthMessage: null,
     providerExplicitSelection: false,
     authorityStatus: null,
+    contextUsage: null,
     activityPhase: "idle",
     interactiveUseSnapshot: null,
     browserSessionState: null,
@@ -2091,6 +2092,39 @@ describe("session-store", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("clears prior route-bound context evidence while the next turn streams", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({
+      status: "ready",
+      activeProvider: "anthropic",
+      activeModel: "claude-sonnet",
+      contextUsage: {
+        state: "authoritative",
+        usedTokens: 2_000,
+        contextWindowTokens: 8_000,
+        remainingTokens: 6_000,
+        usedPercentage: 25,
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-terra",
+        turnId: "prior:turn:1",
+        observedAt: "2026-07-13T00:00:00.000Z",
+        measurement: "provider_reported",
+        lifecycle: "completed",
+        contextWindowAuthority: "provider_reported",
+        freshness: "fresh",
+      },
+    });
+
+    expect(useSessionStore.getState().sendMessage("switch route")).toBe(true);
+    expect(useSessionStore.getState()).toMatchObject({
+      status: "running",
+      respondingProvider: "anthropic",
+      respondingModel: "claude-sonnet",
+      contextUsage: null,
+    });
+  });
+
   it("sendMessage forwards selected app and tenant target", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
@@ -2332,6 +2366,28 @@ describe("session-store", () => {
           },
         },
         {
+          eventId: "evt-context",
+          kilnSessionId: "session-77",
+          sequence: 9,
+          timestamp: "2026-04-21T10:04:01.000Z",
+          kind: "context_usage_observed",
+          turnId: "session-77:turn:1",
+          payload: {
+            contextUsage: {
+              state: "authoritative",
+              usedTokens: 42,
+              contextWindowTokens: 128,
+              remainingTokens: 86,
+              usedPercentage: 32.8125,
+              observedAt: "2026-04-21T10:04:00.000Z",
+              measurement: "provider_reported",
+              lifecycle: "restored",
+              contextWindowAuthority: "provider_reported",
+              freshness: "historical",
+            },
+          },
+        },
+        {
           eventId: "evt-9",
           kilnSessionId: "session-77",
           sequence: 9,
@@ -2381,6 +2437,12 @@ describe("session-store", () => {
     expect(state.continuationTargetId).toBe("session-77");
     expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
     expect(state.status).toBe("ready");
+    expect(state.contextUsage).toMatchObject({
+      state: "authoritative",
+      lifecycle: "restored",
+      freshness: "historical",
+      usedPercentage: 32.8125,
+    });
     expect(state.messages).toHaveLength(2);
     expect(state.timelineEntries).toHaveLength(10);
     expect(state.messages[0]).toMatchObject({

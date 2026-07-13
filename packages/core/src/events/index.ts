@@ -736,6 +736,17 @@ export type { EventStore } from "./event-store.js";
 export { createTraceContext, startSpan, endSpan, addSpanEvent } from "./trace.js";
 export type { TraceSpan, SpanEvent, TraceContext } from "./trace.js";
 export { createSessionEvent, compareSessionEvents } from "./session-event.js";
+export type {
+  ContextUsageCaveat,
+  ContextUsageCacheSemantics,
+  ContextUsageFreshness,
+  ContextUsageLifecycle,
+  ContextUsageMeasurement,
+  ContextUsageProjection,
+  ContextUsageRawEvidence,
+  ContextUsageState,
+  ContextWindowAuthority,
+} from "./context-usage-projection.js";
 export {
   projectCostUpdatedEventToLifecycleLedger,
   reconcileLifecycleAttributionLedger,

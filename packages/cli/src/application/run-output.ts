@@ -1,4 +1,5 @@
 import type { VerificationResult } from "@kilnai/core";
+import type { ContextUsageProjection } from "@kilnai/gateway-contracts";
 import type { ContextGovernanceSummary, SessionReport } from "../wrapper/index.js";
 import type { RunSessionAttemptResult } from "./run-session.js";
 
@@ -43,6 +44,7 @@ export interface RunJsonOutputEnvelope {
     readonly durationMs: number;
     readonly verificationPassed?: boolean;
     readonly contextGovernance?: ContextGovernanceSummary;
+    readonly contextUsage?: ContextUsageProjection;
   };
   readonly diagnostics: {
     readonly lastError: string | null;
@@ -157,6 +159,7 @@ export function buildRunJsonOutputEnvelope(input: {
   readonly durationMs: number;
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ContextGovernanceSummary;
+  readonly contextUsage?: ContextUsageProjection;
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -184,6 +187,7 @@ export function buildRunJsonOutputEnvelope(input: {
       durationMs: input.durationMs,
       ...(input.verificationPassed !== undefined ? { verificationPassed: input.verificationPassed } : {}),
       ...(input.contextGovernance ? { contextGovernance: input.contextGovernance } : {}),
+      ...(input.contextUsage ? { contextUsage: input.contextUsage } : {}),
     },
     diagnostics: {
       lastError: input.lastError,

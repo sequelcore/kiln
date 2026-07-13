@@ -31,6 +31,8 @@ import type {
   VoiceFailureMode,
   VoiceSurface,
   SessionTurnOutcome,
+  CanonicalSessionEvent,
+  ContextUsageProjection,
 } from "@kilnai/core";
 import { DefaultContextGovernor, estimateTextTokens, extractText, hasModality, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate, VALID_VOICE_SURFACES } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
@@ -77,6 +79,7 @@ import {
 } from "../session/runtime-turn-record.js";
 import { deriveGovernedTurnOutcome } from "../session/governed-turn-outcome.js";
 import { appendCanonicalTurnEvents, type RuntimeTurnAuthorityMutationViolation } from "../session/runtime-session-event-ledger.js";
+import { normalizeContextUsageProjection, type ContextUsageWindowEvidence } from "../session/context-usage-projection.js";
 import { sanitizeAssistantEgressText as sanitizeAssistantEgressTextCanonical } from "../session/assistant-egress-sanitizer.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
@@ -327,6 +330,7 @@ export interface AdmittedTurnContext {
   readonly runtimeEvents?: readonly RuntimePipelineLedgerEvent[];
   readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly perCallConfig?: PerCallToolConfig;
+  readonly contextUsageWindow?: ContextUsageWindowEvidence;
   readonly traceId?: string;
   readonly activeAgentId?: string;
   readonly activeAgentName?: string;
@@ -391,6 +395,8 @@ export interface AdmittedTurnContext {
     );
     readonly abort?: (sessionId: string) => void | Promise<void>;
   };
+  /** Publishes persisted canonical turn evidence to the active operator surface. */
+  readonly publishCanonicalSessionEvents?: (events: readonly CanonicalSessionEvent[]) => void;
 }
 
 export interface RuntimeSessionHydrationResult {
@@ -1283,6 +1289,31 @@ export function appendCoordinationProviderFailureAudit(
       reason: failureReason,
     }],
   } satisfies RuntimeContextAudit;
+}
+
+function projectCompletedTurnContextUsage(input: {
+  readonly result: OrchestrateResult;
+  readonly turnId: string | undefined;
+  readonly contextWindow: ContextUsageWindowEvidence | undefined;
+}): ContextUsageProjection {
+  const request = input.result.providerRequests?.at(-1);
+  const providerId = request?.providerId ?? "unknown";
+  const modelId = request?.modelId ?? "unknown";
+  return normalizeContextUsageProjection({
+    providerId,
+    modelId,
+    turnId: input.turnId ?? "unresolved",
+    observedAt: new Date().toISOString(),
+    usage: request ? {
+      inputTokens: request.inputTokens,
+      cacheReadTokens: request.cacheReadTokens,
+      cacheWriteTokens: request.cacheWriteTokens,
+      cacheSemantics: request.contextUsage?.cacheSemantics ?? "unknown",
+    } : undefined,
+    contextWindow: input.contextWindow,
+    measurement: request?.contextUsage?.measurement ?? "runtime_estimate",
+    lifecycle: "completed",
+  });
 }
 
 function buildAuthorityGuidanceContextCandidate(perCallConfig: PerCallToolConfig | undefined, input: {
@@ -2181,7 +2212,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     const failureRuntimeEvents = capturedRuntimeEvents.some((event) => event.type === "error")
       ? capturedRuntimeEvents
       : [...capturedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
-    appendCanonicalTurnEvents({
+    const failureEvents = appendCanonicalTurnEvents({
       session,
       turnId: perCallConfig?.turnId,
       channel: ctx.channel,
@@ -2194,6 +2225,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       runtimeEvents: failureRuntimeEvents,
     });
     await ctx.sessionRegistry.save(session);
+    ctx.publishCanonicalSessionEvents?.(failureEvents);
     await ctx.turnCapture?.abort?.(session.id);
     throw error;
   } finally {
@@ -2428,7 +2460,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     escalationReason: result.escalation?.reason,
     escalationDetail: result.escalation?.detail,
   });
-  appendCanonicalTurnEvents({
+  const completedTurnEvents = appendCanonicalTurnEvents({
     session,
     turnId: perCallConfig?.turnId,
     channel: ctx.channel,
@@ -2457,11 +2489,17 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     clarificationRecords,
     authorityMutationViolations: authorityMutationViolation ? [authorityMutationViolation] : undefined,
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
+    contextUsage: projectCompletedTurnContextUsage({
+      result,
+      turnId: perCallConfig?.turnId,
+      contextWindow: ctx.contextUsageWindow,
+    }),
   });
   canonicalTurnEventsAppended = true;
 
   // Persist mutated session (required for non-reference stores like Redis)
   await ctx.sessionRegistry.save(session);
+  ctx.publishCanonicalSessionEvents?.(completedTurnEvents);
 
   // Report usage (fire-and-forget)
   if (ctx.billing) {
@@ -2661,7 +2699,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       const failureRuntimeEvents = capturedRuntimeEvents.some((event) => event.type === "error")
         ? capturedRuntimeEvents
         : [...capturedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
-      appendCanonicalTurnEvents({
+      const failureEvents = appendCanonicalTurnEvents({
         session,
         turnId: perCallConfig?.turnId,
         channel: ctx.channel,
@@ -2681,6 +2719,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         },
       });
       await ctx.sessionRegistry.save(session);
+      ctx.publishCanonicalSessionEvents?.(failureEvents);
     }
     await ctx.turnCapture?.abort?.(session.id);
     throw error;

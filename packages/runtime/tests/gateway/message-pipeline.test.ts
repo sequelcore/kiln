@@ -264,6 +264,84 @@ describe("processAdmittedTurn", () => {
     ]));
   });
 
+  it("publishes persisted completion context usage through the canonical event stream", async () => {
+    const session = makeMockSession();
+    const sessionRegistry = makeMockSessionRegistry(session);
+    const published: Array<readonly Record<string, unknown>[]> = [];
+
+    const result = await processInboundMessage(makeBaseContext({
+      sessionRegistry,
+      perCallConfig: { turnId: `${session.id}:turn:1` },
+      publishCanonicalSessionEvents: (events) => published.push(events),
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(sessionRegistry.save).toHaveBeenCalledTimes(1);
+    expect(published).toHaveLength(1);
+    expect(published[0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "context_usage_observed",
+        turnId: `${session.id}:turn:1`,
+        contextUsage: expect.objectContaining({
+          state: "unavailable",
+          lifecycle: "completed",
+        }),
+      }),
+    ]));
+  });
+
+  it("attributes context usage to the successful retry or fallback route, not the initial route", async () => {
+    const session = makeMockSession();
+    const orchestrator = {
+      processMessage: vi.fn().mockResolvedValue({
+        parts: textParts("retried response"),
+        inputTokens: 2_400,
+        outputTokens: 120,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        providerRequests: [
+          { providerId: "openai", modelId: "gpt-5", inputTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          {
+            providerId: "anthropic",
+            modelId: "claude-sonnet",
+            inputTokens: 2_000,
+            cacheReadTokens: 300,
+            cacheWriteTokens: 100,
+            contextUsage: { cacheSemantics: "additive_to_input", measurement: "provider_reported" },
+          },
+        ],
+      } as unknown as OrchestrateResult),
+      registerTools: vi.fn(),
+      model: "gpt-5",
+    } as unknown as RuntimeSessionOrchestrator;
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      perCallConfig: { turnId: `${session.id}:turn:1` },
+      contextUsageWindow: {
+        providerId: "anthropic",
+        modelId: "claude-sonnet",
+        tokens: 8_000,
+        authority: "provider_reported",
+        freshness: "fresh",
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(session.sessionEvents).toContainEqual(expect.objectContaining({
+      kind: "context_usage_observed",
+      contextUsage: expect.objectContaining({
+        state: "authoritative",
+        providerId: "anthropic",
+        modelId: "claude-sonnet",
+        usedTokens: 2_400,
+        usedPercentage: 30,
+      }),
+    }));
+  });
+
   it("projects visitor context as a separate governed candidate", () => {
     const projected = projectAdmittedTurnContext({
       userContext: undefined,
@@ -399,6 +477,7 @@ describe("processAdmittedTurn", () => {
       "continuity_decided",
       "cost_updated",
       "lifecycle_attribution_recorded",
+      "context_usage_observed",
       "assistant_message",
       "turn_completed",
     ]);
@@ -2773,10 +2852,11 @@ describe("processAdmittedTurn", () => {
       "cost_updated",
       "lifecycle_attribution_recorded",
       "error_recorded",
+      "context_usage_observed",
       "assistant_message",
       "turn_completed",
     ]);
-    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(ledger[3]).toMatchObject({
       kind: "provider_routed",
       provider: {
@@ -2796,7 +2876,7 @@ describe("processAdmittedTurn", () => {
         totalTokens: 15,
       }),
     });
-    expect(ledger[9]).toMatchObject({
+    expect(ledger[10]).toMatchObject({
       kind: "assistant_message",
       content: "done",
     });

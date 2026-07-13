@@ -168,6 +168,15 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       ...scoped,
     };
   }
+  if (event.kind === "context_usage_observed") {
+    return {
+      type: "activity",
+      activity: "context_usage",
+      metadata: { contextUsage: payload.contextUsage },
+      surfaces: presentation.surfaces,
+      ...scoped,
+    };
+  }
   if (event.kind === "lifecycle_attribution_recorded") {
     return {
       type: "activity",

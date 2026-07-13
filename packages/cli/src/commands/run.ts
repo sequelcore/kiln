@@ -106,6 +106,7 @@ import {
   runManagedAgentFanOutLifecycle,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
+  normalizeContextUsageProjection,
 } from "@kilnai/runtime";
 import {
   managedInvocationPersistedTranscriptEventDrafts,
@@ -1384,6 +1385,18 @@ export async function runCommand(
     submittedPlan: submittedPlanFromSession,
   } = runResult;
 
+  // Harness sessions do not expose a compatible model-window contract. Keep
+  // this single runtime-normalized projection explicit instead of deriving a
+  // percentage from transcript or billing totals.
+  const contextUsage = normalizeContextUsageProjection({
+    providerId: successfulProviderId ?? preferredProvider ?? "unknown",
+    modelId: successfulModelId ?? effectiveModel ?? "unknown",
+    turnId: sessionId,
+    observedAt: new Date().toISOString(),
+    measurement: "runtime_estimate",
+    lifecycle: "completed",
+  });
+
   if (directRouteHealthStore) {
     for (const attempt of attempts) {
       if (!isDirectApiProvider(attempt.providerId) || !attempt.model) {
@@ -1540,6 +1553,19 @@ export async function runCommand(
       runOutput.writeTelemetryLine('[kiln] Tip: run "kiln skill capture --last" after configuring ANTHROPIC_API_KEY to capture this session as a skill.');
     }
   }
+
+  try {
+    await transcriptStore.appendNext(sessionId, {
+      eventId: randomUUID(),
+      kilnSessionId: sessionId,
+      timestamp: contextUsage.observedAt,
+      kind: "context_usage_observed",
+      source: { actor: "runtime", surface: "cli", component: "run-command" },
+      payload: { contextUsage },
+    });
+  } catch {
+    // Transcript persistence is best-effort and must not change the run outcome.
+  }
   if (!sessionSucceeded) {
     await transcriptStore.finalize(sessionId, {
       completedAt: new Date().toISOString(),
@@ -1596,6 +1622,7 @@ export async function runCommand(
       completedAt,
       durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
       contextGovernance: previewContextGovernance,
+      contextUsage,
       lastError: appendCleanupFailure(lastError, cleanupErrorMessage),
       attempts,
       exactArtifacts,
@@ -1680,6 +1707,7 @@ export async function runCommand(
       resumeFeedback: context.resumeFeedback,
       resumeOutcome,
       contextGovernance: previewContextGovernance,
+      contextUsage,
     };
     const finalReport = continuationSessionId
       ? { ...reportWithResumeStrategy, resumedFrom: continuationSessionId }
@@ -1732,6 +1760,7 @@ export async function runCommand(
     durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
     verificationPassed: verificationResult?.passed,
     contextGovernance: previewContextGovernance,
+    contextUsage,
     lastError,
     attempts,
     verificationResult,
@@ -1799,6 +1828,7 @@ interface RunOutputEmissionInput {
   readonly durationMs: number;
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
+  readonly contextUsage?: import("@kilnai/gateway-contracts").ContextUsageProjection;
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -1822,6 +1852,7 @@ interface RunFailureOutputInput {
   readonly startedAtMs?: number;
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
+  readonly contextUsage?: import("@kilnai/gateway-contracts").ContextUsageProjection;
   readonly lastError: string;
   readonly attempts?: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -1850,6 +1881,7 @@ function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureO
     durationMs: Date.now() - (Number.isFinite(startedAtMs) ? startedAtMs : Date.now()),
     verificationPassed: input.verificationPassed,
     contextGovernance: input.contextGovernance,
+    contextUsage: input.contextUsage,
     lastError: input.lastError,
     attempts: input.attempts ?? [],
     verificationResult: input.verificationResult,

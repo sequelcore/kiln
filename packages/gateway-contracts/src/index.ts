@@ -591,6 +591,12 @@ export {
   SessionFeedbackPublicationProjectionSchema,
   SessionFeedbackReporterProjectionSchema,
 } from "./session-feedback-projection.js";
+
+export {
+  ContextUsageProjectionSchema,
+  formatContextUsageProjection,
+} from "./context-usage-projection.js";
+export type { ContextUsageProjection } from "./context-usage-projection.js";
 export type {
   SessionFeedbackEvidencePreview,
   SessionFeedbackIssueDraftPreview,

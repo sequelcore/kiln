@@ -409,6 +409,11 @@ and makes post-hoc diagnosis possible without replaying discovery.
 
 ## Invariants
 
+Provider/model discovery can provide a context-window denominator for partial
+operator evidence, but discovery authority or freshness never makes a context
+measurement authoritative. Only a matching provider-reported context window
+does so. See [Context Usage Projection](./context-usage-projection.md).
+
 - discovery is runtime-owned
 - execution uses the same canonical eligibility truth shown to the operator
 - diagnostics are provider-specific and fail closed

@@ -303,6 +303,7 @@ export class RuntimeSessionOrchestrator {
           outputTokens: response.outputTokens,
           cacheReadTokens: response.cacheReadTokens,
           cacheWriteTokens: response.cacheWriteTokens,
+          contextUsage: response.contextUsage,
         },
         session.activeAgentId ?? undefined,
         measureProviderRequestRegions({

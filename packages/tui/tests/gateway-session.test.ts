@@ -305,6 +305,57 @@ describe("GatewaySession canonical session events", () => {
     await session.dispose();
   });
 
+  it("preserves restored context evidence as historical TUI activity metadata", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "resume" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-context-restored",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-07-13T00:00:00.000Z",
+        kind: "context_usage_observed",
+        turnId: "session-1:turn:1",
+        payload: {
+          contextUsage: {
+            state: "partial",
+            usedTokens: 2400,
+            providerId: "openai",
+            modelId: "gpt-5",
+            turnId: "session-1:turn:1",
+            observedAt: "2026-07-12T23:59:00.000Z",
+            measurement: "runtime_estimate",
+            lifecycle: "restored",
+            contextWindowAuthority: "unknown",
+            freshness: "historical",
+            reason: "No compatible context window was persisted.",
+          },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({ type: "done", content: "resumed", inputTokens: 1, outputTokens: 1 }));
+
+    await collect;
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "activity",
+      activity: "context_usage",
+      metadata: {
+        contextUsage: expect.objectContaining({ lifecycle: "restored", freshness: "historical" }),
+      },
+    }));
+    await session.dispose();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();

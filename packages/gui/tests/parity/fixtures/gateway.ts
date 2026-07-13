@@ -91,7 +91,8 @@ async function stopRunner(child: ChildProcessWithoutNullStreams): Promise<void> 
 }
 
 export const test = base.extend<Record<string, never>, GatewayFixture>({
-  gatewayPort: [async ({}, use) => {
+  gatewayPort: [async ({ browserName }, use) => {
+    void browserName;
     const repoRoot = resolveRepoRoot();
     // Use GUI_GATEWAY_PORT from the environment (set by playwright.config.ts via
     // reserveGatewayPort). This is the same port the Vite dev-server proxy

@@ -192,6 +192,42 @@ describe("operator session event frame", () => {
 
     expect(frame.event.payload.managedOrchestrationAdoptionGate).toBeUndefined();
   });
+
+  it("maps canonical context evidence through the Gateway contract without reinterpreting it", () => {
+    const frame = toOperatorSessionEventFrame({
+      eventId: "evt-context",
+      kilnSessionId: "session-1",
+      sequence: 1,
+      timestamp: new Date("2026-07-13T00:00:00.000Z"),
+      kind: "context_usage_observed",
+      turnId: "turn-1",
+      contextUsage: {
+        state: "partial",
+        usedTokens: 12,
+        contextWindowTokens: 128,
+        remainingTokens: 116,
+        usedPercentage: 9.375,
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-terra",
+        turnId: "turn-1",
+        observedAt: "2026-07-13T00:00:00.000Z",
+        measurement: "provider_reported",
+        lifecycle: "completed",
+        contextWindowAuthority: "runtime_observed",
+        freshness: "fresh",
+      },
+    }, {
+      eventId: "frame-context",
+      sequence: 2,
+    });
+
+    expect(frame.event.payload.contextUsage).toMatchObject({
+      state: "partial",
+      lifecycle: "completed",
+      freshness: "fresh",
+      usedPercentage: 9.375,
+    });
+  });
 });
 
 function terminalManagedInvocationEvent(input: {

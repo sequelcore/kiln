@@ -82,6 +82,22 @@ const sessionSummaries: GuiSessionSummary[] = [
     cost: 0.0301,
     taskSummary: "Refactor command routing",
   },
+  {
+    id: "context-partial-session",
+    providersUsed: ["claude"],
+    lastProvider: "claude",
+    completedAt: new Date(Date.now() - 240_000).toISOString(),
+    cost: 0.001,
+    taskSummary: "Inspect partial context evidence",
+  },
+  {
+    id: "context-authoritative-session",
+    providersUsed: ["codex"],
+    lastProvider: "codex",
+    completedAt: new Date(Date.now() - 300_000).toISOString(),
+    cost: 0.001,
+    taskSummary: "Inspect authoritative context evidence",
+  },
 ];
 
 const restoredSessionDetail: GuiSessionDetail = {
@@ -167,7 +183,91 @@ const restoredSessionDetail: GuiSessionDetail = {
       turnId: "parity-turn-1",
       payload: { content: "The persisted parity plan is ready." },
     },
+    {
+      eventId: "parity-context-restored",
+      kilnSessionId: "claude-session-1",
+      sequence: 5,
+      timestamp: "2026-07-03T12:00:03.000Z",
+      kind: "context_usage_observed",
+      turnId: "parity-turn-1",
+      payload: {
+        contextUsage: {
+          state: "authoritative",
+          usedTokens: 2_400,
+          contextWindowTokens: 8_000,
+          remainingTokens: 5_600,
+          usedPercentage: 30,
+          providerId: "claude",
+          modelId: "claude-sonnet-4-6",
+          turnId: "parity-turn-1",
+          observedAt: "2026-07-03T12:00:03.000Z",
+          measurement: "provider_reported",
+          lifecycle: "restored",
+          contextWindowAuthority: "provider_reported",
+          freshness: "historical",
+        },
+      },
+    },
   ],
+};
+
+const contextSessionDetails: Record<string, GuiSessionDetail> = {
+  "context-partial-session": {
+    id: "context-partial-session",
+    meta: { kilnSessionId: "context-partial-session", title: "Inspect partial context evidence", startedAt: "2026-07-03T12:00:00.000Z" },
+    events: [{
+      eventId: "parity-context-partial",
+      kilnSessionId: "context-partial-session",
+      sequence: 1,
+      timestamp: "2026-07-03T12:00:00.000Z",
+      kind: "context_usage_observed",
+      turnId: "context-partial-session:turn:1",
+      payload: {
+        contextUsage: {
+          state: "partial",
+          usedTokens: 2_400,
+          providerId: "claude",
+          modelId: "claude-sonnet-4-6",
+          turnId: "context-partial-session:turn:1",
+          observedAt: "2026-07-03T12:00:00.000Z",
+          measurement: "runtime_estimate",
+          lifecycle: "completed",
+          contextWindowAuthority: "runtime_observed",
+          freshness: "fresh",
+          reason: "No provider-authoritative context window is available.",
+        },
+      },
+    }],
+  },
+  "context-authoritative-session": {
+    id: "context-authoritative-session",
+    meta: { kilnSessionId: "context-authoritative-session", title: "Inspect authoritative context evidence", startedAt: "2026-07-03T12:00:00.000Z" },
+    events: [{
+      eventId: "parity-context-authoritative",
+      kilnSessionId: "context-authoritative-session",
+      sequence: 1,
+      timestamp: "2026-07-03T12:00:00.000Z",
+      kind: "context_usage_observed",
+      turnId: "context-authoritative-session:turn:1",
+      payload: {
+        contextUsage: {
+          state: "authoritative",
+          usedTokens: 2_000,
+          contextWindowTokens: 8_000,
+          remainingTokens: 6_000,
+          usedPercentage: 25,
+          providerId: "codex",
+          modelId: "gpt-5.5",
+          turnId: "context-authoritative-session:turn:1",
+          observedAt: "2026-07-03T12:00:00.000Z",
+          measurement: "provider_reported",
+          lifecycle: "completed",
+          contextWindowAuthority: "provider_reported",
+          freshness: "fresh",
+        },
+      },
+    }],
+  },
 };
 
 const fakeSessionFactory: CliSessionFactory = () => ({
@@ -294,7 +394,9 @@ async function main(): Promise<void> {
     getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
     getSetupSnapshot: async () => setupSnapshot,
     listSessions: async () => sessionSummaries.slice(0, 20),
-    getSessionDetail: async (sessionId) => sessionId === restoredSessionDetail.id ? restoredSessionDetail : null,
+    getSessionDetail: async (sessionId) => sessionId === restoredSessionDetail.id
+      ? restoredSessionDetail
+      : contextSessionDetails[sessionId] ?? null,
     builtinToolOptions: {
       memoryResources: { repository: memoryRepository },
     },

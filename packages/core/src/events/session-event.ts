@@ -1,5 +1,6 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type { ExecutionSessionToolResultResourceLink } from "./execution-session-event.js";
+import type { ContextUsageProjection } from "./context-usage-projection.js";
 
 import type {
   ManagedAgentAdapterKind,
@@ -54,6 +55,7 @@ export type CanonicalSessionEventKind =
   | "config_change_failed"
   | "file_changed"
   | "cost_updated"
+  | "context_usage_observed"
   | "lifecycle_attribution_recorded"
   | "work_item_updated"
   | "work_item_execution_started"
@@ -392,6 +394,10 @@ export interface CanonicalCostUpdatedEvent extends SessionEventEnvelope<"cost_up
   readonly cost: SessionCost;
 }
 
+export interface CanonicalContextUsageObservedEvent extends SessionEventEnvelope<"context_usage_observed"> {
+  readonly contextUsage: ContextUsageProjection;
+}
+
 export interface CanonicalLifecycleAttributionRecordedEvent extends SessionEventEnvelope<"lifecycle_attribution_recorded"> {
   readonly ledger: SessionLifecycleAttributionLedger;
   readonly summary: SessionLifecycleAttributionSummary;
@@ -605,6 +611,7 @@ export interface CanonicalSessionEventMap {
   config_change_failed: CanonicalConfigChangeFailedEvent;
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
+  context_usage_observed: CanonicalContextUsageObservedEvent;
   lifecycle_attribution_recorded: CanonicalLifecycleAttributionRecordedEvent;
   work_item_updated: CanonicalWorkItemUpdatedEvent;
   work_item_execution_started: CanonicalWorkItemExecutionStartedEvent;

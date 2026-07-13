@@ -635,6 +635,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       outputTokens: response.usage?.output_tokens ?? 0,
       cacheReadTokens: response.usage?.input_tokens_details?.cached_tokens ?? 0,
       cacheWriteTokens: 0,
+      contextUsage: { measurement: "provider_reported", cacheSemantics: "included_in_input" },
       toolCalls,
       stopReason: response.status ?? "completed",
       cost: {

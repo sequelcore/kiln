@@ -7,6 +7,11 @@ continuity, approvals, tool evidence, cost accounting, runtime continuity,
 changed files, and replay/audit metadata. A provider is only the execution route
 selected for a turn.
 
+Completed turns may carry a canonical `context_usage_observed` event. Its
+provider/model/turn identity belongs to the request that produced the evidence;
+replay retains that observation as historical rather than recomputing it. The
+full authority contract is [Context Usage Projection](./context-usage-projection.md).
+
 ## Canonical Rule
 
 Provider, model, billing mode, and provider-native thread IDs are execution

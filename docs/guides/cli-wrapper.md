@@ -83,6 +83,15 @@ role is to expose what Kiln is regulating:
 
 They should not present Kiln as if the backend itself were the product.
 
+## Context Usage
+
+When CLI already prints a session report, it includes the shared context-usage
+projection. Structured JSON exposes the field only as an optional extension;
+exact-answer and benchmark contracts remain unchanged. CLI does not derive a
+ratio from transcript, cost, selected provider, or a configured default model.
+Persisted transcript evidence is restored as historical with its original
+observation and source. See [Context Usage Projection](../architecture/context-usage-projection.md).
+
 ## CLI Package Test Harness
 
 The `@kilnai/cli` package participates in the canonical workspace test command,

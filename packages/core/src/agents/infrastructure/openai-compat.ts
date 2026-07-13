@@ -440,6 +440,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       outputTokens: response.usage.completion_tokens,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      contextUsage: { measurement: "provider_reported", cacheSemantics: "included_in_input" },
       toolCalls,
       stopReason: choice?.finish_reason ?? "stop",
     };

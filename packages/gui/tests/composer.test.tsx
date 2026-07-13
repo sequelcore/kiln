@@ -170,6 +170,66 @@ describe("Composer", () => {
     expect(within(options).getByLabelText(/Turn authority/)).toBeInTheDocument();
   });
 
+  it("labels authoritative, partial, and restored context evidence without color-only state", () => {
+    const { rerender } = render(
+      <Composer
+        status="ready"
+        planMode={false}
+        continuityHint={{ label: "New session", description: "Next message starts fresh", tone: "muted", prominence: "routine" }}
+        contextUsage={{
+          state: "authoritative",
+          usedTokens: 2400,
+          contextWindowTokens: 8000,
+          remainingTokens: 5600,
+          usedPercentage: 30,
+          providerId: "openai",
+          modelId: "gpt-5",
+          observedAt: "2026-07-13T00:00:00.000Z",
+          measurement: "provider_reported",
+          lifecycle: "completed",
+          contextWindowAuthority: "provider_reported",
+          freshness: "fresh",
+        }}
+        commandMenu={{ open: false, query: "", commands: [], onQueryChange: vi.fn(), onExecute: vi.fn(), onOpenChange: vi.fn() }}
+        leadingActions={null}
+        trailingActions={null}
+        onSubmit={() => undefined}
+        onTogglePlanMode={() => undefined}
+        onSubmitParts={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Context 30%: 2.4k / 8k tokens" })).toHaveTextContent("30%");
+
+    rerender(
+      <Composer
+        status="ready"
+        planMode={false}
+        continuityHint={{ label: "New session", description: "Next message starts fresh", tone: "muted", prominence: "routine" }}
+        contextUsage={{
+          state: "partial",
+          usedTokens: 2400,
+          providerId: "openai",
+          modelId: "gpt-5",
+          observedAt: "2026-07-13T00:00:00.000Z",
+          measurement: "runtime_estimate",
+          lifecycle: "restored",
+          contextWindowAuthority: "unknown",
+          freshness: "historical",
+          reason: "No compatible context window was persisted.",
+        }}
+        commandMenu={{ open: false, query: "", commands: [], onQueryChange: vi.fn(), onExecute: vi.fn(), onOpenChange: vi.fn() }}
+        leadingActions={null}
+        trailingActions={null}
+        onSubmit={() => undefined}
+        onTogglePlanMode={() => undefined}
+        onSubmitParts={() => undefined}
+      />,
+    );
+    const restored = screen.getByRole("button", { name: "Context partial: 2.4k tokens; restored historical measurement" });
+    expect(restored).toHaveTextContent("P");
+    expect(restored).toHaveTextContent("H");
+  });
+
   it("keeps all composer actions inside the compact input surface", () => {
     renderComposer();
 
@@ -183,7 +243,7 @@ describe("Composer", () => {
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Attach image" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText(/Turn authority/)).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByRole("status", { name: "Context usage unavailable" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Context usage unavailable" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText("Reasoning effort")).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Record voice" })).toBeInTheDocument();
@@ -197,7 +257,7 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "Attach image" })).toHaveClass("bg-background/60");
     expect(screen.getByRole("button", { name: "Plan" })).toHaveClass("bg-background/60");
     expect(screen.getByRole("button", { name: "Record voice" })).toHaveClass("bg-background/60");
-    expect(screen.getByRole("status", { name: "Context usage unavailable" })).toHaveClass("border", "bg-background/60");
+    expect(screen.getByRole("button", { name: "Context usage unavailable" })).toHaveClass("border", "bg-background/60");
   });
 
   it("orders the composer rail like a modern chat harness", () => {
@@ -209,7 +269,7 @@ describe("Composer", () => {
       within(options).getByRole("button", { name: "Attach image" }),
       within(options).getByRole("button", { name: "Plan" }),
       within(options).getByLabelText(/Turn authority/),
-      within(options).getByRole("status", { name: "Context usage unavailable" }),
+      within(options).getByRole("button", { name: "Context usage unavailable" }),
       within(options).getByRole("button", { name: "Claude Sonnet 4" }),
       within(options).getByLabelText("Reasoning effort"),
       within(options).getByRole("button", { name: "Record voice" }),

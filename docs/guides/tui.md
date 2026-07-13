@@ -117,6 +117,12 @@ persisted changes by writing the shared operator theme default.
 
 The main screen is a two-column layout: a `chatArea` on the left and a `sidebar` on the right, separated by a divider. The sidebar renders provider status, cost, current working directory, turns and token counts, field status, approvals, file changes, resume hints, and session history. When the terminal width drops below `100` columns, the sidebar auto-collapses.
 
+The existing turns/tokens line also renders shared context evidence: exact
+values and percentage when available, `partial` when qualified, and `Context
+usage unavailable` otherwise. Restored canonical events keep their historical
+source and observation rather than appearing live. TUI does not calculate its
+own ratio or infer authority from selected-provider state.
+
 Key bindings and input behavior come from `packages/tui/src/app.tsx`:
 
 Slash command discovery is not TUI-owned. The TUI projects

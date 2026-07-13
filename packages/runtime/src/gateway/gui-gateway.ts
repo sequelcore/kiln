@@ -1642,6 +1642,12 @@ function wireOperatorTransport(
                 channel: "gui",
                 resumeSessionHydrator: input.transport.resumeSessionHydrator,
                 providerValidation: currentDiscovery,
+                contextUsageWindow: contextUsageWindowEvidence(
+                  activeProvider,
+                  activeModel,
+                  activeModelCapabilities,
+                  currentDiscovery,
+                ),
                 executionMode,
                 contextArtifactCache: input.transport.contextArtifactCache,
                 artifactStore: input.transport.artifactStore,
@@ -1659,6 +1665,9 @@ function wireOperatorTransport(
                     activityStreamer.endTurnCapture(sessionId);
                   },
                 },
+                publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
+                  events.filter((event) => event.kind === "context_usage_observed"),
+                ),
               });
             } catch (err) {
               ws.send(JSON.stringify({
@@ -1837,6 +1846,29 @@ function findProviderModelRouteHealth(
 ): GuiProviderModelRouteHealth | undefined {
   if (!provider || !model) return undefined;
   return discovery.find((entry) => entry.provider === provider)?.modelRouteHealth?.[model];
+}
+
+function contextUsageWindowEvidence(
+  providerId: string,
+  modelId: string | undefined,
+  capabilities: GuiProviderModelCapabilities | undefined,
+  discovery: readonly GuiProviderDiscoveryResult[],
+) {
+  const tokens = capabilities?.contextWindow;
+  if (!modelId || !Number.isInteger(tokens) || !tokens || tokens < 1) {
+    return undefined;
+  }
+  const status = discovery.find((entry) => entry.provider === providerId)?.status;
+  return {
+    providerId,
+    modelId,
+    tokens,
+    // Discovery establishes route eligibility, not a provider contract for a
+    // model's context window. Treat it as runtime-observed until an adapter
+    // carries explicit provider-window provenance.
+    authority: "runtime_observed" as const,
+    freshness: status === "stale" ? "stale" as const : "fresh" as const,
+  };
 }
 
 async function applyContinuationSelection(

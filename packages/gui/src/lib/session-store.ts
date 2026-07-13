@@ -21,11 +21,13 @@ import type {
   OperatorEventDetailItem,
   OperatorSessionEventKind,
   ToolResultPresentation,
+  ContextUsageProjection,
 } from "@kilnai/gateway-contracts";
 import {
   formatOperatorEventValue,
   isGuiProviderModeless,
   presentOperatorEventPayload,
+  ContextUsageProjectionSchema,
 } from "@kilnai/gateway-contracts";
 import {
   deriveSessionContinuity,
@@ -557,6 +559,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   readonly routedProvider: string | null;
   readonly routedModel: string | null;
   readonly authorityStatus: AuthorityStatus | null;
+  readonly contextUsage: ContextUsageProjection | null;
 } {
   const messages: Message[] = [];
   const timelineEntries: TimelineEntry[] = [];
@@ -570,6 +573,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   let lastAuthorityStatus: AuthorityStatus | null = null;
   let interactiveUseSnapshot: GuiInteractiveUseSnapshot | null = null;
   let browserSessionState: GuiBrowserSessionState | null = null;
+  let contextUsage: ContextUsageProjection | null = null;
 
   for (const event of detail.events) {
     const payload = isObjectRecord(event.payload) ? event.payload : {};
@@ -840,6 +844,14 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       continue;
     }
 
+    if (event.kind === "context_usage_observed") {
+      const parsed = ContextUsageProjectionSchema.safeParse(payload.contextUsage);
+      if (parsed.success) {
+        contextUsage = parsed.data;
+      }
+      continue;
+    }
+
     if (event.kind === "lifecycle_attribution_recorded") {
       const presentation = presentOperatorEventPayload(event.kind, payload);
       timelineEntries.push({
@@ -1086,6 +1098,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     routedProvider: lastRoutedProvider,
     routedModel: lastRoutedModel,
     authorityStatus: lastAuthorityStatus,
+    contextUsage,
   };
 }
 
@@ -1752,6 +1765,7 @@ interface SessionStoreState {
   readonly providerAuthDetails: ProviderAuthDetails | null;
   readonly providerExplicitSelection: boolean;
   readonly authorityStatus: AuthorityStatus | null;
+  readonly contextUsage: ContextUsageProjection | null;
   readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
   readonly browserSessionState: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame: GuiBrowserLiveViewportFrame | null;
@@ -1880,6 +1894,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   providerAuthDetails: null,
   providerExplicitSelection: false,
   authorityStatus: null,
+  contextUsage: null,
   interactiveUseSnapshot: null,
   browserSessionState: null,
   browserLiveViewportFrame: null,
@@ -1974,6 +1989,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       routedProvider: loaded.routedProvider,
       routedModel: loaded.routedModel,
       authorityStatus: loaded.authorityStatus,
+      contextUsage: loaded.contextUsage,
       interactiveUseSnapshot: loaded.interactiveUseSnapshot,
       browserSessionState: loaded.browserSessionState,
       currentTurnTrackedInputTokens: 0,
@@ -2354,6 +2370,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           },
         ],
       });
+      return;
+    }
+
+    if (event.kind === "context_usage_observed") {
+      const parsed = ContextUsageProjectionSchema.safeParse(payload.contextUsage);
+      if (parsed.success) {
+        set({ contextUsage: parsed.data });
+      }
       return;
     }
 
@@ -3412,6 +3436,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingModel: state.activeModel,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
+      contextUsage: null,
       errorBanner: null,
       currentAssistant: null,
     });

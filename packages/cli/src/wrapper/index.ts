@@ -6,6 +6,7 @@
  */
 
 import type { DomainConfig } from "@kilnai/core";
+import type { ContextUsageProjection } from "@kilnai/gateway-contracts";
 import type { ProjectedContext, ProjectedContextBlockKind } from "../application/context-types.js";
 import type { KilnPermissionPolicy } from "./session.js";
 
@@ -98,6 +99,8 @@ export interface SessionReport {
   readonly resumeFeedback?: ResumeFeedback;
   readonly resumeOutcome?: ResumeOutcome;
   readonly contextGovernance?: ContextGovernanceSummary;
+  /** Runtime-normalized per-turn context evidence, when this run produced it. */
+  readonly contextUsage?: ContextUsageProjection;
 }
 
 /** Wrapper configuration */

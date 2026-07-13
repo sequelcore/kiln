@@ -62,6 +62,10 @@ is documented by concern, not as a single monolith.
   source classes, reconciliation, replay, request neutrality, managed-route
   usage capability gaps, and benchmark evidence.
 
+- `context-usage-projection.md`
+  Per-turn context-usage authority states, adapter cache semantics, runtime
+  normalization, Gateway mapping, persistence/replay, and surface rules.
+
 - `session-feedback-pipeline.md`
   Local-first operator feedback, redaction, evidence selection, issue draft,
   repair work item, and draft pull-request governance.

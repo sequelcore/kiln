@@ -13,6 +13,7 @@ import type {
   ProviderRequestEvidence,
   ProviderRequestToolMaterializationDecisionEvidence,
   ProviderRequestToolProjectionEvidence,
+  ContextUsageRawEvidence,
 } from "@kilnai/core";
 import { computeUsageCostUsd, resolveExecutionCostEvidence, resolveExecutionPricing } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
@@ -29,6 +30,7 @@ export interface OrchestratorResponseUsage {
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
+  readonly contextUsage?: ContextUsageRawEvidence;
 }
 
 export interface ProviderRequestRegionEvidence {
@@ -212,6 +214,8 @@ export class RuntimeSessionExecutionTelemetry {
     if (request) {
       this.providerRequests.push({
         requestIndex: this.providerRequests.length,
+        providerId: this.executionIdentity?.provider ?? "unknown",
+        modelId: this.executionIdentity?.model ?? "unknown",
         ...usage,
         cumulativeInputTokens: this.totals.inputTokens,
         cumulativeOutputTokens: this.totals.outputTokens,

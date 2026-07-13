@@ -122,6 +122,43 @@ describe("GuiWsClient", () => {
     });
   });
 
+  describe("canonical session events", () => {
+    it("accepts live context-usage evidence instead of dropping it during frame validation", () => {
+      client = createClient();
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1]!;
+      wsInstance.simulateMessage(JSON.stringify({
+        type: "session_event",
+        event: {
+          eventId: "context-1",
+          kilnSessionId: "session-1",
+          sequence: 1,
+          timestamp: "2026-07-12T00:00:01.000Z",
+          kind: "context_usage_observed",
+          payload: {
+            contextUsage: {
+              state: "partial",
+              usedTokens: 12,
+              contextWindowTokens: 128,
+              remainingTokens: 116,
+              usedPercentage: 9.375,
+              observedAt: "2026-07-12T00:00:01.000Z",
+              measurement: "provider_reported",
+              lifecycle: "completed",
+              contextWindowAuthority: "runtime_observed",
+              freshness: "fresh",
+            },
+          },
+        },
+      }));
+
+      expect(onFrame).toHaveBeenCalledWith(expect.objectContaining({
+        type: "session_event",
+        event: expect.objectContaining({ kind: "context_usage_observed" }),
+      }));
+    });
+  });
+
   describe("heartbeat", () => {
     it("Sends ping every 30s", () => {
       vi.useFakeTimers();

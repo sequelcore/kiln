@@ -1,7 +1,7 @@
 # 02 - Public Release UI Debt
 
 Status: Active release debt
-Execution: Ready - add the contract-backed composer context-usage indicator.
+Execution: Research - define and verify cross-surface event-presentation density.
 Started: 2026-06-28
 
 ## Objective
@@ -117,7 +117,6 @@ Current verification evidence:
 
 Still open before public release:
 
-- Authoritative composer context usage instead of the current neutral state.
 - Cross-surface event-density doctrine and parity verification for CLI/TUI.
 - Public-release presentation of managed-agent/tool capability diagnostics
   across harnesses and provider entitlements, now consuming canonical
@@ -281,38 +280,24 @@ Verification:
 
 ### Composer Context Usage Indicator
 
-Status: Pending
+Status: Completed 2026-07-13
 
-Problem:
+Delivered:
 
-- The GUI composer currently renders a neutral context indicator because the
-  composer does not receive trustworthy active-turn context usage.
-- Provider model capability discovery exposes model `contextWindow`, and
-  transcript events can contain token usage, but the composer does not yet have
-  a normalized live value for context consumed versus available.
-- Rendering a fake percentage would be misleading; the current neutral state is
-  acceptable for local testing but not for public release.
+- Core owns the provider-neutral `context_usage_observed` event; Runtime alone
+  normalizes provider evidence, binds it to the completing route/turn, and maps
+  it to the standalone Gateway DTO.
+- Provider-reported OpenAI/Codex input treats cached input as inclusive, while
+  Anthropic cache read/write is adapter-declared additive. Output and reasoning
+  tokens are not added to occupied input context.
+- GUI renders the accessible circular indicator with unavailable, partial,
+  authoritative, and restored/historical evidence; CLI and TUI consume the
+  same projection where they already render session or turn status.
+- Persisted/replayed evidence retains its original observation and source as
+  historical; retry/fallback evidence remains bound to the successful route.
 
-Required outcome:
-
-- Add a governed, contract-backed context usage projection for the active turn.
-- Show a market-standard circular context indicator in the composer.
-- Distinguish unavailable, partial, and authoritative context usage states.
-- Use real provider/model context window data when available.
-- Avoid estimating usage from unrelated transcript history unless the runtime
-  marks the estimate as partial.
-- Keep the indicator accessible with an explicit label and tooltip.
-
-Verification:
-
-- Gateway contract tests for context usage projection.
-- Runtime/gateway tests proving unavailable, partial, and authoritative states.
-- GUI tests for composer rendering, labels, tooltip, and layout order.
-- Playwright parity coverage for the composer rail.
-- `bun run --cwd packages/gui typecheck`
-- `bun run --cwd packages/gui test:run`
-- `bun run --cwd packages/gui build`
-- `bun run --cwd packages/gui test:e2e`
+The canonical ownership, authority, lifecycle, and surface rules are in
+[`docs/architecture/context-usage-projection.md`](../architecture/context-usage-projection.md).
 
 ### Cross-Surface Event Presentation Density
 

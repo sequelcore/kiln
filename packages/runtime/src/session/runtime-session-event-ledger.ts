@@ -18,6 +18,7 @@ import type {
   ToolCalledEvent,
   ToolResultEvent,
   ContextAuditEntry,
+  ContextUsageProjection,
 } from "@kilnai/core";
 import {
   createSessionEvent,
@@ -126,6 +127,7 @@ export interface AppendCanonicalTurnEventsInput {
   }[];
   readonly authorityMutationViolations?: readonly RuntimeTurnAuthorityMutationViolation[];
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
+  readonly contextUsage?: ContextUsageProjection;
 }
 
 export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput): readonly CanonicalSessionEvent[] {
@@ -500,6 +502,18 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
     }));
   }
 
+  if (input.contextUsage) {
+    events.push(createSessionEvent<"context_usage_observed">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "context_usage_observed",
+      turnId,
+      contextUsage: input.contextUsage,
+      source: runtimeSource,
+      timestamp: new Date(input.contextUsage.observedAt),
+    }));
+  }
+
   if (assistantMessageContent && assistantMessageContent.length > 0) {
     events.push(createSessionEvent<"assistant_message">({
       kilnSessionId: session.id,
@@ -540,7 +554,6 @@ function resolveCanonicalTurnIdentity(
       turnOrdinal,
     };
   }
-
   const prefix = `${session.id}:turn:`;
   if (!turnId.startsWith(prefix)) {
     throw new Error("Canonical turn id must belong to the runtime session.");

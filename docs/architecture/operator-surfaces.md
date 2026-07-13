@@ -35,6 +35,11 @@ If behavior affects session identity, tool authority, provider routing, cost,
 memory, replay, audit, execution mode, approvals, diffs, or safety policy, it
 belongs in core/runtime and is projected through stable contracts.
 
+Context usage follows this rule: Core owns its semantic event, Runtime owns
+normalization and Core-to-Gateway mapping, and GUI/TUI/CLI only render the
+shared projection. See [Context Usage Projection](./context-usage-projection.md)
+for authority, restoration, and accessibility rules.
+
 Allowed surface-owned state is limited to presentation and interaction state:
 
 - selected panel, open popover, expanded row, focused item, and layout state

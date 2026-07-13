@@ -92,6 +92,7 @@ export async function requestRuntimeSessionFallbackResponse(
       outputTokens: response.outputTokens,
       cacheReadTokens: response.cacheReadTokens,
       cacheWriteTokens: response.cacheWriteTokens,
+      contextUsage: response.contextUsage,
     },
     request: measureProviderRequestRegions({
       system,

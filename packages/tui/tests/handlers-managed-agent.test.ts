@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { OperatorSessionEvent } from "@kilnai/gateway-contracts";
 
 vi.mock("@opentui/core", () => ({
-  BoxRenderable: class {},
-  TextRenderable: class {},
+  BoxRenderable: class { add = vi.fn(); },
+  TextRenderable: class {
+    content = "";
+    constructor(_: unknown, props?: { content?: string }) { this.content = props?.content ?? ""; }
+  },
   MarkdownRenderable: class {},
   SyntaxStyle: {
     create: () => ({}),
@@ -13,7 +16,7 @@ vi.mock("@opentui/core", () => ({
   fg: () => (text: string) => text,
 }));
 
-import { handleActivity, type HandlerContext } from "../src/handlers.js";
+import { handleActivity, sendMessage, type HandlerContext } from "../src/handlers.js";
 import { createReactiveState } from "../src/state.js";
 
 function sessionEvent(
@@ -44,6 +47,51 @@ function handlerContext(renderSidebarManagedAgents = vi.fn()): HandlerContext {
 }
 
 describe("TUI handler managed-agent projection", () => {
+  it("clears prior route-bound context evidence before a new turn streams", async () => {
+    const ctx = handlerContext();
+    ctx.state.contextUsage = {
+      state: "authoritative",
+      usedTokens: 2_000,
+      contextWindowTokens: 8_000,
+      remainingTokens: 6_000,
+      usedPercentage: 25,
+      providerId: "codex-oauth",
+      modelId: "gpt-5.6-terra",
+      turnId: "prior:turn:1",
+      observedAt: "2026-07-13T00:00:00.000Z",
+      measurement: "provider_reported",
+      lifecycle: "completed",
+      contextWindowAuthority: "provider_reported",
+      freshness: "fresh",
+    };
+    ctx.createSession = async () => ({
+      async *run() {
+        // The projection must clear before completion evidence is available.
+      },
+    });
+    ctx.theme = { userBg: "user-bg", userFg: "user-fg" } as HandlerContext["theme"];
+    ctx.chatScrollBox = { content: { add: vi.fn() } } as unknown as HandlerContext["chatScrollBox"];
+    ctx.messageNodes = [];
+
+    const renderSidebarTurns = vi.fn();
+    await sendMessage(
+      ctx,
+      "switch route",
+      { node: null },
+      vi.fn(),
+      renderSidebarTurns,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      { interval: null },
+    );
+
+    expect(ctx.state.contextUsage).toBeUndefined();
+    expect(renderSidebarTurns).toHaveBeenCalled();
+  });
+
   it("projects authority and resource identity for governed work items", () => {
     const ctx = handlerContext();
     const workUpdated = sessionEvent("evt-work-updated", 1, "work_item_updated", {

@@ -182,6 +182,20 @@ move to their canonical modes. Regression coverage locks this behavior:
 turns/tokens/cost and field telemetry are not rendered as always-visible chrome,
 and theme selection is available through Setup.
 
+## Composer Context Usage
+
+The composer rail renders the shared per-turn context projection. A percentage
+appears only when Runtime supplied a compatible numerator and denominator; `P`
+marks partial evidence, an em dash is unavailable, and `H` marks restored
+historical evidence. The focusable control has a matching accessible name and
+tooltip. It is not transcript length or a current provider probe. GUI validates
+the Gateway DTO but does not change state, freshness, or authority locally.
+
+Selecting a provider/model affects the next turn only. A completed or restored
+context observation remains bound to the route that produced it; incompatible
+new route evidence is rejected by Runtime rather than displayed as a retained
+percentage.
+
 Activity details must be projections of the canonical session timeline. Do not
 maintain separate GUI-only caches for changed files, continuity, approval
 state, cost, or routing when the same facts already exist in `session_event`

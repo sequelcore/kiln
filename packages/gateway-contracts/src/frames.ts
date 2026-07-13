@@ -445,6 +445,7 @@ export type OperatorSessionEventKind =
   | "config_change_failed"
   | "file_changed"
   | "cost_updated"
+  | "context_usage_observed"
   | "lifecycle_attribution_recorded"
   | "work_item_updated"
   | "work_item_execution_started"

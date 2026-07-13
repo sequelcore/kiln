@@ -137,6 +137,7 @@ export function AppShell() {
   const messageCount = useSessionStore((state) => state.messages.length);
   const turnCounter = useSessionStore((state) => state.turnCounter);
   const authorityStatus = useSessionStore((state) => state.authorityStatus);
+  const contextUsage = useSessionStore((state) => state.contextUsage);
   const activityPhase = useSessionStore((state) => state.activityPhase);
   const interactiveUseSnapshot = useSessionStore((state) => state.interactiveUseSnapshot);
   const browserSessionState = useSessionStore((state) => state.browserSessionState);
@@ -1001,6 +1002,7 @@ export function AppShell() {
               status,
               planMode,
               continuityHint: composerContinuityHint,
+              contextUsage,
               providerControl: (
                 <ProviderStatus
                   compact

@@ -8,6 +8,7 @@ import type {
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
   OperatorWorkspaceHomeProjection,
+  ContextUsageProjection,
 } from "@kilnai/gateway-contracts";
 import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
@@ -42,6 +43,7 @@ export interface ReactiveState {
   turns: number;
   inputTokens: number;
   outputTokens: number;
+  contextUsage?: ContextUsageProjection;
   themePickerOpen: boolean;
   themePickerIndex: number;
   providerPickerOpen: boolean;
@@ -204,6 +206,7 @@ export function createReactiveState(): ReactiveState {
     turns: 0,
     inputTokens: 0,
     outputTokens: 0,
+    contextUsage: undefined,
     themePickerOpen: false,
     themePickerIndex: 0,
     providerPickerOpen: false,

@@ -5,6 +5,7 @@ import { ComposerCommandMenu } from "./composer-command-menu.js";
 import { ComposerContinuityChip } from "./composer-continuity-chip.js";
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from "@/components/ui/input-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatContextUsageProjection, type ContextUsageProjection } from "@kilnai/gateway-contracts";
 
 export interface ComposerCommandMenuState {
   readonly open: boolean;
@@ -18,6 +19,7 @@ export interface ComposerCommandMenuState {
 export function ComposerFrame(props: {
   readonly draft: string;
   readonly continuityHint: ComposerContinuityHint;
+  readonly contextUsage?: ContextUsageProjection | null;
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
   readonly authorityControl?: ReactNode;
@@ -74,7 +76,7 @@ export function ComposerFrame(props: {
               <div className="hidden min-w-0 md:block" />
               <div className="col-span-2 flex min-w-0 flex-wrap items-center justify-end gap-1 md:col-span-1 md:flex-nowrap">
               <ComposerContinuityChip hint={props.continuityHint} />
-                <ComposerContextIndicator />
+                <ComposerContextIndicator contextUsage={props.contextUsage} />
               {hasRuntimeControls ? (
                   <>
                   {props.providerControl ? (
@@ -95,22 +97,41 @@ export function ComposerFrame(props: {
   );
 }
 
-function ComposerContextIndicator() {
+function ComposerContextIndicator(props: { readonly contextUsage?: ContextUsageProjection | null }) {
+  const usage = props.contextUsage ?? null;
+  const historical = usage?.freshness === "historical";
+  const baseLabel = usage ? formatContextUsageProjection(usage) : "Context usage unavailable";
+  const label = historical ? `${baseLabel}; restored historical measurement` : baseLabel;
+  const percentage = usage?.usedPercentage;
+  const partial = usage?.state === "partial";
+  const unavailable = usage?.state !== "authoritative" && !partial;
+  const dashOffset = percentage === undefined ? 50 : 50 - (50 * percentage / 100);
   return (
     <TooltipProvider delay={300}>
       <Tooltip>
         <TooltipTrigger
           render={(
-            <span
-              role="status"
-              aria-label="Context usage unavailable"
-              className="grid size-7 shrink-0 place-items-center rounded-full border border-border bg-background/60 text-muted-foreground"
+            <button
+              type="button"
+              aria-label={label}
+              className="relative grid size-7 shrink-0 place-items-center rounded-full border border-border bg-background/60 text-[9px] font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
-              <span className="size-2 rounded-full border border-muted-foreground/45" aria-hidden="true" />
-            </span>
+              <svg viewBox="0 0 20 20" className="size-4 -rotate-90" aria-hidden="true">
+                <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+                {unavailable ? <circle cx="10" cy="10" r="2" fill="currentColor" /> : (
+                  <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="50" strokeDashoffset={dashOffset} />
+                )}
+              </svg>
+              <span aria-hidden="true">{unavailable ? "—" : partial ? "P" : `${Math.round(percentage ?? 0)}%`}</span>
+              {historical ? (
+                <span aria-hidden="true" className="absolute right-0 top-0 rounded-full bg-muted px-0.5 text-[7px] leading-3">
+                  H
+                </span>
+              ) : null}
+            </button>
           )}
         />
-        <TooltipContent>Context usage unavailable</TooltipContent>
+        <TooltipContent>{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

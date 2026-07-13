@@ -9,6 +9,7 @@ import {
   voiceInputDisplayText,
 } from "@kilnai/gateway-contracts/voice-input-parts";
 import type { SessionStatus } from "../lib/session-store.js";
+import type { ContextUsageProjection } from "@kilnai/gateway-contracts";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { ComposerLeadingActions, ComposerTrailingActions } from "./composer-actions.js";
 import { ComposerFrame, type ComposerCommandMenuState } from "./composer-frame.js";
@@ -17,6 +18,7 @@ interface ComposerProps {
   readonly status: SessionStatus;
   readonly planMode: boolean;
   readonly continuityHint: ComposerContinuityHint;
+  readonly contextUsage?: ContextUsageProjection | null;
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
   readonly authorityControl?: ReactNode;
@@ -226,6 +228,7 @@ export function Composer(props: ComposerProps) {
     <ComposerFrame
       draft={draft}
       continuityHint={props.continuityHint}
+      contextUsage={props.contextUsage}
       providerControl={props.providerControl}
       reasoningControl={props.reasoningControl}
       authorityControl={props.authorityControl}

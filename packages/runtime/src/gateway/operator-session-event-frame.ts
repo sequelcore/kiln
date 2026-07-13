@@ -3,6 +3,7 @@ import {
   type CanonicalSessionEvent,
 } from "@kilnai/core";
 import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
+import { toGatewayContextUsageProjection } from "./context-usage-projection-mapper.js";
 
 export function toOperatorSessionEventFrame(
   event: CanonicalSessionEvent,
@@ -47,6 +48,9 @@ function canonicalSessionEventPayload(
     if (!envelopeKeys.has(key)) {
       payload[key] = value;
     }
+  }
+  if (event.kind === "context_usage_observed") {
+    payload.contextUsage = toGatewayContextUsageProjection(event.contextUsage);
   }
   if (options.instanceId && typeof payload.instanceId !== "string") {
     payload.instanceId = options.instanceId;

@@ -90,6 +90,7 @@ export class OllamaAdapter implements ProviderAdapter {
       outputTokens: data.eval_count ?? 0,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      contextUsage: { measurement: "provider_reported", cacheSemantics: "included_in_input" },
       toolCalls,
       stopReason: data.done ? "stop" : "length",
     };

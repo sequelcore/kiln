@@ -310,6 +310,26 @@ function findProviderModelCapabilities(
   return discovery.find((entry) => entry.provider === provider)?.modelCapabilities?.[model];
 }
 
+function buildTuiContextUsageWindowEvidence(
+  providerId: string,
+  modelId: string | undefined,
+  capabilities: GuiProviderModelCapabilities | undefined,
+  discovery: readonly GuiProviderDiscoveryResult[],
+) {
+  const tokens = capabilities?.contextWindow;
+  if (!modelId || !Number.isInteger(tokens) || !tokens || tokens < 1) {
+    return undefined;
+  }
+  const status = discovery.find((entry) => entry.provider === providerId)?.status;
+  return {
+    providerId,
+    modelId,
+    tokens,
+    authority: "runtime_observed" as const,
+    freshness: status === "stale" ? "stale" as const : "fresh" as const,
+  };
+}
+
 function findProviderModelRouteHealth(
   discovery: readonly GuiProviderDiscoveryResult[],
   provider: string | undefined,
@@ -891,6 +911,15 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 channel: "tui",
                 resumeSessionHydrator: options.resumeSessionHydrator,
                 providerValidation: currentDiscovery,
+                contextUsageWindow: buildTuiContextUsageWindowEvidence(
+                  activeProvider,
+                  activeModel,
+                  activeModelCapabilities,
+                  currentDiscovery,
+                ),
+                publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
+                  events.filter((event) => event.kind === "context_usage_observed"),
+                ),
                 executionMode,
                 contextArtifactCache: options.contextArtifactCache,
                 artifactStore: options.artifactStore,

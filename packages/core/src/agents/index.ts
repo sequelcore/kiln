@@ -1,4 +1,5 @@
 import type { ContentPart } from "../engine/domain/content.js";
+import type { ContextUsageRawEvidence } from "../events/context-usage-projection.js";
 
 /**
  * Agent role in the orchestration.
@@ -57,6 +58,8 @@ export interface AgentResponse {
   readonly cacheWriteTokens: number;
   readonly toolCalls: readonly ToolCall[];
   readonly stopReason: string;
+  /** Adapter-owned cache semantics for the accompanying token fields. */
+  readonly contextUsage?: ContextUsageRawEvidence;
 }
 
 /** Tool definition for agent */

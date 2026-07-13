@@ -2,6 +2,7 @@ import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type { AgentMessage, ReasoningEffort } from "../agents/index.js";
 import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { SessionToolUsageSnapshot } from "./session-event.js";
+import type { ContextUsageRawEvidence } from "./context-usage-projection.js";
 
 export type ExecutionSessionCostTrackingMode =
   | "native"
@@ -32,6 +33,9 @@ export interface ExecutionSessionToolResultResourceLink {
 
 export interface ProviderRequestEvidence {
   readonly requestIndex: number;
+  /** Route that produced this request, including retries and fallbacks. */
+  readonly providerId: string;
+  readonly modelId: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
@@ -55,6 +59,7 @@ export interface ProviderRequestEvidence {
   readonly toolCount: number;
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly stopReason?: string;
+  readonly contextUsage?: ContextUsageRawEvidence;
 }
 
 export interface ProviderRequestToolProjectionEvidence {

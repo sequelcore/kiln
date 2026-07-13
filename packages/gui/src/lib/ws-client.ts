@@ -8,6 +8,7 @@ import type {
   GuiInboundFrame,
   GuiOutboundFrame,
 } from "@kilnai/gateway-contracts";
+import { ContextUsageProjectionSchema } from "@kilnai/gateway-contracts";
 
 // --- Zod Schemas for frame validation ---
 
@@ -423,6 +424,7 @@ const GuiSessionEventSchema = z.object({
     "config_change_failed",
     "file_changed",
     "cost_updated",
+    "context_usage_observed",
     "lifecycle_attribution_recorded",
     "work_item_updated",
     "work_item_execution_started",
@@ -447,6 +449,11 @@ const GuiSessionEventSchema = z.object({
     component: z.string().optional(),
   }).optional(),
   payload: z.record(z.string(), z.unknown()),
+}).superRefine((event, ctx) => {
+  if (event.kind !== "context_usage_observed") return;
+  if (!ContextUsageProjectionSchema.safeParse(event.payload.contextUsage).success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "context_usage_observed requires a valid contextUsage projection" });
+  }
 });
 
 /** Schema for GuiInboundFrame validation. */
