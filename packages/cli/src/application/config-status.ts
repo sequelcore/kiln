@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { KILN_STATUS_EVIDENCE_VERSION } from "@kilnai/gateway-contracts";
 import type {
   KilnConfigReadResult,
   KilnConfigReadView,
@@ -124,6 +125,7 @@ export async function readConfigStatusSnapshot(
   });
 
   return {
+    evidenceVersion: KILN_STATUS_EVIDENCE_VERSION,
     generatedAt: (options.now ?? new Date()).toISOString(),
     project: {
       rootPath,

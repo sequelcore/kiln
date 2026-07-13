@@ -1,13 +1,8 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   createNativeHarnessInspectionService,
-  type NativeHarnessInspectionFailure,
   type NativeHarnessInspectionService,
 } from "../application/native-harness-inspection.js";
-import { readConfigStatusSnapshot } from "../application/config-status.js";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { parse as parseToml } from "smol-toml";
 
 const TOOL_NAMES = [
   "kiln_status_inspect",
@@ -51,10 +46,7 @@ export class CodexAppMcpServer {
   private sdk: CodexAppMcpSdk | undefined;
 
   constructor(options: CodexAppMcpServerOptions = {}) {
-    this.inspection = options.inspection ?? createNativeHarnessInspectionService({
-      readStatus: readConfigStatusSnapshot,
-      readBridgeProjection: readCodexAppBridgeProjection,
-    });
+    this.inspection = options.inspection ?? createNativeHarnessInspectionService();
     this.sdkLoader = options.sdkLoader ?? loadSdk;
     this.transportFactory = options.transportFactory ?? (() => new StdioServerTransport());
   }
@@ -96,9 +88,7 @@ export class CodexAppMcpServer {
       : name === "kiln_work_governance_inspect"
         ? await this.inspection.inspectWorkGovernance()
         : await this.inspection.inspectCapability();
-    return isInspectionFailure(result)
-      ? this.error(result.error.code, result.error.message, result.error.operatorAction, requestId)
-      : this.success(result, requestId);
+    return this.success(result, requestId);
   }
 
   async close(): Promise<void> {
@@ -166,26 +156,6 @@ function isEmptyObject(value: unknown): value is Record<string, never> {
 
 function isMutationOperation(name: string): boolean {
   return /(?:managed[_ .-]?agent|invoke|config|setup|sync|work[_ .-]?item|goal|mutation|apply)/iu.test(name);
-}
-
-function isInspectionFailure(value: unknown): value is NativeHarnessInspectionFailure {
-  return typeof value === "object" && value !== null && "error" in value;
-}
-
-async function readCodexAppBridgeProjection(): Promise<"current" | "missing" | "invalid"> {
-  const path = join(process.cwd(), ".codex", "config.toml");
-  if (!existsSync(path)) return "missing";
-  try {
-    const parsed = parseToml(readFileSync(path, "utf8")) as { mcp_servers?: { kiln?: { command?: unknown; args?: unknown; enabled?: unknown } } };
-    const server = parsed.mcp_servers?.kiln;
-    return server?.command === "bun"
-      && Array.isArray(server.args)
-      && server.args.length === 1
-      && server.args[0] === "packages/cli/src/native-harness/codex-app-mcp.ts"
-      && server.enabled === true ? "current" : "invalid";
-  } catch {
-    return "invalid";
-  }
 }
 
 async function loadSdk(): Promise<CodexAppMcpSdk> {

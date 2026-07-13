@@ -62,6 +62,7 @@ export type {
   KilnHarnessCapabilitySnapshot,
   KilnProjectionTargetSnapshot,
   KilnProjectionTargetStatus,
+  KilnResolvedWorkGovernancePolicy,
   KilnRepoShimProjectionSnapshot,
   KilnSkillAdmissionState,
   KilnSkillCatalogProjectionStatus,
@@ -73,7 +74,10 @@ export type {
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,
+  KILN_STATUS_EVIDENCE_VERSION,
   KILN_SETUP_HARNESSES,
+  KILN_WORK_GOVERNANCE_EVIDENCE,
+  KILN_WORK_GOVERNANCE_TRIGGERS,
   GUI_EXECUTABLE_CONFIG_SETUP_ACTIONS,
   KILN_CONFIG_SETUP_ACTION_STATUSES,
   KILN_CONFIG_SETUP_ACTIONS,
@@ -88,6 +92,7 @@ export {
   KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
   KilnConfigStatusSnapshotSchema,
+  KilnResolvedWorkGovernancePolicySchema,
   KilnConfigSourceSnapshotSchema,
   KilnProjectionTargetSnapshotSchema,
   KilnRepoShimProjectionSnapshotSchema,

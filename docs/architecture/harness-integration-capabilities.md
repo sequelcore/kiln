@@ -70,10 +70,31 @@ or any shell command.
 The adapter returns source, observation time, harness identity, request
 identity, and the direct-provider/native-harness authority boundary. It removes
 paths, effective configuration, errors, environment values, and credentials
-from model-visible output. Malformed, unsupported, mutation, missing-owner,
-and incomplete-evidence requests return stable machine-readable errors and
-operator actions. It exposes neither managed-agent invocation nor configuration
-mutation.
+from model-visible output. Unsupported or mutation requests return stable MCP
+errors. Read acquisition failures return typed unresolved envelopes with one
+operator action, so the three inspections remain diagnostically useful without
+inventing authority. It exposes neither managed-agent invocation nor
+configuration mutation.
+
+Read-only diagnostic acquisition is deliberately not an authority decision. A
+valid canonical status snapshot with stale or drifted harness projections is
+returned as a **degraded** status result with target-scoped setup diagnostics.
+Projection freshness and drift remain unresolved observations; they do not make
+the canonical global/project configuration, resolved policy, or independently
+observed capability disappear. Conversely, governance returns an
+`authority: unresolved` envelope when canonical policy evidence is missing or
+malformed, and capability inspection returns observed fields with
+`availability: unresolved` when bridge or capability proof is incomplete.
+Only authority-dependent decisions fail closed; diagnostics remain available to
+explain how to repair the boundary.
+
+The native-harness status-projection boundary validates the canonical evidence
+version, full status shape, and observation time before projecting it. Missing,
+malformed, future, stale, or unsupported evidence is unresolved; a resolved
+governance policy is additionally validated as a complete policy contract
+before it can be authoritative. The bridge identifies its project root from
+its module location and checkout markers, not `process.cwd()`: the committed
+relative `.codex/config.toml` declaration remains portable across checkouts.
 
 Codex uses project-local MCP configuration only for trusted workspaces. Trust
 is held by Codex, outside Kiln's authority, and must be established by the

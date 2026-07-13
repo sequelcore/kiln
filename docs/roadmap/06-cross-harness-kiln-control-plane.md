@@ -324,7 +324,7 @@ Exit gate:
 
 ### Slice 2 - Kiln Tool Surface In Native Harnesses
 
-Status: In progress: the Codex App read-only status/governance/capability sub-slice is complete on 2026-07-13; broader harness adapters remain planned.
+Status: In progress: the Codex App read-only status/governance/capability sub-slice has recovered implementation and verification evidence, but remains awaiting a follow-up real Codex App revalidation; broader harness adapters remain planned.
 
 Goal: make Kiln tools available from supported harnesses through governed
 adapters instead of shell workarounds.
@@ -351,6 +351,15 @@ mutation denial, deterministic serialization, secret-safe projection, and no
 CLI subprocess route. Codex App discovery still requires existing Codex project
 trust and an operator restart when the app has an already-active thread; this
 task does not mutate Codex home configuration or claim a live discovery event.
+
+The first live Codex App invocation exposed an adapter defect: the read-only
+query treated unrelated stale or drifted projections as a complete status
+acquisition failure. The recovery preserves degraded status and observed
+capability envelopes, makes project discovery independent of the process CWD,
+and validates evidence version, freshness, shape, and resolved governance at
+the canonical status-projection boundary. Governance remains fail-closed when
+its canonical policy evidence is missing or malformed. The sub-slice is not
+complete until a follow-up Codex App invocation verifies useful envelopes.
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 

@@ -1,15 +1,22 @@
-import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
+import { discoverNativeHarnessProjectRoot } from "../../src/application/native-harness-project-root.js";
 import {
   CodexAppMcpServer,
   createNativeHarnessInspectionService,
   type CodexAppMcpSdk,
 } from "../../src/native-harness/codex-app-mcp-server.js";
 
+const OBSERVED_AT = "2026-07-13T18:01:00.000Z";
+const TEMPORARY_CWD = join(tmpdir(), "kiln-codex-app-mcp-unrelated-cwd");
+
 function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfigStatusSnapshot {
   return {
+    evidenceVersion: 1,
     generatedAt: "2026-07-13T18:00:00.000Z",
     project: {
       rootPath: "C:\\workspace\\kiln",
@@ -55,13 +62,25 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
   };
 }
 
-function createServer(status = snapshot()): CodexAppMcpServer {
+function createServer(
+  status = snapshot(),
+  options: Parameters<typeof createNativeHarnessInspectionService>[0] = {},
+): CodexAppMcpServer {
   return new CodexAppMcpServer({
-    inspection: createNativeHarnessInspectionService({ readStatus: async () => status, readBridgeProjection: async () => "current" }),
+    inspection: createNativeHarnessInspectionService({
+      readStatus: async () => status,
+      readBridgeProjection: async () => "current",
+      readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\kiln" }),
+      now: () => new Date(OBSERVED_AT),
+      ...options,
+    }),
   });
 }
 
 describe("CodexAppMcpServer", () => {
+  afterEach(() => {
+    rmSync(TEMPORARY_CWD, { recursive: true, force: true });
+  });
   it("discovers only the three read-only inspection tools", () => {
     expect(createServer().listTools().map((tool) => tool.name)).toEqual([
       "kiln_status_inspect",
@@ -122,30 +141,253 @@ describe("CodexAppMcpServer", () => {
     });
   });
 
-  it("fails closed for stale or incomplete evidence and never reflects secrets", async () => {
+  it("returns the live stale-projection condition as a degraded, actionable status snapshot", async () => {
+    const stale = await createServer(snapshot({ projections: [{ targetId: "codex-global-instructions", path: "secret-path", kind: "global-instruction-shim", status: "stale" }] })).callTool("kiln_status_inspect", {});
+
+    expect(stale).toMatchObject({
+      structuredContent: {
+        operation: "status",
+        status: { completeness: "degraded" },
+        diagnostics: [expect.objectContaining({ code: "KILN_PROJECTION_STALE", targetId: "codex-global-instructions" })],
+      },
+    });
+    expect(JSON.stringify(stale)).not.toContain("secret-path");
+  });
+
+  it("refuses governance authority while returning a typed diagnostic envelope", async () => {
+    const result = await createServer(snapshot({ effectiveConfig: {} })).callTool("kiln_work_governance_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: { operation: "work-governance", authority: "unresolved", diagnostics: [expect.objectContaining({ code: "KILN_GOVERNANCE_EVIDENCE_MALFORMED" })] },
+    });
+  });
+
+  it("rejects malformed resolved governance policy instead of authorizing it", async () => {
+    const malformed = snapshot({
+      effectiveConfig: {
+        workGovernance: {
+          defaultPosture: "direct",
+          directExecution: { maxFiles: 0, maxRisk: "low" },
+          requireDelegationFor: ["not-a-trigger"],
+          requiredEvidence: ["surface-map"],
+        },
+      },
+    });
+
+    const result = await createServer(malformed).callTool("kiln_work_governance_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        operation: "work-governance",
+        authority: "unresolved",
+        diagnostics: [expect.objectContaining({ code: "KILN_GOVERNANCE_EVIDENCE_MALFORMED" })],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("not-a-trigger");
+  });
+
+  it.each([
+    ["missing required discriminants", { defaultPosture: "direct" }],
+    ["fractional direct file limit", { defaultPosture: "direct", directExecution: { maxFiles: 1.5, maxRisk: "low" }, requireDelegationFor: [], requiredEvidence: [] }],
+    ["unsupported risk", { defaultPosture: "direct", directExecution: { maxFiles: 1, maxRisk: "critical" }, requireDelegationFor: [], requiredEvidence: [] }],
+    ["duplicated authority trigger", { defaultPosture: "direct", directExecution: { maxFiles: 1, maxRisk: "low" }, requireDelegationFor: ["security", "security"], requiredEvidence: [] }],
+    ["unsupported evidence", { defaultPosture: "direct", directExecution: { maxFiles: 1, maxRisk: "low" }, requireDelegationFor: [], requiredEvidence: ["operator-says-so"] }],
+  ])("rejects %s governance evidence", async (_, workGovernance) => {
+    const result = await createServer(snapshot({ effectiveConfig: { workGovernance } })).callTool("kiln_work_governance_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: { authority: "unresolved", diagnostics: [expect.objectContaining({ code: "KILN_GOVERNANCE_EVIDENCE_MALFORMED" })] },
+    });
+  });
+
+  it("returns observed capabilities while classifying bridge and projection evidence as unresolved", async () => {
+    const inspection = createNativeHarnessInspectionService({
+      readStatus: async () => snapshot({ projections: [{ targetId: "codex-config", path: "ignored", kind: "native", status: "drifted" }] }),
+      readBridgeProjection: async () => "invalid",
+      readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\kiln" }),
+      now: () => new Date(OBSERVED_AT),
+    });
+    const result = await new CodexAppMcpServer({ inspection }).callTool("kiln_capability_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        operation: "capability",
+        capability: { availability: "unresolved" },
+        diagnostics: expect.arrayContaining([expect.objectContaining({ code: "KILN_BRIDGE_PROJECTION_UNRESOLVED" })]),
+      },
+    });
+  });
+
+  it("keeps independently observed Codex capability available when an unrelated projection is stale", async () => {
+    const result = await createServer(snapshot({
+      projections: [{ targetId: "claude-global-instructions", path: "ignored", kind: "global-instruction-shim", status: "stale" }],
+    })).callTool("kiln_capability_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        operation: "capability",
+        capability: { availability: "available", bridgeProjection: "current" },
+        diagnostics: [expect.objectContaining({ code: "KILN_PROJECTION_STALE", targetId: "claude-global-instructions" })],
+      },
+    });
+  });
+
+  it("returns a typed unresolved capability envelope when the bridge read fails", async () => {
+    const result = await createServer(snapshot(), {
+      readBridgeProjection: async () => {
+        throw new Error("C:\\secrets\\config.toml token=super-secret");
+      },
+    }).callTool("kiln_capability_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        operation: "capability",
+        capability: { availability: "unresolved" },
+        diagnostics: expect.arrayContaining([expect.objectContaining({ code: "KILN_BRIDGE_READ_FAILED" })]),
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("super-secret");
+    expect(JSON.stringify(result)).not.toContain("C:\\secrets");
+  });
+
+  it("fails closed for malformed canonical evidence and never reflects secrets", async () => {
     const result = await createServer(snapshot({ errors: ["token=super-secret"] })).callTool("kiln_status_inspect", {});
 
     expect(result).toMatchObject({
-      isError: true,
-      structuredContent: { error: { code: "KILN_STATUS_EVIDENCE_INCOMPLETE" } },
+      structuredContent: { operation: "status", status: { completeness: "degraded" }, diagnostics: [expect.objectContaining({ code: "KILN_STATUS_EVIDENCE_INCOMPLETE" })] },
     });
     expect(JSON.stringify(result)).not.toContain("super-secret");
-    const stale = await createServer(snapshot({ projections: [{ targetId: "codex", path: "ignored", kind: "native", status: "stale" }] })).callTool("kiln_status_inspect", {});
-    expect(stale).toMatchObject({ isError: true, structuredContent: { error: { code: "KILN_STATUS_EVIDENCE_INCOMPLETE" } } });
   });
 
-  it("reports a missing inspection owner as an actionable stable error", async () => {
-    const server = new CodexAppMcpServer({ inspection: createNativeHarnessInspectionService({ readBridgeProjection: async () => "current" }) });
+  it("reports a missing inspection owner through a stable unresolved envelope", async () => {
+    const server = new CodexAppMcpServer({ inspection: createNativeHarnessInspectionService({
+      readStatus: null,
+      readBridgeProjection: async () => "current",
+      readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\kiln" }),
+      now: () => new Date(OBSERVED_AT),
+    }) });
 
     await expect(server.callTool("kiln_status_inspect", {})).resolves.toMatchObject({
-      isError: true,
-      structuredContent: { error: { code: "KILN_RUNTIME_OWNER_MISSING" } },
+      structuredContent: {
+        operation: "status",
+        status: { completeness: "unresolved" },
+        diagnostics: [expect.objectContaining({ code: "KILN_RUNTIME_OWNER_MISSING" })],
+      },
     });
+  });
+
+  it.each([
+    ["missing", "KILN_PROJECT_ROOT_UNRESOLVED"],
+    ["ambiguous", "KILN_PROJECT_ROOT_AMBIGUOUS"],
+  ] as const)("keeps %s project discovery unavailable without reading the caller CWD", async (status, code) => {
+    const readStatus = async () => snapshot();
+    const result = await createServer(snapshot(), {
+      readStatus,
+      readProjectRoot: async () => ({ status }),
+    }).callTool("kiln_status_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: { status: { completeness: "unresolved" }, diagnostics: [expect.objectContaining({ code })] },
+    });
+  });
+
+  it("contains project-discovery initialization failures in a stable unresolved envelope", async () => {
+    const result = await createServer(snapshot(), {
+      readProjectRoot: async () => { throw new Error("C:\\private\\project identity"); },
+    }).callTool("kiln_status_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: { status: { completeness: "unresolved" }, diagnostics: [expect.objectContaining({ code: "KILN_INTERNAL_ADAPTER_FAILURE" })] },
+    });
+    expect(JSON.stringify(result)).not.toContain("private");
+  });
+
+  it("validates evidence versions and observation freshness before projecting authority", async () => {
+    const cases: readonly [string, KilnConfigStatusSnapshot, string][] = [
+      ["missing version", snapshot({ evidenceVersion: undefined }), "KILN_EVIDENCE_MALFORMED"],
+      ["missing observation", snapshot({ generatedAt: undefined } as unknown as Partial<KilnConfigStatusSnapshot>), "KILN_EVIDENCE_MALFORMED"],
+      ["unsupported version", snapshot({ evidenceVersion: 2 }), "KILN_EVIDENCE_VERSION_UNSUPPORTED"],
+      ["future observation", snapshot({ generatedAt: "2026-07-13T18:03:00.000Z" }), "KILN_EVIDENCE_FUTURE"],
+      ["stale observation", snapshot({ generatedAt: "2026-07-13T17:50:00.000Z" }), "KILN_EVIDENCE_STALE"],
+      ["invalid observation", snapshot({ generatedAt: "not-a-timestamp" }), "KILN_EVIDENCE_MALFORMED"],
+    ];
+
+    for (const [, status, code] of cases) {
+      const governance = await createServer(status).callTool("kiln_work_governance_inspect", {});
+      expect(governance).toMatchObject({
+        structuredContent: { authority: "unresolved", diagnostics: [expect.objectContaining({ code })] },
+      });
+    }
+  });
+
+  it("returns a configuration-read diagnostic when the canonical owner throws", async () => {
+    const result = await createServer(snapshot(), {
+      readStatus: async () => { throw new Error("C:\\private\\config.yaml token=super-secret"); },
+    }).callTool("kiln_status_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: { status: { completeness: "unresolved" }, diagnostics: [expect.objectContaining({ code: "KILN_CONFIGURATION_READ_FAILED" })] },
+    });
+    expect(JSON.stringify(result)).not.toContain("super-secret");
+    expect(JSON.stringify(result)).not.toContain("C:\\private");
+  });
+
+  it("does not let stale projection evidence grant or revoke independently valid governance authority", async () => {
+    const result = await createServer(snapshot({
+      projections: [{ targetId: "codex-global-instructions", path: "ignored", kind: "global-instruction-shim", status: "stale" }],
+    })).callTool("kiln_work_governance_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: {
+        authority: "authoritative",
+        diagnostics: [expect.objectContaining({ code: "KILN_PROJECTION_STALE" })],
+      },
+    });
+  });
+
+  it("rejects malformed status, projection, route, and capability evidence without leaking it", async () => {
+    const malformed = snapshot({
+      projections: [{ targetId: "codex", path: "C:\\secret", kind: "native", status: "current", routeIntegrity: { routeStatus: "unknown", credentialStatus: "valid", classification: "x" } }] as KilnConfigStatusSnapshot["projections"],
+      harnessCapabilities: [{ harness: "codex", displayName: "Codex", runtimeConfigInjection: "supported", nativeProjection: "install-state", nativeConfigImport: "supported", mcpRuntimeTools: 7, hooks: "supported", crossHarnessManagedInvocation: { adapterId: "a", supportedProviderIds: [] } }] as KilnConfigStatusSnapshot["harnessCapabilities"],
+    });
+
+    const result = await createServer(malformed).callTool("kiln_status_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: { status: { completeness: "unresolved" }, diagnostics: [expect.objectContaining({ code: "KILN_EVIDENCE_MALFORMED" })] },
+    });
+    expect(JSON.stringify(result)).not.toContain("C:\\secret");
+  });
+
+  it.each([
+    ["route classification", snapshot({ projections: [{ targetId: "codex", path: "C:\\secret", kind: "native", status: "current", routeIntegrity: { catalogStatus: { status: "available" }, explicitProbeStatus: "succeeded", credentialSource: "none", bareProofSupported: true, routeStatus: "matches-canonical", credentialStatus: "valid", classification: "token=super-secret" } }] })],
+    ["capability status", snapshot({ harnessCapabilities: [{ ...snapshot().harnessCapabilities[0]!, mcpRuntimeTools: "token=super-secret" }] })],
+  ])("rejects poisoned %s evidence before it reaches a tool response", async (_, status) => {
+    const result = await createServer(status).callTool("kiln_status_inspect", {});
+
+    expect(result).toMatchObject({
+      structuredContent: { status: { completeness: "unresolved" }, diagnostics: [expect.objectContaining({ code: "KILN_EVIDENCE_MALFORMED" })] },
+    });
+    expect(JSON.stringify(result)).not.toContain("super-secret");
+  });
+
+  it("discovers this checkout from the adapter module, independent of repository or unrelated process CWD", () => {
+    const repositoryRoot = discoverNativeHarnessProjectRoot();
+    mkdirSync(TEMPORARY_CWD, { recursive: true });
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(TEMPORARY_CWD);
+      expect(discoverNativeHarnessProjectRoot()).toEqual(repositoryRoot);
+    } finally {
+      process.chdir(originalCwd);
+    }
+    expect(repositoryRoot).toMatchObject({ status: "resolved" });
   });
 
   it("uses no CLI subprocess route", () => {
-    const source = readFileSync(join(process.cwd(), "src", "native-harness", "codex-app-mcp-server.ts"), "utf8");
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "native-harness", "codex-app-mcp-server.ts"), "utf8");
     expect(source).not.toMatch(/child_process|spawn\(|exec\(|kiln tools|codex exec|opencode run/);
+    expect(source).not.toContain("process.cwd()");
   });
 
   it("registers MCP protocol handlers and closes the connected transport", async () => {
@@ -165,7 +407,12 @@ describe("CodexAppMcpServer", () => {
     };
     const transport = { close: async () => { transportClosed = true; } } as never;
     const server = new CodexAppMcpServer({
-      inspection: createNativeHarnessInspectionService({ readStatus: async () => snapshot(), readBridgeProjection: async () => "current" }),
+      inspection: createNativeHarnessInspectionService({
+        readStatus: async () => snapshot(),
+        readBridgeProjection: async () => "current",
+        readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\kiln" }),
+        now: () => new Date(OBSERVED_AT),
+      }),
       sdkLoader: async () => sdk,
       transportFactory: () => transport,
     });

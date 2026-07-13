@@ -1,5 +1,74 @@
 import { z } from "zod";
 
+/** Version of status evidence that native-harness readers may treat as compatible. */
+export const KILN_STATUS_EVIDENCE_VERSION = 1 as const;
+
+export const KILN_WORK_GOVERNANCE_TRIGGERS = [
+  "architecture",
+  "security",
+  "ui",
+  "runtime",
+  "provider-routing",
+  "managed-agents",
+  "config",
+  "multi-file",
+  "cross-surface",
+  "long-running",
+  "verification-heavy",
+  "formal-proof-candidate",
+] as const;
+
+export const KILN_WORK_GOVERNANCE_EVIDENCE = [
+  "surface-map",
+  "risk-hypothesis",
+  "spec",
+  "plan",
+  "tests",
+  "typecheck",
+  "visual-reference-research",
+  "browser-qa",
+  "managed-agent-review",
+  "managed-orchestration:result-handoff",
+  "managed-orchestration:completion-signal",
+  "managed-orchestration:comparison-summary",
+  "managed-orchestration:route-outcome",
+  "managed-orchestration:adoption-gate",
+  "managed-orchestration:diff",
+  "managed-orchestration:verification",
+  "managed-orchestration:review",
+  "managed-orchestration:merge:compare-and-select",
+  "managed-orchestration:merge:collect-all",
+  "managed-orchestration:merge:first-success",
+  "managed-orchestration:merge:manual-review-required",
+  "managed-orchestration:merge:none",
+  "formal-proof",
+  "residual-risk",
+] as const;
+
+/**
+ * The fully resolved policy shape consumed by a native-harness inspection.
+ * Configuration parsing may accept partial operator input; an inspection never
+ * authorizes from partial or unknown policy evidence.
+ */
+export const KilnResolvedWorkGovernancePolicySchema = z.object({
+  defaultPosture: z.enum(["direct", "orchestrate"]),
+  directExecution: z.object({
+    maxFiles: z.number().int().positive(),
+    maxRisk: z.enum(["low", "medium", "high"]),
+  }).strict(),
+  requireDelegationFor: z.array(z.enum(KILN_WORK_GOVERNANCE_TRIGGERS)),
+  requiredEvidence: z.array(z.enum(KILN_WORK_GOVERNANCE_EVIDENCE)),
+}).strict().superRefine((value, context) => {
+  if (new Set(value.requireDelegationFor).size !== value.requireDelegationFor.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["requireDelegationFor"], message: "Delegation triggers must not be duplicated" });
+  }
+  if (new Set(value.requiredEvidence).size !== value.requiredEvidence.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["requiredEvidence"], message: "Required evidence entries must not be duplicated" });
+  }
+});
+
+export type KilnResolvedWorkGovernancePolicy = z.infer<typeof KilnResolvedWorkGovernancePolicySchema>;
+
 export const KILN_CONFIG_READ_VIEWS = [
   "effective",
   "providers",
@@ -414,6 +483,8 @@ export interface KilnConfigSetupActionResult {
 }
 
 export interface KilnConfigStatusSnapshot {
+  /** Optional for backwards-compatible transport decoding; consumers require it before authorization. */
+  readonly evidenceVersion?: number;
   readonly generatedAt: string;
   readonly project: KilnConfigProjectSnapshot;
   readonly global: KilnConfigSourceSnapshot;
@@ -439,6 +510,42 @@ export const KilnConfigSourceSnapshotSchema = z.object({
   error: z.string().optional(),
 });
 
+const NativeRouteCatalogStatusSchema = z.enum([
+  "available",
+  "authentication-failed",
+  "authorization-failed",
+  "unknown-model",
+  "unavailable-route",
+  "stale-catalog",
+  "disabled-provider",
+  "missing-default",
+  "not-observable",
+]);
+
+const NativeRouteProbeStatusSchema = z.enum([
+  "succeeded",
+  "authentication-failed",
+  "authorization-failed",
+  "unknown-model",
+  "unavailable-route",
+  "timeout",
+  "not-run",
+]);
+
+const NativeRouteIntegrityClassificationSchema = z.enum([
+  "ok",
+  "authentication-failure",
+  "authorization-failure",
+  "unknown-model",
+  "unavailable-route",
+  "stale-catalog",
+  "projection-drift",
+  "ambient-fallback-mismatch",
+  "missing-default",
+  "unsupported-proof",
+  "transient",
+]);
+
 export const KilnProjectionTargetSnapshotSchema = z.object({
   targetId: z.string(),
   path: z.string(),
@@ -462,13 +569,13 @@ export const KilnProjectionTargetSnapshotSchema = z.object({
       model: z.string(),
     }).optional(),
     catalogStatus: z.object({
-      status: z.string(),
+      status: NativeRouteCatalogStatusSchema,
       providerId: z.string().optional(),
       model: z.string().optional(),
       reason: z.string().optional(),
     }),
-    explicitProbeStatus: z.string(),
-    credentialSource: z.string(),
+    explicitProbeStatus: NativeRouteProbeStatusSchema,
+    credentialSource: z.enum(["env", "kiln-auth-store", "native-auth-store", "none", "unknown"]),
     bareProofSupported: z.boolean(),
     routeStatus: z.enum([
       "matches-canonical",
@@ -482,7 +589,7 @@ export const KilnProjectionTargetSnapshotSchema = z.object({
       "unknown",
     ]),
     credentialStatus: z.enum(["valid", "invalid", "unauthorized", "not-tested", "unknown"]),
-    classification: z.string(),
+    classification: NativeRouteIntegrityClassificationSchema,
   }).optional(),
 });
 
@@ -561,6 +668,7 @@ export const KilnConfigSetupActionResultSchema = z.object({
 });
 
 export const KilnConfigStatusSnapshotSchema = z.object({
+  evidenceVersion: z.number().int().positive().optional(),
   generatedAt: z.string().datetime(),
   project: z.object({
     rootPath: z.string(),
@@ -579,13 +687,13 @@ export const KilnConfigStatusSnapshotSchema = z.object({
   skills: KilnSkillCatalogSnapshotSchema.optional(),
   setup: KilnConfigSetupSnapshotSchema,
   harnessCapabilities: z.array(z.object({
-    harness: z.string(),
-    displayName: z.string(),
-    runtimeConfigInjection: z.string(),
-    nativeProjection: z.string(),
-    nativeConfigImport: z.string(),
-    mcpRuntimeTools: z.string(),
-    hooks: z.string(),
+    harness: z.enum(["claude", "codex", "opencode"]),
+    displayName: z.enum(["Claude Code", "Codex", "OpenCode"]),
+    runtimeConfigInjection: z.enum(["supported", "not-proven", "CODEX_HOME + CLI config overrides", "OPENCODE_CONFIG_CONTENT"]),
+    nativeProjection: z.enum(["install-state", "unsupported"]),
+    nativeConfigImport: z.enum(["supported", "unsupported"]),
+    mcpRuntimeTools: z.enum(["supported", "unsupported"]),
+    hooks: z.enum(["supported", "unsupported"]),
     crossHarnessManagedInvocation: z.object({
       adapterId: z.string(),
       supportedProviderIds: z.array(z.string()),
