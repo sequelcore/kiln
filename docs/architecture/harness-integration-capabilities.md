@@ -11,6 +11,79 @@ shape, sync, install-state, and drift behavior remain owned by
 
 ## Capability Model
 
+## Cross-Harness Authority Vocabulary
+
+Roadmap 06 Slice 0 establishes these terms. They are deliberately separate so
+transport and projection cannot become a second authority owner.
+
+- **Native harness**: an operator-facing product such as Codex App, Codex CLI,
+  Claude Code, or OpenCode. Its local permission and installation state applies
+  only while that harness executes its own route.
+- **Direct provider**: a Kiln runtime route backed by a provider mechanism that
+  Kiln can govern directly. `codex-oauth`, `opencode-go`, and `opencode-zen`
+  are direct providers, not Codex or OpenCode native-harness routes.
+- **Harness adapter (or bridge)**: a thin transport translation between a
+  native harness and Kiln application ports. It never owns route policy,
+  permissions, credentials, or managed-agent lifecycle.
+- **Kiln tool**: an admitted Kiln operation with a named application owner,
+  declared read/write authority, stable result contract, and evidence.
+- **Managed agent**: a child execution admitted by Kiln's managed-invocation
+  contract. It is not a native collaboration worker and is not exposed by the
+  Slice 2 read-only bridge.
+- **Invocation route**: the requested provider or harness execution path;
+  **resolved route** is the route Kiln admitted after policy and evidence
+  checks.
+- **Authority profile**: the bounded permissions and approval semantics
+  effective for an admitted runtime action. It is never inferred from a model,
+  prompt, plugin, or harness setting.
+- **Work-governance policy**: the resolved Kiln configuration that defines
+  orchestration posture, direct-execution limits, delegation triggers, and
+  required evidence.
+- **Capability availability**: an observed, source-attributed statement that a
+  mechanism is usable for an operation; absence, staleness, or incomplete
+  evidence is unavailable rather than a fallback invitation.
+- **Admission**: Kiln's fail-closed decision that a requested operation has all
+  required authority, route, capability, and evidence. **Delegation** is the
+  later act of starting an admitted managed agent.
+- **Evidence**: immutable, source-attributed observation data used to explain a
+  decision. **Projection** is a harness or UI representation of canonical
+  state; it is never authority.
+
+Classification: Codex App, Codex CLI, Claude Code, and OpenCode are native
+harnesses. `codex-oauth`, `opencode-go`, and `opencode-zen` are Kiln direct
+providers. MCP and plugin integrations are harness adapters; shell CLI
+processes are native-harness process adapters, never Kiln application
+services. Native-harness permissions therefore do not apply to Kiln direct
+provider routes. Direct-provider authority remains in Kiln runtime even when a
+Codex App MCP adapter is the caller.
+
+### Codex App Read-Only MCP Bridge
+
+The first admitted adapter is a project-local, trusted-workspace stdio MCP
+server declared by `.codex/config.toml`. Codex App owns discovery and child
+process lifecycle; `packages/cli/src/native-harness/codex-app-mcp.ts` owns only
+protocol startup, and its server maps three no-argument read-only operations to
+the CLI application's canonical status, resolved-governance, and harness
+capability query owners. It does not start `kiln`, `codex exec`, `opencode run`,
+or any shell command.
+
+The adapter returns source, observation time, harness identity, request
+identity, and the direct-provider/native-harness authority boundary. It removes
+paths, effective configuration, errors, environment values, and credentials
+from model-visible output. Malformed, unsupported, mutation, missing-owner,
+and incomplete-evidence requests return stable machine-readable errors and
+operator actions. It exposes neither managed-agent invocation nor configuration
+mutation.
+
+Codex uses project-local MCP configuration only for trusted workspaces. Trust
+is held by Codex, outside Kiln's authority, and must be established by the
+operator when absent. This is the only activation prerequisite; Kiln must not
+write `CODEX_HOME` or global Codex configuration. Codex App's MCP lifecycle and
+tool calls are documented by the [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
+The [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+and [tool error contract](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+govern lifecycle and error mapping.
+
 Each harness integration declares explicit support for:
 
 - runtime config injection

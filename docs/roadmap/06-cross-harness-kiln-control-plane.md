@@ -209,7 +209,7 @@ Current native-harness category:
 
 ### Slice 0 - Boundary And Vocabulary
 
-Status: Not started.
+Status: Complete on 2026-07-13.
 
 Goal: remove ambiguity from harness, provider, adapter, plugin, direct route,
 and native route vocabulary.
@@ -228,6 +228,18 @@ Exit gate:
 - no status, setup, or route-health surface uses provider and harness
   interchangeably;
 - tests cover Anthropic subscription versus API separation.
+
+Closure evidence:
+
+- Canonical vocabulary, direct-provider classification, and the projection
+  versus authority boundary now live in
+  `docs/architecture/harness-integration-capabilities.md`.
+- Native harness permissions are explicitly limited to native-harness routes;
+  `codex-oauth`, `opencode-go`, and `opencode-zen` retain Kiln runtime
+  authority.
+- The smallest admitted Slice 2 sub-slice is a Codex App read-only stdio MCP
+  bridge. It exposes canonical status, resolved work-governance policy, and
+  Codex capability diagnostics only. Managed-agent invocation remains Slice 3.
 
 ### Slice 1 - Global And Repo Projection Parity
 
@@ -312,7 +324,7 @@ Exit gate:
 
 ### Slice 2 - Kiln Tool Surface In Native Harnesses
 
-Status: Planned.
+Status: In progress: the Codex App read-only status/governance/capability sub-slice is complete on 2026-07-13; broader harness adapters remain planned.
 
 Goal: make Kiln tools available from supported harnesses through governed
 adapters instead of shell workarounds.
@@ -331,6 +343,14 @@ Exit gate:
 - Codex App or Codex CLI can inspect Kiln config/status through a governed
   tool surface;
 - unavailable tools fail closed with actionable diagnostics.
+
+Current evidence: `.codex/config.toml` declares the dedicated Kiln stdio MCP
+adapter for trusted workspaces. Isolated protocol tests cover discovery,
+canonical query mapping, malformed input, unavailable and incomplete evidence,
+mutation denial, deterministic serialization, secret-safe projection, and no
+CLI subprocess route. Codex App discovery still requires existing Codex project
+trust and an operator restart when the app has an already-active thread; this
+task does not mutate Codex home configuration or claim a live discovery event.
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 
