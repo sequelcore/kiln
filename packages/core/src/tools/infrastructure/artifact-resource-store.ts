@@ -28,7 +28,7 @@ const DEFAULT_MAX_ARTIFACTS_PER_NAMESPACE = 100;
 const NAMESPACE_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export interface ArtifactRetentionPolicy {
-  readonly scope: "session";
+  readonly scope: "session" | "verification";
   readonly maxArtifacts?: number;
 }
 
@@ -159,6 +159,15 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
       });
     }
 
+    const previousArtifacts = this.artifactsByNamespace.get(input.namespace) ?? [];
+    const protectedCount = previousArtifacts.filter((artifact) => artifact.retention.scope === "verification").length;
+    if (protectedCount >= this.maxArtifactsPerNamespace) {
+      throw artifactError("Artifact namespace capacity is protected by verification evidence", {
+        namespace: input.namespace,
+        maxArtifacts: this.maxArtifactsPerNamespace,
+      });
+    }
+
     const timestamp = this.now();
     const sequence = this.sequence + 1;
     this.sequence = sequence;
@@ -178,7 +187,6 @@ export class MemoryArtifactResourceStore implements ArtifactResourceStore {
       ...(input.multimodal ? { multimodal: input.multimodal } : {}),
       content: input.content,
     };
-    const previousArtifacts = this.artifactsByNamespace.get(input.namespace) ?? [];
     const artifacts = [...previousArtifacts, artifact];
     this.artifactsByNamespace.set(input.namespace, applyRetention(artifacts, input.retention, this.maxArtifactsPerNamespace));
     this.notifyArtifactChanged(artifact, previousArtifacts.length === 0);
@@ -500,8 +508,11 @@ function validateNamespace(namespace: string): void {
 }
 
 function validateRetention(retention: ArtifactRetentionPolicy | undefined): void {
-  if (!retention || retention.scope !== "session") {
+  if (!retention || (retention.scope !== "session" && retention.scope !== "verification")) {
     throw artifactError("Artifact retention policy is required", { retention });
+  }
+  if (retention.scope === "verification" && retention.maxArtifacts !== undefined) {
+    throw artifactError("Verification evidence retention cannot declare maxArtifacts", { retention });
   }
   if (retention.maxArtifacts !== undefined && (!Number.isFinite(retention.maxArtifacts) || retention.maxArtifacts <= 0)) {
     throw artifactError("Artifact retention maxArtifacts must be positive", { retention });
@@ -513,11 +524,21 @@ function applyRetention(
   retention: ArtifactRetentionPolicy,
   storeMaxArtifacts: number,
 ): readonly ArtifactResource[] {
-  const maxArtifacts = Math.max(1, Math.min(
-    storeMaxArtifacts,
-    Math.trunc(retention.maxArtifacts ?? storeMaxArtifacts),
-  ));
-  return artifacts.slice(Math.max(0, artifacts.length - maxArtifacts));
+  const protectedArtifacts = artifacts.filter((artifact) => artifact.retention.scope === "verification");
+  const requestedSessionArtifacts = retention.scope === "session"
+    ? Math.max(1, Math.min(storeMaxArtifacts, Math.trunc(retention.maxArtifacts ?? storeMaxArtifacts)))
+    : storeMaxArtifacts;
+  const sessionCapacity = Math.min(
+    requestedSessionArtifacts,
+    Math.max(0, storeMaxArtifacts - protectedArtifacts.length),
+  );
+  const sessionArtifacts = sessionCapacity === 0
+    ? []
+    : artifacts
+      .filter((artifact) => artifact.retention.scope === "session")
+      .slice(-sessionCapacity);
+  const retainedIds = new Set([...protectedArtifacts, ...sessionArtifacts].map((artifact) => artifact.id));
+  return artifacts.filter((artifact) => retainedIds.has(artifact.id));
 }
 
 function measureContentSize(content: ArtifactContent): number {

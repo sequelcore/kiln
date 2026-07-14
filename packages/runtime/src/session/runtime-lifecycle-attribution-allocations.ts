@@ -49,10 +49,20 @@ function projectContextAuditAllocations(
       tokens: block.estimatedTokens,
       quality: "estimated",
       artifactId: block.id,
-      evidenceUris: block.source.trim().length > 0 ? [block.source] : [],
-      context: { route },
+      evidenceUris: block.kind === "memory" && block.memoryRecordId
+        ? [`kiln://memory/nodes/${encodeURIComponent(block.memoryRecordId)}`]
+        : isCanonicalEvidenceUri(block.source) ? [block.source] : [],
+      context: {
+        route,
+        ...(block.kind === "memory" ? { phase: memoryLayerPhase(block.source) } : {}),
+      },
     }];
   });
+}
+
+function memoryLayerPhase(source: string): string {
+  const match = /^memory-recall:(working|episodic|semantic|procedural|coordination|audit)$/u.exec(source);
+  return match ? `memory:${match[1]}` : "memory:unknown";
 }
 
 function projectFinalOutputAllocations(
@@ -68,9 +78,15 @@ function projectFinalOutputAllocations(
     providerTokenClass: "output",
     tokens: finalOutput.estimatedTokens,
     quality: "estimated",
-    evidenceUris: finalOutput.evidenceUri ? [finalOutput.evidenceUri] : [],
+    evidenceUris: finalOutput.evidenceUri && isCanonicalEvidenceUri(finalOutput.evidenceUri)
+      ? [finalOutput.evidenceUri]
+      : [],
     context: { route },
   }];
+}
+
+function isCanonicalEvidenceUri(value: string): boolean {
+  return value.startsWith("kiln://");
 }
 
 function sourceKindFromContextBlockKind(

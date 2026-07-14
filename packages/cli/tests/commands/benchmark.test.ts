@@ -1,9 +1,12 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KILN_BENCHMARK_PROFILES } from "@kilnai/core";
 import { benchmarkCommand } from "../../src/commands/benchmark.js";
+
+const REPOSITORY_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
 const MOCK_APP_CONFIG = {
   appName: "kiln",
@@ -166,6 +169,30 @@ describe("benchmarkCommand", () => {
     await benchmarkCommand(MOCK_APP_CONFIG, "report", ["--baseline", baselinePath, "--output", outputPath]);
 
     expect(readFileSync(outputPath, "utf-8")).toContain("# Kiln Benchmark Report");
+    expect(readFileSync(outputPath, "utf-8")).toContain("Publication status: blocked");
+
+    const verifiedOutputPath = join(root, "verified-report.md");
+    await benchmarkCommand(MOCK_APP_CONFIG, "report", [
+      "--baseline", baselinePath,
+      "--output", verifiedOutputPath,
+      "--publication-manifest", join(REPOSITORY_ROOT, "docs/benchmarks/verified-efficiency-v1/manifest.json"),
+      "--repository-root", REPOSITORY_ROOT,
+    ]);
+    expect(readFileSync(verifiedOutputPath, "utf-8")).toContain("Publication status: internal-evidence-only");
+    expect(readFileSync(verifiedOutputPath, "utf-8")).toContain("Public claim allowed: no");
+
+    const malformedManifestPath = join(root, "malformed-publication-manifest.json");
+    const malformedOutputPath = join(root, "malformed-publication-report.md");
+    writeFileSync(malformedManifestPath, "{", "utf-8");
+    await benchmarkCommand(MOCK_APP_CONFIG, "report", [
+      "--baseline", baselinePath,
+      "--output", malformedOutputPath,
+      "--publication-manifest", malformedManifestPath,
+      "--repository-root", REPOSITORY_ROOT,
+    ]);
+    expect(readFileSync(malformedOutputPath, "utf-8")).toContain("Publication status: blocked");
+    expect(readFileSync(malformedOutputPath, "utf-8")).toContain("publication manifest must contain valid JSON");
+    expect(readFileSync(malformedOutputPath, "utf-8")).toContain("publication manifest shape is invalid");
   });
 
   it("fails closed when readiness has no baseline file", async () => {
@@ -355,6 +382,93 @@ describe("benchmarkCommand", () => {
     expect(parsed.baseline.profileId).toBe("kiln-tool-agent");
     expect(printed).not.toContain("Only one sentence.");
     expect(printed).not.toContain("Session Complete");
+  });
+
+  it("runs fixed-route reasoning-effort sweeps with distinct reproducible baselines", async () => {
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    const outputPath = join(root, "effort-sweep.json");
+    writeFileSync(datasetPath, JSON.stringify({
+      id: "effort-sweep",
+      input: "Call status.",
+      expected: "status",
+      metadata: { expectedToolCalls: [{ name: "status" }] },
+    }) + "\n", "utf-8");
+    const observedEfforts: Array<string | undefined> = [];
+
+    await benchmarkCommand(
+      MOCK_APP_CONFIG,
+      "run-internal",
+      [
+        "--profile", "kiln-tool-agent",
+        "--dataset", datasetPath,
+        "--k", "1",
+        "--output", outputPath,
+        "--provider", "codex",
+        "--model", "benchmark-model",
+        "--reasoning-effort-sweep", "low,high",
+      ],
+      {
+        createExecuteItem: (flags) => {
+          observedEfforts.push(flags.reasoningEffort);
+          return async () => ({
+            output: "status",
+            durationMs: 10,
+            costUsd: 0.01,
+            inputTokens: 5,
+            outputTokens: 3,
+            metadata: {
+              activeAgentId: "kiln-tool-agent",
+              toolCalls: [{ name: "status" }],
+              reasoningEffortResolution: {
+                status: "resolved",
+                requested: flags.reasoningEffort,
+                resolved: flags.reasoningEffort,
+                source: "explicit",
+              },
+              ...CACHE_TOPOLOGY_METADATA,
+            },
+          });
+        },
+      },
+    );
+
+    const written = JSON.parse(readFileSync(outputPath, "utf-8")) as {
+      readonly baseline?: unknown;
+      readonly baselines: readonly { readonly configHash: string }[];
+      readonly runs: readonly { readonly reasoningEffort: string }[];
+    };
+    expect(observedEfforts).toEqual(["low", "high"]);
+    expect(written.baseline).toBeUndefined();
+    expect(written.runs.map((run) => run.reasoningEffort)).toEqual(["low", "high"]);
+    expect(written.baselines).toHaveLength(2);
+    expect(written.baselines[0]?.configHash).not.toBe(written.baselines[1]?.configHash);
+  });
+
+  it("fails closed on ambiguous, unbound, and unbudgeted reasoning-effort benchmarks", async () => {
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    writeFileSync(datasetPath, JSON.stringify({
+      id: "effort-policy",
+      input: "Call status.",
+      expected: "status",
+    }) + "\n", "utf-8");
+    const base = ["--profile", "kiln-tool-agent", "--dataset", datasetPath, "--k", "1"];
+
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      ...base,
+      "--reasoning-effort", "low",
+      "--reasoning-effort-sweep", "low,high",
+    ])).rejects.toThrow("either --reasoning-effort or --reasoning-effort-sweep");
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      ...base,
+      "--reasoning-effort", "high",
+    ])).rejects.toThrow("require explicit --provider and --model");
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      ...base,
+      "--provider", "codex",
+      "--model", "benchmark-model",
+      "--reasoning-effort", "xhigh",
+      "--allow-experimental-xhigh",
+    ])).rejects.toThrow("requires --effort-budget-usd and --estimated-effort-cost-usd");
   });
 
   it("projects BFCL input rows into Kiln JSONL datasets", async () => {

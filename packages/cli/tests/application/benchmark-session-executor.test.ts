@@ -8,6 +8,9 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   createDefaultRegistry: vi.fn(),
   createSessionBuiltinToolOptions: vi.fn(),
   discoverManagedAgentProviderModels: vi.fn(),
+  discoverCodexCliModelDiscovery: vi.fn(),
+  discoverGuiDirectProviderModelDiscovery: vi.fn(),
+  discoverOpencodeCliModelDiscovery: vi.fn(),
   getProjectContextArtifactCache: vi.fn(),
   loadBuiltinToolSurfaceOptions: vi.fn(),
   loadKilnConfig: vi.fn(),
@@ -36,6 +39,9 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 });
 
 vi.mock("@kilnai/runtime", () => ({
+  discoverCodexCliModelDiscovery: benchmarkExecutorMocks.discoverCodexCliModelDiscovery,
+  discoverGuiDirectProviderModelDiscovery: benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery,
+  discoverOpencodeCliModelDiscovery: benchmarkExecutorMocks.discoverOpencodeCliModelDiscovery,
   getProjectContextArtifactCache: benchmarkExecutorMocks.getProjectContextArtifactCache,
   ProviderModelRouteHealthStore: class ProviderModelRouteHealthStore {
     recordOutcome = benchmarkExecutorMocks.recordRouteHealth;
@@ -212,6 +218,22 @@ describe("createBenchmarkSessionExecutor", () => {
       artifactResources: { store: {} },
     }));
     benchmarkExecutorMocks.discoverManagedAgentProviderModels.mockResolvedValue({});
+    benchmarkExecutorMocks.discoverCodexCliModelDiscovery.mockResolvedValue({
+      models: ["benchmark-model"],
+      modelCapabilities: {
+        "benchmark-model": { supportedReasoningEfforts: ["low", "medium", "high"] },
+      },
+      status: "available",
+      reason: "test",
+      authState: "authenticated",
+    });
+    benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery.mockResolvedValue({});
+    benchmarkExecutorMocks.discoverOpencodeCliModelDiscovery.mockResolvedValue({
+      models: [],
+      status: "unavailable",
+      reason: "test",
+      authState: "unknown",
+    });
     benchmarkExecutorMocks.getProjectContextArtifactCache.mockResolvedValue({});
     benchmarkExecutorMocks.loadBuiltinToolSurfaceOptions.mockResolvedValue({
       memoryResources: {
@@ -367,6 +389,57 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("[tool] status"));
+  });
+
+  it("resolves supported reasoning effort and records the exact route evidence", async () => {
+    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
+      { provider: "codex", model: "benchmark-model" },
+    ]);
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        provider: "codex",
+        model: "benchmark-model",
+        reasoningEffort: "high",
+      },
+    });
+
+    const result = await executor("Return exactly one sentence.", makeBenchmarkContext({
+      id: "reasoning-effort",
+      input: "Return exactly one sentence.",
+    }));
+
+    expect(result.metadata?.reasoningEffortResolution).toEqual({
+      status: "resolved",
+      requested: "high",
+      resolved: "high",
+      source: "explicit",
+    });
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
+      routeCandidates: [{ provider: "codex", model: "benchmark-model", reasoningEffort: "high" }],
+      sessionConfig: expect.objectContaining({ reasoningEffort: "high" }),
+    }));
+  });
+
+  it("fails closed when requested effort lacks provider capability evidence", async () => {
+    const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
+    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
+      { provider: "codex", model: "unknown-model" },
+    ]);
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        provider: "codex",
+        model: "unknown-model",
+        reasoningEffort: "high",
+      },
+    });
+
+    await expect(executor("Return exactly one sentence.", makeBenchmarkContext({
+      id: "unsupported-effort",
+      input: "Return exactly one sentence.",
+    }))).rejects.toThrow("capability-unknown");
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
 
   it("keeps abandoned provider partial output and fallback telemetry out of stdout", async () => {

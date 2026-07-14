@@ -84,11 +84,30 @@ function makeManagedAdapter(summary = "Delegated vision summary."): ManagedAgent
             { name: "output", value: 5 },
             { name: "cache_read", value: 0 },
           ],
+          cost: { currency: "unknown", amount: "unknown" },
         },
         resultHandoff: {
           summary,
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary,
+            uncertainty: 0,
+            limitations: ["The synthetic vision adapter does not exercise a live provider."],
+            operatorDecisions: [],
+            evidence: [{
+              uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+              kind: "artifact",
+            }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: ["Live provider behavior remains unverified by this unit test."],
+            verificationResults: [],
+          },
         },
       })),
   };
@@ -537,6 +556,73 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       attendance: "unattended",
       lifecycle: "automation",
     });
+  });
+
+  it("passes normalized phase, uncertainty, verification, and cost signals to the route owner", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Phase-aware route",
+      confidence: 0.9,
+      routingTier: "cascade",
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+      providerPool: new Map<string, ProviderAdapter>([["routed", routedProvider]]),
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("verify the change"), undefined, undefined, {
+      modelRoutingPolicy: {
+        task: "verified-change",
+        phase: "verify",
+        uncertainty: 0.7,
+        verificationNeed: 1,
+        retryRisk: 0.2,
+        cacheInvalidationCostUsd: 0.01,
+        verifierCostUsd: 0.03,
+      },
+    });
+
+    expect(router.route).toHaveBeenCalledWith(expect.objectContaining({
+      task: "verified-change",
+      phase: "verify",
+      uncertainty: 0.7,
+      verificationNeed: 1,
+      retryRisk: 0.2,
+      cacheInvalidationCostUsd: 0.01,
+      verifierCostUsd: 0.03,
+    }));
+    expect(result.routingDecision?.rationale.inputsUsed).toMatchObject({
+      task: "verified-change",
+      phase: "verify",
+      uncertainty: 0.7,
+      verificationNeed: 1,
+      retryRisk: 0.2,
+      cacheInvalidationCostUsd: 0.01,
+      verifierCostUsd: 0.03,
+    });
+  });
+
+  it("rejects invalid phase-aware route signals before routing or provider execution", async () => {
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Invalid route",
+      confidence: 1,
+      routingTier: "cascade",
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+    });
+
+    await expect(orchestrator.processMessage(makeSession(), textParts("verify"), undefined, undefined, {
+      modelRoutingPolicy: { uncertainty: 1.1 },
+    })).rejects.toThrow("Model routing uncertainty must be between 0 and 1");
+    expect(router.route).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
   });
 
   it("delegates image admission to a managed auxiliary route when the active route lacks vision", async () => {

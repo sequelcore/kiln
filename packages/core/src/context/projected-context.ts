@@ -8,6 +8,59 @@ export type ProjectedContextBlockKind =
   | "procedural"
   | "coordination";
 
+export type ContextProjectionMode = "full" | "lossless" | "reversible";
+export type ContextTaskPhase = "orient" | "plan" | "execute" | "verify" | "handoff";
+export type ContextAllocationMode = "whole-block" | "segmented" | "retrieval-on-demand";
+export type ContextPositionProfile = "balanced" | "edge-biased";
+export type RequiredContextOverflowPolicy = "admit-and-report" | "reject";
+
+export interface ContextUtilitySignals {
+  readonly semanticRelevance: number;
+  readonly authorityValue: number;
+  readonly verificationValue: number;
+  readonly recency: number;
+  readonly novelty: number;
+  readonly retrievalCost: number;
+  readonly redundancy: number;
+  readonly taskPhases: readonly ContextTaskPhase[];
+}
+
+export interface ContextUtilityEvidence {
+  readonly policyId: "context-utility-v1";
+  readonly taskPhase: ContextTaskPhase;
+  readonly semanticRelevance: number;
+  readonly authorityValue: number;
+  readonly verificationValue: number;
+  readonly recency: number;
+  readonly novelty: number;
+  readonly retrievalCost: number;
+  readonly redundancy: number;
+  readonly phaseMatch: number;
+  readonly totalScore: number;
+}
+
+export interface ContextCandidateSegment {
+  readonly id: string;
+  readonly content: string;
+  readonly score?: number;
+  readonly estimatedTokens?: number;
+  readonly utilitySignals?: ContextUtilitySignals;
+}
+
+export interface ContextProjectionEvidence {
+  readonly mode: ContextProjectionMode;
+  readonly transformationMode: "none" | "lossless" | "reversible";
+  readonly canonicalArtifactUri: string;
+  readonly sourceHash: string;
+  readonly retrievalHandle?: string;
+  readonly omissionDisclosed: boolean;
+}
+
+export interface ContextProjectionOption extends ContextProjectionEvidence {
+  readonly content: string;
+  readonly estimatedTokens?: number;
+}
+
 export interface ProjectedContextBlock {
   readonly id: string;
   readonly kind: ProjectedContextBlockKind;
@@ -17,6 +70,9 @@ export interface ProjectedContextBlock {
   readonly score: number;
   readonly memoryRecordId?: string;
   readonly estimatedTokens?: number;
+  readonly projectionEvidence?: ContextProjectionEvidence;
+  readonly segmentId?: string;
+  readonly utilitySignals?: ContextUtilitySignals;
 }
 
 export type ContextAuditDecision = "admitted" | "deferred";
@@ -39,6 +95,9 @@ export interface ContextAuditBlock {
   readonly decision: ContextAuditDecision;
   readonly reason: ContextAuditReason;
   readonly order: number;
+  readonly projectionEvidence?: ContextProjectionEvidence;
+  readonly segmentId?: string;
+  readonly utilityEvidence?: ContextUtilityEvidence;
 }
 
 export interface ContextAuditEntry {
@@ -52,6 +111,10 @@ export interface ContextAuditEntry {
   readonly tokenBudget: number;
   readonly overflow: boolean;
   readonly overflowReason?: Extract<ContextAuditReason, "budget-cap" | "required-overflow">;
+  readonly allocationMode: ContextAllocationMode;
+  readonly positionProfile: ContextPositionProfile;
+  readonly requiredOverflowPolicy: RequiredContextOverflowPolicy;
+  readonly utilityPolicyId?: "context-utility-v1";
   readonly blocks: readonly ContextAuditBlock[];
 }
 
@@ -72,6 +135,9 @@ export interface ContextCandidate {
   readonly score?: number;
   readonly memoryRecordId?: string;
   readonly estimatedTokens?: number;
+  readonly projectionOptions?: readonly ContextProjectionOption[];
+  readonly utilitySignals?: ContextUtilitySignals;
+  readonly segments?: readonly ContextCandidateSegment[];
 }
 
 function compactBlankLines(text: string): string {

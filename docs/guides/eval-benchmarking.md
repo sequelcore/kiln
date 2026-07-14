@@ -170,6 +170,38 @@ baseline artifact to the output path. Its per-item sessions run through the
 normal Kiln session path with non-human stream routing, so assistant deltas and
 tool notices do not contaminate stdout or exact-format scoring.
 
+## Publication Readiness
+
+An internally ready baseline is not permission to publish a performance claim.
+Generate a claim-bearing report only with a verified publication manifest:
+
+```bash
+kiln benchmark report \
+  --baseline ./baseline.json \
+  --publication-manifest ./docs/benchmarks/verified-efficiency-v1/manifest.json \
+  --repository-root . \
+  --output ./report.md
+```
+
+The report states both baseline readiness and publication readiness. If the
+manifest is absent, an artifact hash or declared-Git-tree lookup fails, a
+paired report or its complete execution identity differs from the fixture and
+manifest, its canonical baseline-array digest differs from the supplied
+`--baseline` data, baseline/candidate input hashes differ, `k < 5`, the
+observation-backed lower bound is not positive, quality or verification
+regresses, or a cost claim uses subscription/unknown economics, publication is
+blocked. Do not reinterpret
+`external-ready` from the baseline evaluator as a public harness-comparison
+result.
+
+Invalid manifest JSON is also rendered as a blocked publication decision; it
+does not abort report generation or authorize a claim.
+
+The repository reference bundle deliberately declares `claim.kind=none` and
+therefore produces `internal-evidence-only` with `publicClaimAllowed=false`.
+It verifies the evidence pipeline; its synthetic token values are not
+production savings.
+
 ## Safety Adversarial Dataset
 
 Built-in dataset at `packages/core/evals/safety-adversarial.jsonl` (145 test cases):

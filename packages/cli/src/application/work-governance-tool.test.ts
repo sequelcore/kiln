@@ -698,6 +698,39 @@ describe("work-governance-tool", () => {
         managedInvocationResultHandoff: {
           summary: "Implemented the managed child scope and produced reviewable handoff evidence.",
           resourceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary: "Implemented the managed child scope and produced reviewable handoff evidence.",
+            limitations: [],
+            operatorDecisions: [],
+            evidence: [{ uri: "kiln://artifacts/orch-cli/child-1-handoff", kind: "verification" }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: ["No live provider call was required."],
+            verificationResults: [{
+              requirementId: "managed-child-contract",
+              method: "deterministic",
+              status: "passed",
+              summary: "The structured handoff is valid.",
+              evidenceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
+            }],
+          },
+          verificationUsage: {
+            version: "verification-usage-v1",
+            attempts: [{
+              requirementId: "managed-child-contract",
+              method: "deterministic",
+              status: "passed",
+              providerTokenClass: "input",
+              tokens: { value: 6, source: "estimated" },
+              costUsd: { value: 0, source: "estimated" },
+              latencyMs: { value: 2, source: "estimated" },
+              evidenceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
+            }],
+          },
         },
       },
     });
@@ -716,6 +749,12 @@ describe("work-governance-tool", () => {
       },
       missingEvidence: [],
       missingGoalEvidence: [],
+      attempt: {
+        verificationUsage: {
+          version: "verification-usage-v1",
+          totals: { tokens: 6, costUsd: 0, latencyMs: 2 },
+        },
+      },
     });
     expect(goalRunStore.get(goal.id)?.status).toBe("completed");
   });
@@ -2195,6 +2234,7 @@ describe("work-governance-tool", () => {
         governanceRecommendation: "orchestrate",
         managedProviderId: "opencode",
         managedModel: "opencode-default-model",
+        managedResourceUris: ["kiln://artifacts/work-managed/context/content"],
       },
     });
 
@@ -2212,6 +2252,8 @@ describe("work-governance-tool", () => {
         readonly requestedAuthority?: string;
         readonly task?: string;
         readonly summary?: string;
+        readonly contextMode?: string;
+        readonly resourceUris?: readonly string[];
         readonly workItemId?: string;
         readonly attemptId?: string;
         readonly agentProfile?: string;
@@ -2239,6 +2281,8 @@ describe("work-governance-tool", () => {
       },
       requestedAuthority: "audited",
       summary: "Execute delegated work.",
+      contextMode: "resources",
+      resourceUris: ["kiln://artifacts/work-managed/context/content"],
       workItemId: "work-managed",
       attemptId: "goal-managed:work-managed:attempt:1",
       agentProfile: "coder",
@@ -2265,6 +2309,18 @@ describe("work-governance-tool", () => {
     });
     expect(missingInvocationOutput.managedInvocationRequest?.task).toContain("Execute delegated work.");
     expect(workItemStore.get(item.id)?.status).toBe("pending");
+
+    const rejectedTranscriptContext = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+        managedProviderId: "opencode",
+        managedResourceUris: ["kiln://managed-invocations/child/transcript"],
+      },
+    });
+    expect(rejectedTranscriptContext).toMatchObject({ isError: true });
+    expect(rejectedTranscriptContext?.output).toContain("canonical kiln://artifacts");
 
     const started = await startTool?.execute({
       name: "work_item.execution.start",

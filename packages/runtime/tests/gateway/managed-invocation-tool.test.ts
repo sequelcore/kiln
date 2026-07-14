@@ -4,6 +4,7 @@ import type {
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentInvocationRequest,
   ManagedAgentLifecycleState,
+  StructuredExecutionResult,
 } from "@kilnai/core";
 import {
   buildManagedAgentCapabilitySnapshot,
@@ -128,6 +129,7 @@ function makeAdapter(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): Ma
 function makeAdapterWithHandoff(
   summary: string,
   overrides: Partial<ManagedAgentAdapterDescriptor> = {},
+  structuredResultOverrides: Partial<StructuredExecutionResult> = {},
 ): ManagedAgentRuntimeAdapter {
   return {
     descriptor: makeDescriptor(overrides),
@@ -162,6 +164,46 @@ function makeAdapterWithHandoff(
           summary,
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary,
+            details: "Internal child execution detail.",
+            uncertainty: 0.2,
+            limitations: ["Live deployment was not exercised."],
+            operatorDecisions: [{ id: "decision-1", summary: "Return the review evidence." }],
+            evidence: [{
+              uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+              kind: "verification",
+            }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: ["Live deployment was not exercised."],
+            verificationResults: [{
+              requirementId: "review",
+              method: "deterministic",
+              status: "passed",
+              summary: "Review evidence is present.",
+              evidenceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
+            }],
+            ...structuredResultOverrides,
+          },
+          verificationUsage: {
+            version: "verification-usage-v1",
+            attempts: [{
+              requirementId: "review",
+              method: "deterministic",
+              status: "passed",
+              providerTokenClass: "input",
+              tokens: { value: 8, source: "estimated" },
+              costUsd: { value: 0, source: "estimated" },
+              latencyMs: { value: 4, source: "estimated" },
+              evidenceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
+            }],
+            totals: { tokens: 8, costUsd: 0, latencyMs: 4 },
+          },
         },
       })),
   };
@@ -3732,6 +3774,7 @@ describe("managed invocation runtime tool", () => {
       requiredResultFields: ["summary", "evidence", "residualRisk"],
       doneCriteria: ["Report the top contract risk and cite evidence."],
       residualRiskRequired: true,
+      outputVerbosity: "concise",
       requestedAuthority: "read_only",
     }, context) as {
       readonly output: string;
@@ -3772,6 +3815,7 @@ describe("managed invocation runtime tool", () => {
           requiredResultFields: ["summary", "evidence", "residualRisk"],
           doneCriteria: ["Report the top contract risk and cite evidence."],
           residualRiskRequired: true,
+          outputVerbosity: "concise",
         },
         presentationIntent: {
           kind: "comparison_table",
@@ -3789,6 +3833,8 @@ describe("managed invocation runtime tool", () => {
       },
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect(result.output).not.toContain("Internal child execution detail.");
+    expect(result.output).toContain('"verificationUsage"');
     expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request).toMatchObject({
       parentSessionId: "session-parent",
       parentTurnId: "session-parent:turn:1",
@@ -3821,6 +3867,7 @@ describe("managed invocation runtime tool", () => {
           workItemId: "work-42",
           expectedEvidence: ["surface-map", "managed-agent-review", "residual-risk"],
           residualRiskRequired: true,
+          outputVerbosity: "concise",
         },
       },
     });
@@ -4214,6 +4261,8 @@ describe("managed invocation runtime tool", () => {
           readonly managedInvocationResultHandoff?: {
             readonly summary?: string;
             readonly resourceUris?: readonly string[];
+            readonly structuredResult?: StructuredExecutionResult;
+            readonly verificationUsage?: { readonly version?: string; readonly totals?: { readonly tokens?: number } };
             readonly orchestrationId?: string;
             readonly childId?: string;
             readonly completedAt?: string;
@@ -4237,6 +4286,14 @@ describe("managed invocation runtime tool", () => {
         managedInvocationResultHandoff: {
           summary: phaseSummary,
           resourceUris: [expect.stringContaining("kiln://managed-agents/invocations/")],
+          structuredResult: {
+            status: "completed",
+            verificationResults: [{ status: "passed" }],
+          },
+          verificationUsage: {
+            version: "verification-usage-v1",
+            totals: { tokens: 8 },
+          },
         },
       },
     });
@@ -4254,6 +4311,76 @@ describe("managed invocation runtime tool", () => {
       nextTool: "work_item.execution.finish",
       workItemId: "work-final",
     });
+  });
+
+  it.each([
+    ["failed structured status", { status: "failed" }],
+    ["blocked structured status", { status: "blocked" }],
+    ["cancelled structured status", { status: "cancelled" }],
+    ["pending approval", {
+      status: "blocked",
+      approvalRequirements: [{ id: "approval-1", status: "pending", summary: "Operator approval required." }],
+    }],
+    ["failed verification", {
+      status: "failed",
+      verificationResults: [{
+        requirementId: "review",
+        method: "deterministic",
+        status: "failed",
+        summary: "Review failed.",
+        evidenceUris: ["kiln://managed-invocations/test/transcript"],
+      }],
+    }],
+    ["inconclusive verification", {
+      verificationResults: [{
+        requirementId: "review",
+        method: "deterministic",
+        status: "inconclusive",
+        summary: "Review was inconclusive.",
+        evidenceUris: ["kiln://managed-invocations/test/transcript"],
+      }],
+    }],
+  ] as const)("does not promote a child phase with %s", async (_label, structuredResultOverrides) => {
+    const surface = makeSurface(makeAdapterWithHandoff(
+      "Managed child returned control-state evidence.",
+      {},
+      structuredResultOverrides as Partial<StructuredExecutionResult>,
+    ));
+    const session = makeSession();
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+      requestedAuthority: "read_only",
+      task: "Execute the final managed child phase.",
+      summary: "Execute the final managed child phase.",
+      goalRunId: "goal-final",
+      workItemId: "work-final",
+      attemptId: "goal-final:work-final:attempt:1",
+      expectedEvidence: ["managed-orchestration:result-handoff"],
+      executionPhase: {
+        id: "managed-review-closeout",
+        expectedEvidence: ["managed-orchestration:result-handoff"],
+        completionTool: "work_item.execution.finish",
+        finalPhase: true,
+        autoStartAllowed: true,
+      },
+    }, {
+      session,
+      toolCall: { id: "tool-call-final-phase-invalid", name: "managed_agent.invoke", input: {} },
+    }) as { readonly output: string; readonly isError: boolean };
+    const output = JSON.parse(result.output) as {
+      readonly status?: string;
+      readonly recovery?: { readonly status?: string; readonly nextTool?: string };
+      readonly phaseCompletion?: unknown;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(output.status).toBe("handoff_not_substantive");
+    expect(output.recovery).toMatchObject({
+      status: "phase_evidence_required",
+      nextTool: "work_item.execution.fail",
+    });
+    expect(output.phaseCompletion).toBeUndefined();
   });
 
   it("accepts code-backed frontend implementation evidence when public screenshots are unavailable", async () => {
@@ -6116,6 +6243,7 @@ describe("managed invocation runtime tool", () => {
         resourceProviders: [
           createManagedAgentInvocationResourceProvider({
             service: managedInvocation.invocationService,
+            parentSessionId: "session-parent",
           }),
         ],
       },
@@ -6159,12 +6287,58 @@ describe("managed invocation runtime tool", () => {
     expect(JSON.stringify(result.metadata)).not.toContain("kiln://managed-invocations/");
     await expect(surface.callBuiltinTools.get("resource_read")?.({
       uri: canonicalTranscriptUri,
-    })).resolves.toMatchObject({
+    }, context)).resolves.toMatchObject({
       isError: false,
       metadata: expect.objectContaining({
         toolName: "resource_read",
         uri: canonicalTranscriptUri,
       }),
+    });
+  });
+
+  it("scopes shared managed invocation resource tools to the executing runtime session", async () => {
+    const managedInvocation = withManagedInvocationService({
+      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", makeAdapter())],
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({ managedInvocation });
+    const sessionA = makeSession("session-a");
+    const sessionB = makeSession("session-b");
+    const contextFor = (session: RuntimeSession, id: string): RuntimeBuiltinToolExecutionContext => ({
+      session,
+      toolCall: { id, name: "managed_agent.invoke", input: {} },
+    });
+    const contextA = contextFor(sessionA, "tool-call-session-a");
+    const contextB = contextFor(sessionB, "tool-call-session-b");
+    const invoke = surface.callBuiltinTools.get("managed_agent.invoke")!;
+    const resultA = await invoke({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+      task: "Session A task.",
+    }, contextA) as { readonly metadata: { readonly invocationId: string } };
+    const resultB = await invoke({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+      task: "Session B task.",
+    }, contextB) as { readonly metadata: { readonly invocationId: string } };
+
+    const listA = await surface.callBuiltinTools.get("resource_list")?.({}, contextA) as {
+      readonly isError: boolean;
+      readonly output: string;
+    };
+    const listedA = JSON.parse(listA.output) as { readonly resources: readonly { readonly uri: string }[] };
+    const listedUrisA = listedA.resources.map((resource) => resource.uri);
+    expect(listA.isError).toBe(false);
+    expect(listedUrisA).toContain(`kiln://managed-agents/invocations/${resultA.metadata.invocationId}`);
+    expect(listedUrisA.some((uri) => uri.includes(resultB.metadata.invocationId))).toBe(false);
+
+    const foreignRead = await surface.callBuiltinTools.get("resource_read")?.({
+      uri: `kiln://managed-agents/invocations/${resultB.metadata.invocationId}`,
+    }, contextA) as { readonly isError: boolean; readonly metadata?: { readonly errorCode?: string } };
+    expect(foreignRead).toMatchObject({
+      isError: true,
+      metadata: expect.objectContaining({ errorCode: "not_found" }),
     });
   });
 
@@ -6177,6 +6351,7 @@ describe("managed invocation runtime tool", () => {
         resourceProviders: [
           createManagedAgentInvocationResourceProvider({
             service: managedInvocation.invocationService,
+            parentSessionId: "session-parent",
           }),
         ],
       },
@@ -6210,7 +6385,7 @@ describe("managed invocation runtime tool", () => {
     expect(timeoutUri).toEqual(expect.any(String));
     const timeoutResource = await surface.callBuiltinTools.get("resource_read")?.({
       uri: timeoutUri,
-    }) as {
+    }, context) as {
       readonly isError: boolean;
       readonly output: string;
     };

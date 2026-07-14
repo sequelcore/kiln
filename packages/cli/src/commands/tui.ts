@@ -91,7 +91,6 @@ import {
 import {
   attachManagedInvocationSessionEventSink,
   getProjectContextArtifactCache,
-  withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
 } from "@kilnai/runtime";
 import {
@@ -461,10 +460,7 @@ export async function makeMultiProviderSessionFactory(
         options: withManagedInvocationService(managedInvocationWithTranscriptSink.options),
       }
     : undefined;
-  const sessionBuiltinToolOptions = withManagedAgentInvocationResourceProvider(
-    builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.options.invocationService } : undefined,
-  );
+  const sessionBuiltinToolOptions = createSessionBuiltinToolOptions(builtinToolOptions);
 
   let currentProvider: ProviderId | null = initialProvider;
 
@@ -590,6 +586,7 @@ export async function makeMultiProviderSessionFactory(
         let turnInputTokens = 0;
         let turnOutputTokens = 0;
         let turnCacheReadTokens = 0;
+        let turnCacheWriteTokens = 0;
         let turnProviderTokenUsage: PersistedProviderTokenUsage | undefined;
         let assistantContent = "";
         let assistantDeltaIndex = 0;
@@ -714,13 +711,14 @@ export async function makeMultiProviderSessionFactory(
               turnInputTokens = event.inputTokens ?? turnInputTokens;
               turnOutputTokens = event.outputTokens ?? turnOutputTokens;
               turnCacheReadTokens = event.cacheReadTokens ?? turnCacheReadTokens;
+              turnCacheWriteTokens = event.cacheWriteTokens ?? turnCacheWriteTokens;
               turnProviderTokenUsage = {
                 provider: usageProvider,
                 ...(usageModel ? { model: usageModel } : {}),
                 inputTokens: turnInputTokens,
                 outputTokens: turnOutputTokens,
                 cacheReadTokens: turnCacheReadTokens,
-                cacheWriteTokens: 0,
+                cacheWriteTokens: turnCacheWriteTokens,
               };
               await appendTranscriptEvent(
                 toPersistedTranscriptEvent(capturedId, 0, "cost_update", {
@@ -734,6 +732,7 @@ export async function makeMultiProviderSessionFactory(
                     inputTokens: turnInputTokens,
                     outputTokens: turnOutputTokens,
                     cacheReadTokens: turnCacheReadTokens,
+                    cacheWriteTokens: turnCacheWriteTokens,
                   },
                   cost: {
                     deltaUsd: event.usd,
@@ -804,6 +803,7 @@ export async function makeMultiProviderSessionFactory(
               inputTokens: turnInputTokens,
               outputTokens: turnOutputTokens,
               cacheReadTokens: turnCacheReadTokens,
+              cacheWriteTokens: turnCacheWriteTokens,
               ...(turnProviderTokenUsage ? { providerTokenUsage: [turnProviderTokenUsage] } : {}),
               providerThread: resumedSession.providerSessionId
                 ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
@@ -1303,10 +1303,6 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const managedInvocationAttachment = managedInvocationWithService
     ? createKilnRuntimeManagedInvocationAttachment("tui", managedInvocationWithService)
     : undefined;
-  builtinToolOptions = withManagedAgentInvocationResourceProvider(
-    builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
-  );
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);

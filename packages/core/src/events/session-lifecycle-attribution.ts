@@ -4,6 +4,8 @@ import type {
   SessionProviderIdentity,
   SessionTokenUsage,
 } from "./session-event.js";
+import type { ManagedAgentCoordinationUsageReport } from "../agents/managed-invocation/index.js";
+import type { VerificationUsageReport } from "../efficiency/output-verification-allocation.js";
 
 export type SessionLifecycleSourceKind =
   | "control_instructions"
@@ -136,6 +138,48 @@ export interface ProjectCostUpdatedEventToLifecycleLedgerOptions {
   readonly context?: SessionLifecycleExecutionContext;
 }
 
+export function projectManagedAgentCoordinationUsageAllocations(
+  report: ManagedAgentCoordinationUsageReport,
+): readonly SessionLifecycleAttributionAllocation[] {
+  return report.components.flatMap((component) => {
+    if (typeof component.tokens.value !== "number") return [];
+    const output = component.providerTokenClass === "output";
+    return [{
+      source: "coordination" as const,
+      tokenClass: output ? "generated" as const : "admitted" as const,
+      providerTokenClass: component.providerTokenClass,
+      tokens: component.tokens.value,
+      quality: component.tokens.source,
+      context: {
+        phase: component.stage,
+        policyVersion: report.version,
+      },
+      evidenceUris: component.evidenceUris,
+      workerId: report.workerId,
+    }];
+  });
+}
+
+export function projectVerificationUsageAllocations(
+  report: VerificationUsageReport,
+): readonly SessionLifecycleAttributionAllocation[] {
+  return report.attempts.flatMap((attempt) => {
+    if (typeof attempt.tokens.value !== "number") return [];
+    return [{
+      source: "verification" as const,
+      tokenClass: attempt.providerTokenClass === "output" ? "generated" as const : "admitted" as const,
+      providerTokenClass: attempt.providerTokenClass,
+      tokens: attempt.tokens.value,
+      quality: attempt.tokens.source === "provider-reported" ? "provider_reported" as const : attempt.tokens.source,
+      context: {
+        phase: attempt.method,
+        policyVersion: report.version,
+      },
+      evidenceUris: attempt.evidenceUris,
+    }];
+  });
+}
+
 type PendingLifecycleAttributionRecord = Omit<SessionLifecycleAttributionRecord, "cost" | "quality"> & {
   readonly cost?: SessionLifecycleAttributedCost;
   readonly quality?: SessionLifecycleAttributionQuality;
@@ -183,6 +227,21 @@ export function projectCostUpdatedEventToLifecycleLedger(
         quality: "unknown",
       }, options.context));
     }
+  }
+
+  if (records.length === 0 && event.cost.deltaUsd > 0) {
+    records.push(recordFromAllocation(event, {
+      source: "unknown",
+      tokenClass: "raw",
+      providerTokenClass: "input",
+      tokens: 0,
+      cost: {
+        currency: event.cost.currency,
+        deltaUsd: event.cost.deltaUsd,
+        quality: "unknown",
+      },
+      quality: "unknown",
+    }, options.context));
   }
 
   return {

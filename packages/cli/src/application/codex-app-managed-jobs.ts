@@ -7,6 +7,7 @@ import {
   ManagedJobApplicationService,
   createRuntimeManagedJobInvocationPort,
   type ManagedJobRecord,
+  type ManagedJobReplayQuery,
   type ManagedJobResultQuery,
   type ManagedJobProfile,
   type ManagedJobRoute,
@@ -65,6 +66,8 @@ export interface CodexAppManagedJobApplicationPort {
   submit(input: unknown): Promise<ManagedJobRecord>;
   getStatus(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobRecord>;
   getResult(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobResultQuery>;
+  cancel(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobRecord>;
+  getReplay(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobReplayQuery>;
 }
 
 export async function createCodexAppManagedJobApplicationComposition(
@@ -110,6 +113,7 @@ export async function createCodexAppManagedJobApplicationComposition(
     readonly route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number];
     readonly invocationService: NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"]>;
   }>();
+  const activeInvocationServices = new Map<string, NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"]>>();
 
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
   const service = new ManagedJobApplicationService({
@@ -165,15 +169,29 @@ export async function createCodexAppManagedJobApplicationComposition(
         if (!admitted) {
           throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route.");
         }
-        return createRuntimeManagedJobInvocationPort({ service: admitted.invocationService, resolver: runtimeResolver(admitted.route) }).invoke(input);
+        const port = createRuntimeManagedJobInvocationPort({ service: admitted.invocationService, resolver: runtimeResolver(admitted.route) });
+        activeInvocationServices.set(input.jobId, admitted.invocationService);
+        try {
+          return await port.invoke(input);
+        } finally {
+          activeInvocationServices.delete(input.jobId);
+        }
+      },
+      cancel: async ({ jobId, reason }) => {
+        const invocationService = activeInvocationServices.get(jobId);
+        if (!invocationService) throw new ManagedJobApplicationError("invocation_failed", "Cancel only an active Runtime-owned managed invocation.");
+        await invocationService.cancel(jobId, reason);
       },
     },
     store: new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs")),
   });
+  await service.recoverInterrupted();
   const application: CodexAppManagedJobApplicationPort = {
-    submit: (input) => service.submit(input),
+    submit: (input) => service.start(input),
     getStatus: (input, jobId) => service.getStatus({ project, callerId: input.callerId }, jobId),
     getResult: (input, jobId) => service.getResult({ project, callerId: input.callerId }, jobId),
+    cancel: (input, jobId) => service.cancel({ project, callerId: input.callerId }, jobId),
+    getReplay: (input, jobId) => service.getReplay({ project, callerId: input.callerId }, jobId),
   };
   return { service, application, configuredAgents: summarizeCodexAppManagedAgents(configuredAgents, managedInvocation) };
 }

@@ -6,6 +6,7 @@ import {
   WORK_CLASSIFICATION_MODES,
   defineManagedAgentInvocationRequest,
   defineWorkClassification,
+  projectStructuredExecutionResult,
 } from "@kilnai/core";
 import type {
   ActionEffectEnvelope,
@@ -245,6 +246,7 @@ interface ManagedInvocationToolInput {
   readonly requiredResultFields?: readonly string[];
   readonly doneCriteria?: readonly string[];
   readonly residualRiskRequired?: boolean;
+  readonly outputVerbosity?: "concise" | "standard" | "detailed";
   readonly executionPhase?: Record<string, unknown>;
 }
 
@@ -404,6 +406,11 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
       residualRiskRequired: {
         type: "boolean",
         description: "True when the child handoff must include explicit residual risk.",
+      },
+      outputVerbosity: {
+        type: "string",
+        enum: ["concise", "standard", "detailed"],
+        description: "Visible handoff detail level, independent from provider reasoning effort. Control evidence is always preserved.",
       },
       executionPhase: {
         type: "object",
@@ -2129,6 +2136,15 @@ function terminalManagedInvocationResult(input: {
     || resourceLease !== undefined
     || (input.record.diagnostics !== undefined && input.record.diagnostics.length > 0)
     || terminalProgressEvents.length > 0;
+  const outputVerbosity = input.request.input.handoff?.outputVerbosity ?? "standard";
+  const projectedResultHandoff = input.record.resultHandoff
+    ? {
+        ...input.record.resultHandoff,
+        ...(input.record.resultHandoff.structuredResult
+          ? { structuredResult: projectStructuredExecutionResult(input.record.resultHandoff.structuredResult, outputVerbosity) }
+          : {}),
+      }
+    : undefined;
   return {
     output: recovery || handoffRecovery || phaseCompletion || structuredEvidence
       ? JSON.stringify({
@@ -2142,7 +2158,7 @@ function terminalManagedInvocationResult(input: {
           ...childLineage,
           ...timeoutEvidence,
           authoritySnapshot,
-          ...(input.record.resultHandoff ? { resultHandoff: input.record.resultHandoff } : {}),
+          ...(projectedResultHandoff ? { resultHandoff: projectedResultHandoff } : {}),
           ...(input.record.transcript ? { transcript: input.record.transcript } : {}),
           ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
           ...(resourceLease ? { resourceLease } : {}),
@@ -2180,7 +2196,7 @@ function terminalManagedInvocationResult(input: {
         ? { canonicalizedForbiddenInputFields: input.canonicalizedForbiddenInputFields }
         : {}),
       ...(input.request.input.handoff ? { handoffContract: input.request.input.handoff } : {}),
-      resultHandoff: input.record.resultHandoff,
+      resultHandoff: projectedResultHandoff,
       transcript: input.record.transcript,
       ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
       ...(terminalProgressEvents.length > 0 ? { progressEvents: terminalProgressEvents } : {}),
@@ -2878,6 +2894,10 @@ function parseInput(
   const requiredReadPaths = readTextArray(input.requiredReadPaths);
   const requiredResultFields = readTextArray(input.requiredResultFields);
   const doneCriteria = readTextArray(input.doneCriteria);
+  const outputVerbosity = parseAssistantOutputVerbosity(input.outputVerbosity);
+  if (input.outputVerbosity !== undefined && !outputVerbosity) {
+    return { ok: false, error: `${toolName} outputVerbosity is not supported.` };
+  }
   const forbiddenInputFields = readTextArray(input.forbiddenInputFields);
   const workClassification = parseWorkClassification(input.workClassification, toolName);
   if (!workClassification.ok) {
@@ -2924,6 +2944,7 @@ function parseInput(
       ...(requiredResultFields && requiredResultFields.length > 0 ? { requiredResultFields } : {}),
       ...(doneCriteria && doneCriteria.length > 0 ? { doneCriteria } : {}),
       ...(typeof input.residualRiskRequired === "boolean" ? { residualRiskRequired: input.residualRiskRequired } : {}),
+      ...(outputVerbosity ? { outputVerbosity } : {}),
       ...(readRecord(input.executionPhase) ? { executionPhase: readRecord(input.executionPhase)! } : {}),
     },
   };
@@ -3189,6 +3210,7 @@ function buildHandoffContract(input: ManagedInvocationToolInput): ManagedAgentIn
     ...(input.requiredResultFields && input.requiredResultFields.length > 0 ? { requiredResultFields: input.requiredResultFields } : {}),
     ...(input.doneCriteria && input.doneCriteria.length > 0 ? { doneCriteria: input.doneCriteria } : {}),
     ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired } : {}),
+    ...(input.outputVerbosity !== undefined ? { outputVerbosity: input.outputVerbosity } : {}),
   };
   return Object.keys(contract).length > 0 ? contract : undefined;
 }
@@ -3222,6 +3244,10 @@ function readText(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseAssistantOutputVerbosity(value: unknown): "concise" | "standard" | "detailed" | undefined {
+  return value === "concise" || value === "standard" || value === "detailed" ? value : undefined;
 }
 
 function readTextArray(value: unknown): readonly string[] | undefined {

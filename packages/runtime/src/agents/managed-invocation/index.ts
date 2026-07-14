@@ -7,10 +7,13 @@ import { win32 as pathWin32 } from "node:path";
 import { promisify } from "node:util";
 import {
   buildManagedAgentAuthorityEvidence,
+  assertManagedAgentResultHandoffContract,
   classifyManagedAgentAuthorityEvidence,
   defineManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
+  defineStructuredExecutionResult,
+  defineVerificationUsageReport,
   evaluateManagedAgentAdmission,
   isManagedAgentWriteAuthorityProfile,
 } from "@kilnai/core";
@@ -26,6 +29,7 @@ import type {
   ManagedAgentResourceLeaseEvidence,
   ManagedAgentWorktreeConflictEvidence,
   ManagedAgentWorktreeReviewEvidence,
+  StructuredExecutionResult,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 import {
@@ -39,6 +43,8 @@ import type {
   ManagedFilesystemRuntimeRecoveryStoreConfig,
 } from "./recovery-store.js";
 import { projectManagedInvocationRecordResources } from "./resource-projection.js";
+import { buildManagedAgentCoordinationUsage } from "./coordination-usage.js";
+export { buildManagedAgentCoordinationUsage } from "./coordination-usage.js";
 export {
   admitManagedChildContextAndCredentials,
 } from "./context-credential-admission.js";
@@ -51,6 +57,59 @@ export type {
   ManagedChildGovernedContext,
   ManagedChildParentAuthoritySnapshot,
 } from "./context-credential-admission.js";
+
+function attachStructuredManagedResult(record: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
+  if (!record.resultHandoff) return record;
+  const structuredResult = record.resultHandoff.structuredResult ?? [
+    ...(record.replayResources ?? []).map((resource) => resource.text),
+    record.resultHandoff.summary,
+  ].map(parseStructuredManagedResult).find((candidate) => candidate !== undefined);
+  if (!structuredResult) return record;
+  const verificationUsage = record.resultHandoff.verificationUsage
+    ?? deriveStructuredVerificationUsage(structuredResult);
+  return {
+    ...record,
+    resultHandoff: {
+      ...record.resultHandoff,
+      structuredResult,
+      ...(verificationUsage ? { verificationUsage } : {}),
+    },
+  };
+}
+
+function deriveStructuredVerificationUsage(structuredResult: StructuredExecutionResult) {
+  if (structuredResult.verificationResults.length === 0) return undefined;
+  return defineVerificationUsageReport({
+    version: "verification-usage-v1",
+    attempts: structuredResult.verificationResults.map((result) => {
+      const providerFree = result.method === "deterministic" || result.method === "human-review";
+      return {
+        requirementId: result.requirementId,
+        method: result.method,
+        status: result.status,
+        providerTokenClass: "input" as const,
+        tokens: providerFree
+          ? { value: 0 as const, source: "estimated" as const }
+          : { value: "unknown" as const, source: "unknown" as const },
+        costUsd: result.method === "deterministic"
+          ? { value: 0 as const, source: "estimated" as const }
+          : { value: "unknown" as const, source: "unknown" as const },
+        latencyMs: { value: "unknown" as const, source: "unknown" as const },
+        evidenceUris: result.evidenceUris,
+      };
+    }),
+  });
+}
+
+function parseStructuredManagedResult(text: string): StructuredExecutionResult | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+  try {
+    return defineStructuredExecutionResult(JSON.parse(trimmed) as StructuredExecutionResult);
+  } catch {
+    return undefined;
+  }
+}
 export {
   appendManagedInvocationSessionEvents,
 } from "./session-events.js";
@@ -1533,8 +1592,20 @@ export class RuntimeManagedAgentInvocationService {
       ...(input.progressObserver !== undefined ? { progressObserver: input.progressObserver } : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
     });
-    this.assertRecordWithinAdmission(record, input.request, admission);
-    return record;
+    const canonicalRecord = attachStructuredManagedResult(record);
+    const attributedRecord = defineManagedAgentInvocationRecord({
+      ...canonicalRecord,
+      coordinationUsage: buildManagedAgentCoordinationUsage({
+        invocationId: input.request.invocationId,
+        ...(canonicalRecord.childSessionId ? { childSessionId: canonicalRecord.childSessionId } : {}),
+        parentPrompt: input.request.input.prompt ?? input.request.input.summary,
+        sourceResourceUris: admission.capabilitySnapshot.resourcePlane.resourceUris,
+        ...(canonicalRecord.resultHandoff ? { resultHandoff: canonicalRecord.resultHandoff } : {}),
+      }),
+    });
+    assertManagedAgentResultHandoffContract(input.request.input.handoff, attributedRecord.resultHandoff);
+    this.assertRecordWithinAdmission(attributedRecord, input.request, admission);
+    return attributedRecord;
   }
 
   private async capabilitySnapshotInputWithObservedRuntimeAuthority(

@@ -1297,6 +1297,7 @@ function buildRuntimeProviderRequestCachePartition(
       executionEnvelope,
       modelRoutingPolicy: projectModelRoutingPolicy(perCallConfig?.modelRoutingPolicy),
       toolAllowlist: perCallConfig?.toolAllowlist ? [...perCallConfig.toolAllowlist].sort() : undefined,
+      contextPolicy: perCallConfig?.contextPolicy,
     },
     authority: {
       effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,

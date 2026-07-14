@@ -18,7 +18,7 @@ export class KilnConfigProposeChangeTool implements DevTool {
   readonly name = "kiln_config.propose_change";
   readonly description = [
     "Create a validated canonical Kiln configuration-change proposal without writing files.",
-    "Use this for skill.upsert, agent.upsert, and agent.attach_skills before any approved apply step.",
+    "Use this for skill.upsert, agent.upsert, agent.attach_skills, and governed context_governance.adapt controls before any approved apply step.",
   ].join(" ");
   readonly effectEnvelope = CONFIG_PROPOSAL_EFFECT;
   readonly inputSchema = {

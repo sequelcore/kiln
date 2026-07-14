@@ -581,7 +581,7 @@ describe("makeMultiProviderSessionFactory", () => {
     );
   });
 
-  it("attaches managed invocation resources to recreated provider sessions", async () => {
+  it("does not attach globally visible managed invocation resources to recreated provider sessions", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry();
     const transcriptStore = makeTranscriptStore();
@@ -617,13 +617,7 @@ describe("makeMultiProviderSessionFactory", () => {
     for await (const _ of session.run({ prompt: "managed resources" } as any)) {}
 
     const options = vi.mocked(registry.createSession).mock.calls[0]?.[1]?.builtinToolOptions;
-    expect(options?.resourceProviders).toContainEqual(expect.objectContaining({
-      kind: "managed-invocation-resource-provider",
-      input: expect.objectContaining({
-        artifactStore: expect.any(Object),
-        service: invocationService,
-      }),
-    }));
+    expect(options?.resourceProviders).toBeUndefined();
   });
 
   it("shares builtin resource state across recreated provider sessions", async () => {
@@ -792,6 +786,7 @@ describe("makeMultiProviderSessionFactory", () => {
             inputTokens: 30,
             outputTokens: 12,
             cacheReadTokens: 3,
+            cacheWriteTokens: 7,
           };
           yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
         }),
@@ -821,6 +816,7 @@ describe("makeMultiProviderSessionFactory", () => {
         inputTokens: 30,
         outputTokens: 12,
         cacheReadTokens: 3,
+        cacheWriteTokens: 7,
       },
     });
     expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
@@ -830,6 +826,7 @@ describe("makeMultiProviderSessionFactory", () => {
         inputTokens: 30,
         outputTokens: 12,
         cacheReadTokens: 3,
+        cacheWriteTokens: 7,
       }],
     });
   });

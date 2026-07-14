@@ -128,6 +128,7 @@ function createAuthorityDeniedMemoryReadRepository(repository: MemoryRepository)
     saveRelation: (relation) => repository.saveRelation(relation),
     getRelation: () => denyRead(),
     listRelations: () => denyRead(),
+    listIncomingRelations: () => denyRead(),
     saveContextAdmission: (admission) => repository.saveContextAdmission(admission),
     listContextAdmissions: () => denyRead(),
     close: () => repository.close(),

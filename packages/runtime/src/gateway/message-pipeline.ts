@@ -319,7 +319,7 @@ export interface AdmittedTurnContext {
   readonly channel: string;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly idleTimeoutMs?: number;
-  readonly recalledMemory?: string;
+  readonly recalledMemoryCandidates?: readonly ContextCandidate[];
   readonly knowledgeContext?: string;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
@@ -330,6 +330,7 @@ export interface AdmittedTurnContext {
   readonly runtimeEvents?: readonly RuntimePipelineLedgerEvent[];
   readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly perCallConfig?: PerCallToolConfig;
+  readonly contextPolicy?: NonNullable<PerCallToolConfig["contextPolicy"]>;
   readonly contextUsageWindow?: ContextUsageWindowEvidence;
   readonly traceId?: string;
   readonly activeAgentId?: string;
@@ -1099,13 +1100,14 @@ function turnAuthorityDisallowsMutation(
 interface AdmittedTurnContextProjectionInput {
   readonly userContext: Record<string, string> | undefined;
   readonly cachedRuntimeSummary: string | undefined;
-  readonly recalledMemory: string | undefined;
+  readonly recalledMemoryCandidates?: readonly ContextCandidate[];
   readonly knowledgeContext: string | undefined;
   readonly contactContext: string | undefined;
   readonly visitorContext?: string | undefined;
   readonly groundingMode: GroundingMode | undefined;
   readonly proceduralContextCandidates?: readonly ContextCandidate[];
   readonly coordinationContextCandidates?: readonly ContextCandidate[];
+  readonly contextPolicy?: NonNullable<PerCallToolConfig["contextPolicy"]>;
 }
 
 export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): {
@@ -1132,14 +1134,7 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
       score: 0.9,
     });
   }
-  if (input.recalledMemory) {
-    candidates.push({
-      kind: "memory",
-      source: "runtime-recalled-memory",
-      content: input.recalledMemory,
-      score: 0.8,
-    });
-  }
+  candidates.push(...(input.recalledMemoryCandidates ?? []));
   if (input.knowledgeContext) {
     candidates.push({
       kind: "knowledge",
@@ -1173,6 +1168,7 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
     never
   >().project({
     artifacts: candidates,
+    contextAllocationMode: input.contextPolicy?.contextAllocationMode,
   });
   const mergedMemory = renderProjectedContext(projectedContext);
   const audit = projectedContext.auditTrail?.[projectedContext.auditTrail.length - 1];
@@ -1272,6 +1268,9 @@ export function appendCoordinationProviderFailureAudit(
   if (!failureReason) return audit;
   const baseAudit: ContextAuditEntry = audit ?? {
     governor: "DefaultContextGovernor",
+    allocationMode: "whole-block",
+    positionProfile: "balanced",
+    requiredOverflowPolicy: "admit-and-report",
     selectedBlockIds: [],
     deferredBlockIds: [],
     requiredBlockIds: [],
@@ -2070,12 +2069,15 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     feedback: runtimeContinuityPresentation.runtimeContinuity.feedbackLabel,
     influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
   });
-  const perCallConfig = projectRequestedAuthorityPerCallConfig(
+  const authorityPerCallConfig = projectRequestedAuthorityPerCallConfig(
     effectivePerCallConfig,
     executionMode,
     ctx.requestedAuthority,
     "gateway admitted turn requested authority",
   );
+  const perCallConfig = ctx.contextPolicy
+    ? { ...authorityPerCallConfig, contextPolicy: ctx.contextPolicy }
+    : authorityPerCallConfig;
   const proceduralContextCandidates: ContextCandidate[] = [];
   if (executionMode === "plan") {
     proceduralContextCandidates.push({
@@ -2121,12 +2123,13 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   const projectedTurnContext = projectAdmittedTurnContext({
     userContext: session.userContext,
     cachedRuntimeSummary,
-    recalledMemory: ctx.recalledMemory,
+    recalledMemoryCandidates: ctx.recalledMemoryCandidates,
     knowledgeContext: effectiveKnowledgeContext,
     contactContext: ctx.contactContext,
     groundingMode: ctx.groundingMode,
     proceduralContextCandidates,
     coordinationContextCandidates: coordinationContext.candidates,
+    contextPolicy: ctx.contextPolicy,
   });
   const projectedContextAudit = appendCoordinationProviderFailureAudit(
     projectedTurnContext.audit,
@@ -2486,6 +2489,13 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         estimatedTokens: estimateTextTokens(runtimeFinalOutputText),
       },
     },
+    efficiencyPolicy: ctx.contextPolicy
+      ? {
+          owner: "ContextGovernor",
+          policyId: ctx.contextPolicy.policyId,
+          configurationHash: ctx.contextPolicy.configurationHash,
+        }
+      : undefined,
     clarificationRecords,
     authorityMutationViolations: authorityMutationViolation ? [authorityMutationViolation] : undefined,
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,

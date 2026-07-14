@@ -151,6 +151,25 @@ export class ToolResourceRegistry {
     this.providers = options.providers ?? [];
   }
 
+  withAdditionalProviders(providers: readonly ToolResourceProvider[]): ToolResourceRegistry {
+    return new ToolResourceRegistry({
+      catalog: this.catalog,
+      taskStateStore: this.taskStateStore,
+      ...(this.analysisStateStore ? { analysisStateStore: this.analysisStateStore } : {}),
+      ...(this.authorityStateStore ? { authorityStateStore: this.authorityStateStore } : {}),
+      ...(this.planStateStore ? { planStateStore: this.planStateStore } : {}),
+      ...(this.specificationStateStore ? { specificationStateStore: this.specificationStateStore } : {}),
+      ...(this.workItemStore ? { workItemStore: this.workItemStore } : {}),
+      ...(this.goalRunStore ? { goalRunStore: this.goalRunStore } : {}),
+      monitorRegistry: this.monitorRegistry,
+      providers: [...this.providers, ...providers],
+    });
+  }
+
+  hasProvider(predicate: (provider: ToolResourceProvider) => boolean): boolean {
+    return this.providers.some(predicate);
+  }
+
   list(): readonly ToolResourceDescriptor[] {
     return [
       {

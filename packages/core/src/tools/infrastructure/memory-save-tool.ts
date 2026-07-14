@@ -55,7 +55,7 @@ export class MemorySaveTool implements DevTool {
     }
 
     try {
-      const record = service.saveRecord(parsed.input);
+      const record = service.saveRecord(parsed.input, parsed.writeAdmission);
       const output = {
         id: record.id,
         layer: record.layer,
@@ -122,6 +122,7 @@ function isMemoryAuthorizationDenied(error: unknown): boolean {
 function parseMemorySaveInput(input: ToolInput): {
   readonly ok: true;
   readonly input: Parameters<MemoryMutationService["saveRecord"]>[0];
+  readonly writeAdmission: NonNullable<Parameters<MemoryMutationService["saveRecord"]>[1]>;
 } | {
   readonly ok: false;
   readonly result: ToolResult;
@@ -154,6 +155,21 @@ function parseMemorySaveInput(input: ToolInput): {
 
   const id = optionalString(input, "id");
   const topicKey = optionalString(input, "topicKey");
+  const durability = optionalString(input, "durability")
+    ?? (layer.value === "semantic" || layer.value === "procedural" ? "durable" : "short_lived");
+  if (durability !== "short_lived" && durability !== "durable") return invalidInput("Memory durability is unsupported");
+  const futureTaskValue = optionalNumber(input, "futureTaskValue") ?? 0;
+  if (futureTaskValue < 0 || futureTaskValue > 1) return invalidInput("Memory futureTaskValue must be between 0 and 1");
+  const contradictionState = optionalString(input, "contradictionState") ?? "none";
+  if (contradictionState !== "none" && contradictionState !== "resolved" && contradictionState !== "unresolved") {
+    return invalidInput("Memory contradictionState is unsupported");
+  }
+  const derivativeTrust = optionalString(input, "derivativeTrust") ?? defaultDerivativeTrust(provenance.value.sourceType);
+  if (derivativeTrust !== "original" && derivativeTrust !== "verified" && derivativeTrust !== "untrusted") {
+    return invalidInput("Memory derivativeTrust is unsupported");
+  }
+  const canonicalEvidenceUris = readCanonicalEvidenceUris(input.input["canonicalEvidenceUris"]);
+  if (!canonicalEvidenceUris.ok) return canonicalEvidenceUris;
 
   return {
     ok: true,
@@ -167,7 +183,30 @@ function parseMemorySaveInput(input: ToolInput): {
       provenance: provenance.value,
       ...(confidence !== undefined ? { confidence } : {}),
     },
+    writeAdmission: {
+      durability,
+      futureTaskValue,
+      contradictionState,
+      derivativeTrust,
+      canonicalEvidenceUris: canonicalEvidenceUris.value,
+    },
   };
+}
+
+function defaultDerivativeTrust(sourceType: MemoryProvenanceSourceType): "original" | "untrusted" {
+  return sourceType === "operator" || sourceType === "resource" || sourceType === "file" || sourceType === "tool_call"
+    ? "original"
+    : "untrusted";
+}
+
+function readCanonicalEvidenceUris(value: unknown):
+  | { readonly ok: true; readonly value: readonly string[] }
+  | { readonly ok: false; readonly result: ToolResult } {
+  if (value === undefined) return { ok: true, value: [] };
+  if (!Array.isArray(value) || value.some((uri) => typeof uri !== "string" || uri.trim().length === 0)) {
+    return invalidInput("Memory canonicalEvidenceUris must be an array of non-empty strings");
+  }
+  return { ok: true, value: [...new Set(value.map((uri) => (uri as string).trim()))] };
 }
 
 function safeDefineScope(kind: string, id: string): {

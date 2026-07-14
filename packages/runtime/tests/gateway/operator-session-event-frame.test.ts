@@ -228,6 +228,61 @@ describe("operator session event frame", () => {
       usedPercentage: 9.375,
     });
   });
+
+  it("validates and preserves canonical efficiency evidence without surface recomputation", () => {
+    const efficiencyEvidence = {
+      schemaVersion: "verified-efficiency-evidence-v1" as const,
+      sessionId: "session-1",
+      turnId: "turn-1",
+      observedAt: "2026-07-14T20:00:01.000Z",
+      provider: { providerId: "codex-oauth", modelId: "gpt-5.6-terra", billingMode: "subscription" },
+      policy: {
+        owner: "ContextGovernor",
+        policyId: "context-whole-block-static-v1",
+        configurationHash: `sha256:${"a".repeat(64)}`,
+      },
+      totals: {
+        providerTotalTokens: 15,
+        providerTotalCostUsd: 0,
+        measured: { tokens: 5, costUsd: 0 },
+        estimated: { tokens: 0, costUsd: 0 },
+        cached: { tokens: 10, costUsd: 0 },
+        unknown: { tokens: 0, costUsd: 0 },
+        cacheWritten: { tokens: 0, costUsd: 0 },
+        avoided: { tokens: 0, costUsd: 0 },
+      },
+      outcome: "succeeded" as const,
+      verification: { status: "not_run" as const, results: [] },
+      actions: [],
+      savings: [],
+      evidenceUris: ["kiln://sessions/session-1/turns/turn-1"],
+    };
+    const event = {
+      eventId: "evt-efficiency",
+      kilnSessionId: "session-1",
+      sequence: 2,
+      timestamp: new Date("2026-07-14T20:00:01.000Z"),
+      kind: "lifecycle_attribution_recorded",
+      turnId: "turn-1",
+      source: { actor: "runtime", surface: "runtime" },
+      ledger: {},
+      summary: {},
+      efficiencyEvidence,
+    } as unknown as CanonicalSessionEvent;
+
+    const frame = toOperatorSessionEventFrame(event, { eventId: "frame-efficiency", sequence: 2 });
+    expect(frame.event.payload.efficiencyEvidence).toEqual(efficiencyEvidence);
+
+    expect(() => toOperatorSessionEventFrame({
+      ...event,
+      efficiencyEvidence: {
+        ...efficiencyEvidence,
+        totals: { ...efficiencyEvidence.totals, providerTotalTokens: 16 },
+      },
+    } as unknown as CanonicalSessionEvent, { eventId: "frame-invalid", sequence: 3 })).toThrow(
+      "Efficiency token categories must equal provider totals",
+    );
+  });
 });
 
 function terminalManagedInvocationEvent(input: {

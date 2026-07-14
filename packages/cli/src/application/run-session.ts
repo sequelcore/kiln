@@ -384,7 +384,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               inputTokens: event.inputTokens ?? 0,
               outputTokens: event.outputTokens ?? 0,
               cacheReadTokens: event.cacheReadTokens ?? 0,
-              cacheWriteTokens: 0,
+              cacheWriteTokens: event.cacheWriteTokens ?? 0,
             }, {
               provider: event.provider ?? providerId,
               model: event.model ?? effectiveSessionConfig.model,
@@ -397,7 +397,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               inputTokens: event.inputTokens ?? 0,
               outputTokens: event.outputTokens ?? 0,
               cacheReadTokens: event.cacheReadTokens ?? 0,
-              cacheWriteTokens: 0,
+              cacheWriteTokens: event.cacheWriteTokens ?? 0,
             });
             options.manager.trackCostUpdate(
               event.inputTokens ?? 0,

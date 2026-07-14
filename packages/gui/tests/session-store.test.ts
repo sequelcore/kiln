@@ -61,6 +61,46 @@ function resetSessionStore(): void {
   });
 }
 
+function efficiencyEvidenceFixture(input: {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly modelId: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly costUsd: number;
+  readonly observedAt: string;
+}) {
+  const totalTokens = input.inputTokens + input.outputTokens;
+  const measuredCost = totalTokens === 0 ? 0 : input.costUsd * (input.outputTokens / totalTokens);
+  return {
+    schemaVersion: "verified-efficiency-evidence-v1" as const,
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    observedAt: input.observedAt,
+    provider: { providerId: "codex-oauth", modelId: input.modelId, billingMode: "metered" },
+    policy: {
+      owner: "ContextGovernor",
+      policyId: "context-whole-block-static-v1",
+      configurationHash: `sha256:${"a".repeat(64)}`,
+    },
+    totals: {
+      providerTotalTokens: totalTokens,
+      providerTotalCostUsd: input.costUsd,
+      measured: { tokens: input.outputTokens, costUsd: measuredCost },
+      estimated: { tokens: 0, costUsd: 0 },
+      cached: { tokens: 0, costUsd: 0 },
+      unknown: { tokens: input.inputTokens, costUsd: input.costUsd - measuredCost },
+      cacheWritten: { tokens: 0, costUsd: 0 },
+      avoided: { tokens: 0, costUsd: 0 },
+    },
+    outcome: "succeeded" as const,
+    verification: { status: "not_run" as const, results: [] },
+    actions: [],
+    savings: [],
+    evidenceUris: [],
+  };
+}
+
 function providerModelDiscovery(
   providerId: string,
   providerModelId: string,
@@ -2408,6 +2448,15 @@ describe("session-store", () => {
               totalCostUsd: 0.015,
               bySource: { unknown: 63 },
             },
+            efficiencyEvidence: efficiencyEvidenceFixture({
+              sessionId: "session-77",
+              turnId: "session-77:turn:1",
+              modelId: "gpt-5.4-mini",
+              inputTokens: 42,
+              outputTokens: 21,
+              costUsd: 0.015,
+              observedAt: "2026-04-21T10:04:05.000Z",
+            }),
           },
         },
         {
@@ -2501,9 +2550,10 @@ describe("session-store", () => {
     expect(state.timelineEntries).toContainEqual(expect.objectContaining({
       type: "event",
       eventKind: "lifecycle_attribution_recorded",
-      title: "Lifecycle attribution recorded",
-      summary: "63 tokens · $0.0150 · 63 unknown",
+      title: "Verified efficiency evidence",
+      summary: "Efficiency: 21 measured · 0 estimated · 0 cached · 0 avoided · verification not_run · context-whole-block-static-v1",
       turnId: "session-77:turn:1",
+      details: expect.objectContaining({ schemaVersion: "verified-efficiency-evidence-v1" }),
     }));
   });
 
@@ -2537,6 +2587,15 @@ describe("session-store", () => {
           totalCostUsd: 0.0123,
           bySource: { unknown: 120 },
         },
+        efficiencyEvidence: efficiencyEvidenceFixture({
+          sessionId: "session-attribution",
+          turnId: "session-attribution:turn:1",
+          modelId: "gpt-5.5",
+          inputTokens: 100,
+          outputTokens: 20,
+          costUsd: 0.0123,
+          observedAt: "2026-06-30T18:00:00.000Z",
+        }),
       },
     });
 
@@ -2545,12 +2604,17 @@ describe("session-store", () => {
       type: "event",
       eventKind: "lifecycle_attribution_recorded",
       turnId: "session-attribution:turn:1",
-      title: "Lifecycle attribution recorded",
-      summary: "120 tokens · $0.0123 · 120 unknown",
+      title: "Verified efficiency evidence",
+      summary: "Efficiency: 20 measured · 0 estimated · 0 cached · 0 avoided · verification not_run · context-whole-block-static-v1",
       presentationDetails: expect.arrayContaining([
-        { label: "Route", value: "codex-oauth/gpt-5.5" },
+        { label: "Measured tokens", value: "20" },
+        { label: "Policy", value: "ContextGovernor/context-whole-block-static-v1" },
         { label: "Source event", value: "evt-cost" },
       ]),
+      details: expect.objectContaining({
+        schemaVersion: "verified-efficiency-evidence-v1",
+        policy: expect.objectContaining({ policyId: "context-whole-block-static-v1" }),
+      }),
     }));
     expect(JSON.stringify(state.timelineEntries)).not.toContain("\"records\"");
     expect(state.sessionCostUsd).toBe(0.25);

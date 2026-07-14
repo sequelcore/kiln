@@ -1,5 +1,14 @@
 export { estimateTextTokens, renderProjectedContext } from "./projected-context.js";
 export type {
+  ContextAllocationMode,
+  ContextCandidateSegment,
+  ContextPositionProfile,
+  ContextProjectionEvidence,
+  ContextProjectionMode,
+  ContextProjectionOption,
+  ContextTaskPhase,
+  ContextUtilityEvidence,
+  ContextUtilitySignals,
   ContextAuditBlock,
   ContextAuditDecision,
   ContextAuditEntry,
@@ -8,6 +17,7 @@ export type {
   ProjectedContext,
   ProjectedContextBlock,
   ProjectedContextBlockKind,
+  RequiredContextOverflowPolicy,
 } from "./projected-context.js";
 export {
   DefaultContextGovernor,

@@ -549,10 +549,26 @@ export type KilnContextGovernanceCachePolicy = "off" | "prefer";
 
 export interface KilnContextGovernanceConfig {
   turnBudget?: number;
+  allocationMode?: "whole-block" | "segmented" | "retrieval-on-demand";
   previewBeforeApply?: boolean;
   preferredSources?: readonly KilnContextGovernanceSource[];
   summaryAggressiveness?: KilnContextGovernanceAggressiveness;
   cachePolicy?: KilnContextGovernanceCachePolicy;
+  adaptation?: {
+    readonly version: "policy-adaptation-selection-v1";
+    readonly revision: number;
+    readonly activePolicyId: string;
+    readonly activeConfigurationHash: string;
+    readonly frozen: boolean;
+    readonly freezeReason?: string;
+    readonly rollback?: {
+      readonly policyId: string;
+      readonly configurationHash: string;
+      readonly allocationMode: "whole-block" | "segmented" | "retrieval-on-demand";
+    };
+    readonly candidateRecordHash?: string;
+    readonly evaluationEvidenceHash?: string;
+  };
 }
 
 export interface KilnYaml {

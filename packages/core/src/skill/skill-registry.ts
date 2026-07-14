@@ -8,6 +8,13 @@ export interface SkillRegistryOptions {
   readonly builtinSkills?: readonly SkillConfig[];
 }
 
+export type SkillMaterializationSource = "memory-cache" | "filesystem";
+
+export interface SkillMaterializationResult {
+  readonly skill: SkillConfig;
+  readonly source: SkillMaterializationSource;
+}
+
 export class SkillRegistry {
   private readonly indexes = new Map<string, SkillIndex>();
   private readonly fullCache = new Map<string, SkillConfig>();
@@ -45,8 +52,13 @@ export class SkillRegistry {
 
   /** Load full SkillConfig on demand. Reads file from disk if not already cached. */
   load(name: string): SkillConfig | undefined {
+    return this.loadWithEvidence(name)?.skill;
+  }
+
+  /** Load one exact skill and report whether its full body came from cache or disk. */
+  loadWithEvidence(name: string): SkillMaterializationResult | undefined {
     const cached = this.fullCache.get(name);
-    if (cached) return cached;
+    if (cached) return { skill: cached, source: "memory-cache" };
 
     const index = this.indexes.get(name);
     if (!index?.filePath) return undefined;
@@ -54,7 +66,7 @@ export class SkillRegistry {
     try {
       const config = loadSkillMd(index.filePath);
       this.fullCache.set(name, config);
-      return config;
+      return { skill: config, source: "filesystem" };
     } catch {
       return undefined;
     }

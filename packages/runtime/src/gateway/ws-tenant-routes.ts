@@ -327,7 +327,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 const baseProjectedTurnContext = projectAdmittedTurnContext({
                   userContext: session.userContext,
                   cachedRuntimeSummary: undefined,
-                  recalledMemory: undefined,
+                  recalledMemoryCandidates: undefined,
                   knowledgeContext,
                   contactContext,
                   visitorContext,

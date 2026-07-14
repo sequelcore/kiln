@@ -380,7 +380,7 @@ async function processWhatsAppMessage(
   const messageText = extractText(processedParts);
 
   // --- Memory: recall past context about this user ---
-  let recalledMemory: string | undefined;
+  let recalledMemory: ReturnType<TenantConversationMemory["recall"]>;
   if (config.memoryBasePath) {
     try {
       const memory = getConversationMemory(config.memoryBasePath, config.eventBus);
@@ -389,7 +389,6 @@ async function processWhatsAppMessage(
         tenantId,
         participantId: senderPhone,
         query,
-        tokenBudget: 500,
       });
     } catch (err) {
       trace.warn("whatsapp", "Memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
@@ -510,7 +509,7 @@ async function processWhatsAppMessage(
   const projectedTurnContext = projectAdmittedTurnContext({
     userContext: session.userContext,
     cachedRuntimeSummary: undefined,
-    recalledMemory,
+    recalledMemoryCandidates: recalledMemory?.candidates,
     knowledgeContext,
     contactContext,
     groundingMode: tenant.groundingMode,

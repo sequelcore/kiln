@@ -241,6 +241,15 @@ Skills are loaded progressively. The model may see a bounded skill index first
 and load full skill content only when needed and admitted. Full skill content
 is subject to context budget.
 
+`SkillRegistry` discovers and caches metadata indexes without materializing
+instruction bodies. Governed task selection loads only exact admitted skill
+names and records a path-free `progressive-skill-projection-v1` evidence record:
+catalog, selected, and deferred counts; metadata, selected-context, and avoided
+source bytes; estimated selected tokens; explicit or automatic selection
+reason; and filesystem or memory-cache materialization source. The evidence
+hash is stable for the selected names and reasons and does not expose local
+paths or unselected instructions.
+
 Skills are not permissions. A skill may teach an agent how to use a tool, but
 tool authority still comes from Kiln's tool and managed invocation policy.
 Agent default skills are resolved through `SkillRegistry`, loaded as governed

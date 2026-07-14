@@ -22,6 +22,7 @@ const runWiringMocks = vi.hoisted(() => {
       toolCallCount: 0,
       turnDepth: 0,
       successfulProviderId: "openai",
+      providersUsed: ["openai"],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
@@ -679,6 +680,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -714,6 +716,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -773,6 +776,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: undefined,
       successfulModelId: undefined,
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         succeeded: false,
@@ -941,6 +945,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "openrouter",
       successfulModelId: "qwen/qwen3-coder:free",
+      providersUsed: ["openrouter"],
       attempts: [{
         providerId: "openrouter",
         model: "qwen/qwen3-coder:free",
@@ -986,6 +991,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: undefined,
       successfulModelId: undefined,
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1030,6 +1036,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1077,6 +1084,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1126,6 +1134,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1181,6 +1190,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1229,6 +1239,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1471,6 +1482,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 0,
       successfulProviderId: undefined,
       successfulModelId: undefined,
+      providersUsed: ["openrouter"],
       attempts: [{
         providerId: "openrouter",
         model: "qwen/qwen3-coder:free",
@@ -1529,6 +1541,7 @@ describe("run command builtin tool wiring", () => {
         turnDepth: 0,
         successfulProviderId: undefined,
         successfulModelId: undefined,
+        providersUsed: ["codex"],
         attempts: [{
           providerId: "codex",
           succeeded: false,
@@ -1697,6 +1710,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 0,
       successfulProviderId: undefined,
       successfulModelId: undefined,
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         succeeded: false,

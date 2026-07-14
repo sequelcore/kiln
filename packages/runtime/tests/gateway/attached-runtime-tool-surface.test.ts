@@ -187,8 +187,32 @@ function makeManagedAdapter(): ManagedAgentRuntimeAdapter {
         childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
         resultHandoff: {
           summary: "Managed child completed governed work.",
-          resourceUris: [],
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
           memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary: "Managed child completed governed work.",
+            uncertainty: 0,
+            limitations: [],
+            operatorDecisions: [],
+            evidence: [{
+              uri: `kiln://managed-invocations/${request.invocationId}/handoff`,
+              kind: "artifact",
+            }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: [],
+            verificationResults: [{
+              requirementId: "governed-work-handoff",
+              method: "deterministic",
+              status: "passed",
+              summary: "The governed work handoff is present.",
+              evidenceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
+            }],
+          },
         },
       })),
   };

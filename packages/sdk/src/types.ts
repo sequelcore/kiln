@@ -7,6 +7,7 @@ import type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigStatusSnapshot,
+  VerifiedEfficiencyEvidenceProjection,
 } from "@kilnai/gateway-contracts";
 
 export interface KilnConfig {
@@ -91,6 +92,7 @@ export type {
   OperatorManagedAgentInvocationEventPayload,
   OperatorTurnRequestedAuthority,
   OperatorSessionEvent,
+  VerifiedEfficiencyEvidenceProjection,
 };
 
 /** WebSocket chat request frame (client -> server) */

@@ -78,6 +78,7 @@ describe("MemoryMutationService", () => {
       sequence: 1,
       kind: "created",
       content: source.content,
+      provenance: source.provenance,
       createdAt: "2026-04-30T12:00:01.000Z",
     });
     service.saveContextAdmission({
@@ -125,6 +126,36 @@ describe("MemoryMutationService", () => {
     const record = serviceWithAuthority.saveRecord(recordInput({ content: "Authorized memory write." }));
     expect(record.scope).toEqual({ kind: "project", id: "kiln" });
     expect(record.layer).toBe("semantic");
+  });
+
+  it("enforces governed durable-write admission at the mutation boundary", () => {
+    const input = { ...recordInput({ content: "Governed durable memory write." }), confidence: 0.9 };
+    const common = {
+      durability: "durable" as const,
+      contradictionState: "none" as const,
+      canonicalEvidenceUris: ["kiln://artifacts/memory/source/content"],
+    };
+
+    expect(() => service.saveRecord(input, {
+      ...common,
+      futureTaskValue: 0.2,
+      derivativeTrust: "original",
+    })).toThrow("Memory write defer");
+    expect(repository.countRecords()).toBe(0);
+
+    expect(() => service.saveRecord(input, {
+      ...common,
+      futureTaskValue: 1,
+      derivativeTrust: "untrusted",
+    })).toThrow("Memory write reject");
+    expect(repository.countRecords()).toBe(0);
+
+    const saved = service.saveRecord(input, {
+      ...common,
+      futureTaskValue: 1,
+      derivativeTrust: "original",
+    });
+    expect(saved.content).toBe(input.content);
   });
 
   it("denies save when authority does not allow the scope", () => {

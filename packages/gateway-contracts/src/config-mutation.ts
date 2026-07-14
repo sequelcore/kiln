@@ -4,6 +4,7 @@ export const KILN_CONFIG_CHANGE_OPERATIONS = [
   "skill.upsert",
   "agent.upsert",
   "agent.attach_skills",
+  "context_governance.adapt",
 ] as const;
 
 export type KilnConfigChangeOperation = typeof KILN_CONFIG_CHANGE_OPERATIONS[number];

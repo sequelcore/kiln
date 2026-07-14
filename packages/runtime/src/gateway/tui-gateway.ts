@@ -53,7 +53,6 @@ import {
   withManagedInvocationService,
   type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
-import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
@@ -407,10 +406,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         options: withManagedInvocationService(options.managedInvocation.options),
       }
     : undefined;
-  const builtinToolOptions = withManagedAgentInvocationResourceProvider(
-    options.builtinToolOptions,
-    managedInvocation ? { service: managedInvocation.options.invocationService } : undefined,
-  );
+  const builtinToolOptions = options.builtinToolOptions;
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(

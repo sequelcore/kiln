@@ -4,6 +4,7 @@ import {
 } from "@kilnai/core";
 import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 import { toGatewayContextUsageProjection } from "./context-usage-projection-mapper.js";
+import { toGatewayVerifiedEfficiencyEvidence } from "./verified-efficiency-evidence-mapper.js";
 
 export function toOperatorSessionEventFrame(
   event: CanonicalSessionEvent,
@@ -51,6 +52,9 @@ function canonicalSessionEventPayload(
   }
   if (event.kind === "context_usage_observed") {
     payload.contextUsage = toGatewayContextUsageProjection(event.contextUsage);
+  }
+  if (event.kind === "lifecycle_attribution_recorded") {
+    payload.efficiencyEvidence = toGatewayVerifiedEfficiencyEvidence(event.efficiencyEvidence);
   }
   if (options.instanceId && typeof payload.instanceId !== "string") {
     payload.instanceId = options.instanceId;

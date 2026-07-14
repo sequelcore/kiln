@@ -602,6 +602,16 @@ export {
   formatContextUsageProjection,
 } from "./context-usage-projection.js";
 export type { ContextUsageProjection } from "./context-usage-projection.js";
+
+export {
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  formatVerifiedEfficiencyEvidence,
+} from "./verified-efficiency-evidence.js";
+export type {
+  VerifiedEfficiencyActionKind,
+  VerifiedEfficiencyEvidenceProjection,
+  VerifiedEfficiencyVolume,
+} from "./verified-efficiency-evidence.js";
 export type {
   SessionFeedbackEvidencePreview,
   SessionFeedbackIssueDraftPreview,

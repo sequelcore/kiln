@@ -39,6 +39,18 @@ describe("runManagedAgentFanOutLifecycle", () => {
       "completed",
       "completed",
     ]);
+    expect(result.orchestrationResult.childResults[0]).toMatchObject({
+      invocationId: "fan-out-test:child:1",
+      routeId: "test-write",
+      providerId: "codex",
+      authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
+      contextMode: "isolated",
+      coordinationUsage: {
+        version: "managed-agent-coordination-usage-v1",
+        workerId: "fan-out-test:child:1",
+      },
+      replayEvidenceUris: [],
+    });
     expect(managedInvocation.invocationService?.list().map((snapshot) => snapshot.lifecycleState)).toEqual([
       "completed",
       "completed",
@@ -382,6 +394,7 @@ function createAdapter(input: {
       if (input.failOrdinals.has(ordinal)) {
         throw new Error(`Worker ${ordinal} failed`);
       }
+      const handoffUri = `kiln://managed-invocations/${request.invocationId}/handoff`;
       return defineManagedAgentInvocationRecord({
         invocationId: request.invocationId,
         agentId: request.agentId,
@@ -396,8 +409,29 @@ function createAdapter(input: {
         capabilitySnapshot: admission.capabilitySnapshot,
         resultHandoff: {
           summary: `Worker ${ordinal} completed`,
-          resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
+          resourceUris: [handoffUri],
           memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary: `Worker ${ordinal} completed`,
+            uncertainty: 0,
+            limitations: [],
+            operatorDecisions: [],
+            evidence: [{ uri: handoffUri, kind: "artifact" }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: ["The synthetic child adapter does not exercise a live provider."],
+            verificationResults: [{
+              requirementId: "fan-out-handoff",
+              method: "deterministic",
+              status: "passed",
+              summary: "The bounded child handoff is present.",
+              evidenceUris: [handoffUri],
+            }],
+          },
         },
       });
     },

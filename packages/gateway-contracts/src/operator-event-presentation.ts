@@ -10,6 +10,10 @@ import {
   parseOperatorToolResultResourceLinks,
   type ToolResultResourceLinkPresentation,
 } from "./operator-tool-result.js";
+import {
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  formatVerifiedEfficiencyEvidence,
+} from "./verified-efficiency-evidence.js";
 
 export type OperatorEventTone = "info" | "running" | "success" | "warning" | "error";
 export type OperatorEventSurface = "conversation_inline" | "activity_panel" | "inspector";
@@ -1533,25 +1537,36 @@ function costUpdatedPresentation(payload: Record<string, unknown>): OperatorEven
 
 function lifecycleAttributionPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const ledger = asRecord(payload.ledger);
-  const summaryRecord = asRecord(payload.summary);
-  const context = asRecord(ledger?.context);
-  const records = Array.isArray(ledger?.records) ? ledger.records : [];
-  const bySource = asRecord(summaryRecord?.bySource);
-  const totalTokens = readNumber(summaryRecord?.totalTokens) ?? 0;
-  const totalCostUsd = readNumber(summaryRecord?.totalCostUsd) ?? 0;
-  const unknownTokens = readNumber(bySource?.unknown);
-  const route = readString(context?.route);
-  const cost = formatUsd(totalCostUsd) ?? "$0.0000";
-  const summary = `${totalTokens} tokens · ${cost}${unknownTokens !== undefined ? ` · ${unknownTokens} unknown` : ""}`;
+  const parsed = VerifiedEfficiencyEvidenceProjectionSchema.safeParse(payload.efficiencyEvidence);
+  if (!parsed.success) {
+    return {
+      title: "Efficiency evidence unavailable",
+      summary: "Canonical efficiency evidence is missing or invalid",
+      compactText: "Efficiency evidence unavailable",
+      tone: "warning",
+      details: [],
+      surfaces: ACTIVITY_SURFACES,
+      conversationDisposition: "none",
+    };
+  }
+  const projection = parsed.data;
+  const summary = formatVerifiedEfficiencyEvidence(projection);
   const details: OperatorEventDetailItem[] = [];
-  addItem(details, "Tokens", totalTokens);
-  addItem(details, "Cost", cost);
-  addItem(details, "Unknown source tokens", unknownTokens);
-  addItem(details, "Records", records.length);
-  addItem(details, "Route", route);
+  addItem(details, "Provider total tokens", projection.totals.providerTotalTokens);
+  addItem(details, "Measured tokens", projection.totals.measured.tokens);
+  addItem(details, "Estimated tokens", projection.totals.estimated.tokens);
+  addItem(details, "Cached tokens", projection.totals.cached.tokens);
+  addItem(details, "Avoided tokens", projection.totals.avoided.tokens);
+  addItem(details, "Unknown tokens", projection.totals.unknown.tokens);
+  addItem(details, "Policy", `${projection.policy.owner}/${projection.policy.policyId}`);
+  addItem(details, "Policy configuration", projection.policy.configurationHash);
+  addItem(details, "Outcome", projection.outcome);
+  addItem(details, "Verification", projection.verification.status);
+  addItem(details, "Savings evidence", projection.savings.length);
+  addItem(details, "Evidence resources", projection.evidenceUris.length);
   addItem(details, "Source event", ledger?.sourceEventId);
   return {
-    title: "Lifecycle attribution recorded",
+    title: "Verified efficiency evidence",
     summary,
     compactText: summary,
     tone: "info",

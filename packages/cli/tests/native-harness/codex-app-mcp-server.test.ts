@@ -103,7 +103,7 @@ describe("CodexAppMcpServer", () => {
   afterEach(() => {
     rmSync(TEMPORARY_CWD, { recursive: true, force: true });
   });
-  it("discovers the three inspection tools and exactly three managed-job tools", () => {
+  it("discovers the three inspection tools and exactly five managed-job tools", () => {
     expect(createServer().listTools().map((tool) => tool.name)).toEqual([
       "kiln_status_inspect",
       "kiln_work_governance_inspect",
@@ -111,6 +111,8 @@ describe("CodexAppMcpServer", () => {
       "kiln_managed_agent_invoke",
       "kiln_managed_agent_status",
       "kiln_managed_agent_result",
+      "kiln_managed_agent_cancel",
+      "kiln_managed_agent_replay",
     ]);
   });
 
@@ -144,6 +146,8 @@ describe("CodexAppMcpServer", () => {
         submit: async (input) => { submitted.push(input); return managedJob(); },
         getStatus: async () => managedJob(),
         getResult: async () => ({ jobId: "managed-job-0001", availability: "available", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", handoff: { summary: "done", resourceUris: [], memoryWriteProposalUris: [] } }),
+        cancel: async () => managedJob({ state: "cancelled", diagnostic: "cancelled" }),
+        getReplay: async () => ({ jobId: "managed-job-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }),
       },
       requestIdentity: () => ({ callerId: "trusted-codex-user", requestId: "trusted-request" }),
     });
@@ -154,9 +158,52 @@ describe("CodexAppMcpServer", () => {
     expect(JSON.stringify(result)).not.toContain("objective");
   });
 
+  it("projects trusted cancellation and canonical lifecycle replay without accepting caller authority or prose", async () => {
+    const calls: unknown[] = [];
+    const server = new CodexAppMcpServer({
+      managedJobs: {
+        submit: async () => managedJob({ state: "running" }),
+        getStatus: async () => managedJob({ state: "running" }),
+        getResult: async () => ({ jobId: "managed-job-0001", availability: "failed", lifecycleState: "cancelled", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", diagnostic: "cancelled" }),
+        cancel: async (input, jobId) => { calls.push({ operation: "cancel", input, jobId }); return managedJob({ state: "cancelled", diagnostic: "cancelled" }); },
+        getReplay: async (input, jobId) => {
+          calls.push({ operation: "replay", input, jobId });
+          return {
+            jobId,
+            availability: "available",
+            lifecycleState: "cancelled",
+            configuredAgentProfileId: "scout",
+            admissionProfileId: "foundation-readonly-plan",
+            routeId: "route-go",
+            providerId: "opencode-go",
+            lifecycle: [
+              { sequence: 1, state: "queued", observedAt: OBSERVED_AT },
+              { sequence: 2, state: "running", observedAt: OBSERVED_AT },
+              { sequence: 3, state: "cancelled", observedAt: OBSERVED_AT, diagnostic: "cancelled" },
+            ],
+            resultAvailability: "failed",
+          };
+        },
+      },
+      requestIdentity: () => ({ callerId: "trusted-codex-user", requestId: "lifecycle-request" }),
+    });
+
+    const cancelled = await server.callTool("kiln_managed_agent_cancel", { jobId: "managed-job-0001" });
+    const replay = await server.callTool("kiln_managed_agent_replay", { jobId: "managed-job-0001" });
+
+    expect(calls).toEqual([
+      { operation: "cancel", input: { callerId: "trusted-codex-user" }, jobId: "managed-job-0001" },
+      { operation: "replay", input: { callerId: "trusted-codex-user" }, jobId: "managed-job-0001" },
+    ]);
+    expect(cancelled.structuredContent).toMatchObject({ operation: "managed-agent-cancel", job: { state: "cancelled" } });
+    expect(replay.structuredContent).toMatchObject({ operation: "managed-agent-replay", replay: { availability: "available", lifecycle: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }] } });
+    expect(JSON.stringify(replay)).not.toMatch(/objective|prompt|transcript|provider payload/iu);
+    await expect(server.callTool("kiln_managed_agent_cancel", { jobId: "managed-job-0001", reason: "override" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
+  });
+
   it("rejects unknown invoke fields and malformed status or result identifiers before the application owner", async () => {
     let calls = 0;
-    const server = new CodexAppMcpServer({ managedJobs: { submit: async () => { calls++; return managedJob(); }, getStatus: async () => { calls++; return managedJob(); }, getResult: async () => { calls++; return { jobId: "managed-job-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }; } } });
+    const server = new CodexAppMcpServer({ managedJobs: { submit: async () => { calls++; return managedJob(); }, getStatus: async () => { calls++; return managedJob(); }, getResult: async () => { calls++; return { jobId: "managed-job-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }; }, cancel: async () => { calls++; return managedJob(); }, getReplay: async () => { calls++; return { jobId: "managed-job-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }; } } });
     await expect(server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key", provider: "opencode-go" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
     await expect(server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key", admissionProfileId: "foundation-readonly-plan" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
     await expect(server.callTool("kiln_managed_agent_status", { jobId: "not valid" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
@@ -165,7 +212,7 @@ describe("CodexAppMcpServer", () => {
   });
 
   it("maps application diagnostics without exposing internal error text", async () => {
-    const server = new CodexAppMcpServer({ managedJobs: { submit: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "provider_rejected" }); }, getStatus: async () => managedJob(), getResult: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "result_corrupt" }); } } });
+    const server = new CodexAppMcpServer({ managedJobs: { submit: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "provider_rejected" }); }, getStatus: async () => managedJob(), getResult: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "result_corrupt" }); }, cancel: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "invocation_failed" }); }, getReplay: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "job_persistence_corrupt" }); } } });
     const result = await server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key" });
     expect(result).toMatchObject({ isError: true, structuredContent: { error: { code: "provider_rejected" } } });
     expect(JSON.stringify(result)).not.toContain("secrets");
@@ -192,6 +239,8 @@ describe("CodexAppMcpServer", () => {
             handoff: { summary: "bounded child answer", resourceUris: ["kiln://artifacts/managed-job-0001/result"], memoryWriteProposalUris: [] },
           };
         },
+        cancel: async () => managedJob({ state: "cancelled", diagnostic: "cancelled" }),
+        getReplay: async () => ({ jobId: "managed-job-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }),
       },
       requestIdentity: () => ({ callerId: "trusted-codex-user", requestId: "result-request" }),
     });

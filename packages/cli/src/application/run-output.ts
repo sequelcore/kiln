@@ -1,5 +1,9 @@
 import type { VerificationResult } from "@kilnai/core";
-import type { ContextUsageProjection } from "@kilnai/gateway-contracts";
+import {
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  type ContextUsageProjection,
+  type VerifiedEfficiencyEvidenceProjection,
+} from "@kilnai/gateway-contracts";
 import type { ContextGovernanceSummary, SessionReport } from "../wrapper/index.js";
 import type { RunSessionAttemptResult } from "./run-session.js";
 
@@ -45,6 +49,7 @@ export interface RunJsonOutputEnvelope {
     readonly verificationPassed?: boolean;
     readonly contextGovernance?: ContextGovernanceSummary;
     readonly contextUsage?: ContextUsageProjection;
+    readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
   };
   readonly diagnostics: {
     readonly lastError: string | null;
@@ -160,6 +165,7 @@ export function buildRunJsonOutputEnvelope(input: {
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ContextGovernanceSummary;
   readonly contextUsage?: ContextUsageProjection;
+  readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -188,6 +194,9 @@ export function buildRunJsonOutputEnvelope(input: {
       ...(input.verificationPassed !== undefined ? { verificationPassed: input.verificationPassed } : {}),
       ...(input.contextGovernance ? { contextGovernance: input.contextGovernance } : {}),
       ...(input.contextUsage ? { contextUsage: input.contextUsage } : {}),
+      ...(input.efficiencyEvidence
+        ? { efficiencyEvidence: VerifiedEfficiencyEvidenceProjectionSchema.parse(input.efficiencyEvidence) }
+        : {}),
     },
     diagnostics: {
       lastError: input.lastError,

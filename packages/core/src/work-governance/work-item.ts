@@ -1,5 +1,6 @@
 import { compareSessionEvents, type CanonicalSessionEvent } from "../events/session-event.js";
 import type { ManagedAgentResultHandoff } from "../agents/managed-invocation/index.js";
+import type { VerificationUsageReport } from "../efficiency/output-verification-allocation.js";
 import {
   defineWorkClassification,
   defineWorkClassificationProvenance,
@@ -221,6 +222,7 @@ export interface WorkItemExecutionAttempt {
   readonly skippedVerificationGates: readonly string[];
   readonly verificationGateResults: readonly VerificationGateResult[];
   readonly residualRisk?: string;
+  readonly verificationUsage?: VerificationUsageReport;
 }
 
 export interface WorkItemUpsertInput {
@@ -621,6 +623,11 @@ export class WorkItemStore {
       skippedVerificationGates: allSkippedVerificationGates,
       verificationGateResults,
       ...(residualRisk ? { residualRisk } : {}),
+      ...(input.managedInvocationResultHandoff?.verificationUsage
+        ? { verificationUsage: input.managedInvocationResultHandoff.verificationUsage }
+        : attempt.verificationUsage
+          ? { verificationUsage: attempt.verificationUsage }
+          : {}),
     };
     const item = this.upsert({
       ...existing,

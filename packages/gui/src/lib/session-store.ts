@@ -28,6 +28,7 @@ import {
   isGuiProviderModeless,
   presentOperatorEventPayload,
   ContextUsageProjectionSchema,
+  VerifiedEfficiencyEvidenceProjectionSchema,
 } from "@kilnai/gateway-contracts";
 import {
   deriveSessionContinuity,
@@ -854,6 +855,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "lifecycle_attribution_recorded") {
       const presentation = presentOperatorEventPayload(event.kind, payload);
+      const efficiencyEvidence = VerifiedEfficiencyEvidenceProjectionSchema.safeParse(payload.efficiencyEvidence);
       timelineEntries.push({
         id: `timeline:${event.eventId}`,
         type: "event",
@@ -865,6 +867,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         summary: presentation.summary,
         tone: presentation.tone,
         presentationDetails: presentation.details,
+        ...(efficiencyEvidence.success ? { details: efficiencyEvidence.data } : {}),
       });
       continue;
     }
@@ -2417,6 +2420,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     if (event.kind === "lifecycle_attribution_recorded") {
       const presentation = presentOperatorEventPayload(event.kind, payload);
+      const efficiencyEvidence = VerifiedEfficiencyEvidenceProjectionSchema.safeParse(payload.efficiencyEvidence);
       set({
         timelineEntries: [
           ...get().timelineEntries,
@@ -2431,6 +2435,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             summary: presentation.summary,
             tone: presentation.tone,
             presentationDetails: presentation.details,
+            ...(efficiencyEvidence.success ? { details: efficiencyEvidence.data } : {}),
           },
         ],
       });

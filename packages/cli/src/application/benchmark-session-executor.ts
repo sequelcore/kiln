@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { BenchmarkItemExecutor } from "@kilnai/core";
+import type {
+  BenchmarkItemExecutor,
+  NormalizedReasoningEffortResolution,
+  ReasoningEffort,
+} from "@kilnai/core";
 import {
   GoalRunStore,
   WorkItemStore,
@@ -10,6 +14,9 @@ import {
 import {
   getProjectContextArtifactCache,
   ProviderModelRouteHealthStore,
+  discoverCodexCliModelDiscovery,
+  discoverGuiDirectProviderModelDiscovery,
+  discoverOpencodeCliModelDiscovery,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
 } from "@kilnai/runtime";
@@ -48,6 +55,7 @@ import { SessionHooks } from "./session-hooks.js";
 import { runSession } from "./run-session.js";
 import { createNonHumanRunOutputSink } from "./run-output.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
+import { resolveConfiguredReasoningEffortEvidence } from "../config/reasoning-policy.js";
 
 export const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
 export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 8 } } as const;
@@ -57,6 +65,10 @@ export interface BenchmarkSessionExecutorFlags {
   readonly model?: string;
   readonly apiKey?: string;
   readonly skipGitRepoCheck?: boolean;
+  readonly reasoningEffort?: ReasoningEffort;
+  readonly allowExperimentalXhigh?: boolean;
+  readonly effortBudgetUsd?: number;
+  readonly estimatedEffortCostUsd?: number;
 }
 
 export interface BenchmarkSessionExecutorOptions {
@@ -65,6 +77,7 @@ export interface BenchmarkSessionExecutorOptions {
 }
 
 export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutorOptions): BenchmarkItemExecutor {
+  let reasoningEffortResolutionPromise: Promise<NormalizedReasoningEffortResolution> | undefined;
   return async (input, context) => {
     const startedAt = Date.now();
     const cwd = resolveProjectRoot().rootPath;
@@ -117,6 +130,17 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       undefined,
     );
     const env = buildEnv(wrapperConfig);
+    reasoningEffortResolutionPromise ??= resolveBenchmarkReasoningEffort({
+      flags: options.flags,
+      env,
+    });
+    const reasoningEffortResolution = await reasoningEffortResolutionPromise;
+    const reasoningEffort = reasoningEffortResolution.status === "resolved"
+      ? reasoningEffortResolution.resolved
+      : undefined;
+    const routeCandidates = reasoningEffort
+      ? configuredRouteCandidates.map((candidate) => ({ ...candidate, reasoningEffort }))
+      : configuredRouteCandidates;
     const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(options.appConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
@@ -159,11 +183,14 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const managedInvocationAttachment = managedInvocationWithService
       ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
       : undefined;
+    const sessionId = randomUUID();
     builtinToolOptions = withManagedAgentInvocationResourceProvider(
       builtinToolOptions,
-      managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+      managedInvocationWithService ? {
+        service: managedInvocationWithService.invocationService,
+        parentSessionId: sessionId,
+      } : undefined,
     );
-    const sessionId = randomUUID();
     const sessionConfig = {
       task: input,
       systemPrompt: sessionContext.systemPrompt,
@@ -179,6 +206,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
       requestedAuthority: "read_only" as const,
       model: effectiveModel,
+      reasoningEffort,
     };
     const sessionHooks = new SessionHooks(options.appConfig.kilnYaml?.hooks, {
       sessionId,
@@ -194,7 +222,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         preferredProvider,
         requiresMcp: preferredProvider === undefined,
       },
-      routeCandidates: configuredRouteCandidates.length > 0 ? configuredRouteCandidates : undefined,
+      routeCandidates: routeCandidates.length > 0 ? routeCandidates : undefined,
       sessionConfig,
       permissionPolicy: BENCHMARK_POLICY,
       sessionId,
@@ -222,6 +250,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         costEvidence: result.finalCostEvidence,
         sessionSucceeded: result.sessionSucceeded,
         providerRequests: result.providerRequests,
+        reasoningEffortResolution,
         toolCalls: result.transcript.flatMap((entry) => {
           if (entry.event.type !== "tool_use") return [];
           return [{
@@ -236,6 +265,43 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       },
     };
   };
+}
+
+async function resolveBenchmarkReasoningEffort(input: {
+  readonly flags?: BenchmarkSessionExecutorFlags;
+  readonly env: Readonly<Record<string, string>>;
+}): Promise<NormalizedReasoningEffortResolution> {
+  const requested = input.flags?.reasoningEffort;
+  if (!requested) return { status: "omitted", reason: "not-requested" };
+  const provider = input.flags?.provider;
+  const model = input.flags?.model;
+  if (!provider || !model) {
+    throw new Error("Benchmark reasoning effort requires explicit provider and model identity.");
+  }
+  let supportedReasoningEfforts: readonly ReasoningEffort[] | undefined;
+  if (isDirectApiProvider(provider as ProviderId)) {
+    const discovery = await discoverGuiDirectProviderModelDiscovery(
+      { [provider]: true },
+      { ...process.env, ...input.env },
+    );
+    supportedReasoningEfforts = discovery[provider]?.modelCapabilities?.[model]?.supportedReasoningEfforts;
+  } else if (provider === "codex") {
+    supportedReasoningEfforts = (await discoverCodexCliModelDiscovery())
+      .modelCapabilities?.[model]?.supportedReasoningEfforts;
+  } else if (provider === "opencode") {
+    supportedReasoningEfforts = (await discoverOpencodeCliModelDiscovery())
+      .modelCapabilities?.[model]?.supportedReasoningEfforts;
+  }
+  return resolveConfiguredReasoningEffortEvidence({
+    explicitReasoningEffort: requested,
+    provider,
+    model,
+    supportedReasoningEfforts,
+    allowExperimentalXhigh: input.flags?.allowExperimentalXhigh,
+    purpose: "benchmark",
+    budgetUsd: input.flags?.effortBudgetUsd,
+    estimatedEffortCostUsd: input.flags?.estimatedEffortCostUsd,
+  });
 }
 
 function closeBuiltinResources(options: {

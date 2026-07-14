@@ -13,13 +13,18 @@ import type {
   WorkClassificationInput,
   WorkClassificationProvenanceInput,
   VerificationGateResult,
+  StructuredExecutionResult,
+  VerificationUsageReport,
 } from "@kilnai/core";
 import {
   containsFrontendReferenceEvidence,
+  defineStructuredExecutionResult,
+  defineVerificationUsageReport,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   goalToolMetadata,
   GoalRunStore,
+  isCanonicalArtifactContentUri,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
@@ -1061,6 +1066,11 @@ export class WorkItemExecutionStartTool implements DevTool {
         type: "string",
         description: "Optional reasoning effort to include in the suggested managed_agent.invoke request.",
       },
+      managedResourceUris: {
+        type: "array",
+        items: { type: "string", minLength: 1 },
+        description: "Canonical artifact content URIs to share with the managed child. Omit for fresh isolated context.",
+      },
       managedProfile: {
         type: "string",
         enum: MANAGED_INVOCATION_PROFILES,
@@ -1171,6 +1181,13 @@ export class WorkItemExecutionStartTool implements DevTool {
     }
     const managedInvocationId = readText(input.input.managedInvocationId);
     if (step.executionMode === "managed_delegation" && !managedInvocationId) {
+      const managedResourceUris = readTextArray(input.input.managedResourceUris) ?? [];
+      if (managedResourceUris.some((uri) => !isCanonicalArtifactContentUri(uri))) {
+        return {
+          output: "managedResourceUris must contain only canonical kiln://artifacts/<namespace>/<id>/content URIs.",
+          isError: true,
+        };
+      }
       const managedInvocation = buildManagedInvocationRequest(goal, step, input.input);
       return {
         output: JSON.stringify({
@@ -1263,6 +1280,14 @@ export class WorkItemExecutionFinishTool implements DevTool {
           memoryWriteProposalUris: {
             type: "array",
             items: { type: "string", minLength: 1 },
+          },
+          structuredResult: {
+            type: "object",
+            description: "Canonical structured execution result. Core validation rejects malformed control state.",
+          },
+          verificationUsage: {
+            type: "object",
+            description: "Independent verifier token, cost, latency, and evidence attribution.",
           },
         },
         required: ["summary", "resourceUris"],
@@ -1604,6 +1629,10 @@ function buildManagedInvocationRequest(
     : readText(input.managedModel);
   const reasoningEffort = readText(input.managedReasoningEffort)
     ?? step.workItem.routingRecommendation?.reasoningEffort;
+  const resourceUris = readTextArray(input.managedResourceUris) ?? [];
+  if (resourceUris.some((uri) => !isCanonicalArtifactContentUri(uri))) {
+    throw new Error("managedResourceUris must contain only canonical kiln://artifacts/<namespace>/<id>/content URIs.");
+  }
   const expectedEvidence = phase.expectedEvidence;
   const residualRiskRequired = expectedEvidence.includes("residual-risk");
   const attemptId = `${goal.id}:${step.workItemId}:attempt:${step.workItem.executionAttempts.length + 1}`;
@@ -1628,6 +1657,8 @@ function buildManagedInvocationRequest(
     requestedAuthority: resolveManagedInvocationAuthority(profile, input, goal),
     task: formatManagedInvocationTask(goal, step, phase),
     summary: step.workItem.summary,
+    contextMode: resourceUris.length > 0 ? "resources" : "isolated",
+    ...(resourceUris.length > 0 ? { resourceUris } : {}),
     goalRunId: goal.id,
     workItemId: step.workItemId,
     attemptId,
@@ -1652,6 +1683,7 @@ function buildManagedInvocationRequest(
     requiredResultFields: managedInvocationResultFields(expectedEvidence),
     doneCriteria: managedInvocationDoneCriteria(step, phase),
     residualRiskRequired,
+    outputVerbosity: "concise",
   };
 
   return {
@@ -1789,7 +1821,7 @@ function formatManagedInvocationTask(
     lines.push(`Work item verification gates for final closeout: ${step.workItem.verificationGates.join("; ")}.`);
   }
   lines.push(phase.completionInstruction);
-  lines.push("Return a concise handoff with summary, evidence, checks, and residual risk when required. Do not include scratch notes, private planning text, or tool-output housekeeping in the user-facing handoff.");
+  lines.push("Return exactly one structured-execution-result-v1 JSON object with status, summary, limitations, operatorDecisions, evidence, citations, warnings, failures, approvalRequirements, residualRisks, and verificationResults. Include uncertainty when requested. Do not infer verification success from prose or include scratch notes, private planning text, or tool-output housekeeping.");
   return lines.join("\n");
 }
 
@@ -2073,10 +2105,18 @@ function requireManagedInvocationResultHandoff(
   const memoryWriteProposalUris = record.memoryWriteProposalUris === undefined
     ? []
     : requireTextArray(record.memoryWriteProposalUris, "managedInvocationResultHandoff.memoryWriteProposalUris");
+  const structuredResult = record.structuredResult === undefined
+    ? undefined
+    : defineStructuredExecutionResult(record.structuredResult as StructuredExecutionResult);
+  const verificationUsage = record.verificationUsage === undefined
+    ? undefined
+    : defineVerificationUsageReport(record.verificationUsage as Omit<VerificationUsageReport, "totals">);
   return {
     summary,
     resourceUris,
     memoryWriteProposalUris,
+    ...(structuredResult ? { structuredResult } : {}),
+    ...(verificationUsage ? { verificationUsage } : {}),
   };
 }
 

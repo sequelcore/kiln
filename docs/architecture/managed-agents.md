@@ -168,11 +168,13 @@ explicit retention decision.
 ### Codex App MCP projection
 
 The project-local Codex App MCP adapter exposes exactly
-`kiln_managed_agent_invoke`, `kiln_managed_agent_status`, and
-`kiln_managed_agent_result`, alongside its
-three inspection tools. Invoke accepts only `objective`,
+`kiln_managed_agent_invoke`, `kiln_managed_agent_status`,
+`kiln_managed_agent_result`, `kiln_managed_agent_cancel`, and
+`kiln_managed_agent_replay`, alongside its three inspection tools. Invoke
+accepts only `objective`,
 `configuredAgentProfileId`, and
-`idempotencyKey`; status and result each accept only `jobId`. The adapter derives the caller
+`idempotencyKey`; status, result, cancel, and replay each accept only `jobId`.
+The adapter derives the caller
 and harness from trusted composition and the project from its source checkout. It
 does not accept parent lineage, route, provider, model, paths, authority,
 configuration, environment, credentials, or timeout inputs.
@@ -188,7 +190,8 @@ persisting the job. Slice 3's explicit application admission requirement is
 never makes either decision. Capability inspection
 projects safe configured-agent identity, optional role/display name, availability,
 provider family, admission profile, and stable action; it does not expose route
-configuration. Status and result reads are authorized by the application owner
+configuration. Status, result, cancellation, and replay operations are
+authorized by the application owner
 against the trusted project, trusted Codex App caller/harness identity, and
 canonical job ownership; knowing a job identifier is insufficient. Responses
 project only opaque job/lifecycle, configured-agent, admission-profile and
@@ -197,12 +200,18 @@ bounded normalized handoff or admitted safe resource references,
 caller/request evidence, and stable diagnostics. They never return objectives,
 prompts, transcripts, hidden reasoning, raw provider data, storage paths,
 configuration, secrets, exceptions, or stacks. Redaction is applied before
-persistence and again at projection.
+persistence and again at projection. New jobs persist a monotonic canonical
+lifecycle beginning with `queued`; replay returns only those stored lifecycle
+entries and never reconstructs missing history from transcripts or provider
+logs. Historical jobs without lifecycle entries return explicit
+`replay_unavailable` evidence.
 
 Idempotency remains entirely in the persistent owner: the same trusted caller,
 key, and normalized request returns the original job and its immutable result,
 while a changed request returns the canonical conflict. There is no MCP retry
-cache. This surface does not expose cancellation, listing, configuration
+cache. Cancellation passes through the Runtime invocation owner, records a
+terminal `cancelled` lifecycle entry, and cannot be overwritten by late
+provider completion. This surface does not expose listing, configuration
 mutation, bulk invocation, native CLI execution, or provider/model selection.
 This slice does not implement quota-aware or automatic multi-route routing;
 that remains a Slice 4 concern.
@@ -1075,6 +1084,26 @@ announce resource links that the active resource plane cannot resolve.
 Artifact-linked diff evidence must survive reload through resource URIs. Raw
 provider diffs, full transcripts, and provider-native event payloads are not
 session-event state.
+
+## Coordination Efficiency Evidence
+
+Every Runtime-managed terminal record carries
+`managed-agent-coordination-usage-v1`. It reports parent prompt, child
+bootstrap, duplicated reads, handoff, review, and synthesis as separate stages.
+Each stage records token, cost, latency, and turn values with
+`provider_reported`, `estimated`, or `unknown` quality and resource evidence
+URIs. Unknown values remain unknown and the report declares whether components
+may overlap; it never stores raw prompt or credential content.
+
+Known coordination tokens can be projected into the lifecycle attribution
+ledger with source `coordination` and the managed worker id. The ledger's
+provider-total reconciliation remains authoritative and rejects overflow, so
+partial estimates cannot silently double-count billed usage.
+
+Fan-out orchestration result evidence retains child invocation and route
+identity, provider/model, authority profile, context mode, replay URIs, and the
+coordination report. Partial, failed, or recovered children therefore keep the
+evidence needed for deterministic operator review.
 
 ## Result Handoff
 

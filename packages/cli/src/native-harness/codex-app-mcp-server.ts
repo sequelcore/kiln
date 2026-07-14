@@ -3,7 +3,7 @@ import {
   createNativeHarnessInspectionService,
   type NativeHarnessInspectionService,
 } from "../application/native-harness-inspection.js";
-import type { ManagedJobRecord, ManagedJobResultQuery } from "@kilnai/runtime";
+import type { ManagedJobRecord, ManagedJobReplayQuery, ManagedJobResultQuery } from "@kilnai/runtime";
 import {
   createCodexAppManagedJobApplicationComposition,
   type CodexAppManagedJobApplicationPort,
@@ -15,7 +15,7 @@ const INSPECTION_TOOL_NAMES = [
   "kiln_work_governance_inspect",
   "kiln_capability_inspect",
 ] as const;
-const MANAGED_JOB_TOOL_NAMES = ["kiln_managed_agent_invoke", "kiln_managed_agent_status", "kiln_managed_agent_result"] as const;
+const MANAGED_JOB_TOOL_NAMES = ["kiln_managed_agent_invoke", "kiln_managed_agent_status", "kiln_managed_agent_result", "kiln_managed_agent_cancel", "kiln_managed_agent_replay"] as const;
 const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...MANAGED_JOB_TOOL_NAMES] as const;
 
 type CodexAppMcpToolName = typeof TOOL_NAMES[number];
@@ -182,6 +182,14 @@ export class CodexAppMcpServer {
         const job = await this.managedJobs.getStatus({ callerId: identity.callerId }, jobId);
         return this.managedJobSuccess(name, job, identity, requestId);
       }
+      if (name === "kiln_managed_agent_cancel") {
+        const job = await this.managedJobs.cancel({ callerId: identity.callerId }, jobId);
+        return this.managedJobSuccess(name, job, identity, requestId);
+      }
+      if (name === "kiln_managed_agent_replay") {
+        const replay = await this.managedJobs.getReplay({ callerId: identity.callerId }, jobId);
+        return this.managedJobReplaySuccess(replay, identity, requestId);
+      }
       const result = await this.managedJobs.getResult({ callerId: identity.callerId }, jobId);
       return this.managedJobResultSuccess(result, identity, requestId);
     } catch (error) {
@@ -206,7 +214,11 @@ export class CodexAppMcpServer {
 
   private managedJobSuccess(name: typeof MANAGED_JOB_TOOL_NAMES[number], job: ManagedJobRecord, identity: CodexAppMcpRequestIdentity, requestId: string): CodexAppMcpCallResult {
     const structuredContent = {
-      operation: name === "kiln_managed_agent_invoke" ? "managed-agent-invoke" : "managed-agent-status",
+      operation: name === "kiln_managed_agent_invoke"
+        ? "managed-agent-invoke"
+        : name === "kiln_managed_agent_cancel"
+          ? "managed-agent-cancel"
+          : "managed-agent-status",
       job: {
         id: job.id,
         state: job.state,
@@ -244,6 +256,26 @@ export class CodexAppMcpServer {
     };
     return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
+
+  private managedJobReplaySuccess(replay: ManagedJobReplayQuery, identity: CodexAppMcpRequestIdentity, requestId: string): CodexAppMcpCallResult {
+    const structuredContent = {
+      operation: "managed-agent-replay",
+      replay: {
+        jobId: replay.jobId,
+        availability: replay.availability,
+        lifecycleState: replay.lifecycleState,
+        configuredAgentProfileId: replay.configuredAgentProfileId,
+        admissionProfileId: replay.admissionProfileId,
+        routeId: replay.routeId,
+        providerId: replay.providerId,
+        lifecycle: replay.lifecycle,
+        resultAvailability: replay.resultAvailability,
+        ...(replay.diagnostic ? { diagnostic: { code: replay.diagnostic, operatorAction: operatorActionFor(replay.diagnostic) } } : {}),
+      },
+      evidence: { harness: "codex-app", adapter: "project-local-kiln-mcp", callerId: identity.callerId, requestId },
+    };
+    return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
+  }
 }
 
 export async function startCodexAppMcpServer(): Promise<void> {
@@ -276,7 +308,9 @@ function descriptionFor(name: CodexAppMcpToolName): string {
   if (name === "kiln_capability_inspect") return "Read Codex harness capability availability from canonical Kiln status. Read-only; cannot invoke managed agents.";
   if (name === "kiln_managed_agent_invoke") return "Submit bounded managed work through the canonical Kiln managed-job application boundary.";
   if (name === "kiln_managed_agent_status") return "Read canonical lifecycle status for one managed-job identifier.";
-  return "Read the bounded canonical Runtime result handoff for one authorized managed-job identifier.";
+  if (name === "kiln_managed_agent_result") return "Read the bounded canonical Runtime result handoff for one authorized managed-job identifier.";
+  if (name === "kiln_managed_agent_cancel") return "Cancel one authorized active managed job through its Runtime owner.";
+  return "Replay canonical lifecycle evidence for one authorized managed-job identifier.";
 }
 
 function inputSchemaFor(
@@ -301,7 +335,7 @@ function inputSchemaFor(
 }
 
 function annotationsFor(name: CodexAppMcpToolName): Record<string, boolean> {
-  if (name === "kiln_managed_agent_invoke") return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  if (name === "kiln_managed_agent_invoke" || name === "kiln_managed_agent_cancel") return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   return { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 }
 

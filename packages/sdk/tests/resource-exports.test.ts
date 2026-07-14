@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  formatVerifiedEfficiencyEvidence,
+} from "../src/index.js";
 import type {
   AuthorityStateRecord,
   AuthorityStateSnapshot,
@@ -12,6 +16,7 @@ import type {
   ToolResourceDisplayDescriptor,
   ToolResourceReadResult,
   WorkItemSnapshot,
+  VerifiedEfficiencyEvidenceProjection,
 } from "../src/index.js";
 
 describe("resource SDK exports", () => {
@@ -44,6 +49,38 @@ describe("resource SDK exports", () => {
     expect(display.uri).toBe("kiln://tools/catalog");
     expect(readResult.contents[0]?.uri).toBe(descriptor.uri);
     expect(operatorReadResult.target?.gatewayTargetId).toBe("app-gateway:support");
+  });
+
+  it("exports the canonical efficiency schema, formatter, and DTO", () => {
+    const projection: VerifiedEfficiencyEvidenceProjection = {
+      schemaVersion: "verified-efficiency-evidence-v1",
+      sessionId: "session-sdk",
+      observedAt: "2026-07-14T20:00:00.000Z",
+      provider: { providerId: "codex-oauth", modelId: "gpt-5.6-terra", billingMode: "subscription" },
+      policy: {
+        owner: "ContextGovernor",
+        policyId: "context-whole-block-static-v1",
+        configurationHash: `sha256:${"a".repeat(64)}`,
+      },
+      totals: {
+        providerTotalTokens: 10,
+        providerTotalCostUsd: 0,
+        measured: { tokens: 2, costUsd: 0 },
+        estimated: { tokens: 0, costUsd: 0 },
+        cached: { tokens: 3, costUsd: 0 },
+        unknown: { tokens: 5, costUsd: 0 },
+        cacheWritten: { tokens: 0, costUsd: 0 },
+        avoided: { tokens: 0, costUsd: 0 },
+      },
+      outcome: "succeeded",
+      verification: { status: "not_run", results: [] },
+      actions: [],
+      savings: [],
+      evidenceUris: [],
+    };
+
+    expect(VerifiedEfficiencyEvidenceProjectionSchema.parse(projection)).toEqual(projection);
+    expect(formatVerifiedEfficiencyEvidence(projection)).toContain("3 cached");
   });
 
   it("exports typed workflow snapshot contracts for SDK resource consumers", () => {

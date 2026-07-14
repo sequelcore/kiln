@@ -42,6 +42,9 @@ describe("summarizeContextGovernance", () => {
           tokenBudget: 2,
           overflow: true,
           overflowReason: "budget-cap",
+          allocationMode: "whole-block",
+          positionProfile: "balanced",
+          requiredOverflowPolicy: "admit-and-report",
           blocks: [
             {
               id: "candidate:0",

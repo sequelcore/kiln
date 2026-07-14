@@ -8,6 +8,7 @@ import {
   defineManagedAgentInvocationRecord,
   buildManagedAgentCapabilitySnapshot,
   buildManagedAgentAuthorityEvidence,
+  assertManagedAgentResultHandoffContract,
   evaluateManagedAgentAdmission,
   getManagedAgentCrossHarnessInvocationCapability,
   listManagedAgentCrossHarnessInvocationCapabilities,
@@ -756,6 +757,50 @@ describe("managed agent invocation contracts", () => {
     expect(record.resultHandoff?.summary).toBe("No file writes were needed.");
   });
 
+  it("validates required machine handoff fields against canonical structured state", () => {
+    const structuredResult = {
+      version: "structured-execution-result-v1" as const,
+      status: "blocked" as const,
+      summary: "Review completed with a blocking verification failure.",
+      uncertainty: 0.25,
+      limitations: ["Deployment was not exercised."],
+      operatorDecisions: [{ id: "decision-1", summary: "Do not adopt." }],
+      evidence: [{ uri: "kiln://artifacts/invocation-1/result", kind: "verification" as const }],
+      citations: [],
+      warnings: [],
+      failures: ["Typecheck failed."],
+      approvalRequirements: [],
+      residualRisks: ["Deployment behavior remains unknown."],
+      verificationResults: [{
+        requirementId: "typecheck",
+        method: "deterministic" as const,
+        status: "failed" as const,
+        summary: "Typecheck failed.",
+        evidenceUris: ["kiln://artifacts/invocation-1/typecheck"],
+      }],
+    };
+    const handoff = defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      resultHandoff: {
+        ...makeCompletedRecordInput().resultHandoff,
+        structuredResult,
+      },
+    }).resultHandoff;
+
+    expect(() => assertManagedAgentResultHandoffContract({
+      requiredResultFields: ["summary", "evidence", "checks", "uncertainty", "limitations"],
+      residualRiskRequired: true,
+      outputVerbosity: "concise",
+    }, handoff)).not.toThrow();
+    expect(() => assertManagedAgentResultHandoffContract({
+      requiredResultFields: ["checks"],
+    }, {
+      summary: "Only prose was returned.",
+      resourceUris: ["kiln://artifacts/invocation-1/result"],
+      memoryWriteProposalUris: [],
+    })).toThrow("missing required structured fields: verificationResults");
+  });
+
   it("preserves full replay resources without adding unbounded content to lifecycle evidence", () => {
     const record = defineManagedAgentInvocationRecord({
       ...makeCompletedRecordInput(),
@@ -926,6 +971,32 @@ describe("managed agent invocation contracts", () => {
       ],
       cost: { currency: "USD", amount: 0.01 },
     }))).toThrow("Managed invocation usage evidence source must match the admitted adapter descriptor");
+  });
+
+  it("rejects duplicate or malformed managed usage values at the lifecycle boundary", () => {
+    expect(() => defineManagedAgentInvocationRecord(makeCompletedRecordInput({
+      source: "adapter",
+      tokenClasses: [
+        { name: "input", value: 120 },
+        { name: "input", value: 12 },
+      ],
+      cost: { currency: "USD", amount: 0.01 },
+    }))).toThrow("Managed invocation usage token class must be unique: input");
+    expect(() => defineManagedAgentInvocationRecord(makeCompletedRecordInput({
+      source: "adapter",
+      tokenClasses: [{ name: "input", value: -1 }],
+      cost: { currency: "USD", amount: 0.01 },
+    }))).toThrow("Managed invocation usage token value must be a non-negative safe integer: input");
+    expect(() => defineManagedAgentInvocationRecord(makeCompletedRecordInput({
+      source: "adapter",
+      tokenClasses: [{ name: "input", value: 1.5 }],
+      cost: { currency: "USD", amount: 0.01 },
+    }))).toThrow("Managed invocation usage token value must be a non-negative safe integer: input");
+    expect(() => defineManagedAgentInvocationRecord(makeCompletedRecordInput({
+      source: "adapter",
+      tokenClasses: [{ name: "input", value: 1 }],
+      cost: { currency: "USD", amount: -0.01 },
+    }))).toThrow("Managed invocation usage cost amount must be a non-negative finite number");
   });
 
   it("rejects provider route drift from the admitted capability snapshot", () => {

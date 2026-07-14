@@ -85,6 +85,38 @@ function createOptions(overrides: Partial<ManagedJobApplicationOptions> = {}): M
 }
 
 describe("ManagedJobApplicationService", () => {
+  it("returns a durable background identity, cancels through Runtime, and replays monotonic lifecycle evidence", async () => {
+    let release: (() => void) | undefined;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const runtime = {
+      invoke: vi.fn(async (input) => {
+        await waiting;
+        return successfulRuntimeResult(input);
+      }),
+      cancel: vi.fn(async () => { release?.(); }),
+    };
+    const service = new ManagedJobApplicationService(createOptions({ runtime }));
+
+    const submitted = await service.start(request);
+    expect(submitted).toMatchObject({ id: "job-000000001", state: "running" });
+
+    const cancelled = await service.cancel(query, submitted.id);
+    expect(cancelled).toMatchObject({ state: "cancelled", diagnostic: "cancelled" });
+    expect(runtime.cancel).toHaveBeenCalledWith({ jobId: submitted.id, reason: "Operator cancelled managed work." });
+
+    await vi.waitFor(async () => expect((await service.getStatus(query, submitted.id)).state).toBe("cancelled"));
+    await expect(service.getReplay(query, submitted.id)).resolves.toMatchObject({
+      availability: "available",
+      jobId: submitted.id,
+      lifecycle: [
+        { sequence: 1, state: "queued" },
+        { sequence: 2, state: "running" },
+        { sequence: 3, state: "cancelled", diagnostic: "cancelled" },
+      ],
+      resultAvailability: "failed",
+    });
+  });
+
   it("creates one admitted canonical job and exposes its durable status", async () => {
     const runtime = { invoke: vi.fn(async (input) => successfulRuntimeResult(input)) };
     const service = new ManagedJobApplicationService(createOptions({ runtime }));
@@ -312,6 +344,42 @@ describe("ManagedJobApplicationService", () => {
     expect(serialized).not.toContain("transcript");
   });
 
+  it("preserves benign narrative labels while redacting environment assignments and credential fields", async () => {
+    const service = new ManagedJobApplicationService(createOptions({
+      runtime: {
+        invoke: async (input) => ({
+          ...successfulRuntimeResult(input),
+          result: {
+            ...successfulRuntimeResult(input).result!,
+            resultHandoff: {
+              summary: [
+                "Finding: the progressive catalog remains replayable.",
+                "Status: verified with focused coverage.",
+                "Risk: no residual authority expansion was found.",
+                "DATABASE_URL=postgres://private-host/kiln",
+                "api_key:super-secret",
+                "Password=also-secret",
+              ].join("\n"),
+              resourceUris: [],
+              memoryWriteProposalUris: [],
+            },
+          },
+        }),
+      },
+    }));
+
+    const job = await service.submit(request);
+    const summary = (await service.getResult(query, job.id)).handoff?.summary;
+
+    expect(summary).toContain("Finding: the progressive catalog remains replayable.");
+    expect(summary).toContain("Status: verified with focused coverage.");
+    expect(summary).toContain("Risk: no residual authority expansion was found.");
+    expect(summary).not.toContain("private-host");
+    expect(summary).not.toContain("super-secret");
+    expect(summary).not.toContain("also-secret");
+    expect(summary?.match(/\[REDACTED:environment\]/gu)).toHaveLength(3);
+  });
+
   it("fails closed for unlabelled provider JSON and strips the submitted objective if the child echoes it", async () => {
     const service = new ManagedJobApplicationService(createOptions({
       runtime: {
@@ -394,6 +462,15 @@ describe("ManagedJobApplicationService", () => {
       const job = await first.submit(request);
       const second = new ManagedJobApplicationService(createOptions({ store: new FilesystemManagedJobStore(root) }));
       await expect(second.getResult(query, job.id)).resolves.toMatchObject({ availability: "available", handoff: { summary: "done" } });
+      await expect(second.getReplay(query, job.id)).resolves.toMatchObject({
+        availability: "available",
+        lifecycle: [
+          { sequence: 1, state: "queued" },
+          { sequence: 2, state: "running" },
+          { sequence: 3, state: "succeeded" },
+        ],
+        resultAvailability: "available",
+      });
       const payload = JSON.parse(await (await import("node:fs/promises")).readFile(join(root, "managed-jobs.json"), "utf8")) as Array<Record<string, unknown>>;
       payload[0]!.result = { version: 1, jobId: "other-job" };
       await writeFile(join(root, "managed-jobs.json"), `${JSON.stringify(payload)}\n`, "utf8");

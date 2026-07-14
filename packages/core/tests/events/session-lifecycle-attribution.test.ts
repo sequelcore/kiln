@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   projectCostUpdatedEventToLifecycleLedger,
+  projectManagedAgentCoordinationUsageAllocations,
+  projectVerificationUsageAllocations,
   reconcileLifecycleAttributionLedger,
   summarizeLifecycleAttributionLedger,
   type CanonicalCostUpdatedEvent,
@@ -71,7 +73,65 @@ function createCanonicalLedger(): SessionLifecycleAttributionLedger {
 }
 
 describe("session lifecycle attribution", () => {
+  it("projects verifier usage independently from final output generation", () => {
+    const allocations = projectVerificationUsageAllocations({
+      version: "verification-usage-v1",
+      attempts: [{
+        requirementId: "schema",
+        method: "deterministic",
+        status: "passed",
+        providerTokenClass: "input",
+        tokens: { value: 12, source: "estimated" },
+        costUsd: { value: 0, source: "estimated" },
+        latencyMs: { value: 5, source: "estimated" },
+        evidenceUris: ["kiln://artifacts/run/schema/content"],
+      }],
+      totals: { tokens: 12, costUsd: 0, latencyMs: 5 },
+    });
+
+    expect(allocations).toEqual([{
+      source: "verification",
+      tokenClass: "admitted",
+      providerTokenClass: "input",
+      tokens: 12,
+      quality: "estimated",
+      context: { phase: "deterministic", policyVersion: "verification-usage-v1" },
+      evidenceUris: ["kiln://artifacts/run/schema/content"],
+    }]);
+    expect(allocations[0]?.source).not.toBe("final_output");
+  });
+
   describe("canonical reconciliation", () => {
+    it("preserves cost-only provider evidence as explicit unknown attribution", () => {
+      const costOnlyEvent: CanonicalCostUpdatedEvent = {
+        ...COST_EVENT,
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+      };
+
+      const ledger = projectCostUpdatedEventToLifecycleLedger(costOnlyEvent);
+      const reconciled = reconcileLifecycleAttributionLedger(costOnlyEvent, ledger);
+
+      expect(ledger.records).toEqual([expect.objectContaining({
+        source: "unknown",
+        tokenClass: "raw",
+        providerTokenClass: "input",
+        tokens: 0,
+        quality: "unknown",
+        cost: {
+          currency: "USD",
+          deltaUsd: COST_EVENT.cost.deltaUsd,
+          quality: "unknown",
+        },
+      })]);
+      expect(reconciled.providerTotals).toEqual({ input: 0, output: 0, cache_read: 0, cache_write: 0 });
+      expect(reconciled.summary).toMatchObject({ totalTokens: 0, totalCostUsd: COST_EVENT.cost.deltaUsd });
+    });
+
     it("reconciles all provider token classes while preserving estimated evidence and unknown remainders", () => {
       const ledger = createCanonicalLedger();
 
@@ -407,5 +467,48 @@ describe("session lifecycle attribution", () => {
         },
       ],
     })).toThrow("Lifecycle token class generated cannot use provider token class input");
+  });
+
+  it("projects known managed coordination stages into worker-scoped ledger allocations", () => {
+    const allocations = projectManagedAgentCoordinationUsageAllocations({
+      version: "managed-agent-coordination-usage-v1",
+      workerId: "child-1",
+      coverage: "partial",
+      reconciliation: "components-may-overlap",
+      components: [
+        {
+          stage: "parent_prompt",
+          providerTokenClass: "input",
+          tokens: { value: 10, source: "estimated" },
+          costUsd: { value: "unknown", source: "unknown" },
+          latencyMs: { value: "unknown", source: "unknown" },
+          turns: { value: 1, source: "estimated" },
+          evidenceUris: ["kiln://artifacts/context/source/content"],
+        },
+        ...(["child_bootstrap", "duplicated_reads", "handoff", "review", "synthesis"] as const).map((stage) => ({
+          stage,
+          providerTokenClass: stage === "handoff" || stage === "synthesis" ? "output" as const : "input" as const,
+          tokens: { value: "unknown" as const, source: "unknown" as const },
+          costUsd: { value: "unknown" as const, source: "unknown" as const },
+          latencyMs: { value: "unknown" as const, source: "unknown" as const },
+          turns: { value: "unknown" as const, source: "unknown" as const },
+          evidenceUris: [],
+        })),
+      ],
+    });
+
+    expect(allocations).toEqual([{
+      source: "coordination",
+      tokenClass: "admitted",
+      providerTokenClass: "input",
+      tokens: 10,
+      quality: "estimated",
+      context: {
+        phase: "parent_prompt",
+        policyVersion: "managed-agent-coordination-usage-v1",
+      },
+      evidenceUris: ["kiln://artifacts/context/source/content"],
+      workerId: "child-1",
+    }]);
   });
 });

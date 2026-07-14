@@ -1271,6 +1271,32 @@ export const TOOL_SCHEMAS: Record<
           maximum: 1,
           description: "Optional confidence score between 0 and 1.",
         },
+        durability: {
+          type: "string",
+          enum: ["short_lived", "durable"],
+          description: "Declared persistence intent. Semantic and procedural writes are durable.",
+        },
+        futureTaskValue: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description: "Bounded estimate of future task value used by the candidate write-admission policy.",
+        },
+        contradictionState: {
+          type: "string",
+          enum: ["none", "resolved", "unresolved"],
+          description: "Known contradiction state for this proposed record.",
+        },
+        derivativeTrust: {
+          type: "string",
+          enum: ["original", "verified", "untrusted"],
+          description: "Trust classification for derived content. Untrusted derivatives are rejected.",
+        },
+        canonicalEvidenceUris: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          description: "Canonical evidence URIs supporting durable memory.",
+        },
         provenance: {
           type: "object",
           properties: {

@@ -1,3 +1,5 @@
+import type { MemoryProvenance } from "./record.js";
+
 export const MEMORY_REVISION_KINDS = [
   "created",
   "corrected",
@@ -16,6 +18,7 @@ export interface MemoryRevision {
   readonly sequence: number;
   readonly kind: MemoryRevisionKind;
   readonly content: string;
+  readonly provenance: MemoryProvenance;
   readonly reason?: string;
   readonly createdAt: string;
 }

@@ -1,4 +1,8 @@
 import { evaluateBenchmarkReadiness, type BenchmarkBaselineResult, type BenchmarkReadinessReport } from "./benchmark-baseline.js";
+import {
+  hashVerifiedEfficiencyBenchmarkBaselines,
+  type VerifiedEfficiencyPublicationReadiness,
+} from "../efficiency/publication-readiness.js";
 
 export interface BenchmarkPublicReportInput {
   readonly title?: string;
@@ -7,6 +11,7 @@ export interface BenchmarkPublicReportInput {
   readonly baselines: readonly BenchmarkBaselineResult[];
   readonly generatedAt: string;
   readonly limitations?: readonly string[];
+  readonly publicationReadiness?: VerifiedEfficiencyPublicationReadiness;
 }
 
 export interface BenchmarkPublicReport {
@@ -15,6 +20,7 @@ export interface BenchmarkPublicReport {
   readonly readiness: BenchmarkReadinessReport;
   readonly baselines: readonly BenchmarkBaselineResult[];
   readonly limitations: readonly string[];
+  readonly publicationReadiness: VerifiedEfficiencyPublicationReadiness;
   readonly markdown: string;
 }
 
@@ -22,6 +28,10 @@ export function generateBenchmarkPublicReport(input: BenchmarkPublicReportInput)
   const readiness = evaluateBenchmarkReadiness({ baselines: input.baselines });
   const title = input.title ?? "Kiln Benchmark Report";
   const limitations = input.limitations ?? [];
+  const publicationReadiness = bindPublicationReadinessToBaselines(
+    input.publicationReadiness ?? missingPublicationReadiness(),
+    input.baselines,
+  );
   const markdown = renderMarkdown({
     title,
     generatedAt: input.generatedAt,
@@ -30,6 +40,7 @@ export function generateBenchmarkPublicReport(input: BenchmarkPublicReportInput)
     readiness,
     baselines: input.baselines,
     limitations,
+    publicationReadiness,
   });
 
   return {
@@ -38,6 +49,7 @@ export function generateBenchmarkPublicReport(input: BenchmarkPublicReportInput)
     readiness,
     baselines: input.baselines,
     limitations,
+    publicationReadiness,
     markdown,
   };
 }
@@ -50,6 +62,7 @@ function renderMarkdown(input: {
   readonly readiness: BenchmarkReadinessReport;
   readonly baselines: readonly BenchmarkBaselineResult[];
   readonly limitations: readonly string[];
+  readonly publicationReadiness: VerifiedEfficiencyPublicationReadiness;
 }): string {
   return [
     `# ${input.title}`,
@@ -61,6 +74,15 @@ function renderMarkdown(input: {
     "## Readiness",
     "",
     `Status: ${input.readiness.status}`,
+    `Publication status: ${input.publicationReadiness.status}`,
+    `Public claim allowed: ${input.publicationReadiness.publicClaimAllowed ? "yes" : "no"}`,
+    `Publication claim: [${input.publicationReadiness.claim.kind}] ${input.publicationReadiness.claim.statement}`,
+    "",
+    "### Publication gate issues",
+    "",
+    ...(input.publicationReadiness.issues.length > 0
+      ? input.publicationReadiness.issues.map((issue) => `- ${issue}`)
+      : ["- none"]),
     "",
     "| Profile | Dataset | k | pass^k | Scorers | Artifacts |",
     "| --- | --- | ---: | ---: | --- | --- |",
@@ -87,6 +109,34 @@ function renderMarkdown(input: {
     ...(input.limitations.length > 0 ? input.limitations.map((limitation) => `- ${limitation}`) : ["- none declared"]),
     "",
   ].join("\n");
+}
+
+function missingPublicationReadiness(): VerifiedEfficiencyPublicationReadiness {
+  return {
+    schemaVersion: "verified-efficiency-publication-readiness-v1",
+    status: "blocked",
+    publicClaimAllowed: false,
+    claim: { kind: "none", statement: "No verified efficiency publication manifest was supplied." },
+    benchmarkBaselinesSha256: "sha256:unknown",
+    issues: ["missing verified efficiency publication manifest"],
+    manifestHash: "sha256:unknown",
+    verifiedArtifacts: [],
+  };
+}
+
+function bindPublicationReadinessToBaselines(
+  readiness: VerifiedEfficiencyPublicationReadiness,
+  baselines: readonly BenchmarkBaselineResult[],
+): VerifiedEfficiencyPublicationReadiness {
+  if (!readiness.publicClaimAllowed) return readiness;
+  const actualHash = hashVerifiedEfficiencyBenchmarkBaselines(baselines);
+  if (readiness.benchmarkBaselinesSha256 === actualHash) return readiness;
+  return {
+    ...readiness,
+    status: "blocked",
+    publicClaimAllowed: false,
+    issues: [...readiness.issues, "benchmark baselines do not match the content-verified publication report"],
+  };
 }
 
 function escapeTableCell(value: string): string {

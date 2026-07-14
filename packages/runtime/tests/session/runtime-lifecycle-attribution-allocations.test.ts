@@ -19,7 +19,7 @@ const CONTEXT_AUDIT: RuntimeContextAudit = {
     {
       id: "memory-1",
       kind: "memory",
-      source: "kiln://memory/records/memory-1",
+      source: "memory-recall:episodic",
       memoryRecordId: "memory-record-1",
       required: false,
       estimatedTokens: 18,
@@ -71,8 +71,8 @@ describe("runtime lifecycle attribution allocation projection", () => {
         tokens: 18,
         quality: "estimated",
         artifactId: "memory-1",
-        evidenceUris: ["kiln://memory/records/memory-1"],
-        context: { route: ROUTE },
+        evidenceUris: ["kiln://memory/nodes/memory-record-1"],
+        context: { route: ROUTE, phase: "memory:episodic" },
       },
       {
         source: "procedural_context",
@@ -136,8 +136,8 @@ describe("runtime lifecycle attribution allocation projection", () => {
         tokens: 18,
         quality: "estimated",
         artifactId: "memory-1",
-        evidenceUris: ["kiln://memory/records/memory-1"],
-        context: { route: ROUTE },
+        evidenceUris: ["kiln://memory/nodes/memory-record-1"],
+        context: { route: ROUTE, phase: "memory:episodic" },
       },
       {
         source: "procedural_context",
@@ -203,5 +203,31 @@ describe("runtime lifecycle attribution allocation projection", () => {
       evidenceUris: ["kiln://instructions/session-policy"],
       context: { route: ROUTE },
     }]);
+  });
+
+  it("keeps non-resource context source identity out of evidence URI fields", () => {
+    const allocations = projectRuntimeLifecycleAttributionAllocations({
+      contextAudit: {
+        ...CONTEXT_AUDIT,
+        blocks: [{
+          id: "procedure-path-source",
+          kind: "procedural",
+          source: "runtime-skill:C:/repo/.agents/skills/review/SKILL.md",
+          required: true,
+          estimatedTokens: 9,
+          baseScore: 1,
+          effectiveScore: 1,
+          decision: "admitted",
+          reason: "required-preserved",
+          order: 0,
+        }],
+      },
+      route: ROUTE,
+    });
+
+    expect(allocations).toEqual([expect.objectContaining({
+      artifactId: "procedure-path-source",
+      evidenceUris: [],
+    })]);
   });
 });

@@ -427,6 +427,7 @@ describe("managed agent orchestration contracts", () => {
           success: true,
           resourceUris: [],
           diagnosticUris: [],
+          replayEvidenceUris: [],
         },
         {
           childId: "orchestration-1:child:2",
@@ -436,6 +437,7 @@ describe("managed agent orchestration contracts", () => {
           error: "child route failed",
           resourceUris: [],
           diagnosticUris: [],
+          replayEvidenceUris: [],
         },
       ],
     });

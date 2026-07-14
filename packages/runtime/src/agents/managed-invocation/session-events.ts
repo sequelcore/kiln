@@ -472,6 +472,7 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
     transcript?: SessionAgentInvocationEvidence["transcript"];
     diagnostics?: SessionAgentInvocationEvidence["diagnostics"];
     usage?: SessionAgentInvocationEvidence["usage"];
+    coordinationUsage?: SessionAgentInvocationEvidence["coordinationUsage"];
     resultHandoff?: SessionAgentInvocationEvidence["resultHandoff"];
     writeAuthority?: SessionAgentInvocationEvidence["writeAuthority"];
     writeEvidence?: SessionAgentInvocationEvidence["writeEvidence"];
@@ -495,6 +496,9 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
   }
   if (record.usage) {
     evidence.usage = record.usage;
+  }
+  if (record.coordinationUsage) {
+    evidence.coordinationUsage = record.coordinationUsage;
   }
   if (record.resultHandoff) {
     evidence.resultHandoff = record.resultHandoff;

@@ -1,8 +1,8 @@
 # 04 - Verified Efficiency Control Plane
 
-Status: Active architecture program; Slice 0, Slice 1, and Slice 2 complete;
-Slice 3 paused pending Roadmap 06 cross-harness control-plane work.
-Execution: Blocked - Roadmap 06 must define and verify the required cross-harness Kiln tool and agent exposure.
+Status: Complete on 2026-07-14.
+Execution: Complete - all twelve slices are implemented, documented, and
+verified by focused and repository-wide executable gates.
 
 Progress: Slice 1 closed on 2026-07-01 in commit `f1f4baef`
 (`feat(runtime): record lifecycle attribution ledger`). Slice 0 live baseline
@@ -19,11 +19,23 @@ because it violated the stable-prefix contract and left incomplete workflow
 evidence. Slice 2 restarted on 2026-07-04 from TDD and closed with stable
 prefix topology evidence, cache partition evidence, benchmark readiness,
 cache-gain comparison evidence, and rollback/non-inferiority promotion gates.
-Slice 3 started on 2026-07-04 and is paused until Roadmap 06 establishes the
-cross-harness Kiln control-plane boundary needed for tool and agent exposure
-from the operator-configured Codex App, OpenCode, and Kiln surfaces. Optional
-entitlement harnesses such as Claude Code are conditional and do not block
-resumption while no admitted route exists. Slices 4 through 12 are not started.
+Slice 3 started on 2026-07-04 and resumed on 2026-07-14 after Roadmap 06
+live-verified Codex App submit, status, bounded result, cancellation, and
+canonical lifecycle replay through Kiln's admitted OpenCode Go route. Slice 3
+then closed with path-free metadata-first skill projection evidence and a
+five-task eager-versus-progressive comparison that preserved 1.0 task success
+while reducing total model-facing, irrelevant-skill, and irrelevant-tool-schema
+tokens. Optional entitlement harnesses such as Claude Code remain conditional
+while no admitted route exists. Slices 4 and 5 closed on 2026-07-14 with typed
+lossless reducers, protected canonical evidence, disclosed reversible context,
+and canonical evidence gates. Slice 6 then closed with deterministic
+multi-signal allocation, segmentation, retrieval-on-demand, explicit overflow,
+position profiles, and a five-task non-inferiority promotion gate. Slices 7
+through 11 then closed the route/effort, delegation, output/verification,
+memory, and controlled-adaptation loops. Slice 12 closed with one Core-owned
+`verified-efficiency-evidence-v1` projection across every surface and a
+content-verified publication gate. The committed reference bundle intentionally
+makes no performance claim and reproduces as `internal-evidence-only`.
 
 ## Objective
 
@@ -281,16 +293,16 @@ contracts but must not create parallel legacy paths.
 | Slice 0 - Baseline And Reproduction | Complete | The authorized 2026-07-02 `kiln-tool-agent` work established the pre-repair pressure source, repaired provider-neutral benchmark prerequisites, validated the post-repair `k=1` baseline across four live routes, and ran a viable-route `k=5` comparison for Codex GPT-5.5 and Kimi K2.7 Code. The old 419,972-940,391 input-token pressure was primarily a Kiln request-shaping/tool-projection problem. The remaining GPT-5.5 versus Kimi difference is model and harness behavior under the same Kiln control plane. | Closed; Slice 2 is now complete. |
 | Slice 1 - Lifecycle Attribution Ledger | Complete | Closed on 2026-07-01 in commit `f1f4baef`. Lifecycle attribution contracts, runtime events, operator/resource projections, managed-route descriptors, and fixture reconciliation are in place. | Promote stable doctrine when later slices prove the broader control loop. |
 | Slice 2 - Stable Prefix And Cache Topology | Complete | Closed on 2026-07-04 from TDD. Runtime provider-request evidence records leading stable-prefix topology, region hashes, stable-prefix bytes, stable-prefix region count, volatile-region bytes, and cache partition hashes for tenant, route, policy, and authority scope without changing provider request construction or model-visible prompts. Benchmark readiness requires `cache-topology` scorer and artifact evidence for `kiln-tool-agent`, including baseline/candidate cache-gain comparison evidence. Cache-policy promotion has a rollback and non-inferiority gate. | Start Slice 3 progressive context and tool loading. |
-| Slice 3 - Progressive Context And Tool Loading | Paused | Started on 2026-07-04. Runtime surfaces now share one progressive tool projection helper with explicit authority profiles instead of per-command eager or duplicated projection policy. Read-only benchmark sessions expose only read/research/control-plane inspection tools; CLI run, TUI, and GUI select the execute profile for edit/shell/config/work-governance mutation tools. Both profiles leave `tool_catalog_search` and canonical registry discovery intact and defer specialized tools such as browser sessions. Exact, non-stale catalog search results can now materialize one already-authorized canonical tool schema for the next provider round, while same-response calls to hidden tools are blocked. This is grounded in ToolLLM/API-Bank/Gorilla/Toolformer, Anthropic Tool Search, MCP discovery semantics, and cloned Claude Code/Codex/OpenCode harness patterns. | Resume only after Roadmap 06 defines and verifies cross-harness Kiln tool/agent exposure for the operator-configured Codex App, OpenCode, and Kiln surfaces. Optional entitlement harnesses do not block resumption without an admitted route. Then add telemetry/replay evidence and non-inferiority measurements before narrowing either authority profile further. |
-| Slice 4 - Typed Lossless Reduction | Planned | Not started. | Start after progressive-loading measurements identify high-volume structured artifacts. |
-| Slice 5 - Reversible Context Projection | Planned | Not started. | Start after typed reductions have preservation contracts. |
-| Slice 6 - Context Utility Allocation | Planned | Not started. | Start after lossless and reversible projection data exists. |
-| Slice 7 - Phase-Aware Route And Effort Control | Planned | Not started. | Start after context utility evidence defines task-class tradeoffs. |
-| Slice 8 - Delegation And Handoff Efficiency | Planned | Not started. | Start after route and context costs are attributable. |
-| Slice 9 - Output And Verification Allocation | Planned | Not started. | Start after verification cost is independently attributable. |
-| Slice 10 - Memory Efficiency And Reconsolidation | Planned | Not started. | Start after memory injection and recall costs are visible in the ledger. |
-| Slice 11 - Controlled Adaptation | Planned | Not started. | Start only after stable production evidence and holdouts exist. |
-| Slice 12 - Surface Parity And Public Evidence | Planned | Not started. | Start as contracts stabilize; public claims remain last. |
+| Slice 3 - Progressive Context And Tool Loading | Complete | Closed on 2026-07-14. Runtime surfaces share one progressive tool projection helper with explicit authority profiles, next-round materialization, and replayable request evidence. Skill discovery is metadata-first; exact selected bodies emit path-free byte, token, reason, and cache-source evidence. A five-task normal-path comparison preserved eager success at 1.0 and reduced total model-facing, irrelevant-skill, and irrelevant-tool-schema tokens. | Closed; keep either authority profile unchanged until a future promoted comparison supports narrowing it. |
+| Slice 4 - Typed Lossless Reduction | Complete | Closed on 2026-07-14. Search, tree, table, JSON, test, log, and repository artifacts use a versioned columnar encoding with exact restore and source/projection hash verification. Adversarial fixtures preserve rare critical signals, exit status, warnings, IDs, locations, skipped/failed tests, severities, and conflicts. Unknown, malformed, small, or tampered inputs fail open to canonical evidence or fail closed at restore. | Closed; add new artifact kinds only with an exact preservation contract and adversarial fixture. |
+| Slice 5 - Reversible Context Projection | Complete | Closed on 2026-07-14. Canonical typed artifacts use verification-protected resource retention; `ContextGovernor` chooses full, lossless, or disclosed reversible options while required evidence stays full. Retrieval and absence attempts are audited, file-store reopen preserves evidence, and citation/sensitive-action gates resolve canonical source hashes. | Closed; retain bounded protected-capacity failure as the explicit residual risk. |
+| Slice 6 - Context Utility Allocation | Complete | Closed on 2026-07-14. `DefaultContextGovernor` owns whole-block, segmented, and retrieval-on-demand modes; `context-utility-v1` records semantic, authority, verification, recency, novelty, retrieval-cost, redundancy, and task-phase evidence. Required context bypasses ranking, overflow is declared, and balanced/edge-biased ordering is deterministic. A five-task task-class promotion gate requires non-inferior verified success and lower tokens. Full Core passed 3,523 tests. | Closed; whole-block remains the deterministic rollback policy. |
+| Slice 7 - Phase-Aware Route And Effort Control | Complete | Closed on 2026-07-14. Runtime route inputs now carry normalized task, phase, uncertainty, tool, verification, retry, cache, verifier, and budget evidence. `PhaseAwareModelRouter` implements the existing route port with static rollback; fixed/sweep effort benchmarks use capability-backed resolution and reproducibility hashes. Pareto and `high`/`xhigh` promotion gates require five paired tasks. | Closed; do not promote a candidate or `xhigh` without its evaluator evidence. |
+| Slice 8 - Delegation And Handoff Efficiency | Complete | Closed on 2026-07-14. The candidate selector is advisory to existing work governance and managed invocation. Runtime records six coordination stages with honest unknowns, worker identity, and evidence URIs; canonical artifact handoff is explicit and orchestration results retain route, authority, context, replay, and coordination evidence. | Closed; static work governance remains rollback until five-task task-class evidence promotes a candidate. |
+| Slice 9 - Output And Verification Allocation | Complete | Closed on 2026-07-14. Canonical structured results preserve control state at every verbosity; effect-aware verification is deterministic-first, managed result fields fail closed, and verifier usage is stored and projected independently from final-output generation. | Closed; promotion remains benchmark-gated by five paired tasks with known verification economics. |
+| Slice 10 - Memory Efficiency And Reconsolidation | Complete | Closed on 2026-07-14. Durable write candidates fail closed on weak provenance, confidence, value, contradiction, trust, or canonical evidence; recall and injection are separate; Gateway memory remains record-aware through `ContextGovernor`; usage is layer-attributed; and reconsolidation revisions preserve content and provenance. | Closed; static writes remain rollback and candidate promotion requires five paired tasks with known economics. |
+| Slice 11 - Controlled Adaptation | Complete | Closed on 2026-07-14. ContextGovernor allocation is the first typed actuator family; candidates bind its owning promotion report, replayed lifecycle evidence, precommitted replay/shadow/holdout cohorts, conservative confidence, distribution/rare/cache gates, verification artifacts, and exact configuration rollback. Durable controls reuse operator-approved canonical config mutation. | Closed; monitoring remains advisory and cannot self-freeze or self-promote. |
+| Slice 12 - Surface Parity And Public Evidence | Complete | Closed on 2026-07-14. Core projects one reconciled evidence view; Gateway validates and formats it; Runtime maps it; CLI, GUI, TUI, SDK, and managed resources retain the same totals, policy identity, outcome, action, saving, and verification evidence. Content-hashed methodology, fixture, limitations, report, and exact reproduction identity now gate public claims. | Closed; the reference bundle remains internal-only and no public performance claim is authorized. |
 
 ### Slice 0 - Baseline And Reproduction
 
@@ -587,10 +599,9 @@ Restart requirements:
 
 ### Slice 3 - Progressive Context And Tool Loading
 
-Status: Paused; started on 2026-07-04. Resume only after Roadmap 06 defines
-and verifies the cross-harness Kiln tool/agent exposure boundary needed for
-the operator-configured Codex App, OpenCode, and Kiln surfaces. Optional
-entitlement harnesses do not block resumption without an admitted route.
+Status: Complete on 2026-07-14 after Roadmap 06 verified the cross-harness Kiln
+tool and managed-agent exposure boundary for Codex App, OpenCode Go, and Kiln.
+Optional entitlement harnesses do not block progress without an admitted route.
 
 Goal: stop admitting procedural context and tool schemas before they are
 needed.
@@ -658,13 +669,27 @@ Next-round materialization evidence on 2026-07-04:
   the current turn allowlist so unauthorized hidden tools are not leaked through
   replay telemetry.
 
-Current residual risk:
+Closure evidence on 2026-07-14:
 
-- Kiln still needs representative non-inferiority measurements before narrowing
-  either initial authority profile further.
-- Resuming before Roadmap 06 closes the cross-harness tool/agent exposure
-  boundary would risk optimizing the wrong provider-facing tool surface for
-  Codex App and native harness dogfooding.
+- `SkillRegistry` retains metadata-only indexes at discovery and materializes
+  only exact selected instructions; cache-versus-filesystem provenance is
+  observable without exposing a source path.
+- Task selection emits `progressive-skill-projection-v1` evidence with catalog,
+  selected, deferred, metadata, context, avoided-source, reason, and estimated
+  token fields plus a stable selection hash.
+- An adversarial large unselected body remains absent from model-facing context
+  while its avoided bytes remain attributable through filesystem metadata.
+- `progressive-loading-promotion-v1` pairs eager and progressive observations,
+  requires at least five tasks, blocks on success regression or missing
+  selection/replay evidence, and requires total plus irrelevant skill/schema
+  token decline.
+- The five-case normal-path CLI comparison covered file reading, repository
+  search, metadata inspection, structured query, and web research. Both eager
+  and progressive policies achieved 1.0 deterministic capability success;
+  all three required token deltas were negative.
+- Focused Core and CLI suites and both package typechecks passed. The residual
+  risk is model-dependent discovery behavior for future narrower initial
+  authority profiles, so neither current profile was narrowed by this slice.
 
 Exit gate:
 
@@ -674,7 +699,7 @@ Exit gate:
 
 ### Slice 4 - Typed Lossless Reduction
 
-Status: Planned; not started.
+Status: Complete on 2026-07-14.
 
 Goal: remove representational waste from structured artifacts without losing
 information required by the task or verifier.
@@ -697,9 +722,18 @@ Exit gate:
 - unknown or malformed input fails open to the canonical artifact, not to a
   silently incomplete projection.
 
+Closure evidence:
+
+- `kiln-columnar-json-v1` has an exact decoder and source/projection hashes.
+- Seven typed artifact families pass adversarial round-trip fixtures with zero
+  omissions and smaller projected byte size for high-volume inputs.
+- Unknown fields and invalid enums are malformed rather than ignored; unknown,
+  malformed, or non-beneficial inputs retain the canonical artifact.
+- Projection hash tampering fails before restore.
+
 ### Slice 5 - Reversible Context Projection
 
-Status: Planned; not started.
+Status: Complete on 2026-07-14.
 
 Goal: reduce active context while preserving exact evidence on demand.
 
@@ -719,9 +753,24 @@ Exit gate:
 - benchmarks include hidden-critical-item and absent-evidence probes;
 - the model cannot mistake a projection for complete canonical evidence.
 
+Closure evidence:
+
+- The artifact resource plane supports bounded `verification` retention that
+  session churn cannot evict and file-store reopen preserves.
+- `ReversibleContextProjectionService` creates full, lossless, and reversible
+  options; `DefaultContextGovernor` is the only chooser and never reduces a
+  required candidate.
+- Reversible content explicitly reports omission, record count, canonical hash,
+  and retrieval handle and excludes hidden critical fixture content.
+- Retrieval audits record opportunities, attempts, successes, and absent
+  evidence failures. Exact critical content remains retrievable after retention
+  churn, while absent handles never fabricate evidence.
+- Citation and sensitive-action verification succeeds only when canonical
+  evidence is available and its source hash matches.
+
 ### Slice 6 - Context Utility Allocation
 
-Status: Planned; not started.
+Status: Complete on 2026-07-14.
 
 Goal: improve context admission beyond whole-block greedy scoring while
 preserving deterministic policy and auditability.
@@ -744,9 +793,26 @@ Exit gate:
   context;
 - deferred and rejected candidates remain auditable.
 
+Closure evidence:
+
+- `context-utility-v1` retains every normalized signal, phase match, and total
+  score in the existing governor audit; invalid ranges fail at the boundary.
+- Hard-required candidates remain admitted regardless of score. Required
+  overflow uses declared `admit-and-report` or fail-closed `reject` policy.
+- Whole-block, segmented, and retrieval-on-demand allocation run through the
+  same `DefaultContextGovernor`; representative fixtures show lower candidate
+  tokens while preserving the required verification content.
+- Balanced and edge-biased position profiles have deterministic order tests and
+  are normalized capabilities rather than provider-name heuristics.
+- `context-allocation-promotion-v1` requires at least five paired tasks and
+  blocks task-class success regression, required-context violations, missing
+  audits, or absent token improvement.
+- Focused suites, Core typecheck/build, and the full Core suite passed: 277 test
+  files and 3,475 tests.
+
 ### Slice 7 - Phase-Aware Route And Effort Control
 
-Status: Planned; not started.
+Status: Complete on 2026-07-14.
 
 Goal: spend model capability where it changes verified outcomes.
 
@@ -772,9 +838,38 @@ Exit gate:
 - lower-cost routes cannot mark work verified without the same verification
   contract as higher-cost routes.
 
+Closure evidence:
+
+- `PhaseAwareModelRouter` implements the existing `ModelRouter` port. It
+  consumes declared task class, phase, uncertainty, tool need, verification
+  need, budget, route health, capability, retry, cache invalidation, and
+  verifier cost evidence. Missing required signals or an eligible verified
+  route fails closed.
+- Healthy routes outrank otherwise-equivalent degraded routes; unknown and
+  cooldown health are excluded. Every candidate preserves the declared
+  verification contract, and uncertain or failed cheap routes retain ordered
+  escalation candidates.
+- `static-configured-order-v1` is the explicit rollback policy and is exposed
+  through the same route port rather than a second routing owner.
+- Normalized reasoning effort records a resolved value or omission reason.
+  Explicit unsupported or unknown capabilities fail closed in the benchmark
+  executor. Production `xhigh` requires promotion evidence; benchmark `xhigh`
+  requires explicit experimental enablement, budget, and estimated effort cost.
+- `kiln benchmark run-internal` supports fixed effort or a comma-separated
+  effort sweep on one explicit provider/model route. Each member receives a
+  distinct config hash and route artifact containing exact resolution evidence.
+- `phase-aware-route-promotion-v1` publishes per-task-class verified-success,
+  cost, token, latency, contract, and Pareto evidence for at least five paired
+  tasks. `reasoning-effort-promotion-v1` independently blocks `xhigh` on
+  success regression, value-per-token regression, budget breach, or missing
+  effort evidence.
+- Focused Core, Runtime, and CLI suites passed together with their package
+  typechecks/builds. Static routing remains the production rollback until a
+  fixed holdout supplies promotion evidence.
+
 ### Slice 8 - Delegation And Handoff Efficiency
 
-Status: Planned; not started.
+Status: Complete on 2026-07-14.
 
 Goal: choose direct execution, fresh-context delegation, and shared-artifact
 handoffs according to task shape and measured coordination cost.
@@ -797,9 +892,46 @@ Exit gate:
 - failed or incomplete handoffs retain enough evidence for deterministic
   recovery or operator escalation.
 
+Closure evidence:
+
+- `delegation-efficiency-candidate-v1` is advisory to the existing work
+  governance decision and managed-invocation execution boundary. It compares
+  direct, fresh-context, and shared-artifact strategies from declared breadth,
+  coupling, isolation, uncertainty, and the configured direct-execution
+  envelope.
+- Delegation is ineligible when child authority widens parent authority, route
+  identity is incomplete, the verification contract changes, or lifecycle,
+  replay, or recovery evidence is missing. `work-governance-static-v1` remains
+  the rollback policy.
+- Shared-artifact candidates accept only canonical
+  `kiln://artifacts/<namespace>/<id>/content` references. Work governance emits
+  `contextMode=resources` only with explicitly supplied canonical artifacts;
+  otherwise it emits fresh isolated context. Raw transcript resources do not
+  qualify as shared-artifact evidence.
+- Runtime managed invocation attaches `managed-agent-coordination-usage-v1` to
+  the canonical child record and session terminal evidence. Parent prompt,
+  child bootstrap, duplicated reads, handoff, review, and synthesis are
+  separate components with worker identity, tokens, cost, latency, turns,
+  quality, and evidence URIs. Unobservable values remain `unknown`, never zero;
+  prompt bodies and credentials are not retained.
+- Known coordination tokens project into the lifecycle ledger as worker-scoped
+  `coordination` allocations. Every component declares its provider token
+  class: parent/bootstrap/read/review reconcile against input and
+  handoff/synthesis reconcile against output. The numeric parent-prompt and
+  bounded-handoff payloads are mutually exclusive; provider-total
+  reconciliation still fails closed on overflow.
+- Fan-out result evidence retains invocation, route, provider/model, authority
+  profile, context mode, replay URIs, and coordination usage instead of only
+  lifecycle and resource pointers.
+- `delegation-efficiency-promotion-v1` requires at least five paired tasks,
+  non-inferior verified success and verification contracts, no authority
+  widening, substantive terminal handoff, recovery evidence, known economics,
+  and lower coordination tokens or cost for a declared task class.
+- Focused Core, Runtime, and CLI suites and package typechecks/builds passed.
+
 ### Slice 9 - Output And Verification Allocation
 
-Status: Planned; not started.
+Status: Complete; closed on 2026-07-14.
 
 Goal: reduce generated tokens and verification expense without hiding status
 or weakening proof.
@@ -820,9 +952,45 @@ Exit gate:
 - no output-shaping policy suppresses failures, warnings, citations, or
   approval requirements.
 
+Closure evidence:
+
+- `structured-execution-result-v1` keeps lifecycle status, operator decisions,
+  evidence, citations, warnings, failures, approval requirements, residual
+  risks, limitations, uncertainty, and typed verification results outside
+  model prose. Concise projection removes only optional detail and decision
+  rationale; it cannot rewrite a blocked or failed result as completed.
+- Output verbosity is a managed handoff field with `concise`, `standard`, and
+  `detailed` values. It is independent of provider reasoning effort. Runtime
+  projects visible output from the validated canonical result and retains the
+  same control fields at every verbosity.
+- Required managed result fields are validated against canonical structured
+  state. Runtime accepts strict `structured-execution-result-v1` JSON from the
+  child replay resource, validates it in Core, and rejects missing checks,
+  uncertainty, limitations, evidence, or required residual risk.
+- `verification-allocation-v1` consumes the canonical resolved action-effect
+  envelope plus normalized uncertainty and blast radius. Deterministic checks
+  precede semantic model judges; unknown, irreversible, external, high-
+  uncertainty, and broad-impact work fails toward deep review.
+- `verification-usage-v1` records verifier method, result, provider token
+  class, token/cost/latency quality, and evidence URIs. Unknown metrics stay
+  unknown. Managed work-item attempts retain this report, and known verifier
+  tokens project to lifecycle source `verification`, never `final_output`.
+- Runtime preserves adapter-supplied verifier reports and derives honest native
+  reports from structured results: deterministic checks use zero estimated
+  provider spend, while unmeasured model-judge or human-review economics remain
+  `unknown`. Final-phase templates retain both `structuredResult` and
+  `verificationUsage`; unsuccessful status, pending approval, or non-passing
+  required verification cannot be promoted as child-completed work.
+- `output-verification-promotion-v1` requires at least five paired tasks,
+  preserved control fields and verification contracts, non-inferior verified
+  success, complete evidence, known verification cost, fewer output tokens,
+  and lower verifier cost.
+- Focused Core, Runtime, and CLI suites and their package typechecks/builds
+  passed.
+
 ### Slice 10 - Memory Efficiency And Reconsolidation
 
-Status: Planned; not started.
+Status: Complete on 2026-07-14.
 
 Goal: reduce transcript replay and repeated discovery through governed memory,
 not indiscriminate persistence.
@@ -842,9 +1010,35 @@ Exit gate:
 - stale, contradictory, or poisoned records are detected by fixtures;
 - reconsolidation is reversible and does not erase canonical evidence.
 
+Completion evidence:
+
+- Core owns `memory-write-admission-v1`, `memory-efficiency-usage-v1`,
+  `memory-offline-lifecycle-v1`, and `memory-efficiency-promotion-v1`; the
+  static memory write path is the explicit rollback policy.
+- Explicit durable writes are admitted, deferred, or rejected at
+  `MemoryMutationService` after authority validation. Semantic and procedural
+  candidates require topic, confidence, future value, trusted origin, resolved
+  contradiction state, and canonical artifact or memory-node evidence.
+- Recall integrity and injection eligibility are distinct contracts. Poisoned,
+  untrusted, contradictory, superseded, expired, or evidence-less records stay
+  inspectable but cannot become context.
+- Tenant conversation recall no longer prejoins private text or duplicates
+  context budgeting. Email, Instagram, Messenger, and WhatsApp routes pass
+  record-aware candidates into the canonical Runtime projection, where
+  `DefaultContextGovernor` remains the final admission owner.
+- Actual admitted memory blocks project to lifecycle source `memory:<layer>`
+  with canonical memory-node evidence. Database write/search economics remain
+  in the memory usage report and unknown cost or latency remains unknown.
+- Reconsolidation revisions now retain version content, provenance, sequence,
+  and parent identity. Corrections can reconstruct the prior version;
+  contradictions and supersessions retain the original record and relation.
+- Focused verification passed: all 15 Core memory files (115 tests), seven
+  affected Runtime gateway/session files (151 tests), Core build, and Core and
+  Runtime typechecks.
+
 ### Slice 11 - Controlled Adaptation
 
-Status: Planned; not started.
+Status: Complete on 2026-07-14.
 
 Goal: allow Kiln to improve efficiency policy without silent drift.
 
@@ -862,9 +1056,38 @@ Exit gate:
 - rollback restores the prior deterministic policy without data migration;
 - holdout evidence shows improvement without hard-invariant regression.
 
+Completion evidence:
+
+- `policy-adaptation-candidate-v1` accepts only the real ContextGovernor
+  allocation-mode actuator and exact-binds an eligible owning
+  `context-allocation-promotion-v1` comparison.
+- Candidate generation replays and reconciles lifecycle attribution, commits
+  disjoint replay, shadow, and holdout fixture/config hashes before generation,
+  and references canonical verification-retained artifacts.
+- Replay input identity, recorded divergence, shadow non-visibility and
+  side-effect suppression, required rare-task samples, derived distribution
+  shift, cache partition isolation, invalid-reuse probes, conservative paired
+  confidence bounds, and fixed-holdout token/cost improvement fail closed.
+- Post-promotion monitoring is pure `stable | freeze-recommended` evidence and
+  has no mutation authority.
+- Core controls use optimistic revisions, exact `{policyId,
+  configurationHash}` selections, and operator approval evidence. Freeze blocks
+  promotion but not exact rollback; rollback cannot require data migration.
+- Durable promotion, freeze, unfreeze, and rollback reuse the canonical config
+  proposal, operator approval, stale-content check, and apply boundary through
+  `context_governance.adapt`. `DefaultContextGovernor` remains the actuator.
+- Config apply revalidates both lexical and physical project containment, so a
+  symlink or junction cannot redirect an approved canonical write outside the
+  project root.
+- Runtime provider-request cache partitions include the approved context policy
+  identity, preventing cross-policy reuse.
+- Focused verification passed: five Core adaptation tests, 98 Runtime context
+  and cache tests, six CLI proposal/apply tests, and Core, Runtime, and CLI
+  typechecks/builds.
+
 ### Slice 12 - Surface Parity And Public Evidence
 
-Status: Planned; not started.
+Status: Complete on 2026-07-14.
 
 Goal: make efficiency behavior inspectable and comparable without turning the
 operator UI into a policy owner.
@@ -890,6 +1113,47 @@ Exit gate:
   provider dependencies.
 - any marketing-facing benchmark program is opened only after this slice can
   supply reproducible artifacts, methodology, failed cases, and limitations.
+
+Closure evidence:
+
+- Core owns `verified-efficiency-evidence-v1` over replayed, reconciled
+  lifecycle evidence. Provider totals, measured, estimated, cached,
+  cache-written, unknown, and avoided volumes are explicit. Avoided volume is
+  outside provider totals and requires a typed paired comparison, a linked
+  action, a passing verification result, and canonical comparison evidence.
+- Gateway owns the strict wire schema and shared formatter. Runtime is the sole
+  Core-to-Gateway mapper. Canonical lifecycle events carry the exact view;
+  invalid or absent historical projections render as unavailable rather than
+  being recomputed locally.
+- CLI human and JSON output, GUI inspector state, TUI canonical activity, SDK
+  exports, and managed-agent detail all preserve the same DTO. Managed detail
+  retains raw usage and coordination usage and reports the efficiency view as
+  unavailable when tokens or USD cost are unknown.
+- `verified-efficiency-publication-manifest-v1` verifies repository-relative
+  methodology, fixture, limitations, and JSON report content by SHA-256 and
+  binds exact commit, harness, route/provider, model/policy, effort, SDK/API,
+  authority, tool catalog, configuration, environment, dataset, seeds,
+  confidence, failures, omissions, commands, limitations, and dependencies.
+  The report repeats that full execution identity and each pair binds its task
+  definition, identical arm inputs, and arm-specific execution envelopes by
+  SHA-256. The report additionally binds the exact rendered benchmark-baseline
+  array by canonical SHA-256; fixture reconciliation and report generation
+  verify every binding before a public claim remains allowed.
+- Public claims require content-derived paired identical inputs, at least five repetitions,
+  distinct evidence categories, zero hard-invariant failures, and non-inferior
+  quality and verification. Cost claims additionally require comparable
+  metered economics. Internal benchmark readiness alone never authorizes a
+  public claim.
+- Gateway memory relation writes and integrity reads are same-scope. Indexed,
+  complete incoming-relation evidence cannot be altered by a foreign tenant.
+- The reference bundle under `docs/benchmarks/verified-efficiency-v1/` is
+  deterministic, synthetic, content-verified, and explicitly makes no
+  performance or harness-comparison claim.
+- Repository verification passed the full Gateway Contracts, Core, Runtime,
+  SDK, Widget, TUI, Native, and GUI suites plus all CLI source, application,
+  config, command, wrapper, native-harness, MCP, skill, and UI test partitions.
+  Repository-wide TypeScript project references and every package production
+  build also passed.
 
 ## Benchmark Program
 
@@ -1034,42 +1298,55 @@ require dual readers, migration shims, or permanent compatibility branches.
   presentation. This roadmap supplies canonical efficiency evidence; UI
   surfaces do not invent local percentages or policy.
 
-## Initial Execution Order
+## Completed Execution Order
 
 1. Slice 0: complete; baseline and reproduction evidence is available for
    starting Slice 2 without broader pre-optimization sampling.
 2. Slice 1: complete.
 3. Slice 2: complete.
-4. Slice 3: paused; resume after Roadmap 06 cross-harness control-plane
-   boundary work.
-5. Slice 4: typed lossless reduction.
-6. Slice 5: reversible context projection.
-7. Slice 6: context utility allocation.
-8. Slices 7 through 10 based on measured dominant cost and risk.
-9. Slice 11 only after stable production evidence exists.
-10. Slice 12 as contracts stabilize, with public claims last.
+4. Slice 3: complete after Roadmap 06 cross-harness control-plane verification.
+5. Slice 4: complete; typed lossless reduction.
+6. Slice 5: complete; reversible context projection.
+7. Slice 6: complete; context utility allocation.
+8. Slices 7 through 10: complete; route/effort, delegation,
+   output/verification, and memory controls.
+9. Slice 11: complete; controlled adaptation remains operator-approved and
+   benchmark-gated.
+10. Slice 12: complete; canonical surface evidence and public-claim gating were
+    delivered last.
 
 The order is deliberate: measure first, take quality-neutral savings next,
 introduce reversible reduction before lossy policy, and learn only after the
 system can detect its own regressions.
 
-## Open Decisions Requiring Evidence
+## Resolved Decisions
 
-- The canonical name and package boundary of the efficiency controller.
-- Resolved by Slice 1: lifecycle attribution is recorded as canonical session
-  ledger evidence plus pure core replay/reconciliation helpers, not as a
-  parallel event store or provider-adapter side channel.
-- The token estimation strategy used before provider admission.
-- Artifact retention rules for reversible projections and active verification.
-- The first supported typed reducers and their preservation contracts.
-- Task-class-specific non-inferiority margins and confidence requirements.
-- Provider-specific cache topology without leaking policy into adapters.
-- The boundary between deterministic allocation and model-assisted scoring.
-- When delegation overhead becomes beneficial for each task class.
-- Which external benchmarks remain representative of Kiln's governed work.
-
-These decisions must be resolved through the preceding slices. They are not
-license to add parallel abstractions before evidence exists.
+- Lifecycle attribution is canonical session-ledger evidence with pure Core
+  replay/reconciliation and `verified-efficiency-evidence-v1` projection. It is
+  not a parallel event store or provider-adapter side channel.
+- Provider-reported token classes remain measured; runtime/adapter estimates
+  are labeled estimated; unavailable evidence remains unknown. Cost-only
+  provider evidence is retained as zero-token unknown attribution instead of
+  being discarded or converted into invented tokens.
+- Reversible canonical artifacts use verification retention. Protected
+  capacity exhaustion fails closed.
+- Search, tree, table, JSON, test, log, and repository artifacts are the first
+  supported typed lossless reducers, each with exact restoration and adversarial
+  preservation tests.
+- Promotion policies declare their task class, paired minimum sample,
+  non-inferiority conditions, hard invariants, rollback identity, and evidence
+  hashes. No common weighted score can hide a gated regression.
+- Cache topology is provider-neutral request evidence. Tenant, route, policy,
+  and authority partition hashes remain outside provider adapters.
+- Deterministic required-context, authority, eligibility, budget, and
+  verification gates run before any advisory scoring. Model-assisted scoring
+  cannot override those gates.
+- Delegation is eligible only when its task-class comparison covers coordination
+  overhead and preserves authority, verification, replay, recovery, and bounded
+  handoff evidence.
+- External benchmarks may supplement the internal governed portfolio. They do
+  not authorize a public claim without the Slice 12 publication manifest and
+  content-verifiable artifacts.
 
 ## Completion Criteria
 
@@ -1079,3 +1356,8 @@ contracts, verified cross-surface evidence, and reproducible policy-promotion
 gates; when stable doctrine has moved into `docs/architecture/` and operator
 guidance into `docs/guides/`; and when superseded experimental code and policy
 paths have been removed rather than retained as legacy behavior.
+
+These criteria were satisfied on 2026-07-14. The deterministic reference
+bundle proves the evidence and publication contracts only; live provider or
+external-harness performance claims remain outside this roadmap until their own
+content-verified manifests pass the same gate.

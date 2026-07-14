@@ -56,7 +56,6 @@ import {
   withManagedInvocationService,
   type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
-import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
 import { appendManagedInvocationPromptAdmissionSessionEvent } from "../agents/managed-invocation/prompt-admission.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
@@ -405,10 +404,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
         options: withManagedInvocationService(options.managedInvocation.options),
       }
     : undefined;
-  const builtinToolOptions = withManagedAgentInvocationResourceProvider(
-    options.builtinToolOptions,
-    managedInvocation ? { service: managedInvocation.options.invocationService } : undefined,
-  );
+  const builtinToolOptions = options.builtinToolOptions;
   const memoryLatticeResources = createAttachedRuntimeBuiltinToolSurface({ builtinToolOptions });
   const app = new Hono();
   const guiDistPath = resolveGuiDistPath(options.guiDistPath);

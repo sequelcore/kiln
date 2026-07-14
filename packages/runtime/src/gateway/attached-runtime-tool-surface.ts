@@ -27,6 +27,9 @@ import {
   projectDevToolDefinitions,
   projectToolResourceDescriptor,
   projectToolResultResourceLinks,
+  ResourceListTool,
+  ResourceReadTool,
+  ResourceTemplateListTool,
   resolveDirectProviderExecutionProfile,
   getBuiltinEffectEnvelope,
 } from "@kilnai/core";
@@ -68,6 +71,10 @@ import {
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
+import {
+  createManagedAgentInvocationResourceProvider,
+  isManagedAgentInvocationResourceProvider,
+} from "../agents/managed-invocation/resource-provider.js";
 import {
   buildManagedInvocationPhaseRecovery,
   managedInvocationFailureReasonFromStatus,
@@ -546,6 +553,16 @@ export function createAttachedRuntimeBuiltinToolSurface(
         registerRuntimeTool(tool, capability);
       }
     }
+    if (
+      managedInvocationOptions.invocationService
+      && !coreSurface.resources.hasProvider(isManagedAgentInvocationResourceProvider)
+    ) {
+      attachSessionScopedManagedResourceExecutors(
+        callBuiltinTools,
+        coreSurface,
+        managedInvocationOptions,
+      );
+    }
     toolCallMetadata.set(
       MANAGED_AGENT_INVOKE_TOOL.name,
       createManagedInvocationToolCallMetadataResolver(managedInvocationOptions),
@@ -572,6 +589,56 @@ export function createAttachedRuntimeBuiltinToolSurface(
     listResourceTemplates: baseSurface.listResourceTemplates,
     readResource: baseSurface.readResource,
   };
+}
+
+function attachSessionScopedManagedResourceExecutors(
+  executors: Map<string, RuntimeBuiltinToolExecutor>,
+  surface: DefaultBuiltinToolSurface,
+  options: ManagedInvocationToolOptions,
+): void {
+  const invocationService = options.invocationService;
+  if (!invocationService) {
+    return;
+  }
+  const tools = [
+    new ResourceListTool({ resources: () => undefined }),
+    new ResourceTemplateListTool({ resources: () => undefined }),
+    new ResourceReadTool({ resources: () => undefined }),
+  ] as const;
+  for (const tool of tools) {
+    executors.set(tool.name, async (input, context) => {
+      const parentSessionId = context?.session.id;
+      if (!parentSessionId) {
+        return {
+          output: "Managed invocation resources require an attached runtime session.",
+          isError: true,
+          metadata: { errorCode: "session_boundary_required" },
+        };
+      }
+      const resources = surface.resources.withAdditionalProviders([
+        createManagedAgentInvocationResourceProvider({
+          service: invocationService,
+          parentSessionId,
+          artifactStore: options.artifactStore ?? surface.artifactStore,
+        }),
+      ]);
+      const scopedTool = tool.name === "resource_list"
+        ? new ResourceListTool({ resources: () => resources })
+        : tool.name === "resource_template_list"
+          ? new ResourceTemplateListTool({ resources: () => resources })
+          : new ResourceReadTool({ resources: () => resources });
+      const result = await scopedTool.execute({ name: scopedTool.name, input });
+      const resourceLinks = projectToolResultResourceLinks(result);
+      const resourceLinkContent = (result.content ?? []).filter(isResourceLinkContent);
+      return {
+        output: resourceLinks.length > 0 ? formatLinkedOutput(resourceLinks, result.metadata) : result.output,
+        isError: result.isError,
+        metadata: result.metadata,
+        ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+        ...(resourceLinkContent.length > 0 ? { content: resourceLinkContent } : {}),
+      };
+    });
+  }
 }
 
 function normalizeManagedInvocationAttachment(

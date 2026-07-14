@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Database } from "bun:sqlite";
 import {
   defineMemoryAuthorityPolicy,
   MemoryGraphResourceProvider,
@@ -99,6 +100,7 @@ describe("MemoryGraphResourceProvider", () => {
       sequence: 1,
       kind: "created",
       content: root.content,
+      provenance: root.provenance,
       createdAt: "2026-04-30T12:01:00.000Z",
     });
     repository.saveContextAdmission({
@@ -165,13 +167,14 @@ describe("MemoryGraphResourceProvider", () => {
     }));
     repository.saveRelation(relationInput("relation-1", root.id, child.id, "supports"));
     repository.saveRelation(relationInput("relation-2", root.id, child.id, "related_to"));
-    repository.saveRelation(relationInput("relation-3", root.id, foreign.id, "contradicts"));
+    insertRawCrossScopeRelation(join(tmpDir, "memory.db"), relationInput("relation-3", root.id, foreign.id, "contradicts"));
     repository.saveRevision({
       id: "revision-1",
       recordId: root.id,
       sequence: 1,
       kind: "created",
       content: root.content,
+      provenance: root.provenance,
       createdAt: "2026-04-30T12:01:00.000Z",
     });
     repository.saveRevision({
@@ -181,6 +184,7 @@ describe("MemoryGraphResourceProvider", () => {
       sequence: 2,
       kind: "extended",
       content: "Root memory v2.",
+      provenance: root.provenance,
       createdAt: "2026-04-30T12:02:00.000Z",
     });
     repository.saveContextAdmission({
@@ -240,6 +244,7 @@ describe("MemoryGraphResourceProvider", () => {
         sequence: index,
         kind: index === 1 ? "created" : "extended",
         content: `Revision ${index}.`,
+        provenance: root.provenance,
         createdAt: new Date(Date.UTC(2026, 3, 30, 10, 0, index)).toISOString(),
       });
     }
@@ -294,6 +299,7 @@ describe("MemoryGraphResourceProvider", () => {
       sequence: 1,
       kind: "created",
       content: root.content,
+      provenance: root.provenance,
       createdAt: "2026-04-30T12:01:00.000Z",
     });
     repository.saveContextAdmission({
@@ -361,7 +367,7 @@ describe("MemoryGraphResourceProvider", () => {
       topicKey: "foreign",
       scopeId: "other",
     }));
-    repository.saveRelation(relationInput("relation-foreign", root.id, foreign.id, "related_to"));
+    insertRawCrossScopeRelation(join(tmpDir, "memory.db"), relationInput("relation-foreign", root.id, foreign.id, "related_to"));
 
     await expect(registry.read("kiln://memory/relations/relation-foreign?scope=project%3Akiln")).rejects.toThrow("Memory resource not found");
   });
@@ -376,7 +382,7 @@ describe("MemoryGraphResourceProvider", () => {
       scopeId: "other",
     }));
     repository.saveRelation(relationInput("relation-local", root.id, local.id, "related_to"));
-    repository.saveRelation(relationInput("relation-foreign", root.id, foreign.id, "related_to"));
+    insertRawCrossScopeRelation(join(tmpDir, "memory.db"), relationInput("relation-foreign", root.id, foreign.id, "related_to"));
 
     const node = JSON.parse((await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!.text);
 
@@ -402,6 +408,7 @@ describe("MemoryGraphResourceProvider", () => {
         sequence: index,
         kind: index === 1 ? "created" : "extended",
         content: `Revision ${index}.`,
+        provenance: root.provenance,
         createdAt: `2026-04-30T11:${String(index).padStart(2, "0")}:00.000Z`,
       });
       repository.saveContextAdmission({
@@ -430,6 +437,7 @@ describe("MemoryGraphResourceProvider", () => {
       sequence: 51,
       kind: "extended",
       content: "Revision 51.",
+      provenance: root.provenance,
       createdAt: "2026-04-30T11:51:00.000Z",
     });
     repository.saveContextAdmission({
@@ -649,6 +657,26 @@ function relationInput(
     type,
     createdAt: "2026-04-30T12:00:00.000Z",
   };
+}
+
+function insertRawCrossScopeRelation(
+  dbPath: string,
+  relation: ReturnType<typeof relationInput>,
+): void {
+  const db = new Database(dbPath);
+  db.prepare(`
+    INSERT INTO memory_relations (
+      id, source_record_id, target_kind, target_record_id, target_uri,
+      relation_type, reason, evidence, confidence, created_at
+    ) VALUES (?, ?, 'memory_record', ?, NULL, ?, NULL, '[]', NULL, ?)
+  `).run(
+    relation.id,
+    relation.sourceRecordId,
+    relation.target.id,
+    relation.type,
+    relation.createdAt,
+  );
+  db.close();
 }
 
 function provenance(sourceId: string): MemoryProvenance {

@@ -38,6 +38,12 @@ export interface ModelRoutingPolicyInputsUsed {
   readonly requiresStreaming: boolean;
   readonly requestedReasoningEffort?: ModelRoutingReasoningEffort;
   readonly task?: string;
+  readonly phase?: "orient" | "plan" | "execute" | "verify" | "handoff";
+  readonly uncertainty?: number;
+  readonly verificationNeed?: number;
+  readonly retryRisk?: number;
+  readonly cacheInvalidationCostUsd?: number;
+  readonly verifierCostUsd?: number;
 }
 
 export interface ModelRoutingRationale {
@@ -46,6 +52,7 @@ export interface ModelRoutingRationale {
   readonly canonicalModel?: string;
   readonly selectionMode: ModelSelectionMode;
   readonly reasoningEffort?: ModelRoutingReasoningEffort;
+  readonly effortOmissionReason?: string;
   readonly routingReason: string;
   readonly confidence: number;
   readonly routingTier: RoutingTier;
@@ -99,6 +106,12 @@ export interface RoutingRequest {
   readonly budgetRemainingCents?: number;
   readonly requestedReasoningEffort?: ModelRoutingReasoningEffort;
   readonly task?: string;
+  readonly phase?: "orient" | "plan" | "execute" | "verify" | "handoff";
+  readonly uncertainty?: number;
+  readonly verificationNeed?: number;
+  readonly retryRisk?: number;
+  readonly cacheInvalidationCostUsd?: number;
+  readonly verifierCostUsd?: number;
   readonly rankingEvidence?: readonly ModelRoutingRankingEvidence[];
 }
 

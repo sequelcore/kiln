@@ -749,6 +749,8 @@ export type {
 } from "./context-usage-projection.js";
 export {
   projectCostUpdatedEventToLifecycleLedger,
+  projectManagedAgentCoordinationUsageAllocations,
+  projectVerificationUsageAllocations,
   reconcileLifecycleAttributionLedger,
   replayLifecycleAttributionEvidence,
   summarizeLifecycleAttributionLedger,

@@ -62,12 +62,53 @@ export function projectManagedInvocationRecordResources(
           })),
         }
       : {}),
+    ...(record.coordinationUsage !== undefined
+      ? {
+          coordinationUsage: {
+            ...record.coordinationUsage,
+            components: record.coordinationUsage.components.map((component) => ({
+              ...component,
+              evidenceUris: mapUris(component.evidenceUris, mapUri),
+            })),
+          },
+        }
+      : {}),
     ...(record.resultHandoff !== undefined
       ? {
           resultHandoff: {
             ...record.resultHandoff,
             resourceUris: mapUris(record.resultHandoff.resourceUris, mapUri),
             memoryWriteProposalUris: mapUris(record.resultHandoff.memoryWriteProposalUris, mapUri),
+            ...(record.resultHandoff.structuredResult !== undefined
+              ? {
+                  structuredResult: {
+                    ...record.resultHandoff.structuredResult,
+                    evidence: record.resultHandoff.structuredResult.evidence.map((evidence) => ({
+                      ...evidence,
+                      uri: mapUri(evidence.uri),
+                    })),
+                    citations: record.resultHandoff.structuredResult.citations.map((citation) => ({
+                      ...citation,
+                      uri: mapUri(citation.uri),
+                    })),
+                    verificationResults: record.resultHandoff.structuredResult.verificationResults.map((result) => ({
+                      ...result,
+                      evidenceUris: mapUris(result.evidenceUris, mapUri),
+                    })),
+                  },
+                }
+              : {}),
+            ...(record.resultHandoff.verificationUsage !== undefined
+              ? {
+                  verificationUsage: {
+                    ...record.resultHandoff.verificationUsage,
+                    attempts: record.resultHandoff.verificationUsage.attempts.map((attempt) => ({
+                      ...attempt,
+                      evidenceUris: mapUris(attempt.evidenceUris, mapUri),
+                    })),
+                  },
+                }
+              : {}),
           },
         }
       : {}),

@@ -166,6 +166,10 @@ describe("web tool config", () => {
         scopeKind: "project",
         scopeId,
         content: "Allowed write.",
+        topicKey: "allowed-write",
+        confidence: 0.9,
+        futureTaskValue: 0.8,
+        canonicalEvidenceUris: ["kiln://artifacts/test/source/content"],
         provenance: {
           sourceType: "operator",
           sourceId: "test",

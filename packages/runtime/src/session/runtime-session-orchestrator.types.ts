@@ -286,6 +286,12 @@ export interface ModelRoutingRouteCapabilities {
 
 export interface ModelRoutingPolicyConfig {
   readonly task?: string;
+  readonly phase?: "orient" | "plan" | "execute" | "verify" | "handoff";
+  readonly uncertainty?: number;
+  readonly verificationNeed?: number;
+  readonly retryRisk?: number;
+  readonly cacheInvalidationCostUsd?: number;
+  readonly verifierCostUsd?: number;
   readonly rankingEvidence?: readonly ModelRoutingRankingEvidence[];
   readonly routeCapabilities?: ReadonlyMap<string, ModelRoutingRouteCapabilities>;
   readonly now?: Date;
@@ -313,6 +319,11 @@ export interface PerCallToolConfig {
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly modelRoutingPolicy?: ModelRoutingPolicyConfig;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly contextPolicy?: {
+    readonly policyId: string;
+    readonly configurationHash: string;
+    readonly contextAllocationMode: "whole-block" | "segmented" | "retrieval-on-demand";
+  };
 }
 
 export type RuntimeToolCallMetadataResolver = (

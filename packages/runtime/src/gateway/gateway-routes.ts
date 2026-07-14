@@ -492,7 +492,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
               const baseProjectedTurnContext = projectAdmittedTurnContext({
                 userContext: session.userContext,
                 cachedRuntimeSummary: undefined,
-                recalledMemory: undefined,
+                recalledMemoryCandidates: undefined,
                 knowledgeContext: undefined,
                 contactContext: undefined,
                 groundingMode: undefined,

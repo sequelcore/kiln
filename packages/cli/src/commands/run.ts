@@ -54,6 +54,7 @@ import {
   type RunOutputController,
   type RunOutputMode,
 } from "../application/run-output.js";
+import { buildCliVerifiedEfficiencyEvidence } from "../application/verified-efficiency-evidence.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
 import {
   TranscriptStore,
@@ -1098,7 +1099,10 @@ export async function runCommand(
   });
   builtinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+    managedInvocationWithService ? {
+      service: managedInvocationWithService.invocationService,
+      parentSessionId: sessionId,
+    } : undefined,
   );
 
   const initialMetadata = deriveSessionMetadata({
@@ -1682,6 +1686,47 @@ export async function runCommand(
     }
   })();
 
+  const contextGovernanceConfig = appConfig.kilnYaml?.contextGovernance;
+  const contextAllocationMode = contextGovernanceConfig?.allocationMode ?? "whole-block";
+  const activeAdaptation = contextGovernanceConfig?.adaptation;
+  const cacheReadTokens = providerTokenUsage.reduce((total, usage) => total + (usage.cacheReadTokens ?? 0), 0);
+  const cacheWriteTokens = providerTokenUsage.reduce((total, usage) => total + (usage.cacheWriteTokens ?? 0), 0);
+  const routeIsAggregate = providersUsed.length > 1;
+  const cliEfficiencyEvidence = buildCliVerifiedEfficiencyEvidence({
+    sessionId,
+    turnId: sessionId,
+    observedAt: new Date().toISOString(),
+    providerId: routeIsAggregate ? "multi-route" : successfulProviderId ?? preferredProvider ?? "unknown",
+    modelId: routeIsAggregate ? "multiple" : successfulModelId ?? effectiveModel ?? "unknown",
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    costUsd: finalCostUsd,
+    outcome: verificationResult?.passed === false ? "failed" : sessionSucceeded ? "succeeded" : "failed",
+    contextAllocationMode,
+    ...(activeAdaptation
+      ? {
+          policySelection: {
+            policyId: activeAdaptation.activePolicyId,
+            configurationHash: activeAdaptation.activeConfigurationHash,
+          },
+        }
+      : {}),
+    ...(verificationResult
+      ? {
+          verificationResults: verificationResult.checks.map((check, index) => ({
+            verificationResultId: `cli-verification-${index + 1}`,
+            status: check.passed ? "passed" as const : "failed" as const,
+            method: "deterministic",
+            evidenceUris: [
+              `kiln://sessions/${encodeURIComponent(sessionId)}/verification/${index + 1}`,
+            ],
+          })),
+        }
+      : {}),
+  }).efficiencyEvidence;
+
   const resumeOutcome: ResumeOutcome = {
     succeeded: sessionSucceeded,
     finalProvider: successfulProviderId,
@@ -1708,6 +1753,7 @@ export async function runCommand(
       resumeOutcome,
       contextGovernance: previewContextGovernance,
       contextUsage,
+      efficiencyEvidence: cliEfficiencyEvidence,
     };
     const finalReport = continuationSessionId
       ? { ...reportWithResumeStrategy, resumedFrom: continuationSessionId }
@@ -1761,6 +1807,7 @@ export async function runCommand(
     verificationPassed: verificationResult?.passed,
     contextGovernance: previewContextGovernance,
     contextUsage,
+    efficiencyEvidence: cliEfficiencyEvidence,
     lastError,
     attempts,
     verificationResult,
@@ -1829,6 +1876,7 @@ interface RunOutputEmissionInput {
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
   readonly contextUsage?: import("@kilnai/gateway-contracts").ContextUsageProjection;
+  readonly efficiencyEvidence?: import("@kilnai/gateway-contracts").VerifiedEfficiencyEvidenceProjection;
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -1853,6 +1901,7 @@ interface RunFailureOutputInput {
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
   readonly contextUsage?: import("@kilnai/gateway-contracts").ContextUsageProjection;
+  readonly efficiencyEvidence?: import("@kilnai/gateway-contracts").VerifiedEfficiencyEvidenceProjection;
   readonly lastError: string;
   readonly attempts?: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -1882,6 +1931,7 @@ function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureO
     verificationPassed: input.verificationPassed,
     contextGovernance: input.contextGovernance,
     contextUsage: input.contextUsage,
+    efficiencyEvidence: input.efficiencyEvidence,
     lastError: input.lastError,
     attempts: input.attempts ?? [],
     verificationResult: input.verificationResult,

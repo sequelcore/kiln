@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveTaskSkillSelection } from "../../src/config/task-skill-selection.js";
 
-function writeSkill(root: string, name: string): void {
+function writeSkill(root: string, name: string, instructions = "Use this skill."): void {
   const dir = join(root, ".kiln", "skills", name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "SKILL.md"), [
@@ -15,7 +15,7 @@ function writeSkill(root: string, name: string): void {
     "",
     `# ${name}`,
     "",
-    "Use this skill.",
+    instructions,
     "",
   ].join("\n"), "utf-8");
 }
@@ -127,5 +127,39 @@ describe("task skill selection work classification", () => {
       state: "unavailable",
       reason: "Recommended by work classification but not found in the governed Kiln registry.",
     }]);
+  });
+
+  it("materializes only exact selected skill bodies and records path-free progressive projection evidence", () => {
+    const root = tempRoot();
+    writeSkill(root, "selected-skill", "Use the exact selected procedure.");
+    writeSkill(root, "unselected-large-skill", `UNSELECTED_BODY_MUST_NOT_MATERIALIZE ${"waste ".repeat(400)}`);
+
+    const selection = resolveTaskSkillSelection({
+      explicitSkills: ["selected-skill"],
+      projectPath: root,
+      userHome: root,
+      skillConfig: { builtin: { enabled: false } },
+      requesterLabel: "Task skill selection",
+    });
+
+    expect(selection.contextCandidates).toHaveLength(1);
+    expect(selection.contextCandidates[0]?.content).toContain("Use the exact selected procedure.");
+    expect(selection.contextCandidates[0]?.content).not.toContain("UNSELECTED_BODY_MUST_NOT_MATERIALIZE");
+    expect(selection.projectionEvidence).toMatchObject({
+      policyId: "progressive-skill-projection-v1",
+      catalogSkillCount: 2,
+      selectedSkillCount: 1,
+      deferredSkillCount: 1,
+      selections: [{
+        skillName: "selected-skill",
+        selectionReason: "explicit",
+        materializationSource: "filesystem",
+      }],
+    });
+    expect(selection.projectionEvidence.catalogMetadataBytes).toBeGreaterThan(0);
+    expect(selection.projectionEvidence.selectedContextBytes).toBeGreaterThan(0);
+    expect(selection.projectionEvidence.selectedContextTokens).toBeGreaterThan(0);
+    expect(selection.projectionEvidence.avoidedSourceBytes).toBeGreaterThan(2_000);
+    expect(JSON.stringify(selection.projectionEvidence)).not.toContain(root);
   });
 });

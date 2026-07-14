@@ -39,6 +39,8 @@ export type {
 
 export {
   KilnConfigSetupSnapshotSchema,
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  formatVerifiedEfficiencyEvidence,
 } from "@kilnai/gateway-contracts";
 
 export type {
@@ -47,6 +49,7 @@ export type {
   OperatorResourceReadContent,
   OperatorResourceReadSummary,
   OperatorResourceReadPresentation,
+  VerifiedEfficiencyEvidenceProjection,
 } from "@kilnai/gateway-contracts";
 
 export type {

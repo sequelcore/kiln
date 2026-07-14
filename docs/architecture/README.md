@@ -66,6 +66,11 @@ is documented by concern, not as a single monolith.
   Per-turn context-usage authority states, adapter cache semantics, runtime
   normalization, Gateway mapping, persistence/replay, and surface rules.
 
+- `verified-efficiency-control-plane.md`
+  Progressive loading promotion, typed lossless reduction, reversible context
+  projection, protected evidence retention, retrieval audits, and canonical
+  evidence gates.
+
 - `session-feedback-pipeline.md`
   Local-first operator feedback, redaction, evidence selection, issue draft,
   repair work item, and draft pull-request governance.

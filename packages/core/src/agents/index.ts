@@ -1,5 +1,6 @@
 import type { ContentPart } from "../engine/domain/content.js";
 import type { ContextUsageRawEvidence } from "../events/context-usage-projection.js";
+import type { ReasoningEffort } from "./phase-aware-route-policy.js";
 
 /**
  * Agent role in the orchestration.
@@ -20,7 +21,28 @@ export interface AgentStreamEvent {
   readonly content: string;
 }
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export {
+  PhaseAwareModelRouter,
+  resolveNormalizedReasoningEffort,
+  selectPhaseAwareRoute,
+} from "./phase-aware-route-policy.js";
+export type {
+  ModelRoutingPhase,
+  NormalizedReasoningEffortResolution,
+  PhaseAwareRouteCandidate,
+  PhaseAwareRouteDecision,
+  PhaseAwareRouteDiagnostic,
+  PhaseAwareRouteProjection,
+  PhaseAwareRoutingSignals,
+  PhaseAwareModelRouterOptions,
+  ReasoningEffortOmissionReason,
+  ReasoningEffort,
+  ReasoningEffortSupportEvidence,
+  ResolveNormalizedReasoningEffortInput,
+  RouteHealthState,
+  SelectPhaseAwareRouteInput,
+  UnsupportedReasoningEffortPolicy,
+} from "./phase-aware-route-policy.js";
 
 /** Provider adapter interface -- all LLM providers implement this */
 export interface ProviderAdapter {

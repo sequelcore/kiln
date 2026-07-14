@@ -225,6 +225,26 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     ])).toHaveLength(5);
   });
 
+  it("partitions provider requests by the approved context policy selection", async () => {
+    const baseline = await new RuntimeSessionOrchestrator({ provider: makeProviderWithToolCall(), tools: [TOOL_DEF], builtinTools: new Map([["get_weather", toolFn]]), capabilityMap: makeCapabilityMap(60) }).processMessage(
+      makeSession(),
+      textParts("same input"),
+      undefined,
+      undefined,
+      { contextPolicy: { policyId: "context-whole-block-v1", configurationHash: `sha256:${"a".repeat(64)}`, contextAllocationMode: "whole-block" } },
+    );
+    const candidate = await new RuntimeSessionOrchestrator({ provider: makeProviderWithToolCall(), tools: [TOOL_DEF], builtinTools: new Map([["get_weather", toolFn]]), capabilityMap: makeCapabilityMap(60) }).processMessage(
+      makeSession(),
+      textParts("same input"),
+      undefined,
+      undefined,
+      { contextPolicy: { policyId: "context-segmented-v1", configurationHash: `sha256:${"b".repeat(64)}`, contextAllocationMode: "segmented" } },
+    );
+
+    expect(candidate.providerRequests?.[0]?.stablePrefixHash).toBe(baseline.providerRequests?.[0]?.stablePrefixHash);
+    expect(candidate.providerRequests?.[0]?.cachePartition.hash).not.toBe(baseline.providerRequests?.[0]?.cachePartition.hash);
+  });
+
   it("measures only the leading contiguous stable prefix", () => {
     const evidence = measureProviderRequestRegions({
       system: "stable system",

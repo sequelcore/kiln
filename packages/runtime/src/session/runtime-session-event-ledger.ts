@@ -19,10 +19,13 @@ import type {
   ToolResultEvent,
   ContextAuditEntry,
   ContextUsageProjection,
+  VerifiedEfficiencyPolicyIdentity,
 } from "@kilnai/core";
 import {
   createSessionEvent,
+  hashPolicyAdaptationConfiguration,
   projectCostUpdatedEventToLifecycleLedger,
+  projectVerifiedEfficiencyEvidence,
   reconcileLifecycleAttributionLedger,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
@@ -120,6 +123,7 @@ export interface AppendCanonicalTurnEventsInput {
     readonly blockingIssueCodes: readonly string[];
   }[];
   readonly lifecycleAttributionEvidence?: RuntimeLifecycleAttributionEvidence;
+  readonly efficiencyPolicy?: VerifiedEfficiencyPolicyIdentity;
   readonly clarificationRecords?: readonly {
     readonly specificationId: string;
     readonly clarificationId: string;
@@ -351,6 +355,24 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           },
         });
         const reconciled = reconcileLifecycleAttributionLedger(costEvent, attributionLedger);
+        const efficiencyEvidence = projectVerifiedEfficiencyEvidence({
+          lifecycleEvidence: {
+            costEvent,
+            ledger: reconciled.ledger,
+            summary: reconciled.summary,
+          },
+          observedAt: runtimeEvent.timestamp.toISOString(),
+          policy: input.efficiencyPolicy ?? {
+            owner: "ContextGovernor",
+            policyId: "context-whole-block-static-v1",
+            configurationHash: hashPolicyAdaptationConfiguration({ contextAllocationMode: "whole-block" }),
+          },
+          outcome: input.turnOutcome === "completed"
+            ? "succeeded"
+            : input.turnOutcome === "failed"
+              ? "failed"
+              : "unknown",
+        });
         events.push(createSessionEvent<"lifecycle_attribution_recorded">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
@@ -359,6 +381,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           parentEventId: costEvent.eventId,
           ledger: reconciled.ledger,
           summary: reconciled.summary,
+          efficiencyEvidence,
           source: runtimeSource,
           timestamp: runtimeEvent.timestamp,
         }));

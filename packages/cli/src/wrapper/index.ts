@@ -6,7 +6,10 @@
  */
 
 import type { DomainConfig } from "@kilnai/core";
-import type { ContextUsageProjection } from "@kilnai/gateway-contracts";
+import type {
+  ContextUsageProjection,
+  VerifiedEfficiencyEvidenceProjection,
+} from "@kilnai/gateway-contracts";
 import type { ProjectedContext, ProjectedContextBlockKind } from "../application/context-types.js";
 import type { KilnPermissionPolicy } from "./session.js";
 
@@ -101,6 +104,8 @@ export interface SessionReport {
   readonly contextGovernance?: ContextGovernanceSummary;
   /** Runtime-normalized per-turn context evidence, when this run produced it. */
   readonly contextUsage?: ContextUsageProjection;
+  /** Canonical Core-owned efficiency evidence; reports only format this view. */
+  readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
 }
 
 /** Wrapper configuration */

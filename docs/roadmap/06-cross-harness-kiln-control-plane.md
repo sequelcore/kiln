@@ -1,7 +1,7 @@
 # 06 - Cross-Harness Kiln Control Plane
 
-Status: Active delivery track; Slices 0-2, 3A, and 3B are complete. Slice 3C verification is reopened; full Slice 3 remains incomplete.
-Execution: Ready - correct false-positive managed-result redaction with focused regression coverage only.
+Status: Active delivery track; Slices 0-3 are complete. Slice 4 is planned.
+Execution: Ready - Roadmap 04 may resume progressive context and tool loading against the verified cross-harness boundary.
 Created: 2026-07-04.
 
 ## Objective
@@ -388,9 +388,9 @@ and invoked without `KILN_STATUS_EVIDENCE_INCOMPLETE`. The observed harness was
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 
-Status: Slices 3A and 3B are complete. Slice 3C verification is reopened for
-result-redaction correctness; cancellation and replay keep full Slice 3
-incomplete. Claude Code is deferred and is not a Slice 3 exit dependency.
+Status: Complete on 2026-07-14. Codex App submit, status, bounded result,
+cancellation, and canonical lifecycle replay are live-verified. Claude Code is
+deferred and is not a Slice 3 exit dependency.
 
 Goal: allow admitted harness surfaces to invoke Kiln-managed agents through
 canonical routes without giving a harness ownership of managed-job state.
@@ -398,8 +398,8 @@ canonical routes without giving a harness ownership of managed-job state.
 Work:
 
 - Implement only a Codex App → Kiln → OpenCode Go managed-agent invocation
-  that returns the canonical managed job identifier and status evidence. Do
-  not add cancellation, result fetch, replay, Claude adapters, or a second
+  that returns canonical background identity, status, result, cancellation,
+  and lifecycle replay evidence. Do not add Claude adapters or a second
   provider route in this slice.
 - expose `managed_agent.invoke` or equivalent through harness adapters;
 - support background job ids, status, cancellation, result fetch, and replay
@@ -491,23 +491,15 @@ Slice 3B. Slice 4 routing is not started.
 
 #### Slice 3C - Canonical Managed-Job Result Handoff
 
-Status: Verification reopened on 2026-07-14. The transport and result lifecycle
-were accepted live, but a later restarted-app audit found false-positive
-redaction of legitimate result prose. Full Slice 3 remains incomplete.
+Status: Complete on 2026-07-14. The false-positive result redaction was
+corrected and live-verified before cancellation and replay closed full Slice 3.
 
 Objective: expose safe canonical managed-job result handoff/retrieval to Codex
 App without duplicating Runtime lifecycle or leaking prompts, transcripts,
 hidden reasoning, provider payloads, paths, or secrets.
 
-Remaining full Slice 3 scope is explicit:
-
-- Codex App submit, status, and canonical result retrieval are complete;
-- Claude Code remains a deferred optional entitlement surface rather than an
-  exit dependency; and
-- cancellation and replay remain unimplemented.
-
-Slice 3C must remain a thin projection over Runtime-owned managed-job state. It
-must not implement the Claude path, cancellation, replay, or Slice 4 routing.
+Slice 3C remains a thin projection over Runtime-owned managed-job state. It
+does not implement the Claude path or Slice 4 routing.
 
 Slice 3C now persists the existing Runtime canonical result handoff before a
 managed job is observable as `succeeded`, authorizes status/result reads with
@@ -559,11 +551,32 @@ their structured payloads totaled more than 44,000 characters before the MCP
 text copies. That compaction work remains a separate follow-up and must not be
 combined with the result-redaction correction.
 
-Exactly one corrective objective is admitted now: preserve benign narrative
-labels while still redacting real environment assignments and credential
-fields, prove both behaviors with focused Runtime tests, then repeat one live
-Codex App result check. It must not add Claude Code, cancellation, replay,
-inspection compaction, or Slice 4 routing.
+Closure evidence on 2026-07-14:
+
+- focused Runtime coverage preserves benign `Finding:`, `Status:`, and `Risk:`
+  prose while still redacting uppercase environment assignments and explicit
+  credential fields;
+- live job `f3736793-9638-438b-8521-200ed62018e8` returned those labels intact
+  through the project-local Codex App bridge with no false
+  `[REDACTED:environment]` replacement;
+- managed-job version 3 records canonical monotonic lifecycle entries in the
+  Runtime-owned persistent store; earlier records remain truthful and report
+  replay or result unavailability instead of fabricated history;
+- `kiln_managed_agent_invoke` now returns the durable running job identity
+  without waiting for terminal completion, and the adapter adds only
+  `kiln_managed_agent_cancel` and `kiln_managed_agent_replay` over the same
+  authorized application owner;
+- live job `d1f62c9d-a789-4663-8b35-55cc2894bf07` returned `running`, cancelled
+  through Runtime, and replayed exactly `queued -> running -> cancelled`; status
+  remained cancelled after a delayed observation and no late success overwrote
+  it; and
+- the live path used Codex App native Kiln tools only, with route
+  `opencode-go-scout-readonly`, provider `opencode-go`, admission profile
+  `foundation-readonly-plan`, and no shell or native CLI workaround.
+
+Residual risk: historical version 1 and version 2 jobs cannot supply lifecycle
+events they never recorded and therefore return explicit replay-unavailable
+evidence. Inspection-diagnostic compaction remains separate Roadmap 04 work.
 
 ### Slice 4 - Quota And Subscription-Aware Routing
 

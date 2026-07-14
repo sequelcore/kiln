@@ -1289,16 +1289,50 @@ describe("operator event presentation", () => {
           unknown: 150,
         },
       },
+      efficiencyEvidence: {
+        schemaVersion: "verified-efficiency-evidence-v1",
+        sessionId: "session-1",
+        turnId: "turn-1",
+        observedAt: "2026-07-14T20:00:01.000Z",
+        provider: { providerId: "codex-oauth", modelId: "gpt-5.5", billingMode: "metered" },
+        policy: {
+          owner: "ContextGovernor",
+          policyId: "context-whole-block-static-v1",
+          configurationHash: `sha256:${"a".repeat(64)}`,
+        },
+        totals: {
+          providerTotalTokens: 150,
+          providerTotalCostUsd: 0.0123,
+          measured: { tokens: 20, costUsd: 0.002 },
+          estimated: { tokens: 50, costUsd: 0.004 },
+          cached: { tokens: 30, costUsd: 0.0023 },
+          unknown: { tokens: 40, costUsd: 0.003 },
+          cacheWritten: { tokens: 10, costUsd: 0.001 },
+          avoided: { tokens: 0, costUsd: 0 },
+        },
+        outcome: "succeeded",
+        verification: { status: "not_run", results: [] },
+        actions: [],
+        savings: [],
+        evidenceUris: [],
+      },
     });
 
-    expect(presentation.title).toBe("Lifecycle attribution recorded");
-    expect(presentation.summary).toBe("150 tokens · $0.0123 · 150 unknown");
+    expect(presentation.title).toBe("Verified efficiency evidence");
+    expect(presentation.summary).toBe("Efficiency: 20 measured · 50 estimated · 30 cached · 0 avoided · verification not_run · context-whole-block-static-v1");
     expect(presentation.details).toEqual([
-      { label: "Tokens", value: "150" },
-      { label: "Cost", value: "$0.0123" },
-      { label: "Unknown source tokens", value: "150" },
-      { label: "Records", value: "3" },
-      { label: "Route", value: "codex-oauth/gpt-5.5" },
+      { label: "Provider total tokens", value: "150" },
+      { label: "Measured tokens", value: "20" },
+      { label: "Estimated tokens", value: "50" },
+      { label: "Cached tokens", value: "30" },
+      { label: "Avoided tokens", value: "0" },
+      { label: "Unknown tokens", value: "40" },
+      { label: "Policy", value: "ContextGovernor/context-whole-block-static-v1" },
+      { label: "Policy configuration", value: `sha256:${"a".repeat(64)}` },
+      { label: "Outcome", value: "succeeded" },
+      { label: "Verification", value: "not_run" },
+      { label: "Savings evidence", value: "0" },
+      { label: "Evidence resources", value: "0" },
       { label: "Source event", value: "event-cost-1" },
     ]);
     expect(operatorEventTargetsSurface(presentation, "conversation_inline")).toBe(false);

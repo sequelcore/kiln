@@ -176,6 +176,7 @@ export type ExecutionSessionEvent =
       readonly inputTokens?: number;
       readonly outputTokens?: number;
       readonly cacheReadTokens?: number;
+      readonly cacheWriteTokens?: number;
       readonly providerRequests?: readonly ProviderRequestEvidence[];
       readonly costEvidence?: ExecutionCostEvidence;
     }

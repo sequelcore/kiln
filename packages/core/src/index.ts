@@ -15,6 +15,7 @@ export * from "./security/index.js";
 export * from "./observability/index.js";
 export * from "./knowledge/index.js";
 export * from "./eval/index.js";
+export * from "./efficiency/index.js";
 export * from "./safety/index.js";
 export * from "./enrichment/index.js";
 export * from "./tools/index.js";
@@ -37,6 +38,7 @@ export type { StreamLevel } from "./events/index.js";
 export { EVENT_LEVEL_MAP, LEVEL_HIERARCHY } from "./events/index.js";
 export {
   projectCostUpdatedEventToLifecycleLedger,
+  projectManagedAgentCoordinationUsageAllocations,
   reconcileLifecycleAttributionLedger,
   replayLifecycleAttributionEvidence,
   summarizeLifecycleAttributionLedger,

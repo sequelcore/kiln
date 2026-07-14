@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CostUpdateEvent } from "@kilnai/core";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
+import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const contextAudit = {
@@ -106,6 +107,25 @@ describe("runtime session lifecycle attribution events", () => {
     expect(attributionEvent).toMatchObject({
       kind: "lifecycle_attribution_recorded",
       parentEventId: costEvent?.eventId,
+      efficiencyEvidence: {
+        schemaVersion: "verified-efficiency-evidence-v1",
+        policy: {
+          owner: "ContextGovernor",
+          policyId: "context-whole-block-static-v1",
+        },
+        totals: {
+          providerTotalTokens: 157,
+          measured: { tokens: 0 },
+          estimated: { tokens: 0 },
+          cached: { tokens: 30 },
+          unknown: { tokens: 120 },
+          cacheWritten: { tokens: 7 },
+          avoided: { tokens: 0, costUsd: 0 },
+        },
+        verification: { status: "not_run", results: [] },
+        actions: [],
+        savings: [],
+      },
       ledger: {
         sessionId: session.id,
         turnId: costEvent?.turnId,
@@ -163,6 +183,11 @@ describe("runtime session lifecycle attribution events", () => {
       turnCompletedAt: completedAt,
       continuity: { strategy: "none" },
       runtimeEvents: [costUpdate],
+      efficiencyPolicy: {
+        owner: "ContextGovernor",
+        policyId: "context-segmented-candidate-v2",
+        configurationHash: `sha256:${"c".repeat(64)}`,
+      },
       lifecycleAttributionEvidence: {
         contextAudit,
         finalOutput: {
@@ -189,8 +214,8 @@ describe("runtime session lifecycle attribution events", () => {
         tokens: 25,
         quality: "estimated",
         artifactId: "memory-1",
-        evidenceUris: ["kiln://memory/records/memory-1"],
-        context: { route: "codex-oauth/gpt-5.5" },
+        evidenceUris: ["kiln://memory/nodes/memory-record-1"],
+        context: { route: "codex-oauth/gpt-5.5", phase: "memory:unknown" },
       }),
       expect.objectContaining({ source: "unknown", providerTokenClass: "input", tokens: 15, quality: "unknown" }),
       expect.objectContaining({ source: "final_output", providerTokenClass: "output", tokens: 4, quality: "estimated" }),
@@ -213,5 +238,82 @@ describe("runtime session lifecycle attribution events", () => {
     }
     expect(attributionEvent.summary.totalTokens).toBe(57);
     expect(attributionEvent.summary.totalCostUsd).toBeCloseTo(costEvent.cost.deltaUsd);
+    expect(attributionEvent.efficiencyEvidence.policy).toEqual({
+      owner: "ContextGovernor",
+      policyId: "context-segmented-candidate-v2",
+      configurationHash: `sha256:${"c".repeat(64)}`,
+    });
+    expect(attributionEvent.efficiencyEvidence.totals).toMatchObject({
+      providerTotalTokens: 57,
+      estimated: { tokens: 29 },
+      cached: { tokens: 5 },
+      unknown: { tokens: 21 },
+      cacheWritten: { tokens: 2 },
+      avoided: { tokens: 0 },
+    });
+    expect(attributionEvent.efficiencyEvidence.outcome).toBe("unknown");
+  });
+
+  it("maps path-like procedural source identity without emitting an invalid evidence URI", () => {
+    const session = new RuntimeSession({
+      appName: "app",
+      tenantId: "tenant",
+      userId: "user",
+      systemPrompt: "Be useful.",
+    });
+    const completedAt = new Date("2026-06-30T12:00:01.000Z");
+    const events = appendCanonicalTurnEvents({
+      session,
+      channel: "gui",
+      userMessageContent: "Use the selected skill.",
+      assistantMessageContent: "Done.",
+      queued: false,
+      turnStartedAt: new Date("2026-06-30T12:00:00.000Z"),
+      turnCompletedAt: completedAt,
+      continuity: { strategy: "none" },
+      runtimeEvents: [{
+        type: "cost_update",
+        sessionId: session.id,
+        provider: "codex-oauth",
+        model: "gpt-5.5",
+        inputTokens: 10,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalCostUsd: 0,
+        byRoleModel: {},
+        timestamp: completedAt,
+      }],
+      lifecycleAttributionEvidence: {
+        contextAudit: {
+          ...contextAudit,
+          selectedBlockIds: ["procedural-path"],
+          requiredBlockIds: ["procedural-path"],
+          preservedRequiredBlockIds: ["procedural-path"],
+          selectedTokens: 10,
+          requiredTokens: 10,
+          blocks: [{
+            id: "procedural-path",
+            kind: "procedural",
+            source: "runtime-skill:C:/repo/.agents/skills/review/SKILL.md",
+            required: true,
+            estimatedTokens: 10,
+            baseScore: 1,
+            effectiveScore: 1,
+            decision: "admitted",
+            reason: "required-preserved",
+            order: 0,
+          }],
+        },
+      },
+    });
+    const attributionEvent = events.find((event) => event.kind === "lifecycle_attribution_recorded");
+    if (attributionEvent?.kind !== "lifecycle_attribution_recorded") throw new Error("Expected attribution event");
+
+    expect(attributionEvent.efficiencyEvidence.evidenceUris).toEqual([]);
+    expect(() => toOperatorSessionEventFrame(attributionEvent, {
+      eventId: "frame-procedural-path",
+      sequence: 1,
+    })).not.toThrow();
   });
 });

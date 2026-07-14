@@ -1,5 +1,11 @@
+import { createHash } from "node:crypto";
 import {
   createSessionBuiltinToolOptions,
+  projectManagedAgentCoordinationUsageAllocations,
+  projectCostUpdatedEventToLifecycleLedger,
+  projectVerificationUsageAllocations,
+  projectVerifiedEfficiencyEvidence,
+  reconcileLifecycleAttributionLedger,
   type DefaultBuiltinToolRegistryOptions,
   type ArtifactResourceStore,
   type ManagedAgentReplayResource,
@@ -33,13 +39,18 @@ export interface ManagedAgentInvocationResourceProviderInput {
   readonly service: {
     list(): readonly ManagedAgentRuntimeInvocationSnapshot[];
   };
+  readonly parentSessionId: string;
   readonly artifactStore?: ArtifactResourceStore;
 }
 
 export function createManagedAgentInvocationResourceProvider(
   input: ManagedAgentInvocationResourceProviderInput,
 ): ToolResourceProvider {
-  return new ManagedAgentInvocationResourceProvider(input.service, input.artifactStore);
+  return new ManagedAgentInvocationResourceProvider(
+    input.service,
+    requireParentSessionId(input.parentSessionId),
+    input.artifactStore,
+  );
 }
 
 export function withManagedAgentInvocationResourceProvider(
@@ -56,6 +67,7 @@ export function withManagedAgentInvocationResourceProvider(
       ...(sessionOptions.resourceProviders ?? []),
       createManagedAgentInvocationResourceProvider({
         service: input.service,
+        parentSessionId: input.parentSessionId,
         artifactStore: input.artifactStore ?? sessionOptions.artifactResources?.store,
       }),
     ],
@@ -68,11 +80,20 @@ export function isManagedAgentInvocationResourceProvider(provider: unknown): boo
     && (provider as { readonly kind?: unknown }).kind === MANAGED_AGENT_INVOCATION_RESOURCE_PROVIDER_KIND;
 }
 
+function requireParentSessionId(value: string): string {
+  const parentSessionId = value.trim();
+  if (parentSessionId.length === 0) {
+    throw new Error("Managed invocation resources require a parent session id.");
+  }
+  return parentSessionId;
+}
+
 class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
   readonly kind = MANAGED_AGENT_INVOCATION_RESOURCE_PROVIDER_KIND;
 
   constructor(
     private readonly service: ManagedAgentInvocationResourceProviderInput["service"],
+    private readonly parentSessionId: string,
     private readonly artifactStore: ArtifactResourceStore | undefined,
   ) {}
 
@@ -145,7 +166,7 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
 
     if (!parsed.section) {
       return jsonResource(uri, {
-        invocation: projectInvocationDetail(snapshot),
+        invocation: projectInvocationDetail(snapshot, this.artifactStore),
       });
     }
     if (parsed.section === "transcript") {
@@ -191,7 +212,9 @@ class ManagedAgentInvocationResourceProvider implements ToolResourceProvider {
   }
 
   private sortedRawInvocations(): readonly ManagedAgentRuntimeInvocationSnapshot[] {
-    return [...this.service.list()].sort((a, b) =>
+    return this.service.list()
+      .filter((snapshot) => snapshot.parentSessionId === this.parentSessionId)
+      .sort((a, b) =>
       a.startedAt.localeCompare(b.startedAt) || a.invocationId.localeCompare(b.invocationId)
     );
   }
@@ -288,7 +311,11 @@ function projectInvocationSummary(snapshot: ManagedAgentRuntimeInvocationSnapsho
   };
 }
 
-function projectInvocationDetail(snapshot: ManagedAgentRuntimeInvocationSnapshot): Record<string, unknown> {
+function projectInvocationDetail(
+  snapshot: ManagedAgentRuntimeInvocationSnapshot,
+  artifactStore: ArtifactResourceStore | undefined,
+): Record<string, unknown> {
+  const efficiencyEvidence = projectInvocationEfficiencyEvidence(snapshot, artifactStore);
   return {
     ...projectInvocationSummary(snapshot),
     request: {
@@ -309,9 +336,216 @@ function projectInvocationDetail(snapshot: ManagedAgentRuntimeInvocationSnapshot
     ...(snapshot.record?.transcript ? { transcript: snapshot.record.transcript } : {}),
     ...(snapshot.record?.diagnostics ? { diagnostics: snapshot.record.diagnostics } : {}),
     ...(snapshot.record?.resultHandoff ? { resultHandoff: snapshot.record.resultHandoff } : {}),
+    ...(snapshot.record?.usage ? { usage: snapshot.record.usage } : {}),
+    ...(snapshot.record?.coordinationUsage ? { coordinationUsage: snapshot.record.coordinationUsage } : {}),
+    ...(efficiencyEvidence
+      ? {
+          efficiencyEvidenceStatus: "available",
+          efficiencyEvidence: efficiencyEvidence.projection,
+          lifecycleAttribution: efficiencyEvidence.lifecycleAttribution,
+        }
+      : { efficiencyEvidenceStatus: "unavailable" }),
     writeEvidenceResourceUris: writeEvidenceUrisForInvocation(snapshot),
     ...(snapshot.record?.resourceLease ? { resourceLease: snapshot.record.resourceLease } : {}),
   };
+}
+
+function projectInvocationEfficiencyEvidence(
+  snapshot: ManagedAgentRuntimeInvocationSnapshot,
+  artifactStore: ArtifactResourceStore | undefined,
+) {
+  const usage = snapshot.record?.usage;
+  if (!usage || typeof usage.cost.amount !== "number" || !Number.isFinite(usage.cost.amount)
+    || usage.cost.amount < 0 || usage.cost.currency !== "USD") return undefined;
+  if (new Set(usage.tokenClasses.map((tokenClass) => tokenClass.name)).size !== usage.tokenClasses.length
+    || usage.tokenClasses.some((tokenClass) => tokenClass.value !== "unknown"
+      && (!Number.isSafeInteger(tokenClass.value) || tokenClass.value < 0))) {
+    return undefined;
+  }
+  const tokenValues = new Map(usage.tokenClasses.map((tokenClass) => [tokenClass.name, tokenClass.value]));
+  const requiredTokenClasses = new Set<typeof usage.tokenClasses[number]["name"]>([
+    "input",
+    "output",
+    ...(snapshot.record.capabilitySnapshot.adapterDescriptor?.usage.tokenClasses
+      ?? snapshot.decision.capabilitySnapshot.adapterDescriptor?.usage.tokenClasses
+      ?? []),
+  ]);
+  if ([...requiredTokenClasses].some((tokenClass) => !tokenValues.has(tokenClass))) {
+    return undefined;
+  }
+  if ([...tokenValues.values()].some((value) => value === "unknown")) return undefined;
+  const inputTokens = numberTokenValue(tokenValues.get("input"));
+  const outputTokens = numberTokenValue(tokenValues.get("output"));
+  const cacheReadTokens = numberTokenValue(tokenValues.get("cache_read"));
+  const cacheWriteTokens = numberTokenValue(tokenValues.get("cache_write"));
+  const observedAt = snapshot.finishedAt ?? snapshot.startedAt;
+  const timestamp = new Date(observedAt);
+  if (Number.isNaN(timestamp.getTime())) return undefined;
+  const providerReported = usage.source === "provider";
+  const quality = providerReported ? "provider_reported" as const
+    : usage.source === "runtime" || usage.source === "adapter" ? "estimated" as const
+      : "unknown" as const;
+  const evidenceUris = uniqueStrings([
+    ...(snapshot.record?.transcript?.uri ? [snapshot.record.transcript.uri] : []),
+    ...(snapshot.record?.resultHandoff?.resourceUris ?? []),
+  ]);
+  const costEvent = {
+    eventId: `${snapshot.invocationId}:managed-efficiency-cost`,
+    kilnSessionId: snapshot.parentSessionId,
+    sequence: 0,
+    timestamp,
+    kind: "cost_updated" as const,
+    turnId: snapshot.parentTurnId,
+    provider: {
+      provider: snapshot.providerRoute.providerId,
+      model: snapshot.providerRoute.model ?? "unknown",
+      canonicalModel: snapshot.providerRoute.model ?? "unknown",
+    },
+    usage: { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens },
+    cost: { currency: "USD" as const, deltaUsd: usage.cost.amount, totalUsd: usage.cost.amount },
+    source: { actor: "runtime" as const, surface: "runtime" as const, component: "managed-invocation-resource-provider" },
+  };
+  const coordinationAllocations = snapshot.record.coordinationUsage?.reconciliation === "mutually-exclusive"
+    ? projectManagedAgentCoordinationUsageAllocations(snapshot.record.coordinationUsage)
+    : [];
+  const verificationAllocations = snapshot.record.resultHandoff?.verificationUsage
+    ? projectVerificationUsageAllocations(snapshot.record.resultHandoff.verificationUsage)
+      .map((allocation) => ({ ...allocation, workerId: snapshot.invocationId }))
+    : [];
+  const knownAllocations = [...coordinationAllocations, ...verificationAllocations];
+  const attributedOutputTokens = knownAllocations.reduce(
+    (total, allocation) => total + (allocation.providerTokenClass === "output" ? allocation.tokens : 0),
+    0,
+  );
+  const attributedInputTokens = knownAllocations.reduce(
+    (total, allocation) => total + (allocation.providerTokenClass === "input" ? allocation.tokens : 0),
+    0,
+  );
+  if (attributedInputTokens > inputTokens || attributedOutputTokens > outputTokens) return undefined;
+  const allocations = [
+    ...knownAllocations,
+    inputTokens > attributedInputTokens ? {
+      source: "unknown" as const,
+      tokenClass: "admitted" as const,
+      providerTokenClass: "input" as const,
+      tokens: inputTokens - attributedInputTokens,
+      quality,
+      evidenceUris,
+      workerId: snapshot.invocationId,
+    } : undefined,
+    outputTokens > attributedOutputTokens ? {
+      source: "final_output" as const,
+      tokenClass: "generated" as const,
+      providerTokenClass: "output" as const,
+      tokens: outputTokens - attributedOutputTokens,
+      quality,
+      evidenceUris,
+      workerId: snapshot.invocationId,
+    } : undefined,
+  ].filter((allocation): allocation is NonNullable<typeof allocation> => allocation !== undefined);
+  let ledger;
+  let reconciled;
+  try {
+    ledger = projectCostUpdatedEventToLifecycleLedger(costEvent, {
+      allocations,
+      context: {
+        workItemId: snapshot.invocationId,
+        parentTurnId: snapshot.parentTurnId,
+        policyVersion: "managed-invocation-admission-v1",
+        route: snapshot.decision.capabilitySnapshot.routeId,
+      },
+    });
+    reconciled = reconcileLifecycleAttributionLedger(costEvent, ledger);
+  } catch {
+    return undefined;
+  }
+  const verificationResults = (snapshot.record?.resultHandoff?.structuredResult?.verificationResults ?? [])
+    .filter((result) => result.evidenceUris.length > 0 && result.evidenceUris.every((uri) =>
+      isTrustedInvocationEvidenceUri(snapshot, uri, artifactStore)
+    ))
+    .map((result) => ({
+      verificationResultId: result.requirementId,
+      status: result.status === "passed" ? "passed" as const
+        : result.status === "failed" ? "failed" as const
+          : "unknown" as const,
+      method: result.method,
+      evidenceUris: result.evidenceUris,
+    }));
+  const configurationHash = `sha256:${createHash("sha256").update(JSON.stringify({
+    profile: snapshot.profile,
+    routeId: snapshot.decision.capabilitySnapshot.routeId,
+    contextMode: snapshot.decision.capabilitySnapshot.contextMode,
+    authorityProfileId: snapshot.authorityProfileId,
+  })).digest("hex")}`;
+  return {
+    projection: projectVerifiedEfficiencyEvidence({
+      lifecycleEvidence: { costEvent, ledger, summary: reconciled.summary },
+      observedAt,
+      policy: {
+        owner: "ManagedInvocationService",
+        policyId: "managed-invocation-admission-v1",
+        configurationHash,
+      },
+      verificationResults,
+      outcome: snapshot.lifecycleState === "completed" ? "succeeded"
+        : snapshot.lifecycleState === "failed" || snapshot.lifecycleState === "timed_out" || snapshot.lifecycleState === "cancelled"
+          ? "failed"
+          : "unknown",
+    }),
+    lifecycleAttribution: { ledger, summary: reconciled.summary },
+  };
+}
+
+function numberTokenValue(value: number | "unknown" | undefined): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function isTrustedInvocationEvidenceUri(
+  snapshot: ManagedAgentRuntimeInvocationSnapshot,
+  uri: string,
+  artifactStore: ArtifactResourceStore | undefined,
+): boolean {
+  const trustedUris = new Set(uniqueStrings([
+    ...sourceResourceUrisForInvocation(snapshot),
+    ...(snapshot.record?.transcript?.uri ? [snapshot.record.transcript.uri] : []),
+    ...(snapshot.record?.replayResources ?? []).map((resource) => resource.uri),
+    ...diagnosticUrisForInvocation(snapshot),
+    ...writeEvidenceUrisForInvocation(snapshot),
+    ...resourceUrisForLease(snapshot.record?.resourceLease),
+    ...resourceUrisForLease(snapshot.record?.capabilitySnapshot.resourceLease),
+    ...resourceUrisForLease(snapshot.decision.capabilitySnapshot.resourceLease),
+  ]));
+  if (!trustedUris.has(uri)) return false;
+
+  const managedReference = parseManagedAgentResourceUri(uri);
+  if (managedReference) {
+    return managedReference.invocationId === snapshot.invocationId;
+  }
+
+  const artifactReference = parseArtifactResourceUri(uri);
+  if (!artifactReference || !artifactStore) return false;
+  return artifactStore.get(artifactReference.namespace, artifactReference.id) !== undefined;
+}
+
+function parseArtifactResourceUri(uri: string): { readonly namespace: string; readonly id: string } | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "kiln:" || parsed.hostname !== "artifacts") return undefined;
+  const segments = parsed.pathname.split("/").filter(Boolean).map((segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return undefined;
+    }
+  });
+  if (segments.length !== 3 || segments[2] !== "content" || segments.some((segment) => !segment)) {
+    return undefined;
+  }
+  return { namespace: segments[0]!, id: segments[1]! };
 }
 
 function projectInvocationResource(

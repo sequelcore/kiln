@@ -27,7 +27,7 @@ export interface MultimodalArtifactSource {
 }
 
 export interface MultimodalArtifactRetention {
-  readonly scope: "session";
+  readonly scope: "session" | "verification";
   readonly maxArtifacts?: number;
 }
 

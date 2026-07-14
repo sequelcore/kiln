@@ -1,4 +1,10 @@
-import type { ManagedAgentLifecycleState, ManagedAgentWorkingDirectory } from "./index.js";
+import {
+  defineManagedAgentCoordinationUsageReport,
+  type ManagedAgentCoordinationUsageReport,
+  type ManagedAgentInvocationContextMode,
+  type ManagedAgentLifecycleState,
+  type ManagedAgentWorkingDirectory,
+} from "./index.js";
 
 export const MANAGED_AGENT_ORCHESTRATION_MODES = [
   "fan-out",
@@ -127,6 +133,14 @@ export interface ManagedAgentOrchestrationChildResult {
   readonly error?: string;
   readonly resourceUris?: readonly string[];
   readonly diagnosticUris?: readonly string[];
+  readonly invocationId?: string;
+  readonly routeId?: string;
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly authorityProfileId?: string;
+  readonly contextMode?: ManagedAgentInvocationContextMode;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
+  readonly replayEvidenceUris?: readonly string[];
 }
 
 export interface ManagedAgentOrchestrationNormalizedChildResult {
@@ -137,6 +151,14 @@ export interface ManagedAgentOrchestrationNormalizedChildResult {
   readonly error?: string;
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
+  readonly invocationId?: string;
+  readonly routeId?: string;
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly authorityProfileId?: string;
+  readonly contextMode?: ManagedAgentInvocationContextMode;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
+  readonly replayEvidenceUris: readonly string[];
 }
 
 export interface ManagedAgentOrchestrationResultEvidence {
@@ -436,6 +458,7 @@ export function buildManagedAgentOrchestrationResultEvidence(
       ...result,
       resourceUris: result.resourceUris ?? [],
       diagnosticUris: result.diagnosticUris ?? [],
+      replayEvidenceUris: result.replayEvidenceUris ?? [],
     })),
   };
 }
@@ -556,6 +579,20 @@ function requireChildResult(input: ManagedAgentOrchestrationChildResult): Manage
       : {}),
     ...(input.diagnosticUris !== undefined
       ? { diagnosticUris: input.diagnosticUris.map((uri) => requireText(uri, "Managed orchestration child result diagnostic uri is required")) }
+      : {}),
+    ...(input.invocationId !== undefined ? { invocationId: requireText(input.invocationId, "Managed orchestration invocation id is required") } : {}),
+    ...(input.routeId !== undefined ? { routeId: requireText(input.routeId, "Managed orchestration route id is required") } : {}),
+    ...(input.providerId !== undefined ? { providerId: requireText(input.providerId, "Managed orchestration provider id is required") } : {}),
+    ...(input.model !== undefined ? { model: requireText(input.model, "Managed orchestration model is required") } : {}),
+    ...(input.authorityProfileId !== undefined
+      ? { authorityProfileId: requireText(input.authorityProfileId, "Managed orchestration authority profile id is required") }
+      : {}),
+    ...(input.contextMode !== undefined ? { contextMode: input.contextMode } : {}),
+    ...(input.coordinationUsage !== undefined
+      ? { coordinationUsage: defineManagedAgentCoordinationUsageReport(input.coordinationUsage) }
+      : {}),
+    ...(input.replayEvidenceUris !== undefined
+      ? { replayEvidenceUris: input.replayEvidenceUris.map((uri) => requireText(uri, "Managed orchestration replay evidence uri is required")) }
       : {}),
   };
 }

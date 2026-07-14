@@ -16,6 +16,18 @@ const processInboundMessage = processAdmittedTurn;
 
 const originalFetch = globalThis.fetch;
 
+function memoryCandidates(content: string) {
+  return [{
+    kind: "memory" as const,
+    source: "memory-recall:episodic",
+    content,
+    required: false,
+    score: 0.8,
+    memoryRecordId: "memory-test-record",
+    estimatedTokens: Math.max(1, Math.ceil(content.length / 4)),
+  }];
+}
+
 function makeMockSession(): RuntimeSession {
   let _userContext: Record<string, string> | undefined;
   let _sessionLedger: Record<string, unknown> = {};
@@ -346,7 +358,7 @@ describe("processAdmittedTurn", () => {
     const projected = projectAdmittedTurnContext({
       userContext: undefined,
       cachedRuntimeSummary: undefined,
-      recalledMemory: undefined,
+      recalledMemoryCandidates: undefined,
       knowledgeContext: undefined,
       contactContext: "contact profile",
       visitorContext: "visitor browser state",
@@ -408,6 +420,36 @@ describe("processAdmittedTurn", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("projects an approved context policy through the existing ContextGovernor owner", () => {
+    const projected = projectAdmittedTurnContext({
+      userContext: undefined,
+      cachedRuntimeSummary: undefined,
+      recalledMemoryCandidates: undefined,
+      knowledgeContext: undefined,
+      contactContext: undefined,
+      groundingMode: undefined,
+      proceduralContextCandidates: [{
+        kind: "procedural",
+        source: "adaptation-fixture",
+        content: "unsplit canonical source",
+        score: 0.5,
+        segments: [
+          { id: "segment-a", content: "selected segment A", score: 0.9 },
+          { id: "segment-b", content: "selected segment B", score: 0.8 },
+        ],
+      }],
+      contextPolicy: {
+        policyId: "context-segmented-v1",
+        configurationHash: `sha256:${"a".repeat(64)}`,
+        contextAllocationMode: "segmented",
+      },
+    });
+
+    expect(projected.content).toContain("selected segment A");
+    expect(projected.content).not.toContain("unsplit canonical source");
+    expect(projected.audit?.allocationMode).toBe("segmented");
+  });
+
   it("keeps lifecycle attribution out of the provider request and task outcome", async () => {
     const session = makeMockSession();
     const observedProviderCalls: unknown[] = [];
@@ -448,7 +490,7 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
-      recalledMemory: "Relevant durable memory.",
+      recalledMemoryCandidates: memoryCandidates("Relevant durable memory."),
       knowledgeContext: "Verified knowledge context.",
       userParts: textParts("Prove request neutrality."),
     }));
@@ -1417,7 +1459,7 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
-      recalledMemory: "Previous context here.",
+      recalledMemoryCandidates: memoryCandidates("Previous context here."),
     });
 
     await processInboundMessage(ctx);
@@ -1608,7 +1650,7 @@ describe("processAdmittedTurn", () => {
       orchestrator,
       sessionRegistry,
       userContext: { role: "admin" },
-      recalledMemory: "Previous context here.",
+      recalledMemoryCandidates: memoryCandidates("Previous context here."),
     });
 
     await processInboundMessage(ctx);
@@ -1625,7 +1667,7 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
-      recalledMemory: "Previous context here.",
+      recalledMemoryCandidates: memoryCandidates("Previous context here."),
     });
 
     await processInboundMessage(ctx);
@@ -1655,7 +1697,7 @@ describe("processAdmittedTurn", () => {
       orchestrator,
       sessionRegistry,
       userContext: { role: "admin" },
-      recalledMemory: "recalled memory",
+      recalledMemoryCandidates: memoryCandidates("recalled memory"),
       knowledgeContext: "knowledge context",
       contactContext: "contact context",
       groundingMode: "strict",
@@ -1699,7 +1741,7 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
-      recalledMemory: oversizedMemory,
+      recalledMemoryCandidates: memoryCandidates(oversizedMemory),
       knowledgeContext: "compact knowledge context",
     });
 
@@ -1719,7 +1761,7 @@ describe("processAdmittedTurn", () => {
       });
       expect(result.result.contextAudit?.blocks.some((block) => (
         block.decision === "deferred"
-        && block.source === "runtime-recalled-memory"
+        && block.source === "memory-recall:episodic"
         && block.reason === "budget-cap"
       ))).toBe(true);
     }
@@ -2060,7 +2102,7 @@ describe("processAdmittedTurn", () => {
       ...makeBaseContext({
         orchestrator,
         sessionRegistry,
-        recalledMemory: "safe recalled memory",
+        recalledMemoryCandidates: memoryCandidates("safe recalled memory"),
       }),
       coordinationContextProvider,
     } as AdmittedTurnContext;
@@ -2098,7 +2140,7 @@ describe("processAdmittedTurn", () => {
       ...makeBaseContext({
         orchestrator,
         sessionRegistry,
-        recalledMemory: "safe recalled memory",
+        recalledMemoryCandidates: memoryCandidates("safe recalled memory"),
       }),
       coordinationContextProvider,
     } as AdmittedTurnContext;

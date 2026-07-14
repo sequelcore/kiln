@@ -1,13 +1,7 @@
 import { containsFrontendReferenceEvidence } from "@kilnai/core";
-import type { WorkItemExecutionFailureReason } from "@kilnai/core";
+import type { ManagedAgentResultHandoff, WorkItemExecutionFailureReason } from "@kilnai/core";
 
 export const VISUAL_REFERENCE_PHASE_ID = "visual-reference-research";
-
-interface ManagedInvocationPhaseResultHandoff {
-  readonly summary: string;
-  readonly resourceUris: readonly string[];
-  readonly memoryWriteProposalUris: readonly string[];
-}
 
 export function buildManagedInvocationPhaseRecovery(
   request: Record<string, unknown> | undefined,
@@ -42,7 +36,7 @@ export function managedInvocationFailureReasonFromStatus(status: unknown): WorkI
 
 export function buildManagedInvocationPhaseCompletion(
   request: Record<string, unknown> | undefined,
-  resultHandoff: ManagedInvocationPhaseResultHandoff | undefined,
+  resultHandoff: ManagedAgentResultHandoff | undefined,
 ): Record<string, unknown> | undefined {
   if (!hasSubstantivePhaseHandoff(request, resultHandoff)) {
     return undefined;
@@ -57,16 +51,17 @@ export function buildManagedInvocationPhaseCompletion(
 
 export function buildManagedInvocationPhaseHandoffRecovery(
   request: Record<string, unknown> | undefined,
-  resultHandoff: ManagedInvocationPhaseResultHandoff | undefined,
+  resultHandoff: ManagedAgentResultHandoff | undefined,
 ): Record<string, unknown> | undefined {
   if (hasSubstantivePhaseHandoff(request, resultHandoff)) {
     return undefined;
   }
   return buildManagedInvocationPhaseAction(request, {
     status: "phase_evidence_required",
-    reason: "Managed child completed without substantive phase evidence. Treat this as a no-handoff result: inspect the transcript, continue recovery with admitted tools, and record the phase only after real frontend-reference evidence exists.",
+    reason: "Managed child completed with a no-handoff or otherwise unacceptable phase result. Inspect the transcript, continue recovery with admitted tools, and record the phase only after required evidence, approvals, and verification have passed.",
     includeResultResources: true,
     resultHandoff,
+    failureReason: resultHandoff?.structuredResult?.status === "cancelled" ? "cancelled" : "failed",
   });
 }
 
@@ -76,7 +71,7 @@ function buildManagedInvocationPhaseAction(
     readonly status: "phase_evidence_required" | "phase_completed_by_child";
     readonly reason: string;
     readonly includeResultResources: boolean;
-    readonly resultHandoff?: ManagedInvocationPhaseResultHandoff;
+    readonly resultHandoff?: ManagedAgentResultHandoff;
     readonly failureReason?: WorkItemExecutionFailureReason;
   },
 ): Record<string, unknown> | undefined {
@@ -160,11 +155,7 @@ function buildManagedInvocationPhaseAction(
         ...(options.resultHandoff
           ? {
               managedInvocationResultHandoff: {
-                summary: options.resultHandoff.summary,
-                resourceUris: options.resultHandoff.resourceUris,
-                ...(options.resultHandoff.memoryWriteProposalUris.length > 0
-                  ? { memoryWriteProposalUris: options.resultHandoff.memoryWriteProposalUris }
-                  : {}),
+                ...options.resultHandoff,
               },
             }
           : {}),
@@ -220,7 +211,7 @@ function buildManagedInvocationPhaseAction(
 
 function hasSubstantivePhaseHandoff(
   request: Record<string, unknown> | undefined,
-  resultHandoff: ManagedInvocationPhaseResultHandoff | undefined,
+  resultHandoff: ManagedAgentResultHandoff | undefined,
 ): boolean {
   const phase = readRecord(request?.executionPhase);
   const completionTool = readText(phase?.completionTool);
@@ -239,6 +230,18 @@ function hasSubstantivePhaseHandoff(
   const resourceUris = resultHandoff?.resourceUris ?? [];
   if (summary.length === 0 || resourceUris.length === 0) {
     return false;
+  }
+  const structuredResult = resultHandoff?.structuredResult;
+  if (structuredResult) {
+    if (structuredResult.status !== "completed") {
+      return false;
+    }
+    if (structuredResult.approvalRequirements.some((requirement) => requirement.status !== "approved")) {
+      return false;
+    }
+    if (structuredResult.verificationResults.some((result) => result.status !== "passed")) {
+      return false;
+    }
   }
   const normalized = summary.toLowerCase();
   if (

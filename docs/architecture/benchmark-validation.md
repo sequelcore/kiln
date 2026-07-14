@@ -205,6 +205,34 @@ invocation, replay, and evidence.
 profile, dataset, pass^k, scorer, artifact, external-track, issue, and
 limitation sections.
 
+Internal profile readiness is not publication readiness. Every generated
+benchmark report also carries the `verified-efficiency-publication-manifest-v1`
+gate. Missing or invalid publication evidence blocks public claims even when a
+profile or external adapter is internally ready. The gate resolves and hashes
+repository-contained methodology, fixture, limitation, and report files and
+requires exact runtime identity, paired design, confidence, failed and omitted
+cases, commands, dependencies, quality, verification, and economic
+comparability. Claim-bearing artifacts must match the same bytes in the
+declared Git tree. The strict paired report copies the complete execution
+identity and binds every pair to task-definition, baseline/candidate input, and
+arm-specific execution-envelope hashes. It also binds the complete baseline
+array rendered by `generateBenchmarkPublicReport` using canonical JSON and
+SHA-256. Those fields are cross-checked against the fixture; paired-input
+identity, non-inferiority, category reconciliation, improvement, hard
+invariants, and the supported lower bound are derived from report content. A
+valid manifest beside unrelated baseline data is downgraded to `blocked`, and
+the gated claim text is printed in the report. Structurally malformed or
+syntactically invalid manifest JSON produces a blocked report with explicit
+issues instead of escaping the publication boundary.
+`--publication-manifest` supplies this evidence to `kiln benchmark report`;
+`--repository-root` identifies the root for artifact and Git-tree resolution
+when the command is not run from the repository root.
+
+The reference bundle under `docs/benchmarks/verified-efficiency-v1/` makes no
+performance claim. Its expected result is `internal-evidence-only`, which
+proves the gate and disclosure contract without presenting synthetic values as
+provider, model, or harness performance.
+
 ## Research Inputs
 
 - BFCL focuses on function/tool-call correctness and multi-turn function use.

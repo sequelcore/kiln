@@ -190,6 +190,16 @@ export async function runManagedAgentFanOutLifecycle(
       diagnosticUris: child.record?.resourceLease?.diagnosticUris
         ?? child.record?.capabilitySnapshot.resourceLease.diagnosticUris
         ?? [],
+      ...(child.record ? {
+        invocationId: child.record.invocationId,
+        routeId: child.record.capabilitySnapshot.routeId,
+        providerId: child.record.providerRoute.providerId,
+        ...(child.record.providerRoute.model ? { model: child.record.providerRoute.model } : {}),
+        authorityProfileId: child.record.authority.authorityProfileId,
+        contextMode: child.record.capabilitySnapshot.contextMode,
+        ...(child.record.coordinationUsage ? { coordinationUsage: child.record.coordinationUsage } : {}),
+        replayEvidenceUris: child.record.replayResources?.map((resource) => resource.uri) ?? [],
+      } : {}),
     })),
   );
 

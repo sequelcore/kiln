@@ -15,6 +15,13 @@ import type {
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "./write-authority.js";
+import {
+  defineStructuredExecutionResult,
+  defineVerificationUsageReport,
+  type AssistantOutputVerbosity,
+  type StructuredExecutionResult,
+  type VerificationUsageReport,
+} from "../../efficiency/output-verification-allocation.js";
 
 export * from "./write-authority.js";
 export * from "./read-authority.js";
@@ -150,6 +157,7 @@ export interface ManagedAgentInvocationHandoffContract {
   readonly requiredResultFields?: readonly string[];
   readonly doneCriteria?: readonly string[];
   readonly residualRiskRequired?: boolean;
+  readonly outputVerbosity?: AssistantOutputVerbosity;
 }
 
 export type ManagedAgentInvocationContextMode = "isolated" | "resources" | "fork";
@@ -495,10 +503,87 @@ export interface ManagedAgentUsageReport {
   };
 }
 
+export type ManagedAgentCoordinationStage =
+  | "parent_prompt"
+  | "child_bootstrap"
+  | "duplicated_reads"
+  | "handoff"
+  | "review"
+  | "synthesis";
+
+export type ManagedAgentCoordinationMetricSource = "provider_reported" | "estimated" | "unknown";
+
+export interface ManagedAgentCoordinationMetric {
+  readonly value: number | "unknown";
+  readonly source: ManagedAgentCoordinationMetricSource;
+}
+
+export interface ManagedAgentCoordinationComponentUsage {
+  readonly stage: ManagedAgentCoordinationStage;
+  readonly providerTokenClass: "input" | "output";
+  readonly tokens: ManagedAgentCoordinationMetric;
+  readonly costUsd: ManagedAgentCoordinationMetric;
+  readonly latencyMs: ManagedAgentCoordinationMetric;
+  readonly turns: ManagedAgentCoordinationMetric;
+  readonly evidenceUris: readonly string[];
+}
+
+export interface ManagedAgentCoordinationUsageReport {
+  readonly version: "managed-agent-coordination-usage-v1";
+  readonly workerId: string;
+  readonly coverage: "partial" | "complete";
+  readonly reconciliation: "components-may-overlap" | "mutually-exclusive";
+  readonly components: readonly ManagedAgentCoordinationComponentUsage[];
+}
+
 export interface ManagedAgentResultHandoff {
   readonly summary: string;
   readonly resourceUris: readonly string[];
   readonly memoryWriteProposalUris: readonly string[];
+  readonly structuredResult?: StructuredExecutionResult;
+  readonly verificationUsage?: VerificationUsageReport;
+}
+
+export function assertManagedAgentResultHandoffContract(
+  contract: ManagedAgentInvocationHandoffContract | undefined,
+  handoff: ManagedAgentResultHandoff | undefined,
+): void {
+  if (!contract) return;
+  if (!handoff) throw new Error("Managed invocation required result handoff is missing.");
+  const missing = (contract.requiredResultFields ?? []).flatMap((field) =>
+    hasManagedResultField(field, handoff) ? [] : [canonicalManagedResultField(field)]);
+  if (contract.residualRiskRequired === true && (handoff.structuredResult?.residualRisks.length ?? 0) === 0) {
+    missing.push("residualRisks");
+  }
+  if (missing.length > 0) {
+    throw new Error(`Managed invocation result handoff is missing required structured fields: ${[...new Set(missing)].join(", ")}`);
+  }
+}
+
+function canonicalManagedResultField(field: string): string {
+  const normalized = field.trim();
+  if (normalized === "residualRisk") return "residualRisks";
+  if (normalized === "checks") return "verificationResults";
+  if (normalized === "artifactUris") return "resourceUris";
+  return normalized;
+}
+
+function hasManagedResultField(field: string, handoff: ManagedAgentResultHandoff): boolean {
+  const normalized = field.trim();
+  if (normalized === "summary") return handoff.summary.trim().length > 0;
+  if (normalized === "resourceUris" || normalized === "artifactUris") return handoff.resourceUris.length > 0;
+  if (normalized === "evidence") return (handoff.structuredResult?.evidence.length ?? handoff.resourceUris.length) > 0;
+  if (normalized === "checks" || normalized === "verificationResults") {
+    return (handoff.structuredResult?.verificationResults.length ?? 0) > 0;
+  }
+  if (normalized === "uncertainty") return handoff.structuredResult?.uncertainty !== undefined;
+  if (normalized === "limitations") return handoff.structuredResult !== undefined;
+  if (normalized === "warnings") return handoff.structuredResult !== undefined;
+  if (normalized === "approvalRequirements") return handoff.structuredResult !== undefined;
+  if (normalized === "residualRisks" || normalized === "residualRisk") {
+    return (handoff.structuredResult?.residualRisks.length ?? 0) > 0;
+  }
+  return false;
 }
 
 export interface ManagedAgentReplayResource {
@@ -574,6 +659,7 @@ export interface ManagedAgentLifecycleEvidence {
   readonly resultSummary?: string;
   readonly diagnosticUris: readonly string[];
   readonly usage?: ManagedAgentUsageReport;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
   readonly handoffResourceUris: readonly string[];
 }
 
@@ -595,6 +681,7 @@ export interface ManagedAgentInvocationRecord {
   readonly transcript?: ManagedAgentTranscriptPointer;
   readonly diagnostics?: readonly ManagedAgentDiagnosticPointer[];
   readonly usage?: ManagedAgentUsageReport;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
   readonly resultHandoff?: ManagedAgentResultHandoff;
   readonly replayResources?: readonly ManagedAgentReplayResource[];
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
@@ -1094,6 +1181,9 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     ...(input.transcript !== undefined ? { transcript: requireTranscript(input.transcript) } : {}),
     ...(input.diagnostics !== undefined ? { diagnostics: input.diagnostics.map(requireDiagnosticPointer) } : {}),
     ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage, capabilitySnapshot.adapterDescriptor) } : {}),
+    ...(input.coordinationUsage !== undefined
+      ? { coordinationUsage: defineManagedAgentCoordinationUsageReport(input.coordinationUsage) }
+      : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: requireResultHandoff(input.resultHandoff) } : {}),
     ...(input.replayResources !== undefined ? { replayResources: input.replayResources.map(requireReplayResource) } : {}),
     ...(input.writeEvidence !== undefined ? { writeEvidence: input.writeEvidence.map(defineManagedAgentWriteEvidence) } : {}),
@@ -1412,6 +1502,7 @@ export function buildManagedAgentLifecycleEvidence(
     ...(record.resultHandoff?.summary !== undefined ? { resultSummary: record.resultHandoff.summary } : {}),
     diagnosticUris: record.diagnostics?.map((diagnostic) => diagnostic.uri) ?? [],
     ...(record.usage !== undefined ? { usage: record.usage } : {}),
+    ...(record.coordinationUsage !== undefined ? { coordinationUsage: record.coordinationUsage } : {}),
     handoffResourceUris: record.resultHandoff?.resourceUris ?? [],
   };
 }
@@ -1518,7 +1609,15 @@ function requireHandoffContract(input: ManagedAgentInvocationHandoffContract): M
     ...(input.requiredResultFields !== undefined ? { requiredResultFields: input.requiredResultFields.map((field) => requireText(field, "Managed invocation handoff result field is required")) } : {}),
     ...(input.doneCriteria !== undefined ? { doneCriteria: input.doneCriteria.map((criterion) => requireText(criterion, "Managed invocation handoff done criterion is required")) } : {}),
     ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired === true } : {}),
+    ...(input.outputVerbosity !== undefined
+      ? { outputVerbosity: requireAssistantOutputVerbosity(input.outputVerbosity) }
+      : {}),
   };
+}
+
+function requireAssistantOutputVerbosity(input: AssistantOutputVerbosity): AssistantOutputVerbosity {
+  if (input === "concise" || input === "standard" || input === "detailed") return input;
+  throw new Error("Managed invocation handoff output verbosity is not supported");
 }
 
 function requireContextMode(input: ManagedAgentInvocationContextMode): ManagedAgentInvocationContextMode {
@@ -1595,14 +1694,43 @@ function requireUsageReport(
     throw new Error("Managed invocation usage evidence source must match the admitted adapter descriptor");
   }
   const supportedTokenClasses = new Set(descriptor.usage.tokenClasses);
+  const observedTokenClasses = new Set<ManagedAgentUsageTokenClassCapability>();
+  const tokenClasses = input.tokenClasses.map((entry) => {
+    const name = requireSupportedUsageTokenClass(entry.name, supportedTokenClasses);
+    if (observedTokenClasses.has(name)) {
+      throw new Error(`Managed invocation usage token class must be unique: ${name}`);
+    }
+    observedTokenClasses.add(name);
+    return { name, value: requireUsageTokenValue(entry.value, name) };
+  });
   return {
     source,
-    tokenClasses: input.tokenClasses.map((entry) => ({
-      name: requireSupportedUsageTokenClass(entry.name, supportedTokenClasses),
-      value: entry.value,
-    })),
-    cost: input.cost,
+    tokenClasses,
+    cost: {
+      currency: input.cost.currency === "unknown"
+        ? "unknown"
+        : requireText(input.cost.currency, "Managed invocation usage cost currency is required"),
+      amount: input.cost.amount === "unknown"
+        ? "unknown"
+        : requireNonNegativeFiniteNumber(input.cost.amount, "Managed invocation usage cost amount"),
+    },
   };
+}
+
+function requireUsageTokenValue(
+  value: ManagedAgentTokenClassUsage["value"],
+  name: ManagedAgentUsageTokenClassCapability,
+): ManagedAgentTokenClassUsage["value"] {
+  if (value === "unknown") return value;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Managed invocation usage token value must be a non-negative safe integer: ${name}`);
+  }
+  return value;
+}
+
+function requireNonNegativeFiniteNumber(value: number, label: string): number {
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be a non-negative finite number`);
+  return value;
 }
 
 function requireUsageReportSource(source: ManagedAgentUsageReport["source"]): ManagedAgentUsageReport["source"] {
@@ -1610,6 +1738,81 @@ function requireUsageReportSource(source: ManagedAgentUsageReport["source"]): Ma
     return source;
   }
   throw new Error(`Unsupported managed invocation usage source: ${String(source)}`);
+}
+
+export function defineManagedAgentCoordinationUsageReport(
+  input: ManagedAgentCoordinationUsageReport,
+): ManagedAgentCoordinationUsageReport {
+  const expectedStages: readonly ManagedAgentCoordinationStage[] = [
+    "parent_prompt",
+    "child_bootstrap",
+    "duplicated_reads",
+    "handoff",
+    "review",
+    "synthesis",
+  ];
+  if (input.version !== "managed-agent-coordination-usage-v1") {
+    throw new Error("Managed coordination usage version is unsupported");
+  }
+  if (input.coverage !== "partial" && input.coverage !== "complete") {
+    throw new Error("Managed coordination usage coverage is unsupported");
+  }
+  if (input.reconciliation !== "components-may-overlap" && input.reconciliation !== "mutually-exclusive") {
+    throw new Error("Managed coordination usage reconciliation is unsupported");
+  }
+  const byStage = new Map(input.components.map((component) => [component.stage, component]));
+  if (byStage.size !== expectedStages.length || expectedStages.some((stage) => !byStage.has(stage))) {
+    throw new Error("Managed coordination usage must report every coordination stage exactly once");
+  }
+  return {
+    version: input.version,
+    workerId: requireText(input.workerId, "Managed coordination worker id is required"),
+    coverage: input.coverage,
+    reconciliation: input.reconciliation,
+    components: expectedStages.map((stage) => {
+      const component = byStage.get(stage)!;
+      return {
+        stage,
+        providerTokenClass: requireCoordinationProviderTokenClass(
+          component.providerTokenClass,
+          stage,
+        ),
+        tokens: requireCoordinationMetric(component.tokens, `${stage}.tokens`),
+        costUsd: requireCoordinationMetric(component.costUsd, `${stage}.costUsd`),
+        latencyMs: requireCoordinationMetric(component.latencyMs, `${stage}.latencyMs`),
+        turns: requireCoordinationMetric(component.turns, `${stage}.turns`),
+        evidenceUris: component.evidenceUris.map((uri) =>
+          requireText(uri, `Managed coordination ${stage} evidence uri is required`)),
+      };
+    }),
+  };
+}
+
+function requireCoordinationMetric(
+  metric: ManagedAgentCoordinationMetric,
+  field: string,
+): ManagedAgentCoordinationMetric {
+  if (metric.source === "unknown") {
+    if (metric.value !== "unknown") {
+      throw new Error(`Managed coordination ${field} unknown source requires unknown value`);
+    }
+    return metric;
+  }
+  if (metric.source !== "provider_reported" && metric.source !== "estimated") {
+    throw new Error(`Managed coordination ${field} source is unsupported`);
+  }
+  if (typeof metric.value !== "number" || !Number.isFinite(metric.value) || metric.value < 0) {
+    throw new Error(`Managed coordination ${field} must be a non-negative finite number`);
+  }
+  return metric;
+}
+
+function requireCoordinationProviderTokenClass(
+  value: unknown,
+  stage: ManagedAgentCoordinationStage,
+): "input" | "output" {
+  if (value === "input" || value === "output") return value;
+  throw new Error(`Managed coordination ${stage}.providerTokenClass is unsupported`);
 }
 
 function requireSupportedUsageTokenClass(
@@ -1628,6 +1831,12 @@ function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentRes
     summary: requireText(input.summary, "Managed invocation result handoff summary is required"),
     resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed invocation result resource uri is required")),
     memoryWriteProposalUris: input.memoryWriteProposalUris.map((uri) => requireText(uri, "Managed invocation memory proposal uri is required")),
+    ...(input.structuredResult !== undefined
+      ? { structuredResult: defineStructuredExecutionResult(input.structuredResult) }
+      : {}),
+    ...(input.verificationUsage !== undefined
+      ? { verificationUsage: defineVerificationUsageReport(input.verificationUsage) }
+      : {}),
   };
 }
 

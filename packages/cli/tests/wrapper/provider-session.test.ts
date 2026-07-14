@@ -680,7 +680,7 @@ describe("ProviderSession.run()", () => {
       inputTokens: 11,
       outputTokens: 9,
       cacheReadTokens: 0,
-      cacheWriteTokens: 0,
+      cacheWriteTokens: 7,
       queued: false,
     });
 
@@ -720,6 +720,7 @@ describe("ProviderSession.run()", () => {
       type: "cost_update",
       mode: "computed",
       provider,
+      cacheWriteTokens: 7,
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
   });

@@ -1,10 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { ManagedJobApplicationService } from "@kilnai/runtime";
 import {
+  createCodexAppManagedJobApplicationComposition,
   createCodexAppManagedJobApplicationService,
   summarizeCodexAppManagedAgents,
 } from "../../src/application/codex-app-managed-jobs.js";
 
 describe("Codex App managed-job production composition", () => {
+  it("recovers persisted nonterminal jobs before exposing the application owner", async () => {
+    const recoverInterrupted = vi
+      .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
+      .mockResolvedValue([]);
+
+    await createCodexAppManagedJobApplicationComposition({ discoverProviderModels: async () => ({}) });
+
+    expect(recoverInterrupted).toHaveBeenCalledOnce();
+    recoverInterrupted.mockRestore();
+  });
+
   it("projects configured agents through their explicit route hints without exposing route internals", () => {
     const route = (id: string) => ({
       routeId: id,

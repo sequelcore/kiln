@@ -122,6 +122,7 @@ describe("SqliteMemoryRepository", () => {
       sequence: 1,
       kind: "created",
       content: saved.content,
+      provenance: saved.provenance,
       createdAt: "2026-04-30T10:00:00.000Z",
     });
     const extendedRevision = await repository.saveRevision({
@@ -131,6 +132,7 @@ describe("SqliteMemoryRepository", () => {
       sequence: 2,
       kind: "extended",
       content: "Initial memory lattice decision with scoped repository.",
+      provenance: saved.provenance,
       createdAt: "2026-04-30T10:05:00.000Z",
     });
 
@@ -163,8 +165,33 @@ describe("SqliteMemoryRepository", () => {
     });
 
     const relations = await repository.listRelations(source.id);
+    const incoming = await repository.listIncomingRelations(target.id, { sourceScope: target.scope });
 
     expect(relations).toEqual([relation]);
+    expect(incoming).toEqual([relation]);
+  });
+
+  it("rejects cross-scope memory-record relations at the repository boundary", () => {
+    const tenantA = repository.saveRecord(recordInput({
+      content: "Tenant A memory.",
+      scopeKind: "tenant",
+      scopeId: "tenant-a",
+      topicKey: "tenant-a/memory",
+    }));
+    const tenantB = repository.saveRecord(recordInput({
+      content: "Tenant B memory.",
+      scopeKind: "tenant",
+      scopeId: "tenant-b",
+      topicKey: "tenant-b/memory",
+    }));
+
+    expect(() => repository.saveRelation({
+      id: "cross-tenant-relation",
+      sourceRecordId: tenantB.id,
+      target: { kind: "memory_record", id: tenantA.id },
+      type: "supersedes",
+      createdAt: "2026-04-30T10:10:00.000Z",
+    })).toThrow("Memory relation source and target records must share the same scope");
   });
 
   it("lists context admissions oldest-first by default and newest-first when requested", async () => {

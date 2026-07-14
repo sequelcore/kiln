@@ -1,11 +1,13 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type { ExecutionSessionToolResultResourceLink } from "./execution-session-event.js";
 import type { ContextUsageProjection } from "./context-usage-projection.js";
+import type { VerifiedEfficiencyEvidenceProjection } from "../efficiency/verified-efficiency-evidence.js";
 
 import type {
   ManagedAgentAdapterKind,
   ManagedAgentAdmissionProfile,
   ManagedAgentCapabilitySnapshot,
+  ManagedAgentCoordinationUsageReport,
   ManagedAgentInvocationContextMode,
   ManagedAgentInvocationHandoffContract,
   ManagedAgentExecutionMode,
@@ -401,6 +403,7 @@ export interface CanonicalContextUsageObservedEvent extends SessionEventEnvelope
 export interface CanonicalLifecycleAttributionRecordedEvent extends SessionEventEnvelope<"lifecycle_attribution_recorded"> {
   readonly ledger: SessionLifecycleAttributionLedger;
   readonly summary: SessionLifecycleAttributionSummary;
+  readonly efficiencyEvidence: VerifiedEfficiencyEvidenceProjection;
 }
 
 export interface CanonicalWorkItemUpdatedEvent extends SessionEventEnvelope<"work_item_updated"> {
@@ -508,6 +511,7 @@ export interface SessionAgentInvocationEvidence {
   readonly transcript?: SessionAgentInvocationTranscriptPointer;
   readonly diagnostics?: readonly SessionAgentInvocationDiagnosticPointer[];
   readonly usage?: SessionAgentInvocationUsageReport;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
   readonly resultHandoff?: SessionAgentInvocationResultHandoff;
   readonly writeAuthority?: ManagedAgentWriteAuthority;
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];

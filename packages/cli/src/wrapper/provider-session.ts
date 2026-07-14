@@ -754,6 +754,7 @@ export class ProviderSession implements IKilnSession {
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       cacheReadTokens: result.cacheReadTokens,
+      cacheWriteTokens: result.cacheWriteTokens,
       providerRequests: result.providerRequests,
     };
     yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError, isPreflightCrash: false };

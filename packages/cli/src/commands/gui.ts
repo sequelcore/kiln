@@ -52,7 +52,6 @@ import {
 import { makeMultiProviderSessionFactory } from "./tui.js";
 import {
   getProjectContextArtifactCache,
-  withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
@@ -198,10 +197,6 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const managedInvocationAttachment = managedInvocationWithService
     ? createKilnRuntimeManagedInvocationAttachment("gui", managedInvocationWithService)
     : undefined;
-  builtinToolOptions = withManagedAgentInvocationResourceProvider(
-    builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
-  );
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
   startupProfiler.mark("voice-runtime-ready");
   for (const warning of operatorVoice.warnings) {

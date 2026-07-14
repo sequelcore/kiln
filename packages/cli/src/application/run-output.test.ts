@@ -44,4 +44,40 @@ describe("buildRunJsonOutputEnvelope", () => {
 
     expect(buildRunJsonOutputEnvelope({ ...base, contextUsage }).telemetry.contextUsage).toEqual(contextUsage);
   });
+
+  it("emits the canonical efficiency view beside outcome telemetry", () => {
+    const efficiencyEvidence = efficiencyFixture();
+    expect(buildRunJsonOutputEnvelope({ ...base, efficiencyEvidence }).telemetry.efficiencyEvidence).toEqual(
+      efficiencyEvidence,
+    );
+  });
 });
+
+function efficiencyFixture() {
+  return {
+    schemaVersion: "verified-efficiency-evidence-v1" as const,
+    sessionId: "session-1",
+    observedAt: "2026-07-12T00:00:01.000Z",
+    provider: { providerId: "codex-oauth", modelId: "gpt-5.6-terra", billingMode: "subscription" },
+    policy: {
+      owner: "ContextGovernor",
+      policyId: "context-whole-block-static-v1",
+      configurationHash: `sha256:${"a".repeat(64)}`,
+    },
+    totals: {
+      providerTotalTokens: 10,
+      providerTotalCostUsd: 0,
+      measured: { tokens: 2, costUsd: 0 },
+      estimated: { tokens: 0, costUsd: 0 },
+      cached: { tokens: 3, costUsd: 0 },
+      unknown: { tokens: 5, costUsd: 0 },
+      cacheWritten: { tokens: 0, costUsd: 0 },
+      avoided: { tokens: 0, costUsd: 0 },
+    },
+    outcome: "succeeded" as const,
+    verification: { status: "not_run" as const, results: [] },
+    actions: [],
+    savings: [],
+    evidenceUris: [],
+  };
+}
