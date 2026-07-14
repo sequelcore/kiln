@@ -1,7 +1,7 @@
 # 06 - Cross-Harness Kiln Control Plane
 
-Status: Active delivery track; Slices 0-2 are complete and one Slice 3 vertical slice is admitted.
-Execution: Ready - implement the admitted Codex App managed-agent invocation vertical slice only.
+Status: Active delivery track; Slices 0-2, 3A, and 3B are complete. Full Slice 3 remains incomplete.
+Execution: Ready - implement the admitted Slice 3C canonical managed-job result handoff only.
 Created: 2026-07-04.
 
 ## Objective
@@ -382,9 +382,8 @@ and invoked without `KILN_STATUS_EVIDENCE_INCOMPLETE`. The observed harness was
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 
-Status: Slice 3A and Slice 3B are implemented with a corrected Slice 3B
-selection contract. Slice 3B awaits one bounded real Codex App/OpenCode Go
-acceptance; full Slice 3 remains incomplete.
+Status: Slice 3A and Slice 3B are complete. Exactly one Slice 3C result-handoff
+objective is admitted; full Slice 3 remains incomplete.
 
 Goal: allow admitted harness surfaces to invoke Kiln-managed agents through
 canonical routes without giving a harness ownership of managed-job state.
@@ -418,9 +417,9 @@ binds opaque job identity and idempotency, and recovers nonterminal work as
 interrupted after restart. It adds no MCP tool, harness adapter, shell execution,
 or provider adapter.
 
-The only admitted successor is Slice 3B: a thin Codex App MCP adapter that
-projects submit/status through this owner. It must not duplicate admission,
-routing, persistence, lifecycle, or provider execution.
+Its admitted successor was Slice 3B: a thin Codex App MCP adapter that projects
+submit/status through this owner without duplicating admission, routing,
+persistence, lifecycle, or provider execution.
 
 #### Slice 3B Closeout
 
@@ -431,11 +430,31 @@ governance, configured-agent/route resolution, Runtime invocation bridge,
 and direct-provider adapter outside the MCP presentation layer. The admitted
 configuration boundary restricts this vertical slice to `opencode-go`.
 
-The implementation has deterministic adapter/application coverage and isolated
-stdio proofs from repository and unrelated working directories. It awaits one
-bounded live acceptance only: restart Codex App and perform one managed-agent
-invocation through the new MCP surface. No result, cancellation, listing,
-configuration mutation, or provider/model selection is admitted by this slice.
+Implementation commit `237d8885` has deterministic adapter/application coverage
+and isolated stdio proofs from repository and unrelated working directories.
+Corrected live acceptance passed on 2026-07-14 through the Codex App bridge:
+
+- all five Kiln MCP tools were discovered;
+- governance was authoritative, the bridge was current and available, and
+  `opencode-go` remained a direct provider under Kiln Runtime authority;
+- configured agent `scout` resolved to route
+  `opencode-go-scout-readonly` and admission profile
+  `foundation-readonly-plan`;
+- canonical managed job `cdb98e81-002b-44a4-aac9-e08b2f861a6b` was created at
+  `2026-07-14T02:29:00.344Z` and was observed terminal at
+  `2026-07-14T02:29:16.705Z`;
+- lifecycle evidence was `succeeded` from invoke followed by `succeeded` from
+  one status query, with timeout source `explicit-route`;
+- governance came from `kiln-work-governance`, capability evidence came from
+  `kiln-harness-integration-capabilities`, and the caller was `codex-app`;
+- exactly one job and one idempotency key were used, with no retry, alternate
+  provider, native CLI, shell workaround, write, configuration mutation,
+  credential access, or sensitive data exposure; and
+- unrelated projection stale/drift diagnostics did not invalidate the admitted
+  managed route.
+
+Slice 3B is complete. It does not expose result retrieval, cancellation,
+listing, configuration mutation, provider/model selection, or replay.
 
 Managed-agent admission profiles are operator-configured route policy, not
 packaged built-ins. Codex App refreshes provider-model eligibility through the
@@ -458,8 +477,27 @@ It never exposes route configuration, models, paths, credentials, permissions,
 configuration, or provider payloads. The Slice 3B live blocker was therefore a
 selection-contract defect, not invalid operator configuration: the former
 profile-only rule incorrectly required a global one-route binding. The repair
-uses the configured-agent hint and leaves full Slice 3 pending until corrected
-live acceptance passes. Slice 4 routing is not started.
+uses the configured-agent hint, and the corrected live acceptance now closes
+Slice 3B. Slice 4 routing is not started.
+
+#### Slice 3C - Canonical Managed-Job Result Handoff
+
+Status: Ready. Exactly one bounded objective is admitted.
+
+Objective: expose safe canonical managed-job result handoff/retrieval to Codex
+App without duplicating Runtime lifecycle or leaking prompts, transcripts,
+hidden reasoning, provider payloads, paths, or secrets.
+
+Remaining full Slice 3 scope is explicit:
+
+- Codex App currently exposes submit and status but no canonical result
+  retrieval;
+- the broader Slice 3 exit gate still requires result evidence;
+- the Claude Code to Kiln to Codex path remains unimplemented; and
+- cancellation and replay remain outside completed Slice 3B.
+
+Slice 3C must remain a thin projection over Runtime-owned managed-job state. It
+must not implement the Claude path, cancellation, replay, or Slice 4 routing.
 
 ### Slice 4 - Quota And Subscription-Aware Routing
 
