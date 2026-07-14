@@ -34,7 +34,7 @@ item requires an explicit priority decision recorded here.
 
 | Order | Track | State | Bounded work item | Admission reason |
 | --- | --- | --- | --- | --- |
-| 1 | [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Blocked | Obtain one corrected live Codex App acceptance for the implemented Slice 3C canonical managed-job result handoff. | Deterministic implementation is complete; a new admitted live job must prove explicit result retrieval without touching the historical Slice 3B record. |
+| 1 | [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Research | Bound one Claude Code to Kiln to Codex adapter objective before admitting implementation. | Codex App managed-job invoke, status, and result retrieval are complete; the remaining cross-harness exit gate needs a scoped Claude path before cancellation or replay work. |
 | 2 | [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Research | Define and verify cross-surface event-presentation density, then complete final live release validation. | Context usage is complete; CLI/TUI parity rules require evidence before shared event-density changes. |
 | 3 | [01 - Native Operator Surface](./01-native-operator-surface.md) | Queued | Slice 3: workload fixture governance. | The slice is bounded to Gateway contracts and tests, but it is not a public-release truth blocker. |
 | 4 | [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Resume Slice 3 telemetry, replay, and non-inferiority work. | Roadmap 06 must first define and verify the required cross-harness Kiln tool and agent exposure. |
@@ -54,7 +54,7 @@ belong in the Sequel infrastructure debt register, not in this queue.
 | [03 - Federated Harness Configuration Plane](./03-federated-harness-configuration-plane.md) | Deferred | No implementation is admitted. | Reopen only when capability matrices and projection benchmarks support thin or dynamic adapters. |
 | [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Slices 0-2 are complete. Slice 3 implementation is paused; Slices 4-12 are not admitted. | Resume only after Roadmap 06 supplies the named cross-harness dependency and the Slice 3 verification plan is re-approved. |
 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Inventory and local repair started; automatic admission, evaluation, and operations are not admitted. | Define the shared evidence/admission contract. GUI/TUI rendering of existing diagnostics remains owned by Roadmap 02. |
-| [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Blocked | Slices 0-2, 3A-3C are implemented; full Slice 3 remains incomplete. | Obtain one corrected live Codex App result-acceptance proof. Claude Code, cancellation, and replay remain outside this slice. |
+| [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Research | Slices 0-2 and 3A-3C are complete; full Slice 3 remains incomplete. | Bound one Claude Code to Kiln to Codex adapter objective. Keep cancellation and replay as separate later slices. |
 
 ## Roadmap File Standard
 

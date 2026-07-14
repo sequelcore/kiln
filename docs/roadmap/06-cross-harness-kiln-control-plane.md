@@ -1,7 +1,7 @@
 # 06 - Cross-Harness Kiln Control Plane
 
-Status: Active delivery track; Slices 0-2, 3A, and 3B are complete. Full Slice 3 remains incomplete.
-Execution: Ready - implement the admitted Slice 3C canonical managed-job result handoff only.
+Status: Active delivery track; Slices 0-2 and 3A-3C are complete. Full Slice 3 remains incomplete.
+Execution: Research - bound one Claude Code to Kiln to Codex adapter objective before admitting implementation; keep cancellation and replay separate.
 Created: 2026-07-04.
 
 ## Objective
@@ -382,8 +382,8 @@ and invoked without `KILN_STATUS_EVIDENCE_INCOMPLETE`. The observed harness was
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 
-Status: Slice 3A and Slice 3B are complete. Exactly one Slice 3C result-handoff
-objective is admitted; full Slice 3 remains incomplete.
+Status: Slices 3A-3C are complete. The remaining Claude Code path,
+cancellation, and replay keep full Slice 3 incomplete.
 
 Goal: allow admitted harness surfaces to invoke Kiln-managed agents through
 canonical routes without giving a harness ownership of managed-job state.
@@ -482,7 +482,8 @@ Slice 3B. Slice 4 routing is not started.
 
 #### Slice 3C - Canonical Managed-Job Result Handoff
 
-Status: Implemented on 2026-07-13; awaiting one corrected live Codex App result-acceptance proof. Full Slice 3 remains incomplete.
+Status: Complete. Implemented on 2026-07-13 and accepted live from Codex App
+on 2026-07-14. Full Slice 3 remains incomplete.
 
 Objective: expose safe canonical managed-job result handoff/retrieval to Codex
 App without duplicating Runtime lifecycle or leaking prompts, transcripts,
@@ -490,11 +491,9 @@ hidden reasoning, provider payloads, paths, or secrets.
 
 Remaining full Slice 3 scope is explicit:
 
-- Codex App currently exposes submit and status but no canonical result
-  retrieval;
-- the broader Slice 3 exit gate still requires result evidence;
+- Codex App submit, status, and canonical result retrieval are complete;
 - the Claude Code to Kiln to Codex path remains unimplemented; and
-- cancellation and replay remain outside completed Slice 3B.
+- cancellation and replay remain unimplemented.
 
 Slice 3C must remain a thin projection over Runtime-owned managed-job state. It
 must not implement the Claude path, cancellation, replay, or Slice 4 routing.
@@ -506,9 +505,36 @@ trusted caller and project ownership, and exposes one explicit
 truthful: their terminal state is preserved and they return the stable
 `result_unavailable` diagnostic rather than a transcript-derived result.
 Result content is bounded, redacted untrusted child output and is never a
-governance or instruction channel. The corrected live acceptance must submit
-one newly admitted read-only Codex App job and retrieve its explicit result;
-it must not inspect, alter, or infer a result for the Slice 3B historical job.
+governance or instruction channel. Implementation commit `2d17e5eb` has
+deterministic Runtime/MCP coverage, workspace typecheck, full tests, build,
+diff hygiene, and repository/unrelated-working-directory discovery proof.
+
+Corrected live acceptance passed on 2026-07-14 through the Codex App bridge:
+
+- exactly six Kiln MCP tools were discovered, including
+  `kiln_managed_agent_result`;
+- governance and capability preflight admitted configured agent `scout` on
+  route `opencode-go-scout-readonly`, admission profile
+  `foundation-readonly-plan`, and provider `opencode-go` under Kiln Runtime
+  authority;
+- canonical managed job `7032210e-6b64-489c-877a-0a9cf3f15ca1` was created at
+  `2026-07-14T06:13:00.227Z` and succeeded at
+  `2026-07-14T06:13:35.859Z`;
+- one result read returned an `available`, successful, normalized Runtime
+  handoff for the same identities and terminal timestamp, explicitly marked
+  as untrusted child output;
+- inline output was 1,996 characters and explicitly identified as truncated,
+  proving the 2,000-character bound without exposing forbidden sensitive
+  content;
+- exactly one invocation, zero status queries, and one result query were used,
+  with no retry, alternate job, native CLI, shell workaround, file or
+  configuration mutation, or credential access; and
+- unrelated `KILN_PROJECTION_STALE` and `KILN_PROJECTION_DRIFTED` diagnostics
+  did not invalidate the admitted route or canonical result evidence.
+
+Slice 3C is complete. The next Roadmap 06 action is research that bounds one
+Claude Code to Kiln to Codex adapter objective. It must not combine that work
+with cancellation, replay, or Slice 4 routing.
 
 ### Slice 4 - Quota And Subscription-Aware Routing
 
