@@ -18,7 +18,32 @@ import { RuntimeManagedAgentInvocationService } from "../../src/agents/managed-i
 import type { ManagedJobApplicationOptions, ManagedJobStore } from "../../src/managed-jobs/index.js";
 
 const now = new Date("2026-07-13T22:00:00.000Z");
-const request = { objective: "Inspect the managed job boundary.", agentProfileId: "reviewer", callerId: "codex-app:caller-001", idempotencyKey: "caller-001" };
+const request = { objective: "Inspect the managed job boundary.", configuredAgentProfileId: "scout", callerId: "codex-app:caller-001", idempotencyKey: "caller-001" };
+const scope = { project: "validated", read: "validated", tools: "validated", network: "validated", write: "validated" } as const;
+const eligibility = { authority: "authoritative", observedAt: "2026-07-13T21:59:00.000Z", validUntil: "2026-07-13T22:01:00.000Z" } as const;
+const authority = {
+  authorityProfileId: "authority-readonly",
+  permissionProfile: "read-only",
+  toolAuthority: { allowedToolNames: ["read"], writeAllowed: false, networkAllowed: false },
+  workingDirectory: { path: "C:/workspace", mode: "read-only" },
+  timeoutMs: 300000,
+  credentialRoute: { mode: "credentialless" },
+  memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
+} as const;
+
+function admittedRoute(routeId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: routeId,
+    admissionProfileId: "foundation-readonly-plan",
+    supportedAdmissionProfileIds: ["foundation-readonly-plan"],
+    providerId: "opencode-go",
+    timeoutSource: "explicit-route" as const,
+    scope,
+    eligibility,
+    authority,
+    ...overrides,
+  };
+}
 
 function createOptions(overrides: Partial<ManagedJobApplicationOptions> = {}): ManagedJobApplicationOptions {
   return {
@@ -27,8 +52,8 @@ function createOptions(overrides: Partial<ManagedJobApplicationOptions> = {}): M
       resolve: async () => ({ version: 1, authority: "authoritative", source: "kiln-config-status", issuedAt: "2026-07-13T21:59:00.000Z", validUntil: "2026-07-13T22:01:00.000Z" }),
       admit: async () => ({ admitted: true, admissionId: "admission-001", source: "kiln-config-status" }),
     },
-    profiles: { resolve: async (id) => id === "reviewer" ? { id } : undefined },
-    routes: { resolve: async () => ({ id: "managed-opencode-go", agentProfileId: "reviewer", providerId: "opencode-go", timeoutSource: "explicit-route" }) },
+    profiles: { resolve: async (id) => id === "scout" ? { id, routeId: "opencode-go-scout-readonly" } : id === "researcher" ? { id, routeId: "opencode-go-researcher-readonly" } : undefined },
+    routes: { resolve: async (profile) => admittedRoute(profile.routeId) },
     runtime: { invoke: async () => ({ state: "succeeded" }) },
     store: new InMemoryManagedJobStore(),
     clock: () => now,
@@ -44,7 +69,7 @@ describe("ManagedJobApplicationService", () => {
     const submitted = await service.submit(request);
     const status = await service.status(submitted.id);
 
-    expect(submitted).toMatchObject({ id: "job-000000001", state: "succeeded", projectId: "kiln", agentProfileId: "reviewer", routeId: "managed-opencode-go", providerId: "opencode-go", governanceSource: "kiln-config-status", timeoutSource: "explicit-route" });
+    expect(submitted).toMatchObject({ id: "job-000000001", state: "succeeded", projectId: "kiln", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", timeoutSource: "explicit-route" });
     expect(status).toEqual(submitted);
     expect(runtime.invoke).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job-000000001", route: expect.objectContaining({ providerId: "opencode-go" }) }));
   });
@@ -99,12 +124,91 @@ describe("ManagedJobApplicationService", () => {
     await expect(service.submit({ ...request, parent: { invocationId: "parent", turnId: "bad path/" } })).rejects.toMatchObject({ code: "invalid_request" });
   });
 
+  it("selects the configured route even when agents share an admission profile", async () => {
+    const routes = { resolve: vi.fn(async (profile: { routeId: string }) => admittedRoute(profile.routeId)) };
+    const service = new ManagedJobApplicationService(createOptions({ routes }));
+    await expect(service.submit(request)).resolves.toMatchObject({ configuredAgentProfileId: "scout", routeId: "opencode-go-scout-readonly", admissionProfileId: "foundation-readonly-plan" });
+    await expect(service.submit({ ...request, configuredAgentProfileId: "researcher", idempotencyKey: "researcher-key" })).resolves.toMatchObject({ configuredAgentProfileId: "researcher", routeId: "opencode-go-researcher-readonly", admissionProfileId: "foundation-readonly-plan" });
+    expect(routes.resolve).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "scout", routeId: "opencode-go-scout-readonly" }));
+    expect(routes.resolve).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "researcher", routeId: "opencode-go-researcher-readonly" }));
+  });
+
+  it("fails closed when the route contradicts the configured agent or admission profile", async () => {
+    const wrongRoute = new ManagedJobApplicationService(createOptions({ routes: { resolve: async () => admittedRoute("opencode-go-researcher-readonly") } }));
+    await expect(wrongRoute.submit(request)).rejects.toMatchObject({ code: "route_unavailable" });
+    const wrongAdmission = new ManagedJobApplicationService(createOptions({ routes: { resolve: async (profile) => admittedRoute(profile.routeId, { supportedAdmissionProfileIds: ["different-profile"] }) } }));
+    await expect(wrongAdmission.submit(request)).rejects.toMatchObject({ code: "route_unavailable" });
+  });
+
+  it("rejects a configured agent without an explicit route hint before a job is created", async () => {
+    const store = new InMemoryManagedJobStore();
+    const reserve = vi.spyOn(store, "reserve");
+    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const service = new ManagedJobApplicationService(createOptions({
+      store,
+      runtime,
+      profiles: { resolve: async () => ({ id: "scout", routeId: "" }) },
+    }));
+
+    await expect(service.submit(request)).rejects.toMatchObject({ code: "profile_unavailable" });
+    expect(reserve).not.toHaveBeenCalled();
+    expect(runtime.invoke).not.toHaveBeenCalled();
+  });
+
+  it.each(["project", "read", "tools", "network", "write"] as const)("rejects an unvalidated %s scope before a job is created", async (scopeName) => {
+    const store = new InMemoryManagedJobStore();
+    const reserve = vi.spyOn(store, "reserve");
+    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const scope = { project: "validated", read: "validated", tools: "validated", network: "validated", write: "validated", [scopeName]: "denied" };
+    const service = new ManagedJobApplicationService(createOptions({
+      store,
+      runtime,
+      routes: { resolve: async (profile) => ({
+        id: profile.routeId,
+        admissionProfileId: "foundation-readonly-plan",
+        supportedAdmissionProfileIds: ["foundation-readonly-plan"],
+        providerId: "opencode-go",
+        timeoutSource: "explicit-route",
+        scope,
+        eligibility: { authority: "authoritative", observedAt: now.toISOString(), validUntil: "2026-07-13T22:01:00.000Z" },
+      } as never) },
+    }));
+
+    await expect(service.submit(request)).rejects.toMatchObject({ code: "route_unavailable" });
+    expect(reserve).not.toHaveBeenCalled();
+    expect(runtime.invoke).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale route eligibility before a job is created", async () => {
+    const store = new InMemoryManagedJobStore();
+    const reserve = vi.spyOn(store, "reserve");
+    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const service = new ManagedJobApplicationService(createOptions({
+      store,
+      runtime,
+      routes: { resolve: async (profile) => ({
+        id: profile.routeId,
+        admissionProfileId: "foundation-readonly-plan",
+        supportedAdmissionProfileIds: ["foundation-readonly-plan"],
+        providerId: "opencode-go",
+        timeoutSource: "explicit-route",
+        scope: { project: "validated", read: "validated", tools: "validated", network: "validated", write: "validated" },
+        eligibility: { authority: "authoritative", observedAt: "2026-07-13T21:58:00.000Z", validUntil: "2026-07-13T21:59:00.000Z" },
+      } as never) },
+    }));
+
+    await expect(service.submit(request)).rejects.toMatchObject({ code: "route_unavailable" });
+    expect(reserve).not.toHaveBeenCalled();
+    expect(runtime.invoke).not.toHaveBeenCalled();
+  });
+
   it("is idempotent for an identical retry and conflicts for a different request", async () => {
     const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
     const service = new ManagedJobApplicationService(createOptions({ runtime }));
     const first = await service.submit(request);
     const retry = await service.submit(request);
     await expect(service.submit({ ...request, objective: "Different objective." })).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(service.submit({ ...request, configuredAgentProfileId: "researcher" })).rejects.toMatchObject({ code: "idempotency_conflict" });
     expect(retry.id).toBe(first.id);
     expect(runtime.invoke).toHaveBeenCalledTimes(1);
   });
@@ -128,7 +232,7 @@ describe("ManagedJobApplicationService", () => {
 
   it("recovers persisted nonterminal work as interrupted and preserves parent-child separation", async () => {
     const store = new InMemoryManagedJobStore();
-    await store.reserve({ job: { version: 1, id: "job-running", state: "queued", projectId: "kiln", agentProfileId: "reviewer", routeId: "managed-opencode-go", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString(), parent: { invocationId: "parent-invocation", turnId: "parent-turn" } } });
+    await store.reserve({ job: { version: 1, id: "job-running", state: "queued", projectId: "kiln", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString(), parent: { invocationId: "parent-invocation", turnId: "parent-turn" } } });
     const service = new ManagedJobApplicationService(createOptions({ store }));
     const recovered = await service.recoverInterrupted();
     expect(recovered).toMatchObject([{ id: "job-running", state: "interrupted", parent: { invocationId: "parent-invocation", turnId: "parent-turn" } }]);

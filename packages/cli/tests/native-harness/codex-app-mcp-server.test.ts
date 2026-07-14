@@ -84,7 +84,8 @@ function managedJob(overrides: Partial<ManagedJobRecord> = {}): ManagedJobRecord
     id: "managed-job-0001",
     state: "succeeded",
     projectId: "trusted-project",
-    agentProfileId: "go-profile",
+    configuredAgentProfileId: "scout",
+    admissionProfileId: "foundation-readonly-plan",
     routeId: "route-go",
     providerId: "opencode-go",
     governanceSource: "kiln-governance",
@@ -112,6 +113,28 @@ describe("CodexAppMcpServer", () => {
     ]);
   });
 
+  it("narrows invoke to safely admitted configured agents without exposing route configuration", () => {
+    const server = new CodexAppMcpServer({
+      configuredAgents: [{
+        configuredAgentProfileId: "scout",
+        displayName: "Scout",
+        role: "Read-only scout",
+        availability: "admitted",
+        providerFamily: "opencode-go",
+        admissionProfileId: "foundation-readonly-plan",
+      }],
+    });
+    const tool = server.listTools().find((candidate) => candidate.name === "kiln_managed_agent_invoke");
+
+    expect(tool?.inputSchema).toMatchObject({
+      additionalProperties: false,
+      required: ["objective", "configuredAgentProfileId", "idempotencyKey"],
+      properties: { configuredAgentProfileId: { enum: ["scout"] } },
+    });
+    expect(JSON.stringify(tool?.inputSchema)).not.toContain("route");
+    expect(JSON.stringify(tool?.inputSchema)).not.toContain("foundation-readonly-plan");
+  });
+
   it("projects only trusted request identity into the canonical managed-job submit", async () => {
     const submitted: unknown[] = [];
     const server = new CodexAppMcpServer({
@@ -123,8 +146,8 @@ describe("CodexAppMcpServer", () => {
       requestIdentity: () => ({ callerId: "trusted-codex-user", requestId: "trusted-request" }),
     });
 
-    const result = await server.callTool("kiln_managed_agent_invoke", { objective: "  inspect bounded work  ", agentProfileId: "go-profile", idempotencyKey: "retry-1" });
-    expect(submitted).toEqual([{ objective: "inspect bounded work", agentProfileId: "go-profile", idempotencyKey: "retry-1", callerId: "trusted-codex-user" }]);
+    const result = await server.callTool("kiln_managed_agent_invoke", { objective: "  inspect bounded work  ", configuredAgentProfileId: "scout", idempotencyKey: "retry-1" });
+    expect(submitted).toEqual([{ objective: "inspect bounded work", configuredAgentProfileId: "scout", idempotencyKey: "retry-1", callerId: "trusted-codex-user" }]);
     expect(result.structuredContent).toMatchObject({ job: { id: "managed-job-0001", routeId: "route-go" }, evidence: { callerId: "trusted-codex-user", requestId: "trusted-request" } });
     expect(JSON.stringify(result)).not.toContain("objective");
   });
@@ -132,14 +155,15 @@ describe("CodexAppMcpServer", () => {
   it("rejects unknown invoke fields and malformed status identifiers before the application owner", async () => {
     let calls = 0;
     const server = new CodexAppMcpServer({ managedJobs: { submit: async () => { calls++; return managedJob(); }, status: async () => { calls++; return managedJob(); } } });
-    await expect(server.callTool("kiln_managed_agent_invoke", { objective: "work", agentProfileId: "go-profile", idempotencyKey: "key", provider: "opencode-go" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
+    await expect(server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key", provider: "opencode-go" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
+    await expect(server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key", admissionProfileId: "foundation-readonly-plan" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
     await expect(server.callTool("kiln_managed_agent_status", { jobId: "not valid" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
     expect(calls).toBe(0);
   });
 
   it("maps application diagnostics without exposing internal error text", async () => {
     const server = new CodexAppMcpServer({ managedJobs: { submit: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "provider_rejected" }); }, status: async () => managedJob() } });
-    const result = await server.callTool("kiln_managed_agent_invoke", { objective: "work", agentProfileId: "go-profile", idempotencyKey: "key" });
+    const result = await server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key" });
     expect(result).toMatchObject({ isError: true, structuredContent: { error: { code: "provider_rejected" } } });
     expect(JSON.stringify(result)).not.toContain("secrets");
   });
@@ -181,23 +205,25 @@ describe("CodexAppMcpServer", () => {
     });
   });
 
-  it("projects only safe managed-profile admission summaries through capability inspection", async () => {
+  it("projects only safe configured-agent admission summaries through capability inspection", async () => {
     const result = await createServer(snapshot(), {
-      managedProfiles: [{
-        id: "foundation-readonly-plan",
+      managedAgents: [{
+        configuredAgentProfileId: "scout",
         availability: "unavailable",
-        providerId: "opencode-go",
+        providerFamily: "opencode-go",
+        admissionProfileId: "foundation-readonly-plan",
         diagnostic: "route_unavailable",
-        operatorAction: "Configure exactly one admitted managed-agent route for this profile.",
+        operatorAction: "Restore the configured route hint for this agent.",
       }],
     }).callTool("kiln_capability_inspect", {});
 
     expect(result.structuredContent).toMatchObject({
       capability: {
-        managedProfiles: [{
-          id: "foundation-readonly-plan",
+        managedAgents: [{
+          configuredAgentProfileId: "scout",
           availability: "unavailable",
-          providerId: "opencode-go",
+          providerFamily: "opencode-go",
+          admissionProfileId: "foundation-readonly-plan",
           diagnostic: "route_unavailable",
         }],
       },
@@ -205,23 +231,26 @@ describe("CodexAppMcpServer", () => {
     expect(JSON.stringify(result.structuredContent)).not.toContain("model");
   });
 
-  it("fails closed when a managed-profile summary contains noncanonical metadata", async () => {
+  it("fails closed when a managed-agent summary contains noncanonical metadata", async () => {
     const result = await createServer(snapshot(), {
-      managedProfiles: [{
-        id: "foundation-readonly-plan",
+      managedAgents: [{
+        configuredAgentProfileId: "scout",
         availability: "unresolved",
-        providerId: "opencode-go",
+        providerFamily: "opencode-go",
+        admissionProfileId: "foundation-readonly-plan",
         diagnostic: "eligibility_unresolved",
       }, {
-        id: "poisoned-profile",
+        configuredAgentProfileId: "poisoned-agent",
         availability: "admitted",
-        providerId: "opencode-go",
+        providerFamily: "C:\\secret-model",
+        admissionProfileId: "foundation-readonly-plan",
       } as never],
     }).callTool("kiln_capability_inspect", {});
     expect(result.structuredContent).toMatchObject({
-      capability: { managedProfiles: [{ id: "foundation-readonly-plan", availability: "unresolved" }] },
+      capability: { managedAgents: [{ configuredAgentProfileId: "scout", availability: "unresolved" }] },
     });
-    expect(JSON.stringify(result.structuredContent)).not.toContain("poisoned-profile");
+    expect(JSON.stringify(result.structuredContent)).not.toContain("poisoned-agent");
+    expect(JSON.stringify(result.structuredContent)).not.toContain("secret-model");
   });
 
   it("fails closed for malformed input, unsupported operations, and mutation attempts", async () => {

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { ManagedAgentCapabilitySnapshotInput, ManagedAgentInvocationRequest } from "@kilnai/core";
+import type { ManagedAgentAuthorityProfile, ManagedAgentCapabilitySnapshotInput, ManagedAgentInvocationRequest } from "@kilnai/core";
 import {
   RuntimeManagedAgentInvocationService,
 } from "../agents/managed-invocation/index.js";
@@ -39,7 +39,7 @@ export type ManagedJobDiagnosticCode =
 
 export interface ManagedJobSubmission {
   readonly objective: string;
-  readonly agentProfileId: string;
+  readonly configuredAgentProfileId: string;
   readonly callerId: string;
   readonly idempotencyKey: string;
   readonly parent?: { readonly invocationId: string; readonly turnId: string };
@@ -57,12 +57,31 @@ export interface ManagedJobGovernanceEvidence {
   readonly validUntil: string;
 }
 
-export interface ManagedJobProfile { readonly id: string; }
+/** Operator-configured child identity; it requests a specific canonical route. */
+export interface ManagedJobProfile {
+  readonly id: string;
+  readonly routeId: string;
+}
 export interface ManagedJobRoute {
   readonly id: string;
-  readonly agentProfileId: string;
+  readonly admissionProfileId: string;
+  readonly supportedAdmissionProfileIds: readonly string[];
   readonly providerId: string;
   readonly timeoutSource: "default" | "explicit-route";
+  /** Canonical route evidence, validated before a managed job may be reserved. */
+  readonly scope: {
+    readonly project: "validated";
+    readonly read: "validated";
+    readonly tools: "validated";
+    readonly network: "validated";
+    readonly write: "validated";
+  };
+  readonly eligibility: {
+    readonly authority: "authoritative";
+    readonly observedAt: string;
+    readonly validUntil: string;
+  };
+  readonly authority: ManagedAgentAuthorityProfile;
 }
 
 export interface ManagedJobRecord {
@@ -70,7 +89,8 @@ export interface ManagedJobRecord {
   readonly id: string;
   readonly state: ManagedJobState;
   readonly projectId: string;
-  readonly agentProfileId: string;
+  readonly configuredAgentProfileId: string;
+  readonly admissionProfileId: string;
   readonly routeId: string;
   readonly providerId: string;
   readonly governanceSource: string;
@@ -87,7 +107,7 @@ export interface ManagedJobRecord {
 export interface ManagedJobProjectPort { resolve(): Promise<TrustedManagedJobProject>; }
 export interface ManagedJobGovernancePort {
   resolve(project: TrustedManagedJobProject): Promise<ManagedJobGovernanceEvidence>;
-  admit(input: { readonly project: TrustedManagedJobProject; readonly objective: string; readonly agentProfileId: string; readonly evidence: ManagedJobGovernanceEvidence }): Promise<{ readonly admitted: true; readonly admissionId: string; readonly source: string } | { readonly admitted: false }>;
+  admit(input: { readonly project: TrustedManagedJobProject; readonly objective: string; readonly configuredAgentProfileId: string; readonly admissionProfileId: string; readonly evidence: ManagedJobGovernanceEvidence }): Promise<{ readonly admitted: true; readonly admissionId: string; readonly source: string } | { readonly admitted: false }>;
 }
 export interface ManagedJobProfilePort { resolve(id: string): Promise<ManagedJobProfile | undefined>; }
 export interface ManagedJobRoutePort { resolve(profile: ManagedJobProfile): Promise<ManagedJobRoute | undefined>; }
@@ -160,26 +180,28 @@ export class ManagedJobApplicationService {
     const project = await this.resolveProject();
     if (request.parent && (!this.options.lineage || !await this.validateLineage(project, request))) throw new ManagedJobApplicationError("invalid_request", "Provide trusted parent invocation lineage.");
     const governance = await this.resolveGovernance(project);
+    let profile: ManagedJobProfile | undefined;
+    try { profile = await this.options.profiles.resolve(request.configuredAgentProfileId); } catch { throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted agent profile."); }
+    if (!profile) throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted agent profile.");
+    if (!isIdentifier(profile.id) || profile.id !== request.configuredAgentProfileId || !isIdentifier(profile.routeId)) throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted agent profile.");
+    let route: ManagedJobRoute | undefined;
+    try { route = await this.options.routes.resolve(profile); } catch { throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route."); }
+    if (!route || !isAdmittedRoute(route, profile, this.clock())) throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route.");
     let admission: Awaited<ReturnType<ManagedJobGovernancePort["admit"]>>;
-    try { admission = await this.options.governance.admit({ project, objective: request.objective, agentProfileId: request.agentProfileId, evidence: governance }); }
+    try { admission = await this.options.governance.admit({ project, objective: request.objective, configuredAgentProfileId: profile.id, admissionProfileId: route.admissionProfileId, evidence: governance }); }
     catch { throw new ManagedJobApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence."); }
     if (!admission.admitted) throw new ManagedJobApplicationError("admission_denied", "Review the authoritative work-governance policy.");
     if (!isIdentifier(admission.admissionId) || !isIdentifier(admission.source)) throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
-    let profile: ManagedJobProfile | undefined;
-    try { profile = await this.options.profiles.resolve(request.agentProfileId); } catch { throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted agent profile."); }
-    if (!profile) throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted agent profile.");
-    let route: ManagedJobRoute | undefined;
-    try { route = await this.options.routes.resolve(profile); } catch { throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route."); }
-    if (!route || !isIdentifier(route.id) || !isIdentifier(route.agentProfileId) || route.agentProfileId !== profile.id || !isIdentifier(route.providerId)) throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route.");
 
     const now = this.now();
-    const requestFingerprint = fingerprint({ objective: request.objective, agentProfileId: request.agentProfileId, parent: request.parent });
+    const requestFingerprint = fingerprint({ objective: request.objective, configuredAgentProfileId: request.configuredAgentProfileId, parent: request.parent });
     const job: ManagedJobRecord = {
       version: 1,
       id: this.newJobId(),
       state: "queued",
       projectId: project.id,
-      agentProfileId: profile.id,
+      configuredAgentProfileId: profile.id,
+      admissionProfileId: route.admissionProfileId,
       routeId: route.id,
       providerId: route.providerId,
       governanceSource: admission.source,
@@ -357,21 +379,51 @@ export class FilesystemManagedJobStore implements ManagedJobStore {
   }
 }
 function parseManagedJobSubmission(value: unknown): ManagedJobSubmission {
-  if (!isRecord(value) || !hasOnly(value, ["objective", "agentProfileId", "callerId", "idempotencyKey", "parent"]) || typeof value.objective !== "string" || typeof value.agentProfileId !== "string" || typeof value.callerId !== "string" || typeof value.idempotencyKey !== "string") throw new ManagedJobApplicationError("invalid_request", "Provide only the supported managed-work fields.");
-  const objective = value.objective.trim(); const agentProfileId = value.agentProfileId.trim(); const callerId = value.callerId.trim(); const idempotencyKey = value.idempotencyKey.trim();
-  if (objective.length === 0 || objective.length > 12000 || !isIdentifier(agentProfileId) || !isIdentifier(callerId) || !isIdentifier(idempotencyKey)) throw new ManagedJobApplicationError("invalid_request", "Provide bounded valid managed-work identities and objective.");
+  if (!isRecord(value) || !hasOnly(value, ["objective", "configuredAgentProfileId", "callerId", "idempotencyKey", "parent"]) || typeof value.objective !== "string" || typeof value.configuredAgentProfileId !== "string" || typeof value.callerId !== "string" || typeof value.idempotencyKey !== "string") throw new ManagedJobApplicationError("invalid_request", "Provide only the supported managed-work fields.");
+  const objective = value.objective.trim(); const configuredAgentProfileId = value.configuredAgentProfileId.trim(); const callerId = value.callerId.trim(); const idempotencyKey = value.idempotencyKey.trim();
+  if (objective.length === 0 || objective.length > 12000 || !isIdentifier(configuredAgentProfileId) || !isIdentifier(callerId) || !isIdentifier(idempotencyKey)) throw new ManagedJobApplicationError("invalid_request", "Provide bounded valid managed-work identities and objective.");
   let parent: ManagedJobSubmission["parent"];
   if (value.parent !== undefined) { if (!isRecord(value.parent) || !hasOnly(value.parent, ["invocationId", "turnId"]) || !isIdentifier(value.parent.invocationId) || !isIdentifier(value.parent.turnId)) throw new ManagedJobApplicationError("invalid_request", "Provide valid parent invocation lineage."); parent = { invocationId: value.parent.invocationId, turnId: value.parent.turnId }; }
-  return { objective, agentProfileId, callerId, idempotencyKey, ...(parent ? { parent } : {}) };
+  return { objective, configuredAgentProfileId, callerId, idempotencyKey, ...(parent ? { parent } : {}) };
 }
 function validateStoredJob(value: unknown): ManagedJobRecord {
-  const allowed = ["version", "id", "state", "projectId", "agentProfileId", "routeId", "providerId", "governanceSource", "admissionId", "timeoutSource", "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic"];
-  if (!isRecord(value) || !hasOnly(value, allowed) || value.version !== 1 || !isIdentifier(value.id) || !MANAGED_JOB_STATES.includes(value.state as ManagedJobState) || !isIdentifier(value.projectId) || !isIdentifier(value.agentProfileId) || !isIdentifier(value.routeId) || !isIdentifier(value.providerId) || !isIdentifier(value.governanceSource) || !isIdentifier(value.admissionId) || (value.timeoutSource !== "default" && value.timeoutSource !== "explicit-route") || !isHash(value.requestFingerprint) || !isHash(value.idempotencyKeyHash) || !isIso(value.createdAt) || !isIso(value.updatedAt) || Date.parse(value.createdAt) > Date.parse(value.updatedAt) || (value.parent !== undefined && (!isRecord(value.parent) || !hasOnly(value.parent, ["invocationId", "turnId"]) || !isIdentifier(value.parent.invocationId) || !isIdentifier(value.parent.turnId))) || (value.diagnostic !== undefined && !isDiagnostic(value.diagnostic))) throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
+  const allowed = ["version", "id", "state", "projectId", "configuredAgentProfileId", "admissionProfileId", "routeId", "providerId", "governanceSource", "admissionId", "timeoutSource", "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic"];
+  if (!isRecord(value) || !hasOnly(value, allowed) || value.version !== 1 || !isIdentifier(value.id) || !MANAGED_JOB_STATES.includes(value.state as ManagedJobState) || !isIdentifier(value.projectId) || !isIdentifier(value.configuredAgentProfileId) || !isIdentifier(value.admissionProfileId) || !isIdentifier(value.routeId) || !isIdentifier(value.providerId) || !isIdentifier(value.governanceSource) || !isIdentifier(value.admissionId) || (value.timeoutSource !== "default" && value.timeoutSource !== "explicit-route") || !isHash(value.requestFingerprint) || !isHash(value.idempotencyKeyHash) || !isIso(value.createdAt) || !isIso(value.updatedAt) || Date.parse(value.createdAt) > Date.parse(value.updatedAt) || (value.parent !== undefined && (!isRecord(value.parent) || !hasOnly(value.parent, ["invocationId", "turnId"]) || !isIdentifier(value.parent.invocationId) || !isIdentifier(value.parent.turnId))) || (value.diagnostic !== undefined && !isDiagnostic(value.diagnostic))) throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
   return value as unknown as ManagedJobRecord;
 }
 function normalizeStoreError(error: unknown): ManagedJobApplicationError { return error instanceof ManagedJobApplicationError ? error : new ManagedJobApplicationError("job_persistence_unavailable", "Restore the managed-job store and retry safely."); }
 function canTransition(from: ManagedJobState, to: ManagedJobState): boolean { if (from === to) return false; if (from === "queued") return to === "running" || to === "interrupted"; return from === "running" && (to === "succeeded" || to === "failed" || to === "timed_out" || to === "interrupted"); }
 function isFreshEvidence(value: ManagedJobGovernanceEvidence, now: Date): boolean { return isIso(value.issuedAt) && isIso(value.validUntil) && Date.parse(value.issuedAt) <= now.getTime() && now.getTime() <= Date.parse(value.validUntil); }
+function isAdmittedRoute(route: ManagedJobRoute, profile: ManagedJobProfile, now: Date): boolean {
+  return isIdentifier(route.id)
+    && route.id === profile.routeId
+    && isIdentifier(route.admissionProfileId)
+    && route.supportedAdmissionProfileIds.every(isIdentifier)
+    && route.supportedAdmissionProfileIds.includes(route.admissionProfileId)
+    && isIdentifier(route.providerId)
+    && route.scope.project === "validated"
+    && route.scope.read === "validated"
+    && route.scope.tools === "validated"
+    && route.scope.network === "validated"
+    && route.scope.write === "validated"
+    && route.eligibility.authority === "authoritative"
+    && isFreshRouteEligibility(route.eligibility, now)
+    && isBoundedRouteAuthority(route.authority);
+}
+function isFreshRouteEligibility(value: ManagedJobRoute["eligibility"], now: Date): boolean { return isIso(value.observedAt) && isIso(value.validUntil) && Date.parse(value.observedAt) <= now.getTime() && now.getTime() <= Date.parse(value.validUntil); }
+function isBoundedRouteAuthority(value: ManagedAgentAuthorityProfile): boolean {
+  return isIdentifier(value.authorityProfileId)
+    && isIdentifier(value.permissionProfile)
+    && value.toolAuthority.allowedToolNames.length > 0
+    && value.toolAuthority.allowedToolNames.every(isIdentifier)
+    && value.toolAuthority.writeAllowed === false
+    && typeof value.toolAuthority.networkAllowed === "boolean"
+    && value.workingDirectory.mode === "read-only"
+    && Number.isInteger(value.timeoutMs)
+    && value.timeoutMs > 0
+    && (value.memoryScope.access === "none" || value.memoryScope.access === "read-only")
+    && value.writeAuthority === undefined;
+}
 function isIdentifier(value: unknown): value is string { return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(value); }
 function isHash(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value); }
 function isDiagnostic(value: unknown): value is ManagedJobDiagnosticCode { return typeof value === "string" && ["invalid_request", "project_identity_unavailable", "governance_unavailable", "governance_not_authoritative", "admission_denied", "profile_unavailable", "route_unavailable", "idempotency_conflict", "job_persistence_unavailable", "job_persistence_corrupt", "unknown_job", "invalid_transition", "provider_rejected", "provider_timeout", "invocation_failed"].includes(value); }

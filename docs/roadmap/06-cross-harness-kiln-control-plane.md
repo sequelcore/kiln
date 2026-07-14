@@ -382,8 +382,9 @@ and invoked without `KILN_STATUS_EVIDENCE_INCOMPLETE`. The observed harness was
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 
-Status: Slice 3A and Slice 3B are implemented. Slice 3B awaits one bounded
-real Codex App/OpenCode Go acceptance; full Slice 3 remains incomplete.
+Status: Slice 3A and Slice 3B are implemented with a corrected Slice 3B
+selection contract. Slice 3B awaits one bounded real Codex App/OpenCode Go
+acceptance; full Slice 3 remains incomplete.
 
 Goal: allow admitted harness surfaces to invoke Kiln-managed agents through
 canonical routes without giving a harness ownership of managed-job state.
@@ -426,7 +427,7 @@ routing, persistence, lifecycle, or provider execution.
 The project-local Codex App adapter now projects exactly two managed-job
 operations: `kiln_managed_agent_invoke` and `kiln_managed_agent_status`.
 Production composition keeps the application owner, persistent store,
-governance, configured profile/route resolution, Runtime invocation bridge,
+governance, configured-agent/route resolution, Runtime invocation bridge,
 and direct-provider adapter outside the MCP presentation layer. The admitted
 configuration boundary restricts this vertical slice to `opencode-go`.
 
@@ -445,17 +446,20 @@ result and never selects a route itself. One pre-fix focused test accidentally
 used this default discovery before it was replaced with an injected local
 catalog; it may have performed metadata/eligibility discovery, but it could not
 have created a managed job or consumed billable inference.
-Capability inspection exposes a redacted profile summary with identity,
-admission state, direct-provider family, and stable diagnostic/action. It never
-exposes models, paths, credentials, permissions, configuration, or provider
-payloads. Zero eligible routes reports `profile_unavailable`, exactly one
-eligible OpenCode Go route reports admitted, and multiple eligible routes
-reports `route_unavailable` because profile-only invocation would be ambiguous.
-Provider-route availability alone is therefore not evidence that a profile is
-admitted. The current live blocker is two eligible OpenCode Go routes for the
-same read-only profile; the operator must make the canonical route policy
-unambiguous before the one remaining live acceptance can run. Slice 3 remains
-awaiting that acceptance.
+Configured agents and admission profiles are distinct identities. The caller
+requests a configured agent; the canonical catalog supplies that agent's route
+hint; the resolved route supplies and validates its admission profile. Slice 3
+intentionally admits the read-only planning profile only, and only when that
+profile is supplied by the hinted route. Multiple
+routes sharing an admission profile are valid. Capability inspection exposes a
+redacted configured-agent summary with identity, optional role/display name,
+availability, provider family, admission profile, and stable diagnostic/action.
+It never exposes route configuration, models, paths, credentials, permissions,
+configuration, or provider payloads. The Slice 3B live blocker was therefore a
+selection-contract defect, not invalid operator configuration: the former
+profile-only rule incorrectly required a global one-route binding. The repair
+uses the configured-agent hint and leaves full Slice 3 pending until corrected
+live acceptance passes. Slice 4 routing is not started.
 
 ### Slice 4 - Quota And Subscription-Aware Routing
 

@@ -4,7 +4,10 @@ import {
   type NativeHarnessInspectionService,
 } from "../application/native-harness-inspection.js";
 import type { ManagedJobRecord } from "@kilnai/runtime";
-import { createCodexAppManagedJobApplicationComposition } from "../application/codex-app-managed-jobs.js";
+import {
+  createCodexAppManagedJobApplicationComposition,
+  type CodexAppManagedAgentSummary,
+} from "../application/codex-app-managed-jobs.js";
 
 const INSPECTION_TOOL_NAMES = [
   "kiln_status_inspect",
@@ -38,6 +41,7 @@ export interface CodexAppMcpCallResult {
 export interface CodexAppMcpServerOptions {
   readonly inspection?: NativeHarnessInspectionService;
   readonly managedJobs?: ManagedJobApplicationPort;
+  readonly configuredAgents?: readonly CodexAppManagedAgentSummary[];
   readonly requestIdentity?: () => CodexAppMcpRequestIdentity;
   readonly sdkLoader?: () => Promise<CodexAppMcpSdk>;
   readonly transportFactory?: () => StdioServerTransport;
@@ -58,6 +62,7 @@ interface McpServerInstance {
 export class CodexAppMcpServer {
   private readonly inspection: NativeHarnessInspectionService;
   private readonly managedJobs: ManagedJobApplicationPort | undefined;
+  private readonly configuredAgents: readonly CodexAppManagedAgentSummary[];
   private readonly requestIdentity: () => CodexAppMcpRequestIdentity;
   private requestSequence = 0;
   private readonly sdkLoader: () => Promise<CodexAppMcpSdk>;
@@ -69,6 +74,7 @@ export class CodexAppMcpServer {
   constructor(options: CodexAppMcpServerOptions = {}) {
     this.inspection = options.inspection ?? createNativeHarnessInspectionService();
     this.managedJobs = options.managedJobs;
+    this.configuredAgents = options.configuredAgents ?? [];
     this.requestIdentity = options.requestIdentity ?? (() => ({ callerId: "codex-app" }));
     this.sdkLoader = options.sdkLoader ?? loadSdk;
     this.transportFactory = options.transportFactory ?? (() => new StdioServerTransport());
@@ -78,7 +84,7 @@ export class CodexAppMcpServer {
     return TOOL_NAMES.map((name) => ({
       name,
       description: descriptionFor(name),
-      inputSchema: inputSchemaFor(name),
+      inputSchema: inputSchemaFor(name, this.configuredAgents),
       outputSchema: { type: "object" },
       annotations: annotationsFor(name),
     }));
@@ -180,12 +186,12 @@ export class CodexAppMcpServer {
   }
 
   private invokeRequest(args: unknown, identity: CodexAppMcpRequestIdentity): Record<string, unknown> {
-    if (!isRecord(args) || !hasOnly(args, ["objective", "agentProfileId", "idempotencyKey"]) || typeof args.objective !== "string" || typeof args.agentProfileId !== "string" || typeof args.idempotencyKey !== "string") throw applicationInputError();
+    if (!isRecord(args) || !hasOnly(args, ["objective", "configuredAgentProfileId", "idempotencyKey"]) || typeof args.objective !== "string" || typeof args.configuredAgentProfileId !== "string" || typeof args.idempotencyKey !== "string") throw applicationInputError();
     const objective = args.objective.trim();
-    const agentProfileId = args.agentProfileId.trim();
+    const configuredAgentProfileId = args.configuredAgentProfileId.trim();
     const idempotencyKey = args.idempotencyKey.trim();
-    if (objective.length === 0 || objective.length > 12000 || !isIdentifier(agentProfileId) || !isIdentifier(idempotencyKey)) throw applicationInputError();
-    return { objective, agentProfileId, idempotencyKey, callerId: identity.callerId, ...(identity.parent ? { parent: identity.parent } : {}) };
+    if (objective.length === 0 || objective.length > 12000 || !isIdentifier(configuredAgentProfileId) || !isIdentifier(idempotencyKey)) throw applicationInputError();
+    return { objective, configuredAgentProfileId, idempotencyKey, callerId: identity.callerId, ...(identity.parent ? { parent: identity.parent } : {}) };
   }
 
   private statusRequest(args: unknown): string {
@@ -199,7 +205,8 @@ export class CodexAppMcpServer {
       job: {
         id: job.id,
         state: job.state,
-        agentProfileId: job.agentProfileId,
+        configuredAgentProfileId: job.configuredAgentProfileId,
+        admissionProfileId: job.admissionProfileId,
         routeId: job.routeId,
         governanceSource: job.governanceSource,
         timeoutSource: job.timeoutSource,
@@ -217,7 +224,8 @@ export async function startCodexAppMcpServer(): Promise<void> {
   const composition = await createCodexAppManagedJobApplicationComposition();
   const server = new CodexAppMcpServer({
     managedJobs: composition.service,
-    inspection: createNativeHarnessInspectionService({ managedProfiles: composition.profiles }),
+    configuredAgents: composition.configuredAgents,
+    inspection: createNativeHarnessInspectionService({ managedAgents: composition.configuredAgents }),
   });
   let closing = false;
   const close = async (): Promise<void> => {
@@ -244,9 +252,24 @@ function descriptionFor(name: CodexAppMcpToolName): string {
   return "Read canonical lifecycle status for one managed-job identifier.";
 }
 
-function inputSchemaFor(name: CodexAppMcpToolName): Record<string, unknown> {
+function inputSchemaFor(
+  name: CodexAppMcpToolName,
+  configuredAgents: readonly CodexAppManagedAgentSummary[],
+): Record<string, unknown> {
   if (INSPECTION_TOOL_NAMES.includes(name as typeof INSPECTION_TOOL_NAMES[number])) return emptyObjectSchema();
-  if (name === "kiln_managed_agent_invoke") return { type: "object", additionalProperties: false, required: ["objective", "agentProfileId", "idempotencyKey"], properties: { objective: { type: "string", minLength: 1, maxLength: 12000 }, agentProfileId: { type: "string", minLength: 1, maxLength: 200 }, idempotencyKey: { type: "string", minLength: 1, maxLength: 200 } } };
+  if (name === "kiln_managed_agent_invoke") {
+    const admittedAgentIds = configuredAgents.filter((agent) => agent.availability === "admitted").map((agent) => agent.configuredAgentProfileId);
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["objective", "configuredAgentProfileId", "idempotencyKey"],
+      properties: {
+        objective: { type: "string", minLength: 1, maxLength: 12000 },
+        configuredAgentProfileId: { type: "string", minLength: 1, maxLength: 200, ...(admittedAgentIds.length > 0 ? { enum: admittedAgentIds } : {}) },
+        idempotencyKey: { type: "string", minLength: 1, maxLength: 200 },
+      },
+    };
+  }
   return { type: "object", additionalProperties: false, required: ["jobId"], properties: { jobId: { type: "string", minLength: 1, maxLength: 200 } } };
 }
 
@@ -266,7 +289,7 @@ function applicationInputError(): Error & { code: "invalid_request" } { return O
 function applicationCode(error: unknown): string { return isRecord(error) && typeof error.code === "string" && /^[a-z_]{3,80}$/u.test(error.code) ? error.code : "internal_adapter_failure"; }
 function operatorActionFor(code: string): string {
   const actions: Record<string, string> = {
-    invalid_request: "Provide only valid bounded managed-job fields.", project_identity_unavailable: "Restore the trusted project composition boundary.", unknown_job: "Verify the managed-job identifier.", idempotency_conflict: "Use a new idempotency key for different managed work.", governance_unavailable: "Restore authoritative Kiln governance evidence.", governance_not_authoritative: "Refresh authoritative Kiln governance evidence.", admission_denied: "Review the authoritative work-governance policy.", profile_unavailable: "Choose a configured admitted agent profile.", route_unavailable: "Configure an admitted opencode-go managed-agent route.", job_persistence_unavailable: "Restore the managed-job store and retry safely.", job_persistence_corrupt: "Repair the managed-job store before retrying.", provider_rejected: "Review the Runtime managed-agent admission diagnostic.", provider_timeout: "Review the configured managed-agent timeout.", invocation_failed: "Inspect the Runtime managed-agent diagnostic before retrying.", internal_adapter_failure: "Retry safely or inspect Kiln status."
+    invalid_request: "Provide only valid bounded managed-job fields.", project_identity_unavailable: "Restore the trusted project composition boundary.", unknown_job: "Verify the managed-job identifier.", idempotency_conflict: "Use a new idempotency key for different managed work.", governance_unavailable: "Restore authoritative Kiln governance evidence.", governance_not_authoritative: "Refresh authoritative Kiln governance evidence.", admission_denied: "Review the authoritative work-governance policy.", profile_unavailable: "Choose a configured admitted agent.", route_unavailable: "Restore the configured agent route hint and current eligibility evidence.", job_persistence_unavailable: "Restore the managed-job store and retry safely.", job_persistence_corrupt: "Repair the managed-job store before retrying.", provider_rejected: "Review the Runtime managed-agent admission diagnostic.", provider_timeout: "Review the configured managed-agent timeout.", invocation_failed: "Inspect the Runtime managed-agent diagnostic before retrying.", internal_adapter_failure: "Retry safely or inspect Kiln status."
   };
   return actions[code] ?? "Retry safely or inspect Kiln status.";
 }

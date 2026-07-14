@@ -10,6 +10,7 @@ import {
   type ManagedJobRoute,
   type ManagedJobRuntimeInvocationResolver,
 } from "@kilnai/runtime";
+import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
 import type { ManagedInvocationRouteResolution } from "../config/managed-agent-routes.js";
@@ -21,8 +22,8 @@ import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 
 const CODEX_APP_CALLER_ID = "codex-app";
-const ADMITTED_PROVIDER_ID = "opencode-go";
-const ADMITTED_PROFILE_ID = "foundation-readonly-plan";
+/** Slice 3 admits read-only planning only; the route must explicitly support it. */
+const REQUIRED_ADMISSION_PROFILE_ID = "foundation-readonly-plan";
 
 /**
  * Production composition for the project-local Codex App bridge. Configuration
@@ -31,6 +32,7 @@ const ADMITTED_PROFILE_ID = "foundation-readonly-plan";
  */
 export interface CreateCodexAppManagedJobApplicationCompositionOptions {
   readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
+  readonly onRefreshError?: (error: unknown) => void;
 }
 
 export async function createCodexAppManagedJobApplicationService(
@@ -39,17 +41,20 @@ export async function createCodexAppManagedJobApplicationService(
   return (await createCodexAppManagedJobApplicationComposition(options)).service;
 }
 
-export interface CodexAppManagedProfileSummary {
-  readonly id: string;
+export interface CodexAppManagedAgentSummary {
+  readonly configuredAgentProfileId: string;
+  readonly displayName?: string;
+  readonly role?: string;
   readonly availability: "admitted" | "unavailable" | "unresolved";
-  readonly providerId: "opencode-go";
-  readonly diagnostic?: "profile_unavailable" | "route_unavailable" | "eligibility_unresolved";
+  readonly providerFamily?: string;
+  readonly admissionProfileId: string;
+  readonly diagnostic?: "route_unavailable" | "eligibility_unresolved";
   readonly operatorAction?: string;
 }
 
 export interface CodexAppManagedJobApplicationComposition {
   readonly service: ManagedJobApplicationService;
-  readonly profiles: readonly CodexAppManagedProfileSummary[];
+  readonly configuredAgents: readonly CodexAppManagedAgentSummary[];
 }
 
 export async function createCodexAppManagedJobApplicationComposition(
@@ -59,11 +64,17 @@ export async function createCodexAppManagedJobApplicationComposition(
   if (root.status !== "resolved") {
     throw new ManagedJobApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
   }
-  const snapshot = await readConfigStatusSnapshot({ projectPath: root.rootPath });
-  const config = snapshot.effectiveConfig as KilnYaml | undefined;
   const { registry } = createDefaultRegistry();
-  const catalog = config
-    ? await createStagedManagedInvocationRouteCatalog(config, {
+  const freshManagedInvocation = async (): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
+    let config: KilnYaml | undefined;
+    try {
+      config = (await readConfigStatusSnapshot({ projectPath: root.rootPath })).effectiveConfig as KilnYaml | undefined;
+    } catch {
+      throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
+    }
+    if (!config) throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
+    let refreshFailure: unknown;
+    const catalog = await createStagedManagedInvocationRouteCatalog(config, {
       cwd: root.rootPath,
       registry,
       surface: "operator",
@@ -71,10 +82,24 @@ export async function createCodexAppManagedJobApplicationComposition(
         builtinToolOptions: createSessionBuiltinToolOptions(),
       }),
       builtinToolOptions: createSessionBuiltinToolOptions(),
-    }, options)
-    : undefined;
-  await catalog?.refreshNow();
-  const managedInvocation = catalog?.managedInvocation;
+    }, {
+      ...options,
+      onRefreshError: (error) => {
+        refreshFailure = error;
+        options.onRefreshError?.(error);
+      },
+    });
+    await catalog.refreshNow();
+    const current = catalog.managedInvocation;
+    if (refreshFailure !== undefined || !current) throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
+    return current;
+  };
+  const managedInvocation = await freshManagedInvocation();
+  const configuredAgents = await loadAgentDefinitions(root.rootPath);
+  const admittedRoutes = new Map<string, {
+    readonly route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number];
+    readonly invocationService: NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"]>;
+  }>();
 
   const service = new ManagedJobApplicationService({
     project: { resolve: async () => ({ id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` }) },
@@ -107,72 +132,77 @@ export async function createCodexAppManagedJobApplicationComposition(
       },
     },
     profiles: {
-      resolve: async (id) => isConfiguredProfile(managedInvocation, id) ? { id } : undefined,
+      resolve: async (id) => {
+        const agent = findAgent(await loadAgentDefinitions(root.rootPath), id);
+        return agent?.routeId ? { id: agent.name, routeId: agent.routeId } : undefined;
+      },
     },
     routes: {
-      resolve: async (profile) => routeForProfile(managedInvocation, profile),
+      resolve: async (profile) => {
+        const current = await freshManagedInvocation();
+        const route = routeForProfile(current, profile);
+        if (route) {
+          const selected = current.routes.find((candidate) => candidate.routeId === route.id);
+          if (selected && current.invocationService) admittedRoutes.set(`${profile.id}:${route.id}`, { route: selected, invocationService: current.invocationService });
+        }
+        return route;
+      },
     },
-    runtime: managedInvocation?.invocationService
-      ? createRuntimeManagedJobInvocationPort({ service: managedInvocation.invocationService, resolver: runtimeResolver(managedInvocation) })
-      : { invoke: async () => { throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route."); } },
+    runtime: {
+      invoke: async (input) => {
+        const admitted = admittedRoutes.get(`${input.profile.id}:${input.route.id}`);
+        if (!admitted) {
+          throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route.");
+        }
+        return createRuntimeManagedJobInvocationPort({ service: admitted.invocationService, resolver: runtimeResolver(admitted.route) }).invoke(input);
+      },
+    },
     store: new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs")),
   });
-  return { service, profiles: summarizeCodexAppManagedProfiles(managedInvocation) };
-}
-
-function isConfiguredProfile(resolution: ManagedInvocationRouteResolution["managedInvocation"], id: string): boolean {
-  return id === ADMITTED_PROFILE_ID
-    && (resolution?.routes.some((route) => route.providerId === ADMITTED_PROVIDER_ID && route.profiles[ADMITTED_PROFILE_ID] !== undefined) ?? false);
+  return { service, configuredAgents: summarizeCodexAppManagedAgents(configuredAgents, managedInvocation) };
 }
 
 function routeForProfile(resolution: ManagedInvocationRouteResolution["managedInvocation"], profile: ManagedJobProfile): ManagedJobRoute | undefined {
-  if (profile.id !== ADMITTED_PROFILE_ID) return undefined;
-  const routes = resolution?.routes.filter((candidate) => candidate.providerId === ADMITTED_PROVIDER_ID && candidate.profiles[ADMITTED_PROFILE_ID] !== undefined) ?? [];
+  const routes = resolution?.routes.filter((candidate) => candidate.routeId === profile.routeId) ?? [];
   if (routes.length !== 1) return undefined;
   const route = routes[0];
   if (!route) return undefined;
-  const routeProfile = route.profiles[profile.id as ManagedAgentAdmissionProfile]!;
+  const admissionProfileId = selectAdmissionProfile(route);
+  if (!admissionProfileId) return undefined;
+  const routeProfile = route.profiles[admissionProfileId];
+  if (!routeProfile) return undefined;
+  const observedAt = new Date();
   return {
     id: route.routeId,
-    agentProfileId: profile.id,
+    admissionProfileId,
+    supportedAdmissionProfileIds: Object.keys(route.profiles),
     providerId: route.providerId,
     timeoutSource: routeProfile.timeoutSource ?? "default",
+    scope: { project: "validated", read: "validated", tools: "validated", network: "validated", write: "validated" },
+    eligibility: { authority: "authoritative", observedAt: observedAt.toISOString(), validUntil: new Date(observedAt.getTime() + 60_000).toISOString() },
+    authority: managedJobAuthority(routeProfile),
   };
 }
 
-function runtimeResolver(resolution: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>): ManagedJobRuntimeInvocationResolver {
+function runtimeResolver(route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number]): ManagedJobRuntimeInvocationResolver {
   return {
     async resolve(input) {
-      const route = input.profile.id === ADMITTED_PROFILE_ID
-        ? resolution.routes.find((candidate) => candidate.routeId === input.route.id && candidate.providerId === ADMITTED_PROVIDER_ID && candidate.profiles[ADMITTED_PROFILE_ID] !== undefined)
-        : undefined;
-      const profile = route?.profiles[ADMITTED_PROFILE_ID];
-      if (!route || !profile || route.providerId !== ADMITTED_PROVIDER_ID) {
-        throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted opencode-go managed-agent route.");
+      const profile = route?.profiles[input.route.admissionProfileId as ManagedAgentAdmissionProfile];
+      if (!profile || route.routeId !== input.route.id || !input.route.supportedAdmissionProfileIds.includes(input.route.admissionProfileId)) {
+        throw new ManagedJobApplicationError("route_unavailable", "Configure the configured agent's admitted managed-agent route.");
       }
       const request = defineManagedAgentInvocationRequest({
         invocationId: input.jobId,
         agentId: `${route.routeId}:${input.profile.id}`,
         parentSessionId: CODEX_APP_CALLER_ID,
         parentTurnId: input.jobId,
-        profile: input.profile.id as ManagedAgentAdmissionProfile,
+        profile: input.route.admissionProfileId as ManagedAgentAdmissionProfile,
         requestedBy: CODEX_APP_CALLER_ID,
         requestSource: "codex-app-mcp",
         providerRoute: { providerId: route.providerId, surface: "direct-provider", ...(route.model ? { model: route.model } : {}) },
         adapterKind: route.adapter.descriptor.adapterKind,
         executionMode: "direct-provider",
-        authority: {
-          authorityProfileId: profile.authorityProfileId,
-          permissionProfile: profile.permissionProfile,
-          toolAuthority: { allowedToolNames: profile.allowedToolNames, writeAllowed: profile.writeAllowed === true, networkAllowed: profile.networkAllowed === true },
-          workingDirectory: profile.workingDirectory,
-          timeoutMs: profile.timeoutMs,
-          ...(profile.timeoutSource ? { timeoutSource: profile.timeoutSource } : {}),
-          credentialRoute: profile.credentialRoute,
-          memoryScope: profile.memoryScope,
-          ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
-          ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
-        },
+        authority: input.route.authority,
         input: { summary: input.objective.slice(0, 512), prompt: input.objective, context: { mode: "isolated" } },
       });
       return {
@@ -192,22 +222,63 @@ function runtimeResolver(resolution: NonNullable<ManagedInvocationRouteResolutio
   };
 }
 
-export function summarizeCodexAppManagedProfiles(resolution: ManagedInvocationRouteResolution["managedInvocation"]): readonly CodexAppManagedProfileSummary[] {
-  const routes = resolution?.routes.filter((route) => route.providerId === ADMITTED_PROVIDER_ID && route.profiles[ADMITTED_PROFILE_ID] !== undefined) ?? [];
-  if (routes.length === 1) return [{ id: ADMITTED_PROFILE_ID, availability: "admitted", providerId: ADMITTED_PROVIDER_ID }];
-  const unresolved = resolution?.unavailableRoutes?.some((route) => route.providerId === ADMITTED_PROVIDER_ID && route.profiles.includes(ADMITTED_PROFILE_ID)) ?? false;
-  if (unresolved) return [{
-    id: ADMITTED_PROFILE_ID,
-    availability: "unresolved",
-    providerId: ADMITTED_PROVIDER_ID,
-    diagnostic: "eligibility_unresolved",
-    operatorAction: "Refresh canonical managed-route eligibility evidence before invoking this profile.",
-  }];
-  return [{
-    id: ADMITTED_PROFILE_ID,
-    availability: "unavailable",
-    providerId: ADMITTED_PROVIDER_ID,
-    diagnostic: routes.length === 0 ? "profile_unavailable" : "route_unavailable",
-    operatorAction: routes.length === 0 ? "Configure an admitted managed-agent profile." : "Configure exactly one admitted managed-agent route for this profile.",
-  }];
+function selectAdmissionProfile(
+  route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number],
+): ManagedAgentAdmissionProfile | undefined {
+  return route.profiles[REQUIRED_ADMISSION_PROFILE_ID] ? REQUIRED_ADMISSION_PROFILE_ID : undefined;
+}
+
+function managedJobAuthority(
+  profile: NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number]["profiles"][ManagedAgentAdmissionProfile]>,
+): ManagedJobRoute["authority"] {
+  return {
+    authorityProfileId: profile.authorityProfileId,
+    permissionProfile: profile.permissionProfile,
+    toolAuthority: { allowedToolNames: profile.allowedToolNames, writeAllowed: profile.writeAllowed === true, networkAllowed: profile.networkAllowed === true },
+    workingDirectory: profile.workingDirectory,
+    timeoutMs: profile.timeoutMs,
+    ...(profile.timeoutSource ? { timeoutSource: profile.timeoutSource } : {}),
+    credentialRoute: profile.credentialRoute,
+    memoryScope: profile.memoryScope,
+    ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
+    ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
+  };
+}
+
+export function summarizeCodexAppManagedAgents(
+  configuredAgents: readonly KilnAgentDefinition[],
+  resolution: ManagedInvocationRouteResolution["managedInvocation"],
+): readonly CodexAppManagedAgentSummary[] {
+  return configuredAgents.flatMap((agent): readonly CodexAppManagedAgentSummary[] => {
+    if (!agent.routeId) return [];
+    const base = {
+      configuredAgentProfileId: agent.name,
+      ...(agent.displayName ? { displayName: agent.displayName } : {}),
+      ...(agent.role ? { role: agent.role } : {}),
+      admissionProfileId: REQUIRED_ADMISSION_PROFILE_ID,
+    };
+    const routes = resolution?.routes.filter((route) => route.routeId === agent.routeId) ?? [];
+    const route = routes.length === 1 ? routes[0] : undefined;
+    const admissionProfileId = route ? selectAdmissionProfile(route) : undefined;
+    if (route && admissionProfileId) {
+      return [{ ...base, availability: "admitted", providerFamily: route.providerId }];
+    }
+    const unavailable = resolution?.unavailableRoutes?.find((candidate) =>
+      candidate.routeId === agent.routeId && candidate.profiles.includes(REQUIRED_ADMISSION_PROFILE_ID));
+    if (unavailable) {
+      return [{
+        ...base,
+        availability: "unresolved",
+        providerFamily: unavailable.providerId,
+        diagnostic: "eligibility_unresolved",
+        operatorAction: "Refresh canonical managed-route eligibility evidence before invoking this configured agent.",
+      }];
+    }
+    return [{
+      ...base,
+      availability: "unavailable",
+      diagnostic: "route_unavailable",
+      operatorAction: "Restore the configured route hint and its admitted managed-agent route.",
+    }];
+  });
 }

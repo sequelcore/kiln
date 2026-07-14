@@ -26,14 +26,17 @@ export interface NativeHarnessInspectionPort {
   readBridgeProjection?: (projectRoot: string) => Promise<BridgeProjectionState>;
   readProjectRoot?: () => Promise<NativeHarnessProjectRootResolution>;
   now?: () => Date;
-  managedProfiles?: readonly NativeHarnessManagedProfileSummary[];
+  managedAgents?: readonly NativeHarnessManagedAgentSummary[];
 }
 
-export interface NativeHarnessManagedProfileSummary {
-  readonly id: string;
+export interface NativeHarnessManagedAgentSummary {
+  readonly configuredAgentProfileId: string;
+  readonly displayName?: string;
+  readonly role?: string;
   readonly availability: "admitted" | "unavailable" | "unresolved";
-  readonly providerId?: "opencode-go";
-  readonly diagnostic?: "profile_unavailable" | "route_unavailable" | "eligibility_unresolved";
+  readonly providerFamily?: string;
+  readonly admissionProfileId: string;
+  readonly diagnostic?: "route_unavailable" | "eligibility_unresolved";
   readonly operatorAction?: string;
 }
 
@@ -109,7 +112,7 @@ export interface NativeHarnessCapabilityResult {
       readonly supportedProviderIds: readonly string[];
     };
     readonly bridgeProjection: BridgeProjectionState | "unresolved";
-    readonly managedProfiles: readonly NativeHarnessManagedProfileSummary[];
+    readonly managedAgents: readonly NativeHarnessManagedAgentSummary[];
   };
   readonly diagnostics: readonly NativeHarnessDiagnostic[];
 }
@@ -247,7 +250,7 @@ export function createNativeHarnessInspectionService(
           hooks: capability?.hooks ?? "unresolved",
           crossHarnessManagedInvocation: capability?.crossHarnessManagedInvocation ?? { adapterId: "unresolved", supportedProviderIds: [] },
           bridgeProjection,
-          managedProfiles: projectManagedProfiles(port.managedProfiles ?? []),
+          managedAgents: projectManagedAgents(port.managedAgents ?? []),
         },
         diagnostics: [...diagnostics, ...capabilityDiagnostics],
       };
@@ -255,17 +258,21 @@ export function createNativeHarnessInspectionService(
   };
 }
 
-function projectManagedProfiles(profiles: readonly NativeHarnessManagedProfileSummary[]): readonly NativeHarnessManagedProfileSummary[] {
-  return profiles.filter((profile) => profile.id === "foundation-readonly-plan"
-    && profile.providerId === "opencode-go"
-    && (profile.availability === "admitted" || profile.availability === "unavailable" || profile.availability === "unresolved")
-    && (profile.diagnostic === undefined || profile.diagnostic === "profile_unavailable" || profile.diagnostic === "route_unavailable" || profile.diagnostic === "eligibility_unresolved"))
-    .map((profile) => ({
-      id: profile.id,
-      availability: profile.availability,
-      providerId: profile.providerId,
-      ...(profile.diagnostic ? { diagnostic: profile.diagnostic } : {}),
-      ...(profile.operatorAction ? { operatorAction: profile.operatorAction } : {}),
+function projectManagedAgents(agents: readonly NativeHarnessManagedAgentSummary[]): readonly NativeHarnessManagedAgentSummary[] {
+  return agents.filter((agent) => isIdentifier(agent.configuredAgentProfileId)
+    && agent.admissionProfileId === "foundation-readonly-plan"
+    && (agent.providerFamily === undefined || isIdentifier(agent.providerFamily))
+    && (agent.availability === "admitted" || agent.availability === "unavailable" || agent.availability === "unresolved")
+    && (agent.diagnostic === undefined || agent.diagnostic === "route_unavailable" || agent.diagnostic === "eligibility_unresolved"))
+    .map((agent) => ({
+      configuredAgentProfileId: agent.configuredAgentProfileId,
+      ...(agent.displayName ? { displayName: agent.displayName } : {}),
+      ...(agent.role ? { role: agent.role } : {}),
+      availability: agent.availability,
+      admissionProfileId: agent.admissionProfileId,
+      ...(agent.providerFamily ? { providerFamily: agent.providerFamily } : {}),
+      ...(agent.diagnostic ? { diagnostic: agent.diagnostic } : {}),
+      ...(agent.operatorAction ? { operatorAction: agent.operatorAction } : {}),
     }));
 }
 
@@ -317,7 +324,7 @@ function unresolvedCapability(diagnostic: NativeHarnessDiagnostic, now: Date): N
       hooks: "unresolved",
       crossHarnessManagedInvocation: { adapterId: "unresolved", supportedProviderIds: [] },
       bridgeProjection: "unresolved",
-      managedProfiles: [],
+      managedAgents: [],
     },
     diagnostics: [diagnostic],
   };
@@ -370,6 +377,10 @@ function diagnosticFor(code: string, targetId?: string): NativeHarnessDiagnostic
   };
   const base = diagnostics[code] ?? { message: "Native-harness inspection failed safely.", operatorAction: "Retry the read-only inspection after reviewing Kiln setup diagnostics." };
   return { code, ...base, ...(targetId ? { targetId } : {}) };
+}
+
+function isIdentifier(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(value);
 }
 
 async function readCodexAppBridgeProjection(projectRoot: string): Promise<BridgeProjectionState> {

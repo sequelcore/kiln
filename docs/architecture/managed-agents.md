@@ -106,21 +106,33 @@ identity, idempotency, status, and honest restart recovery. All presentation
 surfaces are consumers; none may create private background-job state.
 
 The request permits only bounded objective text, a configured agent-profile
-identity, an idempotency identity, and optional parent invocation/turn lineage.
+identity (`configuredAgentProfileId`), an idempotency identity, and optional
+parent invocation/turn lineage. A configured agent is an operator-owned child
+identity with an explicit canonical route hint; it is not an admission or
+authority profile. Admission profiles, such as `foundation-readonly-plan`, are
+route-owned authority classifications.
 It cannot choose provider, model, paths, environment, credentials, raw config,
 authority, governance evidence, or timeout. A trusted composition boundary
 supplies project identity; CLI resolves configured profiles/routes through
 adapters injected into Runtime, never through a Runtime-to-CLI dependency.
 
-The owner validates fresh, versioned authoritative governance before admission,
-profile/route resolution, persistence, or provider dispatch. It stores only
-safe evidence: project, profile, route/provider, governance source, timeout
-source, parent lineage, timestamps, lifecycle, and fingerprints. It does not
+The owner validates fresh, versioned authoritative governance, resolves the
+requested configured agent through the canonical catalog, requires its explicit
+route hint, resolves exactly that current eligible route, and obtains the
+route-owned `admissionProfileId` before project, read, tool, network, and write
+scope validation, governance admission,
+persistence, or provider dispatch. Missing, unavailable, contradictory, or
+unsupported or stale eligibility hints fail closed before job creation. Multiple routes may support the same admission
+profile because the configured agent's hint, not the admission profile, selects
+the route. It stores only safe evidence: project, configured-agent profile,
+admission profile, route/provider, governance source, timeout source, parent
+lineage, timestamps, lifecycle, and fingerprints. It does not
 persist objectives, credentials, environment values, paths, raw configuration,
 provider payloads, exception details, stack traces, or hidden reasoning.
 
 The same idempotency identity and normalized-request fingerprint returns one
-job; a changed request yields a stable conflict. Valid states are `queued`,
+job; changing the configured-agent identity under that same key yields a stable
+conflict. Valid states are `queued`,
 `running`, `succeeded`, `failed`, `timed_out`, and `interrupted`. Terminal
 states are immutable. Because this slice does not resume provider work,
 nonterminal work recovered after restart becomes `interrupted`, never remains
@@ -135,7 +147,8 @@ existing Codex App MCP adapter.
 
 The project-local Codex App MCP adapter exposes exactly
 `kiln_managed_agent_invoke` and `kiln_managed_agent_status`, alongside its
-three inspection tools. Invoke accepts only `objective`, `agentProfileId`, and
+three inspection tools. Invoke accepts only `objective`,
+`configuredAgentProfileId`, and
 `idempotencyKey`; status accepts only `jobId`. The adapter derives the caller
 from trusted harness composition and the project from its source checkout. It
 does not accept parent lineage, route, provider, model, paths, authority,
@@ -143,11 +156,17 @@ configuration, environment, credentials, or timeout inputs.
 
 Production composition creates the Runtime `ManagedJobApplicationService`,
 uses the persistent `.kiln/managed-jobs` owner, canonical governance status,
-configured route resolution, Runtime invocation service, and existing direct
-provider adapter. The application route boundary admits exactly one configured
-`opencode-go` route for `foundation-readonly-plan`; an additional matching route
-or any other profile fails closed. The MCP adapter never makes that decision. Responses
-project only opaque job/lifecycle, profile/route, governance/timeout source,
+configured-agent catalog and route resolution, Runtime invocation service, and
+existing direct-provider adapter. The application boundary refreshes canonical
+eligibility for every submission, uses the selected configured agent's exact
+route hint, then validates the route-owned admission profile and scope before
+persisting the job. Slice 3's explicit application admission requirement is
+`foundation-readonly-plan`; a route must supply that profile. The MCP adapter
+never makes either decision. Capability inspection
+projects safe configured-agent identity, optional role/display name, availability,
+provider family, admission profile, and stable action; it does not expose route
+configuration. Responses project only opaque job/lifecycle, configured-agent,
+admission-profile and route evidence, governance/timeout source,
 timestamps, caller/request evidence, and stable diagnostics. They never
 return objectives, raw provider data, storage paths, configuration, secrets,
 exceptions, or stacks.
@@ -156,7 +175,9 @@ Idempotency remains entirely in the persistent owner: the same trusted caller,
 key, and normalized request returns the original job, while a changed request
 returns the canonical conflict. There is no MCP retry cache. This surface does
 not expose result retrieval, cancellation, listing, configuration mutation,
-bulk invocation, native CLI execution, or provider/model selection.
+bulk invocation, native CLI execution, or provider/model selection. This slice
+does not implement quota-aware or automatic multi-route routing; that remains a
+Slice 4 concern.
 
 ## Lifecycle And Parallel Execution
 
