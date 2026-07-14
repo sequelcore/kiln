@@ -482,7 +482,7 @@ Slice 3B. Slice 4 routing is not started.
 
 #### Slice 3C - Canonical Managed-Job Result Handoff
 
-Status: Ready. Exactly one bounded objective is admitted.
+Status: Implemented on 2026-07-13; awaiting one corrected live Codex App result-acceptance proof. Full Slice 3 remains incomplete.
 
 Objective: expose safe canonical managed-job result handoff/retrieval to Codex
 App without duplicating Runtime lifecycle or leaking prompts, transcripts,
@@ -498,6 +498,17 @@ Remaining full Slice 3 scope is explicit:
 
 Slice 3C must remain a thin projection over Runtime-owned managed-job state. It
 must not implement the Claude path, cancellation, replay, or Slice 4 routing.
+
+Slice 3C now persists the existing Runtime canonical result handoff before a
+managed job is observable as `succeeded`, authorizes status/result reads with
+trusted caller and project ownership, and exposes one explicit
+`kiln_managed_agent_result` tool. Historical pre-result records remain
+truthful: their terminal state is preserved and they return the stable
+`result_unavailable` diagnostic rather than a transcript-derived result.
+Result content is bounded, redacted untrusted child output and is never a
+governance or instruction channel. The corrected live acceptance must submit
+one newly admitted read-only Codex App job and retrieve its explicit result;
+it must not inspect, alter, or infer a result for the Slice 3B historical job.
 
 ### Slice 4 - Quota And Subscription-Aware Routing
 

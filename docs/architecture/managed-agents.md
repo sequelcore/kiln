@@ -102,8 +102,9 @@ record against the admitted request and snapshot.
 
 Runtime owns the persistent managed-job application boundary in
 `packages/runtime/src/managed-jobs`. It owns admitted submission, opaque job
-identity, idempotency, status, and honest restart recovery. All presentation
-surfaces are consumers; none may create private background-job state.
+identity, idempotency, status and result reads, canonical result persistence,
+and honest restart recovery. All presentation surfaces are consumers; none may
+create private background-job state or reconstruct a result from a transcript.
 
 The request permits only bounded objective text, a configured agent-profile
 identity (`configuredAgentProfileId`), an idempotency identity, and optional
@@ -124,9 +125,10 @@ scope validation, governance admission,
 persistence, or provider dispatch. Missing, unavailable, contradictory, or
 unsupported or stale eligibility hints fail closed before job creation. Multiple routes may support the same admission
 profile because the configured agent's hint, not the admission profile, selects
-the route. It stores only safe evidence: project, configured-agent profile,
-admission profile, route/provider, governance source, timeout source, parent
-lineage, timestamps, lifecycle, and fingerprints. It does not
+the route. It stores only safe evidence: project and trusted caller ownership,
+configured-agent profile, admission profile, route/provider, governance source,
+timeout source, parent lineage, timestamps, lifecycle, fingerprints, and the
+validated Runtime result handoff. It does not
 persist objectives, credentials, environment values, paths, raw configuration,
 provider payloads, exception details, stack traces, or hidden reasoning.
 
@@ -134,23 +136,44 @@ The same idempotency identity and normalized-request fingerprint returns one
 job; changing the configured-agent identity under that same key yields a stable
 conflict. Valid states are `queued`,
 `running`, `succeeded`, `failed`, `timed_out`, and `interrupted`. Terminal
-states are immutable. Because this slice does not resume provider work,
+states are immutable. A job cannot become `succeeded` until the validated
+canonical handoff is durably persisted in the same owner write. Result
+availability is independent of lifecycle: nonterminal jobs are `pending`; a
+persisted validated handoff is `available`; terminal jobs with no recoverable
+handoff are `unavailable`; failed, timed-out, interrupted, or cancelled jobs
+are `failed` and expose only a safe terminal diagnostic; corrupt, mismatched,
+unsupported, or unauthorized evidence is `unresolved` and fails closed.
+Because this slice does not resume provider work,
 nonterminal work recovered after restart becomes `interrupted`, never remains
 shown as running. Provider dispatch is a Runtime port; configured direct route
 identity remains `opencode-go`, with no shell or native-CLI subprocess path.
 
-This boundary exposes no MCP tool, cancellation, result retrieval, replay API,
-or new provider adapter. Slice 3B may only project submit/status through the
-existing Codex App MCP adapter.
+The persisted result reuses Runtime's `ManagedAgentInvocationRecord.resultHandoff`;
+it is not a second handoff format. Its summary is bounded untrusted child
+output, never governance or instruction authority. Only admitted safe resource
+references are retained; transcript, replay, diagnostic, filesystem, and
+provider references are not projected through this result boundary. Explicit
+truncation evidence is retained when bounded content cannot be represented in
+full. Result records validate version, job and invocation identity, route,
+configured agent, admission profile, terminal state, and timestamps before
+they are observable. Terminal results are immutable.
+
+Records written before result persistence remain valid historical job records:
+their terminal status is preserved and result reads return stable
+`result_unavailable`; the owner never mines transcripts or provider logs to
+backfill them. This bounded historical rule may be removed only after all
+supported persisted managed-job records have been migrated or expired under an
+explicit retention decision.
 
 ### Codex App MCP projection
 
 The project-local Codex App MCP adapter exposes exactly
-`kiln_managed_agent_invoke` and `kiln_managed_agent_status`, alongside its
+`kiln_managed_agent_invoke`, `kiln_managed_agent_status`, and
+`kiln_managed_agent_result`, alongside its
 three inspection tools. Invoke accepts only `objective`,
 `configuredAgentProfileId`, and
-`idempotencyKey`; status accepts only `jobId`. The adapter derives the caller
-from trusted harness composition and the project from its source checkout. It
+`idempotencyKey`; status and result each accept only `jobId`. The adapter derives the caller
+and harness from trusted composition and the project from its source checkout. It
 does not accept parent lineage, route, provider, model, paths, authority,
 configuration, environment, credentials, or timeout inputs.
 
@@ -165,19 +188,24 @@ persisting the job. Slice 3's explicit application admission requirement is
 never makes either decision. Capability inspection
 projects safe configured-agent identity, optional role/display name, availability,
 provider family, admission profile, and stable action; it does not expose route
-configuration. Responses project only opaque job/lifecycle, configured-agent,
-admission-profile and route evidence, governance/timeout source,
-timestamps, caller/request evidence, and stable diagnostics. They never
-return objectives, raw provider data, storage paths, configuration, secrets,
-exceptions, or stacks.
+configuration. Status and result reads are authorized by the application owner
+against the trusted project, trusted Codex App caller/harness identity, and
+canonical job ownership; knowing a job identifier is insufficient. Responses
+project only opaque job/lifecycle, configured-agent, admission-profile and
+route/provider evidence, completion timestamp, untrusted-result provenance,
+bounded normalized handoff or admitted safe resource references,
+caller/request evidence, and stable diagnostics. They never return objectives,
+prompts, transcripts, hidden reasoning, raw provider data, storage paths,
+configuration, secrets, exceptions, or stacks. Redaction is applied before
+persistence and again at projection.
 
 Idempotency remains entirely in the persistent owner: the same trusted caller,
-key, and normalized request returns the original job, while a changed request
-returns the canonical conflict. There is no MCP retry cache. This surface does
-not expose result retrieval, cancellation, listing, configuration mutation,
-bulk invocation, native CLI execution, or provider/model selection. This slice
-does not implement quota-aware or automatic multi-route routing; that remains a
-Slice 4 concern.
+key, and normalized request returns the original job and its immutable result,
+while a changed request returns the canonical conflict. There is no MCP retry
+cache. This surface does not expose cancellation, listing, configuration
+mutation, bulk invocation, native CLI execution, or provider/model selection.
+This slice does not implement quota-aware or automatic multi-route routing;
+that remains a Slice 4 concern.
 
 ## Lifecycle And Parallel Execution
 

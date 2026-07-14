@@ -205,9 +205,14 @@ export type {
   ManagedJobRoutePort,
   ManagedJobRuntimeInvocationPort,
   ManagedJobRuntimeInvocationResolver,
+  ManagedJobRuntimeResult,
+  ManagedJobResult,
+  ManagedJobResultAvailability,
+  ManagedJobResultQuery,
   ManagedJobState,
   ManagedJobStore,
   ManagedJobSubmission,
+  TrustedManagedJobQueryContext,
   TrustedManagedJobProject,
 } from "./managed-jobs/index.js";
 export type {

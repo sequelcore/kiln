@@ -3,9 +3,10 @@ import {
   createNativeHarnessInspectionService,
   type NativeHarnessInspectionService,
 } from "../application/native-harness-inspection.js";
-import type { ManagedJobRecord } from "@kilnai/runtime";
+import type { ManagedJobRecord, ManagedJobResultQuery } from "@kilnai/runtime";
 import {
   createCodexAppManagedJobApplicationComposition,
+  type CodexAppManagedJobApplicationPort,
   type CodexAppManagedAgentSummary,
 } from "../application/codex-app-managed-jobs.js";
 
@@ -14,16 +15,13 @@ const INSPECTION_TOOL_NAMES = [
   "kiln_work_governance_inspect",
   "kiln_capability_inspect",
 ] as const;
-const MANAGED_JOB_TOOL_NAMES = ["kiln_managed_agent_invoke", "kiln_managed_agent_status"] as const;
+const MANAGED_JOB_TOOL_NAMES = ["kiln_managed_agent_invoke", "kiln_managed_agent_status", "kiln_managed_agent_result"] as const;
 const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...MANAGED_JOB_TOOL_NAMES] as const;
 
 type CodexAppMcpToolName = typeof TOOL_NAMES[number];
 
 /** The canonical application boundary. The MCP adapter must not reimplement it. */
-export interface ManagedJobApplicationPort {
-  submit(input: unknown): Promise<ManagedJobRecord>;
-  status(id: string): Promise<ManagedJobRecord>;
-}
+export type ManagedJobApplicationPort = CodexAppManagedJobApplicationPort;
 
 /** Trusted harness identity, supplied by composition rather than MCP arguments. */
 export interface CodexAppMcpRequestIdentity {
@@ -175,10 +173,17 @@ export class CodexAppMcpServer {
   ): Promise<CodexAppMcpCallResult> {
     if (!this.managedJobs) return this.error("KILN_MANAGED_JOBS_UNAVAILABLE", "The managed-job application owner is unavailable.", "Restart Codex App after the managed-job application boundary is configured.", requestId);
     try {
-      const job = name === "kiln_managed_agent_invoke"
-        ? await this.managedJobs.submit(this.invokeRequest(args, identity))
-        : await this.managedJobs.status(this.statusRequest(args));
-      return this.managedJobSuccess(name, job, identity, requestId);
+      if (name === "kiln_managed_agent_invoke") {
+        const job = await this.managedJobs.submit(this.invokeRequest(args, identity));
+        return this.managedJobSuccess(name, job, identity, requestId);
+      }
+      const jobId = this.statusRequest(args);
+      if (name === "kiln_managed_agent_status") {
+        const job = await this.managedJobs.getStatus({ callerId: identity.callerId }, jobId);
+        return this.managedJobSuccess(name, job, identity, requestId);
+      }
+      const result = await this.managedJobs.getResult({ callerId: identity.callerId }, jobId);
+      return this.managedJobResultSuccess(result, identity, requestId);
     } catch (error) {
       const code = applicationCode(error);
       return this.error(code, "The managed-job application request was not accepted.", operatorActionFor(code), requestId);
@@ -218,12 +223,33 @@ export class CodexAppMcpServer {
     };
     return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
+
+  private managedJobResultSuccess(result: ManagedJobResultQuery, identity: CodexAppMcpRequestIdentity, requestId: string): CodexAppMcpCallResult {
+    const structuredContent = {
+      operation: "managed-agent-result",
+      result: {
+        jobId: result.jobId,
+        availability: result.availability,
+        lifecycleState: result.lifecycleState,
+        configuredAgentProfileId: result.configuredAgentProfileId,
+        admissionProfileId: result.admissionProfileId,
+        routeId: result.routeId,
+        providerId: result.providerId,
+        ...(result.completedAt ? { completedAt: result.completedAt } : {}),
+        ...(result.provenance ? { provenance: result.provenance } : {}),
+        ...(result.handoff ? { handoff: result.handoff } : {}),
+        ...(result.diagnostic ? { diagnostic: { code: result.diagnostic, operatorAction: operatorActionFor(result.diagnostic) } } : {}),
+      },
+      evidence: { harness: "codex-app", adapter: "project-local-kiln-mcp", callerId: identity.callerId, requestId },
+    };
+    return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
+  }
 }
 
 export async function startCodexAppMcpServer(): Promise<void> {
   const composition = await createCodexAppManagedJobApplicationComposition();
   const server = new CodexAppMcpServer({
-    managedJobs: composition.service,
+    managedJobs: composition.application,
     configuredAgents: composition.configuredAgents,
     inspection: createNativeHarnessInspectionService({ managedAgents: composition.configuredAgents }),
   });
@@ -249,7 +275,8 @@ function descriptionFor(name: CodexAppMcpToolName): string {
   if (name === "kiln_work_governance_inspect") return "Read the resolved Kiln work-governance policy. Read-only; cannot start or update work.";
   if (name === "kiln_capability_inspect") return "Read Codex harness capability availability from canonical Kiln status. Read-only; cannot invoke managed agents.";
   if (name === "kiln_managed_agent_invoke") return "Submit bounded managed work through the canonical Kiln managed-job application boundary.";
-  return "Read canonical lifecycle status for one managed-job identifier.";
+  if (name === "kiln_managed_agent_status") return "Read canonical lifecycle status for one managed-job identifier.";
+  return "Read the bounded canonical Runtime result handoff for one authorized managed-job identifier.";
 }
 
 function inputSchemaFor(

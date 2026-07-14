@@ -31,6 +31,28 @@ const authority = {
   memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
 } as const;
 
+const query = { project: { id: "kiln" }, callerId: "codex-app:caller-001" } as const;
+const historicalQuery = { project: { id: "kiln" }, callerId: "codex-app" } as const;
+
+function successfulRuntimeResult(input: {
+  readonly jobId: string;
+  readonly profile: { readonly id: string; };
+  readonly route: { readonly id: string; readonly admissionProfileId: string; readonly providerId: string; };
+}) {
+  return {
+    state: "succeeded" as const,
+    result: {
+      runtimeInvocationId: input.jobId,
+      configuredAgentProfileId: input.profile.id,
+      admissionProfileId: input.route.admissionProfileId,
+      routeId: input.route.id,
+      providerId: input.route.providerId,
+      terminalState: "completed" as const,
+      resultHandoff: { summary: "done", resourceUris: [], memoryWriteProposalUris: [] },
+    },
+  };
+}
+
 function admittedRoute(routeId: string, overrides: Record<string, unknown> = {}) {
   return {
     id: routeId,
@@ -54,7 +76,7 @@ function createOptions(overrides: Partial<ManagedJobApplicationOptions> = {}): M
     },
     profiles: { resolve: async (id) => id === "scout" ? { id, routeId: "opencode-go-scout-readonly" } : id === "researcher" ? { id, routeId: "opencode-go-researcher-readonly" } : undefined },
     routes: { resolve: async (profile) => admittedRoute(profile.routeId) },
-    runtime: { invoke: async () => ({ state: "succeeded" }) },
+    runtime: { invoke: async (input) => successfulRuntimeResult(input) },
     store: new InMemoryManagedJobStore(),
     clock: () => now,
     idGenerator: () => "job-000000001",
@@ -64,13 +86,21 @@ function createOptions(overrides: Partial<ManagedJobApplicationOptions> = {}): M
 
 describe("ManagedJobApplicationService", () => {
   it("creates one admitted canonical job and exposes its durable status", async () => {
-    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const runtime = { invoke: vi.fn(async (input) => successfulRuntimeResult(input)) };
     const service = new ManagedJobApplicationService(createOptions({ runtime }));
     const submitted = await service.submit(request);
-    const status = await service.status(submitted.id);
+    const status = await service.getStatus(query, submitted.id);
+    const result = await service.getResult(query, submitted.id);
 
     expect(submitted).toMatchObject({ id: "job-000000001", state: "succeeded", projectId: "kiln", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", timeoutSource: "explicit-route" });
     expect(status).toEqual(submitted);
+    expect(result).toMatchObject({
+      availability: "available",
+      jobId: submitted.id,
+      configuredAgentProfileId: "scout",
+      provenance: { source: "runtime-managed-invocation", trust: "untrusted-child-output" },
+      handoff: { summary: "done", resourceUris: [], memoryWriteProposalUris: [] },
+    });
     expect(runtime.invoke).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job-000000001", route: expect.objectContaining({ providerId: "opencode-go" }) }));
   });
 
@@ -95,17 +125,19 @@ describe("ManagedJobApplicationService", () => {
       service: runtimeService,
       resolver: { resolve: async ({ jobId }) => {
         const request = defineManagedAgentInvocationRequest({ invocationId: jobId, agentId: "configured-reviewer", parentSessionId: "parent-session", parentTurnId: "parent-turn", profile: "foundation-readonly-plan", requestedBy: "kiln", requestSource: "managed-job", providerRoute: { providerId: "opencode-go", surface: "direct-provider", model: "configured-model" }, adapterKind: "direct", executionMode: "direct-provider", authority: { authorityProfileId: "read-only", permissionProfile: "read-only", toolAuthority: { allowedToolNames: ["read"], writeAllowed: false, networkAllowed: false }, workingDirectory: { path: "C:/workspace", mode: "read-only" }, timeoutMs: 300000, timeoutSource: "explicit-route", credentialRoute: { mode: "credentialless" }, memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" } }, input: { summary: "Inspect boundary" } });
-        return { request, adapter, capabilitySnapshot: { routeId: "managed-opencode-go", routeSource: "explicit-managed-route", capturedAt: now.toISOString() } };
+        return { request, adapter, capabilitySnapshot: { routeId: "opencode-go-scout-readonly", routeSource: "explicit-managed-route", capturedAt: now.toISOString() } };
       } },
     });
     const service = new ManagedJobApplicationService(createOptions({ runtime }));
-    await expect(service.submit(request)).resolves.toMatchObject({ id: "job-000000001", providerId: "opencode-go", state: "succeeded" });
+    const job = await service.submit(request);
+    await expect(service.getResult(query, job.id)).resolves.toMatchObject({ availability: "available", handoff: { summary: "done" } });
+    expect(job).toMatchObject({ id: "job-000000001", providerId: "opencode-go", state: "succeeded" });
     expect(adapter.invoke).toHaveBeenCalledOnce();
     expect(runtimeService.status("job-000000001")?.record?.invocationId).toBe("job-000000001");
   });
 
   it("requires fresh authoritative governance and denies before provider invocation", async () => {
-    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const runtime = { invoke: vi.fn(async (input) => successfulRuntimeResult(input)) };
     const service = new ManagedJobApplicationService(createOptions({
       runtime,
       governance: { resolve: async () => ({ version: 1, authority: "authoritative", source: "kiln-config-status", issuedAt: "2026-07-13T20:00:00.000Z", validUntil: "2026-07-13T21:00:00.000Z" }), admit: async () => ({ admitted: true, admissionId: "admission-001", source: "kiln-config-status" }) },
@@ -143,7 +175,7 @@ describe("ManagedJobApplicationService", () => {
   it("rejects a configured agent without an explicit route hint before a job is created", async () => {
     const store = new InMemoryManagedJobStore();
     const reserve = vi.spyOn(store, "reserve");
-    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const runtime = { invoke: vi.fn(async (input) => successfulRuntimeResult(input)) };
     const service = new ManagedJobApplicationService(createOptions({
       store,
       runtime,
@@ -158,7 +190,7 @@ describe("ManagedJobApplicationService", () => {
   it.each(["project", "read", "tools", "network", "write"] as const)("rejects an unvalidated %s scope before a job is created", async (scopeName) => {
     const store = new InMemoryManagedJobStore();
     const reserve = vi.spyOn(store, "reserve");
-    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const runtime = { invoke: vi.fn(async (input) => successfulRuntimeResult(input)) };
     const scope = { project: "validated", read: "validated", tools: "validated", network: "validated", write: "validated", [scopeName]: "denied" };
     const service = new ManagedJobApplicationService(createOptions({
       store,
@@ -182,7 +214,7 @@ describe("ManagedJobApplicationService", () => {
   it("rejects stale route eligibility before a job is created", async () => {
     const store = new InMemoryManagedJobStore();
     const reserve = vi.spyOn(store, "reserve");
-    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const runtime = { invoke: vi.fn(async (input) => successfulRuntimeResult(input)) };
     const service = new ManagedJobApplicationService(createOptions({
       store,
       runtime,
@@ -203,7 +235,7 @@ describe("ManagedJobApplicationService", () => {
   });
 
   it("is idempotent for an identical retry and conflicts for a different request", async () => {
-    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const runtime = { invoke: vi.fn(async (input) => successfulRuntimeResult(input)) };
     const service = new ManagedJobApplicationService(createOptions({ runtime }));
     const first = await service.submit(request);
     const retry = await service.submit(request);
@@ -214,7 +246,7 @@ describe("ManagedJobApplicationService", () => {
   });
 
   it("serializes concurrent duplicate submissions at the job-owner store", async () => {
-    const runtime = { invoke: vi.fn(async () => ({ state: "succeeded" as const })) };
+    const runtime = { invoke: vi.fn(async (input) => successfulRuntimeResult(input)) };
     const service = new ManagedJobApplicationService(createOptions({ runtime }));
     const jobs = await Promise.all(Array.from({ length: 8 }, () => service.submit(request)));
     expect(new Set(jobs.map((job) => job.id))).toEqual(new Set(["job-000000001"]));
@@ -228,6 +260,145 @@ describe("ManagedJobApplicationService", () => {
     await expect(timedOut.submit(request)).resolves.toMatchObject({ state: "timed_out", diagnostic: "provider_timeout" });
     const rejected = new ManagedJobApplicationService(createOptions({ runtime: { invoke: async () => { throw new ManagedJobApplicationError("provider_rejected", "hidden provider payload"); } } }));
     await expect(rejected.submit(request)).resolves.toMatchObject({ state: "failed", diagnostic: "provider_rejected" });
+  });
+
+  it("never exposes success without Runtime's canonical handoff and keeps pending reads truthful", async () => {
+    let release: (() => void) | undefined;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const runtime = {
+      invoke: vi.fn(async (input) => {
+        await waiting;
+        return successfulRuntimeResult(input);
+      }),
+    };
+    const service = new ManagedJobApplicationService(createOptions({ runtime }));
+    const submitted = service.submit(request);
+    await vi.waitFor(async () => expect((await service.getStatus(query, "job-000000001")).state).toBe("running"));
+    await expect(service.getResult(query, "job-000000001")).resolves.toMatchObject({ availability: "pending", lifecycleState: "running" });
+    release?.();
+    const job = await submitted;
+    await expect(service.getResult(query, job.id)).resolves.toMatchObject({ availability: "available", lifecycleState: "succeeded", handoff: { summary: "done" } });
+
+    const noHandoff = new ManagedJobApplicationService(createOptions({ runtime: { invoke: async () => ({ state: "succeeded" }) } }));
+    await expect(noHandoff.submit(request)).resolves.toMatchObject({ state: "failed", diagnostic: "result_persistence_failure" });
+  });
+
+  it("normalizes untrusted child output before persistence and uses explicit bounded truncation without transcript references", async () => {
+    const service = new ManagedJobApplicationService(createOptions({
+      runtime: {
+        invoke: async (input) => ({
+          ...successfulRuntimeResult(input),
+          result: {
+            ...successfulRuntimeResult(input).result!,
+            resultHandoff: {
+              summary: `system prompt: hidden\nhidden reasoning: private\nTOKEN=super-secret\nC:\\private\\result.json\nError: provider payload\n${"safe result ".repeat(300)}`,
+              resourceUris: ["kiln://managed-invocations/job-000000001/transcript"],
+              memoryWriteProposalUris: ["kiln://artifacts/job-000000001/private-proposal"],
+            },
+          },
+        }),
+      },
+    }));
+    const job = await service.submit(request);
+    const result = await service.getResult(query, job.id);
+    const serialized = JSON.stringify(result);
+    expect(result).toMatchObject({ availability: "available", handoff: { resourceUris: [], memoryWriteProposalUris: [] } });
+    expect(result.handoff?.summary).toContain("[TRUNCATED: safe inline result limit reached]");
+    expect(serialized).not.toContain("system prompt");
+    expect(serialized).not.toContain("hidden reasoning");
+    expect(serialized).not.toContain("super-secret");
+    expect(serialized).not.toContain("C:\\private");
+    expect(serialized).not.toContain("provider payload");
+    expect(serialized).not.toContain("transcript");
+  });
+
+  it("fails closed for unlabelled provider JSON and strips the submitted objective if the child echoes it", async () => {
+    const service = new ManagedJobApplicationService(createOptions({
+      runtime: {
+        invoke: async (input) => ({
+          ...successfulRuntimeResult(input),
+          result: {
+            ...successfulRuntimeResult(input).result!,
+            resultHandoff: { summary: `Provider output:\n\`\`\`json\n{"data":{"api_key":"super-secret","messages":[{"role":"system","content":"${request.objective}"}]}}\n\`\`\``, resourceUris: [], memoryWriteProposalUris: [] },
+          },
+        }),
+      },
+    }));
+    const job = await service.submit(request);
+    const serialized = JSON.stringify(await service.getResult(query, job.id));
+    expect(serialized).toContain("[REDACTED:unsafe raw provider payload]");
+    expect(serialized).not.toContain("super-secret");
+    expect(serialized).not.toContain(request.objective);
+  });
+
+  it("binds result and status reads to the persisted caller and project owner", async () => {
+    const service = new ManagedJobApplicationService(createOptions());
+    const job = await service.submit(request);
+    await expect(service.getStatus({ ...query, callerId: "codex-app:other" }, job.id)).rejects.toMatchObject({ code: "unauthorized_job" });
+    await expect(service.getResult({ project: { id: "other-project" }, callerId: query.callerId }, job.id)).rejects.toMatchObject({ code: "unauthorized_job" });
+  });
+
+  it("returns safe failed diagnostics for failed, timed-out, and recovered interrupted jobs", async () => {
+    const failed = new ManagedJobApplicationService(createOptions({ runtime: { invoke: async () => ({ state: "failed" }) } }));
+    const failedJob = await failed.submit(request);
+    await expect(failed.getResult(query, failedJob.id)).resolves.toMatchObject({ availability: "failed", lifecycleState: "failed", diagnostic: "provider_rejected" });
+
+    const timedOut = new ManagedJobApplicationService(createOptions({ runtime: { invoke: async () => ({ state: "timed_out" }) } }));
+    const timedOutJob = await timedOut.submit(request);
+    await expect(timedOut.getResult(query, timedOutJob.id)).resolves.toMatchObject({ availability: "failed", lifecycleState: "timed_out", diagnostic: "provider_timeout" });
+
+    const store = new InMemoryManagedJobStore();
+    await store.reserve({ job: { version: 2, id: "job-interrupted", state: "running", projectId: "kiln", callerId: query.callerId, configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString() } });
+    const recovered = new ManagedJobApplicationService(createOptions({ store }));
+    await recovered.recoverInterrupted();
+    await expect(recovered.getResult(query, "job-interrupted")).resolves.toMatchObject({ availability: "failed", lifecycleState: "interrupted", diagnostic: "invocation_failed" });
+  });
+
+  it("rejects a runtime result that mismatches the admitted route and cannot make success observable after result persistence failure", async () => {
+    const mismatched = new ManagedJobApplicationService(createOptions({ runtime: { invoke: async (input) => ({ ...successfulRuntimeResult(input), result: { ...successfulRuntimeResult(input).result!, routeId: "other-route" } }) } }));
+    await expect(mismatched.submit(request)).resolves.toMatchObject({ state: "failed", diagnostic: "result_corrupt" });
+
+    const store = new InMemoryManagedJobStore();
+    const completeSuccess = store.completeSuccess.bind(store);
+    store.completeSuccess = async () => { throw new Error("persistence failed"); };
+    const service = new ManagedJobApplicationService(createOptions({ store }));
+    const job = await service.submit(request);
+    expect(job).toMatchObject({ state: "failed", diagnostic: "job_persistence_unavailable" });
+    store.completeSuccess = completeSuccess;
+  });
+
+  it("keeps persisted terminal results immutable", async () => {
+    const store = new InMemoryManagedJobStore();
+    const service = new ManagedJobApplicationService(createOptions({ store }));
+    const job = await service.submit(request);
+    await expect(store.completeSuccess(job.id, (job as Extract<typeof job, { version: 2 }>).result!, now.toISOString())).rejects.toMatchObject({ code: "invalid_transition" });
+  });
+
+  it("preserves valid v1 records as historical successful jobs with a stable unavailable result", async () => {
+    const store = new InMemoryManagedJobStore();
+    await store.reserve({ job: {
+      version: 1, id: "cdb98e81-002b-44a4-aac9-e08b2f861a6b", state: "succeeded", projectId: "kiln", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString(),
+    } });
+    const service = new ManagedJobApplicationService(createOptions({ store }));
+    await expect(service.getResult(historicalQuery, "cdb98e81-002b-44a4-aac9-e08b2f861a6b")).resolves.toEqual(expect.objectContaining({
+      availability: "unavailable",
+      lifecycleState: "succeeded",
+      diagnostic: "result_unavailable",
+    }));
+  });
+
+  it("persists the same immutable result across restart and fails closed for corrupt result evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-job-results-"));
+    try {
+      const first = new ManagedJobApplicationService(createOptions({ store: new FilesystemManagedJobStore(root) }));
+      const job = await first.submit(request);
+      const second = new ManagedJobApplicationService(createOptions({ store: new FilesystemManagedJobStore(root) }));
+      await expect(second.getResult(query, job.id)).resolves.toMatchObject({ availability: "available", handoff: { summary: "done" } });
+      const payload = JSON.parse(await (await import("node:fs/promises")).readFile(join(root, "managed-jobs.json"), "utf8")) as Array<Record<string, unknown>>;
+      payload[0]!.result = { version: 1, jobId: "other-job" };
+      await writeFile(join(root, "managed-jobs.json"), `${JSON.stringify(payload)}\n`, "utf8");
+      await expect(second.getResult(query, job.id)).rejects.toMatchObject({ code: "job_persistence_corrupt" });
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 
   it("recovers persisted nonterminal work as interrupted and preserves parent-child separation", async () => {
@@ -247,12 +418,12 @@ describe("ManagedJobApplicationService", () => {
       await expect(second.submit(request)).resolves.toMatchObject({ id: job.id });
       await writeFile(join(root, "managed-jobs.json"), "{not-json", "utf8");
       const corrupt = new ManagedJobApplicationService(createOptions({ store: new FilesystemManagedJobStore(root) }));
-      await expect(corrupt.status(job.id)).rejects.toMatchObject({ code: "job_persistence_corrupt" });
+      await expect(corrupt.getStatus(query, job.id)).rejects.toMatchObject({ code: "job_persistence_corrupt" });
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
   it("does not leak errors or accept invalid lifecycle transitions", async () => {
-    const store: ManagedJobStore = { reserve: async () => { throw new Error("C:/secret/token") }, get: async () => undefined, transition: async () => { throw new Error("C:/secret/token") }, listNonterminal: async () => [] };
+    const store: ManagedJobStore = { reserve: async () => { throw new Error("C:/secret/token") }, get: async () => undefined, transition: async () => { throw new Error("C:/secret/token") }, completeSuccess: async () => { throw new Error("C:/secret/token") }, listNonterminal: async () => [] };
     const service = new ManagedJobApplicationService(createOptions({ store }));
     await expect(service.submit(request)).rejects.toEqual(expect.objectContaining({ code: "job_persistence_unavailable", message: "job_persistence_unavailable" }));
     expect(() => { throw new ManagedJobApplicationError("invalid_transition", "Keep terminal managed-job states immutable."); }).toThrow("invalid_transition");

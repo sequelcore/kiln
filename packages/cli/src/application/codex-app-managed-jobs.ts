@@ -6,6 +6,8 @@ import {
   ManagedJobApplicationError,
   ManagedJobApplicationService,
   createRuntimeManagedJobInvocationPort,
+  type ManagedJobRecord,
+  type ManagedJobResultQuery,
   type ManagedJobProfile,
   type ManagedJobRoute,
   type ManagedJobRuntimeInvocationResolver,
@@ -54,7 +56,15 @@ export interface CodexAppManagedAgentSummary {
 
 export interface CodexAppManagedJobApplicationComposition {
   readonly service: ManagedJobApplicationService;
+  readonly application: CodexAppManagedJobApplicationPort;
   readonly configuredAgents: readonly CodexAppManagedAgentSummary[];
+}
+
+/** Project identity comes from this trusted composition, never from MCP input. */
+export interface CodexAppManagedJobApplicationPort {
+  submit(input: unknown): Promise<ManagedJobRecord>;
+  getStatus(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobRecord>;
+  getResult(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobResultQuery>;
 }
 
 export async function createCodexAppManagedJobApplicationComposition(
@@ -101,8 +111,9 @@ export async function createCodexAppManagedJobApplicationComposition(
     readonly invocationService: NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"]>;
   }>();
 
+  const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
   const service = new ManagedJobApplicationService({
-    project: { resolve: async () => ({ id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` }) },
+    project: { resolve: async () => project },
     governance: {
       resolve: async () => {
         const governance = await createNativeHarnessInspectionService().inspectWorkGovernance();
@@ -159,7 +170,12 @@ export async function createCodexAppManagedJobApplicationComposition(
     },
     store: new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs")),
   });
-  return { service, configuredAgents: summarizeCodexAppManagedAgents(configuredAgents, managedInvocation) };
+  const application: CodexAppManagedJobApplicationPort = {
+    submit: (input) => service.submit(input),
+    getStatus: (input, jobId) => service.getStatus({ project, callerId: input.callerId }, jobId),
+    getResult: (input, jobId) => service.getResult({ project, callerId: input.callerId }, jobId),
+  };
+  return { service, application, configuredAgents: summarizeCodexAppManagedAgents(configuredAgents, managedInvocation) };
 }
 
 function routeForProfile(resolution: ManagedInvocationRouteResolution["managedInvocation"], profile: ManagedJobProfile): ManagedJobRoute | undefined {

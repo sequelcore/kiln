@@ -53,6 +53,6 @@ describe("Codex App managed-job production composition", () => {
       callerId: "codex-app",
       idempotencyKey: "production-composition-proof",
     })).rejects.toMatchObject({ code: "profile_unavailable" });
-    await expect(service.status("unknown-managed-job-0001")).rejects.toMatchObject({ code: "unknown_job" });
+    await expect(service.getStatus({ project: { id: "trusted-project" }, callerId: "codex-app" }, "unknown-managed-job-0001")).rejects.toMatchObject({ code: "unknown_job" });
   });
 });
