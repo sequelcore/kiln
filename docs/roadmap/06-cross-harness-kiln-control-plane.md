@@ -1,7 +1,7 @@
 # 06 - Cross-Harness Kiln Control Plane
 
-Status: Active delivery track; Slices 0-2 and 3A-3C are complete. Full Slice 3 remains incomplete.
-Execution: Research - bound one Claude Code to Kiln to Codex adapter objective before admitting implementation; keep cancellation and replay separate.
+Status: Active delivery track; Slices 0-2, 3A, and 3B are complete. Slice 3C verification is reopened; full Slice 3 remains incomplete.
+Execution: Ready - correct false-positive managed-result redaction with focused regression coverage only.
 Created: 2026-07-04.
 
 ## Objective
@@ -73,6 +73,12 @@ Kiln needs to own this boundary natively.
 - Quota, rate-limit, and subscription-economics evidence for route selection.
 - Reference implementations and comparative study of Codex, Claude Code,
   OpenCode, and plugins such as `codex-plugin-cc`.
+
+Claude Code is an optional future entitlement surface, not a current operator
+dependency. No Claude Code subscription or admitted route is configured, so
+Claude-specific implementation is deferred and cannot block current roadmap
+completion. Reopen it only when the operator configures that entitlement or a
+real external consumer requires the surface.
 
 ## Non-Goals
 
@@ -382,8 +388,9 @@ and invoked without `KILN_STATUS_EVIDENCE_INCOMPLETE`. The observed harness was
 
 ### Slice 3 - Managed Agent Invocation Across Harnesses
 
-Status: Slices 3A-3C are complete. The remaining Claude Code path,
-cancellation, and replay keep full Slice 3 incomplete.
+Status: Slices 3A and 3B are complete. Slice 3C verification is reopened for
+result-redaction correctness; cancellation and replay keep full Slice 3
+incomplete. Claude Code is deferred and is not a Slice 3 exit dependency.
 
 Goal: allow admitted harness surfaces to invoke Kiln-managed agents through
 canonical routes without giving a harness ownership of managed-job state.
@@ -405,8 +412,10 @@ Exit gate:
 
 - from Codex App, an operator can invoke an OpenCode Go route through Kiln and
   receive status/result evidence without running `opencode run`;
-- from Claude Code, an operator can invoke a Codex route through Kiln without
-  relying on `codex-plugin-cc` as the authority owner.
+- cancellation and replay evidence remain canonical rather than
+  adapter-local; and
+- an optional native harness without a configured operator entitlement or
+  admitted route is not required for closure.
 
 #### Slice 3A Closeout
 
@@ -482,8 +491,9 @@ Slice 3B. Slice 4 routing is not started.
 
 #### Slice 3C - Canonical Managed-Job Result Handoff
 
-Status: Complete. Implemented on 2026-07-13 and accepted live from Codex App
-on 2026-07-14. Full Slice 3 remains incomplete.
+Status: Verification reopened on 2026-07-14. The transport and result lifecycle
+were accepted live, but a later restarted-app audit found false-positive
+redaction of legitimate result prose. Full Slice 3 remains incomplete.
 
 Objective: expose safe canonical managed-job result handoff/retrieval to Codex
 App without duplicating Runtime lifecycle or leaking prompts, transcripts,
@@ -492,7 +502,8 @@ hidden reasoning, provider payloads, paths, or secrets.
 Remaining full Slice 3 scope is explicit:
 
 - Codex App submit, status, and canonical result retrieval are complete;
-- the Claude Code to Kiln to Codex path remains unimplemented; and
+- Claude Code remains a deferred optional entitlement surface rather than an
+  exit dependency; and
 - cancellation and replay remain unimplemented.
 
 Slice 3C must remain a thin projection over Runtime-owned managed-job state. It
@@ -532,9 +543,27 @@ Corrected live acceptance passed on 2026-07-14 through the Codex App bridge:
 - unrelated `KILN_PROJECTION_STALE` and `KILN_PROJECTION_DRIFTED` diagnostics
   did not invalidate the admitted route or canonical result evidence.
 
-Slice 3C is complete. The next Roadmap 06 action is research that bounds one
-Claude Code to Kiln to Codex adapter objective. It must not combine that work
-with cancellation, replay, or Slice 4 routing.
+Post-acceptance live audit on 2026-07-14 used one new admitted `scout` job,
+`ffc3a995-b56f-4cf9-8163-faf61eac254f`. The job succeeded through
+`opencode-go-scout-readonly`, status and result identities remained monotonic,
+and the canonical result was available, bounded to 2,000 characters, and
+explicitly untrusted. The audit also exposed five false
+`[REDACTED:environment]` replacements in ordinary findings prose. Repository
+review traced them to the case-insensitive environment-assignment matcher in
+the managed-result sanitizer; current tests cover real secrets but not benign
+label-value prose.
+
+The same audit found a separate efficiency issue: the three inspection tools
+repeated 29 projection diagnostics, while status returned 217 projection rows;
+their structured payloads totaled more than 44,000 characters before the MCP
+text copies. That compaction work remains a separate follow-up and must not be
+combined with the result-redaction correction.
+
+Exactly one corrective objective is admitted now: preserve benign narrative
+labels while still redacting real environment assignments and credential
+fields, prove both behaviors with focused Runtime tests, then repeat one live
+Codex App result check. It must not add Claude Code, cancellation, replay,
+inspection compaction, or Slice 4 routing.
 
 ### Slice 4 - Quota And Subscription-Aware Routing
 
@@ -561,17 +590,18 @@ Exit gate:
 
 ### Slice 5 - Native Harness Entitlement Adapters
 
-Status: Planned.
+Status: Deferred. Reopen only when a Claude Code subscription is configured as
+an admitted operator entitlement or a real external consumer requires it.
 
 Goal: support product-entitlement routes where direct providers are not
 appropriate.
 
 Work:
 
-- model Claude Code subscription access as native-harness entitlement, not a
-  direct Anthropic provider;
-- define what proof Claude Code can provide for execution, result handoff, and
-  authority;
+- when admitted, model Claude Code subscription access as native-harness
+  entitlement, not a direct Anthropic provider;
+- when admitted, define what proof Claude Code can provide for execution,
+  result handoff, and authority;
 - isolate API-key Anthropic usage as a separate explicitly billed direct
   provider only when configured;
 - document terms and billing boundaries in status.
@@ -695,12 +725,12 @@ Required verification scales by slice:
 
 ## Completion Criteria
 
-This roadmap is complete when a supported harness can act as an entrypoint into
-Kiln rather than a silo:
+This roadmap is complete when an operator-configured supported harness can act
+as an entrypoint into Kiln rather than a silo:
 
 - Codex App can use Kiln tools and agents.
-- Claude Code can use Kiln-managed Codex/OpenCode routes without owning routing
-  policy in `CLAUDE.md`.
+- optional entitlement harnesses such as Claude Code remain conditional and do
+  not become completion gates until configured or required by a real consumer;
 - OpenCode can see the same Kiln doctrine and delegated route capability.
 - Direct providers are preferred where official, cheaper, and governed.
 - Native harnesses are used where product entitlements or terms require them.
