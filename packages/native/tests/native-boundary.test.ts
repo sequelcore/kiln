@@ -63,7 +63,7 @@ describe("native operator surface foundation", () => {
     expect(snapshot.capabilities).toContainEqual({
       capability: "native-cockpit-contract",
       status: "available",
-      reason: "Roadmap 05 target, precondition, benchmark, read-only attach-plan, projection, and action-intent contracts are available.",
+      reason: "Canonical native cockpit target, precondition, benchmark, read-only attach-plan, projection, and action-intent contracts are available.",
     });
     expect(snapshot.capabilities).toContainEqual({
       capability: "embedded-browser-host",

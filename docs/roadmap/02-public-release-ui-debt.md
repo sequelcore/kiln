@@ -1,7 +1,7 @@
 # 02 - Public Release UI Debt
 
 Status: Active release debt
-Execution: Research - define and verify cross-surface event-presentation density.
+Execution: Ready - complete operator live validation and continue evidence-led component adoption.
 Started: 2026-06-28
 
 ## Objective
@@ -25,6 +25,8 @@ visual polish or completed execution-surface work.
 - Release-blocking GUI semantics discovered during live validation.
 - Composer context usage, event density, structured tool output, skill
   diagnostics, and managed-agent/tool capability routing.
+- Source-owned AI interaction components that make Kiln a clearer primary work
+  surface, provided they consume canonical Kiln projections.
 - Cross-surface contract or documentation changes required to keep GUI claims
   truthful.
 
@@ -51,7 +53,7 @@ focused component, typecheck, build, and browser validation evidence.
 
 ## Progress Snapshot
 
-Updated: 2026-07-12
+Updated: 2026-07-14
 
 The following GUI foundations have been implemented and verified. Their stable
 behavior belongs in the canonical GUI and architecture documentation; this
@@ -117,6 +119,11 @@ Current verification evidence:
 
 Still open before public release:
 
+- Operator live validation of the implemented single-owner activity model and
+  universal tool presentation across restored and long-running sessions.
+- Continued staged adoption of useful AI Elements patterns as Kiln-owned Base
+  UI components, with `Plan` and `Confirmation` admitted only after canonical
+  Gateway consumers exist.
 - Cross-surface event-density doctrine and parity verification for CLI/TUI.
 - Public-release presentation of managed-agent/tool capability diagnostics
   across harnesses and provider entitlements, now consuming canonical
@@ -128,6 +135,189 @@ Still open before public release:
   and workspace file-type icon coverage.
 
 ## Delivery Slices - Release-Blocking Debt
+
+### Immediate In-Product Work Experience
+
+Status: In progress; Slices 0-2 implemented, operator live validation pending
+
+Objective:
+
+- Make the GUI a calm, trustworthy place to perform real Kiln work. Every
+  visible state must either help the operator act or preserve durable execution
+  evidence; transient implementation state must not compete with the work.
+
+Observed problems:
+
+- The active composer simultaneously renders the animated border beam,
+  `Thinking`, and the continuity label `Running`. These are three presentations
+  of one fact and create noise without adding an operator decision.
+- The transcript can render an empty assistant row with a green streaming
+  cursor before any assistant text exists. The cursor then looks like a broken
+  message and duplicates the composer's activity beam.
+- Generic cards and raw execution envelopes make plans, tasks, tool calls,
+  tests, terminal output, and artifacts harder to scan than their canonical
+  Kiln data requires.
+
+Activity ownership decisions:
+
+- Exactly one aggregate surface owns passive activity emphasis at a time. The
+  emphasis follows the most informative canonical state instead of remaining
+  permanently attached to every active component.
+- Use the composer's theme-aware rotate `border-beam` while the agent is
+  preparing a response or working without a structured progress projection.
+  This is the pre-output fallback, not a second execution timeline.
+- When canonical work items or a plan exist, transfer aggregate emphasis to the
+  visible `Task` or `Plan` card and use the quieter pulse treatment shown by the
+  Border Beam working-state example. The composer beam becomes inactive; item
+  indicators communicate pending, active, completed, and failed steps.
+- Once visible assistant text is streaming, the incremental response is the
+  activity signal. Do not keep an additional beam or cursor-only placeholder.
+- Never put a beam around each tool row. A `Task` or `Plan` card may summarize
+  structured work, while individual tool events retain their compact canonical
+  lifecycle treatment.
+- Rotate, pulse, and their static reduced-motion fallback must retain sufficient
+  light/dark-theme contrast and cannot be the only accessible state evidence.
+- Do not render visible `Thinking` or duplicate `Running` copy inside the
+  composer while the beam is active. Preserve phase changes in a polite,
+  screen-reader-only live region so activity is not communicated by motion
+  alone.
+- Do not move `Thinking` into the transcript. The transcript owns user and
+  assistant content plus durable plan, task, tool, approval, failure, source,
+  and artifact evidence; it does not own synthetic preparation messages.
+- Do not use a spinner-only send button. The idle control sends. During an
+  active turn it becomes a labelled Stop/Cancel action only after the Gateway
+  exposes a real cancellable operation; otherwise it remains unavailable and
+  the beam communicates passive activity.
+- Keep exceptional continuity or governance states visible when they require a
+  decision, including detached execution, approval requests, failures, and
+  cancellation. Routine `Running` is not exceptional continuity.
+- Do not render an assistant message or streaming cursor until the first
+  visible assistant text delta exists. A streaming cursor may accompany actual
+  streaming text, but must never be the only content in a transcript row.
+- Tool execution remains visible as a stable transcript event keyed by the
+  canonical `toolCallId`; aggregate pulse emphasis must not replace or decorate
+  individual tool evidence.
+
+AI component adoption boundary:
+
+- AI Elements is a source registry, not a runtime design-system dependency.
+  Add components only for an admitted Kiln consumer, keep their source under
+  `packages/gui/src/components/ai-elements`, and own the result in this
+  repository.
+- Preserve each adopted component's useful composition, interaction,
+  accessibility, and recognizable information hierarchy. Replace Radix or
+  library-specific interactive primitives with Kiln's shadcn/Base UI
+  primitives and adapt styling to Kiln's Tailwind 4 semantic tokens.
+- Replace AI SDK types and lifecycle assumptions with canonical
+  `@kilnai/gateway-contracts` projections. Components render state; they do not
+  infer plans, tool transitions, permissions, or provider truth.
+- Delete unused variants, imports, adapters, compatibility aliases, and demo
+  behavior during adoption. Do not retain parallel legacy renderers after the
+  migrated consumer and its tests are complete.
+- Do not install the complete registry speculatively. The catalog below records
+  useful families; each component is copied and converted only in the slice
+  that gives it a real consumer.
+
+Candidate families and order:
+
+| Order | Kiln need | AI Elements patterns to evaluate | Admission condition |
+| --- | --- | --- | --- |
+| 1 | Governed work progress | `Task`, `Plan`, `Confirmation`, `Checkpoint`, `Queue` | Bind to canonical work items, approvals, checkpoints, or queued invocations; never synthesize progress from prose. |
+| 2 | Execution evidence | `Tool`, `Terminal`, `Test Results`, `Stack Trace`, `Commit` | Preserve tool-call identity and render typed Gateway output without replacing readable raw evidence. |
+| 3 | Conversation evidence | `Message`, `Sources`, `Inline Citation`, `Attachments`, `Reasoning` | Integrate only where they improve the existing transcript; reasoning means provider-approved summaries, never hidden chain of thought. |
+| 4 | Artifacts and workspace output | `Artifact`, `Code Block`, `File Tree`, `Web Preview`, `JSX Preview`, `Image`, `Snippet` | Reuse the shared presentation intent and resource model; previews must remain sandboxed and bounded. |
+| 5 | Operator configuration | `Agent`, `Context`, `Model Selector`, `Persona`, `Schema Display`, `Environment Variables` | Consume canonical route, context, setup, and schema diagnostics without inventing availability. |
+| 6 | Optional media and graph surfaces | `Audio Player`, `Transcription`, `Voice Selector`, `Canvas`, `Node`, `Edge`, `Toolbar` | Admit only after an existing Kiln workflow needs the interaction and its accessibility/performance cost is justified. |
+
+Explicit exclusions:
+
+- Do not adopt `Prompt Input`, `Conversation`, or other shell-level components
+  merely to restyle working Kiln-owned composer or scroller behavior.
+- Do not expose a `Chain of Thought` surface. Kiln may render durable execution
+  steps and provider-approved reasoning summaries, not private model reasoning.
+- TUI parity is a later rendering slice. GUI and TUI should share canonical
+  projections and state vocabulary, not React components or browser animation.
+
+Delivery:
+
+- Slice 0: remove visible `Thinking` and routine `Running` from the active
+  composer, retain accessible phase announcements, and implement one-owner
+  rotate/pulse activity emphasis with light/dark-theme and reduced-motion
+  verification. Implemented 2026-07-14.
+- Slice 1: suppress empty assistant streaming rows and cursor-only transcript
+  output while preserving real text streaming and durable tool events.
+  Implemented 2026-07-14.
+- Slice 2: complete the source-owned `Task` vertical slice over canonical work
+  items, including Base UI conversion, theme adaptation, tests, and deletion of
+  the replaced local renderer. Implemented 2026-07-14.
+- Slice 3: adopt `Plan` and `Confirmation` only after their Gateway projections
+  and real consumers are mapped; keep approval authority outside the component.
+- Slice 4: the universal execution-evidence anatomy is implemented. Every tool
+  lifecycle state uses the same source-owned `Tool` header, status, disclosure,
+  timing, and bounded content shell. Governed work-item output composes `Task`;
+  structured error envelopes compose a shadcn diagnostic alert; existing diff,
+  terminal, tree, search, table, resource, and source renderers remain content
+  variants inside that shared anatomy. Continue adding variants only from real
+  live-validation evidence.
+- Slice 5: adopt artifact and conversation patterns only where focused browser
+  evidence proves an improvement over the current Kiln component.
+- Slice 6: complete desktop/compact, keyboard, screen-reader, light/dark,
+  reduced-motion, interruption, restore, and long-session live validation.
+
+Immediate acceptance criteria:
+
+- One active turn has at most one passive aggregate emphasis: composer rotate,
+  structured-work pulse, or the visible streaming response itself.
+- The composer contains no simultaneous `Thinking` and routine `Running` text.
+- The transcript contains no synthetic thinking message, empty assistant row,
+  or cursor-only bubble.
+- First text delta, active tool event, approval request, failure, cancellation,
+  reconnect, and restored session each remain truthful and inspectable.
+- Tests cover semantic state and accessible names rather than animation pixels;
+  Playwright visual checks cover contrast, overflow, and reduced motion.
+- Focused GUI tests, GUI typecheck, GUI build, relevant E2E, and operator live
+  validation pass before the slice is closed.
+
+Implementation evidence (2026-07-14):
+
+- Removed the visible activity label from the composer and retained a polite,
+  screen-reader-only phase announcement. Routine running continuity is no
+  longer rendered beside the same active-turn state.
+- Composer rotate emphasis now stops when visible assistant text streams.
+  Source-owned `Task` cards use one theme-aware pulse owner for the most
+  recently updated canonical in-progress work item; sibling tasks retain their
+  semantic status without additional beams.
+- A completed transport-level tool call can no longer mislabel a domain-level
+  paused work-item execution as `Completed`. The shared Gateway presentation
+  exposes `paused` task state, reason, route, next tool, and required evidence.
+- Generic transcript tool rows now compose the source-owned AI Elements `Tool`
+  pattern over Base UI `Collapsible` for running, completed, paused, and failed
+  states; paused work-item output composes the existing source-owned `Task`
+  pattern without a nested card.
+- Structured tool error envelopes override misleading transport success,
+  project as canonical diagnostics, and render code, recovery, next-tool, and
+  required-input evidence through the shared Tool anatomy instead of raw JSON.
+- Contract, session-store, transcript, and Chromium parity coverage verify the
+  semantic warning state, accessible task/evidence structure, theme contrast,
+  transcript bounds, and absence of raw JSON output.
+- Deleted the obsolete assistant-anchor projection that created empty streaming
+  messages around tool events. Tool rows remain standalone and the assistant
+  message is created only by visible text or final response content.
+- Removed the cursor-only streaming decoration and its unused theme token.
+- Vite and Playwright now accept an isolated GUI development port while
+  retaining `5183` as the operator default, so browser verification cannot
+  silently reuse an unrelated live GUI proxy.
+- Focused contract, session-store, and transcript tests pass; the complete GUI
+  suite passes (445), GUI typecheck, focused lint, and production build pass,
+  and the Chromium theme, layout, activity, task, diagnostic, and
+  reduced-motion suite passes (6). React Doctor reports no finding in the new
+  Tool/Task/Alert components; its changed-worktree scan remains affected by
+  existing AppShell, store, and transcript findings outside this bounded
+  change.
+- Full GUI lint still reports two pre-existing accessibility findings in
+  `markdown-table.tsx` and `transcript.tsx`. They are not caused by this slice
+  and remain separate debt. Operator live validation is still required before
+  Slices 0-2 are closed.
 
 ### Cross-Harness Agent and Tool Capability Routing
 
@@ -471,9 +661,10 @@ Slice 5 evidence:
   global DOM navigation with `MessageScroller.scrollToMessage`, and verified
   navigation plus reduced-motion behavior in Chromium.
 - The aggregate live activity row no longer renders an isolated ellipsis for
-  thinking state. The beamed live surface must carry visible phase text plus
-  accessible status evidence, so operators can distinguish thinking, tool use,
-  approval wait, and streaming without guessing.
+  thinking state. Subsequent live validation moved passive activity ownership
+  to the beamed composer: the transcript retains durable tool and approval
+  evidence, while phase announcements remain accessible without duplicating
+  visible `Thinking` or routine `Running` labels.
 - The 2026-07-03 rail interaction correction verified the Codex-like gutter
   behavior in Chromium: one active mark, proximity zoom on hover/focus, subdued
   distant marks, preview cards, keyboard activation, and no duplicated scroll
@@ -488,6 +679,27 @@ Slice 5 evidence:
 - Web/search tool output is classified at the shared Gateway contract layer as
   structured `search_results` evidence and rendered as source/result rows
   instead of raw monospaced `Text output` or generic document markdown.
+- The 2026-07-14 governed-tool correction projects canonical `work_item.update`,
+  `goal.create`, work-item execution, and failed-operation envelopes into
+  purpose-built work progress, goal governance, task evidence, and diagnostic
+  presentations. Known envelopes do not expose a generic text or JSON body.
+- Unknown JSON remains inspectable through the bounded JSON visualizer, but is
+  classified and labelled as `Structured data` rather than `Text output`.
+  This is the explicit fallback boundary for tools without a canonical
+  presentation; adding a supported Kiln tool requires a contract projector and
+  focused renderer coverage instead of tool-name conditionals in the GUI.
+- The 2026-07-15 activity-density correction makes the turn lifecycle the sole
+  owner of composer beam activation: pulse-outside remains stable through
+  thinking, tool execution, and response streaming, pauses for operator
+  approval, and fades only at a true terminal turn state. Consecutive routine
+  tools collapse into one accessible activity group; governed goals, work
+  items, approvals, warnings, and failures remain standalone. Work-item details
+  show compact canonical metadata and evidence progress without repeating the
+  tool header or exposing internal next-tool hints as primary UI.
+- Context-window UX now renders the canonical `ContextUsageProjection` through
+  a compact percentage/token trigger and a Base UI popover with provenance,
+  remaining capacity, freshness, and caveats. It does not install a parallel
+  tokenizer or synthesize missing capacity, cost, or per-token-category data.
 
 Required outcome:
 
@@ -559,6 +771,11 @@ Subtrack closeout evidence (2026-07-03):
 - Do not infer authoritative context usage without runtime evidence.
 - Do not regress composer rail order: attachments and access controls on the
   left; context, model, voice, and send controls on the right.
+- Do not duplicate passive turn activity across beam, status copy, continuity
+  copy, send-button loading, and an empty transcript row.
+- Do not adopt an AI Elements component until a real Kiln consumer, canonical
+  projection, Base UI conversion boundary, replacement target, and focused
+  verification are named.
 - Do not let any public surface repeat event title/summary/details/body as
   separate visible facts.
 - Do not optimize GUI startup from a single warm or cold measurement. Record

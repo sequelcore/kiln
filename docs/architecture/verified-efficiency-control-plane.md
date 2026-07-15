@@ -5,6 +5,34 @@ efficiency controller supplies bounded policy choices and evidence; it does not
 replace the canonical owners for context, routing, artifacts, memory,
 verification, or authority.
 
+## Attribution And Cache Topology
+
+[Lifecycle Attribution](lifecycle-attribution.md) is the canonical source for
+provider-neutral token, cost, cache, worker, and semantic-source accounting.
+Efficiency policies consume that reconciled ledger; they do not create a
+parallel accounting owner or infer precision the provider did not report.
+
+Runtime provider-request evidence classifies ordered request regions as stable
+or volatile and computes only the leading contiguous stable prefix. Once a
+volatile region appears, later regions are excluded from reusable-prefix
+evidence even when their content is otherwise stable. Evidence records
+`sha256:*` region hashes, stable-prefix bytes and region count, volatile bytes,
+and ordered source/stability metadata without recording serialized prompts,
+messages, or tool schemas.
+
+Cache identity hashes tenant, route, policy, and authority dimensions
+separately and combines them into one partition hash. Raw tenant identifiers
+and authority-envelope contents are not exposed. The approved context-policy
+identity participates in the partition, preventing reuse across policy or
+authority boundaries.
+
+Cache-policy promotion requires a `cache-topology` scorer and evidence
+artifact, a distinct candidate identity, an exact baseline rollback, matching
+datasets and items, unchanged output, authority, and tool trajectory,
+non-inferior non-cache scorers, invalid-reuse probes, and a positive
+cached-input-token delta. Cache topology remains telemetry and control-plane
+evidence; it is never injected into model-visible instructions.
+
 ## Progressive Loading
 
 Tool definitions use the shared runtime progressive projection contract. Skill

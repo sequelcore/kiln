@@ -8,6 +8,12 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Completed the verified-efficiency control plane: reconciled lifecycle and
+  cache-topology evidence, progressive loading, typed lossless and reversible
+  context reduction, utility and phase-aware allocation, delegation and
+  verification accounting, governed memory reconsolidation, operator-approved
+  adaptation with exact rollback, cross-surface evidence parity, and a
+  content-hashed publication gate that currently authorizes no public claim.
 - Fixed GUI Full Access execution integrity: an explicitly attended operator
   turn now authorizes Kiln-owned workspace mutation tools through bounded
   session/tenant/route evidence, while managed and unattended children continue

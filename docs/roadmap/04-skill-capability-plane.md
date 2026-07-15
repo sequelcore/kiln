@@ -1,4 +1,4 @@
-# 05 - Skill Capability Plane
+# 04 - Skill Capability Plane
 
 Status: Active research and configuration-hardening track
 Execution: Research - define the shared skill evidence and admission contract before automatic operations.

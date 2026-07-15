@@ -6,9 +6,10 @@ completed delivery evidence belongs in `docs/changelog.md` or a release record.
 
 ## Operating Model
 
-Roadmap numbers are stable track identifiers, not execution priority. Do not
-rename files when priorities change. The execution queue below is the canonical
-answer to "what should be worked on next?"
+Roadmap numbers are stable while a track is active, but they are not execution
+priority. When a completed track is removed, close the numeric gap atomically
+across filenames, headings, links, and textual references. The execution queue
+below is the canonical answer to "what should be worked on next?"
 
 Every track has one execution state:
 
@@ -34,11 +35,10 @@ item requires an explicit priority decision recorded here.
 
 | Order | Track | State | Bounded work item | Admission reason |
 | --- | --- | --- | --- | --- |
-| 1 | [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Ready | Correct false-positive managed-result redaction with focused benign-label and real-secret regression coverage. | A restarted Codex App live job returned a valid canonical result but replaced five ordinary prose labels with environment-redaction markers; fix this correctness defect before other control-plane work. |
-| 2 | [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Research | Define and verify cross-surface event-presentation density, then complete final live release validation. | Context usage is complete; CLI/TUI parity rules require evidence before shared event-density changes. |
+| 1 | [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Ready | Live-validate Slices 0-2 and the first Slice 4 execution-evidence vertical before admitting `Plan` or `Confirmation`. | Activity ownership, empty-assistant removal, source-owned `Task`, and structured paused-execution `Tool` output pass automated gates; operator validation is the remaining promotion evidence. |
+| 2 | [05 - Cross-Harness Kiln Control Plane](./05-cross-harness-kiln-control-plane.md) | Ready | Slice 4: define quota, subscription, metered-cost, and comparable-cost evidence before changing route preference. | Slices 0-3 and the managed-result redaction correction are complete; resume after the admitted UI correction. |
 | 3 | [01 - Native Operator Surface](./01-native-operator-surface.md) | Queued | Slice 3: workload fixture governance. | The slice is bounded to Gateway contracts and tests, but it is not a public-release truth blocker. |
-| 4 | [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Resume Slice 3 telemetry, replay, and non-inferiority work. | Roadmap 06 must first define and verify the required cross-harness Kiln tool and agent exposure. |
-| 5 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract before automatic operations or value promotion. | Inventory and repair evidence exist, but policy ownership and promotion evidence remain open. |
+| 4 | [04 - Skill Capability Plane](./04-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract before automatic operations or value promotion. | Inventory and repair evidence exist, but policy ownership and promotion evidence remain open. |
 
 The TypeScript 7 migration is not an executable Kiln roadmap item while the
 required Bun alias fix is unpublished. Its external dependency and follow-up
@@ -50,11 +50,10 @@ belong in the Sequel infrastructure debt register, not in this queue.
 | --- | --- | --- | --- |
 | [00 - Rust Module Optimization](./00-rust-module-optimization.md) | Guardrail | Rust/WASM/sidecar ownership and promotion gates are defined; no production module is admitted. | Start only from an approved module slice or ADR with parity and benchmark evidence. |
 | [01 - Native Operator Surface](./01-native-operator-surface.md) | Queued | Slices 1 and 2 are complete. Slice 3 is specified and bounded. | Start Slice 3 after the public-release queue or an explicit reprioritization. |
-| [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Research | Provider/model eligibility, Setup skill diagnostics, GUI foundations, and the context-usage projection are complete. Event-density parity and final live validation remain. | Define event-density parity before admitting implementation; retain final live validation debt. |
+| [02 - Public Release UI Debt](./02-public-release-ui-debt.md) | Ready | Immediate work-experience Slices 0-2 and the first Slice 4 Tool/Task execution-evidence vertical are implemented; staged adoption and final live validation remain. | Live-validate rotate/pulse ownership, real streaming, tool continuity, Task presentation, and paused work-item output before admitting the next component slice. |
 | [03 - Federated Harness Configuration Plane](./03-federated-harness-configuration-plane.md) | Deferred | No implementation is admitted. | Reopen only when capability matrices and projection benchmarks support thin or dynamic adapters. |
-| [04 - Verified Efficiency Control Plane](./04-verified-efficiency-control-plane.md) | Blocked | Slices 0-2 are complete. Slice 3 implementation is paused; Slices 4-12 are not admitted. | Resume only after Roadmap 06 supplies the named cross-harness dependency and the Slice 3 verification plan is re-approved. |
-| [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Inventory and local repair started; automatic admission, evaluation, and operations are not admitted. | Define the shared evidence/admission contract. GUI/TUI rendering of existing diagnostics remains owned by Roadmap 02. |
-| [06 - Cross-Harness Kiln Control Plane](./06-cross-harness-kiln-control-plane.md) | Ready | Slices 0-2, 3A, and 3B are complete. Slice 3C verification is reopened; full Slice 3 remains incomplete. Claude Code entitlement work is deferred until configured or required by a real consumer. | Correct managed-result redaction first. Keep inspection compaction, cancellation, replay, and quota routing as separate later slices. |
+| [04 - Skill Capability Plane](./04-skill-capability-plane.md) | Research | Inventory and local repair started; automatic admission, evaluation, and operations are not admitted. | Define the shared evidence/admission contract. GUI/TUI rendering of existing diagnostics remains owned by Roadmap 02. |
+| [05 - Cross-Harness Kiln Control Plane](./05-cross-harness-kiln-control-plane.md) | Ready | Slices 0-3 and the managed-result redaction correction are complete. Slice 4 is planned; Slice 5 remains entitlement-triggered and deferred. | Define the Slice 4 quota and subscription evidence contract. Keep later adapters, setup, dogfood, and benchmark slices separately gated. |
 
 ## Roadmap File Standard
 

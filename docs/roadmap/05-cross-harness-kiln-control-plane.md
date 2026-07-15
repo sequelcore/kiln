@@ -1,7 +1,7 @@
-# 06 - Cross-Harness Kiln Control Plane
+# 05 - Cross-Harness Kiln Control Plane
 
 Status: Active delivery track; Slices 0-3 are complete. Slice 4 is planned.
-Execution: Ready - Roadmap 04 may resume progressive context and tool loading against the verified cross-harness boundary.
+Execution: Ready - define Slice 4 quota and subscription evidence before changing route preference.
 Created: 2026-07-04.
 
 ## Objective
@@ -576,7 +576,9 @@ Closure evidence on 2026-07-14:
 
 Residual risk: historical version 1 and version 2 jobs cannot supply lifecycle
 events they never recorded and therefore return explicit replay-unavailable
-evidence. Inspection-diagnostic compaction remains separate Roadmap 04 work.
+evidence. Inspection diagnostics remain canonical replay evidence; any future
+compaction must use the [typed lossless reduction contract](../architecture/verified-efficiency-control-plane.md#typed-lossless-reduction)
+and its promotion gates.
 
 ### Slice 4 - Quota And Subscription-Aware Routing
 
