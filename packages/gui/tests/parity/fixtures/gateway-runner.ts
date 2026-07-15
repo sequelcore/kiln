@@ -311,6 +311,160 @@ const fakeSessionFactory: CliSessionFactory = () => ({
       };
     }
 
+    if (prompt.toLowerCase().includes("paused work item visual check")) {
+      yield {
+        type: "tool_use",
+        toolName: "work_item.execution.start",
+        input: { workItemId: "inspect-composer-activity-ownership" },
+        toolCallId: "parity-paused-work-item",
+      };
+      await delay(250);
+      yield {
+        type: "tool_result",
+        toolName: "work_item.execution.start",
+        output: JSON.stringify({
+          status: "paused",
+          reason: "managedInvocationId is required before starting managed-delegation execution.",
+          workItemId: "inspect-composer-activity-ownership",
+          routeId: "opencode-go-qwen3-7-max-readonly",
+          nextTool: "managed_agent.invoke",
+          requiredEvidence: ["surface-map", "risk-hypothesis", "tests"],
+        }),
+        outputSummary: "Work item execution paused",
+        toolCallId: "parity-paused-work-item",
+        isError: false,
+      };
+    }
+
+    if (prompt.toLowerCase().includes("structured diagnostic visual check")) {
+      yield {
+        type: "tool_use",
+        toolName: "goal.create",
+        input: { objective: "Review the GUI" },
+        toolCallId: "parity-goal-create-diagnostic",
+      };
+      await delay(250);
+      yield {
+        type: "tool_result",
+        toolName: "goal.create",
+        output: JSON.stringify({
+          error: {
+            code: "invalid_input",
+            message: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+            recoverable: true,
+            suggestedNextTool: "goal.create",
+            requiredInputShape: {
+              objective: "string",
+              workItemIds: ["existing work item id"],
+            },
+          },
+        }),
+        outputSummary: "Goal input is invalid",
+        toolCallId: "parity-goal-create-diagnostic",
+        isError: false,
+      };
+    }
+
+    if (prompt.toLowerCase().includes("governed tool presentation visual check")) {
+      yield {
+        type: "tool_use",
+        toolName: "work_item.update",
+        input: { summary: "Inspect composer activity ownership." },
+        toolCallId: "parity-work-item-update",
+      };
+      yield {
+        type: "tool_result",
+        toolName: "work_item.update",
+        output: JSON.stringify({
+          item: {
+            id: "work-1",
+            summary: "Inspect composer activity ownership.",
+            status: "pending",
+            workflowProfile: "verification-heavy",
+            risk: "medium",
+            surface: "gui",
+            authorityProfile: "foundation-readonly-plan",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+            pauseRequirements: [],
+          },
+          nextRequiredTools: ["goal.create", "work_item.execution.start"],
+        }),
+        outputSummary: "Work item updated",
+        metadata: { kind: "work_item", operation: "update" },
+        toolCallId: "parity-work-item-update",
+        isError: false,
+      };
+      yield {
+        type: "tool_use",
+        toolName: "goal.create",
+        input: { objective: "Perform evidence-backed UX verification." },
+        toolCallId: "parity-goal-create",
+      };
+      yield {
+        type: "tool_result",
+        toolName: "goal.create",
+        output: JSON.stringify({
+          goal: {
+            id: "goal-1",
+            objective: "Perform evidence-backed UX verification.",
+            planId: "interactive-ux-verification",
+            status: "active",
+            workItemIds: ["work-1"],
+            authorityEnvelope: { maximumAuthority: "read_only", escalationPolicy: "deny" },
+            routePolicy: { workflowProfile: "verification-heavy" },
+            evidenceRequirements: [
+              { id: "repo-inspection", description: "Inspect the requested files.", required: true },
+            ],
+            currentPhase: "prepare",
+          },
+        }),
+        outputSummary: "Goal created",
+        metadata: { kind: "goal", operation: "create" },
+        toolCallId: "parity-goal-create",
+        isError: false,
+      };
+      yield {
+        type: "tool_use",
+        toolName: "work_item.execution.start",
+        input: { workItemId: "work-1" },
+        toolCallId: "parity-work-item-start",
+      };
+      yield {
+        type: "tool_result",
+        toolName: "work_item.execution.start",
+        output: JSON.stringify({
+          status: "started",
+          item: {
+            id: "work-1",
+            summary: "Inspect composer activity ownership.",
+            status: "in_progress",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+          },
+        }),
+        outputSummary: "Work item execution started",
+        metadata: { kind: "work_item", operation: "execution_started" },
+        toolCallId: "parity-work-item-start",
+        isError: false,
+      };
+      yield {
+        type: "tool_use",
+        toolName: "read",
+        input: { path: "C:\\repo\\missing.ts" },
+        toolCallId: "parity-read-failed",
+      };
+      yield {
+        type: "tool_result",
+        toolName: "read",
+        output: "ENOENT: no such file or directory, open 'C:\\repo\\missing.ts'",
+        outputSummary: "File not found",
+        metadata: { kind: "file", operation: "read", filePath: "C:\\repo\\missing.ts", code: "ENOENT" },
+        toolCallId: "parity-read-failed",
+        isError: true,
+      };
+    }
+
     for (const chunk of chunks) {
       await delay(70);
       yield { type: "text_delta", content: chunk };

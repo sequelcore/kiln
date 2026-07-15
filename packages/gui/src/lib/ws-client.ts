@@ -443,6 +443,20 @@ const GuiSessionEventSchema = z.object({
   ]),
   turnId: z.string().optional(),
   parentEventId: z.string().optional(),
+  executionScope: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("goal"),
+      goalRunId: z.string().min(1),
+      managedInvocationId: z.string().min(1).optional(),
+    }),
+    z.object({
+      kind: z.literal("work_item"),
+      goalRunId: z.string().min(1),
+      workItemId: z.string().min(1),
+      attemptId: z.string().min(1).optional(),
+      managedInvocationId: z.string().min(1).optional(),
+    }),
+  ]).optional(),
   source: z.object({
     actor: z.enum(["user", "assistant", "system", "tool", "runtime"]),
     surface: z.enum(["cli", "tui", "gui", "native", "ide", "sdk", "widget", "gateway", "runtime"]),

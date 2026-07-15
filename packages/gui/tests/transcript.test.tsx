@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 import { Transcript } from "../src/components/transcript.js";
 import type { Message, TimelineEntry } from "../src/lib/session-store.js";
+import type { WorkflowActivityProjection } from "@kilnai/gateway-contracts";
 
 function message(id: string, role: Message["role"], content: string, streaming = false): Message {
   return {
@@ -24,6 +25,352 @@ function messageEntry(id: string, role: Message["role"], content: string, stream
 }
 
 describe("Transcript", () => {
+  it("renders one identity-stable workflow container instead of repeated lifecycle rows", () => {
+    const workflowActivity: WorkflowActivityProjection = {
+      goals: [{
+        goal: {
+          id: "goal-1",
+          objective: "Inspect the GUI",
+          status: "active",
+          workItemIds: ["work-1"],
+          evidenceRequirements: [],
+        },
+        workItems: [{
+          item: {
+            id: "work-1",
+            summary: "Inspect transcript ownership",
+            status: "completed",
+            workflowProfile: "verification-heavy",
+            risk: "low",
+            surface: "gui",
+            evidence: [
+              { label: "surface-map", status: "completed" },
+              { label: "tests", status: "completed" },
+            ],
+            nextTools: [],
+            pauseRequirements: [],
+          },
+          attempts: [],
+          toolCalls: [{
+            toolCallId: "read-1",
+            toolName: "read",
+            state: "completed",
+            summary: "Read transcript.tsx",
+            firstSequence: 3,
+            lastSequence: 4,
+          }],
+          firstSequence: 1,
+          lastSequence: 5,
+        }],
+        toolCalls: [],
+        firstSequence: 1,
+        lastSequence: 5,
+      }],
+      standaloneWorkItems: [],
+      unscopedToolCalls: [],
+      consumedEventIds: ["work-update-1", "work-update-2", "read-start", "read-complete"],
+    };
+    const lifecycleEntries: TimelineEntry[] = workflowActivity.consumedEventIds.map((eventId, index) => ({
+      id: `timeline:${eventId}`,
+      type: "event",
+      eventKind: "tool_call_completed",
+      createdAt: "2026-07-15T18:00:00.000Z",
+      sequence: index + 1,
+      title: "Completed work_item.update",
+      summary: "Lifecycle event",
+      tone: "success",
+    }));
+
+    render(<Transcript entries={lifecycleEntries} workflowActivity={workflowActivity} />);
+
+    expect(document.querySelectorAll('[data-role="workflow-activity"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-role="tool-event"]')).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /Inspect the GUI\. In progress\. 1 of 1 work items completed/u })).toBeVisible();
+    expect(screen.getByText("Inspect transcript ownership")).toBeVisible();
+    expect(screen.getByText("2 / 2")).toBeVisible();
+    const scopedActions = screen.getByRole("button", { name: "1 action. Show actions" });
+    expect(scopedActions).toBeVisible();
+    expect(screen.queryByText(/Read transcript\.tsx/u)).not.toBeInTheDocument();
+    fireEvent.click(scopedActions);
+    expect(screen.getByText(/Read transcript\.tsx/u)).toBeVisible();
+    expect(document.querySelector('[data-role="workflow-activity"]')?.closest('[data-slot="transcript-surface"]'))
+      .toHaveClass("max-w-[min(44rem,90%)]");
+  });
+
+  it("keeps an optimistic user message before the workflow events it triggered", () => {
+    const workflowActivity: WorkflowActivityProjection = {
+      goals: [],
+      standaloneWorkItems: [{
+        item: {
+          id: "work-1",
+          summary: "Inspect transcript ownership",
+          status: "pending",
+          evidence: [],
+          nextTools: [],
+          pauseRequirements: [],
+        },
+        attempts: [],
+        toolCalls: [],
+        firstSequence: 7,
+        lastSequence: 8,
+      }],
+      unscopedToolCalls: [],
+      consumedEventIds: ["work-start", "work-complete"],
+    };
+    const { container } = render(
+      <Transcript
+        entries={[
+          messageEntry("optimistic-user", "user", "Create governed work"),
+          {
+            id: "timeline:work-start",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: "2026-07-15T18:00:07.000Z",
+            sequence: 7,
+            title: "Using work_item.update",
+            tone: "running",
+          },
+          {
+            id: "timeline:work-complete",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: "2026-07-15T18:00:08.000Z",
+            sequence: 8,
+            title: "Completed work_item.update",
+            tone: "success",
+          },
+        ]}
+        workflowActivity={workflowActivity}
+      />,
+    );
+
+    const rows = container.querySelectorAll('[data-slot="message-scroller-item"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Create governed work");
+    expect(rows[1]).toHaveAttribute("data-message-id", "workflow:work-item:work-1");
+    expect(rows[0]?.querySelector('[data-slot="transcript-surface"]')).toHaveAttribute("data-surface-kind", "message");
+    expect(rows[1]?.querySelector('[data-slot="transcript-surface"]')).toHaveAttribute("data-surface-kind", "workflow");
+  });
+
+  it("does not repeat a standalone work item summary inside its own container", () => {
+    const workflowActivity: WorkflowActivityProjection = {
+      goals: [],
+      standaloneWorkItems: [{
+        item: {
+          id: "work-1",
+          summary: "Inspect transcript ownership",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          risk: "medium",
+          surface: "runtime/transcript",
+          evidence: [{ label: "surface-map", status: "pending" }],
+          nextTools: [],
+          pauseRequirements: [],
+        },
+        attempts: [],
+        toolCalls: [],
+        firstSequence: 1,
+        lastSequence: 2,
+      }],
+      unscopedToolCalls: [],
+      consumedEventIds: [],
+    };
+
+    render(<Transcript entries={[]} workflowActivity={workflowActivity} />);
+
+    expect(screen.getAllByText("Inspect transcript ownership")).toHaveLength(1);
+    expect(screen.getByText("verification-heavy")).toBeVisible();
+    expect(screen.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
+  });
+
+  it("groups consecutive routine tool calls into one progressive disclosure", () => {
+    const createdAt = "2026-07-15T08:21:00.000Z";
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "Inspect the repository"),
+          ...["read", "list", "search"].map((tool, index): TimelineEntry => ({
+            id: `timeline:event:${tool}`,
+            type: "event",
+            eventKind: index === 2 ? "tool_call_started" : "tool_call_completed",
+            createdAt,
+            title: `Completed ${tool}`,
+            summary: `${tool} result ${index + 1}`,
+            tone: index === 2 ? "running" : "success",
+            presentationDetails: [{ label: "Tool", value: tool }],
+          })),
+        ]}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Working · 3 actions. Hide actions" })).toBeVisible();
+    expect(within(screen.getByRole("list", { name: "Tool activity" })).getAllByRole("listitem")).toHaveLength(3);
+    expect(document.querySelectorAll('[data-slot="ai-tool"]')).toHaveLength(3);
+    expect(screen.queryByLabelText("JSON output")).not.toBeInTheDocument();
+  });
+
+  it("keeps a completed trailing tool group collapsed even while the turn remains active", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "Inspect the repository"),
+          ...["read", "grep"].map((tool, index): TimelineEntry => ({
+            id: `timeline:event:completed:${tool}`,
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: `2026-07-15T08:21:0${index}.000Z`,
+            title: `Completed ${tool}`,
+            summary: `${tool} result`,
+            tone: "success",
+            presentationDetails: [{ label: "Tool", value: tool }],
+          })),
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "2 actions. Show actions" })).toBeVisible();
+    expect(screen.queryByText(/Working/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Tool activity" })).not.toBeInTheDocument();
+  });
+
+  it("groups consecutive non-governance failures into one compact disclosure", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "Read missing files"),
+          ...["one.ts", "two.ts"].map((file, index): TimelineEntry => ({
+            id: `timeline:event:failed-read:${index}`,
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: `2026-07-15T08:22:0${index}.000Z`,
+            title: "Failed read",
+            summary: `ENOENT: ${file}`,
+            tone: "error",
+            presentationDetails: [{ label: "Tool", value: "read" }],
+          })),
+        ]}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "2 actions. Show actions" })).toHaveTextContent("2 failed");
+    expect(document.querySelectorAll('[data-role="tool"]')).toHaveLength(0);
+  });
+
+  it("uses one Tool anatomy for running, completed, paused, and failed presentations", () => {
+    const createdAt = "2026-07-14T20:59:04.000Z";
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:running-tool",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt,
+            title: "Using read",
+            summary: "Execution in progress",
+            tone: "running",
+            presentationDetails: [{ label: "Tool", value: "read" }],
+          },
+          {
+            id: "timeline:event:completed-tool",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt,
+            title: "Completed read",
+            summary: "README.md",
+            tone: "success",
+            presentationDetails: [{ label: "Tool", value: "read" }],
+          },
+          {
+            id: "timeline:event:paused-tool",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt,
+            title: "Execution paused",
+            summary: "Managed invocation is required.",
+            tone: "warning",
+            presentationDetails: [{ label: "Tool", value: "work_item.execution.start" }],
+          },
+          {
+            id: "timeline:event:failed-tool",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt,
+            title: "Failed goal.create",
+            summary: "Route ownership is invalid.",
+            tone: "error",
+            presentationDetails: [{ label: "Tool", value: "goal.create" }],
+          },
+        ]}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
+    const tools = document.querySelectorAll('[data-slot="ai-tool"]');
+    expect(tools).toHaveLength(4);
+    expect(document.querySelectorAll('[data-slot="ai-tool-header"]')).toHaveLength(4);
+    expect(document.querySelectorAll('[data-slot="ai-tool-status"]')).toHaveLength(4);
+    expect(screen.getByRole("button", { name: /read\. Running\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /read\. Completed\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /work_item\.execution\.start\. Paused\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /goal\.create\. Failed\. Hide details/u })).toBeVisible();
+  });
+
+  it("renders structured tool diagnostics without a JSON dump", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:goal-create-diagnostic",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: "2026-07-14T20:59:04.000Z",
+            title: "Failed goal.create",
+            summary: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+            tone: "error",
+            presentationDetails: [
+              { label: "Tool", value: "goal.create" },
+              { label: "Status", value: "failed" },
+            ],
+            toolPresentation: {
+              outputKind: "diagnostic",
+              classification: {
+                source: "content-heuristic",
+                reason: "structured error envelope",
+                confidence: "high",
+              },
+              title: "Invalid input",
+              summary: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+              fields: [],
+              diagnostic: {
+                code: "invalid_input",
+                message: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+                recoverable: true,
+                suggestedNextTool: "goal.create",
+                requiredInput: [
+                  { name: "objective", expected: "string" },
+                  { name: "workItemIds", expected: "existing work item id[]" },
+                ],
+              },
+              raw: { available: false, reason: "Structured diagnostic is rendered inline" },
+            },
+          },
+        ]}
+      />,
+    );
+
+    const tool = document.querySelector('[data-slot="ai-tool"]')!;
+    expect(tool).toHaveAttribute("data-state", "failed");
+    expect(within(tool as HTMLElement).getByText("Invalid input")).toBeVisible();
+    expect(within(tool as HTMLElement).getAllByText("goal.create cannot combine preferredRouteId and managedAgentProfile.")).not.toHaveLength(0);
+    expect(within(tool as HTMLElement).getByText("objective")).toBeVisible();
+    expect(within(tool as HTMLElement).getByText("existing work item id[]")).toBeVisible();
+    expect(within(tool as HTMLElement).queryByLabelText("JSON output")).not.toBeInTheDocument();
+    expect(within(tool as HTMLElement).queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
+  });
+
   it("renders a minimal empty state without an instructional card", () => {
     vi.spyOn(Date, "now").mockReturnValue(0);
 
@@ -141,7 +488,7 @@ describe("Transcript", () => {
     expect(rows[1]).not.toHaveTextContent("Using read");
     expect(rows[1]).not.toHaveTextContent("Execution in progress");
     expect(rows[1]).toHaveTextContent("Completed read");
-    expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveAttribute("data-state", "complete");
+    expect(rows[1]!.querySelector('[data-slot="ai-tool"]')).toHaveAttribute("data-state", "completed");
     expect(rows[1]).toHaveTextContent("# Session Model");
     expect(rows[2]).toHaveTextContent("Here is the summary.");
     expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
@@ -178,18 +525,17 @@ describe("Transcript", () => {
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(4);
-    expect(rows[1]).toHaveAttribute("data-role", "tool");
-    expect(rows[2]).toHaveAttribute("data-role", "tool");
-    expect(rows[3]).toHaveAttribute("data-role", "assistant");
-    expect(rows[1]).toHaveTextContent("Completed read");
-    expect(rows[2]).toHaveTextContent("Completed patch");
-    expect(within(rows[3]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toHaveAttribute("data-role", "tool-group");
+    expect(rows[2]).toHaveAttribute("data-role", "assistant");
+    expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
 
-    fireEvent.click(within(rows[1]!).getByRole("button", { name: "Show details" }));
-
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "2 actions. Show actions" }));
+    expect(rows[1]).toHaveTextContent("read");
+    expect(rows[1]).toHaveTextContent("patch");
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: /read\. Completed\. Show details/u }));
     expect(within(rows[1]!).getByText("# Session Model")).toBeInTheDocument();
-    expect(rows[2]).toHaveTextContent("1 file changed");
+    expect(rows[1]).toHaveTextContent("1 file changed");
   });
 
   it("renders trailing same-turn tool activity as a standalone operational row", () => {
@@ -240,8 +586,9 @@ describe("Transcript", () => {
       />,
     );
 
-    const toolEvent = screen.getByRole("article").querySelector('[data-role="tool-event"]');
-    expect(toolEvent).toHaveAttribute("data-state", "interrupted");
+    const tool = screen.getByRole("article").querySelector('[data-slot="ai-tool"]');
+    const toolEvent = screen.getByRole("article").querySelector('[data-slot="ai-tool-status"]');
+    expect(tool).toHaveAttribute("data-state", "paused");
     expect(toolEvent).toHaveClass("text-warning");
   });
 
@@ -277,7 +624,7 @@ describe("Transcript", () => {
     expect(screen.getByText("# Session Model")).toBeInTheDocument();
     expect(screen.queryByText(/"output"/)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     expect(screen.getAllByText("# Session Model")).toHaveLength(2);
     expect(screen.queryByText(/metadata/)).not.toBeInTheDocument();
@@ -324,7 +671,7 @@ describe("Transcript", () => {
     );
 
     expect(screen.queryByText("Diff")).not.toBeInTheDocument();
-    const detailsButton = screen.getByRole("button", { name: "Show details" });
+    const detailsButton = screen.getByRole("button", { name: /Show details$/u });
     fireEvent.click(detailsButton);
 
     expect(screen.getByText("Diff")).toBeInTheDocument();
@@ -385,7 +732,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -445,7 +792,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     expect(screen.getByText("completed")).toHaveAttribute("data-cell-kind", "status");
     expect(screen.getByText("failed")).toHaveAttribute("data-cell-kind", "status");
@@ -495,7 +842,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const details = screen.getByTestId("tool-output-details");
     expect(details).toHaveClass("max-w-full", "overflow-hidden");
@@ -557,7 +904,7 @@ describe("Transcript", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Hide details$/u })).toBeInTheDocument();
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -644,7 +991,7 @@ describe("Transcript", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Hide details$/u })).toBeInTheDocument();
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -718,7 +1065,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const editor = screen.getByRole("region", { name: "Recorder timeline editor" });
     const zoom = within(editor).getByRole("slider", { name: "Zoom depth for auto_zoom click target" });
@@ -785,7 +1132,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const editor = screen.getByRole("region", { name: "Recorder timeline editor" });
     const firstCaption = within(editor).getByRole("textbox", { name: "Caption text for caption: Open settings" });
@@ -833,7 +1180,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     expect(screen.getByText("caption copy review")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Recorder timeline editor" })).not.toBeInTheDocument();
@@ -883,7 +1230,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     expect(screen.getByText("Resource")).toBeInTheDocument();
     expect(screen.getAllByText("read_many full output").length).toBeGreaterThan(0);
@@ -936,7 +1283,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const resources = screen.getByRole("list", { name: "Generated artifacts resources" });
     expect(within(resources).getByText("Research report")).toBeInTheDocument();
@@ -1007,7 +1354,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const gallery = screen.getByRole("list", { name: "Browser screenshot captures" });
     expect(within(gallery).getByText("Capture 1")).toBeInTheDocument();
@@ -1075,7 +1422,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const preview = await screen.findByRole("img", { name: "Browser screenshot Capture 1" });
     expect(preview).toHaveAttribute("src", screenshotDataUrl);
@@ -1152,16 +1499,17 @@ describe("Transcript", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "2 actions. Show actions" }));
     expect(screen.getByText("# Session Model")).toBeInTheDocument();
     expect(screen.getAllByText("55 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
 
-    let detailButtons = screen.getAllByRole("button", { name: "Show details" });
+    let detailButtons = screen.getAllByRole("button", { name: /Show details$/u });
     fireEvent.click(detailButtons[0]!);
 
     expect(screen.getByText("Document")).toBeInTheDocument();
     expect(screen.queryByText("Status")).not.toBeInTheDocument();
     expect(screen.queryByText("succeeded")).not.toBeInTheDocument();
-    detailButtons = screen.getAllByRole("button", { name: "Show details" });
+    detailButtons = screen.getAllByRole("button", { name: /Show details$/u });
     fireEvent.click(detailButtons[0]!);
 
     expect(screen.getAllByText("Directory tree").length).toBeGreaterThan(0);
@@ -1229,7 +1577,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const searchResultsOutput = screen.getByRole("region", { name: "Search results" });
     expect(within(searchResultsOutput).getAllByRole("listitem")).toHaveLength(2);
@@ -1238,6 +1586,46 @@ describe("Transcript", () => {
       "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures",
     );
     expect(screen.queryByRole("region", { name: "Document" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
+  });
+
+  it("labels unknown JSON fallback as structured data instead of text output", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:custom-structured-data",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed custom.inspect",
+            summary: "3 fields",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "data",
+              classification: {
+                source: "content",
+                reason: "structured JSON output classified from content",
+                confidence: "medium",
+              },
+              title: "custom.inspect",
+              summary: "3 fields",
+              fields: [],
+              preview: {
+                text: '{"status":"ready","count":2,"items":["one","two"]}',
+                language: "json",
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
+
+    expect(screen.getByRole("region", { name: "Structured data" })).toBeVisible();
+    expect(screen.getByLabelText("JSON output")).toBeVisible();
     expect(screen.queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
   });
 
@@ -1271,7 +1659,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const treeOutput = screen.getByRole("list", { name: "Directory tree output" });
     expect(treeOutput).toHaveAttribute("data-output-kind", "tree");
@@ -1315,7 +1703,7 @@ describe("Transcript", () => {
     );
 
     expect(screen.getByText("file · 25 bytes")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
     expect(screen.getByText("C:\\workspace\\kiln\\im_alive.txt")).toBeInTheDocument();
     expect(screen.getByText("Type")).toBeInTheDocument();
     expect(screen.getByText("25 bytes")).toBeInTheDocument();
@@ -1351,7 +1739,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
     expect(screen.getAllByText("20 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
     expect(screen.queryByText("Tree preview")).not.toBeInTheDocument();
   });
@@ -1391,7 +1779,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
     expect(screen.getByText("Source")).toBeInTheDocument();
     expect(screen.getByText("json")).toBeInTheDocument();
     expect(screen.getAllByText("3 lines · 22 bytes").length).toBeGreaterThan(0);
@@ -1402,7 +1790,7 @@ describe("Transcript", () => {
     expect(screen.queryByText("Code preview")).not.toBeInTheDocument();
   });
 
-  it("shows streaming cursor indicator for streaming assistant message", () => {
+  it("uses incremental content and avatar state without a cursor decoration", () => {
     render(
       <Transcript
         entries={[
@@ -1410,7 +1798,7 @@ describe("Transcript", () => {
         ]}
       />,
     );
-    expect(screen.getByLabelText("Streaming")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Streaming")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-state", "running");
     expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-motion", "subtle");
   });
@@ -1427,33 +1815,6 @@ describe("Transcript", () => {
     const bubble = assistantRow.querySelector('[data-slot="bubble"]');
     expect(bubble).toHaveAttribute("data-variant", "ghost");
     expect(bubble).not.toHaveClass("border", "bg-card");
-  });
-
-  it("shows assistant thinking state in the transcript instead of the composer", () => {
-    render(
-      <Transcript
-        entries={[messageEntry("1", "user", "build this")]}
-        activityPhase="thinking"
-      />,
-    );
-
-    expect(screen.getByRole("status", { name: "Activity phase: Thinking" })).toBeInTheDocument();
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
-    expect(document.querySelector('[data-role="typing-dots"]')).not.toBeInTheDocument();
-    expect(document.querySelector('[data-role="live-activity-beam"]')).toHaveAttribute("data-state", "thinking");
-    expect(screen.getAllByRole("article").at(-1)).toHaveAttribute("data-role", "assistant");
-  });
-
-  it("names the active tool in the live transcript activity row", () => {
-    render(
-      <Transcript
-        entries={[messageEntry("1", "user", "read docs")]}
-        activityPhase="tool_running"
-        activityToolName="read_many"
-      />,
-    );
-
-    expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
   });
 
   it("keeps live tool events visible as rows before final text arrives", () => {
@@ -1482,34 +1843,30 @@ describe("Transcript", () => {
             details: { toolCallId: "call_patch_1", status: "succeeded" },
           },
         ]}
-        activityPhase="streaming"
       />,
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "tool");
-    expect(rows[2]).toHaveAttribute("data-role", "assistant");
     expect(screen.queryByText("Using patch")).not.toBeInTheDocument();
     expect(rows[1]).toHaveTextContent("Completed patch");
-    expect(rows[2]).toHaveTextContent("Responding");
-    expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
   });
 
   it("does not duplicate the responding state when an assistant message is already streaming", () => {
     render(
       <Transcript
         entries={[messageEntry("1", "assistant", "working", true)]}
-        activityPhase="streaming"
       />,
     );
 
-    expect(screen.getByLabelText("Streaming")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Streaming")).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Activity phase: Responding" })).not.toBeInTheDocument();
   });
 
-  it("keeps the activity row separate from live tool rows", () => {
+  it("keeps live tool rows durable without synthesizing assistant activity", () => {
     render(
       <Transcript
         entries={[
@@ -1525,22 +1882,19 @@ describe("Transcript", () => {
             details: { toolCallId: "call_patch_1" },
           },
         ]}
-        activityPhase="tool_running"
-        activityToolName="patch"
       />,
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "tool");
-    expect(rows[2]).toHaveAttribute("data-role", "assistant");
     expect(rows[1]).toHaveTextContent("Using patch");
-    expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveAttribute("data-state", "running");
-    expect(rows[1]!.querySelector('[data-role="tool-event"]')).toHaveClass("text-xs");
+    expect(rows[1]!.querySelector('[data-slot="ai-tool"]')).toHaveAttribute("data-state", "running");
+    expect(rows[1]!.querySelector('[data-slot="ai-tool-header"]')).toBeInTheDocument();
+    expect(rows[1]!.querySelector('[data-slot="ai-tool-status"]')).toHaveTextContent("Running");
     expect(rows[1]!.querySelector('[data-role="active-tool-beam"]')).not.toBeInTheDocument();
-    expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
-    expect(screen.getByRole("status", { name: "Activity phase: Using patch" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
   });
 
   it("renders active tool rows as compact inline trace entries", () => {
@@ -1564,10 +1918,11 @@ describe("Transcript", () => {
 
     const toolRow = screen.getAllByRole("article")[1]!;
     const toolEvent = toolRow.querySelector('[data-role="tool-event"]');
-    expect(toolEvent).toHaveAttribute("data-state", "running");
+    expect(toolRow.querySelector('[data-slot="ai-tool"]')).toHaveAttribute("data-state", "running");
     expect(toolEvent).toHaveTextContent("Execution in progress");
-    expect(toolEvent).toHaveClass("py-1", "text-xs");
-    expect(toolEvent?.querySelector(".shimmer")).toBeInTheDocument();
+    expect(toolEvent).toHaveAttribute("data-slot", "ai-tool-header");
+    expect(toolRow.querySelector('[data-slot="ai-tool-status"]')).toHaveTextContent("Running");
+    expect(toolRow.querySelector('[data-slot="ai-tool-status"] svg')).toHaveClass("motion-safe:animate-spin");
     expect(toolRow.querySelector('[data-role="active-tool-beam"]')).not.toBeInTheDocument();
   });
 
@@ -1615,7 +1970,7 @@ describe("Transcript", () => {
     const row = screen.getAllByRole("article")[1]!;
     expect(row).toHaveTextContent("gpt-5.5");
     expect(row).toHaveTextContent("direct-provider");
-    fireEvent.click(within(row).getByRole("button", { name: "Show details" }));
+    fireEvent.click(within(row).getByRole("button", { name: /Show details$/u }));
     expect(row).toHaveTextContent("architecture-reviewer");
     expect(row).toHaveTextContent("ddd-review");
     expect(row).not.toHaveTextContent("Structured value");
@@ -1701,7 +2056,7 @@ describe("Transcript", () => {
     expect(failureAnchor).toHaveAttribute("data-proximity", "1");
     expect(assistantAnchor).toHaveAttribute("data-proximity", "2");
 
-    fireEvent.mouseLeave(rail);
+    fireEvent.mouseLeave(failureAnchor);
     expect(rail).toHaveAttribute("data-expanded", "false");
 
     fireEvent.click(failureAnchor);
@@ -1759,13 +2114,13 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Show details" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /Show details$/u })[0]!);
     expect(screen.getByText("path")).toBeInTheDocument();
     expect(screen.getByText("demo.txt")).toBeInTheDocument();
     expect(screen.queryByText(/"input"/)).not.toBeInTheDocument();
     expect(screen.queryByText("{")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Show details" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /Show details$/u })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 

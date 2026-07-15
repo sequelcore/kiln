@@ -8,6 +8,7 @@ import {
   listOperatorCommands,
   normalizeManagedAgentOperatorEvents,
   projectOperatorCockpitReadOnlyView,
+  projectWorkflowActivity,
   type GuiAppDescriptor,
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
@@ -91,6 +92,7 @@ export function AppShell() {
   const [paletteQuery, setPaletteQuery] = useState("");
   const [composerCommandOpen, setComposerCommandOpen] = useState(false);
   const [composerCommandQuery, setComposerCommandQuery] = useState("");
+  const [governedWorkItemCount, setGovernedWorkItemCount] = useState<number | null>(null);
   const [isProviderPickerOpen, setIsProviderPickerOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -194,6 +196,7 @@ export function AppShell() {
   const workItems = useMemo(() => deriveWorkItems(timelineEntries), [timelineEntries]);
   const activityEntries = useMemo(() => timelineEntries.filter(isActivityTimelineEntry), [timelineEntries]);
   const conversationEntries = useMemo(() => timelineEntries.filter(isConversationTimelineEntry), [timelineEntries]);
+  const workflowActivity = useMemo(() => projectWorkflowActivity(sessionEvents), [sessionEvents]);
   const sessionContinuity = useMemo(() => deriveSessionContinuity({
     status,
     selectedSessionId,
@@ -652,6 +655,9 @@ export function AppShell() {
     ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
   });
   const setTargetedPlanMode = (enabled: boolean): void => {
+    if (enabled) {
+      setGovernedWorkItemCount(null);
+    }
     setPlanMode(enabled, {
       ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
     });
@@ -991,16 +997,18 @@ export function AppShell() {
             }}
             transcript={{
               entries: conversationEntries,
-              activityPhase,
-              activityToolName: activity?.toolName,
-              activityDetails: activity?.details,
+              workflowActivity,
               loadResourceDataUrl: (uri) => gatewayClient.loadResourceDataUrl(uri, cockpitActions.resourceTarget(uri)),
               onApprove: (approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId),
               onDeny: (approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId),
             }}
             composer={{
               status,
+              activityPhase,
+              activityToolName: activity?.toolName,
+              activityDetails: activity?.details,
               planMode,
+              governedWorkItemCount,
               continuityHint: composerContinuityHint,
               contextUsage,
               providerControl: (
@@ -1026,26 +1034,45 @@ export function AppShell() {
                 />
               ),
               onSubmit: (text) => {
-                sendMessage(text, {
+                const sent = sendMessage(text, {
                   ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
                   requestedAuthority,
+                  ...(governedWorkItemCount !== null ? {
+                    governedWorkRequirement: {
+                      kind: "goal_materialization",
+                      requiredWorkItemCount: governedWorkItemCount,
+                    },
+                  } : {}),
                   ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
                   ...(selectedAppName ? { appName: selectedAppName } : {}),
                   ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
                 });
+                if (sent) {
+                  setGovernedWorkItemCount(null);
+                }
               },
               onSubmitParts: (parts, displayContent) => {
-                sendMessage("", {
+                const sent = sendMessage("", {
                   parts,
                   displayContent,
                   ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
                   requestedAuthority,
+                  ...(governedWorkItemCount !== null ? {
+                    governedWorkRequirement: {
+                      kind: "goal_materialization",
+                      requiredWorkItemCount: governedWorkItemCount,
+                    },
+                  } : {}),
                   ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
                   ...(selectedAppName ? { appName: selectedAppName } : {}),
                   ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
                 });
+                if (sent) {
+                  setGovernedWorkItemCount(null);
+                }
               },
               onTogglePlanMode: setTargetedPlanMode,
+              onGovernedWorkItemCountChange: setGovernedWorkItemCount,
               commandMenu: {
                 open: composerCommandOpen,
                 query: composerCommandQuery,

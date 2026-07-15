@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 
 const gatewayPort = Number.parseInt(process.env.GUI_GATEWAY_PORT ?? "4810", 10);
 const resolvedGatewayPort = Number.isFinite(gatewayPort) && gatewayPort > 0 ? gatewayPort : 4810;
+const guiPort = Number.parseInt(process.env.GUI_DEV_PORT ?? "5183", 10);
+const resolvedGuiPort = Number.isFinite(guiPort) && guiPort > 0 ? guiPort : 5183;
 
 function guiManualChunks(id: string): string | undefined {
   const normalized = id.replace(/\\/g, "/");
@@ -109,7 +111,7 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
-    port: 5183,
+    port: resolvedGuiPort,
     proxy: {
       "/health": {
         target: `http://localhost:${resolvedGatewayPort}`,
@@ -138,7 +140,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ["@kilnai/gateway-contracts"],
+    exclude: ["@kilnai/gateway-contracts"],
   },
   build: {
     chunkSizeWarningLimit: 560,

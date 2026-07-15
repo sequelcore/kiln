@@ -2,7 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 import { createServer } from "node:net";
 
 const CI = process.env["CI"] === "true";
-const gatewayPort = process.env.GUI_GATEWAY_PORT ?? String(await reserveGatewayPort());
+const guiPort = process.env.GUI_DEV_PORT ?? String(await reservePort());
+const gatewayPort = process.env.GUI_GATEWAY_PORT ?? String(await reservePort());
+process.env.GUI_DEV_PORT = guiPort;
 process.env.GUI_GATEWAY_PORT = gatewayPort;
 
 export default defineConfig({
@@ -16,7 +18,7 @@ export default defineConfig({
   workers: 1,
 
   use: {
-    baseURL: "http://localhost:5183",
+    baseURL: `http://localhost:${guiPort}`,
     headless: true,
     trace: "on-first-retry",
   },
@@ -32,18 +34,19 @@ export default defineConfig({
 
   webServer: {
     command: "bun run dev",
-    url: "http://localhost:5183",
+    url: `http://localhost:${guiPort}`,
     reuseExistingServer: !CI,
     timeout: 30_000,
     env: {
       ...process.env,
+      GUI_DEV_PORT: guiPort,
       GUI_GATEWAY_PORT: gatewayPort,
       VITE_GATEWAY_PORT: gatewayPort,
     },
   },
 });
 
-async function reserveGatewayPort(): Promise<number> {
+async function reservePort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -54,7 +57,7 @@ async function reserveGatewayPort(): Promise<number> {
     server.close((err) => (err ? reject(err) : resolve()));
   });
   if (!address || typeof address === "string") {
-    throw new Error("Could not reserve a GUI gateway port for Playwright.");
+    throw new Error("Could not reserve a local port for Playwright.");
   }
   return address.port;
 }

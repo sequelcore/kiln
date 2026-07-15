@@ -44,7 +44,6 @@
   --color-assistant-bg:       var(--color-background-panel);
   --color-tool-fg:            var(--color-success);
   --color-thinking-fg:        var(--color-text-muted);
-  --color-cursor-fg:          var(--color-success);
 
   /* workspace/document viewer surfaces */
   --workspace-viewer:          color-mix(in srgb, var(--color-background) 88%, var(--color-background-panel));
@@ -122,7 +121,6 @@
   --color-assistant-bg:       var(--color-background-panel);
   --color-tool-fg:            var(--color-success);
   --color-thinking-fg:        var(--color-text-muted);
-  --color-cursor-fg:          var(--color-success);
 
   --workspace-viewer:          color-mix(in srgb, var(--color-background) 70%, var(--color-background-panel));
   --workspace-viewer-panel:    color-mix(in srgb, var(--color-background-panel) 74%, var(--color-background-element));
@@ -191,7 +189,6 @@
   --color-assistant-bg: var(--color-assistant-bg);
   --color-tool-fg: var(--color-tool-fg);
   --color-thinking-fg: var(--color-thinking-fg);
-  --color-cursor-fg: var(--color-cursor-fg);
   --color-workspace-viewer: var(--workspace-viewer);
   --color-workspace-viewer-panel: var(--workspace-viewer-panel);
   --color-workspace-viewer-gutter: var(--workspace-viewer-gutter);
@@ -330,8 +327,10 @@ body {
   [data-role="tool-event"]::after,
   [data-role="tool-event"] .shimmer,
   [data-role="tool-event"] .animate-spin,
-  [data-role="live-activity-beam"],
-  [data-role="live-activity-beam"] * {
+  [data-role="composer-activity-beam"],
+  [data-role="composer-activity-beam"] *,
+  [data-role="work-item-activity-beam"],
+  [data-role="work-item-activity-beam"] * {
     animation: none !important;
   }
 

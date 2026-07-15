@@ -15,6 +15,7 @@ import type {
   GuiProviderModelDiscoveryProjection,
   GuiProviderReasoningEffort,
   OperatorTurnRequestedAuthority,
+  OperatorGoalMaterializationRequirement,
   GuiSessionDetail,
   GuiSessionEvent,
   GuiSessionSummary,
@@ -500,13 +501,15 @@ function mergeWorkItemEntry(previous: WorkItemEntry | undefined, next: WorkItemE
   };
 }
 
+const USD_FORMATTER = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 4,
+});
+
 function formatUsd(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  }).format(value);
+  return USD_FORMATTER.format(value);
 }
 
 function areSessionSummariesEqual(
@@ -534,8 +537,7 @@ function appendSessionEvent(
   if (events.some((candidate) => candidate.eventId === event.eventId)) {
     return events;
   }
-  const next = [...events, event];
-  return [...next].sort((a, b) => {
+  return [...events, event].toSorted((a, b) => {
     const sequenceCompare = a.sequence - b.sequence;
     return sequenceCompare === 0 ? a.eventId.localeCompare(b.eventId) : sequenceCompare;
   });
@@ -1148,48 +1150,6 @@ export interface TimelineEventEntry {
 }
 
 export type TimelineEntry = TimelineMessageEntry | TimelineEventEntry;
-
-function ensureLiveAssistantAnchor(
-  state: SessionStoreState,
-  createdAt: string,
-  turnId: string | undefined,
-): {
-  readonly messages: readonly Message[];
-  readonly timelineEntries: readonly TimelineEntry[];
-  readonly currentAssistant: string;
-} {
-  const existingId = state.currentAssistant;
-  if (existingId && state.messages.some((message) => message.id === existingId && message.role === "assistant")) {
-    return {
-      messages: state.messages,
-      timelineEntries: state.timelineEntries,
-      currentAssistant: existingId,
-    };
-  }
-
-  const assistantId = createMessageId();
-  const assistantMessage: Message = {
-    id: assistantId,
-    role: "assistant",
-    content: "",
-    createdAt,
-    streaming: true,
-  };
-  return {
-    messages: [...state.messages, assistantMessage],
-    timelineEntries: [
-      ...state.timelineEntries,
-      {
-        id: `timeline:${assistantId}`,
-        type: "message",
-        createdAt,
-        ...(turnId ? { turnId } : {}),
-        message: assistantMessage,
-      },
-    ],
-    currentAssistant: assistantId,
-  };
-}
 
 function timelineTurnId(event: GuiSessionEvent): { readonly turnId?: string } {
   return event.turnId ? { turnId: event.turnId } : {};
@@ -1818,6 +1778,7 @@ interface SessionStoreActions {
       displayContent?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
       requestedAuthority?: OperatorTurnRequestedAuthority;
+      governedWorkRequirement?: OperatorGoalMaterializationRequirement;
       gatewayTargetId?: string;
       appName?: string;
       tenantId?: string;
@@ -2224,10 +2185,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const toolName = readString(payload.toolName) ?? "tool";
       const input = isObjectRecord(payload.input) ? payload.input : {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
-      const anchored = ensureLiveAssistantAnchor(get(), event.timestamp, event.turnId);
+      const current = get();
       set({
         timelineEntries: [
-          ...anchored.timelineEntries,
+          ...current.timelineEntries,
           {
             id: `timeline:${event.eventId}`,
             type: "event",
@@ -2247,8 +2208,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             },
           },
         ],
-        messages: anchored.messages,
-        currentAssistant: anchored.currentAssistant,
         activity: {
           phase: "tool_running",
           toolName,
@@ -2262,13 +2221,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const status = isObjectRecord(payload.status) ? payload.status : null;
       const interactiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(event.kilnSessionId, event, payload, status);
       const browserSessionState = browserSessionStateFromSnapshot(interactiveUseSnapshot);
-      const priorToolCalls = deriveToolCallLog(get().timelineEntries);
+      const current = get();
+      const priorToolCalls = deriveToolCallLog(current.timelineEntries);
       const priorInput = priorToolCalls.find((entry) => entry.callId === (readString(payload.toolCallId) ?? event.eventId))?.input ?? {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
-      const anchored = ensureLiveAssistantAnchor(get(), event.timestamp, event.turnId);
       set({
         timelineEntries: [
-          ...anchored.timelineEntries,
+          ...current.timelineEntries,
           {
             id: `timeline:${event.eventId}`,
             type: "event",
@@ -2290,8 +2249,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             },
           },
         ],
-        messages: anchored.messages,
-        currentAssistant: anchored.currentAssistant,
         activity: null,
         ...(interactiveUseSnapshot ? { interactiveUseSnapshot } : {}),
         ...(interactiveUseSnapshot ? { browserSessionState } : {}),
@@ -2696,6 +2653,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const targetIndex = existingId
       ? messageList.findIndex((message) => message.id === existingId)
       : -1;
+
+    if (targetIndex < 0 && frame.content.trim().length === 0) {
+      set({ status: "running", activityPhase: "streaming", errorBanner: null });
+      return;
+    }
 
     if (targetIndex >= 0) {
       const current = messageList[targetIndex];
@@ -3455,6 +3417,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ...(continuity.outboundSessionIntent ? { sessionIntent: continuity.outboundSessionIntent } : {}),
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       ...(options?.requestedAuthority ? { requestedAuthority: options.requestedAuthority } : {}),
+      ...(options?.governedWorkRequirement ? { governedWorkRequirement: options.governedWorkRequirement } : {}),
       ...(options?.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
       ...(options?.appName ? { appName: options.appName } : {}),
       ...(options?.tenantId ? { tenantId: options.tenantId } : {}),

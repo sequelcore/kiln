@@ -128,7 +128,6 @@ test.describe("parity category 5 - theming and visual behavior", () => {
   });
 
   test("keeps concurrent tool executions distinct and reduced-motion safe", async ({ page }) => {
-    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
     await waitForGuiReady(page);
 
@@ -136,27 +135,141 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await composer.fill("tool continuity browser check");
     await composer.press("Enter");
 
-    const liveActivityBeam = page.locator('[data-role="live-activity-beam"]');
-    await expect(liveActivityBeam).toBeVisible();
-    expect(await liveActivityBeam.evaluate((element) => (
+    const composerActivityBeam = page.locator('[data-role="composer-activity-beam"]');
+    await expect(composerActivityBeam).toBeVisible();
+    await expect(composerActivityBeam).toHaveAttribute("data-beam-motion", "pulse");
+    await expect(composerActivityBeam).toHaveAttribute("data-beam-palette", "colorful");
+    await expect(composerActivityBeam).toHaveAttribute("data-beam-theme", "dark");
+    await expect(page.locator('[data-role="live-activity-label"]')).toHaveCount(0);
+    await expect(page.locator('[aria-label="Transcript"] [aria-label="Streaming"]')).toHaveCount(0);
+    await expect(page.locator('[aria-label="Transcript"] [role="status"]')).toHaveCount(0);
+    await expect.poll(async () => composerActivityBeam.evaluate((element) => (
+      Number.parseFloat(getComputedStyle(element, "::after").opacity)
+    ))).toBeGreaterThan(0.2);
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await composerActivityBeam.evaluate((element) => (
       [element, ...Array.from(element.querySelectorAll("*"))]
         .every((candidate) => getComputedStyle(candidate).animationName === "none")
     ))).toBe(true);
 
-    const runningRows = page.locator('[data-role="tool-event"][data-state="running"]');
-    await expect(runningRows).toHaveCount(2, { timeout: 5_000 });
     const activeBeams = page.locator('[data-role="active-tool-beam"]');
     await expect(activeBeams).toHaveCount(0);
-    expect(await runningRows.evaluateAll((elements) => elements.every((element) => {
-      return [element, ...Array.from(element.querySelectorAll("*"))]
-        .every((candidate) => getComputedStyle(candidate).animationName === "none");
-    }))).toBe(true);
 
-    const completedRow = page.locator('[data-role="tool-event"][data-state="complete"]');
-    const failedRow = page.locator('[data-role="tool-event"][data-state="error"]');
+    const completedRow = page.locator('[data-slot="ai-tool"][data-state="completed"]');
+    const failedRow = page.locator('[data-slot="ai-tool"][data-state="failed"]');
     await expect(completedRow).toHaveCount(1, { timeout: 5_000 });
     await expect(failedRow).toHaveCount(1, { timeout: 5_000 });
     await expect(completedRow).toContainText("First tool result");
     await expect(failedRow).toContainText("Second tool failed");
+  });
+
+  test("renders paused work item execution as a bounded task instead of JSON", async ({ page }) => {
+    await page.goto("/");
+    await waitForGuiReady(page);
+
+    const composer = page.locator("#composer-input");
+    await expect(composer).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
+    await composer.fill("paused work item visual check");
+    await composer.press("Enter");
+
+    const header = page.getByRole("button", { name: /Execution paused\. Paused\. inspect-composer-activity-ownership/u });
+    await expect(header).toBeVisible({ timeout: 15_000 });
+    const task = page.locator('[data-role="workflow-activity"]');
+    await expect(task).toBeVisible();
+    await expect(task).toHaveAttribute("data-status", "paused");
+    await expect(task.getByText("inspect-composer-activity-ownership", { exact: true })).toHaveCount(1);
+    await expect(task).toContainText("managedInvocationId is required before starting managed-delegation execution.");
+    await expect(task.getByRole("progressbar", { name: "Evidence completion for inspect-composer-activity-ownership" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Text output" })).toHaveCount(0);
+    await expect(page.getByLabel("JSON output")).toHaveCount(0);
+    const transcriptRows = page.locator('[data-slot="message-scroller-item"]');
+    await expect(transcriptRows.first()).toContainText("paused work item visual check");
+
+    const transcriptBounds = await page.getByLabel("Transcript").boundingBox();
+    const messageSurfaceBounds = await transcriptRows.first().locator('[data-slot="transcript-surface"]').boundingBox();
+    const taskBounds = await task.boundingBox();
+    expect(transcriptBounds).not.toBeNull();
+    expect(messageSurfaceBounds).not.toBeNull();
+    expect(taskBounds).not.toBeNull();
+    expect(taskBounds!.x).toBeGreaterThanOrEqual(transcriptBounds!.x);
+    expect(taskBounds!.x + taskBounds!.width).toBeLessThanOrEqual(transcriptBounds!.x + transcriptBounds!.width);
+    expect(taskBounds!.width).toBeLessThanOrEqual(messageSurfaceBounds!.width);
+    await expect.poll(async () => page.getByLabel("Transcript").evaluate((element) => (
+      element.scrollWidth <= element.clientWidth
+    ))).toBe(true);
+
+    await page.setViewportSize({ width: 900, height: 720 });
+    const compactMessageBounds = await transcriptRows.first().locator('[data-slot="transcript-surface"]').boundingBox();
+    const compactTaskBounds = await task.boundingBox();
+    expect(compactMessageBounds).not.toBeNull();
+    expect(compactTaskBounds).not.toBeNull();
+    expect(compactTaskBounds!.x).toBeGreaterThanOrEqual(compactMessageBounds!.x);
+    expect(compactTaskBounds!.x + compactTaskBounds!.width)
+      .toBeLessThanOrEqual(compactMessageBounds!.x + compactMessageBounds!.width);
+    await expect.poll(async () => page.getByLabel("Transcript").evaluate((element) => (
+      element.scrollWidth <= element.clientWidth
+    ))).toBe(true);
+    const colors = await task.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { color: style.color, backgroundColor: style.backgroundColor };
+    });
+    expect(colors.color).not.toBe(colors.backgroundColor);
+  });
+
+  test("renders structured tool errors as diagnostics inside the shared Tool anatomy", async ({ page }) => {
+    await page.goto("/");
+    await waitForGuiReady(page);
+
+    const composer = page.locator("#composer-input");
+    await expect(composer).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
+    await composer.fill("structured diagnostic visual check");
+    await composer.press("Enter");
+
+    const header = page.getByRole("button", { name: /goal\.create\. Failed\./u });
+    await expect(header).toBeVisible({ timeout: 15_000 });
+    const tool = header.locator("..");
+    await expect(tool).toHaveAttribute("data-slot", "ai-tool");
+    await expect(tool).toHaveAttribute("data-state", "failed");
+    await expect(header).toContainText("goal.create");
+    await expect(tool.locator('[data-slot="ai-tool-status"]')).toHaveText("Failed");
+    if (await header.getAttribute("aria-expanded") !== "true") {
+      await header.click();
+    }
+
+    await expect(tool.getByRole("alert")).toContainText("Invalid input");
+    await expect(tool.getByRole("alert")).toContainText("goal.create cannot combine preferredRouteId and managedAgentProfile.");
+    await expect(tool.getByRole("alert")).toContainText("objective");
+    await expect(tool.getByRole("alert")).toContainText("existing work item id[]");
+    await expect(tool.getByLabel("JSON output")).toHaveCount(0);
+    await expect(tool.getByRole("region", { name: "Text output" })).toHaveCount(0);
+  });
+
+  test("renders governed tool results as work, goal, task, and diagnostic UI", async ({ page }) => {
+    await page.goto("/");
+    await waitForGuiReady(page);
+
+    const composer = page.locator("#composer-input");
+    await expect(composer).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
+    await composer.fill("governed tool presentation visual check");
+    await composer.press("Enter");
+
+    const goal = page.locator('[data-role="workflow-activity"]');
+    await expect(goal).toHaveCount(1, { timeout: 15_000 });
+    await expect(goal.getByRole("button", { name: /Perform evidence-backed UX verification\..*1 work items/u })).toBeVisible();
+    await expect(goal.getByRole("list", { name: "Goal work items" })).toContainText("Inspect composer activity ownership.");
+    await expect(goal).toContainText("1 / 2");
+    await expect(goal.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /work_item\.(?:update|execution\.start)/u })).toHaveCount(0);
+
+    const readHeader = page.getByRole("button", { name: /read\. Failed\./u });
+    await expect(readHeader).toBeVisible();
+    const readTool = readHeader.locator("..");
+    await expect(readTool.getByRole("alert")).toContainText("Read failed");
+    await expect(readTool.getByRole("alert")).toContainText("ENOENT");
+    await expect(readTool.getByRole("alert")).toContainText("C:\\repo\\missing.ts");
+
+    await expect(page.getByRole("region", { name: "Text output" })).toHaveCount(0);
+    await expect(page.getByLabel("JSON output")).toHaveCount(0);
   });
 });

@@ -309,6 +309,28 @@ describe("session-store", () => {
     }));
   });
 
+  it("sends governed work materialization as a typed gateway requirement", () => {
+    const outboundSend = vi.fn();
+    useSessionStore.setState({ status: "ready", outboundSend });
+
+    const sent = useSessionStore.getState().sendMessage("Inspect the runtime after governance is established.", {
+      governedWorkRequirement: {
+        kind: "goal_materialization",
+        requiredWorkItemCount: 3,
+      },
+    });
+
+    expect(sent).toBe(true);
+    expect(outboundSend).toHaveBeenCalledWith(expect.objectContaining({
+      type: "message",
+      content: "Inspect the runtime after governance is established.",
+      governedWorkRequirement: {
+        kind: "goal_materialization",
+        requiredWorkItemCount: 3,
+      },
+    }));
+  });
+
   it("replaces a local voice placeholder with the admitted transcript when the turn completes", () => {
     const outboundSend = vi.fn();
     const parts = [
@@ -346,7 +368,7 @@ describe("session-store", () => {
     });
   });
 
-  it("anchors live tool events to an assistant shell before the first text delta", () => {
+  it("keeps live tool events standalone until the first assistant text delta", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.setState({ status: "ready" });
@@ -365,34 +387,57 @@ describe("session-store", () => {
       },
     });
 
-    const anchored = useSessionStore.getState();
-    const assistant = anchored.messages.find((message) => message.role === "assistant");
-    expect(anchored.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
-    expect(assistant).toMatchObject({
-      content: "",
-      streaming: true,
-    });
-    expect(anchored.currentAssistant).toBe(assistant?.id);
-    expect(anchored.timelineEntries.map((entry) => (
+    const toolRunning = useSessionStore.getState();
+    expect(toolRunning.messages.map((message) => message.role)).toEqual(["user"]);
+    expect(toolRunning.currentAssistant).toBeNull();
+    expect(toolRunning.timelineEntries.map((entry) => (
       entry.type === "message" ? `message:${entry.message.role}` : `event:${entry.eventKind}`
     ))).toEqual([
       "message:user",
-      "message:assistant",
       "event:tool_call_started",
     ]);
 
     useSessionStore.getState().onTextDelta({ type: "text_delta", kilnSessionId: "session-live", content: "Patched." });
 
     const withDelta = useSessionStore.getState();
+    const assistant = withDelta.messages.find((message) => message.role === "assistant");
     expect(withDelta.currentAssistant).toBe(assistant?.id);
-    expect(withDelta.messages.find((message) => message.id === assistant?.id)).toMatchObject({
+    expect(assistant).toMatchObject({
       content: "Patched.",
       streaming: true,
     });
     expect(withDelta.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
   });
 
-  it("fills an empty live assistant shell from done content when no text delta streamed", () => {
+  it("does not create an assistant row from whitespace-only streaming deltas", () => {
+    useSessionStore.setState({ status: "running" });
+
+    useSessionStore.getState().onTextDelta({
+      type: "text_delta",
+      kilnSessionId: "session-live",
+      content: "  \n",
+    });
+
+    expect(useSessionStore.getState().currentAssistant).toBeNull();
+    expect(useSessionStore.getState().messages).toEqual([]);
+    expect(useSessionStore.getState().timelineEntries).toEqual([]);
+
+    useSessionStore.getState().onTextDelta({
+      type: "text_delta",
+      kilnSessionId: "session-live",
+      content: "Visible response",
+    });
+
+    expect(useSessionStore.getState().messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "Visible response",
+        streaming: true,
+      }),
+    ]);
+  });
+
+  it("creates the assistant response from done content without a prior empty shell", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
     useSessionStore.setState({ status: "ready" });
@@ -411,7 +456,8 @@ describe("session-store", () => {
         status: { state: "succeeded" },
       },
     });
-    const assistantId = useSessionStore.getState().currentAssistant;
+    expect(useSessionStore.getState().currentAssistant).toBeNull();
+    expect(useSessionStore.getState().messages.filter((message) => message.role === "assistant")).toHaveLength(0);
 
     useSessionStore.getState().onDone({
       type: "done",
@@ -423,7 +469,7 @@ describe("session-store", () => {
 
     const state = useSessionStore.getState();
     expect(state.currentAssistant).toBeNull();
-    expect(state.messages.find((message) => message.id === assistantId)).toMatchObject({
+    expect(state.messages.find((message) => message.role === "assistant")).toMatchObject({
       role: "assistant",
       content: "Created live_test_visibility.txt.",
       streaming: false,
@@ -1398,6 +1444,216 @@ describe("session-store", () => {
       },
     });
     expect(JSON.stringify(entry?.toolPresentation)).not.toContain("\"output\"");
+  });
+
+  it("stores paused work item execution as warning task state", () => {
+    useSessionStore.setState({
+      selectedSessionId: "session-live",
+      liveSessionId: "session-live",
+      status: "running",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-work-item-paused",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-07-14T20:59:04.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-work-item-start",
+        toolName: "work_item.execution.start",
+        output: JSON.stringify({
+          status: "paused",
+          reason: "managedInvocationId is required before starting managed-delegation execution.",
+          workItemId: "inspect-composer-activity-ownership",
+          routeId: "opencode-go-qwen3-7-max-readonly",
+          requiredEvidence: ["surface-map", "tests"],
+        }),
+        status: { state: "succeeded" },
+      },
+    });
+
+    const entry = useSessionStore.getState().timelineEntries.find((item) => (
+      item.type === "event" && item.eventKind === "tool_call_completed"
+    ));
+    expect(entry).toMatchObject({
+      title: "Execution paused",
+      tone: "warning",
+      summary: "managedInvocationId is required before starting managed-delegation execution.",
+      toolPresentation: {
+        outputKind: "task",
+        task: {
+          status: "paused",
+          workItemId: "inspect-composer-activity-ownership",
+          items: [
+            { label: "surface-map", status: "pending" },
+            { label: "tests", status: "pending" },
+          ],
+        },
+      },
+    });
+    expect(entry?.presentationDetails).toContainEqual({ label: "Status", value: "paused" });
+    expect(entry?.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("stores structured tool errors as failed diagnostics regardless of transport status", () => {
+    useSessionStore.setState({
+      selectedSessionId: "session-live",
+      liveSessionId: "session-live",
+      status: "running",
+    });
+
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-goal-create-invalid-input",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-07-14T21:24:46.000Z",
+      kind: "tool_call_completed",
+      payload: {
+        toolCallId: "tool-goal-create",
+        toolName: "goal.create",
+        output: JSON.stringify({
+          error: {
+            code: "invalid_input",
+            message: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+            recoverable: true,
+            suggestedNextTool: "goal.create",
+            requiredInputShape: {
+              objective: "string",
+              workItemIds: ["existing work item id"],
+            },
+          },
+        }),
+        status: { state: "succeeded" },
+      },
+    });
+
+    const entry = useSessionStore.getState().timelineEntries.find((item) => (
+      item.type === "event" && item.eventKind === "tool_call_completed"
+    ));
+    expect(entry).toMatchObject({
+      title: "Failed goal.create",
+      tone: "error",
+      summary: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+      toolPresentation: {
+        outputKind: "diagnostic",
+        title: "Invalid input",
+        diagnostic: {
+          code: "invalid_input",
+          recoverable: true,
+          suggestedNextTool: "goal.create",
+          requiredInput: [
+            { name: "objective", expected: "string" },
+            { name: "workItemIds", expected: "existing work item id[]" },
+          ],
+        },
+      },
+    });
+    expect(entry?.presentationDetails).toContainEqual({ label: "Status", value: "failed" });
+    expect(entry?.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("stores governed tool results as semantic presentations instead of text fallbacks", () => {
+    useSessionStore.setState({
+      selectedSessionId: "session-live",
+      liveSessionId: "session-live",
+      status: "running",
+    });
+
+    const baseEvent = {
+      kilnSessionId: "session-live",
+      timestamp: "2026-07-14T21:24:46.000Z",
+      kind: "tool_call_completed" as const,
+    };
+    useSessionStore.getState().onSessionEvent({
+      ...baseEvent,
+      eventId: "evt-work-item-update",
+      sequence: 1,
+      payload: {
+        toolCallId: "tool-work-item-update",
+        toolName: "work_item.update",
+        output: JSON.stringify({
+          item: {
+            id: "work-1",
+            summary: "Inspect composer activity ownership.",
+            status: "pending",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+            pauseRequirements: [],
+          },
+          nextRequiredTools: ["goal.create"],
+        }),
+        metadata: { kind: "work_item", operation: "update" },
+        status: { state: "succeeded" },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      ...baseEvent,
+      eventId: "evt-goal-create",
+      sequence: 2,
+      payload: {
+        toolCallId: "tool-goal-create",
+        toolName: "goal.create",
+        output: JSON.stringify({
+          goal: {
+            id: "goal-1",
+            objective: "Perform evidence-backed UX verification.",
+            status: "active",
+            workItemIds: ["work-1"],
+            evidenceRequirements: [],
+          },
+        }),
+        metadata: { kind: "goal", operation: "create" },
+        status: { state: "succeeded" },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      ...baseEvent,
+      eventId: "evt-work-item-start",
+      sequence: 3,
+      payload: {
+        toolCallId: "tool-work-item-start",
+        toolName: "work_item.execution.start",
+        output: JSON.stringify({
+          status: "started",
+          item: {
+            id: "work-1",
+            summary: "Inspect composer activity ownership.",
+            status: "in_progress",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+          },
+        }),
+        status: { state: "succeeded" },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      ...baseEvent,
+      eventId: "evt-read-failed",
+      sequence: 4,
+      payload: {
+        toolCallId: "tool-read",
+        toolName: "read",
+        output: "ENOENT: no such file or directory, open 'C:\\repo\\missing.ts'",
+        metadata: { kind: "file", operation: "read", filePath: "C:\\repo\\missing.ts", code: "ENOENT" },
+        status: { state: "failed" },
+      },
+    });
+
+    const entries = useSessionStore.getState().timelineEntries.filter((item) => (
+      item.type === "event" && item.eventKind === "tool_call_completed"
+    ));
+    expect(entries.map((entry) => entry.type === "event" ? entry.toolPresentation?.outputKind : null)).toEqual([
+      "work_item",
+      "goal",
+      "task",
+      "diagnostic",
+    ]);
+    expect(JSON.stringify(entries.map((entry) => entry.type === "event" ? entry.toolPresentation : null))).not.toContain('"preview"');
+    expect(entries[0]).toMatchObject({ summary: "Inspect composer activity ownership." });
+    expect(entries[1]).toMatchObject({ summary: "Perform evidence-backed UX verification." });
+    expect(entries[2]).toMatchObject({ summary: "Inspect composer activity ownership.", tone: "running" });
+    expect(entries[3]).toMatchObject({ tone: "error", toolPresentation: { diagnostic: { code: "ENOENT" } } });
   });
 
   it("stores live read output from the full payload envelope when the summary is raw JSON", () => {

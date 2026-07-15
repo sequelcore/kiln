@@ -51,7 +51,6 @@ function applyTheme(theme: KilnTheme): void {
   root.style.setProperty("--color-assistant-bg", "var(--color-background-panel)");
   root.style.setProperty("--color-tool-fg", "var(--color-success)");
   root.style.setProperty("--color-thinking-fg", "var(--color-text-muted)");
-  root.style.setProperty("--color-cursor-fg", "var(--color-success)");
 }
 
 // System-follow media query listener — set once, kept for the lifetime of the app.

@@ -20,7 +20,7 @@ interface WorkflowGoalPreview {
   readonly id: string;
   readonly objective: string;
   readonly status: string;
-  readonly planId?: string;
+  readonly source?: string;
   readonly workflowProfile?: string;
   readonly authority?: string;
   readonly escalation?: string;
@@ -179,12 +179,17 @@ function latestWorkflowPreview(entries: readonly TimelineEntry[]): {
       const status = readString(rawGoal.status);
       const routePolicy = isRecord(rawGoal.routePolicy) ? rawGoal.routePolicy : {};
       const authorityEnvelope = isRecord(rawGoal.authorityEnvelope) ? rawGoal.authorityEnvelope : {};
+      const source = isRecord(rawGoal.source) ? rawGoal.source : {};
       if (id && objective && status) {
         goal = {
           id,
           objective,
           status,
-          planId: readString(rawGoal.planId),
+          source: source.kind === "approved_plan"
+            ? `Approved plan ${readString(source.planId) ?? "unknown"}`
+            : source.kind === "operator_direct"
+              ? `Operator turn ${readString(source.turnId) ?? "unknown"}`
+              : undefined,
           workflowProfile: readString(routePolicy.workflowProfile),
           authority: readString(authorityEnvelope.maximumAuthority),
           escalation: readString(authorityEnvelope.escalationPolicy),
@@ -289,7 +294,7 @@ export function WorkflowOverviewPanel(props: WorkflowOverviewPanelProps) {
             </div>
             <div className="mt-3">
               <MetricRow label="Goal" value={goal.id} />
-              <MetricRow label="Plan" value={goal.planId} />
+              <MetricRow label="Source" value={goal.source} />
               <MetricRow label="Work items" value={goal.workItemCount} />
             </div>
           </article>

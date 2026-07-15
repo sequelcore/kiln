@@ -1,11 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/components/composer.js";
+import { useUiStore } from "../src/lib/ui-store.js";
 
 function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   const onSubmit = vi.fn();
   const onTogglePlanMode = vi.fn();
+  const onGovernedWorkItemCountChange = vi.fn();
   const onSubmitParts = vi.fn();
   const onCommandMenuOpenChange = vi.fn();
   const onCommandMenuExecute = vi.fn();
@@ -14,6 +16,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
     <Composer
       status="ready"
       planMode={false}
+      governedWorkItemCount={null}
       continuityHint={{
         label: "New session",
         description: "Next message starts fresh",
@@ -39,6 +42,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
       }}
       onSubmit={onSubmit}
       onTogglePlanMode={onTogglePlanMode}
+      onGovernedWorkItemCountChange={onGovernedWorkItemCountChange}
       onSubmitParts={onSubmitParts}
       {...overrides}
     />,
@@ -46,6 +50,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   return {
     onSubmit,
     onTogglePlanMode,
+    onGovernedWorkItemCountChange,
     onSubmitParts,
     onCommandMenuOpenChange,
     onCommandMenuExecute,
@@ -54,6 +59,76 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
 }
 
 describe("Composer", () => {
+  beforeEach(() => {
+    useUiStore.getState().setTheme("kiln-dark");
+  });
+
+  it("announces thinking without duplicating visible status beside the active beam", () => {
+    renderComposer({
+      status: "running",
+      activityPhase: "thinking",
+      activityDetails: "Preparing the response",
+    });
+
+    expect(screen.getByRole("status", { name: "Activity phase: Thinking · Preparing the response" })).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "thinking");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-motion", "pulse");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-palette", "colorful");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "dark");
+  });
+
+  it("uses the active Kiln light theme instead of the operating-system preference", () => {
+    useUiStore.getState().setTheme("kiln-light");
+
+    renderComposer({ status: "running", activityPhase: "thinking" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "light");
+  });
+
+  it("names the active tool in the composer without creating transcript-like markup", () => {
+    renderComposer({
+      status: "running",
+      activityPhase: "tool_running",
+      activityToolName: "read_many",
+    });
+
+    expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
+    expect(screen.queryByText("Using read_many")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity"]')).not.toBeInTheDocument();
+  });
+
+  it("keeps the composer beam active until response streaming finishes", () => {
+    renderComposer({ status: "running", activityPhase: "streaming" });
+
+    expect(screen.getByRole("status", { name: "Activity phase: Responding" })).toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "streaming");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
+  });
+
+  it("does not flash the beam off between tool activity phases", () => {
+    renderComposer({ status: "running", activityPhase: "idle" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "idle");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
+  });
+
+  it("pauses aggregate motion while operator approval is required", () => {
+    renderComposer({ status: "running", activityPhase: "awaiting_approval" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
+    expect(screen.getByRole("status", { name: "Activity phase: Awaiting approval" })).toBeInTheDocument();
+  });
+
+  it("keeps the composer beam inactive and omits live status while idle", () => {
+    renderComposer({ activityPhase: "idle" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "idle");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
+    expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
+  });
+
   it("aligns the composer with the transcript axis", () => {
     renderComposer();
 
@@ -151,7 +226,6 @@ describe("Composer", () => {
 
   it.each([
     ["Detached", "Run continues in background", "warning"],
-    ["Running", "Waiting for current turn", "info"],
   ] as const)("shows exceptional continuity state %s", (label, description, tone) => {
     renderComposer({ continuityHint: { label, description, tone, prominence: "exceptional" } });
 
@@ -159,6 +233,22 @@ describe("Composer", () => {
     expect(status).toHaveTextContent(label);
     expect(status).toHaveAccessibleDescription(description);
     expect(status).toHaveAttribute("data-slot", "marker");
+  });
+
+  it("hides routine running continuity while activity is already announced", () => {
+    renderComposer({
+      status: "running",
+      activityPhase: "thinking",
+      continuityHint: {
+        label: "Running",
+        description: "Waiting for current turn",
+        tone: "info",
+        prominence: "routine",
+      },
+    });
+
+    expect(screen.queryByRole("status", { name: "Session continuity" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Running")).not.toBeInTheDocument();
   });
 
   it("renders turn controls as accessible message options", () => {
@@ -170,11 +260,36 @@ describe("Composer", () => {
     expect(within(options).getByLabelText(/Turn authority/)).toBeInTheDocument();
   });
 
+  it("configures a typed governed goal requirement from the composer", async () => {
+    const { onGovernedWorkItemCountChange } = renderComposer();
+
+    fireEvent.click(screen.getByRole("button", { name: "Configure governed task" }));
+    expect(await screen.findByRole("heading", { name: "Governed task" })).toBeVisible();
+    expect(screen.getByLabelText("Required work items")).toHaveValue(3);
+
+    fireEvent.click(screen.getByRole("button", { name: "Require goal first" }));
+    expect(onGovernedWorkItemCountChange).toHaveBeenCalledWith(3);
+  });
+
+  it("exposes and removes an active governed requirement without color-only state", async () => {
+    const onGovernedWorkItemCountChange = vi.fn();
+    renderComposer({ governedWorkItemCount: 4, onGovernedWorkItemCountChange });
+
+    const trigger = screen.getByRole("button", { name: "Governed task enabled with 4 work items" });
+    expect(trigger).toHaveAttribute("aria-pressed", "true");
+    expect(trigger).toHaveTextContent("Goal 4");
+
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove requirement" }));
+    expect(onGovernedWorkItemCountChange).toHaveBeenCalledWith(null);
+  });
+
   it("labels authoritative, partial, and restored context evidence without color-only state", () => {
     const { rerender } = render(
       <Composer
         status="ready"
         planMode={false}
+        governedWorkItemCount={null}
         continuityHint={{ label: "New session", description: "Next message starts fresh", tone: "muted", prominence: "routine" }}
         contextUsage={{
           state: "authoritative",
@@ -195,6 +310,7 @@ describe("Composer", () => {
         trailingActions={null}
         onSubmit={() => undefined}
         onTogglePlanMode={() => undefined}
+        onGovernedWorkItemCountChange={() => undefined}
         onSubmitParts={() => undefined}
       />,
     );
@@ -204,6 +320,7 @@ describe("Composer", () => {
       <Composer
         status="ready"
         planMode={false}
+        governedWorkItemCount={null}
         continuityHint={{ label: "New session", description: "Next message starts fresh", tone: "muted", prominence: "routine" }}
         contextUsage={{
           state: "partial",
@@ -222,12 +339,18 @@ describe("Composer", () => {
         trailingActions={null}
         onSubmit={() => undefined}
         onTogglePlanMode={() => undefined}
+        onGovernedWorkItemCountChange={() => undefined}
         onSubmitParts={() => undefined}
       />,
     );
     const restored = screen.getByRole("button", { name: "Context partial: 2.4k tokens; restored historical measurement" });
-    expect(restored).toHaveTextContent("P");
-    expect(restored).toHaveTextContent("H");
+    expect(restored).toHaveTextContent("2.4k");
+    fireEvent.click(restored);
+    return waitFor(() => {
+      expect(screen.getByText("Context window")).toBeVisible();
+      expect(screen.getByText("Runtime estimate")).toBeVisible();
+      expect(screen.getByText("Historical")).toBeVisible();
+    });
   });
 
   it("keeps all composer actions inside the compact input surface", () => {

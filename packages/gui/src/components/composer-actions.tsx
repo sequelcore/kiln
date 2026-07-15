@@ -3,6 +3,7 @@ import { ArrowUp, Image, ListChecks, Mic, Paperclip, Square } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { InputGroupButton } from "@/components/ui/input-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { GovernedTaskControl } from "./governed-task-control.js";
 
 type VoiceState = "idle" | "recording" | "encoding";
 
@@ -20,6 +21,7 @@ function ComposerTooltip(props: {
 
 interface ComposerActionProps {
   readonly planMode: boolean;
+  readonly governedWorkItemCount: number | null;
   readonly canSubmit: boolean;
   readonly fileButtonDisabled: boolean;
   readonly imageButtonDisabled: boolean;
@@ -28,6 +30,7 @@ interface ComposerActionProps {
   readonly audioFileInputRef: RefObject<HTMLInputElement | null>;
   readonly imageFileInputRef: RefObject<HTMLInputElement | null>;
   readonly onTogglePlanMode: () => void;
+  readonly onGovernedWorkItemCountChange: (count: number | null) => void;
   readonly onToggleVoiceCapture: () => void;
   readonly onAudioFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onImageFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -94,6 +97,11 @@ export function ComposerLeadingActions(props: ComposerActionProps) {
             <ListChecks aria-hidden="true" />
           </InputGroupButton>
         </ComposerTooltip>
+        <GovernedTaskControl
+          workItemCount={props.governedWorkItemCount}
+          disabled={props.planMode}
+          onChange={props.onGovernedWorkItemCountChange}
+        />
       </div>
     </TooltipProvider>
   );

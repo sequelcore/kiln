@@ -73,7 +73,7 @@ describe("session continuity view", () => {
       messageCount: 2,
       sessionEventCount: 1,
       detachedSessionIds: [],
-    }))).toMatchObject({ label: "Running", prominence: "exceptional" });
+    }))).toMatchObject({ label: "Running", prominence: "routine" });
 
     expect(buildComposerContinuityHint(deriveSessionContinuity({
       status: "running",

@@ -8,7 +8,7 @@ import {
   selectVoiceInputCaptureMimeType,
   voiceInputDisplayText,
 } from "@kilnai/gateway-contracts/voice-input-parts";
-import type { SessionStatus } from "../lib/session-store.js";
+import type { ActivityPhase, SessionStatus } from "../lib/session-store.js";
 import type { ContextUsageProjection } from "@kilnai/gateway-contracts";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { ComposerLeadingActions, ComposerTrailingActions } from "./composer-actions.js";
@@ -16,7 +16,11 @@ import { ComposerFrame, type ComposerCommandMenuState } from "./composer-frame.j
 
 interface ComposerProps {
   readonly status: SessionStatus;
+  readonly activityPhase?: ActivityPhase;
+  readonly activityToolName?: string;
+  readonly activityDetails?: string;
   readonly planMode: boolean;
+  readonly governedWorkItemCount: number | null;
   readonly continuityHint: ComposerContinuityHint;
   readonly contextUsage?: ContextUsageProjection | null;
   readonly providerControl?: ReactNode;
@@ -26,6 +30,13 @@ interface ComposerProps {
   readonly onSubmit: (text: string) => void;
   readonly onSubmitParts?: (parts: readonly unknown[], displayContent: string) => void;
   readonly onTogglePlanMode: (enabled: boolean) => void;
+  readonly onGovernedWorkItemCountChange: (count: number | null) => void;
+}
+
+function selectedInputFile(event: ChangeEvent<HTMLInputElement>): File | undefined {
+  const [file] = Array.from(event.currentTarget.files ?? []);
+  event.currentTarget.value = "";
+  return file;
 }
 
 export function Composer(props: ComposerProps) {
@@ -47,6 +58,13 @@ export function Composer(props: ComposerProps) {
   const mediaFileInputDisabled = !props.onSubmitParts || isBusy || voiceState !== "idle";
   const fileButtonDisabled = mediaFileInputDisabled;
   const imageButtonDisabled = mediaFileInputDisabled;
+  const activity = props.activityPhase && props.activityPhase !== "idle"
+    ? {
+        phase: props.activityPhase,
+        ...(props.activityToolName ? { toolName: props.activityToolName } : {}),
+        ...(props.activityDetails ? { details: props.activityDetails } : {}),
+      }
+    : undefined;
 
   function handleDraftChange(value: string): void {
     if (value.trim() === "/") {
@@ -138,12 +156,6 @@ export function Composer(props: ComposerProps) {
     }
   }
 
-  function selectedInputFile(event: ChangeEvent<HTMLInputElement>): File | undefined {
-    const [file] = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = "";
-    return file;
-  }
-
   function handleAudioFileChange(event: ChangeEvent<HTMLInputElement>): void {
     const file = selectedInputFile(event);
     if (!file) {
@@ -229,6 +241,8 @@ export function Composer(props: ComposerProps) {
       draft={draft}
       continuityHint={props.continuityHint}
       contextUsage={props.contextUsage}
+      turnActive={isBusy}
+      activity={activity}
       providerControl={props.providerControl}
       reasoningControl={props.reasoningControl}
       authorityControl={props.authorityControl}
@@ -240,6 +254,7 @@ export function Composer(props: ComposerProps) {
       leadingActions={(
         <ComposerLeadingActions
           planMode={props.planMode}
+          governedWorkItemCount={props.governedWorkItemCount}
           canSubmit={canSubmit}
           fileButtonDisabled={fileButtonDisabled}
           imageButtonDisabled={imageButtonDisabled}
@@ -248,6 +263,7 @@ export function Composer(props: ComposerProps) {
           audioFileInputRef={audioFileInputRef}
           imageFileInputRef={imageFileInputRef}
           onTogglePlanMode={() => props.onTogglePlanMode(!props.planMode)}
+          onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
           onToggleVoiceCapture={toggleVoiceCapture}
           onAudioFileChange={handleAudioFileChange}
           onImageFileChange={handleImageFileChange}
@@ -256,6 +272,7 @@ export function Composer(props: ComposerProps) {
       trailingActions={(
         <ComposerTrailingActions
           planMode={props.planMode}
+          governedWorkItemCount={props.governedWorkItemCount}
           canSubmit={canSubmit}
           fileButtonDisabled={fileButtonDisabled}
           imageButtonDisabled={imageButtonDisabled}
@@ -264,6 +281,7 @@ export function Composer(props: ComposerProps) {
           audioFileInputRef={audioFileInputRef}
           imageFileInputRef={imageFileInputRef}
           onTogglePlanMode={() => props.onTogglePlanMode(!props.planMode)}
+          onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
           onToggleVoiceCapture={toggleVoiceCapture}
           onAudioFileChange={handleAudioFileChange}
           onImageFileChange={handleImageFileChange}

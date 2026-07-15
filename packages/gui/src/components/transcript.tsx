@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { BorderBeam } from "border-beam";
 import {
   projectConversationTurnItems,
   type ConversationProjectionInput,
@@ -13,15 +12,24 @@ import {
   type PresentationIntentResourceLink,
   type ToolResultOutputKind,
   type ToolResultSearchResult,
+  type WorkflowActivityProjection,
+  type WorkflowGoalActivity,
+  type WorkflowToolCallActivity,
+  type WorkflowWorkItemActivity,
 } from "@kilnai/gateway-contracts";
 import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal } from "lucide-react";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
-import type { ActivityPhase, TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
-import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
+import type { TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { MarkdownMessageContent, MessageRow } from "./message-row.js";
 import { TranscriptTimelineEditor } from "./transcript-timeline-editor.js";
+import { TranscriptSurface } from "./transcript-surface.js";
+import { Task, TaskContent, TaskItem, TaskTrigger, type TaskStatus } from "@/components/ai-elements/task";
+import { Tool, ToolContent, ToolHeader, type ToolState } from "@/components/ai-elements/tool";
+import { ToolGroup, ToolGroupItem } from "@/components/ai-elements/tool-group";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -32,14 +40,11 @@ import {
   useMessageScroller,
   useMessageScrollerVisibility,
 } from "@/components/ui/message-scroller";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface TranscriptProps {
   readonly entries: readonly TimelineEntry[];
-  readonly activityPhase?: ActivityPhase;
-  readonly activityToolName?: string;
-  readonly activityDetails?: string;
+  readonly workflowActivity?: WorkflowActivityProjection;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
   readonly onApprove?: (approvalId: string) => void;
   readonly onDeny?: (approvalId: string) => void;
@@ -56,6 +61,19 @@ const TRANSCRIPT_TOOL_DETAIL_LABELS = new Set([
   "Task",
 ]);
 const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
+const USD_FORMATTER = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 4,
+});
+const TIMELINE_TONE_CLASSES: Record<TimelineEventEntry["tone"], string> = {
+  info: "border-border bg-card text-foreground",
+  running: "border-border bg-card text-foreground",
+  success: "border-border bg-card text-foreground",
+  warning: "border-border bg-card text-foreground",
+  error: "border-destructive/60 bg-card text-foreground",
+};
 const KILN_JSON_VIEW_STYLE = {
   container: "kiln-json-view",
   childFieldsContainer: "kiln-json-view__children",
@@ -84,7 +102,7 @@ interface TranscriptNavigationAnchor {
   readonly id: string;
   readonly label: string;
   readonly preview: string;
-  readonly kind: "user" | "assistant" | "tool" | "failure" | "milestone" | "live";
+  readonly kind: "user" | "assistant" | "tool" | "failure" | "milestone";
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -101,12 +119,7 @@ function readNumber(value: unknown): number | null {
 
 function formatUsd(value: number | null): string | null {
   if (value === null) return null;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  }).format(value);
+  return USD_FORMATTER.format(value);
 }
 
 function parseJsonRecord(value: string): Record<string, unknown> | null {
@@ -115,6 +128,19 @@ function parseJsonRecord(value: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function withStableOccurrenceKeys<T>(
+  values: readonly T[],
+  signatureOf: (value: T) => string,
+): readonly { readonly key: string; readonly value: T }[] {
+  const occurrences = new Map<string, number>();
+  return values.map((value) => {
+    const signature = signatureOf(value);
+    const occurrence = occurrences.get(signature) ?? 0;
+    occurrences.set(signature, occurrence + 1);
+    return { key: `${signature}:${occurrence}`, value };
+  });
 }
 
 function compactDisplayText(value: string, maxLength = 140): string {
@@ -287,12 +313,22 @@ function toolResultContentLabel(outputKind: ToolResultOutputKind): string {
   switch (outputKind) {
     case "command":
       return "Command output";
+    case "task":
+      return "Task status";
+    case "work_item":
+      return "Work item";
+    case "goal":
+      return "Goal";
+    case "diagnostic":
+      return "Diagnostic";
     case "diff":
       return "Diff";
     case "markdown":
       return "Document";
     case "text":
       return "Text output";
+    case "data":
+      return "Structured data";
     case "tree":
       return "Directory tree";
     case "code":
@@ -350,6 +386,10 @@ function ToolResultContent(props: {
 }
 
 function SearchResultsList(props: { readonly results: readonly ToolResultSearchResult[] }) {
+  const results = withStableOccurrenceKeys(
+    props.results,
+    (result) => JSON.stringify([result.url, result.title, result.snippet]),
+  );
   return (
     <section aria-label="Search results">
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -359,8 +399,8 @@ function SearchResultsList(props: { readonly results: readonly ToolResultSearchR
         </Badge>
       </div>
       <ol className="max-h-72 overflow-auto rounded-md border border-border/70 bg-background/35">
-        {props.results.map((result, index) => (
-          <li key={`${result.url}:${index}`} className="border-t border-border/50 first:border-t-0">
+        {results.map(({ key, value: result }, index) => (
+          <li key={key} className="border-t border-border/50 first:border-t-0">
             <div className="grid grid-cols-[2ch_1fr] gap-3 px-3 py-2.5">
               <span className="pt-0.5 text-right font-mono text-[10px] leading-5 text-muted-foreground tabular-nums">
                 {index + 1}
@@ -503,6 +543,7 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
 
   if (props.intent.kind === "comparison_table") {
     const intent = props.intent;
+    const rows = withStableOccurrenceKeys(intent.rows, (row) => JSON.stringify(row));
     return (
       <div
         data-output-kind="table"
@@ -520,8 +561,8 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
             </tr>
           </thead>
           <tbody>
-            {intent.rows.map((row, index) => (
-              <tr key={index} className="border-t border-border/60">
+            {rows.map(({ key, value: row }) => (
+              <tr key={key} className="border-t border-border/60">
                 {intent.columns.map((column) => (
                   <td key={column.key} className={cn("break-words px-2.5 py-2 align-top text-foreground", tableCellAlignment(column))}>
                     <TableCellValue column={column} value={row[column.key]} />
@@ -616,16 +657,21 @@ function ToolResultPresentationDetails(props: {
   const contentLabel = toolResultContentLabel(presentation.outputKind);
   const preview = presentation.presentationIntent || presentation.searchResults?.length ? undefined : presentation.preview;
   const fields = presentation.fields ?? [];
-  const showTitle = !fields.some((item) => item.value === presentation.title);
+  const hasStructuredBody = presentation.diagnostic !== undefined;
+  const showTitle = !hasStructuredBody
+    && !fields.some((item) => item.value === presentation.title);
   return (
     <div
       data-testid="tool-output-details"
-      className="mt-3 flex max-w-full flex-col gap-2 overflow-hidden border-l border-border/60 pl-3"
+      className="flex max-w-full flex-col gap-3 overflow-hidden"
     >
       {showTitle ? (
         <p className="truncate text-sm font-medium leading-5 text-foreground">{presentation.title}</p>
       ) : null}
-      <MetaList items={fields} />
+      <MetaList items={hasStructuredBody ? [] : fields} />
+      {presentation.diagnostic ? (
+        <ToolDiagnosticResult title={presentation.title} diagnostic={presentation.diagnostic} fields={fields} />
+      ) : null}
       {presentation.presentationIntent ? (
         <PresentationIntentDetails intent={presentation.presentationIntent} />
       ) : null}
@@ -638,11 +684,11 @@ function ToolResultPresentationDetails(props: {
             resources={presentation.resourceLinks ?? []}
             loadResourceDataUrl={props.loadResourceDataUrl}
           />
-          {presentation.resourceLinks
-            ?.filter((resource) => resource.relation !== "snapshot")
-            .map((resource) => (
-              <ResourceLinkCard key={resource.uri} resource={resource} label={contentLabel} />
-            ))}
+          {presentation.resourceLinks?.flatMap((resource) => (
+            resource.relation === "snapshot"
+              ? []
+              : [<ResourceLinkCard key={resource.uri} resource={resource} label={contentLabel} />]
+          ))}
         </>
       ) : presentation.resourceLinks?.map((resource) => (
           <ResourceLinkCard key={resource.uri} resource={resource} label={contentLabel} />
@@ -651,6 +697,56 @@ function ToolResultPresentationDetails(props: {
         <ToolResultContent outputKind={presentation.outputKind} preview={preview} />
       ) : null}
     </div>
+  );
+}
+
+function formatTaskStatus(status: string): string {
+  return status.replace(/_/gu, " ").replace(/^\w/u, (letter) => letter.toUpperCase());
+}
+
+function ToolDiagnosticResult(props: {
+  readonly title: string;
+  readonly diagnostic: NonNullable<NonNullable<TimelineEventEntry["toolPresentation"]>["diagnostic"]>;
+  readonly fields: readonly { readonly label: string; readonly value: string }[];
+}) {
+  return (
+    <Alert variant="destructive">
+      <CircleAlert aria-hidden="true" />
+      <AlertTitle>{props.title}</AlertTitle>
+      <AlertDescription>
+        <p>{props.diagnostic.message}</p>
+        <MetaList items={props.fields} />
+        {props.diagnostic.recoverable !== undefined || props.diagnostic.suggestedNextTool ? (
+          <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+            {props.diagnostic.recoverable !== undefined ? (
+              <>
+                <dt>Recovery</dt>
+                <dd className="text-foreground">{props.diagnostic.recoverable ? "Recoverable" : "Manual intervention required"}</dd>
+              </>
+            ) : null}
+            {props.diagnostic.suggestedNextTool ? (
+              <>
+                <dt>Next tool</dt>
+                <dd className="truncate font-mono text-foreground">{props.diagnostic.suggestedNextTool}</dd>
+              </>
+            ) : null}
+          </dl>
+        ) : null}
+        {props.diagnostic.requiredInput.length > 0 ? (
+          <div className="mt-3">
+            <p className="font-medium text-foreground">Required input</p>
+            <dl className="mt-1.5 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
+              {props.diagnostic.requiredInput.map((item) => (
+                <div className="contents" key={item.name}>
+                  <dt className="truncate font-mono text-foreground">{item.name}</dt>
+                  <dd className="min-w-0 break-words">{item.expected}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ) : null}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -690,12 +786,12 @@ function BrowserCaptureGallery(props: {
   const loadingCaptureUrisRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const loadableCaptureUris = resources
-      .filter((resource) => (
-        resource.relation === "snapshot"
-        && (resource.mimeType === undefined || resource.mimeType.toLowerCase().startsWith("image/"))
-      ))
-      .map((resource) => resource.uri);
+    const loadableCaptureUris = resources.flatMap((resource) => (
+      resource.relation === "snapshot"
+      && (resource.mimeType === undefined || resource.mimeType.toLowerCase().startsWith("image/"))
+        ? [resource.uri]
+        : []
+    ));
     if (!loadResourceDataUrl || loadableCaptureUris.length === 0) return;
     let cancelled = false;
     const loadingCaptureUris = loadingCaptureUrisRef.current;
@@ -727,14 +823,13 @@ function BrowserCaptureGallery(props: {
   }, [loadResourceDataUrl, previewDataUrls, resources]);
 
   return (
-    <div role="list" aria-label="Browser screenshot captures" className="grid gap-2 sm:grid-cols-2">
+    <ul aria-label="Browser screenshot captures" className="grid list-none gap-2 p-0 sm:grid-cols-2">
       {captures.map((resource, index) => {
         const captureLabel = resource.label ?? (resource.sequence !== undefined ? `Capture ${resource.sequence}` : `Capture ${index + 1}`);
         const previewDataUrl = previewDataUrls[resource.uri] ?? null;
         return (
-          <div
+          <li
             key={resource.uri}
-            role="listitem"
             className="min-w-0 rounded-lg border border-border/70 bg-background/55 px-2.5 py-2"
           >
             <div className="flex min-w-0 items-center justify-between gap-2">
@@ -759,10 +854,10 @@ function BrowserCaptureGallery(props: {
             {resource.size !== undefined ? (
               <p className="mt-1 text-[11px] text-muted-foreground">{resource.size} bytes</p>
             ) : null}
-          </div>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
@@ -979,12 +1074,8 @@ function eventBadgeVariant(entry: TimelineEventEntry): "outline" | "secondary" |
   }[entry.tone] as "outline" | "secondary" | "destructive";
 }
 
-function toolEventTooltipText(entry: TimelineEventEntry): string {
-  const toolName = entry.title.replace(/^(Using|Completed)\s+/u, "").trim();
-  if (entry.eventKind === "tool_call_started") {
-    return `${toolName} is running for this assistant turn.`;
-  }
-  return `${toolName} result attached to this assistant turn. Expand for details.`;
+function toolEventName(entry: TimelineEventEntry): string {
+  return entry.presentationDetails?.find((item) => item.label === "Tool")?.value ?? entry.title;
 }
 
 function ToolEventCard(props: {
@@ -992,96 +1083,35 @@ function ToolEventCard(props: {
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
   readonly nested?: boolean;
 }) {
-  const [open, setOpen] = useState(() => props.nested || shouldAutoOpenToolEventDetails(props.entry));
-  const Icon = eventIcon(props.entry);
+  const [open, setOpen] = useState(() => shouldAutoOpenToolEventDetails(props.entry));
   const summary = eventSummaryText(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
-  const state = props.entry.tone === "running"
+  const toolName = toolEventName(props.entry);
+  const state: ToolState = props.entry.tone === "running"
     ? "running"
     : props.entry.tone === "error"
-      ? "error"
+      ? "failed"
       : props.entry.tone === "warning"
-        ? "interrupted"
-        : "complete";
+        ? "paused"
+        : "completed";
 
   return (
-    <div className="w-full min-w-0 flex-1">
-      <div
+    <Tool className="flex-1" onOpenChange={setOpen} open={open} state={state} variant={props.nested ? "ghost" : "outline"}>
+      <ToolHeader
         data-role="tool-event"
-        data-state={state}
-        className={cn(
-          "group/tool relative flex min-w-0 items-center gap-2 py-1 text-xs leading-5 text-muted-foreground",
-          props.nested ? "px-0" : "px-0.5",
-          props.entry.tone === "error" ? "text-destructive" : null,
-          props.entry.tone === "warning" ? "text-warning" : null,
-        )}
-      >
-        <Icon
-          aria-hidden="true"
-          className={cn(
-            "size-3.5 shrink-0 text-muted-foreground/80",
-            props.entry.tone === "running" ? "animate-spin text-primary" : null,
-            props.entry.tone === "error" ? "text-destructive" : null,
-          )}
-        />
-        <TooltipProvider delay={400}>
-          <Tooltip>
-            <TooltipTrigger
-              render={(
-                <span
-                  className={cn(
-                    "min-w-0 max-w-[15rem] cursor-default truncate font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    props.entry.tone === "running" ? "shimmer text-primary" : null,
-                    props.entry.tone === "error" ? "text-destructive" : null,
-                  )}
-                />
-              )}
-            >
-              {props.entry.title}
-            </TooltipTrigger>
-            <TooltipContent side="top" align="start">
-              {toolEventTooltipText(props.entry)}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        {summary ? (
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-muted-foreground/80",
-              props.entry.tone === "running" ? "shimmer" : null,
-            )}
-            title={summary}
-          >
-            {summary}
-          </span>
-        ) : null}
-        <time
-          dateTime={props.entry.createdAt}
-          className="hidden shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/60 sm:inline"
-          title={props.entry.createdAt}
-        >
-          {new Date(props.entry.createdAt).toLocaleTimeString()}
-        </time>
-        {hasDetails ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className="size-5 text-muted-foreground/60 opacity-70 hover:opacity-100"
-            aria-label={open ? "Hide details" : "Show details"}
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {open ? <ChevronUp data-icon="inline-start" /> : <ChevronDown data-icon="inline-start" />}
-          </Button>
-        ) : null}
-      </div>
-      {open ? (
-        <div className={cn("w-full min-w-0 border-l border-border/60", props.nested ? "mt-2 pl-4" : "mt-2 ml-2 pl-4")}>
-          <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />
-        </div>
+        dateTime={props.entry.createdAt}
+        expanded={open}
+        state={state}
+        summary={summary ?? undefined}
+        timeLabel={new Date(props.entry.createdAt).toLocaleTimeString()}
+        title={toolName}
+      />
+      {hasDetails ? (
+        <ToolContent variant={props.nested ? "ghost" : "outline"}>
+          <EventDetails entry={props.entry} open loadResourceDataUrl={props.loadResourceDataUrl} />
+        </ToolContent>
       ) : null}
-    </div>
+    </Tool>
   );
 }
 
@@ -1090,11 +1120,42 @@ function InlineToolEventRow(props: {
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   return (
-    <article data-role="tool" className="mx-auto flex w-full max-w-3xl justify-start px-1">
+    <TranscriptSurface data-role="tool" kind="tool" className="flex justify-start px-1">
       <div className="min-w-0 max-w-[min(42rem,94%)] flex-1 pl-5 sm:pl-8">
         <ToolEventCard entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
       </div>
-    </article>
+    </TranscriptSurface>
+  );
+}
+
+function ToolActivityGroupRow(props: {
+  readonly entries: readonly TimelineEventEntry[];
+  readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
+}) {
+  const [operatorOpen, setOperatorOpen] = useState<boolean | null>(null);
+  const active = props.entries.some((entry) => entry.tone === "running");
+  const open = operatorOpen ?? active;
+  const completedCount = props.entries.filter((entry) => entry.tone === "success").length;
+  const failedCount = props.entries.filter((entry) => entry.tone === "error").length;
+  return (
+    <TranscriptSurface data-role="tool-group" kind="tool" className="flex justify-start px-1">
+      <div className="min-w-0 max-w-[min(42rem,94%)] flex-1 pl-5 sm:pl-8">
+        <ToolGroup
+          active={active}
+          completedCount={completedCount}
+          failedCount={failedCount}
+          onOpenChange={setOperatorOpen}
+          open={open}
+          totalCount={props.entries.length}
+        >
+          {props.entries.map((entry) => (
+            <ToolGroupItem key={entry.id}>
+              <ToolEventCard entry={entry} loadResourceDataUrl={props.loadResourceDataUrl} nested />
+            </ToolGroupItem>
+          ))}
+        </ToolGroup>
+      </div>
+    </TranscriptSurface>
   );
 }
 
@@ -1103,19 +1164,12 @@ function TimelineEventRow(props: {
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   const [open, setOpen] = useState(false);
-  const toneClasses: Record<TimelineEventEntry["tone"], string> = {
-    info: "border-border bg-card text-foreground",
-    running: "border-border bg-card text-foreground",
-    success: "border-border bg-card text-foreground",
-    warning: "border-border bg-card text-foreground",
-    error: "border-destructive/60 bg-card text-foreground",
-  };
   const Icon = eventIcon(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
   const summary = eventSummaryText(props.entry);
 
   return (
-    <article className={`mx-auto w-full max-w-3xl rounded-lg border px-3 py-2 shadow-sm ${toneClasses[props.entry.tone]}`}>
+    <TranscriptSurface kind="event" className={cn("rounded-lg border px-3 py-2 shadow-sm", TIMELINE_TONE_CLASSES[props.entry.tone])}>
       <header className="flex min-w-0 items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
           <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground" aria-hidden="true">
@@ -1149,7 +1203,7 @@ function TimelineEventRow(props: {
         ) : null}
       </header>
       <EventDetails entry={props.entry} open={open} loadResourceDataUrl={props.loadResourceDataUrl} />
-    </article>
+    </TranscriptSurface>
   );
 }
 
@@ -1167,7 +1221,7 @@ function ApprovalEventRow(props: {
   const justification = readString(details?.justification);
 
   return (
-    <article className="mx-auto w-full max-w-3xl border border-[var(--color-warning)]/45 bg-card px-3 py-3 shadow-sm">
+    <TranscriptSurface kind="approval" className="border border-[var(--color-warning)]/45 bg-card px-3 py-3 shadow-sm">
       <header className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
@@ -1220,39 +1274,7 @@ function ApprovalEventRow(props: {
         </div>
       </header>
       <EventDetails entry={props.entry} open={open} />
-    </article>
-  );
-}
-
-function AssistantActivityRow(props: {
-  readonly phase: ActivityPhase;
-  readonly toolName?: string;
-  readonly details?: string;
-}) {
-  return (
-    <article data-role="assistant" className="mx-auto flex w-full max-w-3xl justify-start">
-      <BorderBeam
-        active
-        colorVariant="mono"
-        data-role="live-activity-beam"
-        data-state={props.phase}
-        duration={2.8}
-        size="pulse-inner"
-        strength={0.45}
-        theme="auto"
-      >
-        <div className="min-w-0 max-w-[min(44rem,90%)] rounded-2xl rounded-tl-md border border-border/60 bg-muted/35 px-3.5 py-2.5 shadow-sm">
-          <header className="sr-only">
-            <span>Assistant</span>
-          </header>
-          <ActivityPhaseIndicator
-            phase={props.phase}
-            toolName={props.toolName}
-            details={props.details}
-          />
-        </div>
-      </BorderBeam>
-    </article>
+    </TranscriptSurface>
   );
 }
 
@@ -1316,21 +1338,294 @@ function transcriptAnchorPreview(entry: TimelineEntry): string {
   return compactDisplayText(entry.summary ?? entry.title, 96);
 }
 
-function deriveTranscriptNavigationAnchors(
-  items: readonly ConversationProjectionItem<ActivityPhase>[],
+type TranscriptProjectionItem = Exclude<ConversationProjectionItem<never>, { readonly kind: "activity" }>;
+type TranscriptToolGroupItem = {
+  readonly kind: "tool-group";
+  readonly id: string;
+  readonly entryIds: readonly string[];
+};
+type TranscriptWorkflowItem = {
+  readonly kind: "workflow";
+  readonly id: string;
+  readonly firstSequence: number;
+  readonly goal?: WorkflowGoalActivity;
+  readonly workItem?: WorkflowWorkItemActivity;
+};
+type TranscriptRenderItem = TranscriptProjectionItem | TranscriptToolGroupItem | TranscriptWorkflowItem;
+
+const STANDALONE_TOOL_OUTPUTS = new Set<ToolResultOutputKind>([
+  "goal",
+  "task",
+  "work_item",
+]);
+
+function isGovernanceToolEvent(entry: TimelineEventEntry): boolean {
+  const toolName = toolEventName(entry);
+  return toolName === "goal.create"
+    || toolName.startsWith("work_item.")
+    || toolName.startsWith("managed_agent.")
+    || toolName.startsWith("task_");
+}
+
+function isGroupableToolItem(
+  item: TranscriptProjectionItem,
   entriesById: ReadonlyMap<string, TimelineEntry>,
-  hasLiveActivity: boolean,
+): item is Extract<TranscriptProjectionItem, { readonly kind: "event" }> {
+  if (item.kind !== "event") return false;
+  const entry = entriesById.get(item.entryId);
+  return Boolean(
+    entry
+    && entry.type === "event"
+    && isToolEvent(entry)
+    && !isGovernanceToolEvent(entry)
+    && (!entry.toolPresentation || !STANDALONE_TOOL_OUTPUTS.has(entry.toolPresentation.outputKind)),
+  );
+}
+
+function groupRoutineToolItems(
+  items: readonly TranscriptProjectionItem[],
+  entriesById: ReadonlyMap<string, TimelineEntry>,
+): readonly TranscriptRenderItem[] {
+  const grouped: TranscriptRenderItem[] = [];
+  let routineRun: Extract<TranscriptProjectionItem, { readonly kind: "event" }>[] = [];
+  const flush = () => {
+    if (routineRun.length === 1) grouped.push(routineRun[0]!);
+    if (routineRun.length > 1) {
+      const entryIds = routineRun.map((item) => item.entryId);
+      grouped.push({ kind: "tool-group", id: `tool-group:${entryIds.join(":")}`, entryIds });
+    }
+    routineRun = [];
+  };
+  for (const item of items) {
+    if (isGroupableToolItem(item, entriesById)) {
+      routineRun.push(item);
+      continue;
+    }
+    flush();
+    grouped.push(item);
+  }
+  flush();
+  return grouped;
+}
+
+function workflowRenderItems(projection?: WorkflowActivityProjection): readonly TranscriptWorkflowItem[] {
+  if (!projection) return [];
+  return [
+    ...projection.goals.map((goal): TranscriptWorkflowItem => ({
+      kind: "workflow",
+      id: `workflow:goal:${goal.goal.id}`,
+      firstSequence: goal.firstSequence,
+      goal,
+    })),
+    ...projection.standaloneWorkItems.map((workItem): TranscriptWorkflowItem => ({
+      kind: "workflow",
+      id: `workflow:work-item:${workItem.item.id}`,
+      firstSequence: workItem.firstSequence,
+      workItem,
+    })),
+  ];
+}
+
+function mergeWorkflowRenderItems(
+  items: readonly TranscriptRenderItem[],
+  workflowItems: readonly TranscriptWorkflowItem[],
+  sourceEntries: readonly TimelineEntry[],
+): readonly TranscriptRenderItem[] {
+  const entryOrder = new Map(sourceEntries.map((entry, index) => [entry.id, index]));
+  const orderOf = (item: TranscriptRenderItem): number => {
+    if (item.kind === "workflow") {
+      const anchorIndex = sourceEntries.findIndex((entry) => (
+        entry.sequence !== undefined && entry.sequence >= item.firstSequence
+      ));
+      return anchorIndex === -1 ? sourceEntries.length : anchorIndex;
+    }
+    if (item.kind === "tool-group") {
+      return Math.min(...item.entryIds.map((id) => entryOrder.get(id) ?? Number.MAX_SAFE_INTEGER));
+    }
+    return entryOrder.get(item.entryId) ?? Number.MAX_SAFE_INTEGER;
+  };
+  return [...items, ...workflowItems].toSorted((left, right) => {
+    const order = orderOf(left) - orderOf(right);
+    return order === 0 ? ("id" in left ? left.id : left.entryId).localeCompare("id" in right ? right.id : right.entryId) : order;
+  });
+}
+
+function workflowStatus(status: string): TaskStatus {
+  switch (status) {
+    case "running":
+    case "started":
+    case "active":
+      return "in_progress";
+    case "complete":
+    case "succeeded":
+      return "completed";
+    case "pending":
+    case "in_progress":
+    case "completed":
+    case "paused":
+    case "blocked":
+    case "cancelled":
+    case "failed":
+      return status;
+    default:
+      return "pending";
+  }
+}
+
+function workflowToolCalls(workItem: WorkflowWorkItemActivity): readonly WorkflowToolCallActivity[] {
+  const byId = new Map<string, WorkflowToolCallActivity>();
+  for (const tool of [...workItem.toolCalls, ...workItem.attempts.flatMap((attempt) => attempt.toolCalls)]) {
+    const current = byId.get(tool.toolCallId);
+    if (!current || tool.lastSequence >= current.lastSequence) byId.set(tool.toolCallId, tool);
+  }
+  return [...byId.values()].toSorted((left, right) => left.firstSequence - right.firstSequence);
+}
+
+function WorkflowToolActivityGroup(props: {
+  readonly className?: string;
+  readonly tools: readonly WorkflowToolCallActivity[];
+}) {
+  const [operatorOpen, setOperatorOpen] = useState<boolean | null>(null);
+  const active = props.tools.some((tool) => tool.state === "running");
+  const completedCount = props.tools.filter((tool) => tool.state === "completed").length;
+  const failedCount = props.tools.filter((tool) => tool.state === "failed").length;
+  const open = operatorOpen ?? active;
+  return (
+    <div className={props.className} data-role="workflow-tool-activity">
+      <ToolGroup
+        active={active}
+        completedCount={completedCount}
+        failedCount={failedCount}
+        onOpenChange={setOperatorOpen}
+        open={open}
+        totalCount={props.tools.length}
+      >
+        {props.tools.map((tool) => {
+          const Icon = tool.state === "running" ? LoaderCircle : tool.state === "failed" ? CircleAlert : CheckCircle2;
+          return (
+            <ToolGroupItem key={tool.toolCallId}>
+              <div className="flex min-w-0 items-center gap-2 px-2 py-2 text-xs">
+                <Icon
+                  aria-hidden="true"
+                  className={cn(
+                    "size-3.5 shrink-0",
+                    tool.state === "running"
+                      ? "motion-safe:animate-spin text-primary"
+                      : tool.state === "failed"
+                        ? "text-destructive"
+                        : "text-success",
+                  )}
+                />
+                <span className="max-w-[40%] shrink-0 truncate font-mono font-medium text-foreground">{tool.toolName}</span>
+                {tool.summary ? <span className="min-w-0 flex-1 truncate text-muted-foreground">{tool.summary}</span> : null}
+                <span className="sr-only">{formatTaskStatus(tool.state)}</span>
+              </div>
+            </ToolGroupItem>
+          );
+        })}
+      </ToolGroup>
+    </div>
+  );
+}
+
+function WorkflowWorkItemRow(props: {
+  readonly activity: WorkflowWorkItemActivity;
+  readonly standalone?: boolean;
+}) {
+  const { item } = props.activity;
+  const completedEvidence = item.evidence.filter((entry) => entry.status === "completed").length;
+  const tools = workflowToolCalls(props.activity);
+  const Root = props.standalone ? "div" : "li";
+  const detailsInset = props.standalone ? "ml-0" : "ml-6";
+  return (
+    <Root className="border-b border-border/55 py-3 last:border-b-0" data-work-item-id={item.id}>
+      {props.standalone ? (
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {item.workflowProfile ? <span>{item.workflowProfile}</span> : null}
+          {item.risk ? <span>Risk {item.risk}</span> : null}
+          {item.surface ? <span>{item.surface}</span> : null}
+        </div>
+      ) : (
+        <TaskItem className="transition-colors duration-150 motion-reduce:transition-none" status={workflowStatus(item.status)}>
+          <span className="flex min-w-0 flex-col gap-1">
+            <span className="font-medium text-foreground">{item.summary}</span>
+            <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span className="font-mono">{item.id}</span>
+              {item.workflowProfile ? <span>{item.workflowProfile}</span> : null}
+              {item.risk ? <span>Risk {item.risk}</span> : null}
+              {item.surface ? <span>{item.surface}</span> : null}
+            </span>
+          </span>
+        </TaskItem>
+      )}
+      {item.evidence.length > 0 ? (
+        <div className={cn(detailsInset, "mt-2")}>
+          <div className="mb-1.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>Evidence</span>
+            <span className="tabular-nums">{completedEvidence} / {item.evidence.length}</span>
+          </div>
+          <Progress aria-label={`Evidence completion for ${item.id}`} value={(completedEvidence / item.evidence.length) * 100} />
+        </div>
+      ) : null}
+      {tools.length > 0 ? <WorkflowToolActivityGroup className={cn(detailsInset, "mt-2")} tools={tools} /> : null}
+      {item.pauseRequirements.map((requirement) => (
+        <p className={cn(detailsInset, "mt-2 text-xs text-warning")} key={requirement}>{requirement}</p>
+      ))}
+      {item.residualRisk ? (
+        <p className={cn(detailsInset, "mt-2 text-xs text-muted-foreground")}><span className="text-foreground">Residual risk:</span> {item.residualRisk}</p>
+      ) : null}
+    </Root>
+  );
+}
+
+function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
+  const goal = props.item.goal;
+  const workItems = goal?.workItems ?? (props.item.workItem ? [props.item.workItem] : []);
+  const title = goal?.goal.objective ?? props.item.workItem?.item.summary ?? "Governed work";
+  const status = workflowStatus(goal?.goal.status ?? props.item.workItem?.item.status ?? "pending");
+  const completed = workItems.filter((entry) => workflowStatus(entry.item.status) === "completed").length;
+  const description = goal
+    ? `${completed} of ${workItems.length} work items completed`
+    : props.item.workItem?.item.id;
+  return (
+    <TranscriptSurface kind="workflow" className="max-w-[min(44rem,90%)]">
+      <Task
+        aria-label={goal ? `Goal ${goal.goal.id}` : `Work item ${props.item.workItem?.item.id ?? "unknown"}`}
+        className="w-full min-w-0 overflow-hidden"
+        data-role="workflow-activity"
+        defaultOpen
+        status={status}
+        variant="card"
+      >
+        <TaskTrigger description={description} status={status} title={title} />
+        <TaskContent className="transition-opacity duration-150 motion-reduce:transition-none">
+          <span aria-atomic="true" aria-live="polite" className="sr-only" role="status">
+            {title}: {formatTaskStatus(status)}. {description}
+          </span>
+          {goal && goal.toolCalls.length > 0 ? (
+            <WorkflowToolActivityGroup className="mb-2" tools={goal.toolCalls} />
+          ) : null}
+          {goal && workItems.length > 0 ? (
+            <ul aria-label={goal ? "Goal work items" : "Work item progress"}>
+              {workItems.map((workItem) => <WorkflowWorkItemRow activity={workItem} key={workItem.item.id} />)}
+            </ul>
+          ) : props.item.workItem ? (
+            <WorkflowWorkItemRow activity={props.item.workItem} standalone />
+          ) : (
+            <p className="text-sm text-muted-foreground">No work items have been materialized.</p>
+          )}
+        </TaskContent>
+      </Task>
+    </TranscriptSurface>
+  );
+}
+
+function deriveTranscriptNavigationAnchors(
+  items: readonly TranscriptProjectionItem[],
+  entriesById: ReadonlyMap<string, TimelineEntry>,
 ): readonly TranscriptNavigationAnchor[] {
-  const anchors = items
+  return items
     .map((item) => {
-      if (item.kind === "activity") {
-        return {
-          id: "assistant-activity",
-          label: "Live edge",
-          preview: "Current assistant activity",
-          kind: "live",
-        } satisfies TranscriptNavigationAnchor;
-      }
       const entry = entriesById.get(item.entryId);
       if (!entry) return null;
       const label = transcriptAnchorLabel(entry);
@@ -1343,14 +1638,6 @@ function deriveTranscriptNavigationAnchors(
       } satisfies TranscriptNavigationAnchor;
     })
     .filter((entry): entry is TranscriptNavigationAnchor => entry !== null);
-  return hasLiveActivity && !anchors.some((anchor) => anchor.id === "assistant-activity")
-    ? [...anchors, {
-        id: "assistant-activity",
-        label: "Live edge",
-        preview: "Current assistant activity",
-        kind: "live" as const,
-      }]
-    : anchors;
 }
 
 function TranscriptNavigationRail(props: {
@@ -1380,7 +1667,6 @@ function TranscriptNavigationRail(props: {
       data-expanded={expanded ? "true" : "false"}
       data-role="thread-navigation-trail"
       className="pointer-events-none absolute inset-y-4 left-2 z-10 hidden w-10 flex-col items-start justify-center sm:flex"
-      onMouseLeave={() => setHoveredIndex(null)}
     >
       <div className="flex max-h-full flex-col items-start gap-1.5 py-2">
         {props.anchors.map((anchor, index) => {
@@ -1407,6 +1693,7 @@ function TranscriptNavigationRail(props: {
               onClick={() => jumpToAnchor(anchor.id)}
               onFocus={() => setFocusedIndex(index)}
               onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex(null)}
             >
               <span
                 aria-hidden="true"
@@ -1454,16 +1741,11 @@ function toConversationProjectionInput(entry: TimelineEntry): ConversationProjec
 
 function projectTranscriptItems(
   entries: readonly TimelineEntry[],
-  activity?: {
-    readonly phase: ActivityPhase;
-    readonly toolName?: string;
-    readonly details?: string;
-  },
-): readonly ConversationProjectionItem<ActivityPhase>[] {
-  return projectConversationTurnItems<ActivityPhase>(
+): readonly TranscriptProjectionItem[] {
+  return projectConversationTurnItems<never>(
     entries.map((entry) => toConversationProjectionInput(entry)),
-    { ...(activity ? { activity } : {}), anchorToolEventsToAssistant: false },
-  );
+    { anchorToolEventsToAssistant: false },
+  ).filter((item): item is TranscriptProjectionItem => item.kind !== "activity");
 }
 
 function shouldAutoOpenToolEventDetails(entry: TimelineEventEntry): boolean {
@@ -1472,7 +1754,7 @@ function shouldAutoOpenToolEventDetails(entry: TimelineEventEntry): boolean {
 
 function renderTranscriptEntries(
   entries: readonly TimelineEntry[],
-  items: readonly ConversationProjectionItem<ActivityPhase>[],
+  items: readonly TranscriptRenderItem[],
   onApprove: TranscriptProps["onApprove"],
   onDeny: TranscriptProps["onDeny"],
   loadResourceDataUrl: TranscriptProps["loadResourceDataUrl"],
@@ -1480,6 +1762,26 @@ function renderTranscriptEntries(
   const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
 
   return items.map((item) => {
+    if (item.kind === "workflow") {
+      return (
+        <MessageScrollerItem key={item.id} messageId={item.id} data-thread-anchor-id={item.id}>
+          <WorkflowActivityRow item={item} />
+        </MessageScrollerItem>
+      );
+    }
+    if (item.kind === "tool-group") {
+      const groupEntries = item.entryIds
+        .map((entryId) => entriesById.get(entryId))
+        .filter((entry): entry is TimelineEventEntry => entry?.type === "event");
+      return (
+        <MessageScrollerItem key={item.id} messageId={item.id} data-thread-anchor-id={item.id}>
+          <ToolActivityGroupRow
+            entries={groupEntries}
+            loadResourceDataUrl={loadResourceDataUrl}
+          />
+        </MessageScrollerItem>
+      );
+    }
     if (item.kind === "event") {
       const entry = entriesById.get(item.entryId);
       if (!entry || entry.type !== "event") return null;
@@ -1494,17 +1796,6 @@ function renderTranscriptEntries(
       return (
         <MessageScrollerItem key={entry.id} messageId={entry.id} data-thread-anchor-id={entry.id}>
           {row}
-        </MessageScrollerItem>
-      );
-    }
-    if (item.kind === "activity") {
-      return (
-        <MessageScrollerItem key="assistant-activity" messageId="assistant-activity" data-thread-anchor-id="assistant-activity">
-          <AssistantActivityRow
-            phase={item.phase}
-            toolName={item.toolName}
-            details={item.details}
-          />
         </MessageScrollerItem>
       );
     }
@@ -1527,25 +1818,18 @@ function renderTranscriptEntries(
 }
 
 export function Transcript(props: TranscriptProps) {
-  const hasStreamingAssistant = props.entries.some((entry) => (
+  const consumedEntryIds = new Set(props.workflowActivity?.consumedEventIds.map((eventId) => `timeline:${eventId}`) ?? []);
+  const visibleEntries = props.entries.filter((entry) => !consumedEntryIds.has(entry.id));
+  const hasStreamingAssistant = visibleEntries.some((entry) => (
     entry.type === "message"
     && entry.message.role === "assistant"
     && entry.message.streaming === true
   ));
-  const showAssistantActivity = props.activityPhase
-    && props.activityPhase !== "idle"
-    && !hasStreamingAssistant;
-  const hasLiveActivity = hasStreamingAssistant || Boolean(showAssistantActivity);
-  const activity = showAssistantActivity
-    ? {
-        phase: props.activityPhase!,
-        toolName: props.activityToolName,
-        details: props.activityDetails,
-      }
-    : undefined;
-  const projectedItems = projectTranscriptItems(props.entries, activity);
-  const entriesById = new Map(props.entries.map((entry) => [entry.id, entry]));
-  const navigationAnchors = deriveTranscriptNavigationAnchors(projectedItems, entriesById, hasLiveActivity);
+  const projectedItems = projectTranscriptItems(visibleEntries);
+  const entriesById = new Map(visibleEntries.map((entry) => [entry.id, entry]));
+  const routineItems = groupRoutineToolItems(projectedItems, entriesById);
+  const renderItems = mergeWorkflowRenderItems(routineItems, workflowRenderItems(props.workflowActivity), props.entries);
+  const navigationAnchors = deriveTranscriptNavigationAnchors(projectedItems, entriesById);
 
   return (
     <section className="relative flex h-full min-h-0 flex-col">
@@ -1559,14 +1843,14 @@ export function Transcript(props: TranscriptProps) {
           <TranscriptNavigationRail anchors={navigationAnchors} />
           <MessageScrollerViewport aria-label="Transcript" preserveScrollOnPrepend>
             <MessageScrollerContent className="gap-3 px-4 py-4">
-              {props.entries.length === 0 && !showAssistantActivity ? (
+              {visibleEntries.length === 0 && renderItems.length === 0 ? (
                 <MessageScrollerItem>
                   <EmptyTranscript />
                 </MessageScrollerItem>
               ) : (
                 renderTranscriptEntries(
-                  props.entries,
-                  projectedItems,
+                  visibleEntries,
+                  renderItems,
                   props.onApprove,
                   props.onDeny,
                   props.loadResourceDataUrl,
@@ -1576,11 +1860,11 @@ export function Transcript(props: TranscriptProps) {
           </MessageScrollerViewport>
           <MessageScrollerButton
             direction="end"
-            aria-label={hasLiveActivity ? "Live response below" : "Jump to latest"}
+            aria-label={hasStreamingAssistant ? "Live response below" : "Jump to latest"}
             variant="outline"
             className={cn(
               "border-border/70 bg-background/95 text-muted-foreground shadow-[var(--shadow-elevated)] backdrop-blur hover:bg-muted hover:text-foreground",
-              hasLiveActivity ? "border-primary/35 bg-primary/10 text-primary hover:border-border/70 hover:bg-muted hover:text-foreground" : null,
+              hasStreamingAssistant ? "border-primary/35 bg-primary/10 text-primary hover:border-border/70 hover:bg-muted hover:text-foreground" : null,
             )}
           />
         </MessageScroller>

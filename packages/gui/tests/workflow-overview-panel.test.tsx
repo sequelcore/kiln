@@ -37,7 +37,7 @@ describe("WorkflowOverviewPanel", () => {
           goal: {
             id: "goal-1",
             objective: "Implement operator workflow previews",
-            planId: "plan-1",
+            source: { kind: "approved_plan", planId: "plan-1" },
             status: "active",
             workItemIds: ["work-1", "work-2"],
             authorityEnvelope: {
@@ -79,7 +79,8 @@ describe("WorkflowOverviewPanel", () => {
     expect(screen.getByRole("region", { name: "Workflow overview" })).toBeInTheDocument();
     expect(screen.getByText("Plan review")).toBeInTheDocument();
     expect(screen.getAllByText("Implement operator workflow previews")).toHaveLength(2);
-    expect(screen.getAllByText("plan-1")).toHaveLength(3);
+    expect(screen.getAllByText("plan-1")).toHaveLength(2);
+    expect(screen.getByText("Approved plan plan-1")).toBeInTheDocument();
     expect(screen.getAllByText("ui-change")).toHaveLength(2);
     expect(screen.getByText("medium risk")).toBeInTheDocument();
     expect(screen.getByText("Goal run")).toBeInTheDocument();

@@ -49,6 +49,7 @@ import {
   MessageHeader,
 } from "@/components/ui/message";
 import { cn } from "@/lib/utils";
+import { TranscriptSurface } from "./transcript-surface.js";
 
 type ResourceDataUrlLoader = (uri: string) => Promise<string | null>;
 
@@ -353,11 +354,8 @@ export function MessageRow(props: MessageRowProps) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
   const isOperational = message.role === "tool" || message.role === "error";
-  const hasAnchoredOperationalContent = Boolean(props.beforeContent || props.afterContent);
-  const hasMessageContent = message.content.trim().length > 0;
   const voiceAudioParts = isAssistant ? projectVoiceAudioOutputParts(message.parts ?? []) : [];
   const captionTrackSrc = createAudioCaptionTrackSrc(message.content);
-  const showStreamingCursor = message.streaming && (hasMessageContent || !hasAnchoredOperationalContent);
   const identity = projectMessageIdentity({
     role: message.role,
     provider: assistantProvider,
@@ -368,7 +366,7 @@ export function MessageRow(props: MessageRowProps) {
   const avatarMotion = message.streaming && isAssistant ? "subtle" : "none";
 
   return (
-    <article data-role={message.role} className="mx-auto w-full max-w-3xl">
+    <TranscriptSurface data-role={message.role} kind="message">
       <ConversationMessage align={isUser ? "end" : "start"}>
         <MessageAvatar className="self-start overflow-visible rounded-none bg-transparent">
           <OperatorAvatar identity={identity} state={avatarState} motion={avatarMotion} />
@@ -402,22 +400,10 @@ export function MessageRow(props: MessageRowProps) {
               {showMarkdown ? (
                 <div className="markdown-body">
                   <MarkdownMessageContent content={message.content} />
-                  {showStreamingCursor ? (
-                    <span
-                      aria-label="Streaming"
-                      className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
-                    />
-                  ) : null}
                 </div>
               ) : (
                 <p className="whitespace-pre-wrap break-words">
                   {message.content}
-                  {showStreamingCursor ? (
-                    <span
-                      aria-label="Streaming"
-                      className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
-                    />
-                  ) : null}
                 </p>
               )}
             </BubbleContent>
@@ -438,6 +424,6 @@ export function MessageRow(props: MessageRowProps) {
           ) : null}
         </MessageContent>
       </ConversationMessage>
-    </article>
+    </TranscriptSurface>
   );
 }

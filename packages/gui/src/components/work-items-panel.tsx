@@ -3,26 +3,28 @@ import type { WorkItemEntry } from "../lib/session-store.js";
 import { OperatorAvatar } from "./operator-avatar.js";
 import type { OperatorAvatarState } from "./operator-avatar.js";
 import { ExternalLink } from "lucide-react";
+import { BorderBeam } from "border-beam";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Task, TaskContent, TaskItem, TaskTrigger, type TaskStatus } from "@/components/ai-elements/task";
+import { resolveBorderBeamTheme } from "../lib/border-beam-theme.js";
+import { useUiStore } from "../lib/ui-store.js";
 
 interface WorkItemsPanelProps {
   readonly items: readonly WorkItemEntry[];
   readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
 }
 
-function statusTone(status: string): string {
-  if (status === "completed") return "border-emerald-500/35 bg-emerald-500/10 text-emerald-300";
-  if (status === "blocked") return "border-amber-500/35 bg-amber-500/10 text-amber-300";
-  if (status === "cancelled") return "border-destructive/35 bg-destructive/10 text-destructive";
-  if (status === "in_progress") return "border-sky-500/35 bg-sky-500/10 text-sky-300";
-  return "border-border bg-background text-muted-foreground";
+function taskStatus(status: string): TaskStatus {
+  if (status === "in_progress" || status === "completed" || status === "blocked" || status === "cancelled") {
+    return status;
+  }
+  return "pending";
 }
 
 function evidenceLabel(item: WorkItemEntry): string {
   if (item.expectedEvidence.length === 0) return "No evidence gates";
-  return `${item.providedEvidence.length}/${item.expectedEvidence.length} evidence`;
+  return `${item.providedEvidence.length} of ${item.expectedEvidence.length} evidence`;
 }
 
 function avatarStateForStatus(status: string): OperatorAvatarState {
@@ -41,7 +43,18 @@ function attemptModeLabel(value: string): string {
   return value.replace(/_/g, " ");
 }
 
+function activeWorkItemId(items: readonly WorkItemEntry[]): string | null {
+  return items.reduce<WorkItemEntry | null>((current, item) => {
+    if (item.status !== "in_progress") return current;
+    if (!current || item.updatedAt > current.updatedAt) return item;
+    return current;
+  }, null)?.id ?? null;
+}
+
 export function WorkItemsPanel(props: WorkItemsPanelProps) {
+  const kilnTheme = useUiStore((state) => state.theme);
+  const beamTheme = resolveBorderBeamTheme(kilnTheme);
+  const emphasizedWorkItemId = activeWorkItemId(props.items);
   if (props.items.length === 0) {
     return (
       <section aria-label="Work items" className="grid h-full place-items-center bg-card px-6 text-center">
@@ -57,7 +70,7 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
 
   return (
     <section aria-label="Work items" className="h-full min-h-0 overflow-y-auto bg-card">
-      <ul className="divide-y divide-border/60">
+      <ul className="flex flex-col gap-2 p-4">
         {props.items.map((item) => {
           const missing = [
             ...(item.missingEvidence ?? []),
@@ -69,95 +82,111 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
           const pendingRequirements = item.pauseRequirements?.filter((requirement) => requirement.status === "pending") ?? [];
           const attempt = latestAttempt(item);
           const identity = projectAgentProfileIdentity(item.assignedAgentProfile);
-          return (
-            <li key={item.id} className="px-5 py-4">
-              <div className="flex min-w-0 items-start gap-3">
-                {identity ? (
-                  <OperatorAvatar
-                    identity={identity}
-                    size="sm"
-                    state={avatarStateForStatus(item.status)}
-                    className="mt-0.5"
-                  />
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <p className="min-w-0 truncate text-sm font-semibold text-foreground">{item.summary}</p>
-                    <Badge variant="outline" className={cn("shrink-0", statusTone(item.status))}>
-                      {item.status.replace(/_/g, " ")}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 font-mono text-[10.5px] tracking-[0.01em] text-muted-foreground">
+          const status = taskStatus(item.status);
+          const task = (
+              <Task status={status} variant="card" defaultOpen={status !== "completed" && status !== "cancelled"}>
+                <TaskTrigger
+                  title={item.summary}
+                  status={status}
+                  description={evidenceLabel(item)}
+                  leading={identity ? (
+                    <OperatorAvatar
+                      identity={identity}
+                      size="sm"
+                      state={avatarStateForStatus(item.status)}
+                    />
+                  ) : undefined}
+                />
+                <TaskContent>
+                  <TaskItem className="font-mono text-[10.5px] tracking-[0.01em]">
                     {item.id} / {item.workflowProfile}
                     {item.surface ? ` / ${item.surface}` : ""}
                     {item.assignedAgentProfile ? ` / ${item.assignedAgentProfile}` : ""}
                     {item.authorityProfile ? ` / ${item.authorityProfile}` : ""}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
-                    {evidenceLabel(item)}
-                  </Badge>
+                  </TaskItem>
                   {item.resourceUri ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon-xs"
-                      disabled={!props.onOpenResource}
-                      aria-label={`Open work item ${item.id} resource`}
-                      title={item.resourceUri}
-                      onClick={() => props.onOpenResource?.(item.resourceUri!, {
-                        resourceUri: item.resourceUri!,
-                        workItemId: item.id,
-                      })}
-                    >
-                      <ExternalLink aria-hidden="true" />
-                    </Button>
+                    <div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!props.onOpenResource}
+                        aria-label={`Open work item ${item.id} resource`}
+                        title={item.resourceUri}
+                        onClick={() => props.onOpenResource?.(item.resourceUri!, {
+                          resourceUri: item.resourceUri!,
+                          workItemId: item.id,
+                        })}
+                      >
+                        <ExternalLink aria-hidden="true" data-icon="inline-start" />
+                        Open resource
+                      </Button>
+                    </div>
                   ) : null}
-                </div>
-              </div>
-              {item.verificationGates.length > 0 ? (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {item.verificationGates.map((gate) => (
-                    <Badge key={gate} variant="secondary" className="font-mono text-[10px]">
-                      {gate}
-                    </Badge>
-                  ))}
-                </div>
-              ) : null}
-              {item.referenceRoots && item.referenceRoots.length > 0 ? (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {item.referenceRoots.map((root) => (
-                    <Badge key={root} variant="outline" className="max-w-full truncate font-mono text-[10px] text-muted-foreground">
-                      {root}
-                    </Badge>
-                  ))}
-                </div>
-              ) : null}
-              {missing.length > 0 ? (
-                <p className="mt-3 text-sm leading-6 text-amber-300">
-                  Missing: {missing.join(", ")}
-                </p>
-              ) : null}
-              {pendingRequirements.length > 0 ? (
-                <div className="mt-3 space-y-1">
-                  {pendingRequirements.map((requirement) => (
-                    <p key={requirement.id} className="text-sm leading-6 text-amber-300">
-                      {requirement.kind.replace(/_/g, " ")}: {requirement.summary}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-              {attempt ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted-foreground">
-                  <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
-                    {attemptModeLabel(attempt.executionMode)} / {attempt.status.replace(/_/g, " ")}
-                  </Badge>
-                  {attempt.managedInvocationId ? (
-                    <span>{attempt.managedInvocationId}</span>
+                  {item.verificationGates.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.verificationGates.map((gate) => (
+                        <Badge key={gate} variant="secondary" className="font-mono text-[10px]">
+                          {gate}
+                        </Badge>
+                      ))}
+                    </div>
                   ) : null}
-                </div>
-              ) : null}
+                  {item.referenceRoots && item.referenceRoots.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.referenceRoots.map((root) => (
+                        <Badge key={root} variant="outline" className="max-w-full truncate font-mono text-[10px] text-muted-foreground">
+                          {root}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                  {missing.length > 0 ? (
+                    <TaskItem className="text-warning">
+                      Missing: {missing.join(", ")}
+                    </TaskItem>
+                  ) : null}
+                  {pendingRequirements.length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {pendingRequirements.map((requirement) => (
+                        <TaskItem key={requirement.id} className="text-warning">
+                          {requirement.kind.replace(/_/g, " ")}: {requirement.summary}
+                        </TaskItem>
+                      ))}
+                    </div>
+                  ) : null}
+                  {attempt ? (
+                    <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                      <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
+                        {attemptModeLabel(attempt.executionMode)} / {attempt.status.replace(/_/g, " ")}
+                      </Badge>
+                      {attempt.managedInvocationId ? (
+                        <span>{attempt.managedInvocationId}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </TaskContent>
+              </Task>
+          );
+          return (
+            <li key={item.id}>
+              {item.id === emphasizedWorkItemId ? (
+                <BorderBeam
+                  active
+                  className="w-full"
+                  colorVariant="colorful"
+                  data-beam-motion="pulse"
+                  data-beam-theme={beamTheme}
+                  data-role="work-item-activity-beam"
+                  data-work-item-id={item.id}
+                  duration={2.8}
+                  size="pulse-inner"
+                  strength={0.72}
+                  theme={beamTheme}
+                >
+                  {task}
+                </BorderBeam>
+              ) : task}
             </li>
           );
         })}

@@ -30,7 +30,7 @@ export function buildComposerContinuityHint(continuity: SessionContinuity): Comp
       label: "Running",
       description: "Waiting for current turn",
       tone: "info",
-      prominence: "exceptional",
+      prominence: "routine",
     };
   }
   if (continuity.mode === "continue") {
