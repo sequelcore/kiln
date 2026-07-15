@@ -6,6 +6,7 @@ import {
   appendExecutionIdentity,
   type ContentPart,
   getDirectProviderExecutionProfile,
+  isRetryable as isCredentialOutcomeRetryable,
   resolveExecutionIdentity,
   textPart,
   type AgentMessage,
@@ -240,7 +241,10 @@ export class ProviderSession implements IKilnSession {
     this.builtinTools = builtinToolSurface.callBuiltinTools;
     this.toolDefinitions = builtinToolSurface.toolDefinitions;
     this.materializableTools = builtinToolSurface.materializableTools;
-    this.capabilityMap = builtinToolSurface.materializableCapabilities;
+    this.capabilityMap = new Map([
+      ...builtinToolSurface.materializableCapabilities,
+      ...builtinToolSurface.capabilities,
+    ]);
     this.eventBus = new EventBus(100);
     this._capabilities = deriveCapabilities(
       config,
@@ -307,7 +311,7 @@ export class ProviderSession implements IKilnSession {
       const message = this.executionMode === "kiln-executable"
         ? formatExecutableSessionError(err)
         : formatProviderSessionError(err);
-      yield { type: "error", code, message, isRetryable: false };
+      yield { type: "error", code, message, isRetryable: isProviderSessionErrorRetryable(err) };
       yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError: true, isPreflightCrash: false };
     }
   }
@@ -528,22 +532,36 @@ export class ProviderSession implements IKilnSession {
       };
     }
 
+    const candidateTools = new Map(this.materializableTools);
+    for (const tool of this.toolDefinitions) {
+      candidateTools.set(tool.name, tool);
+    }
     const admittedToolNames = new Set<string>();
     const toolAuthority = new Map<string, AuthorityDescriptor>();
-    for (const tool of this.materializableTools.values()) {
+    for (const tool of candidateTools.values()) {
       const capability = this.capabilityMap.get(tool.name);
       const authority = authorityDescriptorFromCapability(tool.name, capability);
-      if (!authority || !authority.allowed || authority.requiresApproval) {
+      if (!authority) {
         continue;
       }
       if (requestedAuthority === "read_only") {
-        if (isReadOnlyCapability(tool.name, capability) && authority.level <= 1) {
+        if (authority.allowed && !authority.requiresApproval && isReadOnlyCapability(tool.name, capability) && authority.level <= 1) {
           admittedToolNames.add(tool.name);
           toolAuthority.set(tool.name, authority);
         }
         continue;
       }
-      if (authority.level <= 2) {
+      if (requestedAuthority === "destructive" && capability) {
+        admittedToolNames.add(tool.name);
+        toolAuthority.set(tool.name, {
+          level: authority.level,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Destructive authority was admitted by the parent runtime turn.",
+        });
+        continue;
+      }
+      if (authority.allowed && !authority.requiresApproval && authority.level <= 2) {
         admittedToolNames.add(tool.name);
         toolAuthority.set(tool.name, authority);
       }
@@ -566,7 +584,7 @@ export class ProviderSession implements IKilnSession {
         reason: "cli direct-provider requested turn authority",
         completeness: "authoritative",
         toolCount: admittedToolNames.size,
-        deniedToolCount: Math.max(0, this.materializableTools.size - admittedToolNames.size),
+        deniedToolCount: Math.max(0, candidateTools.size - admittedToolNames.size),
         policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
           executionMode: "execute",
           requestedAuthority,
@@ -790,6 +808,16 @@ function formatExecutableSessionError(error: unknown): string {
     return `${error.message} (${suffixParts.join(": ")})`;
   }
   return formatProviderSessionError(error);
+}
+
+function isProviderSessionErrorRetryable(error: unknown): boolean {
+  if (error instanceof AllCredentialsExhaustedError) {
+    if (error.lastOutcome) {
+      return isCredentialOutcomeRetryable(error.lastOutcome);
+    }
+    return isProviderSessionErrorRetryable(error.cause);
+  }
+  return error instanceof KilnError && error.retryable;
 }
 
 function formatProviderSessionError(error: unknown): string {

@@ -28,6 +28,7 @@ import type {
 } from "./session-lifecycle-attribution.js";
 import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
+import type { SessionExecutionScope } from "./session-execution-scope.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -88,6 +89,7 @@ export interface SessionEventEnvelope<K extends CanonicalSessionEventKind = Cano
   readonly sequence: number;
   readonly timestamp: Date;
   readonly kind: K;
+  readonly executionScope?: SessionExecutionScope;
   readonly turnId?: string;
   readonly parentEventId?: string;
   readonly source?: SessionEventSource;

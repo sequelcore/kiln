@@ -221,6 +221,7 @@ export interface ToolCalledEvent extends KilnEvent {
   readonly authorizationLevel?: number;
   readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
   readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
+  readonly executionScope?: import("./session-execution-scope.js").SessionExecutionScope;
 }
 
 /** Tool authorized event */
@@ -267,6 +268,7 @@ export interface ToolResultEvent extends KilnEvent {
   readonly toolUsage?: import("./session-event.js").SessionToolUsageSnapshot;
   readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
   readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
+  readonly executionScope?: import("./session-execution-scope.js").SessionExecutionScope;
 }
 
 /** Tool cache hit event -- cached result used instead of executing tool */
@@ -840,3 +842,4 @@ export type {
   SessionEventInput,
   CreateSessionEventOptions,
 } from "./session-event.js";
+export type { SessionExecutionScope } from "./session-execution-scope.js";

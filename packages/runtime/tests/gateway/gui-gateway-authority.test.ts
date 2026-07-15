@@ -152,6 +152,57 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.has("shell_command")).toBe(false);
   });
 
+  it("carries the selected GUI workspace into the admitted turn config", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      "destructive",
+      "C:\\Proyectos\\Sequel\\kiln",
+    );
+
+    expect(cfg.workingDirectory).toBe("C:\\Proyectos\\Sequel\\kiln");
+  });
+
+  it("validates and carries an operator governed-work requirement into the turn config", async () => {
+    const {
+      buildGuiTurnPerCallConfig,
+      resolveGuiGovernedWorkRequirement,
+    } = await import("../../src/gateway/gui-gateway.js");
+    const requirement = resolveGuiGovernedWorkRequirement({
+      kind: "goal_materialization",
+      requiredWorkItemCount: 3,
+    });
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      "destructive",
+      "C:\\Proyectos\\Sequel\\kiln",
+      requirement,
+    );
+
+    expect(cfg.governedWorkRequirement).toEqual({
+      kind: "goal_materialization",
+      requiredWorkItemCount: 3,
+    });
+    expect(() => resolveGuiGovernedWorkRequirement({
+      kind: "goal_materialization",
+      requiredWorkItemCount: 0,
+    })).toThrow("must be a positive integer");
+    expect(() => resolveGuiGovernedWorkRequirement({
+      kind: "unknown",
+      requiredWorkItemCount: 3,
+    })).toThrow("Unknown governed work requirement 'unknown'.");
+  });
+
   it("rejects malformed requested authority instead of falling back to auto", async () => {
     const { resolveGuiRequestedAuthority } = await import("../../src/gateway/gui-gateway.js");
 

@@ -1125,6 +1125,7 @@ class TuiActivityStreamer {
     timestamp: string;
     payload: Record<string, unknown>;
     parentEventId?: string;
+    executionScope?: ExecutionSessionEvent["executionScope"];
   }): void {
     if (!this.ws || !this.capture) {
       return;
@@ -1145,6 +1146,7 @@ class TuiActivityStreamer {
         kind: input.kind,
         turnId,
         ...(input.parentEventId ? { parentEventId: input.parentEventId } : {}),
+        ...(input.executionScope ? { executionScope: input.executionScope } : {}),
         source: {
           actor: input.kind === "assistant_delta" ? "assistant" : input.kind.startsWith("tool_") ? "tool" : "runtime",
           surface: "tui",
@@ -1333,6 +1335,7 @@ class TuiActivityStreamer {
           messageId: this.capture ? `${this.capture.sessionId}:live:assistant` : "assistant-live",
           delta: sanitizedDelta,
         },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_use") {
       const toolCallId = event.toolCallId ?? (this.capture
@@ -1352,6 +1355,7 @@ class TuiActivityStreamer {
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
           ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
         },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       this.emitActivityPhase({
         phase: "tool_running",
@@ -1395,6 +1399,7 @@ class TuiActivityStreamer {
           resourceLinks: event.resourceLinks,
           toolUsage: event.toolUsage,
         }),
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       this.emitActivityPhase({ phase: "idle" });
     } else if (event.type === "file_changed") {

@@ -50,6 +50,11 @@ export type GuiProviderReasoningEffort = "minimal" | "low" | "medium" | "high" |
 export type OperatorExecutionMode = "execute" | "plan";
 export type OperatorTurnRequestedAuthority = "auto" | "read_only" | "audited" | "destructive";
 
+export interface OperatorGoalMaterializationRequirement {
+  readonly kind: "goal_materialization";
+  readonly requiredWorkItemCount: number;
+}
+
 export type GuiAuthorityLevel =
   | "fail_closed"
   | "read_only"
@@ -479,6 +484,20 @@ export interface OperatorSessionEventSource {
   readonly component?: string;
 }
 
+export type OperatorExecutionScope =
+  | {
+      readonly kind: "goal";
+      readonly goalRunId: string;
+      readonly managedInvocationId?: string;
+    }
+  | {
+      readonly kind: "work_item";
+      readonly goalRunId: string;
+      readonly workItemId: string;
+      readonly attemptId?: string;
+      readonly managedInvocationId?: string;
+    };
+
 export type GuiSessionEventSource = OperatorSessionEventSource;
 
 export interface OperatorManagedAgentProviderRoute {
@@ -598,6 +617,7 @@ export interface OperatorSessionEvent {
   readonly kind: OperatorSessionEventKind;
   readonly turnId?: string;
   readonly parentEventId?: string;
+  readonly executionScope?: OperatorExecutionScope;
   readonly source?: OperatorSessionEventSource;
   readonly payload: Record<string, unknown>;
 }
@@ -871,6 +891,7 @@ export type GuiOutboundFrame =
       parts?: readonly unknown[];
       executionMode?: OperatorExecutionMode;
       requestedAuthority?: OperatorTurnRequestedAuthority;
+      governedWorkRequirement?: OperatorGoalMaterializationRequirement;
       sessionIntent?: "fresh";
       continuationSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;

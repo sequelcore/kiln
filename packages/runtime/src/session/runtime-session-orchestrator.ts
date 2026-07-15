@@ -5,6 +5,8 @@ import type {
   ProviderRequestToolMaterializationDecisionEvidence,
   ToolCall,
   ToolDefinition,
+  ProviderExecutionContext,
+  ProviderExecutionRequestedAuthority,
 } from "@kilnai/core";
 import {
   extractText,
@@ -32,6 +34,7 @@ import {
 } from "./runtime-session-orchestrator-telemetry.js";
 import { RuntimeSessionToolExecutor } from "./runtime-session-orchestrator-tool-executor.js";
 import {
+  RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON,
   RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
   RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
   RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
@@ -46,9 +49,22 @@ import type {
   RuntimeExecutionEnvelope,
   RuntimeToolRoundBudget,
   ToolExecutionSummary,
+  EffectiveTurnAuthoritySnapshot,
 } from "./runtime-session-orchestrator.types.js";
 
 const MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS = 2;
+const GOVERNED_WORK_ITEM_SETUP_TOOLS = new Set([
+  "work_governance.assess",
+  "work_profile.list",
+  "work_item.list",
+  "work_item.update",
+]);
+
+interface GovernedWorkMaterializationProgress {
+  readonly requiredWorkItemCount: number;
+  readonly workItemIds: ReadonlySet<string>;
+  readonly goalCreated: boolean;
+}
 
 function resolveExecutionEnvelope(value: RuntimeExecutionEnvelope | undefined): RuntimeExecutionEnvelope | undefined {
   if (value === undefined) {
@@ -72,6 +88,34 @@ function isToolRoundBudgetExhausted(
 ): boolean {
   const max = executionEnvelope?.toolRounds?.max;
   return max !== undefined && round >= max;
+}
+
+function projectProviderRequestedAuthority(
+  authority: EffectiveTurnAuthoritySnapshot,
+): ProviderExecutionRequestedAuthority {
+  switch (authority.admittedAuthority) {
+    case "destructive":
+      return "destructive";
+    case "audited":
+      return "audited";
+    default:
+      return "read_only";
+  }
+}
+
+function buildProviderExecutionContext(
+  config: PerCallToolConfig | undefined,
+): ProviderExecutionContext | undefined {
+  if (!config?.workingDirectory && !config?.effectiveTurnAuthority && !config?.executionScope) {
+    return undefined;
+  }
+  return {
+    ...(config.workingDirectory ? { workingDirectory: config.workingDirectory } : {}),
+    ...(config.effectiveTurnAuthority
+      ? { requestedAuthority: projectProviderRequestedAuthority(config.effectiveTurnAuthority) }
+      : {}),
+    ...(config.executionScope ? { executionScope: config.executionScope } : {}),
+  };
 }
 
 export type {
@@ -220,6 +264,11 @@ export class RuntimeSessionOrchestrator {
 
     let managedInvocationTransitionReserveUsed = false;
     for (let round = 0; this.canStartToolRound(round, managedInvocationTransitionReserveUsed, toolExecutions, executionEnvelope); round++) {
+      const governedWorkProgress = readGovernedWorkMaterializationProgress(
+        perCallConfig?.governedWorkRequirement,
+        toolExecutions,
+        resolveRuntimeTurnId(session, perCallConfig),
+      );
       const pendingTransitionForRound = pendingManagedInvocationTransition(toolExecutions);
       const transitionOnlyRound = isToolRoundBudgetExhausted(round, executionEnvelope);
       if (transitionOnlyRound) {
@@ -256,12 +305,15 @@ export class RuntimeSessionOrchestrator {
         });
       }
 
-      const toolsForRound = routing.hasTools
+      const transitionToolsForRound = routing.hasTools
         ? managedInvocationTransitionToolsForRound(
             projectedRoundTools,
             transitionOnlyRound ? pendingTransitionForRound : undefined,
           )
         : undefined;
+      const toolsForRound = governedWorkProgress && !governedWorkProgress.goalCreated
+        ? governedWorkMaterializationToolsForRound(transitionToolsForRound, governedWorkProgress)
+        : transitionToolsForRound;
       if (
         transitionOnlyRound
         && pendingTransitionForRound
@@ -285,6 +337,7 @@ export class RuntimeSessionOrchestrator {
         perCallConfig,
         executionEnvelope,
       );
+      const providerExecutionContext = buildProviderExecutionContext(perCallConfig);
       const response = await routing.effectiveProvider.createMessage({
         sessionId: session.id,
         system: routing.invocationSystem,
@@ -293,6 +346,7 @@ export class RuntimeSessionOrchestrator {
         maxTokens: this.deps.maxTokens,
         reasoningEffort: perCallConfig?.reasoningEffort,
         signal: perCallConfig?.abortSignal,
+        ...(providerExecutionContext ? { executionContext: providerExecutionContext } : {}),
       });
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
 
@@ -326,6 +380,12 @@ export class RuntimeSessionOrchestrator {
       pendingMaterializationDecisions = [];
 
       if (!routing.hasTools || response.toolCalls.length === 0) {
+        if (governedWorkProgress && !governedWorkProgress.goalCreated) {
+          const correction = formatGovernedWorkMaterializationCorrection(governedWorkProgress);
+          this.telemetry.emitError(session.id, correction);
+          session.addUserMessage(textParts(correction));
+          continue;
+        }
         const pendingTransition = pendingManagedInvocationTransition(toolExecutions);
         if (pendingTransition) {
           const correction = formatManagedInvocationTransitionCorrection(pendingTransition);
@@ -368,7 +428,13 @@ export class RuntimeSessionOrchestrator {
       session.addAssistantMessage(assistantParts);
 
       const transitionAdmittedToolCalls = transitionOnlyToolCalls?.allowed ?? normalizedToolCalls;
-      const projectedRoundToolCalls = partitionProjectedRoundToolCalls(transitionAdmittedToolCalls, toolsForRound);
+      const governedWorkToolCalls = governedWorkProgress && !governedWorkProgress.goalCreated
+        ? partitionGovernedWorkMaterializationToolCalls(transitionAdmittedToolCalls, governedWorkProgress)
+        : undefined;
+      const projectedRoundToolCalls = partitionProjectedRoundToolCalls(
+        governedWorkToolCalls?.allowed ?? transitionAdmittedToolCalls,
+        toolsForRound,
+      );
       const executableToolCalls = projectedRoundToolCalls.allowed;
       const repeatedInvalidToolAttempt = this.detectRepeatedInvalidToolAttempt(
         executableToolCalls,
@@ -439,6 +505,9 @@ export class RuntimeSessionOrchestrator {
       const blockedProjectedRoundCalls = projectedRoundToolCalls.blocked.length > 0
         ? buildProjectedRoundBlockedResults(projectedRoundToolCalls.blocked)
         : undefined;
+      const blockedGovernedWorkCalls = governedWorkToolCalls && governedWorkToolCalls.blocked.length > 0
+        ? buildGovernedWorkMaterializationBlockedResults(governedWorkToolCalls.blocked, governedWorkProgress!)
+        : undefined;
       if (executableToolCalls.length === 0) {
         if (blockedTransitionOnlyCalls) {
           toolExecutions.push(...blockedTransitionOnlyCalls.toolExecutions);
@@ -446,9 +515,13 @@ export class RuntimeSessionOrchestrator {
         if (blockedProjectedRoundCalls) {
           toolExecutions.push(...blockedProjectedRoundCalls.toolExecutions);
         }
+        if (blockedGovernedWorkCalls) {
+          toolExecutions.push(...blockedGovernedWorkCalls.toolExecutions);
+        }
         session.addUserMessage([
           ...(blockedTransitionOnlyCalls?.resultParts ?? []),
           ...(blockedProjectedRoundCalls?.resultParts ?? []),
+          ...(blockedGovernedWorkCalls?.resultParts ?? []),
         ]);
         continue;
       }
@@ -464,11 +537,13 @@ export class RuntimeSessionOrchestrator {
         ...(blockedTransitionOnlyCalls?.toolExecutions ?? []),
         ...execution.toolExecutions,
         ...(blockedProjectedRoundCalls?.toolExecutions ?? []),
+        ...(blockedGovernedWorkCalls?.toolExecutions ?? []),
       );
       session.addUserMessage([
         ...(blockedTransitionOnlyCalls?.resultParts ?? []),
         ...execution.resultParts,
         ...(blockedProjectedRoundCalls?.resultParts ?? []),
+        ...(blockedGovernedWorkCalls?.resultParts ?? []),
       ]);
       const progressiveAdmission = admitProgressivelyMaterializedTools(
         projectedRoundTools,
@@ -487,6 +562,25 @@ export class RuntimeSessionOrchestrator {
         deps: this.deps,
         session,
         pending: pendingTransition,
+        toolExecutions,
+        usageTotals: this.telemetry.snapshot(),
+        providerRequests: this.telemetry.requestSnapshot(),
+        routingDecision: toPublicRoutingDecision(routing.routingDecision),
+        preLlmEscalation: escalation,
+      });
+    }
+
+    const governedWorkProgress = readGovernedWorkMaterializationProgress(
+      perCallConfig?.governedWorkRequirement,
+      toolExecutions,
+      resolveRuntimeTurnId(session, perCallConfig),
+    );
+    if (governedWorkProgress && !governedWorkProgress.goalCreated) {
+      this.telemetry.emitError(session.id, "Governed work materialization requirement was not satisfied");
+      return finalizeGovernedWorkMaterializationRequired({
+        deps: this.deps,
+        session,
+        progress: governedWorkProgress,
         toolExecutions,
         usageTotals: this.telemetry.snapshot(),
         providerRequests: this.telemetry.requestSnapshot(),
@@ -722,6 +816,150 @@ function partitionManagedInvocationTransitionToolCalls(
   return { allowed, blocked };
 }
 
+function resolveRuntimeTurnId(session: RuntimeSession, config: PerCallToolConfig | undefined): string {
+  return config?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount, 1)}`;
+}
+
+function readGovernedWorkMaterializationProgress(
+  requirement: PerCallToolConfig["governedWorkRequirement"],
+  executions: readonly ToolExecutionSummary[],
+  turnId: string,
+): GovernedWorkMaterializationProgress | undefined {
+  if (!requirement) {
+    return undefined;
+  }
+  const workItemIds = new Set<string>();
+  for (const execution of executions) {
+    if (!execution.success || execution.toolName !== "work_item.update") {
+      continue;
+    }
+    const item = recordValue(execution.metadata?.item);
+    const id = stringValue(item?.id);
+    if (id) {
+      workItemIds.add(id);
+    }
+  }
+
+  const goalCreated = executions.some((execution) => {
+    if (!execution.success || execution.toolName !== "goal.create") {
+      return false;
+    }
+    const goal = recordValue(execution.metadata?.goal);
+    const source = recordValue(goal?.source);
+    const linkedIds = stringArrayValue(goal?.workItemIds);
+    return source?.kind === "operator_direct"
+      && stringValue(source.turnId) === turnId
+      && linkedIds.length === requirement.requiredWorkItemCount
+      && sameStringSet(linkedIds, workItemIds);
+  });
+
+  return {
+    requiredWorkItemCount: requirement.requiredWorkItemCount,
+    workItemIds,
+    goalCreated,
+  };
+}
+
+function governedWorkMaterializationToolsForRound(
+  tools: readonly ToolDefinition[] | undefined,
+  progress: GovernedWorkMaterializationProgress,
+): readonly ToolDefinition[] | undefined {
+  if (!tools) {
+    return undefined;
+  }
+  return tools.filter((tool) => governedWorkToolAllowed(tool.name, progress));
+}
+
+function partitionGovernedWorkMaterializationToolCalls(
+  toolCalls: readonly ToolCall[],
+  progress: GovernedWorkMaterializationProgress,
+): {
+  readonly allowed: readonly ToolCall[];
+  readonly blocked: readonly ToolCall[];
+} {
+  const allowed: ToolCall[] = [];
+  const blocked: ToolCall[] = [];
+  for (const toolCall of toolCalls) {
+    (governedWorkToolAllowed(toolCall.name, progress) ? allowed : blocked).push(toolCall);
+  }
+  return { allowed, blocked };
+}
+
+function governedWorkToolAllowed(
+  toolName: string,
+  progress: GovernedWorkMaterializationProgress,
+): boolean {
+  if (progress.workItemIds.size < progress.requiredWorkItemCount) {
+    return GOVERNED_WORK_ITEM_SETUP_TOOLS.has(toolName);
+  }
+  return toolName === "goal.create"
+    || toolName === "work_governance.assess"
+    || toolName === "work_profile.list"
+    || toolName === "work_item.list";
+}
+
+function formatGovernedWorkMaterializationCorrection(
+  progress: GovernedWorkMaterializationProgress,
+): string {
+  const remaining = Math.max(0, progress.requiredWorkItemCount - progress.workItemIds.size);
+  return remaining > 0
+    ? [
+        "The operator required governed work materialization before repository inspection or execution.",
+        `Create ${remaining} more distinct work item${remaining === 1 ? "" : "s"} with work_item.update.`,
+        "Do not call repository, shell, web, managed-agent, or execution tools until the requirement is satisfied.",
+      ].join("\n")
+    : [
+        "The required work items now exist, but the governed goal has not been created.",
+        "Call goal.create and link exactly the materialized work-item ids; operator provenance comes from runtime turn context.",
+        "The runtime will supply the current operatorTurnId.",
+      ].join("\n");
+}
+
+function buildGovernedWorkMaterializationBlockedResults(
+  toolCalls: readonly ToolCall[],
+  progress: GovernedWorkMaterializationProgress,
+): {
+  readonly resultParts: readonly ContentPart[];
+  readonly toolExecutions: readonly ToolExecutionSummary[];
+} {
+  const content = formatGovernedWorkMaterializationCorrection(progress);
+  return {
+    resultParts: toolCalls.map((toolCall) => ({
+      type: "tool_result" as const,
+      toolUseId: toolCall.id,
+      content: `Tool "${toolCall.name}" was blocked.\n${content}`,
+      isError: true,
+    })),
+    toolExecutions: toolCalls.map((toolCall) => ({
+      toolCallId: toolCall.id,
+      toolName: toolCall.name,
+      input: toolCall.input,
+      durationMs: 0,
+      success: false,
+      output: `Tool "${toolCall.name}" was blocked.\n${content}`,
+      resultSummary: `Tool "${toolCall.name}" was blocked pending governed work materialization.`,
+    })),
+  };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function stringArrayValue(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.flatMap((entry) => stringValue(entry) ? [stringValue(entry)!] : []) : [];
+}
+
+function sameStringSet(left: readonly string[], right: ReadonlySet<string>): boolean {
+  return left.length === right.size && left.every((value) => right.has(value));
+}
+
 function partitionProjectedRoundToolCalls(
   toolCalls: readonly ToolCall[],
   toolsForRound: readonly ToolDefinition[] | undefined,
@@ -845,6 +1083,43 @@ function finalizeManagedInvocationTransitionRequired(input: {
     providerRequests: input.providerRequests,
     toolExecutions: input.toolExecutions,
     stopReason: RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
+    routingDecision: input.routingDecision,
+    preLlmEscalation: input.preLlmEscalation,
+  });
+}
+
+function finalizeGovernedWorkMaterializationRequired(input: {
+  readonly deps: OrchestratorDeps;
+  readonly session: RuntimeSession;
+  readonly progress: GovernedWorkMaterializationProgress;
+  readonly toolExecutions: readonly ToolExecutionSummary[];
+  readonly usageTotals: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly cacheReadTokens: number;
+    readonly cacheWriteTokens: number;
+  };
+  readonly providerRequests: readonly ProviderRequestEvidence[];
+  readonly routingDecision: OrchestrateResult["routingDecision"];
+  readonly preLlmEscalation: OrchestrateResult["escalation"];
+}): Promise<OrchestrateResult> {
+  return finalizeRuntimeSessionResponse({
+    deps: input.deps,
+    session: input.session,
+    parts: textParts([
+      "Governed work materialization is still required before task execution can continue.",
+      formatGovernedWorkMaterializationCorrection(input.progress),
+    ].join("\n")),
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    },
+    usageTotals: input.usageTotals,
+    providerRequests: input.providerRequests,
+    toolExecutions: input.toolExecutions,
+    stopReason: RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON,
     routingDecision: input.routingDecision,
     preLlmEscalation: input.preLlmEscalation,
   });

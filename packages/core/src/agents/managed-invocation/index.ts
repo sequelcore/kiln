@@ -2,6 +2,7 @@ import { defineMemoryScope } from "../../memory/domain/scope.js";
 import type { MemoryScope } from "../../memory/domain/scope.js";
 import { defineWorkClassification } from "../work-classification.js";
 import type { WorkClassification } from "../work-classification.js";
+import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
 import { defineManagedAgentReadAuthority } from "./read-authority.js";
 import type { ManagedAgentReadAuthority } from "./read-authority.js";
 import {
@@ -201,6 +202,7 @@ export interface ManagedAgentInvocationRequest {
   readonly executionMode: ManagedAgentExecutionMode;
   readonly authority: ManagedAgentAuthorityProfile;
   readonly input: ManagedAgentInvocationInput;
+  readonly executionScope?: SessionExecutionScope;
 }
 
 export interface ManagedAgentAdapterDescriptor {
@@ -730,6 +732,7 @@ export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocatio
     adapterKind: requireAdapterKind(input.adapterKind),
     executionMode: requireExecutionMode(input.executionMode),
     authority,
+    ...(input.executionScope ? { executionScope: requireSessionExecutionScope(input.executionScope) } : {}),
     input: {
       summary: requireText(input.input?.summary, "Managed invocation input summary is required"),
       ...(input.input?.prompt !== undefined ? { prompt: input.input.prompt } : {}),
@@ -788,6 +791,27 @@ export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDe
       ? { limitations: input.limitations.map((limitation) => requireText(limitation, "Managed adapter limitation is required")) }
       : {}),
   };
+}
+
+function requireSessionExecutionScope(input: SessionExecutionScope): SessionExecutionScope {
+  const goalRunId = requireText(input.goalRunId, "Managed invocation execution scope goal run id is required");
+  if (input.kind === "goal") {
+    return {
+      kind: "goal",
+      goalRunId,
+      ...(input.managedInvocationId ? { managedInvocationId: requireText(input.managedInvocationId, "Managed invocation execution scope invocation id is required") } : {}),
+    };
+  }
+  if (input.kind === "work_item") {
+    return {
+      kind: "work_item",
+      goalRunId,
+      workItemId: requireText(input.workItemId, "Managed invocation execution scope work item id is required"),
+      ...(input.attemptId ? { attemptId: requireText(input.attemptId, "Managed invocation execution scope attempt id is required") } : {}),
+      ...(input.managedInvocationId ? { managedInvocationId: requireText(input.managedInvocationId, "Managed invocation execution scope invocation id is required") } : {}),
+    };
+  }
+  throw new Error(`Unsupported managed invocation execution scope: ${String((input as { readonly kind?: unknown }).kind)}`);
 }
 
 export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabilitySnapshot): ManagedAgentCapabilitySnapshot {

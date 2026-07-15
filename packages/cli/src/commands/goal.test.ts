@@ -27,7 +27,7 @@ describe("goal command", () => {
       id: "goal-1",
       objective: "Finish Slice 10 CLI goal commands.",
       status: "active",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
     });
   });
 
@@ -303,8 +303,7 @@ function makeGoal(input: { readonly id: string }): GoalRun {
     id: input.id,
     objective: "Finish Slice 10 CLI goal commands.",
     ownerSessionId: "session-1",
-    planId: "plan-1",
-    planHash: "sha256:plan",
+    source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
     status: "active",
     workItemIds: ["work-1"],
     authorityEnvelope: {

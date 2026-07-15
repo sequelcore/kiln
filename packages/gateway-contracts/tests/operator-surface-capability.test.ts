@@ -30,7 +30,7 @@ describe("operator surface capability contract", () => {
         {
           capability: "native-cockpit-contract",
           status: "available",
-          reason: "Roadmap 05 target and benchmark contracts are available.",
+          reason: "Canonical native cockpit target and benchmark contracts are available.",
         },
         {
           capability: "surface-performance-telemetry",

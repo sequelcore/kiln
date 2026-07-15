@@ -252,6 +252,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const orchestrator = new RuntimeSessionOrchestrator(deps);
       const perCallConfig: PerCallToolConfig = {
         tenantId: request.authority.memoryScope.scope.id,
+        ...(request.executionScope ? { executionScope: request.executionScope } : {}),
         abortSignal,
         toolAllowlist: allowedToolNames,
         additionalTools: tools,

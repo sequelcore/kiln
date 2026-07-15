@@ -199,10 +199,10 @@ function assertPlanApproved(plan: SessionPlan): void {
 }
 
 function assertGoalMatchesPlan(goalRun: GoalRun, plan: SessionPlan): void {
-  if (goalRun.planId !== plan.id) {
+  if (goalRun.source.kind !== "approved_plan" || goalRun.source.planId !== plan.id) {
     throw new Error(`Goal ${goalRun.id} is not bound to approved plan ${plan.id}.`);
   }
-  if (goalRun.planHash !== plan.contentHash) {
+  if (goalRun.source.planHash !== plan.contentHash) {
     throw new Error(`Goal ${goalRun.id} is not bound to approved plan hash ${plan.contentHash}.`);
   }
 }

@@ -50,6 +50,37 @@ describe("CliSubscriptionExecutor", () => {
     expect(run.mock.calls[0]?.[0]?.kilnSessionId).toBe("kiln-runtime-session");
   });
 
+  it("uses the admitted turn execution context for the nested subscription session", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const executor = new CliSubscriptionExecutor(factory, "codex-oauth");
+
+    await executor.createMessage({
+      sessionId: "kiln-runtime-session",
+      system: "sys",
+      messages: [],
+      executionContext: {
+        workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+        requestedAuthority: "destructive",
+      },
+    });
+
+    expect(factory).toHaveBeenCalledWith(
+      "sys",
+      "C:\\Proyectos\\Sequel\\kiln",
+      {
+        kilnSessionId: "kiln-runtime-session",
+        requestedAuthority: "destructive",
+      },
+    );
+    expect(run.mock.calls[0]?.[0]?.cwd).toBe("C:\\Proyectos\\Sequel\\kiln");
+  });
+
   it("passes the active operator surface through the factory context", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>

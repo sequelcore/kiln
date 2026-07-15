@@ -157,6 +157,7 @@ export type {
   OperatorSessionEventKind,
   OperatorAgentInvocationSessionEventKind,
   OperatorSessionEventSource,
+  OperatorExecutionScope,
   OperatorManagedAgentProviderRoute,
   OperatorManagedAgentRouteHealthSnapshot,
   OperatorManagedAgentProviderModelProofSnapshot,
@@ -199,6 +200,7 @@ export type {
   GuiManagedAgentControlResultFrame,
   GuiManagedAgentControlResultStatus,
   GuiOutboundFrame,
+  OperatorGoalMaterializationRequirement,
   GuiInboundFrame,
   GuiSessionConnectionState,
   OperatorThemeScope,
@@ -513,11 +515,19 @@ export type {
   OperatorEventTone,
   ToolResultClassification,
   ToolResultClassificationSource,
+  ToolResultDiagnosticInputPresentation,
+  ToolResultDiagnosticPresentation,
+  ToolResultGoalEvidenceRequirementPresentation,
+  ToolResultGoalPresentation,
   ToolResultOutputKind,
   ToolResultPresentation,
   ToolResultPreview,
   ToolResultRawAvailability,
   ToolResultSearchResult,
+  ToolResultTaskItemPresentation,
+  ToolResultTaskPresentation,
+  ToolResultTaskStatus,
+  ToolResultWorkItemPresentation,
 } from "./operator-event-presentation.js";
 
 export {
@@ -620,3 +630,13 @@ export type {
   SessionFeedbackPublicationProjection,
   SessionFeedbackReporterProjection,
 } from "./session-feedback-projection.js";
+
+export { projectWorkflowActivity } from "./workflow-activity-projection.js";
+export type {
+  WorkflowActivityProjection,
+  WorkflowExecutionAttemptActivity,
+  WorkflowGoalActivity,
+  WorkflowToolCallActivity,
+  WorkflowToolCallState,
+  WorkflowWorkItemActivity,
+} from "./workflow-activity-projection.js";

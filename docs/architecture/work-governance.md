@@ -20,6 +20,42 @@ Kiln treats non-trivial work as a governed lifecycle:
 Direct execution is an actuator inside that lifecycle, not the default identity
 of the system.
 
+## Execution Identity And Surface Projection
+
+The canonical session ledger remains append-only. User surfaces must not render
+that ledger as one visual row per lifecycle event. They derive a live workflow
+projection keyed by `goalRunId`, `workItemId`, execution `attemptId`, and tool
+`toolCallId` so repeated snapshots update one semantic container.
+
+Tool lifecycle events may carry a discriminated `executionScope`. A goal scope
+contains `goalRunId`; a work-item scope also contains `workItemId` and may carry
+`attemptId` and `managedInvocationId`. Runtime propagates this identity through
+direct provider calls, managed invocations, canonical events, persistence, and
+gateway frames. Surfaces may associate a tool with governed work only from this
+explicit scope or an explicit managed-invocation/attempt relation. Temporal
+proximity is not attribution evidence.
+
+Execution tools own scope transitions. A ready or explicitly paused
+`work_item.execution.start` result emits a typed `enter` transition; a started
+attempt enriches that scope with its attempt and managed-invocation identity.
+Runtime applies the transition before publishing the tool result and preserves
+the active scope across subsequent provider tool rounds. A successful
+`work_item.execution.finish` or goal-owned `work_item.complete` emits `exit`
+after its own result is attributed. Failed validation does not change scope.
+This control metadata is canonical runtime input, not a rendering hint.
+
+GUI, TUI, CLI, replay, and future surfaces consume the shared workflow
+projection contract. A surface may choose a card, sidebar tree, or textual
+layout, but the semantics are invariant:
+
+- a goal and each work item have one stable identity;
+- lifecycle updates replace the latest projected snapshot rather than append a
+  duplicate presentation;
+- explicitly scoped tools appear under their owning work;
+- unscoped tools remain independent and auditable;
+- the raw append-only event ledger remains available outside the conversation
+  projection.
+
 ## Doctrine
 
 Kiln's default posture is orchestration. Parent agents are conductors,
@@ -154,6 +190,10 @@ surfaces:
   verification gates.
 - `work_item.update`
   Creates or updates a governed work item in the current session.
+  The manual tool boundary requires a stable caller-owned `id` on the first
+  call and every later update. That same identity owns classification
+  provenance, execution attempts, evidence, and closeout; temporary ids such as
+  `pending` are invalid.
   It cannot set `status=in_progress`; active execution is owned only by
   `work_item.execution.start` so attempts, route evidence, and pause reasons
   stay replayable.
@@ -307,11 +347,18 @@ session events, but they must not replace them.
 
 ## Goal Runs and Evidence Closeout
 
-Goal runs are the execution container for an approved plan. A goal run records
-the approved plan id, approved plan hash, authority envelope, route policy,
-required evidence, and materialized work item ids. That binding makes the run
-reconstructable from session evidence instead of relying on assistant text or a
-surface-local UI state.
+Goal runs are the governed execution container. Their source is explicit and
+discriminated:
+
+- `approved_plan` records the canonical plan id and optional approved content
+  hash; these goals are created only through plan approval and materialization.
+- `operator_direct` records the canonical operator turn id; attached runtime
+  surfaces supply it and `goal.create` does not accept model-declared plan
+  provenance.
+
+Every goal also records its authority envelope, route policy, required evidence,
+and linked work item ids. That binding makes the run reconstructable from session
+evidence instead of relying on assistant text or surface-local UI state.
 
 Goal route policy has one owner at a time. `managedAgentProfile` means the
 agent profile owns child route selection through its configured route hints.

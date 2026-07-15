@@ -424,7 +424,7 @@ function managedInvocationIdentity(
   source: ManagedAgentInvocationRequest | ManagedAgentInvocationRecord,
   request?: ManagedAgentInvocationRequest,
   capabilitySnapshot?: ManagedAgentCapabilitySnapshot,
-): Pick<CanonicalAgentInvocationStartedEvent, "parentTurnId" | "routeId" | "routeSource" | "profile" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract"> {
+): Pick<CanonicalAgentInvocationStartedEvent, "parentTurnId" | "routeId" | "routeSource" | "profile" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract" | "executionScope"> {
   const invocationContext = "input" in source
     ? source.input.context
     : request?.input.context;
@@ -434,6 +434,9 @@ function managedInvocationIdentity(
   const snapshot = "capabilitySnapshot" in source
     ? source.capabilitySnapshot
     : capabilitySnapshot;
+  const executionScope = "executionScope" in source
+    ? source.executionScope
+    : request?.executionScope;
   return {
     parentTurnId: source.parentTurnId,
     ...(snapshot ? { routeId: snapshot.routeId, routeSource: snapshot.routeSource } : {}),
@@ -447,6 +450,7 @@ function managedInvocationIdentity(
         ? { requestedAuthority: request.requestedAuthority }
         : {}),
     authorityProfileId: source.authority.authorityProfileId,
+    ...(executionScope ? { executionScope } : {}),
     ...(snapshot ? { capabilitySnapshot: snapshot } : {}),
     ...(invocationContext ? { invocationContext } : {}),
     ...(handoffContract ? { handoffContract } : {}),

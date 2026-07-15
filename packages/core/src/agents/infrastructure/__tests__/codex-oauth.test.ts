@@ -2273,13 +2273,49 @@ describe("CodexOAuthAdapter", () => {
       [403, "PROVIDER_AUTH_FAILED"],
       [429, "PROVIDER_RATE_LIMITED"],
       [402, "PROVIDER_QUOTA_EXCEEDED"],
-      [500, "PROVIDER_UNAVAILABLE"],
     ])("throws %s provider errors with code %s", async (status, code) => {
       mockFetch.mockResolvedValueOnce(jsonResponse(status, { error: "provider_error" }));
 
       const { adapter } = await createAdapter();
 
       await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({ code });
+    });
+
+    it("retries a transient 520 response before streaming starts", async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(520, { error: "unknown_origin_response" }))
+        .mockResolvedValueOnce(sseResponse([{
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_after_520",
+              status: "completed",
+              output: [{ type: "message", content: [{ type: "output_text", text: "Recovered" }] }],
+              usage: { input_tokens: 2, output_tokens: 1 },
+            },
+          },
+        }]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.parts).toEqual([{ type: "text", text: "Recovered" }]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("bounds retries when transient 5xx responses persist", async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(500, { error: "provider_error" }))
+        .mockResolvedValueOnce(jsonResponse(500, { error: "provider_error" }))
+        .mockResolvedValueOnce(jsonResponse(500, { error: "provider_error" }));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        retryable: true,
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it("classifies malformed SSE JSON as provider unavailable", async () => {

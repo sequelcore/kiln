@@ -13,8 +13,9 @@ shape, sync, install-state, and drift behavior remain owned by
 
 ## Cross-Harness Authority Vocabulary
 
-Roadmap 06 Slice 0 establishes these terms. They are deliberately separate so
-transport and projection cannot become a second authority owner.
+The cross-harness control-plane contract establishes these terms. They are
+deliberately separate so transport and projection cannot become a second
+authority owner.
 
 - **Native harness**: an operator-facing product such as Codex App, Codex CLI,
   Claude Code, or OpenCode. Its local permission and installation state applies

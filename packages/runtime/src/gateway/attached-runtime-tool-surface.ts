@@ -661,12 +661,16 @@ function normalizeManagedInvocationAttachment(
 function createSessionAwareGoalCreateExecutor(goalCreateExecutor: RuntimeBuiltinToolExecutor): RuntimeBuiltinToolExecutor {
   return async (input, context) => {
     const ownerSessionId = readTextFromUnknown(input.ownerSessionId);
-    if (ownerSessionId || !context?.session.id) {
+    const operatorTurnId = readTextFromUnknown(input.operatorTurnId);
+    const needsOwnerSessionId = !ownerSessionId && Boolean(context?.session.id);
+    const needsOperatorTurnId = !operatorTurnId && Boolean(context?.turnId);
+    if (!needsOwnerSessionId && !needsOperatorTurnId) {
       return goalCreateExecutor(input, context);
     }
     return goalCreateExecutor({
       ...input,
-      ownerSessionId: context.session.id,
+      ...(needsOwnerSessionId ? { ownerSessionId: context!.session.id } : {}),
+      ...(needsOperatorTurnId ? { operatorTurnId: context!.turnId } : {}),
     }, context);
   };
 }
@@ -1105,6 +1109,8 @@ function buildRuntimeSurface(
 
 export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly tenantId: string;
+  readonly workingDirectory?: string;
+  readonly governedWorkRequirement?: PerCallToolConfig["governedWorkRequirement"];
   readonly activeProvider?: string;
   readonly activeModel?: string;
   readonly activeModelCapabilities?: DiscoveredDirectProviderModelCapabilities;
@@ -1132,6 +1138,8 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     : undefined;
   const config: PerCallToolConfig = {
     tenantId: input.tenantId,
+    ...(input.workingDirectory ? { workingDirectory: input.workingDirectory } : {}),
+    ...(input.governedWorkRequirement ? { governedWorkRequirement: input.governedWorkRequirement } : {}),
     ...(modelOverride ? { modelOverride } : {}),
     ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.authorityContext ? { authorityContext: input.authorityContext } : {}),

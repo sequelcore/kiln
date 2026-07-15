@@ -3,6 +3,7 @@ import type { AgentMessage, ReasoningEffort } from "../agents/index.js";
 import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { SessionToolUsageSnapshot } from "./session-event.js";
 import type { ContextUsageRawEvidence } from "./context-usage-projection.js";
+import type { SessionExecutionScope } from "./session-execution-scope.js";
 
 export type ExecutionSessionCostTrackingMode =
   | "native"
@@ -19,6 +20,7 @@ export interface ExecutionSessionRunOptions {
   readonly reasoningEffort?: ReasoningEffort;
   readonly env?: Readonly<Record<string, string>>;
   readonly abortSignal?: AbortSignal;
+  readonly executionScope?: SessionExecutionScope;
 }
 
 export interface ExecutionSessionToolResultResourceLink {
@@ -126,7 +128,7 @@ export interface ProviderRequestCachePartitionEvidence {
   readonly dimensions: readonly ProviderRequestCachePartitionDimensionEvidence[];
 }
 
-export type ExecutionSessionEvent =
+export type ExecutionSessionEvent = (
   | { readonly type: "text_delta"; readonly content: string; readonly isThinking?: boolean }
   | {
       readonly type: "tool_use";
@@ -187,4 +189,5 @@ export type ExecutionSessionEvent =
       readonly isError: boolean;
       readonly isPreflightCrash: boolean;
     }
-  | { readonly type: "error"; readonly code: string; readonly message: string; readonly isRetryable: boolean };
+  | { readonly type: "error"; readonly code: string; readonly message: string; readonly isRetryable: boolean }
+) & { readonly executionScope?: SessionExecutionScope };

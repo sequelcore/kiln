@@ -14,6 +14,7 @@ import type {
   ResolvedInvocationEffect,
   SessionToolUsageSnapshot,
   ExecutionSessionToolResultResourceLink,
+  WorkItemExecutionScopeTransition,
 } from "@kilnai/core";
 import {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
@@ -118,6 +119,26 @@ function extractToolResultMetadata(resultValue: unknown): Record<string, unknown
   return resultRecord?.metadata && typeof resultRecord.metadata === "object" && !Array.isArray(resultRecord.metadata)
     ? resultRecord.metadata as Record<string, unknown>
     : undefined;
+}
+
+function extractExecutionScopeTransition(
+  metadata: Record<string, unknown> | undefined,
+): WorkItemExecutionScopeTransition | undefined {
+  const value = metadata?.executionScopeTransition;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const transition = value as Record<string, unknown>;
+  if (transition.action !== "enter" && transition.action !== "exit") return undefined;
+  const scopeValue = transition.scope;
+  if (!scopeValue || typeof scopeValue !== "object" || Array.isArray(scopeValue)) return undefined;
+  const scope = scopeValue as Record<string, unknown>;
+  if (scope.kind !== "goal" && scope.kind !== "work_item") return undefined;
+  if (typeof scope.goalRunId !== "string" || scope.goalRunId.trim().length === 0) return undefined;
+  if (scope.kind === "work_item" && (
+    typeof scope.workItemId !== "string" || scope.workItemId.trim().length === 0
+  )) return undefined;
+  if (scope.attemptId !== undefined && typeof scope.attemptId !== "string") return undefined;
+  if (scope.managedInvocationId !== undefined && typeof scope.managedInvocationId !== "string") return undefined;
+  return value as WorkItemExecutionScopeTransition;
 }
 
 function extractToolResultResourceLinks(
@@ -336,6 +357,8 @@ export interface RuntimeSessionToolExecutionResult {
 
 export class RuntimeSessionToolExecutor {
   private currentSession: RuntimeSession | undefined;
+  private currentExecutionScope: PerCallToolConfig["executionScope"];
+  private activeExecutionScope: PerCallToolConfig["executionScope"];
   private readonly turnToolCallCounts = new Map<string, number>();
 
   constructor(
@@ -355,6 +378,10 @@ export class RuntimeSessionToolExecutor {
     perCallConfig?: PerCallToolConfig,
   ): Promise<RuntimeSessionToolExecutionResult> {
     this.currentSession = session;
+    if (perCallConfig?.executionScope) {
+      this.activeExecutionScope = perCallConfig.executionScope;
+    }
+    this.currentExecutionScope = perCallConfig?.executionScope ?? this.activeExecutionScope;
     this.turnToolCallCounts.clear();
     try {
     const resultParts: RuntimeSessionToolResultPart[] = [];
@@ -617,6 +644,15 @@ export class RuntimeSessionToolExecutor {
         const isError = envelopeIsError === true;
         const success = !isError;
         const resultSummary = (resultOutput ?? sanitized.resultValue).slice(0, 200);
+        const executionScopeTransition = success
+          ? extractExecutionScopeTransition(metadata)
+          : undefined;
+        if (executionScopeTransition) {
+          this.currentExecutionScope = executionScopeTransition.scope;
+          if (executionScopeTransition.action === "enter") {
+            this.activeExecutionScope = executionScopeTransition.scope;
+          }
+        }
 
         this.emitToolResult(
           session.id,
@@ -634,6 +670,10 @@ export class RuntimeSessionToolExecutor {
           resolvedEffect,
           authResult,
         );
+        if (executionScopeTransition?.action === "exit") {
+          this.activeExecutionScope = undefined;
+          this.currentExecutionScope = undefined;
+        }
 
         const fileChanges = this.extractFileChangesFromToolResult(
           normalizedToolCall.input,
@@ -724,6 +764,7 @@ export class RuntimeSessionToolExecutor {
     return { resultParts, toolExecutions };
     } finally {
       this.currentSession = undefined;
+      this.currentExecutionScope = undefined;
     }
   }
 
@@ -1241,6 +1282,9 @@ export class RuntimeSessionToolExecutor {
           ...(turnId ? { turnId } : {}),
           toolCall,
           ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
+          ...(perCallConfig?.workingDirectory
+            ? { sandbox: { cwd: perCallConfig.workingDirectory } }
+            : {}),
           ...(perCallConfig?.toolAllowlist ? { allowedToolNames: [...perCallConfig.toolAllowlist] } : {}),
           requestApproval: (description: string) => this.requestApproval(session.id, description),
           ...(perCallConfig?.effectiveTurnAuthority
@@ -1290,6 +1334,7 @@ export class RuntimeSessionToolExecutor {
       ...(metadata ? { metadata } : {}),
       ...(resolvedEffect ? { resolvedEffect } : {}),
       ...(authority ? { authority, authorizationLevel: authority.level } : {}),
+      ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
     };
     this.eventBus?.emit(event);
   }
@@ -1350,6 +1395,7 @@ export class RuntimeSessionToolExecutor {
       ...(toolUsage ? { toolUsage } : {}),
       ...(resolvedEffect ? { resolvedEffect } : {}),
       ...(authority ? { authority } : {}),
+      ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
     };
     this.eventBus?.emit(event);
   }

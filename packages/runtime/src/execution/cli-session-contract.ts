@@ -1,4 +1,8 @@
-import type { ExecutionSessionEvent, ExecutionSessionRunOptions } from "@kilnai/core";
+import type {
+  ExecutionSessionEvent,
+  ExecutionSessionRunOptions,
+  ProviderExecutionRequestedAuthority,
+} from "@kilnai/core";
 import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
 
 export interface CliSession {
@@ -8,6 +12,7 @@ export interface CliSession {
 
 export interface CliSessionFactoryContext {
   readonly kilnSessionId?: string;
+  readonly requestedAuthority?: ProviderExecutionRequestedAuthority;
   readonly operatorSurface?: OperatorSurfaceController;
   readonly permissionPolicy?: {
     readonly approval: "never" | "on-request" | "on-failure" | "untrusted";

@@ -54,11 +54,14 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const prompt = buildPromptFromMessages(options.messages);
-    const cwd = process.cwd();
+    const cwd = options.executionContext?.workingDirectory ?? process.cwd();
 
     const operatorSurface = this.getOperatorSurface?.();
     const session = this.factory(options.system, cwd, {
       kilnSessionId: options.sessionId,
+      ...(options.executionContext?.requestedAuthority
+        ? { requestedAuthority: options.executionContext.requestedAuthority }
+        : {}),
       ...(operatorSurface ? { operatorSurface } : {}),
     });
     const assembler = new CliResponseAssembler();
@@ -71,10 +74,13 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
         system: options.system,
         messages: options.messages,
         reasoningEffort: options.reasoningEffort,
+        ...(options.executionContext?.executionScope ? { executionScope: options.executionContext.executionScope } : {}),
       })) {
-        // Stream event to TUI via callback
-        this.onEvent?.(event);
-        assembler.consume(event);
+        const scopedEvent = options.executionContext?.executionScope && !event.executionScope
+          ? { ...event, executionScope: options.executionContext.executionScope }
+          : event;
+        this.onEvent?.(scopedEvent);
+        assembler.consume(scopedEvent);
       }
     } finally {
       await session.dispose();

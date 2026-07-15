@@ -30,8 +30,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-slice-7",
       objective: "Execute approved Slice 7 plan.",
       ownerSessionId: "session-1",
-      planId: approvedPlan.id,
-      planHash: approvedPlan.contentHash,
+      source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -109,8 +108,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-idempotent",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: approvedPlan.id,
-      planHash: approvedPlan.contentHash,
+      source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -148,8 +146,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-classification",
       objective: "Execute classified approved work.",
       ownerSessionId: "session-1",
-      planId: approvedPlan.id,
-      planHash: approvedPlan.contentHash,
+      source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -222,8 +219,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-unapproved",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: plan.id,
-      planHash: plan.contentHash,
+      source: { kind: "approved_plan", planId: plan.id, planHash: plan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -247,7 +243,10 @@ describe("materializeApprovedPlanWorkItems", () => {
 
     expect(() => materializeApprovedPlanWorkItems({
       plan: approvedPlan,
-      goalRun: { ...goal, planHash: "sha256:other" },
+      goalRun: {
+        ...goal,
+        source: { kind: "approved_plan", planId: approvedPlan.id, planHash: "sha256:other" },
+      },
       workItemStore: new WorkItemStore(),
     })).toThrow("Goal goal-unapproved is not bound to approved plan hash");
   });
@@ -269,8 +268,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-dependencies",
       objective: "Execute dependency-sensitive plan.",
       ownerSessionId: "session-1",
-      planId: missingDependencyPlan.id,
-      planHash: missingDependencyPlan.contentHash,
+      source: { kind: "approved_plan", planId: missingDependencyPlan.id, planHash: missingDependencyPlan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -289,7 +287,10 @@ describe("materializeApprovedPlanWorkItems", () => {
 
     expect(() => materializeApprovedPlanWorkItems({
       plan: cyclicPlan,
-      goalRun: { ...goal, planId: cyclicPlan.id, planHash: cyclicPlan.contentHash },
+      goalRun: {
+        ...goal,
+        source: { kind: "approved_plan", planId: cyclicPlan.id, planHash: cyclicPlan.contentHash },
+      },
       workItemStore: new WorkItemStore(),
     })).toThrow("Work item dependency cycle detected: one -> two -> one");
   });
@@ -300,8 +301,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-replay",
       objective: "Replay materialization.",
       ownerSessionId: "session-1",
-      planId: plan.id,
-      planHash: plan.contentHash,
+      source: { kind: "approved_plan", planId: plan.id, planHash: plan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",

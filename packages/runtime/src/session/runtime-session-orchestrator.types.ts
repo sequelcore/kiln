@@ -18,6 +18,7 @@ import type {
   ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
+  SessionExecutionScope,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
@@ -46,6 +47,8 @@ export const RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON = "tool_rou
 export const RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON = "no_tool_finalization_failed";
 export const RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON =
   "managed_invocation_state_transition_required";
+export const RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON =
+  "governed_work_materialization_required";
 
 export interface RuntimeExecutionEnvelope {
   readonly toolRounds?: RuntimeToolRoundBudget;
@@ -299,6 +302,12 @@ export interface ModelRoutingPolicyConfig {
 
 export interface PerCallToolConfig {
   readonly turnId?: string;
+  readonly executionScope?: SessionExecutionScope;
+  readonly workingDirectory?: string;
+  readonly governedWorkRequirement?: {
+    readonly kind: "goal_materialization";
+    readonly requiredWorkItemCount: number;
+  };
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
   readonly abortSignal?: AbortSignal;

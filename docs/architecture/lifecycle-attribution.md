@@ -1,3 +1,5 @@
+# Lifecycle Attribution
+
 Kiln records lifecycle attribution as provider-neutral evidence over canonical
 session events. The ledger explains where model-facing usage came from without
 changing context admission, provider routing, provider request construction, or

@@ -99,9 +99,9 @@ const {
   mockResolveGuiProviderSwitch: vi.fn((input: {
     provider: string;
     model?: string;
-    discovery?: readonly Array<{ provider: string; models: string[] }>;
+    discovery?: ReadonlyArray<{ provider: string; models: string[] }>;
     providerModelDiscovery?: {
-      entries: readonly Array<{
+      entries: ReadonlyArray<{
         providerRoute: { providerId: string; providerModelId: string };
       }>;
     };
@@ -439,6 +439,35 @@ describe("makeMultiProviderSessionFactory", () => {
 
     expect(registry.createSession).toHaveBeenCalled();
     expect(sessions[0]?.continuationSessionId).toBeUndefined();
+  });
+
+  it("passes the parent runtime authority and workspace into the provider session", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+    const { factory } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/fallback",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+    );
+    const session = factory("sys", "/workspace/kiln", {
+      requestedAuthority: "destructive",
+    });
+
+    for await (const _ of session.run({ prompt: "execute managed work" } as any)) {}
+
+    expect(registry.createSession).toHaveBeenCalledWith(
+      "codex-oauth",
+      expect.objectContaining({
+        cwd: "/workspace/kiln",
+        requestedAuthority: "destructive",
+      }),
+    );
   });
 
   it("passes the persisted transcript turn id into GUI provider session runs", async () => {

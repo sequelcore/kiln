@@ -336,7 +336,11 @@ export class WorkItemUpdateTool implements DevTool {
   readonly inputSchema = {
     type: "object",
     properties: {
-      id: { type: "string", description: "Optional stable work item id. Omit to create a new id." },
+      id: {
+        type: "string",
+        minLength: 1,
+        description: "Stable caller-owned work item id.",
+      },
       summary: { type: "string", minLength: 1, description: "Bounded work item summary." },
       status: {
         type: "string",
@@ -438,7 +442,7 @@ export class WorkItemUpdateTool implements DevTool {
         description: "Optional unresolved or resolved requirements that must be cleared before execution can start.",
       },
     },
-    required: ["summary"],
+    required: ["id", "summary"],
     additionalProperties: false,
   };
 
@@ -451,6 +455,18 @@ export class WorkItemUpdateTool implements DevTool {
     const summary = readText(input.input.summary);
     if (!summary) {
       return { output: 'Invalid input: "summary" must be a non-empty string', isError: true };
+    }
+    const id = readText(input.input.id);
+    if (!id) {
+      return {
+        output: 'Invalid input: "id" must be a non-empty stable work item id.',
+        metadata: workItemToolMetadata("work_item.update", {
+          operation: "update",
+          status: "blocked",
+          errorCode: "invalid_input",
+        }),
+        isError: true,
+      };
     }
     if (input.input.status === "in_progress") {
       return {
@@ -481,7 +497,6 @@ export class WorkItemUpdateTool implements DevTool {
       ...verificationGatesForWorkflowProfile(workflowProfile),
       ...readTextArray(input.input.verificationGates),
     ]);
-    const id = readText(input.input.id);
     const existing = id ? this.store.get(id) : undefined;
     const routeId = readText(input.input.routeId);
     const authorityProfile = readText(input.input.authorityProfile) ?? workflowProfile.defaultAuthorityProfile;
@@ -814,6 +829,18 @@ export class WorkItemCompleteTool implements DevTool {
         failedVerificationGates: completion.failedVerificationGates,
         missingResidualRisk: completion.missingResidualRisk,
         sequence: completion.item.sequence,
+        ...(completion.item.goalRunId
+          ? {
+            executionScopeTransition: {
+              action: "exit" as const,
+              scope: {
+                kind: "work_item" as const,
+                goalRunId: completion.item.goalRunId,
+                workItemId: completion.item.id,
+              },
+            },
+          }
+          : {}),
       }),
       isError: false,
     };
@@ -839,8 +866,11 @@ export class GoalCreateTool implements DevTool {
         type: "string",
         description: "Owning session id. Omit only when the runtime supplied the current session id.",
       },
-      planId: { type: "string", minLength: 1, description: "Approved plan id that owns this goal." },
-      planHash: { type: "string", description: "Optional approved plan content hash." },
+      operatorTurnId: {
+        type: "string",
+        minLength: 1,
+        description: "Operator turn that directly requested this goal. The runtime supplies it from canonical turn context.",
+      },
       workItemIds: {
         type: "array",
         minItems: 1,
@@ -883,7 +913,6 @@ export class GoalCreateTool implements DevTool {
     },
     required: [
       "objective",
-      "planId",
       "workItemIds",
       "maximumAuthority",
       "escalationPolicy",
@@ -901,7 +930,7 @@ export class GoalCreateTool implements DevTool {
 
   async execute(input: ToolInput): Promise<ToolResult> {
     const objective = readText(input.input.objective);
-    const planId = readText(input.input.planId);
+    const operatorTurnId = readText(input.input.operatorTurnId);
     const workItemIds = readTextArray(input.input.workItemIds);
     const maximumAuthority = readGoalAuthorityLevel(input.input.maximumAuthority);
     const escalationPolicy = readGoalEscalationPolicy(input.input.escalationPolicy);
@@ -912,7 +941,7 @@ export class GoalCreateTool implements DevTool {
     const missingFields = [
       ...(!objective ? ["objective"] : []),
       ...(!ownerSessionId ? ["ownerSessionId"] : []),
-      ...(!planId ? ["planId"] : []),
+      ...(!operatorTurnId ? ["operatorTurnId"] : []),
       ...(workItemIds.length === 0 ? ["workItemIds"] : []),
       ...(!maximumAuthority ? ["maximumAuthority"] : []),
       ...(!escalationPolicy ? ["escalationPolicy"] : []),
@@ -922,13 +951,12 @@ export class GoalCreateTool implements DevTool {
     if (missingFields.length > 0) {
       return goalCreateContractError({
         code: "invalid_input",
-        message: "goal.create requires objective, ownerSessionId, planId, at least one workItemId, authority envelope, and workflowProfile.",
+        message: "goal.create requires objective, canonical operator-turn provenance, ownerSessionId, at least one workItemId, authority envelope, and workflowProfile.",
         missingFields,
       });
     }
 
     const goalObjective = objective!;
-    const goalPlanId = planId!;
     const goalMaximumAuthority = maximumAuthority!;
     const goalEscalationPolicy = escalationPolicy!;
     const goalAuthorityReason = authorityReason!;
@@ -973,7 +1001,6 @@ export class GoalCreateTool implements DevTool {
     }
 
     try {
-      const planHash = readText(input.input.planHash);
       const preferredRouteId = readText(input.input.preferredRouteId);
       const managedAgentProfile = readText(input.input.managedAgentProfile);
       const routePolicy = normalizeGoalRoutePolicy({
@@ -993,8 +1020,10 @@ export class GoalCreateTool implements DevTool {
         id: readText(input.input.id),
         objective: goalObjective,
         ownerSessionId: ownerSessionId!,
-        planId: goalPlanId,
-        ...(planHash ? { planHash } : {}),
+        source: {
+          kind: "operator_direct",
+          turnId: operatorTurnId!,
+        },
         workItemIds,
         authorityEnvelope: {
           maximumAuthority: goalMaximumAuthority,
@@ -1127,7 +1156,7 @@ export class WorkItemExecutionStartTool implements DevTool {
             requiredInputShape: {
               objective: "string",
               ownerSessionId: "current runtime session id",
-              planId: "approved plan id",
+              operatorTurnId: "current operator turn id",
               workItemIds: ["existing work item id"],
               maximumAuthority: GOAL_AUTHORITY_LEVELS,
               escalationPolicy: GOAL_ESCALATION_POLICIES,
@@ -1203,6 +1232,21 @@ export class WorkItemExecutionStartTool implements DevTool {
             ? { missingManagedInvocationFields: managedInvocation.missingFields }
             : {}),
         }, null, 2),
+        metadata: workItemToolMetadata("work_item.execution.start", {
+          operation: "execution_started",
+          id: step.workItemId,
+          status: step.workItem.status,
+          item: step.workItem,
+          sequence: step.workItem.sequence,
+          executionScopeTransition: {
+            action: "enter",
+            scope: {
+              kind: "work_item",
+              goalRunId: goal.id,
+              workItemId: step.workItemId,
+            },
+          },
+        }),
         isError: true,
       };
     }
@@ -1231,6 +1275,18 @@ export class WorkItemExecutionStartTool implements DevTool {
           item: started.item,
           attempt: started.attempt,
           sequence: started.item.sequence,
+          executionScopeTransition: {
+            action: "enter",
+            scope: {
+              kind: "work_item",
+              goalRunId: started.goal.id,
+              workItemId: started.item.id,
+              attemptId: started.attempt.id,
+              ...(started.attempt.managedInvocationId
+                ? { managedInvocationId: started.attempt.managedInvocationId }
+                : {}),
+            },
+          },
         }),
         isError: false,
       };
@@ -1388,6 +1444,22 @@ export class WorkItemExecutionFinishTool implements DevTool {
           failedVerificationGates: finished.failedVerificationGates,
           missingResidualRisk: finished.missingResidualRisk,
           sequence: finished.item.sequence,
+          ...(missing.length === 0
+            ? {
+              executionScopeTransition: {
+                action: "exit" as const,
+                scope: {
+                  kind: "work_item" as const,
+                  goalRunId: finished.goal.id,
+                  workItemId: finished.item.id,
+                  attemptId: finished.attempt.id,
+                  ...(finished.attempt.managedInvocationId
+                    ? { managedInvocationId: finished.attempt.managedInvocationId }
+                    : {}),
+                },
+              },
+            }
+            : {}),
           ...(missing.length > 0 ? { errorCode: "missing_evidence" } : {}),
         }),
         isError: missing.length > 0,
@@ -1511,7 +1583,7 @@ function goalCreateContractError(input: {
         requiredInputShape: {
           objective: "string",
           ownerSessionId: "current runtime session id",
-          planId: "approved plan id",
+          operatorTurnId: "current operator turn id",
           workItemIds: ["existing work item id"],
           maximumAuthority: GOAL_AUTHORITY_LEVELS,
           escalationPolicy: GOAL_ESCALATION_POLICIES,
@@ -1546,7 +1618,7 @@ function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput 
     verificationGateResults: item.verificationGateResults,
     dependencies: item.dependencies,
     pauseRequirements: item.pauseRequirements,
-    planId: goal.planId,
+    ...(goal.source.kind === "approved_plan" ? { planId: goal.source.planId } : {}),
     goalRunId: goal.id,
     executionAttempts: item.executionAttempts,
     ...(item.risk ? { risk: item.risk } : {}),
@@ -1556,7 +1628,7 @@ function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput 
     ...(item.referenceRoots ? { referenceRoots: item.referenceRoots } : {}),
     ...(item.authorityProfile ? { authorityProfile: item.authorityProfile } : {}),
     ...(item.residualRisk ? { residualRisk: item.residualRisk } : {}),
-    ...(goal.planHash ? { planHash: goal.planHash } : {}),
+    ...(goal.source.kind === "approved_plan" && goal.source.planHash ? { planHash: goal.source.planHash } : {}),
     ...(item.sourceWorkItemId ? { sourceWorkItemId: item.sourceWorkItemId } : {}),
     ...(item.routingRecommendation ? { routingRecommendation: item.routingRecommendation } : {}),
   };

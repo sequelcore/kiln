@@ -216,8 +216,7 @@ describe("ToolResourceRegistry", () => {
       id: "goal-1",
       objective: "Verify runtime work evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
-      planHash: "sha256:plan",
+      source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -321,7 +320,7 @@ describe("ToolResourceRegistry", () => {
       id: "goal-1",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: ["wi-1"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -360,7 +359,7 @@ describe("ToolResourceRegistry", () => {
         {
           id: "goal-1",
           status: "active",
-          planId: "plan-1",
+          source: { kind: "approved_plan", planId: "plan-1" },
           workItemIds: ["wi-1"],
         },
       ],

@@ -40,6 +40,7 @@ export function toManagedInvocationPersistedTranscriptEventDraft(
     kind: event.kind as CanonicalSessionEventKind,
     turnId: event.turnId,
     parentEventId: event.parentEventId,
+    ...(event.executionScope ? { executionScope: event.executionScope } : {}),
     source: event.source,
     payload: canonicalSessionEventPayload(event),
   };
@@ -159,6 +160,7 @@ function canonicalSessionEventPayload(event: CanonicalSessionEvent): Record<stri
     "kind",
     "turnId",
     "parentEventId",
+    "executionScope",
     "source",
   ]);
   for (const [key, value] of Object.entries(event)) {

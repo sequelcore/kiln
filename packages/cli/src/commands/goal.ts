@@ -328,7 +328,7 @@ function formatGoalList(sessionId: string, goals: readonly GoalRun[]): string {
     ...goals.map((goal) => [
       goal.id.padEnd(18),
       goal.status.padEnd(10),
-      goal.planId.padEnd(14),
+      formatGoalSource(goal).padEnd(24),
       goal.objective,
     ].join("  ")),
   ].join("\n");
@@ -344,7 +344,7 @@ function formatGoalInspect(sessionId: string, goal: GoalRun, workItems: readonly
     `Session: ${sessionId}`,
     `Status: ${goal.status}`,
     `Objective: ${goal.objective}`,
-    `Plan: ${goal.planId}${goal.planHash ? ` (${goal.planHash})` : ""}`,
+    `Source: ${formatGoalSource(goal)}`,
     `Work items: ${goal.workItemIds.join(", ") || "none"}`,
     `Authority: ${goal.authorityEnvelope.maximumAuthority}`,
     `Escalation: ${goal.authorityEnvelope.escalationPolicy}`,
@@ -355,6 +355,12 @@ function formatGoalInspect(sessionId: string, goal: GoalRun, workItems: readonly
     goal.terminalReason ? `Terminal reason: ${goal.terminalReason}` : undefined,
     ...linkedWorkItems.flatMap(formatInspectableWorkItem),
   ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatGoalSource(goal: GoalRun): string {
+  return goal.source.kind === "approved_plan"
+    ? `plan ${goal.source.planId}${goal.source.planHash ? ` (${goal.source.planHash})` : ""}`
+    : `operator turn ${goal.source.turnId}`;
 }
 
 function formatGoalResume(goal: GoalRun, step: GoalExecutionStep): string {

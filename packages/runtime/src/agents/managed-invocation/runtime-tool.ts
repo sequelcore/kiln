@@ -1279,6 +1279,17 @@ async function prepareManagedInvocationRequest(
     };
   }
 
+  const executionScope = parsed.input.workItemId
+    ? {
+        kind: "work_item" as const,
+        goalRunId: parsed.input.goalRunId!,
+        workItemId: parsed.input.workItemId,
+        ...(parsed.input.attemptId ? { attemptId: parsed.input.attemptId } : {}),
+        managedInvocationId: invocationId,
+      }
+    : parsed.input.goalRunId
+      ? { kind: "goal" as const, goalRunId: parsed.input.goalRunId, managedInvocationId: invocationId }
+      : undefined;
   const request = defineManagedAgentInvocationRequest({
     invocationId,
     agentId: `${route.routeId}:${parsed.input.profile}`,
@@ -1300,6 +1311,7 @@ async function prepareManagedInvocationRequest(
     },
     adapterKind: route.adapter.descriptor.adapterKind,
     executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+    ...(executionScope ? { executionScope } : {}),
     authority: {
       authorityProfileId: profileDefaults.authorityProfileId,
       permissionProfile: profileDefaults.permissionProfile,
@@ -2914,6 +2926,15 @@ function parseInput(
   if (contextMode === "resources" && (!resourceUris || resourceUris.length === 0)) {
     return { ok: false, error: `${toolName} contextMode resources requires at least one resourceUris entry. Use contextMode isolated when no governed resources are supplied.` };
   }
+  const goalRunId = readText(input.goalRunId);
+  const workItemId = readText(input.workItemId);
+  const attemptId = readText(input.attemptId);
+  if ((workItemId || attemptId) && !goalRunId) {
+    return { ok: false, error: `${toolName} goalRunId is required when workItemId or attemptId is supplied.` };
+  }
+  if (attemptId && !workItemId) {
+    return { ok: false, error: `${toolName} workItemId is required when attemptId is supplied.` };
+  }
   return {
     ok: true,
     input: {
@@ -2934,9 +2955,9 @@ function parseInput(
       ...(skills && skills.length > 0 ? { skills } : {}),
       ...(workClassification.value ? { workClassification: workClassification.value } : {}),
       contextMode,
-      ...(readText(input.goalRunId) ? { goalRunId: readText(input.goalRunId) } : {}),
-      ...(readText(input.workItemId) ? { workItemId: readText(input.workItemId) } : {}),
-      ...(readText(input.attemptId) ? { attemptId: readText(input.attemptId) } : {}),
+      ...(goalRunId ? { goalRunId } : {}),
+      ...(workItemId ? { workItemId } : {}),
+      ...(attemptId ? { attemptId } : {}),
       ...(readText(input.roleIntent) ? { roleIntent: readText(input.roleIntent) } : {}),
       ...(expectedEvidence && expectedEvidence.length > 0 ? { expectedEvidence } : {}),
       ...(requiredToolNames && requiredToolNames.length > 0 ? { requiredToolNames } : {}),

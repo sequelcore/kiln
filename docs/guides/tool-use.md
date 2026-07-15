@@ -160,11 +160,17 @@ unknown tools remain MCP error results.
 Governed execution uses explicit goal and work-item contracts:
 
 - `work_item.update` creates or updates bounded work items with workflow
-  profile, evidence, gates, route hints, and pause requirements.
+  profile, evidence, gates, route hints, and pause requirements. Its manual
+  tool contract requires a stable caller-owned `id`; choose it before the first
+  call and reuse it for classification provenance, execution, evidence, and
+  closeout. Do not send temporary identities such as `pending`.
 - `goal.create` creates the canonical goal run from existing work items and
   links those work items to the goal before execution starts. Attached runtime
   surfaces bind the goal to the current session when `ownerSessionId` is omitted
-  or null; callers should not pass placeholders such as `"current"`.
+  or null and record the current operator turn as its source. Callers should not
+  pass placeholders such as `"current"`, a fabricated `planId`, or a fabricated
+  turn id. Approved-plan goals use the plan approval/materialization flow instead
+  of `goal.create`.
 - `work_item.execution.start` starts the next ready work item for an existing
   goal. If the goal id is unknown, it returns a structured recoverable error
   with `suggestedNextTool: "goal.create"` instead of accepting an invented id.
@@ -178,6 +184,11 @@ Governed execution uses explicit goal and work-item contracts:
 
 Agents should not fabricate `goalRunId` values. They must call `goal.create`
 after creating the relevant work items and before starting execution.
+When an operator enables **Governed task** in the GUI, the outbound frame carries
+a typed required work-item count. Until exactly that many distinct work items and
+their linked operator-direct goal exist in canonical tool results, the runtime
+restricts the model to governance tools and rejects inspection or execution calls.
+This ordering is enforced from tool metadata; it is not inferred from prompt prose.
 After a scout or local read-only diagnosis, an open routed work item is still
 unfinished. The next governed step is `goal.create` when no goal exists, then
 `work_item.execution.start`; parent agents must not report a generic read-only

@@ -58,6 +58,16 @@ export type ToolChoiceOption =
   | { readonly type: "none" }
   | { readonly type: "tool"; readonly name: string };
 
+/** Authority already admitted by the host for a nested provider execution. */
+export type ProviderExecutionRequestedAuthority = "read_only" | "audited" | "destructive";
+
+/** Host-owned context required to execute a provider turn in the intended workspace and authority envelope. */
+export interface ProviderExecutionContext {
+  readonly workingDirectory?: string;
+  readonly requestedAuthority?: ProviderExecutionRequestedAuthority;
+  readonly executionScope?: import("../events/session-execution-scope.js").SessionExecutionScope;
+}
+
 /** Options for creating a message */
 export interface CreateMessageOptions {
   readonly sessionId?: string;
@@ -69,6 +79,7 @@ export interface CreateMessageOptions {
   readonly maxTokens?: number;
   readonly reasoningEffort?: ReasoningEffort;
   readonly signal?: AbortSignal;
+  readonly executionContext?: ProviderExecutionContext;
 }
 
 /** Response from an agent */

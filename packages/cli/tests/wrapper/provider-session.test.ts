@@ -1,9 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import type { ExecutionSessionEvent } from "@kilnai/core";
+import { AllCredentialsExhaustedError, KilnError, type ExecutionSessionEvent } from "@kilnai/core";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
-import { AllCredentialsExhaustedError } from "@kilnai/core";
 
 type MockAdapter = {
   readonly ctor: ReturnType<typeof vi.fn>;
@@ -802,6 +801,70 @@ describe("ProviderSession.run()", () => {
     ]);
   });
 
+  it("keeps an active managed invocation tool callable under admitted destructive authority", async () => {
+    const managedInvokeTool = {
+      name: "managed_agent.invoke",
+      description: "Invoke a governed managed agent",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      tags: new Set<string>(["managed-invocation"]),
+    };
+    const managedInvokeCapability = {
+      name: managedInvokeTool.name,
+      description: managedInvokeTool.description,
+      schema: managedInvokeTool.inputSchema,
+      tags: ["managed-invocation"],
+      effectEnvelope: {
+        operation: "mutate" as const,
+        boundaries: ["process" as const],
+        dataEgress: "unknown" as const,
+        identityUse: "privileged" as const,
+        reversibility: "irreversible" as const,
+        consequences: ["external-side-effect" as const],
+        idempotency: "non-idempotent" as const,
+      },
+    };
+    runtimeMocks.attachedToolSurfaceOverride = {
+      callBuiltinTools: new Map([[managedInvokeTool.name, vi.fn()]]),
+      toolDefinitions: [managedInvokeTool],
+      capabilities: new Map([[managedInvokeTool.name, managedInvokeCapability]]),
+      materializableTools: new Map(),
+      materializableCapabilities: new Map(),
+      toolAuthority: new Map(),
+      toolCallMetadata: new Map(),
+    };
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [],
+      toolExecutions: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      requestedAuthority: "destructive",
+    }));
+
+    await collectEvents(session.run({ prompt: "invoke the selected managed route" }));
+
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      toolAllowlist?: ReadonlySet<string>;
+      additionalTools?: readonly { readonly name: string }[];
+      toolAuthority?: ReadonlyMap<string, { allowed: boolean; requiresApproval: boolean }>;
+    } | undefined;
+    expect(perCallConfig?.toolAllowlist?.has("managed_agent.invoke")).toBe(true);
+    expect(perCallConfig?.additionalTools?.map((tool) => tool.name)).toContain("managed_agent.invoke");
+    expect(perCallConfig?.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
+      allowed: true,
+      requiresApproval: false,
+    });
+  });
+
   it("projects only admitted read-only tools into executable runtime per-call config", async () => {
     runtimeMocks.processMessage.mockResolvedValueOnce({
       parts: [{ type: "text", text: "read-only tools projected" }],
@@ -849,7 +912,7 @@ describe("ProviderSession.run()", () => {
       requestedAuthority: "read_only",
       admittedAuthority: "read_only",
       toolCount: 1,
-      deniedToolCount: 0,
+      deniedToolCount: 1,
     });
   });
 
@@ -1491,6 +1554,32 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
   });
 
+  it("preserves retryability when an executable provider request fails transiently", async () => {
+    runtimeMocks.processMessage.mockRejectedValueOnce(new KilnError(
+      "PROVIDER_UNAVAILABLE",
+      "Codex OAuth request failed",
+      {
+        context: { status: 520, responseBody: "origin returned an unexpected response" },
+        retryable: true,
+      },
+    ));
+
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-5.6-luna",
+      executionMode: "kiln-executable",
+    }));
+    const events = await collectEvents(session.run({ prompt: "continue governed execution" }));
+
+    expect(events).toContainEqual({
+      type: "error",
+      code: "EXECUTABLE_SESSION_ERROR",
+      message: "Codex OAuth request failed (status 520: origin returned an unexpected response)",
+      isRetryable: true,
+    });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+  });
+
   it("includes credential pool exhaustion outcome and provider cause in streaming errors", async () => {
     const providerError = new Error("openrouter API error 429: free-model rate limit");
     const errStream = (async function* () {
@@ -1510,7 +1599,7 @@ describe("ProviderSession.run()", () => {
       type: "error",
       code: "PROVIDER_SESSION_ERROR",
       message: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429: free-model rate limit",
-      isRetryable: false,
+      isRetryable: true,
     });
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
   });

@@ -1348,6 +1348,23 @@ function buildGovernedWorkCloseoutContextCandidate(): ContextCandidate {
   };
 }
 
+function buildGovernedWorkMaterializationContextCandidate(
+  requirement: NonNullable<PerCallToolConfig["governedWorkRequirement"]>,
+): ContextCandidate {
+  return {
+    kind: "procedural",
+    source: "runtime-governed-work-requirement",
+    required: true,
+    score: 1,
+    content: [
+      "[KILN GOVERNED WORK REQUIREMENT]",
+      `Before any repository inspection or execution, materialize exactly ${requirement.requiredWorkItemCount} distinct governed work items with work_item.update.`,
+      "Then call goal.create and link exactly those work-item ids; runtime turn context supplies canonical operator provenance.",
+      "The runtime supplies ownerSessionId and operatorTurnId. Repository, shell, web, managed-agent, and execution tools remain blocked until the goal is created.",
+    ].join("\n"),
+  };
+}
+
 function buildWebSourceAttributionContextCandidate(): ContextCandidate {
   return {
     kind: "procedural",
@@ -2097,6 +2114,11 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     executionMode,
     requestedAuthority: ctx.requestedAuthority,
   }));
+  if (perCallConfig?.governedWorkRequirement) {
+    proceduralContextCandidates.push(
+      buildGovernedWorkMaterializationContextCandidate(perCallConfig.governedWorkRequirement),
+    );
+  }
   if (executionMode === "execute" && shouldIncludeGovernedWorkCloseoutContext(userText)) {
     proceduralContextCandidates.push(buildGovernedWorkCloseoutContextCandidate());
   }

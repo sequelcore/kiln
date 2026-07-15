@@ -172,6 +172,31 @@ describe("RuntimeSessionOrchestrator", () => {
         expect.objectContaining({ maxTokens: 1024 }),
       );
     });
+
+    it("passes the admitted execution context to the provider boundary", async () => {
+      const session = makeSession();
+
+      await orchestrator.processMessage(session, textParts("msg"), undefined, undefined, {
+        workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+        effectiveTurnAuthority: {
+          executionMode: "execute",
+          requestedAuthority: "destructive",
+          admittedAuthority: "destructive",
+          sourcePolicy: "runtime_surface_projection",
+          reason: "Full Access admitted for the attended operator turn.",
+          completeness: "authoritative",
+          toolCount: 1,
+          deniedToolCount: 0,
+        },
+      });
+
+      expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+        executionContext: {
+          workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+          requestedAuthority: "destructive",
+        },
+      }));
+    });
   });
 
   describe("AI guard", () => {

@@ -16,6 +16,7 @@ import {
   createProviderToolNameCodec,
   type ProviderToolNameCodec,
 } from "./tool-name-codec.js";
+import { withRetry } from "./retry.js";
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 const STREAMED_CONTENT_IDLE_MS = 2000;
@@ -150,7 +151,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     const request = this.buildRequest(options);
     const shouldBufferText = (options.tools?.length ?? 0) > 0;
     try {
-      const response = await this.postWith401Retry(request.body, options.signal);
+      const response = await this.postWithTransientRetry(request.body, options.signal);
       yield* this.streamResponseAttempt(request, response, shouldBufferText);
       return;
     } catch (error) {
@@ -158,7 +159,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         throw error;
       }
     }
-    const response = await this.postWith401Retry(request.body, options.signal);
+    const response = await this.postWithTransientRetry(request.body, options.signal);
     yield* this.streamResponseAttempt(request, response, shouldBufferText);
   }
 
@@ -166,7 +167,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     request: ResponsesRequest,
     options: CreateMessageOptions,
   ): Promise<AgentResponse> {
-    const response = await this.postWith401Retry(request.body, options.signal);
+    const response = await this.postWithTransientRetry(request.body, options.signal);
     const completed = await this.consumeStreamingResponse(response, (options.tools?.length ?? 0) > 0);
     return this.mapResponse(completed, request.toolNames);
   }
@@ -561,6 +562,18 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
     await this.ensureOk(retryResponse, body);
     return retryResponse;
+  }
+
+  private async postWithTransientRetry(body: ResponsesRequestBody, signal?: AbortSignal): Promise<Response> {
+    return await withRetry(
+      () => this.postWith401Retry(body, signal),
+      {
+        maxRetries: 3,
+        baseDelayMs: 250,
+        isRetryable: isTransientCodexRequestError,
+      },
+      signal,
+    );
   }
 
   private async post(body: ResponsesRequestBody, signal?: AbortSignal): Promise<Response> {
@@ -1154,6 +1167,12 @@ export class CodexOAuthAdapter implements ProviderAdapter {
 
     return `function_calls=[${functionCallIds.join(", ")}]; function_call_outputs=[${functionCallOutputIds.join(", ")}]`;
   }
+}
+
+function isTransientCodexRequestError(error: unknown): boolean {
+  return error instanceof KilnError
+    && error.code === "PROVIDER_UNAVAILABLE"
+    && error.retryable;
 }
 
 function stripLeakedFunctionCallText(

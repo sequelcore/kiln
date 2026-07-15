@@ -1601,6 +1601,7 @@ function wireOperatorTransport(
               );
               const executionMode = resolveExecutionMode(messageFrame.executionMode);
               const requestedAuthority = resolveGuiRequestedAuthority(messageFrame.requestedAuthority);
+              const governedWorkRequirement = resolveGuiGovernedWorkRequirement(messageFrame.governedWorkRequirement);
               turnProvider = activeProvider;
               turnModel = activeModel;
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -1625,6 +1626,8 @@ function wireOperatorTransport(
                 reasoningEffort,
                 executionMode,
                 requestedAuthority,
+                input.transport.workingDirectory,
+                governedWorkRequirement,
               );
               result = await processAdmittedTurn({
                 orchestrator,
@@ -1761,9 +1764,13 @@ export function buildGuiTurnPerCallConfig(
   reasoningEffort?: ReasoningEffort,
   executionMode: OperatorExecutionMode = "execute",
   requestedAuthority?: OperatorTurnRequestedAuthority,
+  workingDirectory?: string,
+  governedWorkRequirement?: PerCallToolConfig["governedWorkRequirement"],
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
+    workingDirectory,
+    governedWorkRequirement,
     activeProvider,
     activeModel,
     ...(activeModelCapabilities ? { activeModelCapabilities } : {}),
@@ -1842,6 +1849,28 @@ function findProviderModelRouteHealth(
 ): GuiProviderModelRouteHealth | undefined {
   if (!provider || !model) return undefined;
   return discovery.find((entry) => entry.provider === provider)?.modelRouteHealth?.[model];
+}
+
+export function resolveGuiGovernedWorkRequirement(
+  value: unknown,
+): PerCallToolConfig["governedWorkRequirement"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("governedWorkRequirement must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  if (record.kind !== "goal_materialization") {
+    throw new Error(`Unknown governed work requirement '${String(record.kind)}'.`);
+  }
+  if (!Number.isSafeInteger(record.requiredWorkItemCount) || Number(record.requiredWorkItemCount) <= 0) {
+    throw new Error("governedWorkRequirement.requiredWorkItemCount must be a positive integer.");
+  }
+  return {
+    kind: "goal_materialization",
+    requiredWorkItemCount: Number(record.requiredWorkItemCount),
+  };
 }
 
 function contextUsageWindowEvidence(
@@ -2002,6 +2031,7 @@ class GuiActivityStreamer {
     timestamp: string;
     payload: Record<string, unknown>;
     parentEventId?: string;
+    executionScope?: ExecutionSessionEvent["executionScope"];
   }): void {
     if (!this.ws || !this.capture) {
       return;
@@ -2022,6 +2052,7 @@ class GuiActivityStreamer {
         kind: input.kind,
         turnId,
         ...(input.parentEventId ? { parentEventId: input.parentEventId } : {}),
+        ...(input.executionScope ? { executionScope: input.executionScope } : {}),
         source: {
           actor: input.kind === "assistant_delta" ? "assistant" : input.kind.startsWith("tool_") ? "tool" : "runtime",
           surface: "gui",
@@ -2236,6 +2267,7 @@ class GuiActivityStreamer {
           messageId: this.capture?.assistantMessageId ?? "assistant-live",
           delta: sanitizedDelta,
         },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_use") {
       const toolCallId = event.toolCallId ?? (this.capture
@@ -2255,6 +2287,7 @@ class GuiActivityStreamer {
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
           ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
         },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       this.emitActivityPhase({
         phase: "tool_running",
@@ -2298,6 +2331,7 @@ class GuiActivityStreamer {
           resourceLinks: event.resourceLinks,
           toolUsage: event.toolUsage,
         }),
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       const interactiveFrame = projectInteractiveUseFrameFromToolResult({
         ...(this.capture?.sessionId ? { kilnSessionId: this.capture.sessionId } : {}),

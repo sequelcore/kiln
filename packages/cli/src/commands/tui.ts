@@ -344,6 +344,7 @@ function toPersistedTranscriptEvent(
   payload: Record<string, unknown>,
   surface: OperatorTranscriptSurface,
   turnId?: string,
+  executionScope?: ExecutionSessionRunOptions["executionScope"],
 ): PersistedTranscriptEvent {
   return {
     eventId: randomUUID(),
@@ -353,6 +354,7 @@ function toPersistedTranscriptEvent(
     kind: operatorTranscriptKindForType(type),
     source: operatorTranscriptSourceForType(type, surface, surface === "gui" ? "gui-command" : "tui-command"),
     ...(turnId ? { turnId } : {}),
+    ...(executionScope ? { executionScope } : {}),
     payload,
   };
 }
@@ -531,6 +533,7 @@ export async function makeMultiProviderSessionFactory(
           sessionLedgerOwner: "host",
           model: modelForTurn,
           reasoningEffort: options.reasoningEffort,
+          ...(context?.requestedAuthority ? { requestedAuthority: context.requestedAuthority } : {}),
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,
           ...(managedInvocationWithService ? { managedInvocation: managedInvocationWithService } : {}),
@@ -658,7 +661,7 @@ export async function makeMultiProviderSessionFactory(
                   toolCallId,
                   toolName: event.toolName,
                   input: event.input,
-                }, transcriptSurface, turnId),
+                }, transcriptSurface, turnId, options.executionScope),
               );
             } else if (event.type === "tool_result") {
               const pending = pendingToolCallIds.get(event.toolName);
@@ -681,7 +684,7 @@ export async function makeMultiProviderSessionFactory(
                   toPersistedTranscriptEvent(capturedId, 0, "tool_use", {
                     toolCallId,
                     toolName: event.toolName,
-                  }, transcriptSurface, turnId),
+                  }, transcriptSurface, turnId, options.executionScope),
                 );
               }
               const toolResultPayload = buildOperatorToolResultPayload({
@@ -693,7 +696,15 @@ export async function makeMultiProviderSessionFactory(
               });
               toolCompletions.push(toolCompletionFromPayload(toolResultPayload));
               await appendTranscriptEvent(
-                toPersistedTranscriptEvent(capturedId, 0, "tool_result", toolResultPayload, transcriptSurface, turnId),
+                toPersistedTranscriptEvent(
+                  capturedId,
+                  0,
+                  "tool_result",
+                  toolResultPayload,
+                  transcriptSurface,
+                  turnId,
+                  options.executionScope,
+                ),
               );
             } else if (event.type === "error") {
               turnIsError = true;
@@ -745,7 +756,9 @@ export async function makeMultiProviderSessionFactory(
               turnCostUsd = event.totalUsd;
               turnIsError = event.isError;
             }
-            yield event;
+            yield options.executionScope && !event.executionScope
+              ? { ...event, executionScope: options.executionScope }
+              : event;
           }
         } finally {
           if (assistantContent.trim().length > 0) {

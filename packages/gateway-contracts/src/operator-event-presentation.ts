@@ -26,6 +26,7 @@ export interface OperatorEventDetailItem {
 
 export type ToolResultOutputKind =
   | "text"
+  | "data"
   | "markdown"
   | "code"
   | "search_results"
@@ -35,8 +36,74 @@ export type ToolResultOutputKind =
   | "image"
   | "resource_links"
   | "command"
+  | "task"
+  | "work_item"
+  | "goal"
+  | "diagnostic"
   | "form"
   | "empty";
+
+export interface ToolResultDiagnosticInputPresentation {
+  readonly name: string;
+  readonly expected: string;
+}
+
+export interface ToolResultDiagnosticPresentation {
+  readonly code?: string;
+  readonly message: string;
+  readonly recoverable?: boolean;
+  readonly suggestedNextTool?: string;
+  readonly requiredInput: readonly ToolResultDiagnosticInputPresentation[];
+}
+
+export type ToolResultTaskStatus = "pending" | "in_progress" | "completed" | "paused" | "blocked" | "cancelled" | "failed";
+
+export interface ToolResultTaskItemPresentation {
+  readonly label: string;
+  readonly status: "pending" | "in_progress" | "completed" | "blocked" | "failed";
+}
+
+export interface ToolResultTaskPresentation {
+  readonly status: ToolResultTaskStatus;
+  readonly reason?: string;
+  readonly workItemId?: string;
+  readonly routeId?: string;
+  readonly nextTool?: string;
+  readonly items: readonly ToolResultTaskItemPresentation[];
+}
+
+export interface ToolResultWorkItemPresentation {
+  readonly id: string;
+  readonly summary: string;
+  readonly status: ToolResultTaskStatus;
+  readonly workflowProfile?: string;
+  readonly risk?: string;
+  readonly surface?: string;
+  readonly authorityProfile?: string;
+  readonly evidence: readonly ToolResultTaskItemPresentation[];
+  readonly nextTools: readonly string[];
+  readonly pauseRequirements: readonly string[];
+  readonly residualRisk?: string;
+}
+
+export interface ToolResultGoalEvidenceRequirementPresentation {
+  readonly id: string;
+  readonly description: string;
+  readonly required: boolean;
+}
+
+export interface ToolResultGoalPresentation {
+  readonly id: string;
+  readonly objective: string;
+  readonly status: string;
+  readonly phase?: string;
+  readonly planId?: string;
+  readonly workItemIds: readonly string[];
+  readonly authority?: string;
+  readonly escalationPolicy?: string;
+  readonly workflowProfile?: string;
+  readonly evidenceRequirements: readonly ToolResultGoalEvidenceRequirementPresentation[];
+}
 
 export interface ToolResultPreview {
   readonly text: string;
@@ -81,6 +148,10 @@ export interface ToolResultPresentation {
   readonly preview?: ToolResultPreview;
   readonly searchResults?: readonly ToolResultSearchResult[];
   readonly resourceLinks?: readonly ToolResultResourceLinkPresentation[];
+  readonly task?: ToolResultTaskPresentation;
+  readonly workItem?: ToolResultWorkItemPresentation;
+  readonly goal?: ToolResultGoalPresentation;
+  readonly diagnostic?: ToolResultDiagnosticPresentation;
   readonly raw: ToolResultRawAvailability;
 }
 
@@ -154,6 +225,11 @@ function readStringList(value: unknown): readonly string[] {
 function formatStringList(value: unknown): string | null {
   const items = readStringList(value);
   return items.length > 0 ? items.join(", ") : null;
+}
+
+function sentenceFromKey(value: string): string {
+  const words = value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 }
 
 function readRequiredStringList(value: unknown): readonly string[] | null {
@@ -827,7 +903,7 @@ function projectTextPresentation(
   const text = output ?? "";
   const filePath = readString(metadata?.filePath);
   const outputKind = classifyTextOutput(filePath, text);
-  const language = languageForPath(filePath);
+  const language = outputKind === "data" ? "json" : languageForPath(filePath);
   const totalLines = readMetadataNumber(metadata, "totalLines");
   const totalBytes = readMetadataNumber(metadata, "totalBytes");
   const fields = [
@@ -842,7 +918,9 @@ function projectTextPresentation(
       ? toolResultClassification("tool-metadata", "read output classified from file metadata and content", { confidence: "high" })
       : languageForPath(filePath)
         ? toolResultClassification("tool-metadata", "file extension metadata selected source renderer", { confidence: "medium" })
-        : toolResultClassification("content-heuristic", "text output classified from content", { confidence: "medium" }));
+        : outputKind === "data"
+          ? toolResultClassification("content-heuristic", "structured JSON output classified from content", { confidence: "high" })
+          : toolResultClassification("content-heuristic", "text output classified from content", { confidence: "medium" }));
   return {
     outputKind,
     classification,
@@ -861,7 +939,25 @@ function classifyTextOutput(filePath: string | null, text: string): ToolResultOu
   const language = languageForPath(filePath);
   if (language === "markdown" || isMarkdownLikeText(trimmed)) return "markdown";
   if (language) return "code";
+  if (structuredJsonShape(trimmed)) return "data";
   return "text";
+}
+
+function structuredJsonShape(value: string): { readonly label: string } | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return { label: `${parsed.length} ${parsed.length === 1 ? "item" : "items"}` };
+    }
+    const record = asRecord(parsed);
+    if (record) {
+      const count = Object.keys(record).length;
+      return { label: `${count} ${count === 1 ? "field" : "fields"}` };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function isMarkdownLikeText(trimmed: string): boolean {
@@ -883,6 +979,7 @@ function summarizeTextOutput(
   totalBytes: number | null,
 ): string {
   if (text.trim().length === 0) return "No output";
+  if (outputKind === "data") return structuredJsonShape(text)?.label ?? "Structured data";
   if (outputKind !== "code") return compactText(text);
   const metrics = [
     totalLines !== null ? `${totalLines} ${totalLines === 1 ? "line" : "lines"}` : null,
@@ -1061,6 +1158,300 @@ function projectConfigToolPresentation(toolName: string, output: string | undefi
   };
 }
 
+function normalizeWorkItemTaskStatus(value: string | null): ToolResultTaskStatus | null {
+  switch (value) {
+    case "pending":
+    case "in_progress":
+    case "completed":
+    case "paused":
+    case "blocked":
+    case "cancelled":
+    case "failed":
+      return value;
+    case "started":
+    case "running":
+      return "in_progress";
+    case "success":
+    case "succeeded":
+      return "completed";
+    case "error":
+      return "failed";
+    default:
+      return null;
+  }
+}
+
+function formatRequiredInputShape(value: unknown): string {
+  if (typeof value === "string" && value.trim().length > 0) return value;
+  if (Array.isArray(value)) {
+    return value.length > 0 ? `${formatRequiredInputShape(value[0])}[]` : "array";
+  }
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (asRecord(value)) return "object";
+  return "value";
+}
+
+function projectDiagnosticToolPresentation(output: string | undefined): ToolResultPresentation | undefined {
+  const record = parseOutputRecord(output);
+  const error = asRecord(record?.error);
+  const message = readString(error?.message);
+  if (!error || !message) return undefined;
+  const code = readString(error.code) ?? undefined;
+  const recoverable = typeof error.recoverable === "boolean" ? error.recoverable : undefined;
+  const suggestedNextTool = readString(error.suggestedNextTool) ?? undefined;
+  const requiredInputShape = asRecord(error.requiredInputShape);
+  const requiredInput = requiredInputShape
+    ? Object.entries(requiredInputShape).map(([name, expected]) => ({
+        name,
+        expected: formatRequiredInputShape(expected),
+      }))
+    : [];
+  return {
+    outputKind: "diagnostic",
+    classification: toolResultClassification(
+      "content-heuristic",
+      "structured error envelope",
+      { confidence: "high" },
+    ),
+    title: code ? sentenceFromKey(code) : "Tool error",
+    summary: message,
+    fields: [],
+    diagnostic: {
+      ...(code ? { code } : {}),
+      message,
+      ...(recoverable !== undefined ? { recoverable } : {}),
+      ...(suggestedNextTool ? { suggestedNextTool } : {}),
+      requiredInput,
+    },
+    raw: { available: false, reason: "Structured diagnostic is rendered inline" },
+  };
+}
+
+function readPauseRequirementSummaries(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const requirement = asRecord(entry);
+    const summary = readString(requirement?.summary);
+    return summary ? [summary] : [];
+  });
+}
+
+function projectWorkItemUpdateToolPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+): ToolResultPresentation | undefined {
+  if (toolName !== "work_item.update") return undefined;
+  const record = parseOutputRecord(output);
+  const item = asRecord(record?.item) ?? asRecord(metadata?.item);
+  const id = readString(item?.id) ?? readString(metadata?.id);
+  const summary = readString(item?.summary);
+  const status = normalizeWorkItemTaskStatus(readString(item?.status) ?? readString(metadata?.status));
+  if (!item || !id || !summary || !status) return undefined;
+  const expectedEvidence = readStringList(item.expectedEvidence);
+  const providedEvidence = new Set(readStringList(item.providedEvidence));
+  const nextTools = readStringList(record?.nextRequiredTools);
+  const pauseRequirements = readPauseRequirementSummaries(item.pauseRequirements);
+  const residualRisk = readString(item.residualRisk) ?? undefined;
+  const workflowProfile = readString(item.workflowProfile) ?? undefined;
+  const risk = readString(item.risk) ?? undefined;
+  const surface = readString(item.surface) ?? undefined;
+  const authorityProfile = readString(item.authorityProfile) ?? undefined;
+  const fields = [
+    field("Work item", id),
+    field("Workflow", workflowProfile),
+    field("Risk", risk),
+    field("Surface", surface),
+    field("Authority", authorityProfile),
+    field("Evidence", `${providedEvidence.size} / ${expectedEvidence.length}`),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "work_item",
+    classification: toolResultClassification(
+      "tool-metadata",
+      "canonical work item update envelope",
+      { confidence: "high" },
+    ),
+    title: summary,
+    summary,
+    fields,
+    workItem: {
+      id,
+      summary,
+      status,
+      ...(workflowProfile ? { workflowProfile } : {}),
+      ...(risk ? { risk } : {}),
+      ...(surface ? { surface } : {}),
+      ...(authorityProfile ? { authorityProfile } : {}),
+      evidence: expectedEvidence.map((label) => ({
+        label,
+        status: providedEvidence.has(label) ? "completed" : "pending",
+      })),
+      nextTools,
+      pauseRequirements,
+      ...(residualRisk ? { residualRisk } : {}),
+    },
+    raw: { available: false, reason: "Canonical work item state is rendered inline" },
+  };
+}
+
+function readGoalEvidenceRequirements(value: unknown): readonly ToolResultGoalEvidenceRequirementPresentation[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const requirement = asRecord(entry);
+    const id = readString(requirement?.id);
+    const description = readString(requirement?.description);
+    if (!id || !description) return [];
+    return [{ id, description, required: requirement?.required === true }];
+  });
+}
+
+function projectGoalToolPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+): ToolResultPresentation | undefined {
+  if (toolName !== "goal.create") return undefined;
+  const record = parseOutputRecord(output);
+  const goal = asRecord(record?.goal) ?? asRecord(metadata?.goal);
+  const id = readString(goal?.id) ?? readString(metadata?.id);
+  const objective = readString(goal?.objective);
+  const status = readString(goal?.status);
+  if (!goal || !id || !objective || !status) return undefined;
+  const authorityEnvelope = asRecord(goal.authorityEnvelope);
+  const routePolicy = asRecord(goal.routePolicy);
+  const source = asRecord(goal.source);
+  const phase = readString(goal.currentPhase) ?? undefined;
+  const planId = source?.kind === "approved_plan" ? readString(source.planId) ?? undefined : undefined;
+  const sourceLabel = source?.kind === "operator_direct"
+    ? `Operator turn ${readString(source.turnId) ?? "unknown"}`
+    : planId ? `Approved plan ${planId}` : undefined;
+  const authority = readString(authorityEnvelope?.maximumAuthority) ?? undefined;
+  const escalationPolicy = readString(authorityEnvelope?.escalationPolicy) ?? undefined;
+  const workflowProfile = readString(routePolicy?.workflowProfile) ?? undefined;
+  const workItemIds = readStringList(goal.workItemIds);
+  const evidenceRequirements = readGoalEvidenceRequirements(goal.evidenceRequirements);
+  const fields = [
+    field("Goal", id),
+    field("Status", status),
+    field("Phase", phase),
+    field("Source", sourceLabel),
+    field("Authority", authority),
+    field("Escalation", escalationPolicy),
+    field("Workflow", workflowProfile),
+    field("Work items", workItemIds.length),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "goal",
+    classification: toolResultClassification(
+      "tool-metadata",
+      "canonical governed goal envelope",
+      { confidence: "high" },
+    ),
+    title: objective,
+    summary: objective,
+    fields,
+    goal: {
+      id,
+      objective,
+      status,
+      ...(phase ? { phase } : {}),
+      ...(planId ? { planId } : {}),
+      workItemIds,
+      ...(authority ? { authority } : {}),
+      ...(escalationPolicy ? { escalationPolicy } : {}),
+      ...(workflowProfile ? { workflowProfile } : {}),
+      evidenceRequirements,
+    },
+    raw: { available: false, reason: "Canonical goal state is rendered inline" },
+  };
+}
+
+function projectFailedToolPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+): ToolResultPresentation | undefined {
+  const message = readString(output);
+  if (!message) return undefined;
+  const code = readString(metadata?.code) ?? undefined;
+  const filePath = readString(metadata?.filePath) ?? undefined;
+  return {
+    outputKind: "diagnostic",
+    classification: toolResultClassification(
+      "tool-metadata",
+      "failed tool result with diagnostic metadata",
+      { confidence: "high" },
+    ),
+    title: `${sentenceFromKey(toolName)} failed`,
+    summary: message,
+    fields: [field("Path", filePath)].filter((item): item is OperatorEventDetailItem => item !== null),
+    diagnostic: {
+      ...(code ? { code } : {}),
+      message,
+      requiredInput: [],
+    },
+    raw: { available: false, reason: "Failed tool result is rendered as a diagnostic" },
+  };
+}
+
+function projectWorkItemExecutionToolPresentation(
+  toolName: string,
+  output: string | undefined,
+): ToolResultPresentation | undefined {
+  if (toolName !== "work_item.execution.start" || !output) return undefined;
+  const record = parseOutputRecord(output);
+  if (!record) return undefined;
+  const item = asRecord(record.item);
+  const attempt = asRecord(record.attempt);
+  const status = normalizeWorkItemTaskStatus(readString(item?.status) ?? readString(record.status));
+  if (!status) return undefined;
+  const managedInvocationRequest = asRecord(record.managedInvocationRequest);
+  const reason = readString(record.reason) ?? undefined;
+  const workItemId = readString(record.workItemId) ?? readString(item?.id) ?? undefined;
+  const routeId = readString(record.routeId) ?? readString(managedInvocationRequest?.routeId) ?? undefined;
+  const nextTool = readString(record.nextTool) ?? undefined;
+  const requiredEvidence = readStringList(record.requiredEvidence).length > 0
+    ? readStringList(record.requiredEvidence)
+    : readStringList(item?.expectedEvidence).length > 0
+      ? readStringList(item?.expectedEvidence)
+      : readStringList(managedInvocationRequest?.expectedEvidence);
+  const providedEvidence = new Set(readStringList(item?.providedEvidence));
+  const items = requiredEvidence.map((label) => ({
+    label,
+    status: providedEvidence.has(label) ? "completed" as const : "pending" as const,
+  }));
+  const itemSummary = readString(item?.summary) ?? undefined;
+  const attemptSummary = readString(attempt?.summary) ?? undefined;
+  const summary = reason ?? itemSummary ?? attemptSummary ?? (items.length > 0 ? `${items.length} evidence requirements` : undefined) ?? workItemId;
+  const fields = [
+    field("Work item", workItemId),
+    field("Route", routeId),
+    field("Next tool", nextTool),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "task",
+    classification: toolResultClassification(
+      "tool-metadata",
+      "work item execution output uses the governed task result contract",
+      { confidence: "high" },
+    ),
+    title: itemSummary ?? "Work item execution",
+    ...(summary ? { summary } : {}),
+    fields,
+    task: {
+      status,
+      ...(reason ? { reason } : {}),
+      ...(workItemId ? { workItemId } : {}),
+      ...(routeId ? { routeId } : {}),
+      ...(nextTool ? { nextTool } : {}),
+      items,
+    },
+    raw: { available: false, reason: "Structured work item result is rendered inline" },
+  };
+}
+
 function projectToolResultPresentation(
   toolName: string,
   payload: Record<string, unknown>,
@@ -1087,6 +1478,22 @@ function projectToolResultPresentation(
         confidence: "medium",
       })
     : undefined;
+  const diagnosticPresentation = projectDiagnosticToolPresentation(output);
+  if (diagnosticPresentation) {
+    return diagnosticPresentation;
+  }
+  const workItemUpdatePresentation = projectWorkItemUpdateToolPresentation(toolName, output, metadata);
+  if (workItemUpdatePresentation) {
+    return workItemUpdatePresentation;
+  }
+  const goalPresentation = projectGoalToolPresentation(toolName, output, metadata);
+  if (goalPresentation) {
+    return goalPresentation;
+  }
+  const workItemExecutionPresentation = projectWorkItemExecutionToolPresentation(toolName, output);
+  if (workItemExecutionPresentation) {
+    return workItemExecutionPresentation;
+  }
   const configPresentation = projectConfigToolPresentation(toolName, output);
   if (configPresentation) {
     return configPresentation;
@@ -1123,6 +1530,12 @@ function projectToolResultPresentation(
   }
   if (operation === "read_many" && resourceLinks.length > 0) {
     return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
+  }
+  if (toolResultIsError(payload)) {
+    const failedPresentation = projectFailedToolPresentation(toolName, output, metadata);
+    if (failedPresentation) {
+      return failedPresentation;
+    }
   }
   if (operation === "read" || toolName === "read") {
     return projectTextPresentation(toolName, output, metadata, resourceLinks, fallbackClassification);
@@ -1454,13 +1867,38 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
   };
 }
 
+function workItemTaskEventState(status: ToolResultTaskStatus | undefined): {
+  readonly title: string;
+  readonly tone: OperatorEventTone;
+  readonly disposition: OperatorEventConversationDisposition;
+} | null {
+  switch (status) {
+    case "paused":
+      return { title: "Execution paused", tone: "warning", disposition: "exception" };
+    case "blocked":
+      return { title: "Execution blocked", tone: "warning", disposition: "exception" };
+    case "failed":
+      return { title: "Execution failed", tone: "error", disposition: "exception" };
+    case "in_progress":
+    case "pending":
+      return { title: "Execution started", tone: "running", disposition: "result" };
+    case "cancelled":
+      return { title: "Execution cancelled", tone: "warning", disposition: "exception" };
+    case "completed":
+      return { title: "Execution completed", tone: "success", disposition: "result" };
+    default:
+      return null;
+  }
+}
+
 function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const toolName = readString(payload.toolName) ?? "tool";
   const status = asRecord(payload.status);
   const rawStatusValue = readString(status?.state) ?? readString(payload.status);
-  const isError = toolResultIsError(payload);
-  const statusValue = isError ? "failed" : rawStatusValue;
   const toolPresentation = projectToolResultPresentation(toolName, payload);
+  const isError = toolResultIsError(payload) || toolPresentation?.diagnostic !== undefined;
+  const taskStatus = toolPresentation?.task?.status;
+  const statusValue = taskStatus ?? (isError ? "failed" : rawStatusValue);
   const result = toolPresentation?.summary ?? toolResultText(payload);
   const toolUsageSummary = formatToolUsageSummary(payload);
   const managedInvocation = managedInvocationToolIdentity(payload);
@@ -1477,14 +1915,15 @@ function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEv
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: true });
   }
   addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
+  const taskState = workItemTaskEventState(taskStatus);
   return {
-    title: `${isError ? "Failed" : "Completed"} ${toolName}`,
+    title: taskState?.title ?? `${isError ? "Failed" : "Completed"} ${toolName}`,
     summary: summary ?? undefined,
     compactText: summary ?? managedInvocationSummary ?? toolName,
-    tone: !isError && (statusValue === "succeeded" || statusValue === "success") ? "success" : "error",
+    tone: taskState?.tone ?? (!isError && (statusValue === "succeeded" || statusValue === "success") ? "success" : "error"),
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
-    conversationDisposition: isError ? "exception" : "result",
+    conversationDisposition: taskState?.disposition ?? (isError ? "exception" : "result"),
     ...(toolPresentation ? { toolPresentation } : {}),
   };
 }
@@ -2095,13 +2534,22 @@ function goalPresentation(kind: OperatorSessionEventKind, payload: Record<string
   const goal = asRecord(payload.goal);
   const authority = asRecord(goal?.authorityEnvelope);
   const routePolicy = asRecord(goal?.routePolicy);
+  const source = asRecord(goal?.source);
   const status = readString(goal?.status) ?? "unknown";
   const objective = readString(goal?.objective) ?? "Governed goal";
   const summary = `${status} · ${compactText(objective)}`;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Goal", goal?.id);
   addItem(details, "Status", status);
-  addItem(details, "Plan", goal?.planId);
+  addItem(
+    details,
+    "Source",
+    source?.kind === "approved_plan"
+      ? `Approved plan ${readString(source.planId) ?? "unknown"}`
+      : source?.kind === "operator_direct"
+        ? `Operator turn ${readString(source.turnId) ?? "unknown"}`
+        : undefined,
+  );
   addItem(details, "Work items", Array.isArray(goal?.workItemIds) ? goal.workItemIds.join(", ") : undefined);
   addItem(details, "Workflow", routePolicy?.workflowProfile);
   addItem(details, "Authority", authority?.maximumAuthority);

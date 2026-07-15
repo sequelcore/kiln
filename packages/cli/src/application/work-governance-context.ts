@@ -27,7 +27,7 @@ export function buildWorkGovernanceContext(config: KilnWorkGovernanceConfig | un
     "- Work governance recommendations are advisory until the operator requests formal tracked execution or the turn intentionally materializes a governed work item.",
     "- Research, comparison, explanation, diagnosis, review, and planning-as-answer turns should report evidence and residual risk without creating work_item, goal, or work_item.execution records unless the operator explicitly asks to track or execute formal work.",
     "- Non-trivial executable work should be decomposed, delegated to configured managed agents when available, verified, and closed with evidence.",
-    "- Use work_profile.list and work_item.update/list/complete only after formal governed work is required or explicitly requested, then fail closed on missing evidence.",
+    "- Use work_profile.list and work_item.update/list/complete only after formal governed work is required or explicitly requested. Choose a stable work item id before the first work_item.update call and reuse that id for every later update, execution, evidence, and completion call; never use a temporary provenance id such as pending.",
     "- Use work_item.execution.start/finish for approved goal-bound work so attempt history, evidence, and residual risk are recorded.",
     "- Do not stop after scout or local read-only diagnosis when a governed work item has a write-capable route; create/use a goal and call work_item.execution.start.",
     "- If work_item.execution.start pauses for managed delegation, call managed_agent.invoke with the exact managedInvocationRequest object it returned; do not add agentProfile when it is absent, and do not replace a route-owned request with a guessed profile.",

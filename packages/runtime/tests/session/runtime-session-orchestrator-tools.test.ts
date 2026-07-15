@@ -7,7 +7,7 @@ import type {
   ToolDefinition,
   AuthorityDescriptor,
   ApprovalRequestedEvent,
-  type ActionEffectEnvelope,
+  ActionEffectEnvelope,
 } from "@kilnai/core";
 import { textParts, EventBus, normalizeToolInput } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
@@ -2805,6 +2805,38 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       });
     });
 
+    it("propagates governed execution scope to tool lifecycle events", async () => {
+      const eventBus = new EventBus(100);
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider: makeProvider(1),
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        eventBus,
+        capabilityMap: makeCapabilityMap(),
+      });
+      const executionScope = {
+        kind: "work_item" as const,
+        goalRunId: "goal-1",
+        workItemId: "work-1",
+        attemptId: "attempt-1",
+        managedInvocationId: "invocation-1",
+      };
+
+      await orchestrator.processMessage(
+        makeSession(),
+        textParts("fetch"),
+        undefined,
+        undefined,
+        { executionScope },
+      );
+
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({ type: "tool_called", executionScope }),
+          expect.objectContaining({ type: "tool_result", executionScope }),
+        ]);
+    });
+
     it("emits tool_result with resultSummary", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);
@@ -3814,6 +3846,67 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       ]);
     });
 
+    it("maintains tool execution scope across model rounds until governed work exits", async () => {
+      const eventBus = new EventBus(100);
+      const executionScope = {
+        kind: "work_item" as const,
+        goalRunId: "goal-1",
+        workItemId: "work-1",
+        attemptId: "attempt-1",
+      };
+      const builtinTools = new Map([
+        ["work_item.execution.start", vi.fn().mockResolvedValue({
+          output: "started",
+          isError: false,
+          metadata: {
+            executionScopeTransition: { action: "enter", scope: executionScope },
+          },
+        })],
+        ["read", vi.fn().mockResolvedValue("file contents")],
+        ["work_item.execution.finish", vi.fn().mockResolvedValue({
+          output: "finished",
+          isError: false,
+          metadata: {
+            executionScopeTransition: { action: "exit", scope: executionScope },
+          },
+        })],
+      ]);
+      const executor = new RuntimeSessionToolExecutor(
+        { provider: makeProvider() },
+        eventBus,
+        async () => ({ approved: true }),
+        vi.fn(),
+        builtinTools,
+      );
+      const session = makeSession();
+
+      await executor.executeToolCalls(session, [
+        { id: "start-1", name: "work_item.execution.start", input: {} },
+      ]);
+      await executor.executeToolCalls(session, [
+        { id: "read-1", name: "read", input: { path: "README.md" } },
+      ]);
+      await executor.executeToolCalls(session, [
+        { id: "finish-1", name: "work_item.execution.finish", input: {} },
+      ]);
+      await executor.executeToolCalls(session, [
+        { id: "read-2", name: "read", input: { path: "README.md" } },
+      ]);
+
+      const lifecycleEvents = eventBus.history()
+        .filter((event) => event.type === "tool_called" || event.type === "tool_result");
+      expect(lifecycleEvents).toEqual([
+        expect.objectContaining({ type: "tool_called", toolCallId: "start-1" }),
+        expect.objectContaining({ type: "tool_result", toolCallId: "start-1", executionScope }),
+        expect.objectContaining({ type: "tool_called", toolCallId: "read-1", executionScope }),
+        expect.objectContaining({ type: "tool_result", toolCallId: "read-1", executionScope }),
+        expect.objectContaining({ type: "tool_called", toolCallId: "finish-1", executionScope }),
+        expect.objectContaining({ type: "tool_result", toolCallId: "finish-1", executionScope }),
+        expect.not.objectContaining({ type: "tool_called", toolCallId: "read-2", executionScope }),
+        expect.not.objectContaining({ type: "tool_result", toolCallId: "read-2", executionScope }),
+      ]);
+    });
+
     it("blocks tool not in allowlist", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);
@@ -3913,6 +4006,25 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       } | undefined;
 
       expect(context?.allowedToolNames).toEqual(["get_data"]);
+    });
+
+    it("passes the admitted workspace into builtin tool execution context", async () => {
+      const provider = makeProvider(1);
+      const toolFn = vi.fn().mockResolvedValue("result");
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, {
+        workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+      });
+
+      const context = toolFn.mock.calls[0]?.[1] as {
+        readonly sandbox?: { readonly cwd?: string };
+      } | undefined;
+      expect(context?.sandbox?.cwd).toBe("C:\\Proyectos\\Sequel\\kiln");
     });
 
     it("allows all tools when no allowlist", async () => {
@@ -4241,5 +4353,172 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       // Dep-level should win
       expect(authorizer.authorize).toHaveBeenCalledWith("get_data", READ_ONLY_EFFECT);
     });
+  });
+});
+
+describe("RuntimeSessionOrchestrator - governed work materialization", () => {
+  const tool = (name: string): ToolDefinition => ({
+    name,
+    description: name,
+    inputSchema: {},
+    tags: new Set(),
+  });
+
+  it("blocks inspection until the exact work-item set and operator-direct goal are materialized", async () => {
+    let round = 0;
+    const provider: ProviderAdapter = {
+      name: "mock",
+      createMessage: vi.fn().mockImplementation(() => {
+        round += 1;
+        if (round === 1) {
+          return {
+            parts: textParts("materializing work"),
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [
+              { id: "tree-early", name: "tree", input: {} },
+              { id: "work-1", name: "work_item.update", input: { id: "work-1" } },
+              { id: "work-2", name: "work_item.update", input: { id: "work-2" } },
+              { id: "work-3", name: "work_item.update", input: { id: "work-3" } },
+            ],
+            stopReason: "tool_use",
+          };
+        }
+        if (round === 2) {
+          return {
+            parts: textParts("creating goal"),
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [
+              {
+                id: "goal-1",
+                name: "goal.create",
+                input: {
+                  workItemIds: ["work-1", "work-2", "work-3"],
+                },
+              },
+              { id: "tree-same-round", name: "tree", input: {} },
+            ],
+            stopReason: "tool_use",
+          };
+        }
+        if (round === 3) {
+          return {
+            parts: textParts("inspecting"),
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{ id: "tree-after-goal", name: "tree", input: {} }],
+            stopReason: "tool_use",
+          };
+        }
+        return {
+          parts: textParts("done"),
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [],
+          stopReason: "end_turn",
+        };
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const update = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({
+      output: "updated",
+      isError: false,
+      metadata: { kind: "work_item", item: { id: input.id } },
+    }));
+    const createGoal = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({
+      output: "created",
+      isError: false,
+      metadata: {
+        kind: "goal",
+        goal: {
+          id: "goal-1",
+          source: { kind: "operator_direct", turnId: "turn-1" },
+          workItemIds: input.workItemIds,
+        },
+      },
+    }));
+    const inspectTree = vi.fn().mockResolvedValue("tree output");
+    const tools = [
+      tool("work_governance.assess"),
+      tool("work_profile.list"),
+      tool("work_item.list"),
+      tool("work_item.update"),
+      tool("goal.create"),
+      tool("tree"),
+    ];
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools,
+      builtinTools: new Map([
+        ["work_item.update", update],
+        ["goal.create", createGoal],
+        ["tree", inspectTree],
+      ]),
+      executionEnvelope: { toolRounds: { max: 5 } },
+    });
+
+    const result = await orchestrator.processMessage(
+      makeSession(),
+      textParts("create a governed goal before inspection"),
+      undefined,
+      undefined,
+      {
+        turnId: "turn-1",
+        governedWorkRequirement: { kind: "goal_materialization", requiredWorkItemCount: 3 },
+      },
+    );
+
+    expect(update).toHaveBeenCalledTimes(3);
+    expect(createGoal).toHaveBeenCalledTimes(1);
+    expect(createGoal).toHaveBeenCalledWith(
+      expect.objectContaining({ workItemIds: ["work-1", "work-2", "work-3"] }),
+      expect.anything(),
+    );
+    expect(inspectTree).toHaveBeenCalledTimes(1);
+    expect(result.toolExecutions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ toolCallId: "tree-early", success: false }),
+      expect.objectContaining({ toolCallId: "tree-same-round", success: false }),
+      expect.objectContaining({ toolCallId: "tree-after-goal", success: true }),
+    ]));
+    expect(result.parts).toEqual(textParts("done"));
+    const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls;
+    expect((calls[0]?.[0].tools as ToolDefinition[]).map((entry) => entry.name)).not.toContain("tree");
+    expect((calls[1]?.[0].tools as ToolDefinition[]).map((entry) => entry.name)).toContain("goal.create");
+    expect((calls[2]?.[0].tools as ToolDefinition[]).map((entry) => entry.name)).toContain("tree");
+  });
+
+  it("returns a specific stop reason when materialization exhausts its tool-round budget", async () => {
+    const provider = makeProvider();
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [tool("work_item.update"), tool("goal.create"), tool("tree")],
+      builtinTools: new Map(),
+      executionEnvelope: { toolRounds: { max: 1 } },
+    });
+
+    const result = await orchestrator.processMessage(
+      makeSession(),
+      textParts("create the goal first"),
+      undefined,
+      undefined,
+      {
+        turnId: "turn-1",
+        governedWorkRequirement: { kind: "goal_materialization", requiredWorkItemCount: 3 },
+      },
+    );
+
+    expect(result.stopReason).toBe("governed_work_materialization_required");
+    expect(result.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: expect.stringContaining("Create 3 more distinct work items") }),
+    ]));
   });
 });

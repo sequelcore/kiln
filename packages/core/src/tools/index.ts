@@ -84,6 +84,7 @@ export type {
   TaskStateToolOperation,
   TaskStateToolResultMetadata,
   WorkItemToolName,
+  WorkItemExecutionScopeTransition,
   WorkItemToolOperation,
   WorkItemToolResultMetadata,
   ToolOutputVerbosity,

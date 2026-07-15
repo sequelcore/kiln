@@ -281,14 +281,24 @@ function makeManagedExecutionStartTool(
         ? input.input.managedInvocationId
         : undefined;
       if (!managedInvocationId) {
+        const goalRunId = typeof input.input.goalRunId === "string" ? input.input.goalRunId : "goal-managed";
         return {
           output: JSON.stringify({
             status: "paused",
             reason: "managedInvocationId is required before starting managed-delegation execution.",
             workItemId: "work-managed",
             nextTool: "managed_agent.invoke",
-            managedInvocationRequest,
+            managedInvocationRequest: { ...managedInvocationRequest, goalRunId },
           }, null, 2),
+          metadata: {
+            kind: "work_item",
+            toolName: "work_item.execution.start",
+            operation: "execution_started",
+            executionScopeTransition: {
+              action: "enter",
+              scope: { kind: "work_item", goalRunId, workItemId: "work-managed" },
+            },
+          },
           isError: true,
         };
       }
@@ -1517,7 +1527,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       readonly metadata?: Record<string, unknown>;
     };
 
-    expect(result.isError).toBe(false);
+    expect(result).toMatchObject({ isError: false });
     expect(startTool.calls).toHaveLength(2);
     expect(startTool.calls[1]?.input).toMatchObject({
       goalRunId: "goal-managed",
@@ -1641,7 +1651,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     };
     const output = JSON.parse(result.output) as Record<string, unknown>;
 
-    expect(result.isError).toBe(false);
+    expect(result).toMatchObject({ isError: false });
     expect(output).toMatchObject({
       status: "paused",
       nextTool: "managed_agent.invoke",
@@ -1664,6 +1674,14 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(result.metadata).toMatchObject({
       operation: "managed_invocation_paused",
       managedInvocationAutoStarted: false,
+      executionScopeTransition: {
+        action: "enter",
+        scope: {
+          kind: "work_item",
+          goalRunId: "goal-managed",
+          workItemId: "work-managed",
+        },
+      },
       managedInvocationAutoStart: {
         decision: "skipped",
         reason: "intermediate_phase_requires_explicit_parent_invocation",
@@ -2231,7 +2249,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     });
   });
 
-  it("injects the runtime session id into goal.create when the model omits ownerSessionId", async () => {
+  it("injects canonical session and operator-turn provenance into goal.create", async () => {
     const goalInputs: ToolInput[] = [];
     const goalTool: DevTool = {
       name: "goal.create",
@@ -2258,6 +2276,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const session = makeRuntimeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
       session,
+      turnId: "turn-goal",
       toolCall: {
         id: "tool-call-goal",
         name: "goal.create",
@@ -2273,6 +2292,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(result?.isError).toBe(false);
     expect(goalInputs[0]?.input).toMatchObject({
       ownerSessionId: session.id,
+      operatorTurnId: "turn-goal",
     });
   });
 

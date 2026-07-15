@@ -135,6 +135,7 @@ describe("work-governance-tool", () => {
     const updateTool = createWorkGovernanceTools(policy)
       .find((candidate) => candidate.name === "work_item.update");
     const schema = updateTool?.inputSchema as {
+      readonly required?: readonly string[];
       readonly properties?: {
         readonly phaseRoutes?: {
           readonly properties?: Record<string, unknown>;
@@ -150,6 +151,7 @@ describe("work-governance-tool", () => {
         },
       },
     });
+    expect(schema.required).toEqual(expect.arrayContaining(["id", "summary"]));
   });
 
   it("materializes visual reference research before browser QA for UI work", async () => {
@@ -159,6 +161,7 @@ describe("work-governance-tool", () => {
     const created = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "gui-visual-hierarchy",
         summary: "Refactor GUI visual hierarchy from real product references.",
         workflowProfile: "ui-change",
         triggers: ["ui", "cross-surface"],
@@ -195,6 +198,7 @@ describe("work-governance-tool", () => {
     const created = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "managed-agent-replay-evidence",
         summary: "Validate managed agent replay evidence.",
         workflowProfile: "managed-agent-change",
         triggers: ["managed-agents", "provider-routing"],
@@ -229,6 +233,7 @@ describe("work-governance-tool", () => {
     const created = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "gui-approval-ux",
         summary: "Fix GUI approval UX",
         risk: "medium",
         triggers: ["ui", "cross-surface"],
@@ -265,6 +270,7 @@ describe("work-governance-tool", () => {
     const created = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "small-docs-correction",
         summary: "Small docs correction",
         workflowProfile: "small-fix",
         triggers: [],
@@ -300,6 +306,7 @@ describe("work-governance-tool", () => {
     const created = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "skipped-direct-closeout",
         summary: "Verify skipped direct closeout.",
         workflowProfile: "small-fix",
         triggers: [],
@@ -342,6 +349,7 @@ describe("work-governance-tool", () => {
     await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "runtime-evidence",
         summary: "Track runtime evidence",
         workflowProfile: "managed-agent-change",
         triggers: ["managed-agents"],
@@ -403,6 +411,35 @@ describe("work-governance-tool", () => {
     expect(workItemStore.get("work-report")?.workClassification).toMatchObject({
       intents: ["write", "review"],
     });
+  });
+
+  it("requires an explicit work item id at the manual tool boundary", async () => {
+    const workItemStore = new WorkItemStore();
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const rejected = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        summary: "Inspect transcript ownership.",
+        workflowProfile: "verification-heavy",
+        workClassification: {
+          intents: ["analyze"],
+          artifacts: ["code"],
+          domains: ["software"],
+          effects: ["read-only"],
+          modes: ["monitor"],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: "pending",
+        },
+      },
+    });
+
+    expect(rejected?.isError).toBe(true);
+    expect(rejected?.output).toContain('"id" must be a non-empty stable work item id');
+    expect(workItemStore.snapshot().items).toEqual([]);
   });
 
   it("fails closed when manual work item classification provenance does not match the item", async () => {
@@ -472,7 +509,7 @@ describe("work-governance-tool", () => {
       id: "goal-execute",
       objective: "Execute approved work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -504,6 +541,15 @@ describe("work-governance-tool", () => {
         executionMode: "direct",
         status: "started",
       },
+      executionScopeTransition: {
+        action: "enter",
+        scope: {
+          kind: "work_item",
+          goalRunId: "goal-execute",
+          workItemId: "work-execute",
+          attemptId: "goal-execute:work-execute:attempt:1",
+        },
+      },
     });
 
     const finished = await finishTool?.execute({
@@ -529,6 +575,15 @@ describe("work-governance-tool", () => {
         status: "completed",
         providedEvidence: ["tests"],
       },
+      executionScopeTransition: {
+        action: "exit",
+        scope: {
+          kind: "work_item",
+          goalRunId: "goal-execute",
+          workItemId: "work-execute",
+          attemptId: "goal-execute:work-execute:attempt:1",
+        },
+      },
       missingEvidence: [],
       missingResidualRisk: false,
     });
@@ -553,7 +608,7 @@ describe("work-governance-tool", () => {
       id: "goal-managed-fail-tool",
       objective: "Record delegated child failure.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -652,7 +707,7 @@ describe("work-governance-tool", () => {
       id: "goal-managed-handoff",
       objective: "Close with structured managed handoff.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -831,7 +886,7 @@ describe("work-governance-tool", () => {
       id: "goal-managed-readiness",
       objective: "Close with adoption readiness.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -974,7 +1029,7 @@ describe("work-governance-tool", () => {
       id: "goal-invalid-handoff",
       objective: "Reject malformed handoff.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1052,7 +1107,7 @@ describe("work-governance-tool", () => {
       id: "goal-generated-closeout",
       objective: "Generate closeout from evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1107,7 +1162,7 @@ describe("work-governance-tool", () => {
       id: "goal-blocked-finish",
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1179,7 +1234,7 @@ describe("work-governance-tool", () => {
       id: "goal-skipped-gate",
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1250,7 +1305,7 @@ describe("work-governance-tool", () => {
       id: "goal-evidence-closeout",
       objective: "Close only with goal-level evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1318,7 +1373,7 @@ describe("work-governance-tool", () => {
       id: "goal-gate-results",
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1402,7 +1457,7 @@ describe("work-governance-tool", () => {
       id: "goal-review-gate",
       objective: "Execute risky profile work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: ["work-review-gate"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1452,6 +1507,7 @@ describe("work-governance-tool", () => {
     const created = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "browser-qa-closeout",
         summary: "Verify browser QA closeout.",
         workflowProfile: "ui-change",
         triggers: ["ui"],
@@ -1530,7 +1586,7 @@ describe("work-governance-tool", () => {
       id: "goal-ordered",
       objective: "Execute ordered work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [first.id, second.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1584,7 +1640,7 @@ describe("work-governance-tool", () => {
       input: {
         id: "goal-linked",
         objective: "Execute linked work.",
-        planId: "plan-1",
+        operatorTurnId: "turn-goal-linked",
         workItemIds: ["work-goal-linked"],
         maximumAuthority: "audited",
         escalationPolicy: "approval_required",
@@ -1596,7 +1652,8 @@ describe("work-governance-tool", () => {
     expect(createdGoal?.isError).toBe(false);
     expect(goalRunStore.get("goal-linked")?.ownerSessionId).toBe("session-current");
     expect(workItemStore.get("work-goal-linked")?.goalRunId).toBe("goal-linked");
-    expect(workItemStore.get("work-goal-linked")?.planId).toBe("plan-1");
+    expect(goalRunStore.get("goal-linked")?.source).toEqual({ kind: "operator_direct", turnId: "turn-goal-linked" });
+    expect(workItemStore.get("work-goal-linked")?.planId).toBeUndefined();
 
     const started = await startTool?.execute({
       name: "work_item.execution.start",
@@ -1638,7 +1695,7 @@ describe("work-governance-tool", () => {
       input: {
         id: "goal-route-conflict",
         objective: "Scout route ownership.",
-        planId: "plan-1",
+        operatorTurnId: "turn-route-conflict",
         workItemIds: ["work-route-conflict"],
         maximumAuthority: "read_only",
         escalationPolicy: "approval_required",
@@ -1688,7 +1745,7 @@ describe("work-governance-tool", () => {
       input: {
         id: "goal-route-owned",
         objective: "Execute route-owned UI work.",
-        planId: "plan-1",
+        operatorTurnId: "turn-route-owned",
         workItemIds: ["work-route-owned"],
         maximumAuthority: "audited",
         escalationPolicy: "approval_required",
@@ -1754,7 +1811,7 @@ describe("work-governance-tool", () => {
       input: {
         id: "goal-no-session",
         objective: "Execute linked work.",
-        planId: "plan-1",
+        operatorTurnId: "turn-no-session",
         workItemIds: ["work-no-session"],
         maximumAuthority: "audited",
         escalationPolicy: "approval_required",
@@ -1801,6 +1858,7 @@ describe("work-governance-tool", () => {
     const rejected = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "visual-reference-repository-chrome",
         summary: "Collect visual reference research.",
         workflowProfile: "ui-change",
         triggers: ["ui"],
@@ -1822,6 +1880,7 @@ describe("work-governance-tool", () => {
     const placeholderRejected = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "visual-reference-placeholder",
         summary: "Collect visual reference research.",
         workflowProfile: "ui-change",
         triggers: ["ui"],
@@ -1845,6 +1904,7 @@ describe("work-governance-tool", () => {
     const codeBackedAccepted = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "visual-reference-code-backed",
         summary: "Collect frontend reference research.",
         workflowProfile: "ui-change",
         triggers: ["ui"],
@@ -1866,6 +1926,7 @@ describe("work-governance-tool", () => {
     const localCodeBackedAccepted = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "visual-reference-local-code-backed",
         summary: "Collect local frontend reference research.",
         workflowProfile: "ui-change",
         triggers: ["ui"],
@@ -1887,6 +1948,7 @@ describe("work-governance-tool", () => {
     const accepted = await updateTool?.execute({
       name: "work_item.update",
       input: {
+        id: "visual-reference-product-ui",
         summary: "Collect visual reference research.",
         workflowProfile: "ui-change",
         triggers: ["ui"],
@@ -2056,7 +2118,7 @@ describe("work-governance-tool", () => {
       id: "goal-paused-requirement",
       objective: "Execute approved work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: ["work-paused"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2156,7 +2218,7 @@ describe("work-governance-tool", () => {
       id: "goal-missing-capability",
       objective: "Execute governed work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: ["work-missing-capability"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2210,7 +2272,7 @@ describe("work-governance-tool", () => {
       id: "goal-managed",
       objective: "Execute delegated work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2240,6 +2302,16 @@ describe("work-governance-tool", () => {
 
     expect(missingInvocation?.isError).toBe(true);
     expect(missingInvocation?.output).toContain("managedInvocationId is required");
+    expect(missingInvocation?.metadata).toMatchObject({
+      executionScopeTransition: {
+        action: "enter",
+        scope: {
+          kind: "work_item",
+          goalRunId: "goal-managed",
+          workItemId: "work-managed",
+        },
+      },
+    });
     const missingInvocationOutput = JSON.parse(missingInvocation?.output ?? "{}") as {
       readonly nextTool?: string;
       readonly managedInvocationRequest?: {
@@ -2338,6 +2410,16 @@ describe("work-governance-tool", () => {
         executionMode: "managed_delegation",
         managedInvocationId: "invocation-managed-1",
       },
+      executionScopeTransition: {
+        action: "enter",
+        scope: {
+          kind: "work_item",
+          goalRunId: "goal-managed",
+          workItemId: "work-managed",
+          attemptId: "goal-managed:work-managed:attempt:1",
+          managedInvocationId: "invocation-managed-1",
+        },
+      },
     });
   });
 
@@ -2360,7 +2442,7 @@ describe("work-governance-tool", () => {
       id: "goal-managed-route",
       objective: "Execute delegated route-owned work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2432,7 +2514,7 @@ describe("work-governance-tool", () => {
       id: "goal-managed-ui-phase",
       objective: "Refactor the GUI experience.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2553,7 +2635,7 @@ describe("work-governance-tool", () => {
       id: "goal-managed-authority",
       objective: "Execute delegated route-owned work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",

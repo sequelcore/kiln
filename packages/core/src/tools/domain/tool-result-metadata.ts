@@ -1,4 +1,5 @@
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemStatus } from "../../work-governance/index.js";
+import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
 
 export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "read_many" | "write" | "edit" | "patch";
@@ -456,8 +457,13 @@ export interface WorkItemToolResultMetadata<TToolName extends WorkItemToolName =
   readonly retryInputPatch?: Readonly<Record<string, unknown>>;
   readonly sequence?: number;
   readonly errorCode?: "invalid_input" | "not_found" | "missing_evidence";
+  readonly executionScopeTransition?: WorkItemExecutionScopeTransition;
   readonly verbosity?: ToolOutputVerbosity;
 }
+
+export type WorkItemExecutionScopeTransition =
+  | { readonly action: "enter"; readonly scope: SessionExecutionScope }
+  | { readonly action: "exit"; readonly scope: SessionExecutionScope };
 
 export interface GoalToolResultMetadata<TToolName extends GoalToolName = GoalToolName> {
   readonly toolName: TToolName;

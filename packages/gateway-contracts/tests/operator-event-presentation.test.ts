@@ -7,6 +7,291 @@ import {
 } from "../src/operator-event-presentation.js";
 
 describe("operator event presentation", () => {
+  it("projects structured tool errors as diagnostics even when the transport reports success", () => {
+    const message = "goal.create cannot combine preferredRouteId and managedAgentProfile.";
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-goal-create",
+      toolName: "goal.create",
+      output: JSON.stringify({
+        error: {
+          code: "invalid_input",
+          message,
+          recoverable: true,
+          suggestedNextTool: "goal.create",
+          requiredInputShape: {
+            objective: "string",
+            workItemIds: ["existing work item id"],
+          },
+        },
+      }, null, 2),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Failed goal.create",
+      summary: message,
+      tone: "error",
+      conversationDisposition: "exception",
+      toolPresentation: {
+        outputKind: "diagnostic",
+        title: "Invalid input",
+        summary: message,
+        diagnostic: {
+          code: "invalid_input",
+          message,
+          recoverable: true,
+          suggestedNextTool: "goal.create",
+          requiredInput: [
+            { name: "objective", expected: "string" },
+            { name: "workItemIds", expected: "existing work item id[]" },
+          ],
+        },
+      },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+    expect(presentation.details).toContainEqual({ label: "Status", value: "failed" });
+  });
+
+  it("projects work item updates from canonical output instead of raw JSON", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-work-item-update",
+      toolName: "work_item.update",
+      output: JSON.stringify({
+        item: {
+          id: "work-1",
+          summary: "Inspect composer activity ownership.",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          risk: "medium",
+          surface: "gui",
+          authorityProfile: "foundation-readonly-plan",
+          expectedEvidence: ["surface-map", "tests"],
+          providedEvidence: ["surface-map"],
+          pauseRequirements: [],
+        },
+        nextRequiredTools: ["goal.create", "work_item.execution.start"],
+      }),
+      metadata: { kind: "work_item", operation: "update" },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Completed work_item.update",
+      summary: "Inspect composer activity ownership.",
+      tone: "success",
+      toolPresentation: {
+        outputKind: "work_item",
+        title: "Inspect composer activity ownership.",
+        summary: "Inspect composer activity ownership.",
+        workItem: {
+          id: "work-1",
+          summary: "Inspect composer activity ownership.",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          risk: "medium",
+          surface: "gui",
+          authorityProfile: "foundation-readonly-plan",
+          evidence: [
+            { label: "surface-map", status: "completed" },
+            { label: "tests", status: "pending" },
+          ],
+          nextTools: ["goal.create", "work_item.execution.start"],
+        },
+      },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("projects created goals as governed goal summaries instead of raw JSON", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-goal-create",
+      toolName: "goal.create",
+      output: JSON.stringify({
+        goal: {
+          id: "goal-1",
+          objective: "Perform evidence-backed UX verification.",
+          source: { kind: "operator_direct", turnId: "turn-ux-verification" },
+          status: "active",
+          workItemIds: ["work-1", "work-2", "work-3"],
+          authorityEnvelope: {
+            maximumAuthority: "read_only",
+            escalationPolicy: "deny",
+          },
+          routePolicy: { workflowProfile: "verification-heavy" },
+          evidenceRequirements: [
+            { id: "repo-inspection", description: "Inspect the requested files.", required: true },
+          ],
+          currentPhase: "prepare",
+        },
+      }),
+      metadata: { kind: "goal", operation: "create" },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Completed goal.create",
+      summary: "Perform evidence-backed UX verification.",
+      tone: "success",
+      toolPresentation: {
+        outputKind: "goal",
+        title: "Perform evidence-backed UX verification.",
+        goal: {
+          id: "goal-1",
+          objective: "Perform evidence-backed UX verification.",
+          status: "active",
+          phase: "prepare",
+          workItemIds: ["work-1", "work-2", "work-3"],
+          authority: "read_only",
+          escalationPolicy: "deny",
+          workflowProfile: "verification-heavy",
+          evidenceRequirements: [
+            { id: "repo-inspection", description: "Inspect the requested files.", required: true },
+          ],
+        },
+      },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("projects nested work item execution state and evidence from the live envelope", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-work-item-start",
+      toolName: "work_item.execution.start",
+      output: JSON.stringify({
+        status: "started",
+        item: {
+          id: "work-1",
+          summary: "Inspect composer activity ownership.",
+          status: "in_progress",
+          expectedEvidence: ["surface-map", "tests"],
+          providedEvidence: ["surface-map"],
+        },
+        attempt: {
+          id: "goal-1:work-1:attempt:1",
+          executionMode: "direct",
+          status: "started",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Execution started",
+      summary: "Inspect composer activity ownership.",
+      tone: "running",
+      toolPresentation: {
+        outputKind: "task",
+        title: "Inspect composer activity ownership.",
+        task: {
+          status: "in_progress",
+          workItemId: "work-1",
+          items: [
+            { label: "surface-map", status: "completed" },
+            { label: "tests", status: "pending" },
+          ],
+        },
+      },
+    });
+  });
+
+  it("projects failed file reads as diagnostics instead of text output", () => {
+    const path = "C:\\repo\\missing.ts";
+    const message = `ENOENT: no such file or directory, open '${path}'`;
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-read",
+      toolName: "read",
+      output: message,
+      metadata: { kind: "file", operation: "read", filePath: path, code: "ENOENT" },
+      status: { state: "failed" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Failed read",
+      summary: message,
+      tone: "error",
+      toolPresentation: {
+        outputKind: "diagnostic",
+        title: "Read failed",
+        diagnostic: {
+          code: "ENOENT",
+          message,
+          requiredInput: [],
+        },
+        fields: [{ label: "Path", value: path }],
+      },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("classifies unknown JSON as structured data instead of text output", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-custom-inspection",
+      toolName: "custom.inspect",
+      output: JSON.stringify({ status: "ready", count: 3, items: ["one", "two", "three"] }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Completed custom.inspect",
+      summary: "3 fields",
+      toolPresentation: {
+        outputKind: "data",
+        summary: "3 fields",
+        preview: {
+          language: "json",
+        },
+      },
+    });
+    expect(presentation.toolPresentation?.classification).toMatchObject({
+      source: "content-heuristic",
+      reason: "structured JSON output classified from content",
+    });
+  });
+
+  it("projects paused work item execution results as structured task state", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-work-item-start",
+      toolName: "work_item.execution.start",
+      output: JSON.stringify({
+        status: "paused",
+        reason: "managedInvocationId is required before starting managed-delegation execution.",
+        workItemId: "inspect-composer-activity-ownership",
+        routeId: "opencode-go-qwen3-7-max-readonly",
+        nextTool: "managed_agent.invoke",
+        requiredEvidence: ["surface-map", "risk-hypothesis", "visual-reference-research", "tests"],
+      }, null, 2),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Execution paused",
+      summary: "managedInvocationId is required before starting managed-delegation execution.",
+      tone: "warning",
+      conversationDisposition: "exception",
+      toolPresentation: {
+        outputKind: "task",
+        title: "Work item execution",
+        summary: "managedInvocationId is required before starting managed-delegation execution.",
+        task: {
+          status: "paused",
+          workItemId: "inspect-composer-activity-ownership",
+          routeId: "opencode-go-qwen3-7-max-readonly",
+          nextTool: "managed_agent.invoke",
+          items: [
+            { label: "surface-map", status: "pending" },
+            { label: "risk-hypothesis", status: "pending" },
+            { label: "visual-reference-research", status: "pending" },
+            { label: "tests", status: "pending" },
+          ],
+        },
+      },
+    });
+    expect(presentation.title).not.toContain("Completed");
+    expect(presentation.details).toContainEqual({ label: "Status", value: "paused" });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+    expect(JSON.stringify(presentation.toolPresentation)).not.toContain("{\n");
+  });
+
   it("presents plan lifecycle events without raw payload syntax", () => {
     const submitted = presentOperatorEventPayload("plan_submitted", {
       planId: "plan-1",
@@ -152,7 +437,7 @@ describe("operator event presentation", () => {
       goal: {
         id: "goal-1",
         objective: "Finish roadmap slice 6 with verified goal resources.",
-        planId: "plan-1",
+        source: { kind: "approved_plan", planId: "plan-1" },
         status: "completed",
         workItemIds: ["wi-1", "wi-2"],
         authorityEnvelope: {
@@ -174,7 +459,7 @@ describe("operator event presentation", () => {
     expect(presentation.details).toEqual([
       { label: "Goal", value: "goal-1" },
       { label: "Status", value: "completed" },
-      { label: "Plan", value: "plan-1" },
+      { label: "Source", value: "Approved plan plan-1" },
       { label: "Work items", value: "wi-1, wi-2" },
       { label: "Workflow", value: "architecture-change" },
       { label: "Authority", value: "audited" },
