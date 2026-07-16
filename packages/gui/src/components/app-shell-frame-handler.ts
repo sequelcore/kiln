@@ -13,6 +13,7 @@ interface AppShellFrameHandlerInput {
   readonly onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
   readonly onSessionEvent: (event: Extract<GuiInboundFrame, { type: "session_event" }>["event"]) => void;
   readonly onDone: (frame: Extract<GuiInboundFrame, { type: "done" }>) => void;
+  readonly onTurnCancelResult: (frame: Extract<GuiInboundFrame, { type: "turn_cancel_result" }>) => void;
   readonly onVoiceSynthesisCompleted: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_completed" }>) => void;
   readonly onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   readonly onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
@@ -32,6 +33,10 @@ interface AppShellFrameHandlerInput {
   readonly onBrowserSessionUpdated: (frame: Extract<GuiInboundFrame, { type: "browser_session_updated" }>) => void;
   readonly onBrowserLiveViewportFrame: (frame: Extract<GuiInboundFrame, { type: "browser_live_viewport_frame" }>) => void;
   readonly onBrowserOperatorInputAck: (frame: Extract<GuiInboundFrame, { type: "browser_operator_input_ack" }>) => void;
+  readonly onOperatorTerminalAvailability: (available: boolean) => void;
+  readonly onOperatorTerminalFrame: (
+    frame: Extract<GuiInboundFrame, { type: `operator_terminal_${string}` }>,
+  ) => void;
   readonly setConnectionStatus: (status: "connecting" | "running" | "idle" | "error") => void;
   readonly setTheme: (theme: OperatorThemeName) => void;
   readonly persistThemePreference: (theme: OperatorThemeName) => void;
@@ -73,6 +78,7 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
     switch (frame.type) {
       case "welcome":
         input.onWelcome(frame);
+        input.onOperatorTerminalAvailability(frame.operatorTerminalAvailable ?? false);
         return;
       case "operator_theme_set":
         handleOperatorThemeSet(frame, input);
@@ -82,6 +88,9 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
         return;
       case "done":
         input.onDone(frame);
+        return;
+      case "turn_cancel_result":
+        input.onTurnCancelResult(frame);
         return;
       case "voice_synthesis_completed":
         input.onVoiceSynthesisCompleted(frame);
@@ -140,6 +149,12 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
         return;
       case "browser_operator_input_ack":
         input.onBrowserOperatorInputAck(frame);
+        return;
+      case "operator_terminal_opened":
+      case "operator_terminal_output":
+      case "operator_terminal_exited":
+      case "operator_terminal_error":
+        input.onOperatorTerminalFrame(frame);
         return;
       case "managed_agent_control_result":
         if (frame.status === "failed") {

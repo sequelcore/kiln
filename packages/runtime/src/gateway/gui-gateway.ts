@@ -64,6 +64,12 @@ import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
+import { BunPtyAdapter } from "../operator-terminal/bun-pty-adapter.js";
+import { handleOperatorTerminalFrame } from "../operator-terminal/operator-terminal-gateway.js";
+import {
+  OperatorTerminalService,
+  type OperatorPtyAdapter,
+} from "../operator-terminal/operator-terminal-service.js";
 import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
@@ -143,6 +149,7 @@ export interface StartGuiGatewayOptions {
   readonly operatorTransport?: OperatorSessionTransportOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
+  readonly operatorTerminalAdapter?: OperatorPtyAdapter;
 }
 
 export interface OperatorProviderPreference {
@@ -158,12 +165,28 @@ export interface GuiGateway {
   readonly operatorModels?: Record<string, string[]>;
   readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly hasMountedGui: boolean;
+  readonly operatorTerminalCapability?: string;
   shutdown(): void;
 }
 
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
 type OperatorTurnRequestedAuthority = Extract<GuiOutboundFrame, { type: "message" }>["requestedAuthority"];
+
+interface ActiveGuiTurn {
+  readonly controller: AbortController;
+  readonly settled: Promise<void>;
+  readonly markSettled: () => void;
+}
+
+function createActiveGuiTurn(): ActiveGuiTurn {
+  const controller = new AbortController();
+  let markSettled = (): void => {};
+  const settled = new Promise<void>((resolve) => {
+    markSettled = resolve;
+  });
+  return { controller, settled, markSettled };
+}
 
 interface BrowserSessionUpdateHandlerConsumer {
   setBrowserSessionUpdateHandler(handler: ((state: Omit<GuiBrowserSessionState, "kilnSessionId">) => void) | undefined): void;
@@ -411,6 +434,15 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   mountGuiStaticAssets(app, guiDistPath);
   const hasMountedGui = true;
   const transportOptions = options.operatorTransport;
+  const operatorTerminalCapability = transportOptions && options.workingDirectory
+    ? crypto.randomUUID()
+    : undefined;
+  const operatorTerminalService = operatorTerminalCapability && options.workingDirectory
+    ? new OperatorTerminalService({
+        workspaceRoot: options.workingDirectory,
+        adapter: options.operatorTerminalAdapter ?? new BunPtyAdapter(),
+      })
+    : undefined;
   let activeConnections = 0;
 
   const { upgradeWebSocket, websocket } = (await loadBunHonoAdapters()).createBunWebSocket();
@@ -619,6 +651,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       managedInvocation,
       resolveProviderPreference: options.resolveProviderPreference,
       updateProviderPreference: options.updateProviderPreference,
+      operatorTerminalCapability,
+      operatorTerminalService,
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -696,7 +730,11 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       return operatorDiscovery;
     },
     hasMountedGui,
-    shutdown: () => server.stop(),
+    operatorTerminalCapability,
+    shutdown: () => {
+      operatorTerminalService?.closeAll();
+      server.stop();
+    },
   };
 }
 
@@ -775,6 +813,8 @@ function wireOperatorTransport(
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
+    operatorTerminalCapability?: string;
+    operatorTerminalService?: OperatorTerminalService;
   },
 ): void {
   const providerLabel = input.transport.sessionManager.getProvider();
@@ -838,6 +878,11 @@ function wireOperatorTransport(
     "/gui/ws",
     upgradeWebSocket((c) => {
       const userId = c.req.query("userId") ?? crypto.randomUUID();
+      const terminalOwnerId = crypto.randomUUID();
+      const terminalAuthorized = Boolean(
+        input.operatorTerminalCapability
+        && c.req.query("operatorToken") === input.operatorTerminalCapability,
+      );
       let discovery = [...input.initialDiscovery];
       const applyDiscovery = (nextDiscovery: readonly GuiProviderDiscoveryResult[]): readonly GuiProviderDiscoveryResult[] => {
         discovery = [...nextDiscovery];
@@ -850,6 +895,7 @@ function wireOperatorTransport(
         return applyDiscovery(await input.getDiscovery(options).catch(() => []));
       };
       let operatorSocket: WSContext | null = null;
+      let activeTurn: ActiveGuiTurn | undefined;
       let unsubscribeDiscovery: (() => void) | undefined;
       const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
@@ -907,6 +953,7 @@ function wireOperatorTransport(
             workingDirectory: input.transport.workingDirectory,
             domainLabel: input.transport.domainLabel,
             authorityStatus: guiAuthorityStatus,
+            operatorTerminalAvailable: Boolean(input.operatorTerminalService && terminalAuthorized),
           } satisfies GuiInboundFrame));
         },
 
@@ -923,12 +970,27 @@ function wireOperatorTransport(
 
             const frame = JSON.parse(raw) as GuiOutboundFrame | Record<string, unknown>;
 
+            if (input.operatorTerminalService && await handleOperatorTerminalFrame({
+              frame,
+              authorized: terminalAuthorized,
+              ownerId: terminalOwnerId,
+              service: input.operatorTerminalService,
+              send: (terminalFrame) => ws.send(JSON.stringify(terminalFrame)),
+            })) {
+              return;
+            }
+
             if (frame.type === "operator_theme_set_result") {
               operatorThemeBridge.resolve(frame as Extract<GuiOutboundFrame, { type: "operator_theme_set_result" }>);
               return;
             }
 
             if (frame.type === "clear") {
+              const turnToClear = activeTurn;
+              if (turnToClear) {
+                turnToClear.controller.abort("Operator cleared the active GUI session.");
+                await turnToClear.settled;
+              }
               await sessionRegistry.detachActive(GUI_APP_NAME, userId, GUI_TENANT_ID);
               try {
                 await input.transport.onClear?.();
@@ -1091,6 +1153,33 @@ function wireOperatorTransport(
                 type: "continuation_selected",
                 sessionId,
                 ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
+              } satisfies GuiInboundFrame));
+              return;
+            }
+
+            if (frame.type === "turn_cancel") {
+              const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
+              if (!requestId) {
+                return;
+              }
+              if (!activeTurn) {
+                ws.send(JSON.stringify({
+                  type: "turn_cancel_result",
+                  requestId,
+                  status: "not_active",
+                  reason: "There is no active GUI turn to cancel.",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              activeTurn.controller.abort(
+                typeof frame.reason === "string" && frame.reason.trim().length > 0
+                  ? frame.reason.trim()
+                  : "Operator cancelled the active GUI turn.",
+              );
+              ws.send(JSON.stringify({
+                type: "turn_cancel_result",
+                requestId,
+                status: "accepted",
               } satisfies GuiInboundFrame));
               return;
             }
@@ -1485,6 +1574,14 @@ function wireOperatorTransport(
 
             if (frame.type !== "message") return;
 
+            if (activeTurn) {
+              ws.send(JSON.stringify({
+                type: "error",
+                message: "A GUI turn is already active. Cancel it before starting another turn.",
+              } satisfies GuiInboundFrame));
+              return;
+            }
+
             const messageFrame = frame as Extract<GuiOutboundFrame, { type: "message" }>;
             const userContent = typeof messageFrame.content === "string"
               ? messageFrame.content
@@ -1496,6 +1593,9 @@ function wireOperatorTransport(
             const freshSessionRequested = messageFrame.sessionIntent === "fresh";
             if (!userContent.trim() && userParts.length === 0) return;
 
+            const currentTurn = createActiveGuiTurn();
+            activeTurn = currentTurn;
+            try {
             if (freshSessionRequested && continuationSessionId) {
               ws.send(JSON.stringify({
                 type: "error",
@@ -1629,6 +1729,10 @@ function wireOperatorTransport(
                 input.transport.workingDirectory,
                 governedWorkRequirement,
               );
+              turnPerCallConfig = {
+                ...turnPerCallConfig,
+                abortSignal: currentTurn.controller.signal,
+              };
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -1665,10 +1769,14 @@ function wireOperatorTransport(
                   },
                 },
                 publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
-                  events.filter((event) => event.kind === "context_usage_observed"),
+                  events.filter((event) => event.kind === "context_usage_observed"
+                    || (event.kind === "turn_completed" && event.outcome === "cancelled")),
                 ),
               });
             } catch (err) {
+              if (currentTurn.controller.signal.aborted) {
+                return;
+              }
               ws.send(JSON.stringify({
                 type: "error",
                 message: err instanceof Error ? err.message : String(err),
@@ -1724,12 +1832,20 @@ function wireOperatorTransport(
               runtimeContinuity,
               authorityStatus: deriveGuiDoneAuthorityStatus(turnPerCallConfig),
             } satisfies GuiInboundFrame));
+            } finally {
+              currentTurn.markSettled();
+              if (activeTurn === currentTurn) {
+                activeTurn = undefined;
+              }
+            }
           } catch {
             // discard malformed frames
           }
         },
 
         onClose(_event: CloseEvent, ws: WSContext) {
+          input.operatorTerminalService?.closeOwner(terminalOwnerId);
+          activeTurn?.controller.abort("GUI operator surface disconnected.");
           if (operatorSocket === ws) {
             operatorSocket = null;
           }
@@ -2027,7 +2143,7 @@ class GuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "browser_operator_evidence";
+    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_output_delta" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "browser_operator_evidence";
     timestamp: string;
     payload: Record<string, unknown>;
     parentEventId?: string;
@@ -2292,6 +2408,19 @@ class GuiActivityStreamer {
       this.emitActivityPhase({
         phase: "tool_running",
         toolName: event.toolName,
+      });
+    } else if (event.type === "tool_output_delta") {
+      this.emitSessionEvent({
+        kind: "tool_call_output_delta",
+        timestamp: new Date().toISOString(),
+        payload: {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          stream: event.stream,
+          delta: event.delta,
+          chunkIndex: event.chunkIndex,
+        },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_result") {
       const pending = this.capture?.pendingToolCallIds.get(event.toolName);

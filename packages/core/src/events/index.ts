@@ -41,6 +41,7 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   task_started: "phase",
   task_completed: "phase",
   tool_called: "tool",
+  tool_output: "tool",
   tool_authorized: "tool",
   tool_result: "tool",
   tool_cache_hit: "tool",
@@ -111,6 +112,7 @@ export type EventType =
   | "task_started"
   | "task_completed"
   | "tool_called"
+  | "tool_output"
   | "tool_authorized"
   | "tool_result"
   | "tool_cache_hit"
@@ -221,6 +223,17 @@ export interface ToolCalledEvent extends KilnEvent {
   readonly authorizationLevel?: number;
   readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
   readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
+  readonly executionScope?: import("./session-execution-scope.js").SessionExecutionScope;
+}
+
+/** Incremental operator-facing output from a running tool. */
+export interface ToolOutputEvent extends KilnEvent {
+  readonly type: "tool_output";
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly stream: "stdout" | "stderr";
+  readonly delta: string;
+  readonly chunkIndex: number;
   readonly executionScope?: import("./session-execution-scope.js").SessionExecutionScope;
 }
 
@@ -675,6 +688,7 @@ export interface EventMap {
   task_started: TaskStartedEvent;
   task_completed: TaskCompletedEvent;
   tool_called: ToolCalledEvent;
+  tool_output: ToolOutputEvent;
   tool_authorized: ToolAuthorizedEvent;
   tool_result: ToolResultEvent;
   tool_cache_hit: ToolCacheHitEvent;

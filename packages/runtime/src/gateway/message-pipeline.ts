@@ -1771,9 +1771,9 @@ function runtimeLedgerEventKey(event: RuntimePipelineLedgerEvent): string {
     case "multimodal_routed":
       return `${base}|${event.provider}|${event.model}|${event.strategy}|${event.reasonCode}|${event.requestedCapability}`;
     case "tool_called":
-      return `${base}|${event.toolName}|${event.taskId ?? ""}`;
+      return `${base}|${event.toolCallId}|${event.toolName}|${event.taskId ?? ""}`;
     case "tool_result":
-      return `${base}|${event.toolName}|${event.success}|${event.resultSummary}`;
+      return `${base}|${event.toolCallId}|${event.toolName}|${event.success}|${event.resultSummary}`;
   }
 }
 
@@ -2234,16 +2234,20 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     );
   } catch (error) {
     const turnFailedAt = new Date();
-    const failureRuntimeEvents = capturedRuntimeEvents.some((event) => event.type === "error")
-      ? capturedRuntimeEvents
-      : [...capturedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
+    const cancelled = perCallConfig?.abortSignal?.aborted === true;
+    const retainedRuntimeEvents = cancelled
+      ? capturedRuntimeEvents.filter((event) => event.type !== "error" || !isCancellationErrorEvent(event))
+      : capturedRuntimeEvents;
+    const failureRuntimeEvents = cancelled || retainedRuntimeEvents.some((event) => event.type === "error")
+      ? retainedRuntimeEvents
+      : [...retainedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
     const failureEvents = appendCanonicalTurnEvents({
       session,
       turnId: perCallConfig?.turnId,
       channel: ctx.channel,
       userMessageContent: userText,
       queued: false,
-      turnOutcome: "failed",
+      turnOutcome: cancelled ? "cancelled" : "failed",
       turnStartedAt,
       turnCompletedAt: turnFailedAt,
       continuity: runtimeContinuityPresentation.runtimeContinuity,
@@ -2767,4 +2771,10 @@ function runtimeFailureEvent(error: unknown, sessionId: string, timestamp: Date)
     timestamp,
     sessionId,
   };
+}
+
+function isCancellationErrorEvent(event: ErrorEvent): boolean {
+  return event.code === "ABORTED"
+    || event.code === "ABORT_ERR"
+    || /\babort(?:ed|ing)?\b/i.test(event.message);
 }

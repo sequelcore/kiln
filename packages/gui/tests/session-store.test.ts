@@ -41,6 +41,7 @@ function resetSessionStore(): void {
     currentTurnTrackedInputTokens: 0,
     currentTurnTrackedOutputTokens: 0,
     clearPending: false,
+    turnCancelPending: false,
     providerSwitching: false,
     providerSwitchTarget: null,
     providerAuthenticating: false,
@@ -407,6 +408,59 @@ describe("session-store", () => {
       streaming: true,
     });
     expect(withDelta.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+  });
+
+  it("folds live command output into the existing tool row by call id", () => {
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-command-start",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-04-30T14:00:00.000Z",
+      kind: "tool_call_started",
+      payload: {
+        toolCallId: "command-1",
+        toolName: "bash",
+        input: { command: "bun test" },
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-command-output-1",
+      kilnSessionId: "session-live",
+      sequence: 2,
+      timestamp: "2026-04-30T14:00:01.000Z",
+      kind: "tool_call_output_delta",
+      payload: {
+        toolCallId: "command-1",
+        toolName: "bash",
+        stream: "stdout",
+        delta: "RUN tests\n",
+        chunkIndex: 0,
+      },
+    });
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-command-output-2",
+      kilnSessionId: "session-live",
+      sequence: 3,
+      timestamp: "2026-04-30T14:00:02.000Z",
+      kind: "tool_call_output_delta",
+      payload: {
+        toolCallId: "command-1",
+        toolName: "bash",
+        stream: "stderr",
+        delta: "warning\n",
+        chunkIndex: 1,
+      },
+    });
+
+    const toolEntries = useSessionStore.getState().timelineEntries.filter((entry) => entry.type === "event");
+    expect(toolEntries).toHaveLength(1);
+    expect(toolEntries[0]).toMatchObject({
+      eventKind: "tool_call_started",
+      details: expect.objectContaining({
+        toolCallId: "command-1",
+        liveOutput: "RUN tests\nwarning\n",
+      }),
+    });
   });
 
   it("does not create an assistant row from whitespace-only streaming deltas", () => {
@@ -2386,6 +2440,37 @@ describe("session-store", () => {
     const accepted = useSessionStore.getState().sendMessage("hello");
     expect(accepted).toBe(false);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("requests cancellation only for one active turn", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    useSessionStore.setState({ status: "running" });
+
+    expect(useSessionStore.getState().cancelActiveTurn()).toBe(true);
+    expect(useSessionStore.getState().cancelActiveTurn()).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "turn_cancel",
+      reason: "Operator cancelled the active GUI turn.",
+    }));
+    expect(useSessionStore.getState().turnCancelPending).toBe(true);
+  });
+
+  it("returns to ready when cancellation finds no active gateway turn", () => {
+    useSessionStore.setState({ status: "running", turnCancelPending: true });
+
+    useSessionStore.getState().onTurnCancelResult({
+      type: "turn_cancel_result",
+      requestId: "cancel-1",
+      status: "not_active",
+    });
+
+    expect(useSessionStore.getState()).toMatchObject({
+      status: "ready",
+      turnCancelPending: false,
+      activityPhase: "idle",
+    });
   });
 
   it("clears prior route-bound context evidence while the next turn streams", () => {

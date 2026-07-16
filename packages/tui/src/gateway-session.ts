@@ -116,7 +116,24 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       type: "activity",
       activity: "tool_use",
       toolName,
+      toolCallId: readString(payload.toolCallId) ?? undefined,
       input: payload.input,
+      surfaces: presentation.surfaces,
+      ...scoped,
+    };
+  }
+  if (event.kind === "tool_call_output_delta") {
+    const toolCallId = readString(payload.toolCallId);
+    const output = readString(payload.delta);
+    if (!toolCallId || output === null) return null;
+    return {
+      type: "activity",
+      activity: "tool_output",
+      toolCallId,
+      toolName: readString(payload.toolName) ?? "tool",
+      stream: payload.stream === "stderr" ? "stderr" : "stdout",
+      output,
+      chunkIndex: readNumber(payload.chunkIndex),
       surfaces: presentation.surfaces,
       ...scoped,
     };
@@ -128,6 +145,7 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       type: "activity",
       activity: "tool_result",
       toolName,
+      toolCallId: readString(payload.toolCallId) ?? undefined,
       output: presentation.toolPresentation?.presentationIntent
         ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
         : presentation.toolPresentation?.summary ?? readString(payload.outputSummary) ?? readString(payload.output) ?? "",

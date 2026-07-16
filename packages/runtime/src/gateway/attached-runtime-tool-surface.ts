@@ -1395,11 +1395,19 @@ function buildBuiltinToolExecutors(
     const toolName = tool.name;
     executors.set(toolName, async (input, context) => {
       const sandbox = mergeToolSandboxContext(context?.sandbox, context?.allowedToolNames);
-      const execution = await surface.bridge.execute({
-        name: toolName,
-        input,
-        ...(sandbox !== undefined ? { sandbox } : {}),
-      });
+        const execution = await surface.bridge.execute({
+          name: toolName,
+          input,
+          ...(sandbox !== undefined ? { sandbox } : {}),
+          ...((context?.abortSignal || context?.emitOutput)
+            ? {
+              executionContext: {
+                ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
+                ...(context.emitOutput ? { onOutput: context.emitOutput } : {}),
+              },
+            }
+            : {}),
+        });
       const result = execution.result;
       const resourceLinks = projectToolResultResourceLinks(result);
       const resourceLinkContent = (result.content ?? []).filter(isResourceLinkContent);

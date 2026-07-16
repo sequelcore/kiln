@@ -80,10 +80,12 @@ describe("BashTool", () => {
   it("runs real bash commands through the detected exact executable path", async () => {
     const tempDir = await makeTempDir();
     try {
-      const processRunner = vi.fn(async () => ({
-        stdout: "ok\n",
-        stderr: "",
-      }));
+      const start = vi.fn((request, sink) => {
+        sink.output({ stream: "stdout", text: "ok\n" });
+        sink.finish({ exitCode: 0 });
+        return { pid: 42, completed: Promise.resolve({ exitCode: 0 }), stop: vi.fn(async () => {}) };
+      });
+      const processRunner = { start };
       const tool = new BashTool({
         environmentProvider: async () => ({
           bash: { path: "C:\\Program Files\\Git\\bin\\bash.exe", version: "GNU bash 5.2" },
@@ -99,13 +101,55 @@ describe("BashTool", () => {
       );
 
       expect(result.isError).toBe(false);
-      expect(processRunner).toHaveBeenCalledWith(
-        "C:\\Program Files\\Git\\bin\\bash.exe",
-        ["-c", "echo ok"],
-        tempDir,
-        5_000,
+      expect(start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          executable: "C:\\Program Files\\Git\\bin\\bash.exe",
+          args: ["-c", "echo ok"],
+          cwd: tempDir,
+          timeoutMs: 5_000,
+        }),
+        expect.any(Object),
       );
       expect(result.metadata?.["cwd"]).toBe(tempDir);
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("streams ordered stdout and stderr through the execution context while retaining terminal output", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const controller = new AbortController();
+      const start = vi.fn((request, sink) => {
+        sink.output({ stream: "stdout", text: "building\n" });
+        sink.output({ stream: "stderr", text: "warning\n" });
+        sink.output({ stream: "stdout", text: "done\n" });
+        sink.finish({ exitCode: 0 });
+        return { pid: 42, completed: Promise.resolve({ exitCode: 0 }), stop: vi.fn(async () => {}) };
+      });
+      const onOutput = vi.fn();
+      const tool = new BashTool({
+        environmentProvider: async () => ({ bash: { path: "bash", version: "test" } }),
+        processRunner: { start },
+      });
+
+      const result = await tool.execute(
+        { name: "bash", input: { command: "build" } },
+        makeSandbox(tempDir),
+        { abortSignal: controller.signal, onOutput },
+      );
+
+      expect(onOutput.mock.calls.map(([delta]) => delta)).toEqual([
+        { stream: "stdout", delta: "building\n" },
+        { stream: "stderr", delta: "warning\n" },
+        { stream: "stdout", delta: "done\n" },
+      ]);
+      expect(start).toHaveBeenCalledWith(
+        expect.objectContaining({ signal: controller.signal }),
+        expect.any(Object),
+      );
+      expect(result).toMatchObject({ isError: false, output: "building\ndone\nwarning" });
+      expect(result.metadata).toMatchObject({ status: "succeeded" });
     } finally {
       await removeTempDir(tempDir);
     }
@@ -114,10 +158,8 @@ describe("BashTool", () => {
   it("fails fast when no bash executable is available", async () => {
     const tempDir = await makeTempDir();
     try {
-      const processRunner = vi.fn(async () => ({
-        stdout: "should not run\n",
-        stderr: "",
-      }));
+      const start = vi.fn();
+      const processRunner = { start };
       const tool = new BashTool({
         environmentProvider: async () => ({}),
         processRunner,
@@ -133,7 +175,7 @@ describe("BashTool", () => {
       expect(result.isError).toBe(true);
       expect(result.output).toContain("bash executable is not available");
       expect(result.metadata?.["code"]).toBe("BASH_NOT_FOUND");
-      expect(processRunner).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
     } finally {
       await removeTempDir(tempDir);
     }
@@ -244,9 +286,9 @@ describe("BashTool", () => {
     });
 
     expect(result.isError).toBe(true);
-    expect(result.output).toContain("Command failed");
-    expect(result.output).toContain("sleep 1");
+    expect(result.output).toContain("bash command timed out");
     expect(result.metadata?.["timedOut"]).toBe(true);
+    expect(result.metadata?.["status"]).toBe("timed_out");
     expect(result.metadata?.["truncated"]).toBe(false);
     expect(result.metadata?.["signal"]).toBe("SIGTERM");
     expect(result.metadata?.["stdout"]).toBe("");

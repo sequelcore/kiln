@@ -23,6 +23,8 @@ interface ComposerActionProps {
   readonly planMode: boolean;
   readonly governedWorkItemCount: number | null;
   readonly canSubmit: boolean;
+  readonly turnActive?: boolean;
+  readonly cancelPending?: boolean;
   readonly fileButtonDisabled: boolean;
   readonly imageButtonDisabled: boolean;
   readonly voiceButtonDisabled: boolean;
@@ -34,6 +36,7 @@ interface ComposerActionProps {
   readonly onToggleVoiceCapture: () => void;
   readonly onAudioFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onImageFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onCancel?: () => void;
 }
 
 export function ComposerLeadingActions(props: ComposerActionProps) {
@@ -128,16 +131,32 @@ export function ComposerTrailingActions(props: ComposerActionProps) {
             {recording ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
           </InputGroupButton>
         </ComposerTooltip>
-        <Button
-          type="submit"
-          disabled={!props.canSubmit}
-          variant="default"
-          size="icon-sm"
-          aria-label="Send message"
-          className="rounded-lg"
-        >
-          <ArrowUp aria-hidden="true" />
-        </Button>
+        {props.turnActive ? (
+          <ComposerTooltip label={props.cancelPending ? "Cancelling response" : "Stop response"}>
+            <Button
+              type="button"
+              disabled={props.cancelPending}
+              variant="default"
+              size="icon-sm"
+              aria-label={props.cancelPending ? "Cancelling response" : "Stop response"}
+              className="rounded-lg"
+              onClick={props.onCancel}
+            >
+              <Square aria-hidden="true" />
+            </Button>
+          </ComposerTooltip>
+        ) : (
+          <Button
+            type="submit"
+            disabled={!props.canSubmit}
+            variant="default"
+            size="icon-sm"
+            aria-label="Send message"
+            className="rounded-lg"
+          >
+            <ArrowUp aria-hidden="true" />
+          </Button>
+        )}
       </div>
     </TooltipProvider>
   );

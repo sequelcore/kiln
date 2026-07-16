@@ -7684,4 +7684,70 @@ describe("resolveGuiProviderSwitch", () => {
     }
     expect(resolution.error).toContain("unknown");
   });
+
+  it("aborts the active turn and acknowledges operator cancellation", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({ port: port ?? 4810, stop })),
+    });
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      const signal = input.perCallConfig?.abortSignal;
+      if (!signal) throw new Error("Expected active turn abort signal.");
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      }
+      throw new Error("turn aborted");
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({}) as never,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      await waitForCondition(
+        () => gateway?.operatorModels?.openai?.includes(GPT4O) ?? false,
+        "Expected GUI provider models before cancellation test.",
+      );
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      const activeMessage = handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
+        wsCtx,
+      );
+      await waitForCondition(() => vi.mocked(processAdmittedTurn).mock.calls.length === 1, "Expected active GUI turn.");
+
+      await handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "turn_cancel", requestId: "cancel-1" }) }),
+        wsCtx,
+      );
+      await activeMessage;
+
+      const frames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string));
+      expect(frames).toContainEqual({
+        type: "turn_cancel_result",
+        requestId: "cancel-1",
+        status: "accepted",
+      });
+      expect(frames).not.toContainEqual(expect.objectContaining({ type: "error", message: "turn aborted" }));
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
 });

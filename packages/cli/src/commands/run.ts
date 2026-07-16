@@ -112,6 +112,7 @@ import {
 import {
   managedInvocationPersistedTranscriptEventDrafts,
   operatorTranscriptSourceForEntry,
+  projectGovernanceTranscriptEventDrafts,
   projectOperatorTranscriptEntryToDraft,
 } from "../application/operator-transcript-projection.js";
 import type { ContextArtifactCache } from "@kilnai/core";
@@ -1428,15 +1429,16 @@ export async function runCommand(
         ? entry.ts
         : new Date().toISOString();
       const eventId = randomUUID();
-      await transcriptStore.appendNext(
+      const draft = projectOperatorTranscriptEntryToDraft({
+        eventId,
+        kilnSessionId: sessionId,
+        timestamp,
+        event: entry.event,
+        source: operatorTranscriptSourceForEntry(entry.event, "cli", "run-command"),
+      });
+      await transcriptStore.appendManyNext(
         sessionId,
-        projectOperatorTranscriptEntryToDraft({
-          eventId,
-          kilnSessionId: sessionId,
-          timestamp,
-          event: entry.event,
-          source: operatorTranscriptSourceForEntry(entry.event, "cli", "run-command"),
-        }),
+        [draft, ...projectGovernanceTranscriptEventDrafts(draft)],
       );
     }
   } catch {

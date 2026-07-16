@@ -441,6 +441,7 @@ export type OperatorSessionEventKind =
   | "provider_routed"
   | "multimodal_routed"
   | "tool_call_started"
+  | "tool_call_output_delta"
   | "tool_call_completed"
   | "approval_requested"
   | "approval_resolved"
@@ -883,6 +884,60 @@ export interface GuiBrowserOperatorInputAckFrame {
   readonly handledAt: string;
 }
 
+export interface OperatorTerminalOpenFrame {
+  readonly type: "operator_terminal_open";
+  readonly requestId: string;
+  readonly cols: number;
+  readonly rows: number;
+  readonly cwd?: string;
+}
+
+export interface OperatorTerminalWriteFrame {
+  readonly type: "operator_terminal_write";
+  readonly terminalId: string;
+  readonly data: string;
+}
+
+export interface OperatorTerminalResizeFrame {
+  readonly type: "operator_terminal_resize";
+  readonly terminalId: string;
+  readonly cols: number;
+  readonly rows: number;
+}
+
+export interface OperatorTerminalCloseFrame {
+  readonly type: "operator_terminal_close";
+  readonly terminalId: string;
+}
+
+export interface OperatorTerminalOpenedFrame {
+  readonly type: "operator_terminal_opened";
+  readonly requestId: string;
+  readonly terminalId: string;
+  readonly cwd: string;
+}
+
+export interface OperatorTerminalOutputFrame {
+  readonly type: "operator_terminal_output";
+  readonly terminalId: string;
+  readonly data: string;
+}
+
+export interface OperatorTerminalExitedFrame {
+  readonly type: "operator_terminal_exited";
+  readonly terminalId: string;
+  readonly exitCode: number;
+  readonly signal?: number;
+}
+
+export interface OperatorTerminalErrorFrame {
+  readonly type: "operator_terminal_error";
+  readonly code: string;
+  readonly message: string;
+  readonly requestId?: string;
+  readonly terminalId?: string;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -904,6 +959,11 @@ export type GuiOutboundFrame =
       requestId: string;
       sourceMessageId: string;
     }
+  | {
+      type: "turn_cancel";
+      requestId: string;
+      reason?: string;
+    }
   | { type: "clear" }
   | { type: "refresh_providers" }
   | {
@@ -919,6 +979,10 @@ export type GuiOutboundFrame =
   | GuiBrowserSessionControlFrame
   | GuiManagedAgentControlFrame
   | GuiBrowserOperatorInputFrame
+  | OperatorTerminalOpenFrame
+  | OperatorTerminalWriteFrame
+  | OperatorTerminalResizeFrame
+  | OperatorTerminalCloseFrame
   | { type: "approve"; approvalId: string; gatewayTargetId?: string }
   | { type: "reject"; reason: string; approvalId: string; gatewayTargetId?: string }
   | {
@@ -933,6 +997,13 @@ export type GuiOutboundFrame =
 /** Frames sent by the gateway to the browser (operator). */
 export type GuiInboundFrame =
   | { type: "thinking" }
+  | {
+      type: "turn_cancel_result";
+      requestId: string;
+      status: "accepted" | "not_active" | "failed";
+      reason?: string;
+      kilnSessionId?: string;
+    }
   | OperatorThemeSetFrame
   | { type: "session_event"; event: OperatorSessionEvent }
   | OperatorActivityPhaseFrame
@@ -940,6 +1011,10 @@ export type GuiInboundFrame =
   | GuiBrowserSessionUpdatedFrame
   | GuiBrowserLiveViewportFrame
   | GuiBrowserOperatorInputAckFrame
+  | OperatorTerminalOpenedFrame
+  | OperatorTerminalOutputFrame
+  | OperatorTerminalExitedFrame
+  | OperatorTerminalErrorFrame
   | GuiManagedAgentControlResultFrame
   | GuiMemoryLatticeInvalidatedFrame
   | {
@@ -995,6 +1070,7 @@ export type GuiInboundFrame =
       workingDirectory?: string;
       domainLabel?: string;
       authorityStatus?: GuiAuthorityStatus;
+      operatorTerminalAvailable?: boolean;
     }
     | {
         type: "execution_mode_transitioned";

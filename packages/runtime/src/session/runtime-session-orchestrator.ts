@@ -51,8 +51,10 @@ import type {
   ToolExecutionSummary,
   EffectiveTurnAuthoritySnapshot,
 } from "./runtime-session-orchestrator.types.js";
+import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
 
 const MAX_IDENTICAL_INVALID_TOOL_ATTEMPTS = 2;
+const MAX_IDENTICAL_TOOL_EXECUTION_FAILURES = 2;
 const GOVERNED_WORK_ITEM_SETUP_TOOLS = new Set([
   "work_governance.assess",
   "work_profile.list",
@@ -251,6 +253,7 @@ export class RuntimeSessionOrchestrator {
     }
     const executionEnvelope = resolveExecutionEnvelope(perCallConfig?.executionEnvelope ?? this.executionEnvelope);
     const invalidToolCallAttempts = new Map<string, number>();
+    const toolExecutionFailureAttempts = new Map<string, number>();
     const toolExecutor = new RuntimeSessionToolExecutor(
       this.deps,
       this.deps.eventBus,
@@ -465,36 +468,11 @@ export class RuntimeSessionOrchestrator {
         });
         session.addUserMessage(repeatedInvalidResultParts);
 
-        const fallback = await requestRuntimeSessionFallbackResponse(
-          routing.effectiveProvider,
-          routing.invocationSystem,
+        return this.finalizeAfterRepeatedToolFailure({
           session,
-          this.deps.maxTokens,
+          routing,
           cachePartition,
-        );
-        const fallbackUsageTotals = this.telemetry.recordResponse(
-          session.id,
-          fallback.usage,
-          session.activeAgentId ?? undefined,
-          fallback.request,
-        );
-        const finalizedFallback = this.finalizeNoToolFallback({
-          session,
-          fallback,
-          failureMessage: formatNoToolFinalizationFailed(),
-          failureStopReason: RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-        });
-
-        return finalizeRuntimeSessionResponse({
-          deps: this.deps,
-          session,
-          parts: finalizedFallback.parts,
-          usage: fallback.usage,
-          usageTotals: fallbackUsageTotals,
-          providerRequests: this.telemetry.requestSnapshot(),
           toolExecutions,
-          stopReason: finalizedFallback.stopReason,
-          routingDecision: toPublicRoutingDecision(routing.routingDecision),
           preLlmEscalation: escalation,
         });
       }
@@ -539,12 +517,31 @@ export class RuntimeSessionOrchestrator {
         ...(blockedProjectedRoundCalls?.toolExecutions ?? []),
         ...(blockedGovernedWorkCalls?.toolExecutions ?? []),
       );
+      const repeatedExecutionFailure = this.detectRepeatedToolExecutionFailure(
+        execution.toolExecutions,
+        toolExecutionFailureAttempts,
+      );
+      const executionResultParts = repeatedExecutionFailure
+        ? execution.resultParts.map((part) => part.toolUseId === repeatedExecutionFailure.toolUseId
+          ? { ...part, content: `${part.content}\n\n${repeatedExecutionFailure.content}` }
+          : part)
+        : execution.resultParts;
       session.addUserMessage([
         ...(blockedTransitionOnlyCalls?.resultParts ?? []),
-        ...execution.resultParts,
+        ...executionResultParts,
         ...(blockedProjectedRoundCalls?.resultParts ?? []),
         ...(blockedGovernedWorkCalls?.resultParts ?? []),
       ]);
+      if (repeatedExecutionFailure) {
+        this.telemetry.emitError(session.id, repeatedExecutionFailure.content);
+        return this.finalizeAfterRepeatedToolFailure({
+          session,
+          routing,
+          cachePartition,
+          toolExecutions,
+          preLlmEscalation: escalation,
+        });
+      }
       const progressiveAdmission = admitProgressivelyMaterializedTools(
         projectedRoundTools,
         execution.toolExecutions,
@@ -676,6 +673,46 @@ export class RuntimeSessionOrchestrator {
     };
   }
 
+  private async finalizeAfterRepeatedToolFailure(input: {
+    readonly session: RuntimeSession;
+    readonly routing: RuntimeSessionRoutingResolution;
+    readonly cachePartition?: ProviderRequestCachePartitionInput;
+    readonly toolExecutions: readonly ToolExecutionSummary[];
+    readonly preLlmEscalation?: EscalationSignal;
+  }): Promise<OrchestrateResult> {
+    const fallback = await requestRuntimeSessionFallbackResponse(
+      input.routing.effectiveProvider,
+      input.routing.invocationSystem,
+      input.session,
+      this.deps.maxTokens,
+      input.cachePartition,
+    );
+    const fallbackUsageTotals = this.telemetry.recordResponse(
+      input.session.id,
+      fallback.usage,
+      input.session.activeAgentId ?? undefined,
+      fallback.request,
+    );
+    const finalizedFallback = this.finalizeNoToolFallback({
+      session: input.session,
+      fallback,
+      failureMessage: formatNoToolFinalizationFailed(),
+      failureStopReason: RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
+    });
+    return finalizeRuntimeSessionResponse({
+      deps: this.deps,
+      session: input.session,
+      parts: finalizedFallback.parts,
+      usage: fallback.usage,
+      usageTotals: fallbackUsageTotals,
+      providerRequests: this.telemetry.requestSnapshot(),
+      toolExecutions: input.toolExecutions,
+      stopReason: finalizedFallback.stopReason,
+      routingDecision: toPublicRoutingDecision(input.routing.routingDecision),
+      preLlmEscalation: input.preLlmEscalation,
+    });
+  }
+
   private detectPreLlmEscalation(userParts: readonly ContentPart[]) {
     if (!this.deps.escalationDetector) {
       return undefined;
@@ -747,6 +784,31 @@ export class RuntimeSessionOrchestrator {
       };
     }
 
+    return undefined;
+  }
+
+  private detectRepeatedToolExecutionFailure(
+    executions: readonly ToolExecutionSummary[],
+    attempts: Map<string, number>,
+  ): {
+    readonly toolUseId: string;
+    readonly content: string;
+  } | undefined {
+    for (const execution of executions) {
+      if (execution.success || !execution.toolCallId) continue;
+      const fingerprint = JSON.stringify({
+        toolName: execution.toolName,
+        input: execution.input,
+        resultSummary: execution.resultSummary,
+      });
+      const nextAttemptCount = (attempts.get(fingerprint) ?? 0) + 1;
+      attempts.set(fingerprint, nextAttemptCount);
+      if (nextAttemptCount < MAX_IDENTICAL_TOOL_EXECUTION_FAILURES) continue;
+      return {
+        toolUseId: execution.toolCallId,
+        content: `Repeated deterministic failure for tool "${execution.toolName}". Stop retrying this unchanged operation and report the blocking error.`,
+      };
+    }
     return undefined;
   }
 }

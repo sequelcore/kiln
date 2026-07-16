@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store.js";
@@ -10,6 +10,7 @@ const sendMock = vi.fn();
 let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open";
 const commandPalettePropsLog: Array<{ open: boolean }> = [];
 const dashboardRefetchMock = vi.fn();
+let appShellFrameInput: { onOperatorTerminalAvailability: (available: boolean) => void } | null = null;
 const dashboardData = {
   providers: [],
   sessions: [],
@@ -107,6 +108,25 @@ vi.mock("../src/lib/use-gui-ws.js", () => ({
     state: wsState,
     send: sendMock,
   }),
+}));
+
+vi.mock("../src/components/app-shell-frame-handler.js", () => ({
+  createAppShellFrameHandler: (input: { onOperatorTerminalAvailability: (available: boolean) => void }) => {
+    appShellFrameInput = input;
+    return vi.fn();
+  },
+}));
+
+vi.mock("../src/components/operator-terminal-dock.js", () => ({
+  OPERATOR_TERMINAL_PANEL_ID: "operator-terminal-panel",
+  OperatorTerminalDock: ({ expanded }: { expanded: boolean }) => (
+    <section
+      id="operator-terminal-panel"
+      aria-label="Operator terminal"
+      data-expanded={String(expanded)}
+      hidden={!expanded}
+    />
+  ),
 }));
 
 vi.mock("../src/lib/wait-for-gateway.js", () => ({
@@ -294,6 +314,7 @@ describe("AppShell command palette and telemetry regressions", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     wsState = "open";
+    appShellFrameInput = null;
     commandPalettePropsLog.length = 0;
     installMatchMedia(false);
     resetStore();
@@ -346,6 +367,27 @@ describe("AppShell command palette and telemetry regressions", () => {
     await waitFor(() => {
       expect(latestPaletteProps()?.open).toBe(true);
     });
+  });
+
+  it("toggles one persistent terminal panel across workbench surfaces with Ctrl+`", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(appShellFrameInput).not.toBeNull();
+    });
+    act(() => appShellFrameInput?.onOperatorTerminalAvailability(true));
+
+    const openTerminal = await screen.findByRole("button", { name: "Open terminal" });
+    fireEvent.keyDown(window, { key: "`", code: "Backquote", ctrlKey: true });
+    expect(openTerminal).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Operator terminal")).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    expect(screen.getByLabelText("Operator terminal")).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.keyDown(window, { key: "`", code: "Backquote", ctrlKey: true });
+    expect(screen.getByRole("button", { name: "Open terminal" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("Operator terminal")).not.toBeVisible();
   });
 
   it("keeps composer-triggered commands out of the global palette", async () => {

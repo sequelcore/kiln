@@ -176,8 +176,8 @@ Governed execution uses explicit goal and work-item contracts:
   with `suggestedNextTool: "goal.create"` instead of accepting an invented id.
   A started attempt is not closeout by itself; while the item remains
   `in_progress`, the latest governed turn is projected as failed/blocked until
-  `work_item.execution.finish` or `work_item.complete` records terminal
-  evidence.
+  `work_item.execution.finish` records terminal evidence. `work_item.complete`
+  is reserved for standalone work and rejects goal-owned items.
 - `work_item.execution.finish` closes the attempt and fails closed when
   evidence, verification gates, goal evidence, or residual-risk closeout is
   missing.
@@ -217,8 +217,8 @@ contract. If `executionPhase.completionTool` is `work_item.update`, the managed
 child is producing intermediate evidence only; record that phase's
 `expectedEvidence` on the same pending item and call
 `work_item.execution.start` again for the next phase. Do not call
-`work_item.execution.finish` or `work_item.complete` until the generated phase
-is final. If `executionPhase.completionTool` is `work_item.execution.finish`,
+`work_item.execution.finish` until the generated phase is final. If
+`executionPhase.completionTool` is `work_item.execution.finish`,
 link the returned managed invocation id with `work_item.execution.start` and
 then finish the attempt with the final evidence, checks, and residual risk.
 If a managed child fails before starting an intermediate phase but the parent
@@ -1328,12 +1328,67 @@ Tool execution emits two families of events.
 | Event | Key fields |
 |-------|------------|
 | `tool_called` | `toolName`, `toolInput`, `resolvedEffect`, `authority`, `authorizationLevel`, `taskId` |
+| `tool_output` | `toolCallId`, `toolName`, `stream`, `delta`, `chunkIndex` |
 | `tool_authorized` | `toolName`, `level`, `allowed`, `reason` |
 | `tool_result` | `toolName`, `durationMs`, `success`, `isError`, `retryAttempt`, `resultSummary` |
 
 ### Conversation events
 
 Gateway-side runtime sessions also emit `TOOL_EXECUTED` for downstream product integrations.
+
+### Command output lifecycle
+
+Foreground command tools use the shared spawned-process runner also used by
+background monitors. The foreground execution retains a bounded terminal result
+while emitting bounded, ordered output deltas. Runtime owns correlation and adds
+the canonical `toolCallId` plus a monotonic `chunkIndex`; surfaces must fold
+those deltas into the existing tool execution rather than create transcript
+rows for individual chunks.
+
+The attended operator lifecycle is `tool_call_started`, zero or more live
+`tool_call_output_delta` frames, then exactly one durable
+`tool_call_completed` event. Incremental chunks are deliberately not persisted;
+the bounded terminal result remains the durable evidence.
+The same turn abort signal terminates the foreground process tree. Background
+monitors remain session-owned and are not cancelled with an individual turn.
+
+GUI uses the source-owned AI Elements terminal presentation for the bounded
+operator log. TUI updates the matching tool node by `toolCallId`, and CLI writes
+live command output to stderr so answer and JSON stdout remain machine-clean.
+This output presentation is read-only; an interactive operator terminal is a
+separate PTY capability with independent input, resize, and lifecycle authority.
+
+### Interactive operator terminal
+
+The local GUI launcher creates an ephemeral terminal capability and passes it
+in the GUI URL fragment. The fragment is projected into the WebSocket query by
+the loaded GUI, but is not sent in the initial HTTP request. Only a connection
+holding that capability may open a PTY. Each PTY is then owned by that specific
+WebSocket connection and is terminated when the operator closes it, the socket
+disconnects, or the gateway shuts down.
+
+The runtime terminal service uses Bun's platform PTY primitive (ConPTY on
+Windows and `openpty()` on Linux/macOS) and enforces these invariants:
+
+- the canonical working directory is the project workspace or a real directory
+  beneath it; traversal and symlink escapes fail closed
+- input and resize requests are bounded and validated at the gateway and service
+  boundaries
+- output is live and bounded per frame; it is not persisted in the session
+  ledger or supplied to the model
+- PTYs inherit the local launcher process authority, never the selected turn or
+  agent authority
+- a terminal ID is scoped to its owning connection; another connection receives
+  the same not-found response as an unknown ID
+
+GUI renders the bidirectional stream with xterm.js and forwards resize events to
+the PTY. Its workbench panel is persistent across GUI surfaces, defaults closed,
+and stores only the operator's preferred panel height per workspace. On narrow
+layouts the same PTY occupies the workbench surface rather than opening a second
+terminal implementation. CLI and TUI already run inside a native terminal, so
+operator shell use remains native to their host rather than being projected as
+transcript events. The runtime service and gateway frame vocabulary remain
+surface-neutral for future native and IDE consumers.
 
 ---
 

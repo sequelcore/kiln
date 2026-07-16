@@ -16,6 +16,7 @@ export interface RunOutputSink {
   writeAssistantDelta(content: string): void;
   resetAssistantAnswer(answer: string): void;
   writeToolUse(toolName: string): void;
+  writeToolOutputDelta(content: string): void;
   writeProviderFallback(providerId: string): void;
 }
 
@@ -97,6 +98,9 @@ export function createRunOutputController(mode: RunOutputMode): RunOutputControl
         writeNonHumanTelemetry(line);
       }
     },
+    writeToolOutputDelta(content: string): void {
+      process.stderr.write(content);
+    },
     writeProviderFallback(providerId: string): void {
       const line = `[kiln] Provider ${providerId} failed, trying next...`;
       if (mode === "human") {
@@ -139,6 +143,9 @@ export function createNonHumanRunOutputSink(mode: Exclude<RunOutputMode, "human"
     resetAssistantAnswer(): void {},
     writeToolUse(toolName: string): void {
       writeNonHumanTelemetry(`[tool] ${toolName}`);
+    },
+    writeToolOutputDelta(content: string): void {
+      process.stderr.write(content);
     },
     writeProviderFallback(providerId: string): void {
       writeNonHumanTelemetry(`[kiln] Provider ${providerId} failed, trying next...`);

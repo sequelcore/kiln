@@ -975,14 +975,13 @@ projected through `work_item_execution_started` and
 `work_item_execution_finished` events and through
 `kiln://session/work-items`, so replay and operator surfaces can connect child
 evidence to the parent work item without parsing prose. A started attempt is
-still open work: until `work_item.execution.finish` or `work_item.complete`
-records terminal evidence, the parent turn is projected as failed/blocked
-rather than completed.
+still open work: until `work_item.execution.finish` records terminal evidence,
+the parent turn is projected as failed/blocked rather than completed.
 Similarly, a successful read-only `managed_agent.invoke` scout does not close
 the parent work item by itself. Execute-mode parent turns receive runtime
 closeout guidance that requires them to continue on the same work item after the
-child handoff, either by starting/finishing/completing the item or by recording a
-concrete pause requirement.
+child handoff, either by starting/finishing the goal-owned item or by recording
+a concrete pause requirement.
 If the managed child fails before the work-item attempt can start, or the
 managed invocation request cannot be hydrated to a configured route/provider,
 the runtime returns the work item to an explicit paused result. The result

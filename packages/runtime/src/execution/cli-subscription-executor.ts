@@ -74,6 +74,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
         system: options.system,
         messages: options.messages,
         reasoningEffort: options.reasoningEffort,
+        ...(options.signal ? { abortSignal: options.signal } : {}),
         ...(options.executionContext?.executionScope ? { executionScope: options.executionContext.executionScope } : {}),
       })) {
         const scopedEvent = options.executionContext?.executionScope && !event.executionScope

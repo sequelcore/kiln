@@ -39,6 +39,8 @@ export interface WorkflowWorkItemActivity {
 
 export interface WorkflowGoalActivity {
   readonly goal: ToolResultGoalPresentation;
+  readonly status: ToolResultTaskStatus;
+  readonly statusReason?: string;
   readonly workItems: readonly WorkflowWorkItemActivity[];
   readonly toolCalls: readonly WorkflowToolCallActivity[];
   readonly firstSequence: number;
@@ -248,6 +250,21 @@ function freezeToolCall(tool: MutableToolCall): WorkflowToolCallActivity {
   };
 }
 
+function projectedGoalStatus(
+  goal: ToolResultGoalPresentation,
+  workItems: readonly WorkflowWorkItemActivity[],
+): Pick<WorkflowGoalActivity, "status" | "statusReason"> {
+  const status = normalizeStatus(goal.status);
+  if (
+    status === "in_progress"
+    && workItems.length > 0
+    && workItems.every((entry) => normalizeStatus(entry.item.status) === "completed")
+  ) {
+    return { status: "blocked", statusReason: "Goal closeout is missing" };
+  }
+  return { status };
+}
+
 export function projectWorkflowActivity(
   sourceEvents: readonly OperatorSessionEvent[],
 ): WorkflowActivityProjection {
@@ -435,6 +452,7 @@ export function projectWorkflowActivity(
       const sequences = projectedItems.flatMap((item) => [item.firstSequence, item.lastSequence]);
       return {
         goal: goal.goal,
+        ...projectedGoalStatus(goal.goal, projectedItems),
         workItems: projectedItems,
         toolCalls: goal.toolCallIds.flatMap((id) => tools.get(id) ? [freezeToolCall(tools.get(id)!)] : []),
         firstSequence: Math.min(goal.firstSequence, ...sequences),

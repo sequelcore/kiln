@@ -2,7 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 import { Transcript } from "../src/components/transcript.js";
 import type { Message, TimelineEntry } from "../src/lib/session-store.js";
-import type { WorkflowActivityProjection } from "@kilnai/gateway-contracts";
+import {
+  projectWorkflowActivity,
+  type OperatorSessionEvent,
+  type WorkflowActivityProjection,
+} from "@kilnai/gateway-contracts";
 
 function message(id: string, role: Message["role"], content: string, streaming = false): Message {
   return {
@@ -24,52 +28,81 @@ function messageEntry(id: string, role: Message["role"], content: string, stream
   };
 }
 
+function workflowEvent(
+  sequence: number,
+  kind: OperatorSessionEvent["kind"],
+  payload: Record<string, unknown>,
+  executionScope?: OperatorSessionEvent["executionScope"],
+): OperatorSessionEvent {
+  return {
+    eventId: `workflow-${sequence}`,
+    kilnSessionId: "session-1",
+    sequence,
+    timestamp: `2026-07-15T18:00:0${sequence}.000Z`,
+    kind,
+    turnId: "turn-1",
+    source: { actor: "tool", surface: "gui" },
+    payload,
+    ...(executionScope ? { executionScope } : {}),
+  };
+}
+
 describe("Transcript", () => {
   it("renders one identity-stable workflow container instead of repeated lifecycle rows", () => {
-    const workflowActivity: WorkflowActivityProjection = {
-      goals: [{
-        goal: {
-          id: "goal-1",
-          objective: "Inspect the GUI",
-          status: "active",
-          workItemIds: ["work-1"],
-          evidenceRequirements: [],
-        },
-        workItems: [{
-          item: {
-            id: "work-1",
-            summary: "Inspect transcript ownership",
-            status: "completed",
-            workflowProfile: "verification-heavy",
-            risk: "low",
-            surface: "gui",
-            evidence: [
-              { label: "surface-map", status: "completed" },
-              { label: "tests", status: "completed" },
-            ],
-            nextTools: [],
-            pauseRequirements: [],
+    const workItem = (status: "pending" | "completed", providedEvidence: readonly string[]) => ({
+      id: "work-1",
+      summary: "Inspect transcript ownership",
+      status,
+      workflowProfile: "verification-heavy",
+      risk: "low",
+      surface: "gui",
+      expectedEvidence: ["surface-map", "tests"],
+      providedEvidence,
+      pauseRequirements: [],
+      executionAttempts: [],
+    });
+    const scope = { kind: "work_item", goalRunId: "goal-1", workItemId: "work-1" } as const;
+    const workflowActivity = projectWorkflowActivity([
+      workflowEvent(1, "tool_call_completed", {
+        toolCallId: "work-update-1",
+        toolName: "work_item.update",
+        metadata: { kind: "work_item", operation: "update", item: workItem("pending", []) },
+        status: { state: "succeeded" },
+      }),
+      workflowEvent(2, "tool_call_completed", {
+        toolCallId: "goal-create-1",
+        toolName: "goal.create",
+        metadata: {
+          kind: "goal",
+          operation: "create",
+          goal: {
+            id: "goal-1",
+            objective: "Inspect the GUI",
+            status: "active",
+            workItemIds: ["work-1"],
+            evidenceRequirements: [],
           },
-          attempts: [],
-          toolCalls: [{
-            toolCallId: "read-1",
-            toolName: "read",
-            state: "completed",
-            summary: "Read transcript.tsx",
-            firstSequence: 3,
-            lastSequence: 4,
-          }],
-          firstSequence: 1,
-          lastSequence: 5,
-        }],
-        toolCalls: [],
-        firstSequence: 1,
-        lastSequence: 5,
-      }],
-      standaloneWorkItems: [],
-      unscopedToolCalls: [],
-      consumedEventIds: ["work-update-1", "work-update-2", "read-start", "read-complete"],
-    };
+        },
+        status: { state: "succeeded" },
+      }),
+      workflowEvent(3, "tool_call_started", { toolCallId: "read-1", toolName: "read" }, scope),
+      workflowEvent(4, "tool_call_completed", {
+        toolCallId: "read-1",
+        toolName: "read",
+        outputSummary: "Read transcript.tsx",
+        status: { state: "succeeded" },
+      }, scope),
+      workflowEvent(5, "tool_call_completed", {
+        toolCallId: "work-update-2",
+        toolName: "work_item.update",
+        metadata: {
+          kind: "work_item",
+          operation: "update",
+          item: workItem("completed", ["surface-map", "tests"]),
+        },
+        status: { state: "succeeded" },
+      }),
+    ]);
     const lifecycleEntries: TimelineEntry[] = workflowActivity.consumedEventIds.map((eventId, index) => ({
       id: `timeline:${eventId}`,
       type: "event",
@@ -85,7 +118,8 @@ describe("Transcript", () => {
 
     expect(document.querySelectorAll('[data-role="workflow-activity"]')).toHaveLength(1);
     expect(document.querySelectorAll('[data-role="tool-event"]')).toHaveLength(0);
-    expect(screen.getByRole("button", { name: /Inspect the GUI\. In progress\. 1 of 1 work items completed/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Inspect the GUI\. Blocked\. 1 of 1 work items completed\. Goal closeout is missing/u })).toBeVisible();
+    expect(document.querySelector('[data-role="workflow-activity"] [class*="animate-spin"]')).not.toBeInTheDocument();
     expect(screen.getByText("Inspect transcript ownership")).toBeVisible();
     expect(screen.getByText("2 / 2")).toBeVisible();
     const scopedActions = screen.getByRole("button", { name: "1 action. Show actions" });
@@ -1853,6 +1887,32 @@ describe("Transcript", () => {
     expect(screen.queryByText("Using patch")).not.toBeInTheDocument();
     expect(rows[1]).toHaveTextContent("Completed patch");
     expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
+  });
+
+  it("renders streamed command output inside the existing running tool card", () => {
+    render(
+      <Transcript
+        entries={[{
+          id: "timeline:event:command-started",
+          type: "event",
+          eventKind: "tool_call_started",
+          createdAt: new Date().toISOString(),
+          title: "Using bash",
+          summary: "Execution in progress",
+          tone: "running",
+          details: {
+            toolCallId: "command-1",
+            toolName: "bash",
+            input: { command: "bun test" },
+            liveOutput: "RUN tests\n✓ passed\n",
+          },
+        }]}
+      />,
+    );
+
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByRole("log", { name: "Command output" })).toHaveTextContent("RUN tests");
+    expect(screen.getByRole("button", { name: "Copy output" })).toBeInTheDocument();
   });
 
   it("does not duplicate the responding state when an assistant message is already streaming", () => {

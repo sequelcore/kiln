@@ -155,6 +155,7 @@ export interface CommandToolResultMetadata<TToolName extends CommandToolName = C
   readonly code?: number | string;
   readonly signal?: NodeJS.Signals;
   readonly timedOut?: boolean;
+  readonly status?: "succeeded" | "failed" | "cancelled" | "timed_out";
   readonly truncated?: boolean;
   readonly maxBufferBytes?: number;
   readonly durationMs?: number;
@@ -444,6 +445,7 @@ export interface WorkItemToolResultMetadata<TToolName extends WorkItemToolName =
   readonly id?: string;
   readonly status?: WorkItemStatus;
   readonly item?: WorkItem;
+  readonly goal?: GoalRun;
   readonly attempt?: WorkItemExecutionAttempt;
   readonly items?: readonly WorkItem[];
   readonly itemCount?: number;

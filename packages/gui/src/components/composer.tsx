@@ -29,6 +29,8 @@ interface ComposerProps {
   readonly commandMenu: ComposerCommandMenuState;
   readonly onSubmit: (text: string) => void;
   readonly onSubmitParts?: (parts: readonly unknown[], displayContent: string) => void;
+  readonly onCancel: () => void;
+  readonly cancelPending?: boolean;
   readonly onTogglePlanMode: (enabled: boolean) => void;
   readonly onGovernedWorkItemCountChange: (count: number | null) => void;
 }
@@ -274,6 +276,9 @@ export function Composer(props: ComposerProps) {
           planMode={props.planMode}
           governedWorkItemCount={props.governedWorkItemCount}
           canSubmit={canSubmit}
+          turnActive={props.status === "running"}
+          cancelPending={props.cancelPending === true}
+          onCancel={props.onCancel}
           fileButtonDisabled={fileButtonDisabled}
           imageButtonDisabled={imageButtonDisabled}
           voiceButtonDisabled={voiceButtonDisabled}

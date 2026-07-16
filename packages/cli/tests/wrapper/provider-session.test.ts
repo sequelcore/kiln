@@ -1627,6 +1627,25 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
   });
 
+  it("passes abortSignal to a direct provider adapter", async () => {
+    adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+    const abortController = new AbortController();
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+    }));
+
+    await collectEvents(session.run({
+      prompt: "abort-aware provider call",
+      abortSignal: abortController.signal,
+    }));
+
+    expect(adapterMocks.openai.stream).toHaveBeenCalledWith(expect.objectContaining({
+      signal: abortController.signal,
+    }));
+  });
+
   it("resolves API key from options.env before config.env and process.env", async () => {
     process.env.OPENAI_API_KEY = "process-key";
     adapterMocks.openai.stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));

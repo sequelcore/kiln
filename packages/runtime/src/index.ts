@@ -6,6 +6,18 @@ export type { StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startDevServer } from "./gateway/gateway-server.js";
 export type { DevServerOptions } from "./gateway/gateway-server.js";
 export { startGuiGateway } from "./gateway/gui-gateway.js";
+export { BunPtyAdapter } from "./operator-terminal/bun-pty-adapter.js";
+export {
+  OperatorTerminalError,
+  OperatorTerminalService,
+} from "./operator-terminal/operator-terminal-service.js";
+export type {
+  OperatorPtyAdapter,
+  OperatorPtyProcess,
+  OperatorPtySpawnInput,
+  OperatorTerminalEvent,
+  OperatorTerminalServiceOptions,
+} from "./operator-terminal/operator-terminal-service.js";
 export {
   buildGuiOperatorDiscoveryResults,
   buildWelcomeProviderDescriptors,

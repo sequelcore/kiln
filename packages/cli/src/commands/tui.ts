@@ -106,6 +106,7 @@ import {
   managedInvocationPersistedTranscriptEventDrafts,
   operatorTranscriptKindForType,
   operatorTranscriptSourceForType,
+  projectGovernanceTranscriptEventDrafts,
 } from "../application/operator-transcript-projection.js";
 import type {
   CliSessionFactoryContext,
@@ -695,16 +696,21 @@ export async function makeMultiProviderSessionFactory(
                   ...(event.isError !== undefined ? { isError: event.isError } : {}),
               });
               toolCompletions.push(toolCompletionFromPayload(toolResultPayload));
-              await appendTranscriptEvent(
-                toPersistedTranscriptEvent(
-                  capturedId,
-                  0,
-                  "tool_result",
-                  toolResultPayload,
-                  transcriptSurface,
-                  turnId,
-                  options.executionScope,
-                ),
+              const persistedToolResult = toPersistedTranscriptEvent(
+                capturedId,
+                0,
+                "tool_result",
+                toolResultPayload,
+                transcriptSurface,
+                turnId,
+                options.executionScope,
+              );
+              await transcriptStore.appendManyNext(
+                capturedId,
+                [
+                  persistedToolResult,
+                  ...projectGovernanceTranscriptEventDrafts(persistedToolResult),
+                ],
               );
             } else if (event.type === "error") {
               turnIsError = true;
@@ -773,9 +779,11 @@ export async function makeMultiProviderSessionFactory(
               }, turnId),
             );
           }
-          const lastTurnOutcome = turnIsError || deriveGovernedTurnOutcomeFromToolRecords(toolCompletions) === "failed"
-            ? "failed"
-            : "completed";
+          const lastTurnOutcome = options.abortSignal?.aborted
+            ? "cancelled"
+            : turnIsError || deriveGovernedTurnOutcomeFromToolRecords(toolCompletions) === "failed"
+              ? "failed"
+              : "completed";
           await appendTranscriptEvent(
             persistedEvent(capturedId, 0, "turn_completed", source("runtime"), {
               turnId,

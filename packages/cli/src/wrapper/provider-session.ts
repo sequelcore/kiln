@@ -16,6 +16,7 @@ import {
   type DirectProviderId,
   type ExecutionSessionEvent,
   type ToolCalledEvent,
+  type ToolOutputEvent,
   type ResolvedDirectProviderExecutionProfile,
   type ToolDefinition,
   type ToolResultEvent,
@@ -161,6 +162,18 @@ function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<ExecutionSess
     type: "tool_use",
     toolName: event.toolName,
     input: event.toolInput ?? {},
+    toolCallId: event.toolCallId,
+  };
+}
+
+function toolOutputToSessionEvent(event: ToolOutputEvent): Extract<ExecutionSessionEvent, { type: "tool_output_delta" }> {
+  return {
+    type: "tool_output_delta",
+    toolCallId: event.toolCallId,
+    toolName: event.toolName,
+    stream: event.stream,
+    delta: event.delta,
+    chunkIndex: event.chunkIndex,
   };
 }
 
@@ -168,6 +181,7 @@ function toolResultToSessionEvent(event: ToolResultEvent): Extract<ExecutionSess
   const output = event.output ?? event.resultSummary ?? "";
   return {
     type: "tool_result",
+    toolCallId: event.toolCallId,
     toolName: event.toolName,
     output,
     ...(event.resultSummary !== undefined && event.resultSummary !== output ? { outputSummary: event.resultSummary } : {}),
@@ -432,6 +446,7 @@ export class ProviderSession implements IKilnSession {
       system: systemPrompt,
       messages,
       reasoningEffort: options.reasoningEffort ?? this.config.reasoningEffort,
+      ...(options.abortSignal ? { signal: options.abortSignal } : {}),
     })) {
       if (options.abortSignal?.aborted) {
         isError = true;
@@ -659,8 +674,13 @@ export class ProviderSession implements IKilnSession {
       if (event.sessionId !== cliSession.id) return;
       enqueueLiveToolEvent(toolResultToSessionEvent(event));
     };
+    const onToolOutput = (event: ToolOutputEvent) => {
+      if (event.sessionId !== cliSession.id) return;
+      enqueueLiveToolEvent(toolOutputToSessionEvent(event));
+    };
 
     this.eventBus.on("tool_called", onToolCalled);
+    this.eventBus.on("tool_output", onToolOutput);
     this.eventBus.on("tool_result", onToolResult);
 
     let result: OrchestrateResult | undefined;
@@ -696,6 +716,7 @@ export class ProviderSession implements IKilnSession {
       await processPromise;
     } finally {
       this.eventBus.off("tool_called", onToolCalled);
+      this.eventBus.off("tool_output", onToolOutput);
       this.eventBus.off("tool_result", onToolResult);
     }
 

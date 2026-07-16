@@ -51,12 +51,14 @@ describe("runSession output routing", () => {
       writeAssistantDelta: vi.fn(),
       resetAssistantAnswer: vi.fn(),
       writeToolUse: vi.fn(),
+      writeToolOutputDelta: vi.fn(),
       writeProviderFallback: vi.fn(),
     };
     const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((() => true) as never);
     const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Read", input: { path: "README.md" } },
+      { type: "tool_output_delta", toolCallId: "read-1", toolName: "Read", stream: "stdout", delta: "reading\n", chunkIndex: 0 },
       { type: "tool_result", toolName: "Read", output: "ok" },
       { type: "text_delta", content: "Only four bullets.\n" },
       { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
@@ -90,6 +92,7 @@ describe("runSession output routing", () => {
     expect(result.accumulatedText).toBe("Only four bullets.\n");
     expect(output.writeAssistantDelta).toHaveBeenCalledWith("Only four bullets.\n");
     expect(output.writeToolUse).toHaveBeenCalledWith("Read");
+    expect(output.writeToolOutputDelta).toHaveBeenCalledWith("reading\n");
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
   });
@@ -100,6 +103,7 @@ describe("runSession output routing", () => {
       writeAssistantDelta: vi.fn(),
       resetAssistantAnswer: vi.fn(),
       writeToolUse: vi.fn(),
+      writeToolOutputDelta: vi.fn(),
       writeProviderFallback: vi.fn(),
     };
     const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((() => true) as never);
@@ -146,6 +150,7 @@ describe("runSession output routing", () => {
       writeAssistantDelta: vi.fn(),
       resetAssistantAnswer: vi.fn(),
       writeToolUse: vi.fn(),
+      writeToolOutputDelta: vi.fn(),
       writeProviderFallback: vi.fn(),
     };
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});

@@ -32,6 +32,8 @@ describe("work-governance-context", () => {
     expect(candidate?.content).toContain("Use work_profile.list and work_item.update/list/complete only after formal governed work is required");
     expect(candidate?.content).toContain("Choose a stable work item id before the first work_item.update call");
     expect(candidate?.content).toContain("never use a temporary provenance id such as pending");
+    expect(candidate?.content).toContain("work_item.complete is only for standalone work items");
+    expect(candidate?.content).toContain("owning goal reaches a canonical terminal state");
     expect(candidate?.content).toContain("exact managedInvocationRequest object");
     expect(candidate?.content).toContain("do not add agentProfile when it is absent");
     expect(candidate?.content).toContain("executionPhase is intermediate");

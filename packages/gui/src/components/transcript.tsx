@@ -17,7 +17,7 @@ import {
   type WorkflowToolCallActivity,
   type WorkflowWorkItemActivity,
 } from "@kilnai/gateway-contracts";
-import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
 import type { TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
 import { MarkdownMessageContent, MessageRow } from "./message-row.js";
@@ -26,6 +26,7 @@ import { TranscriptSurface } from "./transcript-surface.js";
 import { Task, TaskContent, TaskItem, TaskTrigger, type TaskStatus } from "@/components/ai-elements/task";
 import { Tool, ToolContent, ToolHeader, type ToolState } from "@/components/ai-elements/tool";
 import { ToolGroup, ToolGroupItem } from "@/components/ai-elements/tool-group";
+import { Terminal as OutputTerminal } from "@/components/ai-elements/terminal";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -866,18 +867,28 @@ function ToolEventDetails(props: {
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   const presentationDetails = filterTranscriptToolDetails(props.entry.presentationDetails ?? []);
+  const details = asRecord(props.entry.details);
+  const liveOutput = readString(details?.liveOutput);
+  const terminal = liveOutput ? (
+    <OutputTerminal
+      aria-label="Live command output"
+      className="mt-3"
+      isStreaming={props.entry.tone === "running"}
+      output={liveOutput}
+    />
+  ) : null;
   if (props.entry.toolPresentation) {
     return (
       <>
         <MetaList items={presentationDetails} />
+        {terminal}
         <ToolResultPresentationDetails entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
       </>
     );
   }
   if (presentationDetails.length > 0) {
-    return <MetaList items={presentationDetails} />;
+    return <><MetaList items={presentationDetails} />{terminal}</>;
   }
-  const details = asRecord(props.entry.details);
   if (!details) return null;
   const input = asRecord(details.input) ?? details;
   const items: { label: string; value: string }[] = [];
@@ -893,7 +904,7 @@ function ToolEventDetails(props: {
       items.push({ label: key, value: formatted });
     }
   }
-  return <MetaList items={items} />;
+  return <><MetaList items={items} />{terminal}</>;
 }
 
 function filterTranscriptToolDetails(
@@ -1056,7 +1067,7 @@ function isToolEvent(entry: TimelineEventEntry): boolean {
 
 function eventIcon(entry: TimelineEventEntry) {
   return {
-    info: Terminal,
+    info: TerminalIcon,
     running: LoaderCircle,
     success: CheckCircle2,
     warning: CircleAlert,
@@ -1582,10 +1593,10 @@ function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
   const goal = props.item.goal;
   const workItems = goal?.workItems ?? (props.item.workItem ? [props.item.workItem] : []);
   const title = goal?.goal.objective ?? props.item.workItem?.item.summary ?? "Governed work";
-  const status = workflowStatus(goal?.goal.status ?? props.item.workItem?.item.status ?? "pending");
+  const status = goal?.status ?? workflowStatus(props.item.workItem?.item.status ?? "pending");
   const completed = workItems.filter((entry) => workflowStatus(entry.item.status) === "completed").length;
   const description = goal
-    ? `${completed} of ${workItems.length} work items completed`
+    ? `${completed} of ${workItems.length} work items completed${goal.statusReason ? `. ${goal.statusReason}` : ""}`
     : props.item.workItem?.item.id;
   return (
     <TranscriptSurface kind="workflow" className="max-w-[min(44rem,90%)]">
@@ -1749,7 +1760,10 @@ function projectTranscriptItems(
 }
 
 function shouldAutoOpenToolEventDetails(entry: TimelineEventEntry): boolean {
-  return entry.eventKind === "tool_call_completed" && entry.tone === "error";
+  if (entry.eventKind === "tool_call_completed" && entry.tone === "error") return true;
+  const details = asRecord(entry.details);
+  const input = asRecord(details?.input);
+  return entry.eventKind === "tool_call_started" && typeof input?.command === "string";
 }
 
 function renderTranscriptEntries(

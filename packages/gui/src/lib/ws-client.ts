@@ -32,8 +32,35 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     requestId: z.string().trim().min(1),
     sourceMessageId: z.string().trim().min(1),
   }),
+  z.object({
+    type: z.literal("turn_cancel"),
+    requestId: z.string().trim().min(1),
+    reason: z.string().trim().min(1).optional(),
+  }),
   z.object({ type: z.literal("clear") }),
   z.object({ type: z.literal("refresh_providers") }),
+  z.object({
+    type: z.literal("operator_terminal_open"),
+    requestId: z.string().trim().min(1),
+    cols: z.number().int().min(2).max(500),
+    rows: z.number().int().min(1).max(200),
+    cwd: z.string().trim().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_write"),
+    terminalId: z.string().trim().min(1),
+    data: z.string().max(65_536),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_resize"),
+    terminalId: z.string().trim().min(1),
+    cols: z.number().int().min(2).max(500),
+    rows: z.number().int().min(1).max(200),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_close"),
+    terminalId: z.string().trim().min(1),
+  }),
   z.object({
     type: z.literal("provider_auth"),
     provider: z.string(),
@@ -415,6 +442,7 @@ const GuiSessionEventSchema = z.object({
     "provider_routed",
     "multimodal_routed",
     "tool_call_started",
+    "tool_call_output_delta",
     "tool_call_completed",
     "approval_requested",
     "approval_resolved",
@@ -474,6 +502,13 @@ const GuiSessionEventSchema = z.object({
 const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thinking") }),
   z.object({
+    type: z.literal("turn_cancel_result"),
+    requestId: z.string().trim().min(1),
+    status: z.enum(["accepted", "not_active", "failed"]),
+    reason: z.string().optional(),
+    kilnSessionId: z.string().optional(),
+  }),
+  z.object({
     type: z.literal("operator_theme_set"),
     requestId: z.string().trim().min(1),
     theme: z.string().trim().min(1),
@@ -520,6 +555,30 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     status: z.enum(["accepted", "blocked", "failed", "stale-session"]),
     reason: z.string().optional(),
     handledAt: z.string(),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_opened"),
+    requestId: z.string().trim().min(1),
+    terminalId: z.string().trim().min(1),
+    cwd: z.string().trim().min(1),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_output"),
+    terminalId: z.string().trim().min(1),
+    data: z.string().max(65_536),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_exited"),
+    terminalId: z.string().trim().min(1),
+    exitCode: z.number().int(),
+    signal: z.number().int().optional(),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_error"),
+    code: z.string().trim().min(1),
+    message: z.string(),
+    requestId: z.string().trim().min(1).optional(),
+    terminalId: z.string().trim().min(1).optional(),
   }),
   z.object({
     type: z.literal("managed_agent_control_result"),
@@ -582,6 +641,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     activeModel: z.string().optional(),
     executionMode: z.enum(["execute", "plan"]).optional(),
     authorityStatus: GuiAuthorityStatusSchema.optional(),
+    operatorTerminalAvailable: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("execution_mode_transitioned"),
@@ -703,8 +763,9 @@ export class GuiWsClient {
 
     this.setState("connecting");
 
-    const wsUrl = `${this.options.baseUrl}?userId=${encodeURIComponent(this.options.userId)}`;
-    this.ws = new WebSocket(wsUrl);
+    const wsUrl = new URL(this.options.baseUrl);
+    wsUrl.searchParams.set("userId", this.options.userId);
+    this.ws = new WebSocket(wsUrl.toString());
 
     this.ws.onopen = () => this.handleOpen();
     this.ws.onmessage = (event) => this.handleMessage(event);

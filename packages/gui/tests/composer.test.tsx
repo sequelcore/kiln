@@ -9,6 +9,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   const onTogglePlanMode = vi.fn();
   const onGovernedWorkItemCountChange = vi.fn();
   const onSubmitParts = vi.fn();
+  const onCancel = vi.fn();
   const onCommandMenuOpenChange = vi.fn();
   const onCommandMenuExecute = vi.fn();
   const onCommandMenuQueryChange = vi.fn();
@@ -44,6 +45,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
       onTogglePlanMode={onTogglePlanMode}
       onGovernedWorkItemCountChange={onGovernedWorkItemCountChange}
       onSubmitParts={onSubmitParts}
+      onCancel={onCancel}
       {...overrides}
     />,
   );
@@ -52,6 +54,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
     onTogglePlanMode,
     onGovernedWorkItemCountChange,
     onSubmitParts,
+    onCancel,
     onCommandMenuOpenChange,
     onCommandMenuExecute,
     onCommandMenuQueryChange,
@@ -311,7 +314,8 @@ describe("Composer", () => {
         onSubmit={() => undefined}
         onTogglePlanMode={() => undefined}
         onGovernedWorkItemCountChange={() => undefined}
-        onSubmitParts={() => undefined}
+      onSubmitParts={() => undefined}
+      onCancel={() => undefined}
       />,
     );
     expect(screen.getByRole("button", { name: "Context 30%: 2.4k / 8k tokens" })).toHaveTextContent("30%");
@@ -341,6 +345,7 @@ describe("Composer", () => {
         onTogglePlanMode={() => undefined}
         onGovernedWorkItemCountChange={() => undefined}
         onSubmitParts={() => undefined}
+        onCancel={() => undefined}
       />,
     );
     const restored = screen.getByRole("button", { name: "Context partial: 2.4k tokens; restored historical measurement" });
@@ -553,6 +558,21 @@ describe("Composer", () => {
         },
       ], "Voice input");
     });
+  });
+
+  it("replaces send with an accessible stop action while a turn is active", () => {
+    const { onCancel } = renderComposer({ status: "running" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
+  });
+
+  it("disables the stop action while cancellation is pending", () => {
+    renderComposer({ status: "running", cancelPending: true });
+
+    expect(screen.getByRole("button", { name: "Cancelling response" })).toBeDisabled();
   });
 
   it("attaches an image file and submits canonical image parts", async () => {

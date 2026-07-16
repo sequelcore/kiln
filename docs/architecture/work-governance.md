@@ -40,8 +40,9 @@ Execution tools own scope transitions. A ready or explicitly paused
 attempt enriches that scope with its attempt and managed-invocation identity.
 Runtime applies the transition before publishing the tool result and preserves
 the active scope across subsequent provider tool rounds. A successful
-`work_item.execution.finish` or goal-owned `work_item.complete` emits `exit`
-after its own result is attributed. Failed validation does not change scope.
+`work_item.execution.finish` emits `exit` after its own result is attributed.
+`work_item.complete` is reserved for standalone items and rejects goal-owned
+work. Failed validation does not change scope.
 This control metadata is canonical runtime input, not a rendering hint.
 
 GUI, TUI, CLI, replay, and future surfaces consume the shared workflow
@@ -237,7 +238,8 @@ in-progress, or blocked item must be followed in the same turn by an explicit
 plan, execution finish, completion, or formal pause evidence. Execution start
 is materialization, not closeout: if it leaves the work item `in_progress`, the
 turn remains blocked and is projected as `failed` until a later
-`work_item.execution.finish` or `work_item.complete` records terminal evidence.
+`work_item.execution.finish` records terminal evidence for goal-bound work;
+`work_item.complete` records terminal evidence only for standalone work.
 Read-only scouting and managed-child research can satisfy evidence requirements
 only after they are attached to that governed closeout path; they do not make an
 open work item a completed turn by themselves. This projection is derived from
@@ -325,9 +327,11 @@ same work contract without each surface inventing its own planning model.
 
 Work item state is part of the session evidence plane:
 
-- `work_item.update` and `work_item.complete` return typed tool metadata.
+- `work_item.update` and standalone `work_item.complete` return typed tool metadata.
 - `work_item.execution.start` and `work_item.execution.finish` record
   execution attempts instead of relying on transient model memory.
+- Goal-bound execution metadata carries the latest goal snapshot so terminal
+  transitions project consistently across direct and orchestrated surfaces.
 - The runtime ledger projects that metadata into canonical
   `work_item_updated`, `work_item_execution_started`, and
   `work_item_execution_finished` session events.

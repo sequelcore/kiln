@@ -37,6 +37,8 @@ import {
 } from "./session-continuity.js";
 
 const BROWSER_STREAM_UNAVAILABLE_REASON = "No live browser stream transport is configured.";
+const MAX_LIVE_TOOL_OUTPUT_CHARS = 64 * 1024;
+const LIVE_TOOL_OUTPUT_TRUNCATION_MARKER = "… earlier output truncated …\n";
 
 export interface ApprovalRequest {
   readonly id: string;
@@ -253,6 +255,13 @@ function readString(value: unknown): string | null {
 
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function appendLiveToolOutput(current: string, delta: string): string {
+  const combined = `${current}${delta}`;
+  if (combined.length <= MAX_LIVE_TOOL_OUTPUT_CHARS) return combined;
+  const retained = combined.slice(-(MAX_LIVE_TOOL_OUTPUT_CHARS - LIVE_TOOL_OUTPUT_TRUNCATION_MARKER.length));
+  return `${LIVE_TOOL_OUTPUT_TRUNCATION_MARKER}${retained}`;
 }
 
 function hasAudioPart(parts: readonly unknown[] | undefined): boolean {
@@ -755,6 +764,26 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
           input,
         },
       });
+      continue;
+    }
+
+    if (event.kind === "tool_call_output_delta") {
+      const toolCallId = readString(payload.toolCallId);
+      const delta = readString(payload.delta);
+      if (!toolCallId || delta === null) continue;
+      const entryIndex = timelineEntries.findIndex((entry) => entry.type === "event"
+        && entry.eventKind === "tool_call_started"
+        && toolCallIdFromDetails(entry.details) === toolCallId);
+      if (entryIndex < 0) continue;
+      const entry = timelineEntries[entryIndex]! as TimelineEventEntry;
+      const details = isObjectRecord(entry.details) ? entry.details : {};
+      timelineEntries[entryIndex] = {
+        ...entry,
+        details: {
+          ...details,
+          liveOutput: appendLiveToolOutput(readString(details.liveOutput) ?? "", delta),
+        },
+      };
       continue;
     }
 
@@ -1720,6 +1749,7 @@ interface SessionStoreState {
   readonly currentTurnTrackedInputTokens: number;
   readonly currentTurnTrackedOutputTokens: number;
   readonly clearPending: boolean;
+  readonly turnCancelPending: boolean;
   readonly providerSwitching: boolean;
   readonly providerSwitchTarget: ProviderSwitchTarget | null;
   readonly providerAuthenticating: boolean;
@@ -1760,6 +1790,7 @@ interface SessionStoreActions {
   onTextDelta: (frame: StoreTextDeltaFrame) => void;
   onActivity: (frame: StoreActivityFrame) => void;
   onDone: (frame: Extract<GuiInboundFrame, { type: "done" }>) => void;
+  onTurnCancelResult: (frame: Extract<GuiInboundFrame, { type: "turn_cancel_result" }>) => void;
   onVoiceSynthesisCompleted: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_completed" }>) => void;
   onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
@@ -1786,6 +1817,7 @@ interface SessionStoreActions {
   ) => boolean;
   requestVoiceSynthesis: (messageId: string) => boolean;
   sendClear: () => boolean;
+  cancelActiveTurn: () => boolean;
   setPlanMode: (enabled: boolean, options?: { readonly gatewayTargetId?: string }) => void;
   setContinuation: (sessionId: string | null) => void;
   disconnect: () => void;
@@ -1850,6 +1882,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   currentTurnTrackedInputTokens: 0,
   currentTurnTrackedOutputTokens: 0,
   clearPending: false,
+  turnCancelPending: false,
   providerSwitching: false,
   providerSwitchTarget: null,
   providerAuthenticating: false,
@@ -2213,6 +2246,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           toolName,
         },
         activityPhase: "tool_running",
+      });
+      return;
+    }
+
+    if (event.kind === "tool_call_output_delta") {
+      const toolCallId = readString(payload.toolCallId);
+      const delta = readString(payload.delta);
+      if (!toolCallId || delta === null) return;
+      const current = get();
+      set({
+        timelineEntries: current.timelineEntries.map((entry) => {
+          if (entry.type !== "event" || entry.eventKind !== "tool_call_started"
+            || toolCallIdFromDetails(entry.details) !== toolCallId) {
+            return entry;
+          }
+          const details = isObjectRecord(entry.details) ? entry.details : {};
+          return {
+            ...entry,
+            details: {
+              ...details,
+              liveOutput: appendLiveToolOutput(readString(details.liveOutput) ?? "", delta),
+            },
+          };
+        }),
       });
       return;
     }
@@ -2610,6 +2667,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         ],
         currentAssistant: null,
         status: "ready",
+        turnCancelPending: false,
         activity: null,
         activityPhase: "idle",
         authorityStatus: authorityStatus ?? current.authorityStatus,
@@ -2903,6 +2961,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnCounter: state.turnCounter + 1,
       clearTimeoutId: null,
       clearPending: false,
+      turnCancelPending: false,
+    });
+  },
+
+  onTurnCancelResult: (frame) => {
+    const state = get();
+    if (frame.status === "accepted") {
+      set({ turnCancelPending: true, errorBanner: null });
+      return;
+    }
+    set({
+      turnCancelPending: false,
+      ...(frame.status === "failed"
+        ? { errorBanner: frame.reason ?? "The active turn could not be cancelled." }
+        : state.status === "running"
+          ? { status: "ready" as const, activity: null, activityPhase: "idle" as const }
+          : {}),
     });
   },
 
@@ -2976,6 +3051,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingProvider: null,
       respondingModel: null,
       clearPending: false,
+      turnCancelPending: false,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,
@@ -3025,6 +3101,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
       clearPending: false,
+      turnCancelPending: false,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,
@@ -3406,6 +3483,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       contextUsage: null,
       errorBanner: null,
       currentAssistant: null,
+      turnCancelPending: false,
     });
 
     outboundSend({
@@ -3453,6 +3531,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       requestId,
       sourceMessageId: target.sourceMessageId,
     });
+    return true;
+  },
+
+  cancelActiveTurn: () => {
+    const state = get();
+    if (!state.outboundSend || state.status !== "running" || state.turnCancelPending) {
+      return false;
+    }
+    state.outboundSend({
+      type: "turn_cancel",
+      requestId: createMessageId(),
+      reason: "Operator cancelled the active GUI turn.",
+    });
+    set({ turnCancelPending: true, errorBanner: null });
     return true;
   },
 
@@ -3535,6 +3627,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingProvider: null,
       respondingModel: null,
       clearPending: false,
+      turnCancelPending: false,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,

@@ -375,6 +375,14 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
             break;
           }
+          case "tool_output_delta": {
+            if (options.output) {
+              options.output.writeToolOutputDelta(event.delta);
+            } else {
+              process.stderr.write(event.delta);
+            }
+            break;
+          }
           case "cost_update": {
             finalCostUsd = event.usd;
             inputTokens = event.inputTokens ?? inputTokens;

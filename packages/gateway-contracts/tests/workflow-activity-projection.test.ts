@@ -81,6 +81,10 @@ describe("workflow activity projection", () => {
 
     expect(projection.goals).toHaveLength(1);
     expect(projection.goals[0]?.goal.id).toBe("goal-1");
+    expect(projection.goals[0]).toMatchObject({
+      status: "blocked",
+      statusReason: "Goal closeout is missing",
+    });
     expect(projection.goals[0]?.workItems).toHaveLength(1);
     expect(projection.goals[0]?.workItems[0]?.item).toMatchObject({
       id: "work-1",
@@ -97,6 +101,49 @@ describe("workflow activity projection", () => {
       "event-3",
       "event-4",
     ]);
+  });
+
+  it("replaces the active goal snapshot with the terminal execution result", () => {
+    const projection = projectWorkflowActivity([
+      event(1, "tool_call_completed", {
+        toolCallId: "goal-create-1",
+        toolName: "goal.create",
+        metadata: {
+          kind: "goal",
+          operation: "create",
+          goal: {
+            id: "goal-1",
+            objective: "Inspect the GUI",
+            status: "active",
+            workItemIds: ["work-1"],
+            evidenceRequirements: [],
+          },
+        },
+        status: { state: "succeeded" },
+      }),
+      event(2, "tool_call_completed", {
+        toolCallId: "work-finish-1",
+        toolName: "work_item.execution.finish",
+        metadata: {
+          kind: "work_item",
+          operation: "execution_finished",
+          item: workItem("work-1", "completed", ["surface-map", "tests"]),
+          goal: {
+            id: "goal-1",
+            objective: "Inspect the GUI",
+            status: "completed",
+            workItemIds: ["work-1"],
+            evidenceRequirements: [],
+          },
+        },
+        status: { state: "succeeded" },
+      }),
+    ]);
+
+    expect(projection.goals[0]).toMatchObject({
+      goal: { id: "goal-1", status: "completed" },
+      status: "completed",
+    });
   });
 
   it("coalesces tool lifecycle events and correlates them only through explicit execution evidence", () => {

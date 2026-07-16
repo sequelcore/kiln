@@ -3769,6 +3769,7 @@ describe("managed invocation runtime tool", () => {
       },
       task: "Inspect the managed invocation tool contract and report risks.",
       workItemId: "work-42",
+      goalRunId: "goal-run-test",
       roleIntent: "Architecture review before implementation.",
       expectedEvidence: ["surface-map", "managed-agent-review", "residual-risk"],
       requiredResultFields: ["summary", "evidence", "residualRisk"],
@@ -3965,6 +3966,7 @@ describe("managed invocation runtime tool", () => {
       task: "Collect visual reference research before UI implementation.",
       summary: "Collect visual reference research before UI implementation.",
       workItemId: "work-ui",
+      goalRunId: "goal-run-test",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read"],
       executionPhase: {
@@ -4139,6 +4141,7 @@ describe("managed invocation runtime tool", () => {
       task: "Collect visual reference research before UI implementation.",
       summary: "Collect visual reference research before UI implementation.",
       workItemId: "work-ui",
+      goalRunId: "goal-run-test",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read"],
       executionPhase: {
@@ -4409,6 +4412,7 @@ describe("managed invocation runtime tool", () => {
       task: "Collect frontend reference research before UI implementation.",
       summary: "Collect frontend reference research before UI implementation.",
       workItemId: "work-ui",
+      goalRunId: "goal-run-test",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read"],
       executionPhase: {
@@ -4470,6 +4474,7 @@ describe("managed invocation runtime tool", () => {
       task: "Collect frontend reference research before UI implementation.",
       summary: "Collect frontend reference research before UI implementation.",
       workItemId: "work-ui",
+      goalRunId: "goal-run-test",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read", "glob", "grep"],
       executionPhase: {
@@ -4552,6 +4557,7 @@ describe("managed invocation runtime tool", () => {
       task: "Collect visual reference research before UI implementation.",
       summary: "Collect visual reference research before UI implementation.",
       workItemId: "work-ui",
+      goalRunId: "goal-run-test",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read"],
       requiredReadPaths: ["/workspace/references/cloned/t1code", "/workspace/references/cloned/openclaw"],
@@ -4663,6 +4669,7 @@ describe("managed invocation runtime tool", () => {
       task: "Collect visual reference research before UI implementation.",
       summary: "Collect visual reference research before UI implementation.",
       workItemId: "work-ui",
+      goalRunId: "goal-run-test",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read", "glob", "grep"],
       executionPhase: {

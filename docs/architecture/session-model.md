@@ -141,8 +141,10 @@ health, provider proof, adapter descriptor, resource-plane availability, or
 child identity from mutable runtime state.
 
 Governed work items also use the same event stream. `work_item.update` and
-`work_item.complete` emit typed tool metadata that the runtime ledger projects
-into `work_item_updated` events. Operator surfaces render work-item status,
+standalone `work_item.complete` emit typed tool metadata that the runtime ledger
+projects into `work_item_updated` events. Goal-bound execution results also
+carry the latest goal snapshot and project canonical `goal.*` events. Operator
+surfaces render work-item status,
 expected evidence, provided evidence, verification gates, and blocked closeout
 state from those events. The live resource snapshot
 `kiln://session/work-items` is a model-readable view over the same session

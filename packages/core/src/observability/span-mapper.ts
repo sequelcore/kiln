@@ -7,6 +7,7 @@ import type {
     TaskStartedEvent,
     TaskCompletedEvent,
     ToolCalledEvent,
+    ToolOutputEvent,
     ToolResultEvent,
     ThinkingEvent,
     VerificationResultEvent,
@@ -103,6 +104,20 @@ function mapToolCalled(e: ToolCalledEvent): SpanOperation {
             toolName: e.toolName,
             ...(e.taskId !== undefined ? { taskId: e.taskId } : {}),
             ...(e.workerIndex !== undefined ? { workerIndex: e.workerIndex } : {}),
+        },
+    };
+}
+
+function mapToolOutput(e: ToolOutputEvent): SpanOperation {
+    return {
+        action: "addEvent",
+        name: "tool_output",
+        attributes: {
+            toolName: e.toolName,
+            toolCallId: e.toolCallId,
+            stream: e.stream,
+            chunkIndex: e.chunkIndex,
+            bytes: Buffer.byteLength(e.delta, "utf8"),
         },
     };
 }
@@ -590,6 +605,8 @@ export function mapEventToSpan(event: KilnEvent): SpanOperation {
             return mapTaskCompleted(event as TaskCompletedEvent);
         case "tool_called":
             return mapToolCalled(event as ToolCalledEvent);
+        case "tool_output":
+            return mapToolOutput(event as ToolOutputEvent);
         case "tool_authorized":
             return mapToolAuthorized(event as ToolAuthorizedEvent);
         case "tool_result":

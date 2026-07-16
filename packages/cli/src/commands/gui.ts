@@ -296,7 +296,11 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
 
   const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
   const devGuiUrl = `http://localhost:${guiPort}/gui/`;
-  const guiUrl = buildGuiUrl(mode === "dev" ? devGuiUrl : gatewayUrl, themePreference);
+  const guiUrl = buildGuiUrl(
+    mode === "dev" ? devGuiUrl : gatewayUrl,
+    themePreference,
+    gateway.operatorTerminalCapability,
+  );
   printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl });
   startupProfiler.mark("startup-banner-printed", { mode });
 

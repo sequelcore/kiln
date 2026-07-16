@@ -2,6 +2,7 @@ import type {
   ToolCall,
   EventBus,
   ToolCalledEvent,
+  ToolOutputEvent,
   ToolAuthorizedEvent,
   ToolResultEvent,
   ToolCacheHitEvent,
@@ -49,6 +50,9 @@ const COMMAND_TOOL_SHELL_BY_NAME = new Map<string, CommandShell>([
   ["command", "any"],
   ["shell", "any"],
 ]);
+const MAX_STREAMED_TOOL_OUTPUT_CHARS = 64 * 1024;
+const MAX_TOOL_OUTPUT_CHUNK_CHARS = 8 * 1024;
+const TOOL_OUTPUT_TRUNCATION_MARKER = "\n… live output truncated; full terminal result follows …\n";
 
 function parseCommandShell(value: unknown): CommandShell | undefined {
   if (typeof value !== "string") return undefined;
@@ -1276,12 +1280,36 @@ export class RuntimeSessionToolExecutor {
     const turnId = session
       ? perCallConfig?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount, 1)}`
       : undefined;
+    let chunkIndex = 0;
+    let streamedOutputChars = 0;
+    let outputTruncated = false;
     const context = session
       ? {
           session,
           ...(turnId ? { turnId } : {}),
           toolCall,
           ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
+          emitOutput: (output: { readonly stream: "stdout" | "stderr"; readonly delta: string }) => {
+            if (outputTruncated || output.delta.length === 0) return;
+            const remaining = MAX_STREAMED_TOOL_OUTPUT_CHARS - streamedOutputChars;
+            const retained = output.delta.slice(0, Math.max(0, remaining));
+            for (let offset = 0; offset < retained.length; offset += MAX_TOOL_OUTPUT_CHUNK_CHARS) {
+              const delta = retained.slice(offset, offset + MAX_TOOL_OUTPUT_CHUNK_CHARS);
+              this.emitToolOutput(session.id, toolCall.id, toolCall.name, output.stream, delta, chunkIndex++);
+              streamedOutputChars += delta.length;
+            }
+            if (retained.length < output.delta.length || streamedOutputChars >= MAX_STREAMED_TOOL_OUTPUT_CHARS) {
+              outputTruncated = true;
+              this.emitToolOutput(
+                session.id,
+                toolCall.id,
+                toolCall.name,
+                output.stream,
+                TOOL_OUTPUT_TRUNCATION_MARKER,
+                chunkIndex++,
+              );
+            }
+          },
           ...(perCallConfig?.workingDirectory
             ? { sandbox: { cwd: perCallConfig.workingDirectory } }
             : {}),
@@ -1395,6 +1423,29 @@ export class RuntimeSessionToolExecutor {
       ...(toolUsage ? { toolUsage } : {}),
       ...(resolvedEffect ? { resolvedEffect } : {}),
       ...(authority ? { authority } : {}),
+      ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
+    };
+    this.eventBus?.emit(event);
+  }
+
+  private emitToolOutput(
+    sessionId: string,
+    toolCallId: string,
+    toolName: string,
+    stream: "stdout" | "stderr",
+    delta: string,
+    chunkIndex: number,
+  ): void {
+    if (delta.length === 0) return;
+    const event: ToolOutputEvent = {
+      type: "tool_output",
+      toolCallId,
+      toolName,
+      stream,
+      delta,
+      chunkIndex,
+      timestamp: new Date(),
+      sessionId,
       ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
     };
     this.eventBus?.emit(event);

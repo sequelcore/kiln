@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildOperatorToolResultPayload } from "@kilnai/gateway-contracts";
 import {
   operatorTranscriptSourceForEntry,
+  projectGovernanceTranscriptEventDrafts,
   projectOperatorTranscriptEntryToDraft,
 } from "./operator-transcript-projection.js";
 
@@ -131,5 +132,56 @@ describe("operator transcript projection", () => {
         calls: 1,
       },
     });
+  });
+
+  it("projects work-item and terminal goal snapshots into canonical lifecycle drafts", () => {
+    const source = { actor: "tool", surface: "gui", component: "gui-command" } as const;
+    const toolResult = projectOperatorTranscriptEntryToDraft({
+      eventId: "event-finish",
+      kilnSessionId: "session-1",
+      timestamp: "2026-07-15T20:00:00.000Z",
+      event: {
+        type: "tool_result",
+        toolCallId: "call-finish",
+        toolName: "work_item.execution.finish",
+        output: "completed",
+        metadata: {
+          kind: "work_item",
+          operation: "execution_finished",
+          item: {
+            id: "work-1",
+            summary: "Finish governed work.",
+            status: "completed",
+          },
+          attempt: { id: "attempt-1" },
+          goal: {
+            id: "goal-1",
+            objective: "Finish governed work.",
+            status: "completed",
+            closeoutSummary: "All governed work completed.",
+          },
+        },
+      },
+      source,
+    });
+
+    expect(projectGovernanceTranscriptEventDrafts(toolResult)).toEqual([
+      expect.objectContaining({
+        eventId: "event-finish:work-item",
+        kind: "work_item_execution_finished",
+        payload: expect.objectContaining({
+          toolCallId: "call-finish",
+          workItem: expect.objectContaining({ id: "work-1", status: "completed" }),
+        }),
+      }),
+      expect.objectContaining({
+        eventId: "event-finish:goal",
+        kind: "goal.completed",
+        payload: {
+          goal: expect.objectContaining({ id: "goal-1", status: "completed" }),
+          closeoutSummary: "All governed work completed.",
+        },
+      }),
+    ]);
   });
 });

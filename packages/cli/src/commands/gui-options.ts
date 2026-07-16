@@ -5,9 +5,16 @@ export {
   resolveGuiThemePreference,
 } from "../application/operator-theme-preferences.js";
 
-export function buildGuiUrl(baseUrl: string, themePreference: OperatorThemePreference): string {
+export function buildGuiUrl(
+  baseUrl: string,
+  themePreference: OperatorThemePreference,
+  operatorTerminalCapability?: string,
+): string {
   const url = new URL(baseUrl);
   url.searchParams.set("theme", themePreference);
+  if (operatorTerminalCapability) {
+    url.hash = new URLSearchParams({ operatorToken: operatorTerminalCapability }).toString();
+  }
   return url.toString();
 }
 

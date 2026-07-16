@@ -217,8 +217,8 @@ traceable. If the managed child fails before a parent attempt starts, the work
 item remains paused with `operation=managed_invocation_failed`, and the
 canonical turn is failed rather than completed. A successful start that leaves
 the item `in_progress` is also not closeout; the turn remains failed/blocked
-until `work_item.execution.finish` or `work_item.complete` records terminal
-evidence. `work_item.execution.finish` records evidence, verification-gate
+until `work_item.execution.finish` records terminal evidence. Goal-owned work
+rejects `work_item.complete`. `work_item.execution.finish` records evidence, verification-gate
 results, skipped checks, and residual risk.
 
 Closeout is evidence-gated. Missing required goal evidence, failed verification

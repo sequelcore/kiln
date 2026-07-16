@@ -1785,6 +1785,46 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ]);
     });
 
+    it("correlates ordered tool output chunks between tool start and completion", async () => {
+      const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", async (_input, context) => {
+          context?.emitOutput?.({ stream: "stdout", delta: "first\n" });
+          context?.emitOutput?.({ stream: "stderr", delta: "second\n" });
+          return { output: "first\nsecond", isError: false };
+        }]]),
+        eventBus,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+
+      expect(eventBus.history()
+        .filter((event) => event.type === "tool_called" || event.type === "tool_output" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({ type: "tool_called", toolCallId: "tc-1", toolName: "get_data" }),
+          expect.objectContaining({
+            type: "tool_output",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            stream: "stdout",
+            delta: "first\n",
+            chunkIndex: 0,
+          }),
+          expect.objectContaining({
+            type: "tool_output",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            stream: "stderr",
+            delta: "second\n",
+            chunkIndex: 1,
+          }),
+          expect.objectContaining({ type: "tool_result", toolCallId: "tc-1", toolName: "get_data" }),
+        ]);
+    });
+
     it("waits for approval and executes tool after continue()", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);
@@ -3220,6 +3260,68 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         resultSummary: expect.stringContaining("Repeated invalid input for tool \"write\""),
       });
       expect(getReinjectedToolResultFromCall(provider, 2)).toContain("Repeated invalid input for tool \"write\"");
+    });
+
+    it("stops retrying the same deterministic tool execution failure", async () => {
+      let callCount = 0;
+      const toolFn = vi.fn().mockResolvedValue({
+        output: "Invalid input: structuredResult must be an object.",
+        isError: true,
+      });
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(({ tools }: { tools?: readonly ToolDefinition[] }) => {
+          callCount++;
+          if (tools && callCount <= 4) {
+            return {
+              parts: textParts("retrying finish..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: `tc-finish-failed-${callCount}`,
+                name: "work_item.execution.finish",
+                input: { workItemId: "work-1" },
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("The work item could not be closed because the tool input remained invalid."),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{
+          name: "work_item.execution.finish",
+          description: "Finishes governed work",
+          inputSchema: {},
+          tags: new Set(),
+        }],
+        builtinTools: new Map([["work_item.execution.finish", toolFn]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("finish work"));
+
+      expect(toolFn).toHaveBeenCalledTimes(2);
+      expect(provider.createMessage).toHaveBeenCalledTimes(3);
+      expect(result.parts).toEqual(textParts(
+        "The work item could not be closed because the tool input remained invalid.",
+      ));
+      expect(result.toolExecutions).toHaveLength(2);
+      expect(getReinjectedToolResultFromCall(provider, 2)).toContain(
+        "Repeated deterministic failure for tool \"work_item.execution.finish\"",
+      );
     });
 
     it("does not execute tool calls returned by repeated-malformed fallback finalization", async () => {

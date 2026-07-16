@@ -267,6 +267,25 @@ describe("runtime work item session events", () => {
             operation: "execution_finished",
             item: finishedWorkItem,
             attempt: finishedWorkItem.executionAttempts[0],
+            goal: {
+              id: "goal-1",
+              objective: "Verify goal execution.",
+              ownerSessionId: session.id,
+              source: { kind: "operator_direct", turnId: `${session.id}:turn:1` },
+              status: "completed",
+              workItemIds: ["work-1"],
+              authorityEnvelope: {
+                maximumAuthority: "read_only",
+                escalationPolicy: "deny",
+                reason: "Verification only.",
+              },
+              routePolicy: { workflowProfile: "verification-heavy" },
+              evidenceRequirements: [],
+              closeoutSummary: "Goal completed.",
+              createdAt: timestamp.toISOString(),
+              updatedAt: timestamp.toISOString(),
+              sequence: 2,
+            },
             missingEvidence: [],
             missingGoalEvidence: ["typecheck"],
             missingVerificationGates: ["adversarial managed-agent review"],
@@ -303,6 +322,11 @@ describe("runtime work item session events", () => {
         missingVerificationGates: ["adversarial managed-agent review"],
         failedVerificationGates: ["bun run typecheck"],
         missingResidualRisk: false,
+      }),
+      expect.objectContaining({
+        kind: "goal.completed",
+        goal: expect.objectContaining({ id: "goal-1", status: "completed" }),
+        closeoutSummary: "Goal completed.",
       }),
     ]));
   });

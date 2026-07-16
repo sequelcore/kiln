@@ -1867,6 +1867,18 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
   };
 }
 
+function toolOutputDeltaPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const toolName = readString(payload.toolName) ?? "tool";
+  return {
+    title: `${toolName} output`,
+    compactText: toolName,
+    tone: "running",
+    details: [],
+    surfaces: ["activity_panel"],
+    conversationDisposition: "none",
+  };
+}
+
 function workItemTaskEventState(status: ToolResultTaskStatus | undefined): {
   readonly title: string;
   readonly tone: OperatorEventTone;
@@ -2646,6 +2658,8 @@ export function presentOperatorEventPayload(
       return multimodalRoutedPresentation(payload);
     case "tool_call_started":
       return toolStartedPresentation(payload);
+    case "tool_call_output_delta":
+      return toolOutputDeltaPresentation(payload);
     case "tool_call_completed":
       return toolCompletedPresentation(payload);
     case "file_changed":

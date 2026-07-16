@@ -54,6 +54,16 @@ export type ToolResult = {
   readonly resourcePayload?: ToolResultResourcePayload;
 };
 
+export interface ToolExecutionOutputDelta {
+  readonly stream: "stdout" | "stderr";
+  readonly delta: string;
+}
+
+export interface DevToolExecutionContext {
+  readonly abortSignal?: AbortSignal;
+  readonly onOutput?: (delta: ToolExecutionOutputDelta) => void;
+}
+
 export type ToolResultResourcePayload = {
   readonly text: string;
   readonly mimeType: string;
@@ -122,7 +132,7 @@ export interface DevTool {
   readonly inputSchema: Record<string, unknown>;
   readonly outputSchema?: Record<string, unknown>;
   readonly effectEnvelope?: import("../../engine/domain/action-effect.js").ActionEffectEnvelope;
-  execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult>;
+  execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult>;
 }
 
 export type DevToolName =

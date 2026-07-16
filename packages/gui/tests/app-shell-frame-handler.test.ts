@@ -43,6 +43,8 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     onBrowserSessionUpdated: vi.fn(),
     onBrowserLiveViewportFrame: vi.fn(),
     onBrowserOperatorInputAck: vi.fn(),
+    onOperatorTerminalAvailability: vi.fn(),
+    onOperatorTerminalFrame: vi.fn(),
     setConnectionStatus: vi.fn(),
     setTheme: vi.fn(),
     persistThemePreference: vi.fn(),
@@ -150,5 +152,21 @@ describe("createAppShellFrameHandler", () => {
 
     expect(input.setConnectionStatus).toHaveBeenCalledWith("running");
     expect(input.invalidateMemoryLattice).toHaveBeenCalledTimes(1);
+  });
+
+  it("projects terminal availability and routes terminal frames outside the transcript", () => {
+    const input = createInput();
+    const handleFrame = createAppShellFrameHandler(input);
+    handleFrame({
+      type: "welcome",
+      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
+      operatorTerminalAvailable: true,
+    } as never);
+    const output = { type: "operator_terminal_output", terminalId: "term-1", data: "ready\r\n" } as const;
+    handleFrame(output);
+
+    expect(input.onOperatorTerminalAvailability).toHaveBeenCalledWith(true);
+    expect(input.onOperatorTerminalFrame).toHaveBeenCalledWith(output);
+    expect(input.onSessionEvent).not.toHaveBeenCalled();
   });
 });

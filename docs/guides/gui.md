@@ -73,6 +73,24 @@ control-plane frames such as provider switching, clear, provider auth, theme
 results, and voice synthesis remain targetless because they operate on the
 connected operator surface, provider catalog, UI preference, or source message.
 
+## Operator terminal
+
+Local launch mode exposes an attended, interactive terminal panel backed by a
+real platform PTY (ConPTY on supported Windows hosts). The workbench header and
+`Ctrl+\`` toggle the same panel across Chat, Work, Agents, Activity, Memory, and
+Setup. On desktop it is a bottom panel with pointer and keyboard resizing; on
+narrow layouts it becomes the active full workbench surface instead of
+competing with the composer. Collapsing preserves the running PTY, while Close
+terminates it. The preferred desktop height is persisted per workspace, but the
+panel never restores open or starts a shell implicitly after reload.
+
+The operator terminal is separate from agent tool output: keystrokes are direct
+operator input, terminal output does not enter the conversation, and closing
+the GUI connection terminates the PTY. The launcher grants access with an
+ephemeral URL-fragment capability; attach mode does not receive that local
+capability and therefore does not expose a host shell. Agent `bash` and monitor
+tools continue through canonical tool authority and do not share this PTY.
+
 ## Flags
 
 | Flag | Description |

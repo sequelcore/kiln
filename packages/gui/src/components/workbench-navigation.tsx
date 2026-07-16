@@ -16,6 +16,7 @@ import {
   PanelRightOpen,
   Plus,
   Settings2,
+  SquareTerminal,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -292,9 +293,13 @@ export function MobileWorkbenchHeader(props: {
   readonly drawerOpen: boolean;
   readonly drawerMode: MobileDrawerMode;
   readonly gatewayTargetSelector?: ReactNode;
+  readonly operatorTerminalAvailable: boolean;
+  readonly operatorTerminalExpanded: boolean;
+  readonly operatorTerminalPanelId: string;
   readonly onToggleDrawer: (mode: MobileDrawerMode) => void;
   readonly onSelectSurface: (surface: WorkbenchSurface) => void;
   readonly onStartNewSession: () => void;
+  readonly onToggleOperatorTerminal: () => void;
 }) {
   return (
     <header className="flex h-11 min-w-0 shrink-0 items-center gap-1.5 border-b border-border/70 bg-workspace-viewer-panel px-2 sm:gap-3 sm:px-3">
@@ -359,6 +364,21 @@ export function MobileWorkbenchHeader(props: {
         </SelectContent>
       </Select>
       <div className="ml-auto" />
+      {props.operatorTerminalAvailable ? (
+        <Button
+          id="operator-terminal-trigger"
+          type="button"
+          variant={props.operatorTerminalExpanded ? "secondary" : "ghost"}
+          size="icon-sm"
+          aria-controls={props.operatorTerminalPanelId}
+          aria-expanded={props.operatorTerminalExpanded}
+          aria-label={props.operatorTerminalExpanded ? "Hide terminal" : "Open terminal"}
+          title="Terminal (Ctrl+`)"
+          onClick={props.onToggleOperatorTerminal}
+        >
+          <SquareTerminal aria-hidden="true" />
+        </Button>
+      ) : null}
       {props.gatewayTargetSelector}
     </header>
   );
@@ -373,8 +393,12 @@ export function DesktopWorkbenchHeader(props: {
   readonly changedCount: number;
   readonly approvalCount: number;
   readonly gatewayTargetSelector?: ReactNode;
+  readonly operatorTerminalAvailable: boolean;
+  readonly operatorTerminalExpanded: boolean;
+  readonly operatorTerminalPanelId: string;
   readonly onSelectInspectorMode: (mode: InspectorMode) => void;
   readonly onToggleInspector: () => void;
+  readonly onToggleOperatorTerminal: () => void;
 }) {
   return (
     <header className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-workspace-viewer-panel px-4">
@@ -385,6 +409,22 @@ export function DesktopWorkbenchHeader(props: {
         </p>
       </div>
       <div className="flex items-center gap-1">
+        {props.operatorTerminalAvailable ? (
+          <Button
+            id="operator-terminal-trigger"
+            type="button"
+            variant={props.operatorTerminalExpanded ? "secondary" : "ghost"}
+            size="sm"
+            aria-controls={props.operatorTerminalPanelId}
+            aria-expanded={props.operatorTerminalExpanded}
+            aria-label={props.operatorTerminalExpanded ? "Hide terminal" : "Open terminal"}
+            title="Terminal (Ctrl+`)"
+            onClick={props.onToggleOperatorTerminal}
+          >
+            <SquareTerminal data-icon="inline-start" aria-hidden="true" />
+            Terminal
+          </Button>
+        ) : null}
         {INSPECTOR_MODES.map((mode) => {
           const Icon = inspectorModeIcons[mode];
           return (

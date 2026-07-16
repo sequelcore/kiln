@@ -1089,6 +1089,26 @@ describe("work-governance-tool", () => {
     expect(rejectedMixedUris?.isError).toBe(true);
     expect(rejectedMixedUris?.output).toContain("managedInvocationResultHandoff.resourceUris");
     expect(workItemStore.get(item.id)?.status).toBe("in_progress");
+
+    const rejectedNullStructuredResult = await tools.find((candidate) => candidate.name === "work_item.execution.finish")?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: goal.id,
+        workItemId: item.id,
+        attemptId: "goal-invalid-handoff:orch-cli-invalid:child:1:work-item:attempt:1",
+        managedInvocationResultHandoff: {
+          summary: "Implemented the managed child scope.",
+          resourceUris: ["kiln://artifacts/orch-cli-invalid/child-1-handoff"],
+          structuredResult: null,
+        },
+      },
+    });
+
+    expect(rejectedNullStructuredResult?.isError).toBe(true);
+    expect(rejectedNullStructuredResult?.output).toContain(
+      "managedInvocationResultHandoff.structuredResult must be an object",
+    );
+    expect(workItemStore.get(item.id)?.status).toBe("in_progress");
   });
 
   it("returns generated goal closeout summary when final execution omits manual summary", async () => {
@@ -1144,6 +1164,14 @@ describe("work-governance-tool", () => {
     expect(finished?.output).toContain("Goal goal-generated-closeout completed from canonical evidence.");
     expect(finished?.output).toContain("Evidence: tests, typecheck.");
     expect(finished?.output).toContain("Passed gates: bun test, bun run typecheck.");
+    expect(finished?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "execution_finished",
+      goal: {
+        id: goal.id,
+        status: "completed",
+      },
+    });
   });
 
   it("blocks goal-bound execution finish until evidence and residual risk are present", async () => {
@@ -2674,6 +2702,130 @@ describe("work-governance-tool", () => {
       requestedAuthority: "audited",
       routeId: "opencode-go-frontend-approved-write",
     });
+  });
+
+  it("rejects direct completion for a goal-bound work item", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-goal-bound-direct-closeout",
+      summary: "Close through the governed execution lifecycle.",
+      workflowProfile: "small-fix",
+      triggers: [],
+      expectedEvidence: ["tests"],
+      verificationGates: [],
+    });
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      ownerSessionId: "session-1",
+    });
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+    const completeTool = tools.find((candidate) => candidate.name === "work_item.complete");
+
+    await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-direct-closeout",
+        objective: "Close through one governed lifecycle.",
+        operatorTurnId: "turn-1",
+        workItemIds: [item.id],
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        authorityReason: "Read-only verification.",
+        workflowProfile: "small-fix",
+      },
+    });
+    const result = await completeTool?.execute({
+      name: "work_item.complete",
+      input: { id: item.id, providedEvidence: ["tests"] },
+    });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.metadata).toMatchObject({
+      kind: "work_item",
+      operation: "complete",
+      errorCode: "invalid_input",
+      suggestedNextTool: "work_item.execution.finish",
+    });
+    expect(workItemStore.get(item.id)?.status).toBe("pending");
+    expect(goalRunStore.get("goal-direct-closeout")?.status).toBe("active");
+  });
+
+  it("rejects new goals that reuse owned or terminal work items", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const owned = workItemStore.upsert({
+      id: "work-owned",
+      summary: "Remain owned by one goal.",
+      workflowProfile: "small-fix",
+      triggers: [],
+      expectedEvidence: [],
+      verificationGates: [],
+    });
+    const terminal = workItemStore.upsert({
+      id: "work-terminal",
+      summary: "Remain terminal.",
+      status: "completed",
+      workflowProfile: "small-fix",
+      triggers: [],
+      expectedEvidence: [],
+      providedEvidence: [],
+      verificationGates: [],
+    });
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      ownerSessionId: "session-1",
+    });
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+    await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-owner",
+        objective: "Own one work item.",
+        operatorTurnId: "turn-1",
+        workItemIds: [owned.id],
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        authorityReason: "Read-only verification.",
+        workflowProfile: "small-fix",
+      },
+    });
+
+    const reused = await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-reuse",
+        objective: "Reuse an owned item.",
+        operatorTurnId: "turn-1",
+        workItemIds: [owned.id],
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        authorityReason: "Read-only verification.",
+        workflowProfile: "small-fix",
+      },
+    });
+    const terminalResult = await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-terminal",
+        objective: "Reuse a terminal item.",
+        operatorTurnId: "turn-1",
+        workItemIds: [terminal.id],
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        authorityReason: "Read-only verification.",
+        workflowProfile: "small-fix",
+      },
+    });
+
+    expect(reused?.isError).toBe(true);
+    expect(reused?.output).toContain("already belongs to goal goal-owner");
+    expect(terminalResult?.isError).toBe(true);
+    expect(terminalResult?.output).toContain("terminal work item work-terminal");
+    expect(goalRunStore.get("goal-reuse")).toBeUndefined();
+    expect(goalRunStore.get("goal-terminal")).toBeUndefined();
   });
 });
 

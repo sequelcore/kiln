@@ -68,6 +68,7 @@ interface ResponsesRequestBody {
 interface ResponsesRequest {
   readonly body: ResponsesRequestBody;
   readonly toolNames: ProviderToolNameCodec;
+  readonly toolSchemas: ReadonlyMap<string, Record<string, unknown>>;
 }
 
 interface ResponsesOutputItem {
@@ -169,7 +170,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   ): Promise<AgentResponse> {
     const response = await this.postWithTransientRetry(request.body, options.signal);
     const completed = await this.consumeStreamingResponse(response, (options.tools?.length ?? 0) > 0);
-    return this.mapResponse(completed, request.toolNames);
+    return this.mapResponse(completed, request.toolNames, request.toolSchemas);
   }
 
   private async *streamResponseAttempt(
@@ -389,7 +390,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
           completedFunctionCallArgumentIds,
           invalidFunctionCallArgumentIds,
         );
-        const mapped = this.mapResponse(completedResponse, request.toolNames);
+        const mapped = this.mapResponse(completedResponse, request.toolNames, request.toolSchemas);
         if (shouldBufferText) {
           for (const part of mapped.parts) {
             if (part.type === "text" && part.text.length > 0) {
@@ -428,7 +429,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       completedFunctionCallArgumentIds,
     });
     if (fallbackResponse) {
-      const mapped = this.mapResponse(fallbackResponse, request.toolNames);
+      const mapped = this.mapResponse(fallbackResponse, request.toolNames, request.toolSchemas);
       if (shouldBufferText) {
         for (const part of mapped.parts) {
           if (part.type === "text" && part.text.length > 0) {
@@ -505,6 +506,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         ...(tools ? { tools } : {}),
       },
       toolNames,
+      toolSchemas: new Map(options.tools?.map((tool) => [tool.name, tool.inputSchema]) ?? []),
     };
   }
 
@@ -608,7 +610,11 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     });
   }
 
-  private mapResponse(response: ResponsesResponse, toolNames: ProviderToolNameCodec): AgentResponse & {
+  private mapResponse(
+    response: ResponsesResponse,
+    toolNames: ProviderToolNameCodec,
+    toolSchemas: ReadonlyMap<string, Record<string, unknown>>,
+  ): AgentResponse & {
     readonly cost: {
       readonly inputPer1M: number;
       readonly outputPer1M: number;
@@ -637,7 +643,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         toolCalls.push({
           id: item.call_id ?? item.id ?? "",
           name: canonicalName,
-          input: normalizeToolInput(canonicalName, item.arguments),
+          input: normalizeToolInput(canonicalName, item.arguments, toolSchemas.get(canonicalName)),
         });
       }
     }

@@ -157,6 +157,20 @@ describe("GuiWsClient", () => {
         event: expect.objectContaining({ kind: "context_usage_observed" }),
       }));
     });
+
+    it("preserves the terminal capability while adding the stable user id", () => {
+      client = new GuiWsClient({
+        baseUrl: "ws://localhost:3000/ws?operatorToken=secret",
+        userId: "user-456",
+        onFrame,
+        onStateChange,
+      });
+      client.connect();
+
+      const url = new URL(wsInstances.at(-1)!.url);
+      expect(url.searchParams.get("operatorToken")).toBe("secret");
+      expect(url.searchParams.get("userId")).toBe("user-456");
+    });
   });
 
   describe("heartbeat", () => {

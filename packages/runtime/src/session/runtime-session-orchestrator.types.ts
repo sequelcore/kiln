@@ -63,6 +63,10 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly turnId?: string;
   readonly toolCall: ToolCall;
   readonly abortSignal?: AbortSignal;
+  readonly emitOutput?: (output: {
+    readonly stream: "stdout" | "stderr";
+    readonly delta: string;
+  }) => void;
   readonly sandbox?: unknown;
   readonly allowedToolNames?: readonly string[];
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;

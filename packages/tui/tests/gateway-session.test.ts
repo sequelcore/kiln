@@ -393,6 +393,24 @@ describe("GatewaySession canonical session events", () => {
     ws.simulateMessage(JSON.stringify({
       type: "session_event",
       event: {
+        eventId: "evt-output",
+        kilnSessionId: "session-1",
+        sequence: 2,
+        timestamp: "2026-04-28T20:00:00.500Z",
+        kind: "tool_call_output_delta",
+        turnId: "session-1:turn:live",
+        payload: {
+          toolCallId: "tool-1",
+          toolName: "write",
+          stream: "stdout",
+          delta: "writing demo.txt\n",
+          chunkIndex: 0,
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
         eventId: "evt-result",
         kilnSessionId: "session-1",
         sequence: 2,
@@ -478,8 +496,19 @@ describe("GatewaySession canonical session events", () => {
         sessionId: "session-1",
         turnId: "session-1:turn:live",
         toolName: "write",
+        toolCallId: "tool-1",
         input: { path: "demo.txt" },
         surfaces: ["conversation_inline", "activity_panel", "inspector"],
+      }),
+      expect.objectContaining({
+        type: "activity",
+        activity: "tool_output",
+        toolCallId: "tool-1",
+        toolName: "write",
+        stream: "stdout",
+        output: "writing demo.txt\n",
+        chunkIndex: 0,
+        surfaces: ["activity_panel"],
       }),
       expect.objectContaining({
         type: "activity",

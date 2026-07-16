@@ -73,9 +73,13 @@ describe("Workbench navigation", () => {
         activeSurface="chat"
         drawerOpen={false}
         drawerMode="sessions"
+        operatorTerminalAvailable={false}
+        operatorTerminalExpanded={false}
+        operatorTerminalPanelId="operator-terminal-panel"
         onToggleDrawer={onToggleDrawer}
         onSelectSurface={onSelectSurface}
         onStartNewSession={onStartNewSession}
+        onToggleOperatorTerminal={vi.fn()}
         gatewayTargetSelector={<span>Gateway target</span>}
       />,
     );
@@ -96,9 +100,13 @@ describe("Workbench navigation", () => {
         activeSurface="chat"
         drawerOpen
         drawerMode="sessions"
+        operatorTerminalAvailable={false}
+        operatorTerminalExpanded={false}
+        operatorTerminalPanelId="operator-terminal-panel"
         onToggleDrawer={vi.fn()}
         onSelectSurface={vi.fn()}
         onStartNewSession={vi.fn()}
+        onToggleOperatorTerminal={vi.fn()}
       />,
     );
 
@@ -119,6 +127,10 @@ describe("Workbench navigation", () => {
         inspectorMode="changed"
         changedCount={4}
         approvalCount={1}
+        operatorTerminalAvailable
+        operatorTerminalExpanded={false}
+        operatorTerminalPanelId="operator-terminal-panel"
+        onToggleOperatorTerminal={vi.fn()}
         onSelectInspectorMode={onSelectInspectorMode}
         onToggleInspector={onToggleInspector}
         gatewayTargetSelector={<span>Gateway target</span>}
@@ -128,11 +140,33 @@ describe("Workbench navigation", () => {
     expect(screen.getByText("interactive browser")).toBeVisible();
     expect(within(screen.getByRole("button", { name: "Changed files" })).getByText("4")).toBeVisible();
     expect(within(screen.getByRole("button", { name: "Approvals" })).getByText("1")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open terminal" })).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
     fireEvent.click(screen.getByRole("button", { name: "Close inspector" }));
 
     expect(onSelectInspectorMode).toHaveBeenCalledWith("workspace");
     expect(onToggleInspector).toHaveBeenCalledTimes(1);
+  });
+
+  it("exposes the terminal as workbench chrome on narrow layouts", () => {
+    const onToggleOperatorTerminal = vi.fn();
+    render(
+      <MobileWorkbenchHeader
+        activeSurface="chat"
+        drawerOpen={false}
+        drawerMode="sessions"
+        operatorTerminalAvailable
+        operatorTerminalExpanded
+        operatorTerminalPanelId="operator-terminal-panel"
+        onToggleDrawer={vi.fn()}
+        onSelectSurface={vi.fn()}
+        onStartNewSession={vi.fn()}
+        onToggleOperatorTerminal={onToggleOperatorTerminal}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide terminal" }));
+    expect(onToggleOperatorTerminal).toHaveBeenCalledOnce();
   });
 });

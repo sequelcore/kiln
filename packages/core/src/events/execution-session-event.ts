@@ -150,6 +150,14 @@ export type ExecutionSessionEvent = (
       readonly toolUsage?: SessionToolUsageSnapshot;
     }
   | {
+      readonly type: "tool_output_delta";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly stream: "stdout" | "stderr";
+      readonly delta: string;
+      readonly chunkIndex: number;
+    }
+  | {
       readonly type: "file_changed";
       readonly path: string;
       readonly changeType: "created" | "modified" | "deleted";

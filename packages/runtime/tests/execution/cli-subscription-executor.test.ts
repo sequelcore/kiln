@@ -50,6 +50,26 @@ describe("CliSubscriptionExecutor", () => {
     expect(run.mock.calls[0]?.[0]?.kilnSessionId).toBe("kiln-runtime-session");
   });
 
+  it("passes the provider abort signal into the nested CLI session", async () => {
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const run = vi.fn().mockImplementation(() =>
+      eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ]),
+    );
+    const factory = vi.fn().mockReturnValue({ run, dispose });
+    const executor = new CliSubscriptionExecutor(factory, "codex-oauth");
+    const controller = new AbortController();
+
+    await executor.createMessage({
+      system: "sys",
+      messages: [],
+      signal: controller.signal,
+    });
+
+    expect(run.mock.calls[0]?.[0]?.abortSignal).toBe(controller.signal);
+  });
+
   it("uses the admitted turn execution context for the nested subscription session", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>

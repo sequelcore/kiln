@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   OPERATOR_THEME_LABELS,
@@ -12,6 +12,7 @@ import {
   type GuiAppDescriptor,
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
+  type GuiInboundFrame,
   type GuiProviderReasoningEffort,
   type KilnConfigSetupAction,
   type OperatorWorkspaceTreeEntry,
@@ -75,6 +76,7 @@ import {
 } from "./workbench-navigation.js";
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, isConversationTimelineEntry } from "../lib/timeline-visibility.js";
+import { OperatorTerminalDock, OPERATOR_TERMINAL_PANEL_ID } from "./operator-terminal-dock.js";
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
@@ -112,7 +114,51 @@ export function AppShell() {
   const [memoryLatticeInvalidationTick, setMemoryLatticeInvalidationTick] = useState(0);
   const [setupActionInFlight, setSetupActionInFlight] = useState<KilnConfigSetupAction | null>(null);
   const [setupActionFeedback, setSetupActionFeedback] = useState<string | null>(null);
+  const [operatorTerminalAvailable, setOperatorTerminalAvailable] = useState(false);
+  const [operatorTerminalExpanded, setOperatorTerminalExpandedState] = useState(false);
+  const operatorTerminalAvailableRef = useRef(false);
+  const operatorTerminalExpandedRef = useRef(false);
+  const operatorTerminalFocusOriginRef = useRef<HTMLElement | null>(null);
+  const operatorTerminalListenersRef = useRef(new Set<(
+    frame: Extract<GuiInboundFrame, { type: `operator_terminal_${string}` }>,
+  ) => void>());
   const sendRef = useRef<((frame: GuiOutboundFrame) => void) | null>(null);
+  const subscribeOperatorTerminal = useCallback((listener: (
+    frame: Extract<GuiInboundFrame, { type: `operator_terminal_${string}` }>,
+  ) => void) => {
+    operatorTerminalListenersRef.current.add(listener);
+    return () => operatorTerminalListenersRef.current.delete(listener);
+  }, []);
+  const setOperatorTerminalExpanded = useCallback((expanded: boolean) => {
+    if (expanded) {
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement
+        && !activeElement.closest(`#${OPERATOR_TERMINAL_PANEL_ID}`)) {
+        operatorTerminalFocusOriginRef.current = activeElement;
+      }
+    }
+    operatorTerminalExpandedRef.current = expanded;
+    setOperatorTerminalExpandedState(expanded);
+    if (!expanded) {
+      queueMicrotask(() => {
+        const origin = operatorTerminalFocusOriginRef.current;
+        const fallback = document.querySelector<HTMLElement>(`[aria-controls="${OPERATOR_TERMINAL_PANEL_ID}"]`);
+        (origin?.isConnected ? origin : fallback)?.focus();
+      });
+    }
+  }, []);
+  const setOperatorTerminalCapability = useCallback((available: boolean) => {
+    operatorTerminalAvailableRef.current = available;
+    setOperatorTerminalAvailable(available);
+    if (!available && operatorTerminalExpandedRef.current) {
+      setOperatorTerminalExpanded(false);
+    }
+  }, [setOperatorTerminalExpanded]);
+  const toggleOperatorTerminal = useCallback(() => {
+    if (!operatorTerminalAvailableRef.current) return;
+    setOperatorTerminalExpanded(!operatorTerminalExpandedRef.current);
+  }, [setOperatorTerminalExpanded]);
+  const toggleOperatorTerminalFromShortcut = useEffectEvent(toggleOperatorTerminal);
 
   const status = useSessionStore((state) => state.status);
   const timelineEntries = useSessionStore((state) => state.timelineEntries);
@@ -157,6 +203,7 @@ export function AppShell() {
   const onProvidersRefreshed = useSessionStore((state) => state.onProvidersRefreshed);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
   const onDone = useSessionStore((state) => state.onDone);
+  const onTurnCancelResult = useSessionStore((state) => state.onTurnCancelResult);
   const onVoiceSynthesisCompleted = useSessionStore((state) => state.onVoiceSynthesisCompleted);
   const onVoiceSynthesisFailed = useSessionStore((state) => state.onVoiceSynthesisFailed);
   const onError = useSessionStore((state) => state.onError);
@@ -175,6 +222,8 @@ export function AppShell() {
   const sendBrowserOperatorInput = useSessionStore((state) => state.sendBrowserOperatorInput);
   const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
   const sendMessage = useSessionStore((state) => state.sendMessage);
+  const cancelActiveTurn = useSessionStore((state) => state.cancelActiveTurn);
+  const turnCancelPending = useSessionStore((state) => state.turnCancelPending);
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
   const switchProvider = useSessionStore((state) => state.switchProvider);
@@ -403,6 +452,10 @@ export function AppShell() {
         event.preventDefault();
         setWorkbenchSurface("setup");
       }
+      if (event.ctrlKey && event.code === "Backquote" && operatorTerminalAvailableRef.current) {
+        event.preventDefault();
+        toggleOperatorTerminalFromShortcut();
+      }
       if ((event.ctrlKey || event.metaKey) && event.key === "9") {
         event.preventDefault();
         setWorkbenchSurface("agents");
@@ -419,6 +472,8 @@ export function AppShell() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  // Effect Events intentionally stay outside effect dependency arrays.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNarrow, isPaletteOpen]);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
@@ -447,6 +502,7 @@ export function AppShell() {
       onWelcome,
       onSessionEvent,
       onDone,
+      onTurnCancelResult,
       onVoiceSynthesisCompleted,
       onVoiceSynthesisFailed,
       onError,
@@ -462,6 +518,10 @@ export function AppShell() {
       onBrowserSessionUpdated,
       onBrowserLiveViewportFrame,
       onBrowserOperatorInputAck,
+      onOperatorTerminalAvailability: setOperatorTerminalCapability,
+      onOperatorTerminalFrame: (frame) => {
+        for (const listener of operatorTerminalListenersRef.current) listener(frame);
+      },
       setConnectionStatus,
       setTheme,
       persistThemePreference,
@@ -481,8 +541,10 @@ export function AppShell() {
         }
         clearErrorBanner();
       } else if (state === "connecting" || state === "reconnecting") {
+        setOperatorTerminalCapability(false);
         setConnectionStatus("connecting");
       } else if (state === "closed") {
+        setOperatorTerminalCapability(false);
         setConnectionStatus("error");
         setErrorBanner("Gateway disconnected.");
       }
@@ -699,7 +761,12 @@ export function AppShell() {
   const themeCommands: readonly CommandPaletteItem[] = OPERATOR_THEME_NAMES.map((theme) => (
     themeToPaletteItem(theme, OPERATOR_THEME_LABELS[theme])
   ));
-  const rootCommands: readonly CommandPaletteItem[] = listOperatorCommands("gui").map(operatorCommandToPaletteItem);
+  const rootCommands: CommandPaletteItem[] = [];
+  for (const command of listOperatorCommands("gui")) {
+    if (command.id !== "terminal" || operatorTerminalAvailable) {
+      rootCommands.push(operatorCommandToPaletteItem(command));
+    }
+  }
   const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
   const runtimeBootstrapReady = gatewayReady && providerCatalogStatus === "ready";
   const bootstrapTitle = gatewayError || providerCatalogStatus === "error"
@@ -754,6 +821,7 @@ export function AppShell() {
     setWorkbenchSurface,
     setTheme,
     persistThemePreference,
+    toggleOperatorTerminal,
   });
 
   if (!runtimeBootstrapReady) {
@@ -922,6 +990,10 @@ export function AppShell() {
                   onSelectGatewayTarget={setSelectedGatewayTargetId}
                 />
               )}
+              operatorTerminalAvailable={operatorTerminalAvailable}
+              operatorTerminalExpanded={operatorTerminalExpanded}
+              operatorTerminalPanelId={OPERATOR_TERMINAL_PANEL_ID}
+              onToggleOperatorTerminal={toggleOperatorTerminal}
             />
           ) : null}
           {!isNarrow ? (
@@ -946,8 +1018,13 @@ export function AppShell() {
                   onSelectGatewayTarget={setSelectedGatewayTargetId}
                 />
               )}
+              operatorTerminalAvailable={operatorTerminalAvailable}
+              operatorTerminalExpanded={operatorTerminalExpanded}
+              operatorTerminalPanelId={OPERATOR_TERMINAL_PANEL_ID}
+              onToggleOperatorTerminal={toggleOperatorTerminal}
             />
           ) : null}
+          <div className={isNarrow && operatorTerminalExpanded ? "hidden" : "contents"}>
           <WorkbenchSurfaces
             activeSurface={workbenchSurface}
             chatWorkbench={{
@@ -1004,6 +1081,8 @@ export function AppShell() {
             }}
             composer={{
               status,
+              cancelPending: turnCancelPending,
+              onCancel: cancelActiveTurn,
               activityPhase,
               activityToolName: activity?.toolName,
               activityDetails: activity?.details,
@@ -1125,6 +1204,16 @@ export function AppShell() {
               actionFeedback: setupActionFeedback,
               onThemeSelected: persistThemePreference,
             }}
+          />
+          </div>
+          <OperatorTerminalDock
+            available={operatorTerminalAvailable}
+            expanded={operatorTerminalExpanded}
+            layout={isNarrow ? "surface" : "drawer"}
+            workspaceScope={workingDirectory ?? window.location.origin}
+            onExpandedChange={setOperatorTerminalExpanded}
+            send={send}
+            subscribe={subscribeOperatorTerminal}
           />
         </WorkbenchMain>
         {!isNarrow && inspectorOpen ? (

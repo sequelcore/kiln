@@ -21,6 +21,7 @@ export interface Message {
   role: "user" | "assistant" | "tool" | "error";
   content: string;
   toolName?: string;
+  toolCallId?: string;
   toolInput?: unknown;
 }
 

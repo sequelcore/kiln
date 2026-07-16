@@ -63,6 +63,74 @@ export function projectOperatorTranscriptEntryToDraft(input: {
   };
 }
 
+export function projectGovernanceTranscriptEventDrafts(
+  toolResult: PersistedTranscriptEventDraft,
+): readonly PersistedTranscriptEventDraft[] {
+  if (toolResult.kind !== "tool_call_completed") return [];
+  const metadata = asRecord(toolResult.payload.metadata);
+  if (!metadata) return [];
+  const drafts: PersistedTranscriptEventDraft[] = [];
+  const toolCallId = readString(toolResult.payload.toolCallId) ?? toolResult.eventId;
+
+  if (metadata.kind === "work_item") {
+    const workItem = asRecord(metadata.item);
+    const operation = readString(metadata.operation);
+    const attempt = asRecord(metadata.attempt);
+    const kind = operation === "execution_started" && attempt
+      ? "work_item_execution_started"
+      : operation === "execution_finished" && attempt
+        ? "work_item_execution_finished"
+        : (operation === "update" || operation === "complete") && workItem
+          ? "work_item_updated"
+          : undefined;
+    if (kind && workItem) {
+      drafts.push({
+        ...semanticDraft(toolResult, `${toolResult.eventId}:work-item`, kind),
+        payload: {
+          toolCallId,
+          workItem,
+          ...(attempt ? { attempt } : {}),
+          ...(kind === "work_item_updated" ? { operation } : {}),
+          ...workItemOutcomePayload(metadata),
+        },
+      });
+    }
+  }
+
+  const goal = asRecord(metadata.goal);
+  const goalStatus = readString(goal?.status);
+  const goalKind = goalStatus === "completed"
+    ? "goal.completed"
+    : goalStatus === "failed"
+      ? "goal.failed"
+      : goalStatus === "cancelled"
+        ? "goal.cancelled"
+        : metadata.kind === "goal" && metadata.operation === "create"
+          ? "goal.created"
+          : goalStatus === "active"
+            ? "goal.updated"
+            : undefined;
+  const terminalSummary = readString(goal?.closeoutSummary);
+  const terminalReason = readString(goal?.terminalReason);
+  if (
+    goal
+    && goalKind
+    && (goalKind !== "goal.completed" || terminalSummary)
+    && ((goalKind !== "goal.failed" && goalKind !== "goal.cancelled") || terminalReason)
+  ) {
+    drafts.push({
+      ...semanticDraft(toolResult, `${toolResult.eventId}:goal`, goalKind),
+      payload: {
+        goal,
+        ...(goalKind === "goal.updated" ? { changedFields: ["currentPhase"] } : {}),
+        ...(goalKind === "goal.completed" ? { closeoutSummary: terminalSummary } : {}),
+        ...(goalKind === "goal.failed" || goalKind === "goal.cancelled" ? { reason: terminalReason } : {}),
+      },
+    });
+  }
+  return drafts;
+}
+
 export function operatorTranscriptSourceForEntry(
   event: OperatorTranscriptEntryEvent,
   surface: SessionEventSource["surface"],
@@ -175,6 +243,50 @@ function canonicalSessionEventPayload(event: CanonicalSessionEvent): Record<stri
     payload.managedInvocationId = payload.invocationId;
   }
   return payload;
+}
+
+function semanticDraft(
+  source: PersistedTranscriptEventDraft,
+  eventId: string,
+  kind: CanonicalSessionEventKind,
+): Omit<PersistedTranscriptEventDraft, "payload"> {
+  return {
+    eventId,
+    kilnSessionId: source.kilnSessionId,
+    timestamp: source.timestamp,
+    kind,
+    ...(source.turnId ? { turnId: source.turnId } : {}),
+    ...(source.executionScope ? { executionScope: source.executionScope } : {}),
+    source: source.source,
+  };
+}
+
+function workItemOutcomePayload(metadata: Record<string, unknown>): Record<string, unknown> {
+  return {
+    missingEvidence: readStrings(metadata.missingEvidence),
+    missingGoalEvidence: readStrings(metadata.missingGoalEvidence),
+    missingVerificationGates: readStrings(metadata.missingVerificationGates),
+    failedVerificationGates: readStrings(metadata.failedVerificationGates),
+    missingResidualRisk: metadata.missingResidualRisk === true,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readStrings(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const text = readString(entry);
+    return text ? [text] : [];
+  });
 }
 
 function isManagedInvocationEvent(

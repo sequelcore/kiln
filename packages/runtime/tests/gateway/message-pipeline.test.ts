@@ -750,6 +750,95 @@ describe("processAdmittedTurn", () => {
     });
   });
 
+  it("records an operator-aborted turn as cancelled without an error event", async () => {
+    const session = makeMockSession();
+    const controller = new AbortController();
+    controller.abort("Operator cancelled the turn.");
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "error",
+          code: "EXECUTABLE_SESSION_ERROR",
+          message: "Operation aborted",
+          taskId: null,
+          timestamp: new Date("2026-07-16T01:47:57.582Z"),
+          sessionId: session.id,
+        });
+        throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const publishCanonicalSessionEvents = vi.fn();
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      perCallConfig: { abortSignal: controller.signal },
+      publishCanonicalSessionEvents,
+    }))).rejects.toThrow("aborted before completion");
+
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "cancelled",
+    });
+    expect(session.sessionEvents.some((event) => event.kind === "error_recorded")).toBe(false);
+    expect(publishCanonicalSessionEvents).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ kind: "turn_completed", outcome: "cancelled" }),
+    ]));
+  });
+
+  it("preserves non-cancellation failures that occurred before an operator abort", async () => {
+    const session = makeMockSession();
+    const controller = new AbortController();
+    controller.abort("Operator cancelled the turn.");
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "error",
+          code: "TOOL_EXECUTION_FAILED",
+          message: "Read failed before cancellation",
+          taskId: null,
+          timestamp: new Date("2026-07-16T01:47:56.000Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "error",
+          code: "EXECUTABLE_SESSION_ERROR",
+          message: "Operation aborted",
+          taskId: null,
+          timestamp: new Date("2026-07-16T01:47:57.582Z"),
+          sessionId: session.id,
+        });
+        throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      perCallConfig: { abortSignal: controller.signal },
+    }))).rejects.toThrow("aborted before completion");
+
+    expect(session.sessionEvents.filter((event) => event.kind === "error_recorded")).toEqual([
+      expect.objectContaining({
+        kind: "error_recorded",
+        errorCode: "TOOL_EXECUTION_FAILED",
+        message: "Read failed before cancellation",
+      }),
+    ]);
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "cancelled",
+    });
+  });
+
   it("captures inbound multimodal parts as replayable artifacts before runtime orchestration", async () => {
     const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
     const orchestrator = makeMockOrchestrator();

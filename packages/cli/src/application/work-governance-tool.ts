@@ -760,6 +760,31 @@ export class WorkItemCompleteTool implements DevTool {
     if (!id) {
       return { output: 'Invalid input: "id" must be a non-empty string', isError: true };
     }
+    const existing = this.store.get(id);
+    if (!existing) {
+      return { output: `Work item not found: ${id}`, isError: true };
+    }
+    if (existing.goalRunId) {
+      return {
+        output: JSON.stringify({
+          error: {
+            code: "goal_bound_work_item",
+            message: `Work item ${id} belongs to goal ${existing.goalRunId} and must close through its execution lifecycle.`,
+            recoverable: true,
+            suggestedNextTool: "work_item.execution.finish",
+          },
+        }, null, 2),
+        metadata: workItemToolMetadata("work_item.complete", {
+          operation: "complete",
+          id,
+          status: existing.status,
+          item: existing,
+          suggestedNextTool: "work_item.execution.finish",
+          errorCode: "invalid_input",
+        }),
+        isError: true,
+      };
+    }
 
     const providedEvidence = readEvidence(input.input.providedEvidence);
     const verificationGateResults = readVerificationGateResults(input.input.verificationGateResults);
@@ -781,9 +806,7 @@ export class WorkItemCompleteTool implements DevTool {
       verificationGateResults,
       residualRisk: readText(input.input.residualRisk),
     });
-    if (!completion) {
-      return { output: `Work item not found: ${id}`, isError: true };
-    }
+    if (!completion) throw new Error(`Work item ${id} disappeared during completion.`);
 
     const missing = [
       ...completion.missingEvidence,
@@ -998,6 +1021,26 @@ export class GoalCreateTool implements DevTool {
         }),
         isError: true,
       };
+    }
+
+    const requestedWorkItems = workItemIds.map((id) => this.workItemStore.get(id)!);
+    const ownedWorkItem = requestedWorkItems.find((item) => item.goalRunId);
+    if (ownedWorkItem?.goalRunId) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: `Work item ${ownedWorkItem.id} already belongs to goal ${ownedWorkItem.goalRunId}.`,
+        missingFields: ["workItemIds"],
+      });
+    }
+    const terminalWorkItem = requestedWorkItems.find(
+      (item) => item.status === "completed" || item.status === "cancelled",
+    );
+    if (terminalWorkItem) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: `Cannot create an active goal from terminal work item ${terminalWorkItem.id}.`,
+        missingFields: ["workItemIds"],
+      });
     }
 
     try {
@@ -1272,6 +1315,7 @@ export class WorkItemExecutionStartTool implements DevTool {
           operation: "execution_started",
           id: started.item.id,
           status: started.item.status,
+          goal: started.goal,
           item: started.item,
           attempt: started.attempt,
           sequence: started.item.sequence,
@@ -1436,6 +1480,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
           operation: "execution_finished",
           id: finished.item.id,
           status: finished.item.status,
+          goal: finished.goal,
           item: finished.item,
           attempt: finished.attempt,
           missingEvidence: finished.missingEvidence,
@@ -1550,6 +1595,7 @@ export class WorkItemExecutionFailTool implements DevTool {
           operation: "execution_finished",
           id: failed.item.id,
           status: failed.item.status,
+          goal: failed.goal,
           item: failed.item,
           attempt: failed.attempt,
           missingEvidence: failed.missingEvidence,
@@ -2162,10 +2208,7 @@ function requireManagedInvocationResultHandoff(
   if (value === undefined) {
     return undefined;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Invalid input: managedInvocationResultHandoff must be an object.");
-  }
-  const record = value as Record<string, unknown>;
+  const record = requireInputRecord(value, "managedInvocationResultHandoff");
   const summary = readText(record.summary);
   const resourceUris = requireNonEmptyTextArray(
     record.resourceUris,
@@ -2179,10 +2222,20 @@ function requireManagedInvocationResultHandoff(
     : requireTextArray(record.memoryWriteProposalUris, "managedInvocationResultHandoff.memoryWriteProposalUris");
   const structuredResult = record.structuredResult === undefined
     ? undefined
-    : defineStructuredExecutionResult(record.structuredResult as StructuredExecutionResult);
+    : defineStructuredExecutionResult(
+        requireInputRecord(
+          record.structuredResult,
+          "managedInvocationResultHandoff.structuredResult",
+        ) as unknown as StructuredExecutionResult,
+      );
   const verificationUsage = record.verificationUsage === undefined
     ? undefined
-    : defineVerificationUsageReport(record.verificationUsage as Omit<VerificationUsageReport, "totals">);
+    : defineVerificationUsageReport(
+        requireInputRecord(
+          record.verificationUsage,
+          "managedInvocationResultHandoff.verificationUsage",
+        ) as Omit<VerificationUsageReport, "totals">,
+      );
   return {
     summary,
     resourceUris,
@@ -2196,10 +2249,7 @@ function readManagedOrchestrationAdoption(value: unknown): WorkItem["managedOrch
   if (value === undefined) {
     return undefined;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Invalid input: managedOrchestrationAdoption must be an object.");
-  }
-  const record = value as Record<string, unknown>;
+  const record = requireInputRecord(value, "managedOrchestrationAdoption");
   const target = readText(record.target);
   const adoptedBy = readText(record.adoptedBy);
   const adoptedAt = readText(record.adoptedAt);
@@ -2270,6 +2320,13 @@ function readTextRecord(value: unknown): Readonly<Record<string, string>> | unde
     .map(([key, recordValue]) => [key.trim(), readText(recordValue)] as const)
     .filter((entry): entry is readonly [string, string] => entry[0].length > 0 && typeof entry[1] === "string");
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function requireInputRecord(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid input: ${field} must be an object.`);
+  }
+  return value as Record<string, unknown>;
 }
 
 function readWorkClassificationInput(value: unknown): WorkClassificationInput | undefined {

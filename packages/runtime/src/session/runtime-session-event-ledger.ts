@@ -13,6 +13,7 @@ import type {
   SessionProviderIdentity,
   SessionTurnOutcome,
   SessionToolStatus,
+  GoalRun,
   WorkItem,
   WorkItemExecutionAttempt,
   ToolCalledEvent,
@@ -277,6 +278,15 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           source: makeSource("tool", "runtime", "work-governance"),
         })) {
           events.push(workItemEvent);
+        }
+        for (const goalEvent of projectGoalEvents({
+          sessionId: session.id,
+          turnId,
+          sequence: nextSequence,
+          runtimeEvent,
+          source: makeSource("tool", "runtime", "work-governance"),
+        })) {
+          events.push(goalEvent);
         }
         break;
       }
@@ -785,6 +795,31 @@ function isWorkItemToolMetadata(value: unknown): value is {
     );
 }
 
+function goalFromToolMetadata(value: unknown): GoalRun | undefined {
+  if (!isRecord(value)) return undefined;
+  return isGoalRun(value.goal) ? value.goal : undefined;
+}
+
+function isGoalRun(value: unknown): value is GoalRun {
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string"
+    && typeof value.objective === "string"
+    && typeof value.ownerSessionId === "string"
+    && isRecord(value.source)
+    && (value.status === "active" || value.status === "completed" || value.status === "failed" || value.status === "cancelled")
+    && Array.isArray(value.workItemIds)
+    && isRecord(value.authorityEnvelope)
+    && isRecord(value.routePolicy)
+    && Array.isArray(value.evidenceRequirements)
+    && typeof value.createdAt === "string"
+    && typeof value.updatedAt === "string"
+    && typeof value.sequence === "number";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isWorkItem(value: unknown): value is WorkItem {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -895,6 +930,56 @@ function makeSource(
   component: string,
 ): SessionEventSource {
   return { actor, surface, component };
+}
+
+function projectGoalEvents(input: {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly sequence: () => number;
+  readonly runtimeEvent: ToolResultEvent;
+  readonly source: SessionEventSource;
+}): readonly CanonicalSessionEvent[] {
+  const metadata = input.runtimeEvent.metadata;
+  const goal = goalFromToolMetadata(metadata);
+  if (!goal) return [];
+  const envelope = () => ({
+    kilnSessionId: input.sessionId,
+    sequence: input.sequence(),
+    turnId: input.turnId,
+    goal,
+    source: input.source,
+    timestamp: input.runtimeEvent.timestamp,
+  });
+  if (goal.status === "completed" && goal.closeoutSummary) {
+    return [createSessionEvent<"goal.completed">({
+      ...envelope(),
+      kind: "goal.completed",
+      closeoutSummary: goal.closeoutSummary,
+    })];
+  }
+  if (goal.status === "failed" && goal.terminalReason) {
+    return [createSessionEvent<"goal.failed">({
+      ...envelope(),
+      kind: "goal.failed",
+      reason: goal.terminalReason,
+    })];
+  }
+  if (goal.status === "cancelled" && goal.terminalReason) {
+    return [createSessionEvent<"goal.cancelled">({
+      ...envelope(),
+      kind: "goal.cancelled",
+      reason: goal.terminalReason,
+    })];
+  }
+  if (goal.status !== "active") return [];
+  if (isRecord(metadata) && metadata.kind === "goal" && metadata.operation === "create") {
+    return [createSessionEvent<"goal.created">({ ...envelope(), kind: "goal.created" })];
+  }
+  return [createSessionEvent<"goal.updated">({
+    ...envelope(),
+    kind: "goal.updated",
+    changedFields: ["currentPhase"],
+  })];
 }
 
 function requireRuntimeToolCallId(

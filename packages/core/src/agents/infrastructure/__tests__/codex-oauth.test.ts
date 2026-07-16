@@ -741,6 +741,75 @@ describe("CodexOAuthAdapter", () => {
       });
     });
 
+    it("restores optional fields omitted through Codex strict-mode nullable arguments", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([{
+        event: "response.completed",
+        data: {
+          response: {
+            id: "resp_strict_optional_1",
+            status: "completed",
+            output: [{
+              type: "function_call",
+              id: "call_strict_optional_1",
+              name: "finish_work",
+              arguments: JSON.stringify({
+                id: "work-1",
+                handoff: {
+                  summary: "Local evidence collected.",
+                  resourceUris: ["kiln://artifacts/work-1"],
+                  structuredResult: null,
+                  verificationUsage: null,
+                },
+                adoption: null,
+                closeoutSummary: null,
+              }),
+            }],
+            usage: { input_tokens: 20, output_tokens: 8 },
+          },
+        },
+      }]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions({
+        tools: [{
+          name: "finish_work",
+          description: "Finish governed work.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              handoff: {
+                type: "object",
+                properties: {
+                  summary: { type: "string" },
+                  resourceUris: { type: "array", items: { type: "string" } },
+                  structuredResult: { type: "object" },
+                  verificationUsage: { type: "object" },
+                },
+                required: ["summary", "resourceUris"],
+              },
+              adoption: { type: "object" },
+              closeoutSummary: { type: "string" },
+            },
+            required: ["id"],
+          },
+          tags: new Set(["governance"]),
+        }],
+      }));
+
+      expect(response.toolCalls).toEqual([{
+        id: "call_strict_optional_1",
+        name: "finish_work",
+        input: {
+          id: "work-1",
+          handoff: {
+            summary: "Local evidence collected.",
+            resourceUris: ["kiln://artifacts/work-1"],
+          },
+        },
+      }]);
+    });
+
     it("preserves invalid tool calls even when leading text contains JSON", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {

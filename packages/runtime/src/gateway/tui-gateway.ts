@@ -1121,7 +1121,7 @@ class TuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed";
+    kind: "assistant_delta" | "tool_call_started" | "tool_call_output_delta" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed";
     timestamp: string;
     payload: Record<string, unknown>;
     parentEventId?: string;
@@ -1360,6 +1360,19 @@ class TuiActivityStreamer {
       this.emitActivityPhase({
         phase: "tool_running",
         toolName: event.toolName,
+      });
+    } else if (event.type === "tool_output_delta") {
+      this.emitSessionEvent({
+        kind: "tool_call_output_delta",
+        timestamp: new Date().toISOString(),
+        payload: {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          stream: event.stream,
+          delta: event.delta,
+          chunkIndex: event.chunkIndex,
+        },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_result") {
       const pending = this.capture?.pendingToolCallIds.get(event.toolName);

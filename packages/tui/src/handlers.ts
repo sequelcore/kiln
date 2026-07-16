@@ -164,7 +164,8 @@ export async function handleTextDelta(
 export function handleToolUse(
   ctx: HandlerContext,
   toolName: string,
-  input?: unknown
+  input?: unknown,
+  toolCallId?: string,
 ): void {
   // Format input as inline preview: [key=value, ...]
   let inputPreview = "";
@@ -180,6 +181,7 @@ export function handleToolUse(
   }
 
   const toolMsg = createMessage("tool", "", toolName);
+  toolMsg.toolCallId = toolCallId;
   const msgBox = new BoxRenderable(ctx.renderer, {
     id: `msg-${ctx.messageNodes.length}`,
     flexDirection: "row",
@@ -227,13 +229,14 @@ export function handleToolUse(
 export function handleToolResult(
   ctx: HandlerContext,
   toolName: string,
-  output: string
+  output: string,
+  toolCallId?: string,
 ): void {
   const truncated = output && output.length > 60
     ? output.slice(0, 57) + "..."
     : output;
   const entry = ctx.messageNodes.findLast(
-    (n) => n.msg.role === "tool" && n.msg.toolName === toolName
+    (n) => n.msg.role === "tool" && (toolCallId ? n.msg.toolCallId === toolCallId : n.msg.toolName === toolName)
   );
   if (entry) {
     entry.msg.content = truncated;
@@ -300,7 +303,7 @@ export function handleActivity(
   outputTokens: number | undefined,
   renderSidebarCost: () => void,
   renderSidebarApprovals?: () => void,
-  event?: { sessionId?: string; turnId?: string; approvalId?: string; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionEvent?: OperatorSessionEvent }
+  event?: { sessionId?: string; turnId?: string; approvalId?: string; toolCallId?: string; stream?: "stdout" | "stderr"; chunkIndex?: number; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionEvent?: OperatorSessionEvent }
 ): void {
   // Ignore late-arriving frames after the turn has completed.
   if (ctx.state.status !== "running") return;
@@ -324,9 +327,11 @@ export function handleActivity(
   } else if (activity === "cost_update" && usd !== undefined) {
     handleCostUpdate(ctx, usd, renderSidebarCost, inputTokens, outputTokens);
   } else if (activity === "tool_use" && toolName) {
-    handleToolUse(ctx, toolName, input);
+    handleToolUse(ctx, toolName, input, event?.toolCallId);
+  } else if (activity === "tool_output" && toolName && output !== undefined && event?.toolCallId) {
+    handleToolOutput(ctx, toolName, event.toolCallId, output);
   } else if (activity === "tool_result" && toolName && output) {
-    handleToolResult(ctx, toolName, output);
+    handleToolResult(ctx, toolName, output, event?.toolCallId);
   } else if (activity === "file_changed") {
     const path = (event as { path?: string }).path;
     const changeType = (event as { changeType?: "created" | "modified" | "deleted" }).changeType;
@@ -375,6 +380,23 @@ export function handleActivity(
       details: identity ? `${identityLabel} ${details ?? identity.subtitle ?? ""}`.trim() : details,
     });
   }
+}
+
+export function handleToolOutput(
+  ctx: HandlerContext,
+  toolName: string,
+  toolCallId: string,
+  output: string,
+): void {
+  const entry = ctx.messageNodes.findLast(
+    (node) => node.msg.role === "tool" && node.msg.toolCallId === toolCallId,
+  );
+  if (!entry) return;
+  const combined = `${entry.msg.content}${output}`;
+  entry.msg.content = combined.length > 4_096 ? combined.slice(-4_096) : combined;
+  const visible = entry.msg.content.split(/\r?\n/u).slice(-8).join("\n").trimEnd();
+  entry.node.content = t`${fg(ctx.theme.toolFg)("âŸ³ " + toolName)}${visible ? `\n${visible}` : ""}`;
+  update(ctx.state, "messages", [...ctx.state.messages]);
 }
 
 function appendManagedAgentProjectionEvent(
