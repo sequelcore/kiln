@@ -60,6 +60,7 @@ export interface ManagedAgentOrchestrationRequestBuilderBaseInput {
   readonly requestedBy: string;
   readonly requestSource: string;
   readonly task: string;
+  readonly workingDirectoryMode: ManagedAgentWorkingDirectory["mode"];
 }
 
 export interface ManagedAgentParallelOrchestrationRequestBuilderInput
@@ -181,6 +182,7 @@ export function buildManagedAgentFanOutOrchestrationRequest(input: {
   readonly task: string;
   readonly childCount: number;
   readonly maxConcurrentChildren: number;
+  readonly workingDirectoryMode: ManagedAgentWorkingDirectory["mode"];
 }): ManagedAgentOrchestrationRequest {
   if (!Number.isInteger(input.childCount) || input.childCount < 2) {
     throw new Error("Managed fan-out orchestration requires at least two children");
@@ -216,7 +218,7 @@ export function buildManagedAgentFanOutOrchestrationRequest(input: {
     isolation: {
       required: true,
       reason: "fan-out children require isolated workspaces so duplicate candidates cannot mutate one checkout",
-      workingDirectoryMode: "isolated-worktree",
+      workingDirectoryMode: input.workingDirectoryMode,
     },
     expectedEvidence,
     mergePolicy: {
@@ -241,7 +243,6 @@ export function buildManagedAgentDecompositionOrchestrationRequest(
       adoptionRequired: true,
       adoptionReadinessRequired: true,
     },
-    isolationReason: "decomposition children require isolated workspaces so subtasks cannot mutate one checkout",
   });
 }
 
@@ -259,7 +260,6 @@ export function buildManagedAgentReviewSwarmOrchestrationRequest(
       adoptionRequired: false,
       adoptionReadinessRequired: false,
     },
-    isolationReason: "review swarm children require isolated workspaces so independent reviews cannot mutate one checkout",
   });
 }
 
@@ -277,7 +277,6 @@ export function buildManagedAgentRouteComparisonOrchestrationRequest(
       adoptionRequired: false,
       adoptionReadinessRequired: false,
     },
-    isolationReason: "route comparison children require isolated workspaces so candidate routes cannot mutate one checkout",
   });
 }
 
@@ -303,7 +302,6 @@ export function buildManagedAgentBackgroundJobOrchestrationRequest(
       adoptionRequired: false,
       adoptionReadinessRequired: false,
     },
-    isolationReason: "background jobs require isolated workspaces so long-running children cannot mutate the parent checkout",
   });
 }
 
@@ -315,7 +313,6 @@ function buildManagedAgentModeOrchestrationRequest(
     readonly maxConcurrentChildren: number;
     readonly expectedEvidence: readonly ManagedAgentOrchestrationExpectedEvidence[];
     readonly mergePolicy: ManagedAgentOrchestrationMergePolicy;
-    readonly isolationReason: string;
   },
 ): ManagedAgentOrchestrationRequest {
   return defineManagedAgentOrchestrationRequest({
@@ -330,8 +327,8 @@ function buildManagedAgentModeOrchestrationRequest(
     maxConcurrentChildren: config.maxConcurrentChildren,
     isolation: {
       required: true,
-      reason: config.isolationReason,
-      workingDirectoryMode: "isolated-worktree",
+      reason: `managed ${config.mode} children require an explicit isolated execution boundary`,
+      workingDirectoryMode: input.workingDirectoryMode,
     },
     expectedEvidence: config.expectedEvidence,
     mergePolicy: config.mergePolicy,
@@ -402,7 +399,7 @@ export function admitManagedAgentOrchestrationRequest(
   if (normalizedLimits.workspace !== "available") {
     missingCapabilities.push("orchestration.workspace.available");
   }
-  if (normalizedLimits.taskRisk === "high") {
+  if (normalizedLimits.taskRisk === "high" && request.maxConcurrentChildren > 1) {
     missingCapabilities.push("orchestration.taskRisk.parallelAdmissible");
   }
 
@@ -598,7 +595,7 @@ function requireChildResult(input: ManagedAgentOrchestrationChildResult): Manage
 }
 
 function requireModePolicy(request: ManagedAgentOrchestrationRequest): void {
-  requireIsolatedWorktreePolicy(request);
+  requireIsolatedExecutionPolicy(request);
   if (request.mode === "fan-out") {
     requireMinimumChildren(request, 2, "Managed fan-out orchestration requires at least two children");
     requireEvidenceKinds(request, ["result-handoff", "comparison-summary"]);
@@ -630,11 +627,14 @@ function requireModePolicy(request: ManagedAgentOrchestrationRequest): void {
   requireMergePolicy(request, "none", false, false, "Managed background-job orchestration requires no merge policy");
 }
 
-function requireIsolatedWorktreePolicy(request: ManagedAgentOrchestrationRequest): void {
+function requireIsolatedExecutionPolicy(request: ManagedAgentOrchestrationRequest): void {
   if (!request.isolation.required) {
     throw new Error(`Managed ${request.mode} orchestration requires isolated child workspaces`);
   }
-  if (request.isolation.workingDirectoryMode !== "isolated-worktree") {
+  if (request.isolation.workingDirectoryMode === "workspace-write" || request.isolation.workingDirectoryMode === undefined) {
+    throw new Error(`Managed ${request.mode} orchestration requires read-only, sandbox, or isolated-worktree execution`);
+  }
+  if (request.mode === "fan-out" && request.isolation.workingDirectoryMode !== "isolated-worktree") {
     throw new Error(`Managed ${request.mode} orchestration requires isolated-worktree working directory mode`);
   }
 }

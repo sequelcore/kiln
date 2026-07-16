@@ -74,7 +74,10 @@ describe("createBenchmarkProfileScorers", () => {
 
   it("scores cache topology only when request evidence includes prefix partition and invalid-reuse probes", async () => {
     const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-tool-agent")!;
-    const scorer = createBenchmarkProfileScorers(profile).find((entry) => entry.name === "cache-topology")!;
+    const scorer = createBenchmarkProfileScorers({
+      ...profile,
+      requiredScorers: ["cache-topology"],
+    }).find((entry) => entry.name === "cache-topology")!;
 
     await expect(scorer.score({
       input: "Use stable tools.",

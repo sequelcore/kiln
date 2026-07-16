@@ -2704,6 +2704,62 @@ describe("work-governance-tool", () => {
     });
   });
 
+  it("requires executable route tools for implementation verification evidence", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-verification",
+      summary: "Run the repository tests and typecheck.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests", "typecheck", "residual-risk"],
+      providedEvidence: [],
+      verificationGates: ["bun test", "bun run typecheck"],
+      goalRunId: "goal-managed-verification",
+      routeId: "codex-oauth-verification-approved-write",
+      assignedAgentProfile: "tdd",
+      authorityProfile: "foundation-apply-approved-writes",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-verification",
+      objective: "Verify the repository.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Repository verification may create build and test artifacts.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+
+    const result = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+      },
+    });
+    const output = JSON.parse(result?.output ?? "{}") as {
+      readonly managedInvocationRequest?: {
+        readonly requiredToolNames?: readonly string[];
+        readonly executionPhase?: {
+          readonly requiredToolNames?: readonly string[];
+          readonly taskAffinity?: readonly string[];
+        };
+      };
+    };
+
+    expect(result?.isError).toBe(true);
+    expect(output.managedInvocationRequest?.requiredToolNames).toEqual(["bash"]);
+    expect(output.managedInvocationRequest?.executionPhase?.requiredToolNames).toEqual(["bash"]);
+    expect(output.managedInvocationRequest?.executionPhase?.taskAffinity).toEqual(["test-writing"]);
+  });
+
   it("rejects direct completion for a goal-bound work item", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });

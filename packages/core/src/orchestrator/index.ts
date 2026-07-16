@@ -67,28 +67,3 @@ export type { InterruptRequest, ResumeCommand, InterruptState } from "./interrup
 export { validateJsonSchema, validateOutput, withGuardrail } from "./guardrails.js";
 export type { GuardrailResult } from "./guardrails.js";
 
-// Demand allocator (Phase 8.3a + 8.3e adaptive)
-export {
-  DemandAllocator,
-  DEFAULT_DEMAND_THRESHOLD,
-  DEFAULT_DEMAND_THRESHOLDS,
-  DEFAULT_ADAPTIVE_CONFIG,
-} from "./demand-allocator.js";
-export type {
-  TaskCategory,
-  TaskDemand,
-  AgentThresholds,
-  AllocationResult,
-  TaskOutcome,
-  AdaptiveConfig,
-} from "./demand-allocator.js";
-export { inferCategory, buildTaskDemand } from "./demand-signal.js";
-
-// Chain governor (Phase 8.3b)
-export { ChainGovernor, DEFAULT_CHAIN_GOVERNOR_CONFIG } from "./chain-governor.js";
-export type { ChainGovernorConfig, ChainGovernorSnapshot } from "./chain-governor.js";
-
-// Task registry (Phase 8.3c)
-export { TaskRegistry } from "./task-registry.js";
-export type { RegisteredTask, RegisteredTaskStatus, RegisterTaskOptions, CompleteTaskOptions, FailTaskOptions } from "./task-registry.js";
-

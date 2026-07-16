@@ -49,8 +49,8 @@ is documented by concern, not as a single monolith.
   Safety doctrine, layered threat detection, escalation, and threat memory.
 
 - `coordination.md`
-  Coordination model, allocation, task registry, chain control, role
-  activation, and shared-state coordination.
+  Deterministic topology selection, governed work graphs, bounded runtime
+  scheduling, role intent, failure semantics, and cross-surface projection.
 
 - `managed-agents.md`
   Provider-neutral managed child invocation, admission, authority profiles,

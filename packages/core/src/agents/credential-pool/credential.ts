@@ -12,6 +12,7 @@ export interface Credential<TAuth> {
   readonly lastSuccess: number | null;
   readonly lastExhausted: number | null;
   readonly cooldownUntil: number | null;
+  readonly invalidReason: "auth-failed" | null;
   readonly softLeaseCount: number;
 }
 
@@ -47,6 +48,7 @@ export function createCredential<TAuth>(
     lastSuccess: null,
     lastExhausted: null,
     cooldownUntil: null,
+    invalidReason: null,
     softLeaseCount: 0,
   };
 }
@@ -94,6 +96,17 @@ export function recordFailure<TAuth>(
   };
 }
 
+export function recordInvalid<TAuth>(
+  credential: Credential<TAuth>,
+  reason: "auth-failed",
+): Credential<TAuth> {
+  return {
+    ...credential,
+    requestCount: credential.requestCount + 1,
+    invalidReason: reason,
+  };
+}
+
 export function clearExpiredCooldown<TAuth>(
   credential: Credential<TAuth>,
   now: number = Date.now(),
@@ -130,6 +143,9 @@ export function isAvailable<TAuth>(
   credential: Credential<TAuth>,
   now: number = Date.now(),
 ): boolean {
+  if (credential.invalidReason !== null) {
+    return false;
+  }
   if (credential.cooldownUntil === null) {
     return true;
   }
@@ -146,7 +162,10 @@ export function isCooling<TAuth>(
 export function getHealthStatus<TAuth>(
   credential: Credential<TAuth>,
   now: number = Date.now(),
-): "ok" | "cooling" | "exhausted" {
+): "ok" | "cooling" | "exhausted" | "invalid" {
+  if (credential.invalidReason !== null) {
+    return "invalid";
+  }
   if (isAvailable(credential, now)) {
     return "ok";
   }

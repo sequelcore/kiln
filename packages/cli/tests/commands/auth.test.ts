@@ -132,6 +132,42 @@ describe("auth command", () => {
     expect(output).not.toContain("Codex OAuth");
   }, 10_000);
 
+  it("explains remotely invalidated Codex OAuth credentials", async () => {
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"),
+      `${JSON.stringify({
+        access_token: "revoked-access-token",
+        refresh_token: "revoked-refresh-token",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        client_id: "client",
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(homeDir, ".kiln", "auth", ".health", "codex-oauth.json"),
+      `${JSON.stringify([{
+        providerId: "codex-oauth",
+        credentialId: "work",
+        requestCount: 1,
+        lastSuccess: null,
+        lastExhausted: null,
+        cooldownUntil: null,
+        lastOutcome: { type: "auth-failed" },
+        updatedAt: "2026-07-16T00:00:00.000Z",
+      }])}\n`,
+      "utf8",
+    );
+
+    await runAuth(["codex", "status"]);
+
+    const output = logs.join("\n");
+    expect(output).toContain("Status: invalid");
+    expect(output).toContain("Reason: Provider rejected this credential. Sign in again.");
+    expect(output).not.toContain("revoked-access-token");
+    expect(output).not.toContain("revoked-refresh-token");
+  }, 10_000);
+
   it("rejects invalid OpenCode tiers instead of silently falling back to go", async () => {
     await runAuth(["opencode", "link", "--tier", "code", "--key", "sk-test"]);
 

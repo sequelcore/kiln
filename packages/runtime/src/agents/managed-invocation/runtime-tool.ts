@@ -1,4 +1,9 @@
 import {
+  buildManagedAgentBackgroundJobOrchestrationRequest,
+  buildManagedAgentDecompositionOrchestrationRequest,
+  buildManagedAgentReviewSwarmOrchestrationRequest,
+  decideManagedAgentCoordination,
+  MANAGED_AGENT_ADMISSION_PROFILES,
   WORK_CLASSIFICATION_ARTIFACTS,
   WORK_CLASSIFICATION_DOMAINS,
   WORK_CLASSIFICATION_EFFECTS,
@@ -8,6 +13,7 @@ import {
   defineWorkClassification,
   projectStructuredExecutionResult,
 } from "@kilnai/core";
+import { runManagedAgentOrchestrationLifecycle } from "./orchestration-lifecycle.js";
 import type {
   ActionEffectEnvelope,
   ArtifactResourceStore,
@@ -44,6 +50,7 @@ import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
 } from "../../session/runtime-session-orchestrator.types.js";
+import type { RuntimeBudgetAdmissionPort } from "../../session/runtime-budget-admission.js";
 import { RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON } from "../../session/runtime-session-orchestrator.types.js";
 import {
   ManagedRuntimeCredentialRouteLeaseManager,
@@ -82,6 +89,10 @@ export const MANAGED_AGENT_STATUS_TOOL_NAME = "managed_agent.status";
 export const MANAGED_AGENT_LIST_TOOL_NAME = "managed_agent.list";
 export const MANAGED_AGENT_JOIN_TOOL_NAME = "managed_agent.join";
 export const MANAGED_AGENT_CANCEL_TOOL_NAME = "managed_agent.cancel";
+export const MANAGED_AGENT_ORCHESTRATE_TOOL_NAME = "managed_agent.orchestrate";
+const MANAGED_AGENT_ORCHESTRATION_PROFILES = MANAGED_AGENT_ADMISSION_PROFILES.filter(
+  (profile): profile is Exclude<ManagedAgentAdmissionProfile, "rejected"> => profile !== "rejected",
+);
 
 export interface ManagedInvocationRouteProfile {
   readonly authorityProfileId: string;
@@ -133,6 +144,8 @@ export interface ManagedInvocationToolOptions {
   readonly invocationServiceKey?: string;
   readonly sessionEventSink?: ManagedInvocationSessionEventSink;
   readonly contextResolver?: ManagedInvocationContextResolver;
+  readonly maxParallelChildren?: number;
+  readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
 }
 
 export type ManagedInvocationToolOptionsWithService = ManagedInvocationToolOptions & {
@@ -534,6 +547,38 @@ export const MANAGED_AGENT_CANCEL_TOOL: ToolDefinition = {
   tags: new Set<string>(["managed-invocation", "operator-control"]),
 };
 
+export const MANAGED_AGENT_ORCHESTRATE_TOOL: ToolDefinition = {
+  name: MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+  description: "Select and execute a governed managed-agent coordination topology from an explicit work graph. Runtime capacity bounds concurrency; the caller does not choose a provider ranking or worker count.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      profile: { type: "string", enum: MANAGED_AGENT_ORCHESTRATION_PROFILES },
+      routeId: { type: "string" },
+      taskRisk: { type: "string", enum: ["low", "medium", "high", "unknown"] },
+      requiresIndependentReview: { type: "boolean" },
+      workItems: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", minLength: 1 },
+            roleIntent: { type: "string", minLength: 1 },
+            task: { type: "string", minLength: 1 },
+            dependencies: { type: "array", items: { type: "string", minLength: 1 } },
+          },
+          required: ["id", "roleIntent", "task"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["profile", "taskRisk", "requiresIndependentReview", "workItems"],
+    additionalProperties: false,
+  },
+  tags: new Set<string>(["managed-invocation", "orchestration", "operator-approval"]),
+};
+
 const MANAGED_AGENT_DESTRUCTIVE_ENVELOPE: ActionEffectEnvelope = {
   operation: "mutate",
   boundaries: ["process", "workspace", "network"],
@@ -610,6 +655,14 @@ export const MANAGED_AGENT_CANCEL_CAPABILITY: Capability = {
   schema: MANAGED_AGENT_CANCEL_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-control"],
   effectEnvelope: MANAGED_AGENT_CONTROL_ENVELOPE,
+};
+
+export const MANAGED_AGENT_ORCHESTRATE_CAPABILITY: Capability = {
+  name: MANAGED_AGENT_ORCHESTRATE_TOOL.name,
+  description: MANAGED_AGENT_ORCHESTRATE_TOOL.description,
+  schema: MANAGED_AGENT_ORCHESTRATE_TOOL.inputSchema,
+  tags: ["managed-invocation", "orchestration", "operator-approval"],
+  effectEnvelope: MANAGED_AGENT_DESTRUCTIVE_ENVELOPE,
 };
 
 export function createManagedAgentInvokeToolDefinition(
@@ -712,6 +765,10 @@ export function createManagedInvocationLifecycleToolExecutors(
     [MANAGED_AGENT_LIST_TOOL_NAME, async (_input, context) => executeManagedInvocationListTool(context, service)],
     [MANAGED_AGENT_JOIN_TOOL_NAME, async (input, context) => executeManagedInvocationJoinTool(input, context, options, service)],
     [MANAGED_AGENT_CANCEL_TOOL_NAME, async (input, context) => executeManagedInvocationCancelTool(input, context, options, service)],
+    [MANAGED_AGENT_ORCHESTRATE_TOOL_NAME, async (input, context) => executeManagedAgentOrchestrationTool(input, context, {
+      ...options,
+      invocationService: service,
+    })],
   ]);
 }
 
@@ -1783,6 +1840,263 @@ async function executeManagedInvocationStartTool(
       sessionEventIds: events.map((event) => event.eventId),
     },
   };
+}
+
+interface ManagedOrchestrationWorkItemInput {
+  readonly id: string;
+  readonly roleIntent: string;
+  readonly task: string;
+  readonly dependencies: readonly string[];
+}
+
+async function executeManagedAgentOrchestrationTool(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  options: ManagedInvocationToolOptionsWithService,
+): Promise<ManagedInvocationToolResult> {
+  const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  if (!session.ok) return session.result;
+  const profile = readText(rawInput.profile) as ManagedAgentAdmissionProfile | undefined;
+  if (!profile || profile === "rejected" || !MANAGED_AGENT_ORCHESTRATION_PROFILES.includes(profile)) {
+    return errorResult("managed_agent.orchestrate requires a supported profile.", {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const taskRisk = readText(rawInput.taskRisk);
+  if (taskRisk !== "low" && taskRisk !== "medium" && taskRisk !== "high" && taskRisk !== "unknown") {
+    return errorResult("managed_agent.orchestrate requires taskRisk.", {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const parsedWorkItems = readManagedOrchestrationWorkItems(rawInput.workItems);
+  if (!parsedWorkItems.ok) {
+    return errorResult(parsedWorkItems.message, {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const orderedWorkItems = orderManagedOrchestrationWorkItems(parsedWorkItems.workItems);
+  if (!orderedWorkItems.ok) {
+    return errorResult(orderedWorkItems.message, {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const requestedRouteId = readText(rawInput.routeId);
+  const eligibleRoutes = options.routes.filter((route) => {
+    const routeProfile = route.profiles[profile];
+    return (!requestedRouteId || route.routeId === requestedRouteId)
+      && routeProfile !== undefined
+      && routeProfile.workingDirectory.mode !== "workspace-write"
+      && (routeProfile.workingDirectory.mode !== "isolated-worktree" || routeProfile.workingDirectoryLease !== undefined)
+      && route.adapter.descriptor.lifecycle.exposesStart
+      && route.adapter.descriptor.lifecycle.exposesTerminal;
+  });
+  if (eligibleRoutes.length > 1) {
+    return errorResult(
+      `managed_agent.orchestrate route selection is ambiguous. Specify routeId. Matching routes: ${eligibleRoutes.map((route) => route.routeId).join(", ")}`,
+      { operation: "managed_orchestration_denied" },
+      MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+    );
+  }
+  const selectedRoute = eligibleRoutes[0];
+  const maxParallelWorkers = Math.max(1, options.maxParallelChildren ?? 1);
+  const budgetAdmission = await admitManagedOrchestrationBudget({
+    budgetAdmission: options.orchestrationBudgetAdmission,
+    sessionId: session.context.session.id,
+    turnId: session.context.turnId,
+    routes: eligibleRoutes,
+  });
+  const decision = decideManagedAgentCoordination({
+    governanceRecommendation: "orchestrate",
+    workItemCount: orderedWorkItems.workItems.length,
+    dependencyCount: orderedWorkItems.workItems.reduce((count, item) => count + item.dependencies.length, 0),
+    requiresIndependentReview: rawInput.requiresIndependentReview === true,
+    taskRisk,
+    managedRouteCount: eligibleRoutes.length,
+    maxParallelWorkers,
+    routeHealth: eligibleRoutes.length > 0 ? "available" : "unavailable",
+    budget: budgetAdmission.available ? "available" : "unavailable",
+    workspace: eligibleRoutes.length > 0 ? "available" : "unavailable",
+  });
+  if (decision.status === "denied") {
+    return errorResult([
+      ...decision.reasons,
+      ...(!budgetAdmission.available ? [budgetAdmission.reason] : []),
+    ].join("; "), {
+      operation: "managed_orchestration_denied",
+      coordinationDecision: decision,
+      ...(!budgetAdmission.available ? { budgetAdmissionReason: budgetAdmission.reason } : {}),
+    }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  if (decision.topology === "direct" || !decision.orchestrationMode) {
+    return errorResult("managed_agent.orchestrate cannot execute a direct topology.", {
+      operation: "managed_orchestration_direct",
+      coordinationDecision: decision,
+    }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const orchestrationId = `managed-orchestration:${session.context.session.id}:${session.context.toolCall.id}`;
+  const base = {
+    orchestrationId,
+    parentSessionId: session.context.session.id,
+    parentTurnId: session.context.turnId ?? session.context.toolCall.id,
+    requestedBy: options.requestedBy ?? "runtime",
+    requestSource: options.requestSource ?? MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+    task: orderedWorkItems.workItems.map((item) => item.task).join("\n"),
+    workingDirectoryMode: selectedRoute!.profiles[profile]!.workingDirectory.mode,
+  };
+  const childPlans = orderedWorkItems.workItems.map((item) => ({
+    roleIntent: item.roleIntent,
+    task: item.task,
+  }));
+  const orchestrationRequest = decision.orchestrationMode === "background-job"
+    ? buildManagedAgentBackgroundJobOrchestrationRequest({
+      ...base,
+      roleIntent: orderedWorkItems.workItems[0]!.roleIntent,
+      task: orderedWorkItems.workItems[0]!.task,
+    })
+    : decision.orchestrationMode === "review-swarm"
+      ? buildManagedAgentReviewSwarmOrchestrationRequest({
+        ...base,
+        childPlans,
+        maxConcurrentChildren: decision.maxConcurrentChildren,
+      })
+      : buildManagedAgentDecompositionOrchestrationRequest({
+        ...base,
+        childPlans,
+        maxConcurrentChildren: decision.maxConcurrentChildren,
+      });
+  try {
+    const result = await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest,
+      managedInvocation: options,
+      profile,
+      requestedAuthority: managedOrchestrationRequestedAuthority(profile),
+      routeSelector: {
+        routeId: selectedRoute!.routeId,
+      },
+    });
+    return {
+      output: JSON.stringify({
+        status: result.orchestrationResult.status,
+        coordinationDecision: decision,
+        orchestrationResult: result.orchestrationResult,
+      }, null, 2),
+      isError: result.orchestrationResult.status === "failed",
+      metadata: {
+        toolName: MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+        operation: "managed_orchestration_completed",
+        orchestrationId,
+        coordinationDecision: decision,
+        presentationIntent: {
+          kind: "timeline",
+          title: "Managed orchestration",
+          summary: `${decision.topology} · ${result.orchestrationResult.status}`,
+          source: MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+          confidence: "high",
+          items: result.orchestrationResult.childResults.map((child, index) => ({
+            id: child.childId,
+            order: child.ordinal,
+            label: orderedWorkItems.workItems[index]?.roleIntent ?? child.childId,
+            status: child.success ? "success" : "error",
+            summary: child.success
+              ? orderedWorkItems.workItems[index]?.task
+              : child.error ?? orderedWorkItems.workItems[index]?.task,
+          })),
+        } satisfies PresentationIntent,
+      },
+    };
+  } catch (error) {
+    return errorResult(error instanceof Error ? error.message : String(error), {
+      operation: "managed_orchestration_failed",
+      orchestrationId,
+      coordinationDecision: decision,
+    }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+}
+
+function managedOrchestrationRequestedAuthority(
+  profile: ManagedAgentAdmissionProfile,
+): ManagedAgentRequestedAuthority {
+  return profile === "foundation-readonly-plan"
+    || profile === "diagnostic-only"
+    || profile === "comparison-only"
+    ? "read_only"
+    : "audited";
+}
+
+async function admitManagedOrchestrationBudget(input: {
+  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly sessionId: string;
+  readonly turnId?: string;
+  readonly routes: readonly ManagedInvocationToolRoute[];
+}): Promise<{ readonly available: true } | { readonly available: false; readonly reason: string }> {
+  if (!input.budgetAdmission) return { available: true };
+  try {
+    const decision = await input.budgetAdmission.admit({
+      subject: "managed-orchestration",
+      sessionId: input.sessionId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      routeCandidates: input.routes.map((route) => ({
+        routeId: route.routeId,
+        providerId: route.providerId,
+        ...(route.model ? { model: route.model } : {}),
+      })),
+    });
+    return decision.status === "admitted"
+      ? { available: true }
+      : { available: false, reason: decision.message ?? decision.reason };
+  } catch (error) {
+    return {
+      available: false,
+      reason: `Managed orchestration budget admission failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function readManagedOrchestrationWorkItems(value: unknown):
+  | { readonly ok: true; readonly workItems: readonly ManagedOrchestrationWorkItemInput[] }
+  | { readonly ok: false; readonly message: string } {
+  if (!Array.isArray(value) || value.length === 0) {
+    return { ok: false, message: "managed_agent.orchestrate requires at least one work item." };
+  }
+  const workItems: ManagedOrchestrationWorkItemInput[] = [];
+  const ids = new Set<string>();
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      return { ok: false, message: "managed_agent.orchestrate work items must be objects." };
+    }
+    const record = candidate as Record<string, unknown>;
+    const id = readText(record.id);
+    const roleIntent = readText(record.roleIntent);
+    const task = readText(record.task);
+    if (!id || !roleIntent || !task || ids.has(id)) {
+      return { ok: false, message: "managed_agent.orchestrate work items require unique ids, roleIntent, and task." };
+    }
+    ids.add(id);
+    const dependencies = Array.isArray(record.dependencies)
+      ? record.dependencies.map(readText).filter((dependency): dependency is string => dependency !== undefined)
+      : [];
+    if (dependencies.length !== (Array.isArray(record.dependencies) ? record.dependencies.length : 0)) {
+      return { ok: false, message: `managed_agent.orchestrate work item '${id}' has invalid dependencies.` };
+    }
+    workItems.push({ id, roleIntent, task, dependencies: unique(dependencies) });
+  }
+  const unknownDependency = workItems.flatMap((item) => item.dependencies).find((id) => !ids.has(id));
+  if (unknownDependency) {
+    return { ok: false, message: `managed_agent.orchestrate dependency '${unknownDependency}' does not reference a work item.` };
+  }
+  return { ok: true, workItems };
+}
+
+function orderManagedOrchestrationWorkItems(workItems: readonly ManagedOrchestrationWorkItemInput[]):
+  | { readonly ok: true; readonly workItems: readonly ManagedOrchestrationWorkItemInput[] }
+  | { readonly ok: false; readonly message: string } {
+  const remaining = new Map(workItems.map((item) => [item.id, item]));
+  const completed = new Set<string>();
+  const ordered: ManagedOrchestrationWorkItemInput[] = [];
+  while (remaining.size > 0) {
+    const ready = [...remaining.values()].filter((item) => item.dependencies.every((id) => completed.has(id)));
+    if (ready.length === 0) {
+      return { ok: false, message: "managed_agent.orchestrate work item dependencies contain a cycle." };
+    }
+    for (const item of ready) {
+      ordered.push(item);
+      completed.add(item.id);
+      remaining.delete(item.id);
+    }
+  }
+  return { ok: true, workItems: ordered };
 }
 
 async function executeManagedInvocationStatusTool(

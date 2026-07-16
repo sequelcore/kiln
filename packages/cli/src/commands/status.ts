@@ -94,6 +94,12 @@ export async function statusCommand(
       console.log(`    - ${route.routeId}: ${route.kind}/${route.provider}${route.model ? ` ${route.model}` : ""} [${route.profiles.join(", ")}] ${status}`);
     }
   }
+  if (managedInvocationResolution.agentHealth?.length) {
+    console.log(`\n  Managed agent profile issues:`);
+    for (const agent of managedInvocationResolution.agentHealth) {
+      console.log(`    - ${agent.agentName}${agent.routeId ? ` (${agent.routeId})` : ""}: ${agent.reason ?? "unavailable"}`);
+    }
+  }
 
   if (snapshot.projections.length > 0) {
     console.log(`\n  Config projections:`);

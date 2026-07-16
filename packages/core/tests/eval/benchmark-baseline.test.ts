@@ -51,10 +51,11 @@ describe("benchmark baseline readiness", () => {
       "kiln-safety-agent",
     ]);
     expect(KILN_BENCHMARK_PROFILES[0]).toMatchObject({
-      version: "1",
+      version: "2",
       authorityProfile: "foundation-readonly-plan",
       requiredScorers: expect.arrayContaining(["tool-calling-accuracy", "tool-trajectory"]),
     });
+    expect(KILN_BENCHMARK_PROFILES[0]?.requiredScorers).not.toContain("cache-topology");
   });
 
   it("blocks profiles with no reproducible internal baseline", () => {
@@ -62,7 +63,7 @@ describe("benchmark baseline readiness", () => {
 
     expect(report.status).toBe("blocked");
     expect(report.profileReadiness).toHaveLength(KILN_BENCHMARK_PROFILES.length);
-    expect(report.issues).toContain("kiln-tool-agent: missing baseline for profile version 1");
+    expect(report.issues).toContain("kiln-tool-agent: missing baseline for profile version 2");
   });
 
   it("requires pass^k, scorer, artifact, config, and dataset evidence", () => {
@@ -88,7 +89,6 @@ describe("benchmark baseline readiness", () => {
       "missing required scorer tool-trajectory",
       "missing required scorer latency",
       "missing required scorer cost",
-      "missing required scorer cache-topology",
       "missing result artifact URI",
       "missing required evidence artifact result",
       "missing required evidence artifact transcript",

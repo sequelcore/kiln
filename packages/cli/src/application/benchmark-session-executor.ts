@@ -166,6 +166,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       cwd,
       registry,
       surface: "run",
+      maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
       isProviderAvailable: (providerId) => engineAvailability.get(providerId),
       providerModelEligibility: managedAgentProviderModels,
       directAdapterFactory: createManagedDirectProviderAdapterFactory({

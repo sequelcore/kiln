@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ManagedAgentFanOutLifecycleInput } from "@kilnai/runtime";
+import type { ManagedAgentOrchestrationLifecycleInput } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
 import { buildRunSessionRequirements, resolveRunProviderModelAdmission, runCommand } from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
@@ -34,7 +34,7 @@ const runWiringMocks = vi.hoisted(() => {
     cleanupWorktree: vi.fn().mockResolvedValue(undefined),
     cleanupRegistryRunAll: vi.fn().mockResolvedValue(undefined),
     createManagedAgentInvocationResourceProvider: vi.fn(() => ({ id: "managed-agent-resource-provider" })),
-    runManagedAgentFanOutLifecycle: vi.fn(),
+    runManagedAgentOrchestrationLifecycle: vi.fn(),
     runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
     transcriptInit: vi.fn().mockResolvedValue(undefined),
     transcriptFinalize: vi.fn().mockResolvedValue(undefined),
@@ -173,7 +173,7 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     ...options,
     invocationService: options.invocationService ?? {},
   }),
-  runManagedAgentFanOutLifecycle: runWiringMocks.runManagedAgentFanOutLifecycle,
+  runManagedAgentOrchestrationLifecycle: runWiringMocks.runManagedAgentOrchestrationLifecycle,
   ProviderModelRouteHealthStore: class {
     evaluateRouteHealth(providerId: string, modelId: string) {
       return runWiringMocks.evaluateRouteHealth(providerId, modelId);
@@ -443,8 +443,8 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
     runWiringMocks.cleanupRegistryRunAll.mockResolvedValue(undefined);
     runWiringMocks.createManagedAgentInvocationResourceProvider.mockReturnValue({ id: "managed-agent-resource-provider" });
-    runWiringMocks.runManagedAgentFanOutLifecycle.mockImplementation(
-      async (input: ManagedAgentFanOutLifecycleInput) => {
+    runWiringMocks.runManagedAgentOrchestrationLifecycle.mockImplementation(
+      async (input: ManagedAgentOrchestrationLifecycleInput) => {
         const orchestrationId = input.orchestrationRequest.orchestrationId;
         return {
           orchestrationResult: {
@@ -580,8 +580,8 @@ describe("run command builtin tool wiring", () => {
       managedInvocation: parallelManagedInvocation(),
     }, "parallel budget", { provider: "codex", workers: 2 });
 
-    const input = runWiringMocks.runManagedAgentFanOutLifecycle.mock.calls[0]?.[0] as
-      | ManagedAgentFanOutLifecycleInput
+    const input = runWiringMocks.runManagedAgentOrchestrationLifecycle.mock.calls[0]?.[0] as
+      | ManagedAgentOrchestrationLifecycleInput
       | undefined;
     if (!input) {
       throw new Error("Expected parallel fan-out lifecycle input.");

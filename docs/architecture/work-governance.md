@@ -464,6 +464,14 @@ checks child count, route health, budget availability, workspace isolation, and
 task risk before any child starts. CLI fan-out commands are adapters over this
 contract; they do not own a separate worker lifecycle.
 
+The cross-surface execution entrypoint is `managed_agent.orchestrate`. It
+accepts the bounded work graph produced by governance, not prose instructions
+to spawn agents. Core selects the topology; Runtime owns topological ordering,
+route/profile admission, concurrency, lifecycle, and terminal evidence. Any
+dependency edge serializes the current request because the canonical request
+does not claim distributed DAG scheduling semantics. High-risk orchestration is
+also serialized; parallel high-risk admission fails closed.
+
 For broad work items, `work_item.execution.start` scopes each generated
 managed invocation to the next missing evidence phase instead of asking one
 child to produce the entire work item in a single timeout window. Intermediate
@@ -514,14 +522,18 @@ recording evidence.
 Managed-delegation work items do not start until the execution attempt is linked
 to a recorded managed invocation id. If that id is missing,
 `work_item.execution.start` pauses with an actionable `managed_agent.invoke`
-request; after the child returns, the parent resumes the same work item with
-the recorded invocation id.
-For intermediate phases, that pause is expected and should project as a
-successful handoff rather than a tool failure. Parent agents must invoke the
-exact returned `managedInvocationRequest`; if the request omits `agentProfile`,
-the parent must not add a guessed profile. Runtime surfaces may attach a
+request internally. Attached runtime surfaces hydrate and execute that request
+before returning to the parent. For a final phase, the runtime resumes the same
+work item with the recorded invocation id. For an intermediate phase, it returns
+the invocation id and child handoff with `nextTool=work_item.update`; the parent
+records that evidence before requesting the next phase. The parent must not
+spawn a second child or add a guessed profile. Runtime surfaces may attach a
 profile only when a single configured agent profile explicitly owns the same
 route id.
+Each generated phase carries `taskAffinity` in addition to required tools.
+Route selection uses configured `taskSuitability` only after capability
+filtering and only when it produces one unique winner. Ambiguous ties fail
+closed instead of becoming provider-order fallback.
 The generated managed invocation request treats the work item route and
 authority profile as governed state, not as model-owned hints. Caller-supplied
 `managedProfile` or `requestedAuthority` values may narrow a route only when

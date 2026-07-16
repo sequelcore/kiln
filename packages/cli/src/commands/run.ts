@@ -104,7 +104,7 @@ import {
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
   probeCodexCliModelReadiness,
-  runManagedAgentFanOutLifecycle,
+  runManagedAgentOrchestrationLifecycle,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
   normalizeContextUsageProjection,
@@ -117,7 +117,7 @@ import {
 } from "../application/operator-transcript-projection.js";
 import type { ContextArtifactCache } from "@kilnai/core";
 import type {
-  ManagedAgentFanOutBudgetAdmissionInput,
+  ManagedAgentOrchestrationBudgetAdmissionInput,
   ManagedInvocationToolOptions,
   RuntimeBudgetUsageReader,
 } from "@kilnai/runtime";
@@ -1077,6 +1077,8 @@ export async function runCommand(
     cwd,
     registry,
     surface: "run",
+    maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
+    ...(runtimeBudgetAdmission ? { orchestrationBudgetAdmission: runtimeBudgetAdmission } : {}),
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     providerModelEligibility: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({
@@ -1995,7 +1997,7 @@ function resolveParallelWorkerAdmissionLimits(
 function projectParallelWorkerBudgetAdmission(
   globalConfig: KilnGlobalConfig | null | undefined,
   executionOptions: RunCommandExecutionOptions,
-): ManagedAgentFanOutBudgetAdmissionInput | undefined {
+): ManagedAgentOrchestrationBudgetAdmissionInput | undefined {
   if (globalConfig?.routing?.budgetAware !== true) {
     return undefined;
   }
@@ -2029,6 +2031,7 @@ export async function runParallelWorkers(
     task,
     childCount: workerCount,
     maxConcurrentChildren: workerCount,
+    workingDirectoryMode: "isolated-worktree",
   });
   const admissionLimits = resolveParallelWorkerAdmissionLimits(
     appConfig,
@@ -2046,12 +2049,13 @@ export async function runParallelWorkers(
     exitRunCommand(1, executionOptions);
   }
 
-  let lifecycleResult: Awaited<ReturnType<typeof runManagedAgentFanOutLifecycle>>;
+  let lifecycleResult: Awaited<ReturnType<typeof runManagedAgentOrchestrationLifecycle>>;
   try {
     const budgetAdmission = projectParallelWorkerBudgetAdmission(executionOptions.globalConfig, executionOptions);
-    lifecycleResult = await runManagedAgentFanOutLifecycle({
+    lifecycleResult = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: admission.request,
       managedInvocation: managedInvocationWithService,
+      profile: "foundation-apply-approved-writes",
       routeSelector: {
         ...(flags.provider ? { providerId: flags.provider } : {}),
         ...(flags.model ? { model: flags.model } : {}),

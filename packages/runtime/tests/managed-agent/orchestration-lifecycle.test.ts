@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildManagedAgentDecompositionOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
+  buildManagedAgentReviewSwarmOrchestrationRequest,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
 } from "@kilnai/core";
 import {
   RuntimeManagedAgentInvocationService,
-  runManagedAgentFanOutLifecycle,
+  runManagedAgentOrchestrationLifecycle,
   type ManagedAgentRuntimeInvocationInput,
   type ManagedAgentRuntimeAdapter,
   type ManagedAgentWorktreeLeaseManager,
@@ -24,14 +26,15 @@ const WRITE_AUTHORITY_DESCRIPTOR = {
   scopeReduction: true,
 } as const;
 
-describe("runManagedAgentFanOutLifecycle", () => {
+describe("runManagedAgentOrchestrationLifecycle", () => {
   it("starts, observes, and joins all managed fan-out children", async () => {
     const managedInvocation = createManagedInvocation();
     const orchestrationRequest = request(2);
 
-    const result = await runManagedAgentFanOutLifecycle({
+    const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest,
       managedInvocation,
+      profile: "foundation-apply-approved-writes",
     });
 
     expect(result.orchestrationResult.status).toBe("completed");
@@ -61,10 +64,70 @@ describe("runManagedAgentFanOutLifecycle", () => {
     expect(result.childRecords[0]?.record?.capabilitySnapshot.authorityEvidence.classification).toBe("current-verified");
   });
 
+  it("executes decomposition through the same governed lifecycle", async () => {
+    const result = await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: buildManagedAgentDecompositionOrchestrationRequest({
+        orchestrationId: "decomposition-test",
+        parentSessionId: "parent-session",
+        parentTurnId: "parent-turn",
+        requestedBy: "operator",
+        requestSource: "runtime-test",
+        task: "Inspect and verify the implementation",
+        childPlans: [
+          { roleIntent: "scout", task: "Inspect the implementation." },
+          { roleIntent: "verifier", task: "Verify the implementation." },
+        ],
+        maxConcurrentChildren: 1,
+        workingDirectoryMode: "isolated-worktree",
+      }),
+      managedInvocation: createManagedInvocation(),
+      profile: "foundation-apply-approved-writes",
+    });
+
+    expect(result.orchestrationResult).toMatchObject({
+      mode: "decomposition",
+      status: "completed",
+      succeededCount: 2,
+    });
+    expect(result.childRecords.map((child) => child.childId)).toEqual([
+      "decomposition-test:child:1",
+      "decomposition-test:child:2",
+    ]);
+  });
+
+  it("executes non-mutating review through a read-only route without a worktree lease", async () => {
+    const result = await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: buildManagedAgentReviewSwarmOrchestrationRequest({
+        orchestrationId: "review-read-only-test",
+        parentSessionId: "parent-session",
+        parentTurnId: "parent-turn",
+        requestedBy: "operator",
+        requestSource: "runtime-test",
+        task: "Review the implementation without modifying the workspace.",
+        childPlans: [
+          { roleIntent: "correctness-review", task: "Review correctness." },
+          { roleIntent: "boundary-review", task: "Review architecture boundaries." },
+        ],
+        maxConcurrentChildren: 2,
+        workingDirectoryMode: "read-only",
+      }),
+      managedInvocation: createReadOnlyManagedInvocation(),
+      profile: "foundation-readonly-plan",
+    });
+
+    expect(result.orchestrationResult).toMatchObject({
+      mode: "review-swarm",
+      status: "completed",
+      succeededCount: 2,
+    });
+    expect(result.childRecords.every((child) => child.record?.authority.workingDirectory.mode === "read-only")).toBe(true);
+  });
+
   it("maps failed joined children into orchestration evidence", async () => {
-    const result = await runManagedAgentFanOutLifecycle({
+    const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation: createManagedInvocation({ failOrdinals: new Set([2]) }),
+      profile: "foundation-apply-approved-writes",
     });
 
     expect(result.orchestrationResult.status).toBe("partial");
@@ -76,9 +139,10 @@ describe("runManagedAgentFanOutLifecycle", () => {
   });
 
   it("treats recovered terminal children as successful fan-out evidence", async () => {
-    const result = await runManagedAgentFanOutLifecycle({
+    const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation: createManagedInvocation({ recoveredOrdinals: new Set([2]) }),
+      profile: "foundation-apply-approved-writes",
     });
 
     expect(result.orchestrationResult.status).toBe("completed");
@@ -93,9 +157,10 @@ describe("runManagedAgentFanOutLifecycle", () => {
     const managedInvocation = createManagedInvocation();
     const usageRequests: string[] = [];
 
-    await expect(runManagedAgentFanOutLifecycle({
+    await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation,
+      profile: "foundation-apply-approved-writes",
       budgetAdmission: {
         policy: {
           enabled: true,
@@ -113,7 +178,7 @@ describe("runManagedAgentFanOutLifecycle", () => {
           };
         },
       },
-    })).rejects.toThrow("Managed fan-out budget admission denied");
+    })).rejects.toThrow("Managed orchestration budget admission denied");
 
     expect(usageRequests).toEqual(["codex"]);
     expect(managedInvocation.invocationService?.list()).toEqual([]);
@@ -125,10 +190,11 @@ describe("runManagedAgentFanOutLifecycle", () => {
       holdOrdinals: new Set([1]),
     });
 
-    await expect(runManagedAgentFanOutLifecycle({
+    await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation,
-    })).rejects.toThrow("Managed fan-out child start failed");
+      profile: "foundation-apply-approved-writes",
+    })).rejects.toThrow("Managed orchestration child start failed");
 
     const lifecycleStates = managedInvocation.invocationService?.list().map((snapshot) => snapshot.lifecycleState);
     expect(lifecycleStates).toContain("cancelled");
@@ -169,19 +235,20 @@ describe("runManagedAgentFanOutLifecycle", () => {
       },
     };
 
-    await expect(runManagedAgentFanOutLifecycle({
+    await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation: {
         ...managedInvocation,
         invocationService: fakeService as unknown as RuntimeManagedAgentInvocationService,
       },
-    })).rejects.toThrow("Managed fan-out child start failed");
+      profile: "foundation-apply-approved-writes",
+    })).rejects.toThrow("Managed orchestration child start failed");
 
     expect(joined).toBe(true);
   });
 
   it("rebases mixed-case Windows write scopes onto the isolated child worktree", async () => {
-    const result = await runManagedAgentFanOutLifecycle({
+    const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation: createManagedInvocation({
         sourcePath: "C:\\Repo",
@@ -189,6 +256,7 @@ describe("runManagedAgentFanOutLifecycle", () => {
         allowedPaths: ["c:\\repo\\packages"],
         deniedPaths: ["c:\\repo\\.git"],
       }),
+      profile: "foundation-apply-approved-writes",
     });
 
     expect(result.childRecords[0]?.record?.authority.writeAuthority?.scope.workspace.allowedPaths).toEqual([
@@ -200,20 +268,21 @@ describe("runManagedAgentFanOutLifecycle", () => {
   });
 
   it("fails closed when no isolated lifecycle route is available", async () => {
-    await expect(runManagedAgentFanOutLifecycle({
+    await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation: {
         invocationService: new RuntimeManagedAgentInvocationService(),
         routes: [],
       },
-    })).rejects.toThrow("Managed lifecycle fan-out requires an isolated-worktree");
+      profile: "foundation-apply-approved-writes",
+    })).rejects.toThrow("Managed orchestration requires an isolated-worktree");
   });
 
   it("fails closed when lifecycle route selection is ambiguous", async () => {
     const managedInvocation = createManagedInvocation();
     const primaryRoute = managedInvocation.routes[0]!;
 
-    await expect(runManagedAgentFanOutLifecycle({
+    await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation: {
         ...managedInvocation,
@@ -225,7 +294,8 @@ describe("runManagedAgentFanOutLifecycle", () => {
           },
         ],
       },
-    })).rejects.toThrow("Managed lifecycle fan-out route selection is ambiguous");
+      profile: "foundation-apply-approved-writes",
+    })).rejects.toThrow("Managed orchestration route selection is ambiguous");
   });
 });
 
@@ -239,6 +309,7 @@ function request(childCount: number) {
     task: "Implement the test task",
     childCount,
     maxConcurrentChildren: childCount,
+    workingDirectoryMode: "isolated-worktree",
   });
 }
 
@@ -336,6 +407,54 @@ function createManagedInvocation(input: {
   };
 }
 
+function createReadOnlyManagedInvocation(): ManagedInvocationToolOptions {
+  return {
+    requestedBy: "operator",
+    requestSource: "runtime-test",
+    invocationService: new RuntimeManagedAgentInvocationService({
+      authorityObserver: {
+        observe: async () => ({
+          approval: "on-request" as const,
+          sandbox: "read-only" as const,
+          source: "runtime-observation" as const,
+          proof: "proven" as const,
+          observedAt: "2026-07-02T08:00:00.000Z",
+          validUntil: "2099-01-01T00:00:00.000Z",
+        }),
+      },
+    }),
+    routes: [{
+      routeId: "test-read-only",
+      routeSource: "explicit-managed-route",
+      providerId: "codex",
+      model: "gpt-5.5",
+      surface: "cli-harness",
+      adapter: createAdapter({
+        failOrdinals: new Set(),
+        recoveredOrdinals: new Set(),
+        holdOrdinals: new Set(),
+      }),
+      profiles: {
+        "foundation-readonly-plan": {
+          authorityProfileId: "authority:test-read-only:foundation-readonly-plan",
+          permissionProfile: "read-only",
+          allowedToolNames: ["read", "grep"],
+          workingDirectory: {
+            path: "C:/repo",
+            mode: "read-only",
+          },
+          timeoutMs: 1000,
+          credentialRoute: { mode: "credentialless" },
+          memoryScope: {
+            scope: { kind: "project", id: "kiln-test" },
+            access: "read-only",
+          },
+        },
+      },
+    }],
+  };
+}
+
 function createAdapter(input: {
   readonly failOrdinals: ReadonlySet<number>;
   readonly recoveredOrdinals: ReadonlySet<number>;
@@ -346,7 +465,7 @@ function createAdapter(input: {
       adapterDescriptorId: "adapter:codex:harness",
       providerId: "codex",
       adapterKind: "harness",
-      supportedProfiles: ["foundation-apply-approved-writes"],
+      supportedProfiles: ["foundation-readonly-plan", "foundation-apply-approved-writes"],
       supportedExecutionModes: ["cli-harness"],
       lifecycle: {
         exposesStart: true,

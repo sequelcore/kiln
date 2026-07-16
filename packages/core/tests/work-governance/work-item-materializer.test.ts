@@ -342,6 +342,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       requestSource: "core-test",
       task: "Split implementation work.",
       maxConcurrentChildren: 2,
+      workingDirectoryMode: "isolated-worktree",
       childPlans: [
         {
           roleIntent: "runtime-coder",
@@ -734,6 +735,7 @@ describe("materializeApprovedPlanWorkItems", () => {
         task: "Generate duplicate candidates.",
         childCount: 2,
         maxConcurrentChildren: 2,
+        workingDirectoryMode: "isolated-worktree",
       }),
       workItemStore: new WorkItemStore({ now: () => "2026-05-22T20:00:00.000Z" }),
       goalRunId: "goal-fan-out",

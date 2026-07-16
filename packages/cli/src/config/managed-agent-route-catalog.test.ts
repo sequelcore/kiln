@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -359,6 +359,44 @@ describe("managed agent route catalog", () => {
           ],
         },
       },
+    });
+  });
+
+  it("rejects agent profiles whose explicit provider route contradicts their route id", async () => {
+    const cwd = createTempRoot();
+    const agentsDirectory = join(cwd, ".kiln", "agents");
+    mkdirSync(agentsDirectory, { recursive: true });
+    writeFileSync(join(agentsDirectory, "contradictory.md"), [
+      "---",
+      "name: contradictory",
+      "role: reviewer",
+      "goal: Review repository evidence.",
+      "tier: reasoning",
+      "routeId: opencode-go-research-readonly",
+      "providerRoute:",
+      "  providerId: codex-oauth",
+      "  model: gpt-5.6-terra",
+      "---",
+      "Review evidence without modifying the workspace.",
+    ].join("\n"));
+
+    const resolution = await resolveManagedInvocationToolOptions(makeConfig(true), {
+      cwd,
+      registry: createRegistry("opencode-go"),
+      surface: "operator",
+      isProviderAvailable: () => true,
+      providerModelEligibility: observedProviderModels({
+        "opencode-go": ["qwen3.6-plus"],
+      }),
+      directAdapterFactory: async () => makeAdapter(),
+    });
+
+    expect(resolution.managedInvocation?.agentCatalog?.some((agent) => agent.name === "contradictory")).toBe(false);
+    expect(resolution.agentHealth).toContainEqual({
+      agentName: "contradictory",
+      available: false,
+      routeId: "opencode-go-research-readonly",
+      reason: "Agent provider 'codex-oauth' does not match route provider 'opencode-go'.",
     });
   });
 

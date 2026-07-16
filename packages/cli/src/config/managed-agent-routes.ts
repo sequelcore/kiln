@@ -39,6 +39,7 @@ import {
   type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
+  type RuntimeBudgetAdmissionPort,
 } from "@kilnai/runtime";
 import type {
   ManagedAgentProviderModelCatalogDiagnostic,
@@ -77,9 +78,17 @@ export interface ManagedAgentRouteHealth {
   readonly reason?: string;
 }
 
+export interface ManagedAgentProfileHealth {
+  readonly agentName: string;
+  readonly available: boolean;
+  readonly routeId?: string;
+  readonly reason?: string;
+}
+
 export interface ManagedInvocationRouteResolution {
   readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly routeHealth: readonly ManagedAgentRouteHealth[];
+  readonly agentHealth?: readonly ManagedAgentProfileHealth[];
 }
 
 export interface ManagedInvocationToolOptionsCatalog {
@@ -100,6 +109,8 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly invocationService?: RuntimeManagedAgentInvocationService;
   readonly invocationServiceKey?: string;
   readonly userHome?: string;
+  readonly maxParallelChildren?: number;
+  readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
 }
 
 type BuiltinToolOptionsSource = DefaultBuiltinToolRegistryOptions | (() => DefaultBuiltinToolRegistryOptions | undefined);
@@ -191,7 +202,9 @@ export async function resolveManagedInvocationToolOptions(
       routes.push(resolved.route);
     }
   }
-  const agentCatalog = agentDefinitions.map((agent) => projectManagedAgentCatalogEntry(agent, routes));
+  const agentProjections = agentDefinitions.map((agent) => projectManagedAgentCatalogEntry(agent, routes));
+  const agentCatalog = agentProjections.flatMap((projection) => projection.entry ? [projection.entry] : []);
+  const agentHealth = agentProjections.flatMap((projection) => projection.health ? [projection.health] : []);
 
   const unavailableRoutes = routeHealth
     .filter((route) => !route.available)
@@ -215,9 +228,14 @@ export async function resolveManagedInvocationToolOptions(
 
   return {
     routeHealth,
+    ...(agentHealth.length > 0 ? { agentHealth } : {}),
     ...(shouldExposeManagedInvocation ? {
       managedInvocation: {
         routes,
+        maxParallelChildren: context.maxParallelChildren ?? 1,
+        ...(context.orchestrationBudgetAdmission
+          ? { orchestrationBudgetAdmission: context.orchestrationBudgetAdmission }
+          : {}),
         ...(agentCatalog.length > 0 ? { agentCatalog } : {}),
         ...(skillCatalog.length > 0 ? { skillCatalog } : {}),
         ...(unavailableRoutes.length > 0 ? { unavailableRoutes } : {}),
@@ -254,21 +272,75 @@ function createManagedRouteResolutionStartupMarker(): (phase: string, detail?: R
 function projectManagedAgentCatalogEntry(
   agent: KilnAgentDefinition,
   routes: readonly ManagedInvocationToolRoute[],
-): ManagedInvocationAgentCatalogEntry {
+): { readonly entry?: ManagedInvocationAgentCatalogEntry; readonly health?: ManagedAgentProfileHealth } {
+  const explicitRouteHealth = validateExplicitAgentRoute(agent, routes);
+  if (explicitRouteHealth) {
+    return { health: explicitRouteHealth };
+  }
   const routeHint = resolveAgentRouteHint(agent, routes);
   return {
-    name: agent.name,
-    ...(agent.displayName ? { displayName: agent.displayName } : {}),
-    ...(agent.nicknameCandidates ? { nicknameCandidates: agent.nicknameCandidates } : {}),
-    role: agent.role,
-    goal: agent.goal,
-    tier: agent.tier,
-    ...(agent.skills ? { skills: agent.skills } : {}),
-    ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
-    ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
-    ...(routeHint?.providerRoute ? { providerRoute: routeHint.providerRoute } : {}),
-    ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
+    entry: {
+      name: agent.name,
+      ...(agent.displayName ? { displayName: agent.displayName } : {}),
+      ...(agent.nicknameCandidates ? { nicknameCandidates: agent.nicknameCandidates } : {}),
+      role: agent.role,
+      goal: agent.goal,
+      tier: agent.tier,
+      ...(agent.skills ? { skills: agent.skills } : {}),
+      ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
+      ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
+      ...(routeHint?.providerRoute ? { providerRoute: routeHint.providerRoute } : {}),
+      ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
+    },
   };
+}
+
+function validateExplicitAgentRoute(
+  agent: KilnAgentDefinition,
+  routes: readonly ManagedInvocationToolRoute[],
+): ManagedAgentProfileHealth | undefined {
+  if (!agent.routeId && !agent.providerRoute) {
+    return undefined;
+  }
+  const route = routeFromExplicitAgentHint(agent, routes);
+  if (!route) {
+    const routeDescription = agent.routeId
+      ? `route '${agent.routeId}'`
+      : `provider '${agent.providerRoute?.providerId}'${agent.providerRoute?.model ? ` model '${agent.providerRoute.model}'` : ""}`;
+    return {
+      agentName: agent.name,
+      available: false,
+      ...(agent.routeId ? { routeId: agent.routeId } : {}),
+      reason: `Agent references unavailable managed ${routeDescription}.`,
+    };
+  }
+  if (agent.providerRoute?.providerId && agent.providerRoute.providerId !== route.providerId) {
+    return {
+      agentName: agent.name,
+      available: false,
+      routeId: route.routeId,
+      reason: `Agent provider '${agent.providerRoute.providerId}' does not match route provider '${route.providerId}'.`,
+    };
+  }
+  if (agent.providerRoute?.model && agent.providerRoute.model !== route.model) {
+    return {
+      agentName: agent.name,
+      available: false,
+      routeId: route.routeId,
+      reason: `Agent model '${agent.providerRoute.model}' does not match route model '${route.model ?? "unspecified"}'.`,
+    };
+  }
+  const routeTools = new Set(Object.values(route.profiles).flatMap((profile) => profile?.allowedToolNames ?? []));
+  const missingTools = (agent.tools ?? []).filter((tool) => !routeTools.has(tool));
+  if (missingTools.length > 0) {
+    return {
+      agentName: agent.name,
+      available: false,
+      routeId: route.routeId,
+      reason: `Agent tools are not admitted by route '${route.routeId}': ${missingTools.join(", ")}.`,
+    };
+  }
+  return undefined;
 }
 
 function resolveAgentRouteHint(
@@ -346,32 +418,7 @@ function scoreAgentRoute(agent: KilnAgentDefinition, route: ManagedInvocationToo
       score += 5;
     }
   }
-  if (agent.tier === "fast") {
-    score += fastRouteScore(route);
-  } else if (agent.tier === "reasoning") {
-    score += reasoningRouteScore(route);
-  }
   return score;
-}
-
-function fastRouteScore(route: ManagedInvocationToolRoute): number {
-  const model = route.model?.toLowerCase() ?? "";
-  let score = 0;
-  if (model.includes("mini") || model.includes("spark") || model.includes("free")) {
-    score += 40;
-  }
-  if (model.includes("5.5") || model.includes("pro") || model.includes("opus")) {
-    score -= 40;
-  }
-  return score;
-}
-
-function reasoningRouteScore(route: ManagedInvocationToolRoute): number {
-  const model = route.model?.toLowerCase() ?? "";
-  if (model.includes("5.5") || model.includes("pro") || model.includes("opus")) {
-    return 20;
-  }
-  return 0;
 }
 
 export function createManagedInvocationToolOptionsCatalog(
@@ -412,6 +459,12 @@ export function createManagedInvocationToolOptionsCatalog(
       },
       get contextResolver() {
         return current.contextResolver;
+      },
+      get maxParallelChildren() {
+        return current.maxParallelChildren;
+      },
+      get orchestrationBudgetAdmission() {
+        return current.orchestrationBudgetAdmission;
       },
     },
     update(next: ManagedInvocationToolOptions) {

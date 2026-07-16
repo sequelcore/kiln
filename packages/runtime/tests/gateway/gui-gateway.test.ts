@@ -765,6 +765,7 @@ function mockOpenCodeCredentialPool(
       lastSuccess: null,
       lastExhausted: null,
       cooldownUntil: null,
+      invalidReason: null,
       softLeaseCount: 0,
     })),
   }) as OpenCodePool);
@@ -7189,6 +7190,9 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
         { credentialId: "old", accessToken: "old-invalidated-token" },
         { credentialId: "fresh", accessToken: "fresh-token" },
       ]);
+    const recordAuthenticationFailureSpy = vi
+      .spyOn(CodexOAuthCredentialPoolService.prototype, "recordAuthenticationFailure")
+      .mockResolvedValue();
     const fetchSpy = vi.fn(async (_url: string, options?: RequestInit) => {
       const authorization = (options?.headers as Record<string, string> | undefined)?.Authorization;
       if (authorization === "Bearer old-invalidated-token") {
@@ -7226,8 +7230,10 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
       expect(fetchSpy.mock.calls.map(([, options]) => (options?.headers as Record<string, string>).Authorization))
         .toEqual(["Bearer old-invalidated-token", "Bearer fresh-token"]);
+      expect(recordAuthenticationFailureSpy).toHaveBeenCalledWith("old");
     } finally {
       codexAuthSpy.mockRestore();
+      recordAuthenticationFailureSpy.mockRestore();
     }
   });
 

@@ -1,88 +1,60 @@
 # Coordination Guide
 
-This guide describes coordination in Kiln using the new canonical frame.
+Use Kiln coordination when work governance requires managed execution or when
+the result requires independently attributable review.
 
-Kiln does not treat coordination as metaphor-first folklore or a literal
-biological system. Coordination is a regulated control problem: allocate work,
-bound execution chains, track ownership, preserve shared state, and recover
-cleanly when parallel work drifts or fails.
+## Operator Flow
 
-For doctrine, start with:
+1. Assess the work with `work_governance.assess`.
+2. Create governed work items with stable ids, evidence, authority, and
+   dependencies.
+3. Create the goal run that owns those work items.
+4. Call `managed_agent.orchestrate` with the same bounded work graph, one
+   admission profile, task risk, whether independent review is required, and a
+   route id when more than one eligible route exists.
+5. Inspect the returned coordination decision and terminal orchestration
+   evidence. Record accepted child handoffs on their governed work items.
 
-- [Coordination](../architecture/coordination.md)
-- [Flows](../architecture/flows.md)
-- [Control Model](../architecture/control-model.md)
+Do not choose a worker count in the prompt. Runtime uses the resolved Kiln
+parallel-worker limit. Do not add dependency-free duplicate work solely to
+force parallelism.
 
-## What Coordination Means in Kiln
+## Work Graph Rules
 
-Coordination answers four questions:
+Each work item supplied to `managed_agent.orchestrate` has:
 
-1. Should this work stay local, parallelize, defer, or escalate?
-2. Who owns the work right now?
-3. What shared state is visible to other participants?
-4. How is the chain stopped, reconciled, or recovered?
+- `id`: stable identity within the request;
+- `roleIntent`: `scout`, `worker`, `advisor`, `verifier`, `integrator`, or a
+  more specific bounded role;
+- `task`: the child-local objective;
+- `dependencies`: ids that must finish before this item.
 
-The canonical ownership is:
+Any dependency makes the current topology sequential because the managed
+orchestration request deliberately does not pretend to support a distributed
+DAG scheduler. Independent items may use centralized bounded concurrency.
 
-- `DemandAllocator` decides allocation posture
-- `ChainGovernor` bounds multi-step execution
-- `TaskRegistry` tracks lifecycle and ownership
-- `CoordinationStore` carries shared state, claims, signals, and handoff material
+Choose authority through the admission profile and configured route, not by
+describing permissions in the prompt. Non-mutating review and decomposition may
+run in `read-only` or policy-backed `sandbox` routes. Write-capable child work
+uses a leased `isolated-worktree`; shared `workspace-write` is denied.
 
-## Coordination Principles
+## Advisor Use
 
-### Shared state over folklore
+Advisor is a role, not a separate execution subsystem. Use it when a costly or
+specialized route can materially improve a decision, and require a bounded
+handoff. The parent remains the integrator and retains responsibility for
+verification and adoption.
 
-Coordination should be inspectable from state, not inferred from prompt history.
+## Failure Semantics
 
-### Explicit ownership
+- Missing route, budget, workspace, or review capacity is a denied decision.
+- Invalid or cyclic graphs fail before any child starts.
+- Ambiguous route selection fails before execution.
+- A child start failure cancels and joins siblings already started in the same
+  batch.
+- Child terminal failures produce partial or failed typed evidence; they are
+  not opinions and must not be summarized as successful work.
 
-Every active task should have a known lifecycle state and owner.
-
-### Bounded parallelism
-
-Parallel work is permitted only when demand, budget, and safety posture justify it.
-
-### Recovery matters
-
-Coordination is incomplete if failure leaves orphaned ownership, stale claims, or
-invisible partial work.
-
-## Operational Model
-
-At a high level, coordination follows this shape:
-
-1. Work enters through admission control.
-2. `DemandAllocator` determines whether the work should remain singular or split.
-3. `TaskRegistry` creates and tracks the resulting task records.
-4. `CoordinationStore` carries the minimum shared state needed for collaboration.
-5. `ChainGovernor` prevents uncontrolled handoff or chain growth.
-6. Completion, failure, release, or reconciliation closes the loop.
-
-## Biological Research, Properly Scoped
-
-Biological research still informs the design as mechanism lineage, but it does
-not replace inspectable control surfaces.
-
-Useful mechanism families:
-
-- swarm and stigmergic coordination help justify shared-state coordination
-- neural gating helps explain bounded chain continuation
-- immune-style response helps explain containment and fail-closed reactions
-
-What is no longer canonical:
-
-- treating these mechanisms as a literal-organism claim
-- presenting specific named primitives as the permanent architecture
-- implying that emergent behavior should replace inspectable control surfaces
-
-See:
-
-- [Biological Mechanisms](../research/03-biological-mechanisms.md)
-- [Cybernetic Foundations](../research/02-cybernetic-foundations.md)
-
-## Transitional Status
-
-Older coordination-specific mechanism names should be interpreted as
-exploratory or historical unless they are explicitly mapped into the current
-coordination architecture.
+See [Coordination](../architecture/coordination.md),
+[Managed Agents](../architecture/managed-agents.md), and
+[Work Governance](../architecture/work-governance.md).

@@ -175,6 +175,7 @@ export class DirectProviderCredentialPoolService {
         lastSuccess: null,
         lastExhausted: null,
         cooldownUntil: null,
+        invalidReason: null,
         softLeaseCount: 0,
       }));
     }
@@ -207,6 +208,7 @@ export class DirectProviderCredentialPoolService {
       lastSuccess: null,
       lastExhausted: null,
       cooldownUntil: null,
+      invalidReason: null,
       softLeaseCount: 0,
     }];
   }

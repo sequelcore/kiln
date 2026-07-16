@@ -2,99 +2,93 @@
 
 ## Purpose
 
-Coordination governs how Kiln allocates work, shares state, limits duplication,
-and manages distributed agent activity.
+Kiln coordinates governed work by selecting an execution topology, admitting
+that topology against runtime capacity, and executing every child through the
+managed-invocation lifecycle. Coordination is control-plane state; prompts and
+operator surfaces are projections, not authorities.
 
-The goal is concrete coordination, not metaphor-heavy orchestration language.
+## Canonical Owners
 
-## Core Mechanisms
+- Core owns `decideManagedAgentCoordination`, the pure deterministic policy.
+- Core owns typed orchestration requests, admission, result evidence, goal
+  runs, and work items.
+- Runtime owns `managed_agent.orchestrate`, route/profile admission,
+  concurrency, child lifecycle, cancellation, join, and terminal evidence.
+- GUI, TUI, CLI, SDK, transcripts, and replay project the same runtime result.
 
-- `DemandAllocator`
-- `TaskRegistry`
-- `ChainGovernor`
-- `CoordinationStore`
-- team composition and role activation
+There is no second task registry, threshold allocator, chain-energy model, or
+surface-local scheduler.
 
-## Research Synthesis
+## Decision Inputs
 
-The research most strongly supports:
+The policy consumes explicit, bounded signals:
 
-- response-threshold allocation
-- stigmergic coordination
-- reinforcement and decay
-- inhibition
-- latch and commit behavior
-- active shared medium effects
+- the work-governance recommendation;
+- work-item and dependency counts;
+- independent-review requirement;
+- task risk;
+- available managed-route count;
+- runtime parallel-worker limit;
+- route-health, budget, and workspace availability.
 
-These should remain visible in the architecture instead of being flattened into
-generic “orchestration.”
+Provider names, model rankings, prose heuristics, and surface identity are not
+decision inputs.
 
-## Current State
+## Topologies
 
-- threshold-based allocation exists
-- chain control exists
-- task publication and claim lifecycle exists
-- shared coordination state exists
-- team composition exists
-- coordination state can enter admitted-turn model context only as governed
-  `coordination` candidates
+- `direct`: one bounded work item inside the direct-execution envelope.
+- `sequential`: dependency-bearing, capacity-constrained, or high-risk work;
+  one child is active at a time.
+- `centralized`: independent work items execute concurrently under one parent
+  integrator, bounded by `maxParallelChildren`.
+- `independent-review`: at least two isolated critics produce separately
+  attributable review evidence.
 
-## Current Gaps
+The selected topology maps to the existing managed-orchestration modes:
+`background-job`, `decomposition`, or `review-swarm`. Explicit duplicate
+candidate and route-comparison workflows remain typed modes and use the same
+runtime lifecycle.
 
-- stale signals do not decay enough
-- failed allocation does not inhibit strongly enough
-- shared-state naming and scoping are inconsistent
-- distributed substrate is not mature
-- quorum-style commit and controlled dispersal are not explicit enough in the
-  doctrine
+## Runtime Execution
 
-## Target Direction
+`managed_agent.orchestrate` accepts an explicit work graph. It rejects duplicate
+ids, missing fields, unknown dependencies, and cycles. Work is topologically
+ordered before request construction. Runtime filters routes by the requested
+admission profile, an explicit non-shared working-directory mode, and lifecycle
+capability. An `isolated-worktree` route must carry its lease; `read-only` and
+policy-backed `sandbox` routes need no worktree lease. Unisolated
+`workspace-write` is never admitted. Ambiguous route selection fails closed.
 
-- rename primitives for clarity
-- add decay and negative signals
-- add inhibition rules
-- formalize shared-medium behavior
-- expose coordination telemetry
-- make work-governance classification the upstream signal for whether a parent
-  agent should execute directly, decompose work, or delegate to managed
-  children
-- treat distributed substrate as an architecture concern even before full
-  infrastructure distribution
+The common lifecycle executor:
 
-## Context Admission Boundary
+1. performs budget admission;
+2. starts at most `maxConcurrentChildren` children;
+3. verifies the running lifecycle projection;
+4. joins every started child;
+5. cancels and joins already-started siblings when batch start fails;
+6. builds typed completed, partial, or failed orchestration evidence.
 
-Coordination storage is not prompt assembly. Coordination primitives may record
-cross-agent memory, handoff state, claims, broadcasts, and swarm state. When
-that information is useful for a model turn, runtime supplies it as
-coordination context candidates and the `ContextGovernor` decides what is
-admitted or deferred.
+High-risk orchestration is admissible only when serialized. Parallel high-risk
+execution fails admission.
 
-Provider output is normalized before projection. Malformed records and
-provider exceptions fail closed for model context and are recorded through
-sanitized runtime-local audit metadata.
+## Cross-Surface Contract
 
-## Active Shared Medium
-
-The shared medium is not just storage. It should be treated as a computational
-surface with:
-
-- retention
-- permeability
-- damping
-- decay
-- conflict handling
-- diffusion scope
-
-This is a present architectural concern, not only a future distributed-systems
-feature.
+The orchestration tool returns the policy decision and typed terminal result.
+Its metadata contains a `timeline` presentation intent, so every operator
+surface can render the same child progression without parsing text output or
+inventing local status semantics.
 
 ## Invariants
 
-- coordination decisions must remain observable
-- task ownership and claim semantics must be explicit
-- orchestration preference must come from the resolved work-governance policy,
-  not from surface-local prompt wording
-- stale coordination state must expire by policy
-- no hidden second coordination model should grow outside these primitives
-- coordination state must not bypass context governance when entering a model
-  prompt
+- one deterministic topology policy in Core;
+- one managed child lifecycle in Runtime;
+- explicit graph, authority profile, route identity, and evidence contract;
+- isolation follows effective authority: non-mutating decomposition and review
+  may use `read-only` or policy-backed `sandbox`; duplicate-candidate fan-out
+  and write-capable execution use leased `isolated-worktree` routes;
+- no provider/model ranking in durable policy;
+- no concurrency above the configured runtime limit;
+- no dependency edge may execute concurrently under the current request
+  contract;
+- no surface may create a competing coordination state machine;
+- terminal and replay evidence remain attributable to child and parent.

@@ -103,12 +103,16 @@ define the active architecture contract. For doctrine, use
   separate cross-domain work classification model instead of expanding
   model-route suitability into a giant task enum.
 
+- `21-managed-invocation-routing-2026.md`
+  Runtime ownership, cloned-harness comparison, current provider/model evidence,
+  benchmark limits, and community failure signals for managed child routing.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
-  Deep research note on coordination primitives and their biological and
-  computer-science lineage. Keep this as supporting reference, not as the
-  entrypoint for general readers.
+  Adopted research synthesis for deterministic topology selection, bounded
+  managed execution, independent review, and the explicit non-adoption of
+  disconnected threshold, chain-energy, and parallel-registry prototypes.
 
 ## Reading Order
 
@@ -132,3 +136,4 @@ define the active architecture contract. For doctrine, use
 18. `18-execution-surfaces-strategy.md`
 19. `19-clear-writing-skill.md`
 20. `20-cross-domain-task-taxonomy.md`
+21. `21-managed-invocation-routing-2026.md`

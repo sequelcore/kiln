@@ -67,6 +67,14 @@ export class CredentialHealthStore {
     await this.writeProviderHealth(record.providerId, next);
   }
 
+  async removeCredentialHealth(providerId: string, credentialId: string): Promise<void> {
+    const current = await this.readProviderHealth(providerId);
+    await this.writeProviderHealth(
+      providerId,
+      current.filter((record) => record.credentialId !== credentialId),
+    );
+  }
+
   createStatePort<TAuth>(providerId: string): CredentialPoolStatePort<TAuth> {
     return {
       onCredentialAdded: (credential) => {
@@ -82,7 +90,7 @@ export class CredentialHealthStore {
     };
   }
 
-  private async recordOutcome(
+  async recordOutcome(
     providerId: string,
     credentialId: string,
     outcome: CredentialOutcome,

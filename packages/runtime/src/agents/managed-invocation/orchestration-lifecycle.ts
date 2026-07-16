@@ -25,29 +25,29 @@ import {
   type RuntimeBudgetUsageReader,
 } from "../../session/runtime-budget-admission.js";
 
-const FAN_OUT_PROFILE: ManagedAgentAdmissionProfile = "foundation-apply-approved-writes";
-const FAN_OUT_CONTEXT_MODE = "isolated";
+const ORCHESTRATION_CONTEXT_MODE = "isolated";
 
-export interface ManagedAgentFanOutLifecycleRouteSelector {
+export interface ManagedAgentOrchestrationLifecycleRouteSelector {
   readonly providerId?: string;
   readonly model?: string;
   readonly routeId?: string;
 }
 
-export interface ManagedAgentFanOutBudgetAdmissionInput {
+export interface ManagedAgentOrchestrationBudgetAdmissionInput {
   readonly policy: BudgetAdmissionPolicy;
   readonly usageReader?: RuntimeBudgetUsageReader;
 }
 
-export interface ManagedAgentFanOutLifecycleInput {
+export interface ManagedAgentOrchestrationLifecycleInput {
   readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
   readonly managedInvocation: ManagedInvocationToolOptions;
-  readonly routeSelector?: ManagedAgentFanOutLifecycleRouteSelector;
+  readonly profile: ManagedAgentAdmissionProfile;
+  readonly routeSelector?: ManagedAgentOrchestrationLifecycleRouteSelector;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
-  readonly budgetAdmission?: ManagedAgentFanOutBudgetAdmissionInput;
+  readonly budgetAdmission?: ManagedAgentOrchestrationBudgetAdmissionInput;
 }
 
-export interface ManagedAgentFanOutLifecycleChildRecord {
+export interface ManagedAgentOrchestrationLifecycleChildRecord {
   readonly childId: string;
   readonly ordinal: number;
   readonly invocationId: string;
@@ -55,125 +55,64 @@ export interface ManagedAgentFanOutLifecycleChildRecord {
   readonly error?: string;
 }
 
-export interface ManagedAgentFanOutLifecycleResult {
+export interface ManagedAgentOrchestrationLifecycleResult {
   readonly orchestrationResult: ManagedAgentOrchestrationResultEvidence;
-  readonly childRecords: readonly ManagedAgentFanOutLifecycleChildRecord[];
+  readonly childRecords: readonly ManagedAgentOrchestrationLifecycleChildRecord[];
 }
 
-export async function runManagedAgentFanOutLifecycle(
-  input: ManagedAgentFanOutLifecycleInput,
-): Promise<ManagedAgentFanOutLifecycleResult> {
-  if (input.orchestrationRequest.mode !== "fan-out") {
-    throw new Error("Managed lifecycle fan-out requires a fan-out orchestration request");
-  }
+export async function runManagedAgentOrchestrationLifecycle(
+  input: ManagedAgentOrchestrationLifecycleInput,
+): Promise<ManagedAgentOrchestrationLifecycleResult> {
   const service = input.managedInvocation.invocationService;
   if (!service) {
-    throw new Error("Managed lifecycle fan-out requires an invocation service");
+    throw new Error("Managed orchestration lifecycle requires an invocation service");
   }
 
-  const route = selectFanOutRoute(input.managedInvocation, input.routeSelector);
-  const profile = requireFanOutProfile(route);
-  await assertFanOutBudgetAdmission({
+  const route = selectOrchestrationRoute(
+    input.managedInvocation,
+    input.profile,
+    input.orchestrationRequest.isolation.workingDirectoryMode,
+    input.routeSelector,
+  );
+  const profile = requireOrchestrationProfile(
+    route,
+    input.profile,
+    input.orchestrationRequest.isolation.workingDirectoryMode,
+  );
+  await assertOrchestrationBudgetAdmission({
     orchestrationRequest: input.orchestrationRequest,
     route,
     ...(input.budgetAdmission ? { budgetAdmission: input.budgetAdmission } : {}),
   });
   const requests = input.orchestrationRequest.childRequests.map((child) =>
-    buildFanOutChildInvocationRequest({
+    buildOrchestrationChildInvocationRequest({
       orchestrationRequest: input.orchestrationRequest,
       childId: child.childId,
       ordinal: child.ordinal,
       task: child.task,
+      roleIntent: child.roleIntent,
       route,
       profile,
       requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
       requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
       requestedAuthority: input.requestedAuthority ?? "audited",
+      admissionProfile: input.profile,
     })
   );
 
-  const startResults = await Promise.allSettled(requests.map(async (request) => {
-    const startResult = await service.start(request, route.adapter, {
-      routeId: route.routeId,
-      routeSource: route.routeSource,
-      routeHealth: {
-        status: "healthy",
-        reason: `Configured managed lifecycle fan-out route selected by CLI worker orchestration; routeSource=${route.routeSource}.`,
-      },
-      providerModelProof: {
-        status: "live-proven",
-        source: "managed-lifecycle-fan-out-route",
-        requiresToolCalls: route.adapter.descriptor.adapterKind === "direct",
-      },
-      resourcePlane: {
-        available: true,
-        resourceUris: [],
-        reason: "Fan-out child uses isolated managed worktree context.",
-      },
-      childIdentity: {
-        agentId: request.agentId,
-        displayName: route.routeId,
-        ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
-      },
-    });
-    if (startResult.status === "denied") {
-      throw new Error(`Managed fan-out child '${request.invocationId}' denied: ${startResult.decision.reason}`);
-    }
-    const status = service.status(startResult.snapshot.invocationId);
-    if (!status || status.lifecycleState !== "running") {
-      throw new Error(`Managed fan-out child '${request.invocationId}' did not publish running lifecycle status`);
-    }
-    return startResult.snapshot.invocationId;
-  }));
-  const startFailures = startResults.filter((result) => result.status === "rejected");
-  if (startFailures.length > 0) {
-    await cleanupStartedFanOutChildren(
+  const childRecords: ManagedAgentOrchestrationLifecycleChildRecord[] = [];
+  const concurrency = input.orchestrationRequest.maxConcurrentChildren;
+  for (let offset = 0; offset < requests.length; offset += concurrency) {
+    const requestBatch = requests.slice(offset, offset + concurrency);
+    const childBatch = input.orchestrationRequest.childRequests.slice(offset, offset + concurrency);
+    const batchRecords = await runOrchestrationBatch({
       service,
-      requests,
-      startResults,
-      "Managed fan-out start failed; cancelling already-started children.",
-    );
-    throw new Error(`Managed fan-out child start failed: ${startFailures.map((result) =>
-      result.reason instanceof Error ? result.reason.message : String(result.reason)
-    ).join("; ")}`);
+      route,
+      requests: requestBatch,
+      children: childBatch,
+    });
+    childRecords.push(...batchRecords);
   }
-
-  const starts = startResults.map((result) => {
-    if (result.status === "rejected") {
-      throw result.reason;
-    }
-    return result.value;
-  });
-
-  const settled = await Promise.allSettled(starts.map(async (invocationId, index) => {
-    const child = input.orchestrationRequest.childRequests[index]!;
-    const joined = await service.join(invocationId);
-    if (joined.status !== "completed") {
-      throw new Error(`Managed fan-out child '${invocationId}' did not reach terminal completion`);
-    }
-    return {
-      childId: child.childId,
-      ordinal: child.ordinal,
-      invocationId,
-      record: joined.record,
-    } satisfies ManagedAgentFanOutLifecycleChildRecord;
-  }));
-
-  const childRecords = settled.map((result, index): ManagedAgentFanOutLifecycleChildRecord => {
-    const child = input.orchestrationRequest.childRequests[index]!;
-    const invocationId = starts[index] ?? child.childId;
-    if (result.status === "fulfilled") {
-      return result.value;
-    }
-    const snapshot = service.status(invocationId);
-    return {
-      childId: child.childId,
-      ordinal: child.ordinal,
-      invocationId,
-      ...(snapshot?.record ? { record: snapshot.record } : {}),
-      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-    };
-  });
 
   const orchestrationResult = buildManagedAgentOrchestrationResultEvidence(
     input.orchestrationRequest,
@@ -209,8 +148,91 @@ export async function runManagedAgentFanOutLifecycle(
   };
 }
 
-async function assertFanOutBudgetAdmission(input: {
-  readonly budgetAdmission?: ManagedAgentFanOutBudgetAdmissionInput;
+async function runOrchestrationBatch(input: {
+  readonly service: NonNullable<ManagedInvocationToolOptions["invocationService"]>;
+  readonly route: ManagedInvocationToolRoute;
+  readonly requests: readonly ManagedAgentInvocationRequest[];
+  readonly children: ManagedAgentOrchestrationRequest["childRequests"];
+}): Promise<readonly ManagedAgentOrchestrationLifecycleChildRecord[]> {
+  const startResults = await Promise.allSettled(input.requests.map(async (request) => {
+    const startResult = await input.service.start(request, input.route.adapter, {
+      routeId: input.route.routeId,
+      routeSource: input.route.routeSource,
+      routeHealth: {
+        status: "healthy",
+        reason: `Configured managed orchestration route selected by runtime lifecycle; routeSource=${input.route.routeSource}.`,
+      },
+      providerModelProof: {
+        status: "live-proven",
+        source: "managed-orchestration-lifecycle-route",
+        requiresToolCalls: input.route.adapter.descriptor.adapterKind === "direct",
+      },
+      resourcePlane: {
+        available: true,
+        resourceUris: [],
+        reason: "Managed orchestration child uses isolated worktree context.",
+      },
+      childIdentity: {
+        agentId: request.agentId,
+        displayName: input.route.routeId,
+        ...(input.route.voiceProfile ? { voiceProfile: input.route.voiceProfile } : {}),
+      },
+    });
+    if (startResult.status === "denied") {
+      throw new Error(`Managed orchestration child '${request.invocationId}' denied: ${startResult.decision.reason}`);
+    }
+    const status = input.service.status(startResult.snapshot.invocationId);
+    if (!status || status.lifecycleState !== "running") {
+      throw new Error(`Managed orchestration child '${request.invocationId}' did not publish running lifecycle status`);
+    }
+    return startResult.snapshot.invocationId;
+  }));
+  const startFailures = startResults.filter((result) => result.status === "rejected");
+  if (startFailures.length > 0) {
+    await cleanupStartedOrchestrationChildren(
+      input.service,
+      input.requests,
+      startResults,
+      "Managed orchestration start failed; cancelling already-started children.",
+    );
+    throw new Error(`Managed orchestration child start failed: ${startFailures.map((result) =>
+      result.reason instanceof Error ? result.reason.message : String(result.reason)
+    ).join("; ")}`);
+  }
+  const invocationIds = startResults.map((result) => {
+    if (result.status === "rejected") throw result.reason;
+    return result.value;
+  });
+  const settled = await Promise.allSettled(invocationIds.map(async (invocationId, index) => {
+    const child = input.children[index]!;
+    const joined = await input.service.join(invocationId);
+    if (joined.status !== "completed") {
+      throw new Error(`Managed orchestration child '${invocationId}' did not reach terminal completion`);
+    }
+    return {
+      childId: child.childId,
+      ordinal: child.ordinal,
+      invocationId,
+      record: joined.record,
+    } satisfies ManagedAgentOrchestrationLifecycleChildRecord;
+  }));
+  return settled.map((result, index): ManagedAgentOrchestrationLifecycleChildRecord => {
+    const child = input.children[index]!;
+    const invocationId = invocationIds[index] ?? child.childId;
+    if (result.status === "fulfilled") return result.value;
+    const snapshot = input.service.status(invocationId);
+    return {
+      childId: child.childId,
+      ordinal: child.ordinal,
+      invocationId,
+      ...(snapshot?.record ? { record: snapshot.record } : {}),
+      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+    };
+  });
+}
+
+async function assertOrchestrationBudgetAdmission(input: {
+  readonly budgetAdmission?: ManagedAgentOrchestrationBudgetAdmissionInput;
   readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
   readonly route: ManagedInvocationToolRoute;
 }): Promise<void> {
@@ -225,7 +247,7 @@ async function assertFanOutBudgetAdmission(input: {
     routeCandidates: [budgetRouteCandidate(input.route)],
   });
   if (decision.status === "denied") {
-    throw new Error(`Managed fan-out budget admission denied: ${decision.message ?? decision.reason}`);
+    throw new Error(`Managed orchestration budget admission denied: ${decision.message ?? decision.reason}`);
   }
 }
 
@@ -237,7 +259,7 @@ function budgetRouteCandidate(route: ManagedInvocationToolRoute): BudgetAdmissio
   };
 }
 
-async function cleanupStartedFanOutChildren(
+async function cleanupStartedOrchestrationChildren(
   service: NonNullable<ManagedInvocationToolOptions["invocationService"]>,
   requests: readonly ManagedAgentInvocationRequest[],
   startResults: readonly PromiseSettledResult<string>[],
@@ -275,18 +297,20 @@ function isTerminalLifecycleState(lifecycleState: ManagedAgentLifecycleState): b
     || lifecycleState === "recovered";
 }
 
-function selectFanOutRoute(
+function selectOrchestrationRoute(
   options: ManagedInvocationToolOptions,
-  selector: ManagedAgentFanOutLifecycleRouteSelector | undefined,
+  admissionProfile: ManagedAgentAdmissionProfile,
+  workingDirectoryMode: ManagedAgentWorkingDirectory["mode"] | undefined,
+  selector: ManagedAgentOrchestrationLifecycleRouteSelector | undefined,
 ): ManagedInvocationToolRoute {
   const matches = options.routes.filter((route) => {
     if (selector?.providerId && route.providerId !== selector.providerId) return false;
     if (selector?.model && route.model !== selector.model) return false;
     if (selector?.routeId && route.routeId !== selector.routeId) return false;
-    const profile = route.profiles[FAN_OUT_PROFILE];
+    const profile = route.profiles[admissionProfile];
     return profile !== undefined
-      && profile.workingDirectory.mode === "isolated-worktree"
-      && profile.workingDirectoryLease !== undefined
+      && profile.workingDirectory.mode === workingDirectoryMode
+      && (workingDirectoryMode !== "isolated-worktree" || profile.workingDirectoryLease !== undefined)
       && route.adapter.descriptor.lifecycle.exposesStart
       && route.adapter.descriptor.lifecycle.exposesTerminal;
   });
@@ -294,40 +318,52 @@ function selectFanOutRoute(
     return matches[0]!;
   }
   if (matches.length > 1) {
-    throw new Error(`Managed lifecycle fan-out route selection is ambiguous. Specify a provider, model, or routeId. Matching routes: ${matches.map((route) => route.routeId).join(", ")}`);
+    throw new Error(`Managed orchestration route selection is ambiguous. Specify a provider, model, or routeId. Matching routes: ${matches.map((route) => route.routeId).join(", ")}`);
   }
   const selectorSummary = [
     selector?.routeId ? `routeId '${selector.routeId}'` : undefined,
     selector?.providerId ? `provider '${selector.providerId}'` : undefined,
     selector?.model ? `model '${selector.model}'` : undefined,
   ].filter((part): part is string => part !== undefined).join(", ");
-  throw new Error(`Managed lifecycle fan-out requires an isolated-worktree ${FAN_OUT_PROFILE} route${selectorSummary ? ` matching ${selectorSummary}` : ""}.`);
+  const workingDirectoryRequirement = workingDirectoryMode === "isolated-worktree"
+    ? "an isolated-worktree"
+    : `a ${workingDirectoryMode ?? "declared"}`;
+  throw new Error(`Managed orchestration requires ${workingDirectoryRequirement} ${admissionProfile} route${selectorSummary ? ` matching ${selectorSummary}` : ""}.`);
 }
 
-function requireFanOutProfile(route: ManagedInvocationToolRoute): ManagedInvocationRouteProfile {
-  const profile = route.profiles[FAN_OUT_PROFILE];
+function requireOrchestrationProfile(
+  route: ManagedInvocationToolRoute,
+  admissionProfile: ManagedAgentAdmissionProfile,
+  workingDirectoryMode: ManagedAgentWorkingDirectory["mode"] | undefined,
+): ManagedInvocationRouteProfile {
+  const profile = route.profiles[admissionProfile];
   if (!profile) {
-    throw new Error(`Managed lifecycle fan-out route '${route.routeId}' does not expose ${FAN_OUT_PROFILE}`);
+    throw new Error(`Managed orchestration route '${route.routeId}' does not expose ${admissionProfile}`);
   }
-  if (profile.workingDirectory.mode !== "isolated-worktree" || !profile.workingDirectoryLease) {
-    throw new Error(`Managed lifecycle fan-out route '${route.routeId}' must use an isolated worktree lease`);
+  if (profile.workingDirectory.mode !== workingDirectoryMode) {
+    throw new Error(`Managed orchestration route '${route.routeId}' working directory mode does not match the orchestration request`);
+  }
+  if (workingDirectoryMode === "isolated-worktree" && !profile.workingDirectoryLease) {
+    throw new Error(`Managed orchestration route '${route.routeId}' must expose its isolated worktree lease`);
   }
   return profile;
 }
 
-function buildFanOutChildInvocationRequest(input: {
+function buildOrchestrationChildInvocationRequest(input: {
   readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
   readonly childId: string;
   readonly ordinal: number;
   readonly task: string;
+  readonly roleIntent: string;
   readonly route: ManagedInvocationToolRoute;
   readonly profile: ManagedInvocationRouteProfile;
   readonly requestedBy: string;
   readonly requestSource: string;
   readonly requestedAuthority: ManagedAgentRequestedAuthority;
+  readonly admissionProfile: ManagedAgentAdmissionProfile;
 }): ManagedAgentInvocationRequest {
   const invocationId = sanitizeInvocationId(input.childId);
-  const workingDirectory = resolveFanOutWorkingDirectory(input.profile, invocationId);
+  const workingDirectory = resolveOrchestrationWorkingDirectory(input.profile, invocationId);
   const authority: ManagedAgentAuthorityProfile = {
     authorityProfileId: input.profile.authorityProfileId,
     permissionProfile: input.profile.permissionProfile,
@@ -341,15 +377,15 @@ function buildFanOutChildInvocationRequest(input: {
     credentialRoute: normalizeCredentialRoute(input.profile.credentialRoute),
     memoryScope: input.profile.memoryScope,
     ...(input.profile.writeAuthority
-      ? { writeAuthority: resolveFanOutWriteAuthority(input.profile, workingDirectory) }
+      ? { writeAuthority: resolveOrchestrationWriteAuthority(input.profile, workingDirectory) }
       : {}),
   };
   return defineManagedAgentInvocationRequest({
     invocationId,
-    agentId: `${input.route.routeId}:${FAN_OUT_PROFILE}`,
+    agentId: `${input.route.routeId}:${input.admissionProfile}`,
     parentSessionId: input.orchestrationRequest.parentSessionId,
     parentTurnId: input.orchestrationRequest.parentTurnId,
-    profile: FAN_OUT_PROFILE,
+    profile: input.admissionProfile,
     requestedBy: input.requestedBy,
     requestSource: input.requestSource,
     executionIntent: {
@@ -366,13 +402,13 @@ function buildFanOutChildInvocationRequest(input: {
     executionMode: input.route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
     authority,
     input: {
-      summary: `Fan-out worker ${input.ordinal}: ${input.orchestrationRequest.task}`,
+      summary: `${input.roleIntent} ${input.ordinal}: ${input.orchestrationRequest.task}`,
       prompt: input.task,
       context: {
-        mode: FAN_OUT_CONTEXT_MODE,
+        mode: ORCHESTRATION_CONTEXT_MODE,
       },
       handoff: {
-        roleIntent: "fan-out duplicate candidate",
+        roleIntent: input.roleIntent,
         expectedEvidence: input.orchestrationRequest.expectedEvidence.map((evidence) => evidence.kind),
         requiredResultFields: ["summary", "evidence", "checks"],
         doneCriteria: [
@@ -385,7 +421,7 @@ function buildFanOutChildInvocationRequest(input: {
   });
 }
 
-function resolveFanOutWorkingDirectory(
+function resolveOrchestrationWorkingDirectory(
   profile: ManagedInvocationRouteProfile,
   invocationId: string,
 ): ManagedAgentWorkingDirectory {
@@ -398,7 +434,7 @@ function resolveFanOutWorkingDirectory(
   };
 }
 
-function resolveFanOutWriteAuthority(
+function resolveOrchestrationWriteAuthority(
   profile: ManagedInvocationRouteProfile,
   workingDirectory: ManagedAgentWorkingDirectory,
 ): ManagedAgentAuthorityProfile["writeAuthority"] {

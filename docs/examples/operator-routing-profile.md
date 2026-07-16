@@ -74,6 +74,9 @@ bounded evidence through the normal benchmark path:
 | `opencode-go/glm-5.2` | 1 | 0.5 | 19,023 | 5 | Failed readiness on search latency. |
 | `opencode-go/deepseek-v4-pro` | 1 | 0.5 | 71,366 | 15 | Failed search tool trajectory. |
 | `codex-oauth/gpt-5.5` | 5 | 1.0 | 192,637 | 48 | Internal baseline ready for this profile. |
+| `codex-oauth/gpt-5.6-terra` (profile v2) | 1 | 1.0 | 33,706 | 2 | 2026-07-16 bounded pilot; below readiness `k >= 5`. |
+| `codex-oauth/gpt-5.6-luna` (profile v2) | 1 | 1.0 | 49,315 | 4 | 2026-07-16 bounded pilot; below readiness `k >= 5`. |
+| `codex-oauth/gpt-5.6-sol` (profile v2) | 1 | 1.0 | not reported | 13 | 2026-07-16 bounded pilot; passed but materially slower, so evaluated rather than promoted. |
 | `opencode-go/kimi-k2.7-code` | 5 | 1.0 | 388,909 | 67 | Internal baseline ready for this profile. |
 
 These numbers validate the token-pressure repair and the local routing shape

@@ -62,6 +62,8 @@ import {
   MANAGED_AGENT_JOIN_TOOL,
   MANAGED_AGENT_LIST_CAPABILITY,
   MANAGED_AGENT_LIST_TOOL,
+  MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
+  MANAGED_AGENT_ORCHESTRATE_TOOL,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
   MANAGED_AGENT_START_CAPABILITY,
@@ -538,6 +540,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
       MANAGED_AGENT_LIST_TOOL,
       MANAGED_AGENT_JOIN_TOOL,
       MANAGED_AGENT_CANCEL_TOOL,
+      MANAGED_AGENT_ORCHESTRATE_TOOL,
     ] as const;
     const managedCapabilities = [
       MANAGED_AGENT_INVOKE_CAPABILITY,
@@ -546,6 +549,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
       MANAGED_AGENT_LIST_CAPABILITY,
       MANAGED_AGENT_JOIN_CAPABILITY,
       MANAGED_AGENT_CANCEL_CAPABILITY,
+      MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
     ] as const;
     for (const [index, tool] of managedToolDefinitions.entries()) {
       const capability = managedCapabilities[index];
@@ -689,15 +693,6 @@ function createManagedDelegationWorkItemStartExecutor(
 
     const preparedRequest = prepareManagedInvocationRequest(managedPause.request, managedInvocationOptions);
     const managedRequest = preparedRequest.request;
-    const autoStartDecision = managedInvocationAutoStartDecision(managedRequest);
-    if (autoStartDecision.decision === "skipped") {
-      return managedDelegationAutoStartSkippedResult(
-        initialResult,
-        managedRequest,
-        autoStartDecision.reason,
-        preparedRequest.metadata,
-      );
-    }
     const managedContext = context
       ? {
         ...context,
@@ -720,6 +715,17 @@ function createManagedDelegationWorkItemStartExecutor(
       return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.");
     }
 
+    const completionTool = readTextFromUnknown(readRecord(managedRequest.executionPhase)?.completionTool);
+    if (completionTool === "work_item.update") {
+      return managedIntermediatePhaseCompletedResult(
+        initialResult,
+        managedRequest,
+        managedEnvelope,
+        managedInvocationId,
+        preparedRequest.metadata,
+      );
+    }
+
     const resumedResult = await startExecutor({
       ...input,
       managedInvocationId,
@@ -740,53 +746,39 @@ function createManagedDelegationWorkItemStartExecutor(
   };
 }
 
-function managedInvocationAutoStartDecision(
-  managedRequest: Record<string, unknown>,
-): { readonly decision: "allowed" } | { readonly decision: "skipped"; readonly reason: string } {
-  const executionPhase = readRecord(managedRequest.executionPhase);
-  const completionTool = readTextFromUnknown(executionPhase?.completionTool);
-  if (executionPhase?.autoStartAllowed === false || completionTool === "work_item.update") {
-    return {
-      decision: "skipped",
-      reason: "intermediate_phase_requires_explicit_parent_invocation",
-    };
-  }
-  return { decision: "allowed" };
-}
-
-function managedDelegationAutoStartSkippedResult(
+function managedIntermediatePhaseCompletedResult(
   initialResult: unknown,
   managedRequest: Record<string, unknown>,
-  reason: string,
+  managedResult: RuntimeToolResultEnvelope,
+  managedInvocationId: string,
   requestMetadata: Record<string, unknown> | undefined = undefined,
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
   const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
-  const output = initialOutput
-    ? {
-        ...initialOutput,
-        managedInvocationRequest: managedRequest,
-      }
-    : {
-        status: "paused",
-        reason: "Managed child invocation requires explicit parent invocation.",
-        nextTool: MANAGED_AGENT_INVOKE_TOOL.name,
-        managedInvocationRequest: managedRequest,
-      };
+  const managedOutput = parseJsonRecord(managedResult.output) ?? managedResult.output;
+  const output = {
+    ...(initialOutput ?? {}),
+    status: "paused",
+    reason: "Managed child completed the intermediate evidence phase.",
+    nextTool: "work_item.update",
+    managedInvocationId,
+    managedInvocation: managedOutput,
+    managedInvocationRequest: managedRequest,
+  };
   return {
     output: JSON.stringify(output, null, 2),
     isError: false,
     metadata: {
       ...(initialEnvelope?.metadata ?? {}),
       toolName: WORK_ITEM_EXECUTION_START_TOOL_NAME,
-      operation: "managed_invocation_paused",
-      managedInvocationAutoStarted: false,
-      managedInvocationAutoStart: {
-        decision: "skipped",
-        reason,
-      },
+      operation: "managed_intermediate_phase_completed",
+      managedInvocationAutoStarted: true,
+      managedInvocationId,
+      ...(managedResult.metadata ? { managedInvocation: managedResult.metadata } : {}),
       ...(requestMetadata ?? {}),
     },
+    ...(managedResult.resourceLinks !== undefined ? { resourceLinks: managedResult.resourceLinks } : {}),
+    ...(managedResult.content !== undefined ? { content: managedResult.content } : {}),
   };
 }
 
@@ -810,6 +802,7 @@ function hydrateManagedInvocationRequest(
   const routeId = readTextFromUnknown(request.routeId);
   const forbiddenInputFields = readTextArray(request.forbiddenInputFields);
   const requestedProfile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const requiredToolNames = requiredToolNamesFromManagedRequest(request);
   const exactRoute = routeId
     ? options.routes.find((route) => route.routeId === routeId)
     : undefined;
@@ -831,11 +824,12 @@ function hydrateManagedInvocationRequest(
   const matches = options.routes.filter((route) =>
     (!routeId || route.routeId === routeId)
     && route.profiles[profile] !== undefined
+    && routeSupportsRequiredTools(route, profile, requiredToolNames)
   );
-  if (matches.length !== 1) {
+  const route = matches.length === 1 ? matches[0] : selectUniqueSuitableRoute(matches, request);
+  if (!route) {
     return request;
   }
-  const route = matches[0]!;
   return {
     ...request,
     routeId: routeId ?? route.routeId,
@@ -867,10 +861,12 @@ function repairManagedInvocationRouteForRequiredTools(
     candidate.routeId !== routeId
     && routeSupportsRequiredTools(candidate, profile, requiredToolNames)
   );
-  if (compatibleRoutes.length !== 1) {
+  const replacement = compatibleRoutes.length === 1
+    ? compatibleRoutes[0]
+    : selectUniqueSuitableRoute(compatibleRoutes, request);
+  if (!replacement) {
     return { request };
   }
-  const replacement = compatibleRoutes[0]!;
   const providerRoute = readRecord(request.providerRoute);
   return {
     request: {
@@ -1214,6 +1210,30 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     sandboxProjection: "workspace_write",
     requestedAuthority,
   })!);
+}
+
+function selectUniqueSuitableRoute(
+  routes: readonly ManagedInvocationToolOptions["routes"][number][],
+  request: Record<string, unknown>,
+): ManagedInvocationToolOptions["routes"][number] | undefined {
+  const executionPhase = readRecord(request.executionPhase);
+  const taskAffinity = readTextArray(executionPhase?.taskAffinity);
+  if (taskAffinity.length === 0) {
+    return undefined;
+  }
+  const scored = routes.map((route) => ({
+    route,
+    score: taskAffinity.reduce((score, task) => {
+      const suitability = route.taskSuitability?.find((entry) => entry.task === task);
+      return score + (suitability?.level === "preferred" ? 3 : suitability?.level === "capable" ? 2 : suitability?.level === "limited" ? 1 : 0);
+    }, 0),
+  }));
+  const bestScore = Math.max(...scored.map((entry) => entry.score));
+  if (bestScore === 0) {
+    return undefined;
+  }
+  const best = scored.filter((entry) => entry.score === bestScore);
+  return best.length === 1 ? best[0]!.route : undefined;
 }
 
 function buildEffectiveRuntimeToolAuthority(input: {

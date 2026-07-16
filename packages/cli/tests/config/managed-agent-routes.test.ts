@@ -1299,42 +1299,57 @@ describe("resolveManagedInvocationToolOptions", () => {
     }
   });
 
-  it("projects agent-aware route hints so fast scouts do not default to heavyweight synthesis routes", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
-        id: "codex-oauth-readonly",
-        kind: "direct",
-        provider: "codex-oauth",
-        model: "gpt-5.5",
-        profiles: ["foundation-readonly-plan"],
-      }, {
-        id: "codex-oauth-scout-readonly",
-        kind: "direct",
-        provider: "codex-oauth",
-        model: "gpt-5.4-mini",
-        profiles: ["foundation-readonly-plan"],
-      }],
-    }), {
-      cwd: "C:/repo",
-      registry: createRegistry("codex-oauth"),
-      surface: "gui",
-      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
-    });
+  it("projects agent route hints from configured task suitability without model-name heuristics", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-route-suitability-"));
+    try {
+      const agentsDir = join(root, ".kiln", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(join(agentsDir, "bounded-scout.md"), [
+        "---",
+        "name: bounded-scout",
+        "role: Repository scout",
+        "goal: Collect bounded repository evidence.",
+        "tier: fast",
+        "taskAffinity:",
+        "  - mechanical-edit",
+        "---",
+        "Collect bounded evidence without modifying files.",
+      ].join("\n"));
+      const result = await resolveManagedInvocationToolOptions(baseConfig({
+        routes: [{
+          id: "codex-oauth-reasoning-readonly",
+          kind: "direct",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          profiles: ["foundation-readonly-plan"],
+          taskSuitability: [{ task: "mechanical-edit", level: "limited" }],
+        }, {
+          id: "codex-oauth-bounded-readonly",
+          kind: "direct",
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+          profiles: ["foundation-readonly-plan"],
+          taskSuitability: [{ task: "mechanical-edit", level: "preferred" }],
+        }],
+      }), {
+        cwd: root,
+        registry: createRegistry("codex-oauth"),
+        surface: "gui",
+        providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+        directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+      });
 
-    expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual([
-      "codex-oauth-readonly",
-      "codex-oauth-scout-readonly",
-    ]);
-    expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
-      name: "scout",
-      tier: "fast",
-      routeId: "codex-oauth-scout-readonly",
-      providerRoute: {
-        providerId: "codex-oauth",
-        model: "gpt-5.4-mini",
-      },
-    }));
+      expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
+        name: "bounded-scout",
+        routeId: "codex-oauth-bounded-readonly",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+        },
+      }));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("lets explicit visual read-only routes override derived routing routes and bind a matching agent profile", async () => {
@@ -1552,6 +1567,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       cwd: "C:/repo",
       registry: createRegistry("opencode"),
       surface: "tui",
+      maxParallelChildren: 2,
       providerModelEligibility: {},
       includeUnavailableRoutes: true,
     });
@@ -1562,6 +1578,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     const stableOptions = catalog.options;
 
     expect(stableOptions.routes).toEqual([]);
+    expect(stableOptions.maxParallelChildren).toBe(2);
     expect(stableOptions.unavailableRoutes?.[0]?.reason).toBe("Provider 'opencode' model eligibility evidence is pending.");
 
     const refreshed = await resolveManagedInvocationToolOptions(baseConfig({
@@ -1570,6 +1587,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       cwd: "C:/repo",
       registry: createRegistry("opencode"),
       surface: "tui",
+      maxParallelChildren: 3,
       providerModelEligibility: observedProviderModels({
         opencode: ["opencode/minimax-m2.5-free"],
       }),
@@ -1583,6 +1601,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(catalog.options).toBe(stableOptions);
     expect(stableOptions.routes.map((route) => route.routeId)).toEqual(["opencode-readonly"]);
     expect(stableOptions.unavailableRoutes).toBeUndefined();
+    expect(stableOptions.maxParallelChildren).toBe(3);
   });
 
   it("resolves the live-proven OpenCode read-only handoff model when it is advertised", async () => {

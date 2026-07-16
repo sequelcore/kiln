@@ -740,12 +740,14 @@ describe("managed invocation runtime tool", () => {
     expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.list")).toBe(false);
     expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.join")).toBe(false);
     expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.cancel")).toBe(false);
+    expect(surface.toolDefinitions.some((tool) => tool.name === "managed_agent.orchestrate")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.invoke")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.start")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.status")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.list")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.join")).toBe(false);
     expect(surface.callBuiltinTools.has("managed_agent.cancel")).toBe(false);
+    expect(surface.callBuiltinTools.has("managed_agent.orchestrate")).toBe(false);
   });
 
   it("uses the same managed invocation surface contract for TUI turns", () => {
@@ -773,6 +775,7 @@ describe("managed invocation runtime tool", () => {
     expect(executeConfig.toolAllowlist?.has("managed_agent.list")).toBe(true);
     expect(executeConfig.toolAllowlist?.has("managed_agent.join")).toBe(true);
     expect(executeConfig.toolAllowlist?.has("managed_agent.cancel")).toBe(true);
+    expect(executeConfig.toolAllowlist?.has("managed_agent.orchestrate")).toBe(true);
     expect(executeConfig.toolAuthority?.get("managed_agent.invoke")).toMatchObject({
       allowed: false,
       requiresApproval: true,
@@ -783,6 +786,7 @@ describe("managed invocation runtime tool", () => {
     expect(planConfig.toolAllowlist?.has("managed_agent.list")).toBe(false);
     expect(planConfig.toolAllowlist?.has("managed_agent.join")).toBe(false);
     expect(planConfig.toolAllowlist?.has("managed_agent.cancel")).toBe(false);
+    expect(planConfig.toolAllowlist?.has("managed_agent.orchestrate")).toBe(false);
   });
 
   it("exposes nonblocking managed child lifecycle tools backed by one runtime registry", async () => {
@@ -807,6 +811,7 @@ describe("managed invocation runtime tool", () => {
       "managed_agent.list",
       "managed_agent.join",
       "managed_agent.cancel",
+      "managed_agent.orchestrate",
     ]));
 
     const started = await surface.callBuiltinTools.get("managed_agent.start")?.({

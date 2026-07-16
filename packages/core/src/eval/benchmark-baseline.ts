@@ -92,12 +92,12 @@ export interface BenchmarkReadinessReport {
 export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
   {
     id: "kiln-tool-agent",
-    version: "1",
+    version: "2",
     displayName: "Kiln Tool Agent",
     surface: "tool-calling",
     purpose: "Measures structured tool/function-call correctness under Kiln authority.",
     authorityProfile: "foundation-readonly-plan",
-    requiredScorers: ["tool-calling-accuracy", "tool-trajectory", "latency", "cost", "cache-topology"],
+    requiredScorers: ["tool-calling-accuracy", "tool-trajectory", "latency", "cost"],
     minimumPassAtK: 0.9,
     minimumK: 5,
     reproducibilityRequirements: [

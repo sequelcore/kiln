@@ -40,6 +40,8 @@ explicit control-plane definitions.
     cannot grant or reduce authority.
 16. No biological or neural term becomes an implementation contract without an
     explicit control-plane definition.
+17. Managed coordination topology is selected by the Core policy and executed
+    by the Runtime lifecycle; operator surfaces never own scheduling policy.
 
 ## Naming Rules
 
@@ -47,10 +49,11 @@ Preferred names:
 
 - `IngressGovernor`
 - `ContextGovernor`
-- `DemandAllocator`
-- `ChainGovernor`
-- `TaskRegistry`
-- `CoordinationStore`
+- `ManagedAgentCoordinationDecision`
+- `GoalRunStore`
+- `WorkItemStore`
+- `ManagedAgentOrchestrationRequest`
+- `RuntimeManagedAgentInvocationService`
 
 Allowed naming guidance:
 
@@ -67,6 +70,10 @@ Names to remove from active doctrine:
 - `CascadeController`
 - `TaskChannel`
 - `SwarmStore`
+- `DemandAllocator`
+- `ChainGovernor`
+- `TaskRegistry`
+- `CoordinationStore`
 
 ## What Is Not Kiln
 

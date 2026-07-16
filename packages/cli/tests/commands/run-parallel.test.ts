@@ -185,7 +185,7 @@ describe("runParallelWorkers", () => {
 
     expect(managedInvocation.invocationService?.list()).toEqual([]);
     expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain(
-      "Managed fan-out budget admission denied: Budget admission requires a live usage reader.",
+      "Managed orchestration budget admission denied: Budget admission requires a live usage reader.",
     );
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
@@ -216,7 +216,7 @@ describe("runParallelWorkers", () => {
 
     expect(managedInvocation.invocationService?.list()).toEqual([]);
     expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain(
-      "Managed fan-out budget admission denied: All route candidates are over their configured budget ceilings.",
+      "Managed orchestration budget admission denied: All route candidates are over their configured budget ceilings.",
     );
     expect(exitSpy).toHaveBeenCalledWith(1);
   });

@@ -106,7 +106,7 @@ describe("benchmarkCommand", () => {
     expect(printed).toHaveLength(KILN_BENCHMARK_PROFILES.length);
     expect(printed[0]).toMatchObject({
       id: "kiln-tool-agent",
-      version: "1",
+      version: "2",
     });
   });
 

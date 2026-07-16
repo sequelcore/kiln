@@ -49,12 +49,11 @@ profile pairs fail closed before child execution starts.
 
 ## Non-Boundaries
 
-Managed invocation does not itself define conductor planning, fan-out/fan-in
-scheduling, durable workflow execution, team topology mutation, or autonomous
-multi-agent strategy. Work-governance policy may require the parent to use
-managed invocation for non-trivial work, but that policy remains a caller-side
-control decision. Managed invocation owns the child execution boundary once a
-bounded child request is admitted.
+Managed invocation does not define goal decomposition, mutate team topology at
+runtime, or learn provider/model rankings. Core selects a deterministic
+coordination topology from governed signals; Runtime executes the resulting
+bounded graph through managed invocation. Goal and work-item stores remain the
+durable workflow authority.
 
 Managed invocation also does not make provider-native permission behavior
 authoritative. Provider sandbox and approval claims are telemetry until Kiln
@@ -270,8 +269,8 @@ parent lineage, child requests, expected evidence, isolation policy, merge or
 adoption policy, and child-count limits. Runtime and CLI adapters may launch
 children only after the shared admission contract accepts the request.
 
-`kiln run --workers` is a compatibility command over this lifecycle, not an
-independent worker implementation. It builds a typed fan-out request, admits it,
+`kiln run --workers` is a CLI adapter over this lifecycle, not an independent
+worker implementation. It builds a typed fan-out request, admits it,
 starts children through `RuntimeManagedAgentInvocationService`, observes and
 joins terminal records, and reports normalized orchestration evidence. It must
 not recursively invoke the CLI or maintain a separate worker registry.
@@ -299,6 +298,21 @@ project `routing.budget` into a `BudgetAdmissionPolicy`, but the admission
 decision is evaluated by the runtime budget admission service. There is no
 CLI-local, managed-orchestration-local, or gateway-billing shim for child
 budget admission.
+
+`managed_agent.orchestrate` is the canonical cross-surface entrypoint for an
+explicit work graph. It rejects duplicate ids, unknown dependencies, and
+cycles; selects direct, sequential, centralized, or independent-review
+topology through the Core policy; topologically orders dependent work; and
+executes the typed request with the common runtime lifecycle. The runtime-owned
+parallel-worker limit bounds concurrency. Terminal metadata carries a timeline
+presentation intent for GUI, TUI, CLI, transcript, and replay parity.
+
+Route admission binds the request to one explicit safe working-directory mode.
+Non-mutating review and decomposition may use `read-only` or policy-backed
+`sandbox`. An `isolated-worktree` route must provide a worktree lease and is the
+required boundary for duplicate-candidate fan-out and write-capable child work.
+Shared `workspace-write` orchestration is denied rather than serialized inside
+the parent checkout.
 
 ## Isolation, Leases, And Cleanup
 
@@ -475,6 +489,12 @@ Credential routing is explicit. A child invocation receives a credential route
 identifier or a credentialless declaration. Secret values are not stored in
 invocation records, session events, transcripts, diagnostics, or handoff
 summaries.
+
+Credential expiry is not proof of provider acceptance. A provider-reported
+authentication failure invalidates that credential across discovery, status,
+and pool selection until the operator relinks it. Managed-route admission must
+use fresh provider/model discovery and must not fall back to a native harness
+catalog when the configured direct-provider credential is rejected.
 
 ## Runtime Adapters
 
@@ -727,18 +747,26 @@ skills are configured. Parent assistants may choose a configured child profile
 without the operator naming one, but they must not invent profiles or skills.
 If no configured profile matches a one-off read-only task, the parent omits
 `agentProfile` and invokes a generic governed child.
-Paused work-governance requests are authoritative tool input, not examples for
-the parent to rewrite. A parent must call `managed_agent.invoke` with the exact
-`managedInvocationRequest` returned by `work_item.execution.start`; if
-`agentProfile` is absent, it stays absent. Attached runtime surfaces may add an
-agent profile only when exactly one configured profile has an explicit route
-hint matching the request route. That preserves fail-closed profile admission
-while avoiding model-side guessing for route-owned intermediate phases.
-The resolved agent catalog may include a route hint inferred from explicit
-agent config or from route suitability and agent tier. Fast profiles such as
-`scout` should bind to bounded read-only routes, for example a Mini or free
-route, instead of a heavyweight synthesis route reserved for architecture or
-research synthesis.
+Paused work-governance requests are authoritative runtime input, not examples
+for the parent to rewrite. Attached runtime surfaces hydrate and execute the
+exact `managedInvocationRequest` returned by `work_item.execution.start` before
+control returns to the parent. If `agentProfile` is absent, it stays absent.
+The runtime may attach an agent profile only when exactly one configured
+profile has an explicit route hint matching the request route. This preserves
+fail-closed profile admission while removing model-side sequencing from the
+managed child lifecycle.
+When a request has no exact route, runtime route selection first filters by the
+requested authority profile and `requiredToolNames`. A single compatible route
+is admissible. When several routes remain, the runtime may select only a unique
+highest-scoring route from the phase `taskAffinity` and configured
+`taskSuitability` evidence. Missing suitability, a tie, or an incapable route
+remains ambiguous and fails closed; model names and provider rankings are never
+hardcoded into this boundary.
+The resolved agent catalog may include a route hint from explicit agent config
+or configured task suitability. Agent tier and model-name substrings are not
+routing evidence. Fast profiles such as `scout` should bind explicitly, or via
+`mechanical-edit`/research suitability, to a bounded read-only route instead of
+a heavyweight synthesis route.
 
 `agentProfile`, `skills`, and `contextMode: "fork"` fail closed when the active
 surface has not configured a context resolver. `contextMode: "isolated"` is the
@@ -991,17 +1019,21 @@ invocation metadata so downstream surfaces can show that the child was
 attempted and no parent attempt was started. The parent session turn is also
 recorded with failed outcome, which prevents GUI, TUI, CLI, and replay surfaces
 from treating a delegation timeout or route failure as a completed assistant
-turn. Intermediate evidence phases are not auto-started by
-`work_item.execution.start`; the pause envelope keeps the hydrated
-`managed_agent.invoke` request visible so the parent explicitly starts the child
-and owns any timeout or local recovery decision. This expected pause is a
-successful actionable handoff, not a tool error; true route, provider, child, or
-recovery failures still return failed metadata. Before exposing the paused
-request, attached runtime surfaces verify that the selected route can provide
-the phase `requiredToolNames`. If the requested phase route lacks required
-tools and exactly one compatible read-only route exists, the request is repaired
-with structured `managedInvocationRouteRepair` metadata; otherwise the runtime
-fails closed rather than handing the parent an impossible child request. If a
+turn. Intermediate evidence phases are runtime-started by
+`work_item.execution.start`. The runtime resolves route identity, provider,
+model, authority, required tools, context, and child profile before invoking the
+adapter. A successful child returns one parent-facing envelope with
+`operation=managed_intermediate_phase_completed`, the canonical
+`managedInvocationId`, the bounded child handoff, and
+`nextTool=work_item.update`. The parent owns interpretation and evidence
+recording, but it does not own child creation or lifecycle sequencing. True
+route, provider, child, or recovery failures still return failed metadata.
+Before starting the child, attached runtime surfaces verify that the selected
+route can provide the phase `requiredToolNames`. If the requested phase route
+lacks required tools and one uniquely compatible route exists, including a
+unique winner from configured task suitability, the request is repaired with
+structured `managedInvocationRouteRepair` metadata; otherwise the runtime fails
+closed rather than starting an impossible child. If a
 managed child failure later returns recovery guidance, the envelope includes a complete
 `workItemUpdateInputTemplate`, including the required work item summary,
 evidence-to-record, and phase-specific verification gate placeholders. Parent
@@ -1013,6 +1045,12 @@ The same fail-closed rule applies to successful intermediate children. A
 records every required evidence label on the same work item. Printing the
 template, `providedEvidence`, or `verificationGateResults` as assistant text is
 not a tool call and must not be treated as phase completion.
+
+Agent catalog projection is also semantic admission. An agent with an explicit
+`routeId` is omitted when the route is unavailable, its declared provider or
+model contradicts the route, or its declared tools are not admitted by any
+profile on that route. `kiln status` exposes these as managed agent profile
+issues instead of silently rewriting the profile to match the route.
 
 Assistant egress text must not expose provider-internal tool-call markup. If a
 direct provider returns raw assistant tool syntax such as `<assistant to=...>`

@@ -58,10 +58,9 @@ magic.
 
 Primary subsystems:
 
-- [DemandAllocator](architecture/coordination.md)
-- [ChainGovernor](architecture/coordination.md)
-- [TaskRegistry](architecture/coordination.md)
-- [CoordinationStore](architecture/coordination.md)
+- [Managed coordination policy](architecture/coordination.md)
+- [Governed goals and work items](architecture/work-governance.md)
+- [Managed orchestration lifecycle](architecture/managed-agents.md)
 
 ### Safety
 

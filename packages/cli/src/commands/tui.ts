@@ -1268,6 +1268,17 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const sessionStore = new SessionStore(cwd);
+  const transcriptStore = new TranscriptStore(cwd);
+  await recoverStaleOpenTranscriptSessions({
+    transcriptStore,
+    sessionStore,
+    projectPath: cwd,
+  });
+  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
+    globalConfig,
+    createCliTranscriptBudgetUsageReader(transcriptStore),
+  );
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   startupProfiler.mark("context-cache-ready");
@@ -1298,6 +1309,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       cwd,
       registry,
       surface: "tui",
+      maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
+      ...(runtimeBudgetAdmission ? { orchestrationBudgetAdmission: runtimeBudgetAdmission } : {}),
       isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,
@@ -1345,17 +1358,6 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   }
 
   // Inject CLI session factory into the gateway (dependency inversion)
-  const sessionStore = new SessionStore(cwd);
-  const transcriptStore = new TranscriptStore(cwd);
-  await recoverStaleOpenTranscriptSessions({
-    transcriptStore,
-    sessionStore,
-    projectPath: cwd,
-  });
-  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
-    globalConfig,
-    createCliTranscriptBudgetUsageReader(transcriptStore),
-  );
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({
     transcriptStore,
     workItemStore,

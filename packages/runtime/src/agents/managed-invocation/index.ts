@@ -128,15 +128,15 @@ export type {
   ManagedInvocationPromptDeliveryMode,
 } from "./prompt-admission.js";
 export {
-  runManagedAgentFanOutLifecycle,
-} from "./fan-out.js";
+  runManagedAgentOrchestrationLifecycle,
+} from "./orchestration-lifecycle.js";
 export type {
-  ManagedAgentFanOutBudgetAdmissionInput,
-  ManagedAgentFanOutLifecycleChildRecord,
-  ManagedAgentFanOutLifecycleInput,
-  ManagedAgentFanOutLifecycleResult,
-  ManagedAgentFanOutLifecycleRouteSelector,
-} from "./fan-out.js";
+  ManagedAgentOrchestrationBudgetAdmissionInput,
+  ManagedAgentOrchestrationLifecycleChildRecord,
+  ManagedAgentOrchestrationLifecycleInput,
+  ManagedAgentOrchestrationLifecycleResult,
+  ManagedAgentOrchestrationLifecycleRouteSelector,
+} from "./orchestration-lifecycle.js";
 export {
   createManagedAgentInvocationResourceProvider,
   isManagedAgentInvocationResourceProvider,
@@ -227,6 +227,9 @@ export {
   MANAGED_AGENT_LIST_CAPABILITY,
   MANAGED_AGENT_LIST_TOOL,
   MANAGED_AGENT_LIST_TOOL_NAME,
+  MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
+  MANAGED_AGENT_ORCHESTRATE_TOOL,
+  MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
   MANAGED_AGENT_INVOKE_TOOL_NAME,

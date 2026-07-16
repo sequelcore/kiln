@@ -140,6 +140,7 @@ function credential(id: string, homeDir: string): Credential<{ homeDir: string }
     lastSuccess: null,
     lastExhausted: null,
     cooldownUntil: null,
+    invalidReason: null,
     softLeaseCount: 0,
   };
 }

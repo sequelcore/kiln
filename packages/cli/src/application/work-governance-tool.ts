@@ -2,6 +2,7 @@ import type {
   ActionEffectEnvelope,
   DevTool,
   ManagedAgentResultHandoff,
+  ModelTaskSuitabilityTask,
   ToolInput,
   ToolResult,
   WorkItem,
@@ -160,6 +161,7 @@ interface ManagedInvocationPhase {
   readonly id: ManagedInvocationPhaseId;
   readonly expectedEvidence: readonly KilnWorkGovernanceEvidence[];
   readonly requiredToolNames: readonly string[];
+  readonly taskAffinity: readonly ModelTaskSuitabilityTask[];
   readonly remainingEvidenceAfterPhase: readonly KilnWorkGovernanceEvidence[];
   readonly finalPhase: boolean;
   readonly completionTool: "work_item.update" | "work_item.execution.finish";
@@ -1787,6 +1789,7 @@ function buildManagedInvocationRequest(
       id: phase.id,
       expectedEvidence: phase.expectedEvidence,
       requiredToolNames: phase.requiredToolNames,
+      taskAffinity: phase.taskAffinity,
       remainingEvidenceAfterPhase: phase.remainingEvidenceAfterPhase,
       finalPhase: phase.finalPhase,
       completionTool: phase.completionTool,
@@ -1846,6 +1849,7 @@ function resolveManagedInvocationPhase(step: ReadyGoalExecutionStep): ManagedInv
     id: phaseId,
     expectedEvidence: targetEvidence,
     requiredToolNames: requiredToolNamesForPhaseEvidence(targetEvidence),
+    taskAffinity: taskAffinityForPhase(phaseId),
     remainingEvidenceAfterPhase,
     finalPhase,
     completionTool: finalPhase ? "work_item.execution.finish" : "work_item.update",
@@ -1899,6 +1903,18 @@ function phaseIdForEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): Ma
 
 function requiredToolNamesForPhaseEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): readonly string[] {
   return uniqueText([
+    ...(evidence.some((candidate) =>
+      candidate === "surface-map"
+      || candidate === "risk-hypothesis"
+      || candidate === "spec"
+      || candidate === "plan"
+      || candidate === "formal-proof"
+    )
+      ? ["read", "tree", "grep", "glob"]
+      : []),
+    ...(evidence.some((candidate) => candidate === "tests" || candidate === "typecheck")
+      ? ["bash"]
+      : []),
     ...(evidence.includes("visual-reference-research")
       ? ["read", "glob", "grep"]
       : []),
@@ -2243,6 +2259,20 @@ function requireManagedInvocationResultHandoff(
     ...(structuredResult ? { structuredResult } : {}),
     ...(verificationUsage ? { verificationUsage } : {}),
   };
+}
+
+function taskAffinityForPhase(phase: ManagedInvocationPhaseId): readonly ModelTaskSuitabilityTask[] {
+  switch (phase) {
+    case "visual-reference-research":
+      return ["research", "frontend-design"];
+    case "surface-diagnosis":
+      return ["architecture-review", "research"];
+    case "planning":
+    case "managed-review-closeout":
+      return ["architecture-review"];
+    case "implementation-verification":
+      return ["test-writing"];
+  }
 }
 
 function readManagedOrchestrationAdoption(value: unknown): WorkItem["managedOrchestrationAdoption"] | undefined {

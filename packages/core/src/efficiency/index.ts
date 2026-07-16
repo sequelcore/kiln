@@ -30,11 +30,7 @@ export type {
   ReversibleRetrievalResult,
   VerifyCanonicalEvidenceInput,
 } from "./reversible-context-projection.js";
-export {
-  evaluateDelegationEfficiencyPromotion,
-  isCanonicalArtifactContentUri,
-  selectDelegationEfficiencyCandidate,
-} from "./delegation-efficiency.js";
+export { isCanonicalArtifactContentUri } from "./canonical-artifact-uri.js";
 export { projectVerifiedEfficiencyEvidence } from "./verified-efficiency-evidence.js";
 export type {
   ProjectVerifiedEfficiencyEvidenceInput,
@@ -133,13 +129,3 @@ export type {
   VerificationUsageAttempt,
   VerificationUsageReport,
 } from "./output-verification-allocation.js";
-export type {
-  DelegationEfficiencyBenchmarkPolicy,
-  DelegationEfficiencyDecision,
-  DelegationEfficiencyDiagnostic,
-  DelegationEfficiencyObservation,
-  DelegationEfficiencyPromotionReport,
-  DelegationEfficiencySignals,
-  DelegationEfficiencyStrategy,
-  DelegationEfficiencyTaskClassComparison,
-} from "./delegation-efficiency.js";

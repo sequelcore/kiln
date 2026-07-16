@@ -94,10 +94,9 @@ Core subsystems:
 
 - **IngressGovernor** admits or rejects work and routes it into the proper control path
 - **ContextGovernor** decides what context is sufficient, affordable, and safe to expose
-- **DemandAllocator** decides whether work stays local, parallelizes, defers, or escalates
-- **ChainGovernor** regulates multi-step execution and prevents unstable chains
-- **TaskRegistry** tracks execution state, ownership, lifecycle, and recovery
-- **CoordinationStore** provides the shared substrate for handoff, signals, claims, and state
+- **Managed coordination policy** selects direct, sequential, centralized, or independent-review execution from governed signals
+- **GoalRunStore and WorkItemStore** own durable goal, dependency, execution, evidence, and recovery state
+- **Managed orchestration lifecycle** admits routes, bounds concurrency, executes children, and records terminal evidence
 - **SafetyKernel** enforces hard boundaries with fail-closed defaults
 - **ModeController** manages operating modes such as `NORMAL`, `DEGRADED`, and `LOCKED`
 - **TelemetryLoop** closes feedback loops through measurement, anomaly detection, and tuning

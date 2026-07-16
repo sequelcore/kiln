@@ -28,6 +28,7 @@ export * from "./write-authority.js";
 export * from "./read-authority.js";
 export * from "./write-integration.js";
 export * from "./orchestration.js";
+export * from "./coordination-policy.js";
 
 export const MANAGED_AGENT_ADMISSION_PROFILES = [
   "foundation-readonly-plan",

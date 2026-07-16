@@ -702,9 +702,10 @@ async function discoverCodexOauthModelDiscovery(
   if (available !== true) {
     return undefined;
   }
+  const credentialPool = new CodexOAuthCredentialPoolService();
   let tokenCandidates: readonly { readonly credentialId: string; readonly accessToken: string }[] = [];
   try {
-    tokenCandidates = await new CodexOAuthCredentialPoolService().listValidAccessTokenCandidates();
+    tokenCandidates = await credentialPool.listValidAccessTokenCandidates();
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     return unavailableCliProviderDiscovery(
@@ -727,6 +728,7 @@ async function discoverCodexOauthModelDiscovery(
     const result = await discoverCodexOauthModelsWithCache(candidate.accessToken);
     if (isCodexOauthRejectedCredential(result)) {
       sawRejectedCredential = true;
+      await credentialPool.recordAuthenticationFailure(candidate.credentialId);
       codexOauthModelDebug("skipping rejected credential", {
         credentialId: candidate.credentialId,
         status: result.status,

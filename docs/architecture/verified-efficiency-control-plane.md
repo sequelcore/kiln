@@ -135,15 +135,14 @@ configuration hash. `xhigh` is experimental: benchmark use requires an explicit
 enable flag and budget evidence, while production use additionally requires a
 successful `reasoning-effort-promotion-v1` comparison against `high`.
 
-## Delegation And Handoff Efficiency
+## Coordination And Handoff Efficiency
 
-The efficiency controller does not replace work governance or managed
-invocation. `delegation-efficiency-candidate-v1` advises the existing decision
-between direct execution, isolated fresh-context delegation, and canonical
-shared-artifact handoff. Child authority must not exceed parent authority, and
-all strategies retain the same verification contract, route identity,
-terminal lifecycle, replay, and recovery requirements. Static work governance
-is the rollback policy.
+`managed-agent-coordination-v1` is the canonical deterministic topology
+policy. It selects direct, sequential, centralized, or independent-review
+execution from governance, graph, risk, capacity, route-health, budget, and
+workspace signals. Child authority must not exceed parent authority, and all
+topologies retain explicit route identity, terminal lifecycle, replay, and
+recovery requirements.
 
 Shared-artifact handoff accepts only immutable artifact content URIs. Work
 governance projects `contextMode=resources` when canonical resources are
@@ -162,10 +161,10 @@ reconcile against provider output. Known coordination tokens project into the
 lifecycle ledger under source `coordination`; provider-total reconciliation
 prevents double counting and fails closed on overflow.
 
-`delegation-efficiency-promotion-v1` pairs at least five static and candidate
-tasks by class. Unknown economics, success or verification regression,
-authority widening, incomplete terminal handoff, missing recovery, or missing
-coordination evidence blocks promotion.
+Adaptive or learned successors are not production policy. Promotion must pair
+static and candidate tasks by class; unknown economics, success or verification
+regression, authority widening, incomplete terminal handoff, missing recovery,
+or missing coordination evidence blocks promotion.
 
 ## Output And Verification Allocation
 

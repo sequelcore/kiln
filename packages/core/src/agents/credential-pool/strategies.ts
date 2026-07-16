@@ -1,4 +1,4 @@
-import type { Credential } from "./credential.js";
+import { isAvailable, type Credential } from "./credential.js";
 
 export type SelectionStrategy = "fill-first" | "round-robin" | "random" | "least-used";
 
@@ -16,9 +16,8 @@ export function selectCredential<TAuth>(
     return null;
   }
 
-  const now = Date.now();
   const available = [...credentials]
-    .filter((credential) => credential.cooldownUntil === null || now >= credential.cooldownUntil)
+    .filter((credential) => isAvailable(credential))
     .sort(comparePriority);
   if (available.length === 0) {
     return null;
