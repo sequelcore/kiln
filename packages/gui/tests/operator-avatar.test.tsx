@@ -14,10 +14,10 @@ describe("OperatorAvatar", () => {
 
     expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-state", "idle");
     const facehash = container.querySelector("[data-facehash]");
-    expect(facehash).toHaveClass("font-semibold", "text-white/95");
+    expect(facehash).toHaveClass("font-semibold", "text-text-inverse/95");
     expect(facehash).not.toHaveAttribute("data-interactive");
     expect(container.querySelector("[data-facehash-initial]")).toHaveTextContent("C");
-    expect(container.querySelector("[data-facehash-gradient]")).toHaveClass("bg-[radial-gradient(ellipse_at_35%_22%,rgba(255,255,255,0.38),rgba(255,255,255,0.12)_38%,transparent_72%)]");
+    expect(container.querySelector("[data-facehash-gradient]")).toHaveClass("bg-[radial-gradient(ellipse_at_35%_22%,color-mix(in_oklch,var(--color-text-inverse)_38%,transparent),color-mix(in_oklch,var(--color-text-inverse)_12%,transparent)_38%,transparent_72%)]");
   });
 
   it("uses custom status mouth and blink only for animated running avatars", () => {

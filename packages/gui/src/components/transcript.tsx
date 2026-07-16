@@ -51,6 +51,23 @@ interface TranscriptProps {
   readonly onDeny?: (approvalId: string) => void;
 }
 
+function OperationalTranscriptSurface(props: {
+  readonly children: ReactNode;
+  readonly dataRole?: string;
+  readonly kind: "tool" | "workflow";
+}) {
+  return (
+    <TranscriptSurface data-role={props.dataRole} kind={props.kind} className="flex justify-start px-1">
+      <div
+        className="min-w-0 max-w-[min(42rem,94%)] flex-1 pl-5 sm:pl-8"
+        data-slot="transcript-operational-content"
+      >
+        {props.children}
+      </div>
+    </TranscriptSurface>
+  );
+}
+
 const TRANSCRIPT_TOOL_DETAIL_LABELS = new Set([
   "Profile",
   "Provider",
@@ -1131,11 +1148,9 @@ function InlineToolEventRow(props: {
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
   return (
-    <TranscriptSurface data-role="tool" kind="tool" className="flex justify-start px-1">
-      <div className="min-w-0 max-w-[min(42rem,94%)] flex-1 pl-5 sm:pl-8">
-        <ToolEventCard entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
-      </div>
-    </TranscriptSurface>
+    <OperationalTranscriptSurface dataRole="tool" kind="tool">
+      <ToolEventCard entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
+    </OperationalTranscriptSurface>
   );
 }
 
@@ -1149,24 +1164,22 @@ function ToolActivityGroupRow(props: {
   const completedCount = props.entries.filter((entry) => entry.tone === "success").length;
   const failedCount = props.entries.filter((entry) => entry.tone === "error").length;
   return (
-    <TranscriptSurface data-role="tool-group" kind="tool" className="flex justify-start px-1">
-      <div className="min-w-0 max-w-[min(42rem,94%)] flex-1 pl-5 sm:pl-8">
-        <ToolGroup
-          active={active}
-          completedCount={completedCount}
-          failedCount={failedCount}
-          onOpenChange={setOperatorOpen}
-          open={open}
-          totalCount={props.entries.length}
-        >
-          {props.entries.map((entry) => (
-            <ToolGroupItem key={entry.id}>
-              <ToolEventCard entry={entry} loadResourceDataUrl={props.loadResourceDataUrl} nested />
-            </ToolGroupItem>
-          ))}
-        </ToolGroup>
-      </div>
-    </TranscriptSurface>
+    <OperationalTranscriptSurface dataRole="tool-group" kind="tool">
+      <ToolGroup
+        active={active}
+        completedCount={completedCount}
+        failedCount={failedCount}
+        onOpenChange={setOperatorOpen}
+        open={open}
+        totalCount={props.entries.length}
+      >
+        {props.entries.map((entry) => (
+          <ToolGroupItem key={entry.id}>
+            <ToolEventCard entry={entry} loadResourceDataUrl={props.loadResourceDataUrl} nested />
+          </ToolGroupItem>
+        ))}
+      </ToolGroup>
+    </OperationalTranscriptSurface>
   );
 }
 
@@ -1232,7 +1245,7 @@ function ApprovalEventRow(props: {
   const justification = readString(details?.justification);
 
   return (
-    <TranscriptSurface kind="approval" className="border border-[var(--color-warning)]/45 bg-card px-3 py-3 shadow-sm">
+    <TranscriptSurface kind="approval" className="border border-status-warning-border bg-status-warning-background px-3 py-3 shadow-sm">
       <header className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
@@ -1599,7 +1612,7 @@ function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
     ? `${completed} of ${workItems.length} work items completed${goal.statusReason ? `. ${goal.statusReason}` : ""}`
     : props.item.workItem?.item.id;
   return (
-    <TranscriptSurface kind="workflow" className="max-w-[min(44rem,90%)]">
+    <OperationalTranscriptSurface kind="workflow">
       <Task
         aria-label={goal ? `Goal ${goal.goal.id}` : `Work item ${props.item.workItem?.item.id ?? "unknown"}`}
         className="w-full min-w-0 overflow-hidden"
@@ -1627,7 +1640,7 @@ function WorkflowActivityRow(props: { readonly item: TranscriptWorkflowItem }) {
           )}
         </TaskContent>
       </Task>
-    </TranscriptSurface>
+    </OperationalTranscriptSurface>
   );
 }
 

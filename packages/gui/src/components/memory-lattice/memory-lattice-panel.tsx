@@ -323,9 +323,9 @@ function MemoryGraphLoadingSurface(props: { readonly reducedMotion: boolean }) {
       aria-label="Memory graph"
       data-reduced-motion={props.reducedMotion ? "true" : "false"}
       data-renderer="loading"
-      className="relative overflow-hidden rounded-lg border border-border bg-background shadow-[inset_0_0_96px_color-mix(in_srgb,var(--color-primary)_12%,transparent)]"
+        className="relative overflow-hidden rounded-lg border border-border bg-background shadow-[inset_0_0_96px_color-mix(in_oklch,var(--color-primary)_12%,transparent)]"
     >
-      <div className="pointer-events-none absolute inset-0 opacity-80 [background-image:radial-gradient(circle_at_50%_42%,color-mix(in_srgb,var(--color-primary)_15%,transparent),transparent_52%),linear-gradient(color-mix(in_srgb,var(--color-border)_28%,transparent)_1px,transparent_1px),linear-gradient(90deg,color-mix(in_srgb,var(--color-border)_28%,transparent)_1px,transparent_1px)] [background-size:100%_100%,28px_28px,28px_28px]" />
+        <div className="pointer-events-none absolute inset-0 opacity-80 [background-image:radial-gradient(circle_at_50%_42%,color-mix(in_oklch,var(--color-primary)_15%,transparent),transparent_52%),linear-gradient(color-mix(in_oklch,var(--color-border)_28%,transparent)_1px,transparent_1px),linear-gradient(90deg,color-mix(in_oklch,var(--color-border)_28%,transparent)_1px,transparent_1px)] [background-size:100%_100%,28px_28px,28px_28px]" />
       <Skeleton className="relative h-full min-h-72 w-full" />
     </section>
   );
@@ -369,7 +369,7 @@ function MemoryNodeList(props: {
                 className={cn(
                   "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
                   node.recordId === props.selectedRecordId
-                    && "bg-[color-mix(in_srgb,var(--color-warning)_14%,var(--color-secondary))] text-foreground shadow-[inset_3px_0_0_var(--color-warning)]",
+                      && "bg-status-warning-background text-foreground shadow-[inset_3px_0_0_var(--color-warning)]",
                 )}
                 onClick={() => props.onSelect(node.recordId)}
               >

@@ -406,7 +406,7 @@ function BrowserUsePanel(props: {
           {status}
         </span>
         {status === "running" || props.browserSession?.ownership === "agent" ? (
-          <span className="shrink-0 rounded border border-amber-500/45 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
+          <span className="shrink-0 rounded border border-status-warning-border bg-status-warning-background px-2 py-1 text-xs text-warning">
             Agent controlling
           </span>
         ) : null}

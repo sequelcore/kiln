@@ -15,6 +15,7 @@ import {
   type DirectProviderExecutionMode,
   type DirectProviderId,
   type ExecutionSessionEvent,
+  type ApprovalRequestedEvent,
   type ToolCalledEvent,
   type ToolOutputEvent,
   type ResolvedDirectProviderExecutionProfile,
@@ -516,6 +517,7 @@ export class ProviderSession implements IKilnSession {
     requestedAuthority: OperatorTurnRequestedAuthority | undefined,
     abortSignal: AbortSignal | undefined,
     turnId: string | undefined,
+    workingDirectory: string | undefined,
   ): PerCallToolConfig {
     if (!requestedAuthority || requestedAuthority === "auto") {
       const admittedToolNames = new Set(this.materializableTools.keys());
@@ -523,6 +525,7 @@ export class ProviderSession implements IKilnSession {
         ...(turnId ? { turnId } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(abortSignal ? { abortSignal } : {}),
+        ...(workingDirectory ? { workingDirectory } : {}),
         toolAllowlist: admittedToolNames,
         additionalTools: this.toolDefinitions,
         perCallCapabilities: filterCapabilityMap(this.capabilityMap, admittedToolNames),
@@ -579,6 +582,9 @@ export class ProviderSession implements IKilnSession {
       if (authority.allowed && !authority.requiresApproval && authority.level <= 2) {
         admittedToolNames.add(tool.name);
         toolAuthority.set(tool.name, authority);
+      } else if (authority.requiresApproval) {
+        admittedToolNames.add(tool.name);
+        toolAuthority.set(tool.name, authority);
       }
     }
 
@@ -587,6 +593,7 @@ export class ProviderSession implements IKilnSession {
       ...(turnId ? { turnId } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(abortSignal ? { abortSignal } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
       toolAllowlist: admittedToolNames,
       toolAuthority,
       additionalTools: this.toolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
@@ -619,6 +626,7 @@ export class ProviderSession implements IKilnSession {
       requestedAuthority,
       options.abortSignal,
       options.turnId,
+      options.cwd ?? this.config.cwd,
     );
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options, perCallConfig.effectiveTurnAuthority);
     const adapter = await createDirectProviderAdapter({
@@ -678,10 +686,31 @@ export class ProviderSession implements IKilnSession {
       if (event.sessionId !== cliSession.id) return;
       enqueueLiveToolEvent(toolOutputToSessionEvent(event));
     };
+    const onApprovalRequested = (event: ApprovalRequestedEvent) => {
+      if (event.sessionId !== cliSession.id) return;
+      void (async () => {
+        let decision: { readonly approved: boolean; readonly reason?: string };
+        try {
+          decision = options.requestApproval
+            ? await options.requestApproval(event.description)
+            : {
+                approved: false,
+                reason: "This operator surface does not provide an approval handler",
+              };
+        } catch (error) {
+          decision = {
+            approved: false,
+            reason: error instanceof Error ? error.message : "The operator approval handler failed",
+          };
+        }
+        orchestrator.emitApprovalReceived(decision.approved, decision.reason, event.approvalId);
+      })();
+    };
 
     this.eventBus.on("tool_called", onToolCalled);
     this.eventBus.on("tool_output", onToolOutput);
     this.eventBus.on("tool_result", onToolResult);
+    this.eventBus.on("approval_requested", onApprovalRequested);
 
     let result: OrchestrateResult | undefined;
     let processError: unknown;
@@ -718,6 +747,7 @@ export class ProviderSession implements IKilnSession {
       this.eventBus.off("tool_called", onToolCalled);
       this.eventBus.off("tool_output", onToolOutput);
       this.eventBus.off("tool_result", onToolResult);
+      this.eventBus.off("approval_requested", onApprovalRequested);
     }
 
     if (processError) {
@@ -729,6 +759,9 @@ export class ProviderSession implements IKilnSession {
 
     let isError = false;
     for (const toolExec of result.toolExecutions ?? []) {
+      if (!toolExec.success) {
+        isError = true;
+      }
       if (!hasLiveToolEvents) {
         const output = toolExec.output ?? toolExec.resultSummary;
         if (toolExec.toolCallId || toolExec.input) {

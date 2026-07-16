@@ -607,7 +607,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
                             <span className="flex items-center gap-2">
                               <span className="text-[var(--color-text)]">{provider.label}</span>
                               {provider.free ? (
-                                <span className="rounded border border-[var(--color-success)]/60 bg-[var(--color-success)]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-success)]">
+                                <span className="rounded border border-status-success-border bg-status-success-background px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-success">
                                   Free
                                 </span>
                               ) : null}

@@ -576,10 +576,14 @@ export {
   OPERATOR_THEME_PALETTES,
   isDarkOperatorTheme,
   isOperatorThemeName,
+  operatorColorToCss,
+  operatorColorToHex,
   resolveOperatorThemePalette,
 } from "./operator-themes.js";
 export type {
   ConcreteOperatorThemeName,
+  OperatorColor,
+  OperatorStatusColors,
   OperatorThemeName,
   OperatorThemePalette,
 } from "./operator-themes.js";

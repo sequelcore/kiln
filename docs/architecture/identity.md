@@ -118,6 +118,13 @@ The canonical dark expression is Kiln Obsidian:
 - cyan primary color for technical action, routing, links, and system affordance
 - compact typography, hairline dividers, and dense operator-console rhythm
 
+Kiln Graphite preserves the same hierarchy at a lifted dark luminance, while
+Kiln Paper is the light polarity rather than a separately styled product.
+All three are semantic projections of one operator-theme contract. Normal
+text, muted text, controls, actions, and status surfaces must satisfy the
+contract's executable contrast and sRGB-gamut gates; visual identity does not
+override legibility or renderer consistency.
+
 The canonical brand mark is `docs/assets/logo.svg`; use it for product identity
 in README files, operator shell headers, internal studio navigation, and other
 Kiln-owned surfaces. Use `docs/assets/logo.png` only when a raster image is

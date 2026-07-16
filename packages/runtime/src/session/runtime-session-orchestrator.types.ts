@@ -69,6 +69,7 @@ export interface RuntimeBuiltinToolExecutionContext {
   }) => void;
   readonly sandbox?: unknown;
   readonly allowedToolNames?: readonly string[];
+  readonly authority?: AuthorityDescriptor;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly requestApproval?: (
     description: string,

@@ -1863,6 +1863,17 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await pending;
 
       expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(toolFn).toHaveBeenCalledWith(
+        { query: "test" },
+        expect.objectContaining({
+          authority: {
+            level: 4,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Approved for this invocation",
+          },
+        }),
+      );
     });
 
     it("passes the approval callback into builtin tool execution context", async () => {
@@ -2002,6 +2013,17 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       );
 
       expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(toolFn).toHaveBeenCalledWith(
+        { query: "test" },
+        expect.objectContaining({
+          authority: {
+            level: 1,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Tenant authority allows this tool",
+          },
+        }),
+      );
       expect(authorizer.authorize).not.toHaveBeenCalled();
     });
 
@@ -2055,6 +2077,17 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(approvalRequested).not.toHaveBeenCalled();
       expect(toolFn).toHaveBeenCalledTimes(1);
       expect(authorizer.authorize).not.toHaveBeenCalled();
+      expect(toolFn).toHaveBeenCalledWith(
+        { filePath: "packages/core/tests/context/stable-prefix.test.ts", content: "test" },
+        expect.objectContaining({
+          authority: {
+            level: 4,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Governed destructive execution admitted by effective turn authority.",
+          },
+        }),
+      );
     });
 
     it("fails closed for malformed per-call authority descriptor", async () => {

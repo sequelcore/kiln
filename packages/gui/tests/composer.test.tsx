@@ -13,40 +13,43 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   const onCommandMenuOpenChange = vi.fn();
   const onCommandMenuExecute = vi.fn();
   const onCommandMenuQueryChange = vi.fn();
-  render(
+  const props: ComponentProps<typeof Composer> = {
+    status: "ready",
+    planMode: false,
+    governedWorkItemCount: null,
+    continuityHint: {
+      label: "New session",
+      description: "Next message starts fresh",
+      tone: "muted",
+      prominence: "routine",
+    },
+    providerControl: <button type="button">Claude Sonnet 4</button>,
+    reasoningControl: <select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>,
+    authorityControl: <select aria-label="Turn authority" defaultValue="auto"><option value="auto">Auto</option></select>,
+    commandMenu: {
+      open: false,
+      query: "",
+      commands: [
+        {
+          id: "new-session",
+          trigger: "new session",
+          title: "New Session",
+        },
+      ],
+      onQueryChange: onCommandMenuQueryChange,
+      onExecute: onCommandMenuExecute,
+      onOpenChange: onCommandMenuOpenChange,
+    },
+    onSubmit,
+    onTogglePlanMode,
+    onGovernedWorkItemCountChange,
+    onSubmitParts,
+    onCancel,
+    ...overrides,
+  };
+  const result = render(
     <Composer
-      status="ready"
-      planMode={false}
-      governedWorkItemCount={null}
-      continuityHint={{
-        label: "New session",
-        description: "Next message starts fresh",
-        tone: "muted",
-        prominence: "routine",
-      }}
-      providerControl={<button type="button">Claude Sonnet 4</button>}
-      reasoningControl={<select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>}
-      authorityControl={<select aria-label="Turn authority" defaultValue="auto"><option value="auto">Auto</option></select>}
-      commandMenu={{
-        open: false,
-        query: "",
-        commands: [
-          {
-            id: "new-session",
-            trigger: "new session",
-            title: "New Session",
-          },
-        ],
-        onQueryChange: onCommandMenuQueryChange,
-        onExecute: onCommandMenuExecute,
-        onOpenChange: onCommandMenuOpenChange,
-      }}
-      onSubmit={onSubmit}
-      onTogglePlanMode={onTogglePlanMode}
-      onGovernedWorkItemCountChange={onGovernedWorkItemCountChange}
-      onSubmitParts={onSubmitParts}
-      onCancel={onCancel}
-      {...overrides}
+      {...props}
     />,
   );
   return {
@@ -58,6 +61,9 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
     onCommandMenuOpenChange,
     onCommandMenuExecute,
     onCommandMenuQueryChange,
+    rerenderComposer(next: Partial<ComponentProps<typeof Composer>>) {
+      result.rerender(<Composer {...props} {...next} />);
+    },
   };
 }
 
@@ -78,6 +84,8 @@ describe("Composer", () => {
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "thinking");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-motion", "pulse");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "contained");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-inner");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-palette", "colorful");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "dark");
   });
@@ -108,6 +116,27 @@ describe("Composer", () => {
     expect(screen.getByRole("status", { name: "Activity phase: Responding" })).toBeInTheDocument();
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "streaming");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveStyle({ "--beam-strength": "0.2" });
+  });
+
+  it("uses the outward bloom only while the completed response fades out", () => {
+    const { rerenderComposer } = renderComposer({ status: "running", activityPhase: "streaming" });
+
+    rerenderComposer({ status: "ready", activityPhase: "idle" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "completion");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-outside");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-fading");
+  });
+
+  it("does not present an error transition as a completion bloom", () => {
+    const { rerenderComposer } = renderComposer({ status: "running", activityPhase: "streaming" });
+
+    rerenderComposer({ status: "error", activityPhase: "idle" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "off");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-inner");
   });
 
   it("does not flash the beam off between tool activity phases", () => {
@@ -121,6 +150,7 @@ describe("Composer", () => {
     renderComposer({ status: "running", activityPhase: "awaiting_approval" });
 
     expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "paused");
     expect(screen.getByRole("status", { name: "Activity phase: Awaiting approval" })).toBeInTheDocument();
   });
 
@@ -129,6 +159,7 @@ describe("Composer", () => {
 
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "idle");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "off");
     expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
   });
 
@@ -430,6 +461,17 @@ describe("Composer", () => {
 
     expect(inputSurface).toHaveClass("focus-within:border-ring/70");
     expect(inputSurface).not.toHaveClass("focus-within:ring-3");
+  });
+
+  it("keeps the composer surface legible when an individual action is disabled", () => {
+    renderComposer();
+
+    const inputSurface = screen.getByLabelText("Message").parentElement;
+    const sendButton = screen.getByRole("button", { name: "Send message" });
+
+    expect(sendButton).toBeDisabled();
+    expect(sendButton).toHaveClass("disabled:opacity-50");
+    expect(inputSurface).not.toHaveClass("has-disabled:opacity-50", "has-disabled:bg-input/50");
   });
 
   it("uses theme elevation instead of default shadow scale", () => {

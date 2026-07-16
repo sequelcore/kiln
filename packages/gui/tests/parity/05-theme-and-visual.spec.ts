@@ -8,25 +8,46 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await waitForGuiReady(page);
 
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
+    const composerSurface = page.locator('[data-composer-surface="message"]');
+    await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+    await expect(composerSurface).toHaveCSS("opacity", "1");
 
     await page.getByRole("button", { name: "Setup" }).click();
     const switcher = page.getByRole("combobox", { name: "Theme" });
     await expect(switcher).toBeVisible();
+
+    await switcher.click();
+    await page.getByRole("option", { name: "Kiln Obsidian" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "kiln-dark");
+    const obsidianCanvas = await page.locator("html").evaluate((root) => (
+      getComputedStyle(root).getPropertyValue("--color-background").trim()
+    ));
+
+    await switcher.click();
+    await page.getByRole("option", { name: "Kiln Graphite" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "kiln-graphite");
+    const graphiteCanvas = await page.locator("html").evaluate((root) => (
+      getComputedStyle(root).getPropertyValue("--color-background").trim()
+    ));
+    expect(graphiteCanvas).not.toBe(obsidianCanvas);
+
     await switcher.click();
     await page.getByRole("option", { name: "Kiln Paper" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "kiln-light");
 
     await page.reload();
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect(page.getByRole("button", { name: /Provider selector/ })).toBeVisible({ timeout: 2_000 });
-
-    const composer = page.locator("#composer-input");
-    await composer.fill("show visual roles");
-    await composer.press("Enter");
-
-    await expect(page.locator('[data-role="user"]').last()).toBeVisible({ timeout: 2_000 });
-    await expect(page.locator('[data-role="assistant"]').last()).toBeVisible({ timeout: 5_000 });
+    const visualRoles = await page.locator("html").evaluate((root) => {
+      const style = getComputedStyle(root);
+      return {
+        assistant: style.getPropertyValue("--color-assistant-bg").trim(),
+        user: style.getPropertyValue("--color-user-bg").trim(),
+      };
+    });
+    expect(visualRoles.user).not.toBe(visualRoles.assistant);
   });
 
   test("renders assistant markdown lists and tables with visible browser styling", async ({ page }) => {

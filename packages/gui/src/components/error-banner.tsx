@@ -35,9 +35,9 @@ export function ErrorBanner(props: ErrorBannerProps) {
     <div
       role="alert"
       aria-label={presentation.title}
-      className="flex w-full min-w-0 items-start gap-3 rounded-lg border border-[var(--color-error)]/45 bg-[var(--color-background-panel)]/95 px-3 py-3 text-sm shadow-[0_18px_54px_rgba(0,0,0,0.28)] backdrop-blur"
+      className="flex w-full min-w-0 items-start gap-3 rounded-lg border border-status-danger-border bg-status-danger-background px-3 py-3 text-sm shadow-[var(--shadow-elevated)]"
     >
-      <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md border border-[var(--color-error)]/30 bg-[var(--color-error)]/10 text-[var(--color-error)]">
+      <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md border border-status-danger-border bg-background-panel text-error">
         <AlertTriangle className="size-4" aria-hidden="true" />
       </div>
       <div className="min-w-0 flex-1">

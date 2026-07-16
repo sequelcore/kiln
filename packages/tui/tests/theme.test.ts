@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OPERATOR_THEME_NAMES, resolveOperatorThemePalette } from "@kilnai/gateway-contracts";
+import { OPERATOR_THEME_NAMES, operatorColorToHex, resolveOperatorThemePalette } from "@kilnai/gateway-contracts";
 import { getTheme, themeNames, themes } from "../src/theme.js";
 
 describe("TUI themes", () => {
@@ -15,26 +15,26 @@ describe("TUI themes", () => {
     const tui = getTheme("kiln-dark");
 
     expect(tui).toMatchObject({
-      background: shared.background,
-      backgroundPanel: shared.backgroundPanel,
-      backgroundElement: shared.backgroundElement,
-      border: shared.border,
-      borderActive: shared.borderActive,
-      text: shared.text,
-      textMuted: shared.textMuted,
-      accent: shared.accent,
-      primary: shared.primary,
-      success: shared.success,
-      error: shared.error,
-      warning: shared.warning,
-      info: shared.info,
-      userFg: shared.text,
-      userBg: shared.backgroundElement,
-      userBorder: shared.border,
-      assistantBg: shared.backgroundPanel,
-      toolFg: shared.success,
-      thinkingFg: shared.textMuted,
-      cursorFg: shared.success,
+      background: operatorColorToHex(shared.surface.canvas),
+      backgroundPanel: operatorColorToHex(shared.surface.panel),
+      backgroundElement: operatorColorToHex(shared.surface.interactive),
+      border: operatorColorToHex(shared.border.default),
+      borderActive: operatorColorToHex(shared.border.focus),
+      text: operatorColorToHex(shared.text.default),
+      textMuted: operatorColorToHex(shared.text.muted),
+      accent: operatorColorToHex(shared.brand.accent),
+      primary: operatorColorToHex(shared.action.primary),
+      success: operatorColorToHex(shared.status.success.foreground),
+      error: operatorColorToHex(shared.status.danger.foreground),
+      warning: operatorColorToHex(shared.status.warning.foreground),
+      info: operatorColorToHex(shared.status.info.foreground),
+      userFg: operatorColorToHex(shared.text.default),
+      userBg: operatorColorToHex(shared.surface.selected),
+      userBorder: operatorColorToHex(shared.border.default),
+      assistantBg: operatorColorToHex(shared.surface.panel),
+      toolFg: operatorColorToHex(shared.status.success.foreground),
+      thinkingFg: operatorColorToHex(shared.text.muted),
+      cursorFg: operatorColorToHex(shared.action.primary),
     });
   });
 });

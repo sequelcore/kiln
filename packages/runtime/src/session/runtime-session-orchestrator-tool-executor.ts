@@ -497,6 +497,7 @@ export class RuntimeSessionToolExecutor {
         resolvedEffect,
         perCallConfig,
       );
+      let executionAuthority = authResult;
       if (authResult) {
         this.emitToolAuthorized(
           session.id,
@@ -551,6 +552,12 @@ export class RuntimeSessionToolExecutor {
               });
               continue;
             }
+            executionAuthority = {
+              level: authResult.level,
+              allowed: true,
+              requiresApproval: false,
+              reason: "Approved for this invocation",
+            };
           } else {
             const content = `Authorization denied: ${authResult.reason}`;
             emitStarted(metadata, resolvedEffect, authResult);
@@ -592,12 +599,12 @@ export class RuntimeSessionToolExecutor {
         }
       }
 
-      emitStarted(metadata, resolvedEffect, authResult);
+      emitStarted(metadata, resolvedEffect, executionAuthority);
 
       if (await this.handleDangerousCommandBlock(
         session.id,
         normalizedToolCall,
-        authResult,
+        executionAuthority,
         resolvedEffect,
         resultParts,
         toolExecutions,
@@ -637,7 +644,12 @@ export class RuntimeSessionToolExecutor {
       const startMs = Date.now();
 
       try {
-        const execution = await this.executeToolWithPolicy(normalizedToolCall, capability, perCallConfig);
+        const execution = await this.executeToolWithPolicy(
+          normalizedToolCall,
+          capability,
+          perCallConfig,
+          executionAuthority,
+        );
         const durationMs = Date.now() - startMs;
         const sanitized = await this.sanitizeToolResult(execution.resultValue);
         const metadata = extractToolResultMetadata(execution.resultValueRaw);
@@ -672,7 +684,7 @@ export class RuntimeSessionToolExecutor {
           resourceLinks,
           this.recordToolUsage(normalizedToolCall.name),
           resolvedEffect,
-          authResult,
+          executionAuthority,
         );
         if (executionScopeTransition?.action === "exit") {
           this.activeExecutionScope = undefined;
@@ -689,7 +701,7 @@ export class RuntimeSessionToolExecutor {
           input: normalizedToolCall.input,
           ...(metadata ? { metadata } : {}),
           resolvedEffect,
-          authority: authResult,
+          authority: executionAuthority,
           durationMs,
           success,
           output: sanitized.resultValue,
@@ -1104,6 +1116,7 @@ export class RuntimeSessionToolExecutor {
     toolCall: ToolCall,
     capability: Capability | undefined,
     perCallConfig: PerCallToolConfig | undefined,
+    authority: AuthorityDescriptor | undefined,
   ): Promise<{
     readonly resultValueRaw: unknown;
     readonly resultValue: string;
@@ -1114,9 +1127,13 @@ export class RuntimeSessionToolExecutor {
 
     if (capability?.retry) {
       const executor = (name: string, input: Record<string, unknown>) =>
-        this.executeTool({ id: toolCall.id, name, input }, perCallConfig);
+        this.executeTool({ id: toolCall.id, name, input }, perCallConfig, authority);
       const fallbackExecutor = capability.retry.fallback
-        ? (name: string, input: Record<string, unknown>) => this.executeTool({ id: toolCall.id, name, input }, perCallConfig)
+        ? (name: string, input: Record<string, unknown>) => this.executeTool(
+            { id: toolCall.id, name, input },
+            perCallConfig,
+            perCallConfig?.toolAuthority?.get(name),
+          )
         : undefined;
 
       const execResult: ToolExecutionResult = await executeWithRetry(
@@ -1129,7 +1146,7 @@ export class RuntimeSessionToolExecutor {
       resultValueRaw = execResult.result;
       retryAttempt = execResult.attempts > 1 ? execResult.attempts : undefined;
     } else {
-      resultValueRaw = await this.executeTool(toolCall, perCallConfig);
+      resultValueRaw = await this.executeTool(toolCall, perCallConfig, authority);
     }
 
     return {
@@ -1275,7 +1292,11 @@ export class RuntimeSessionToolExecutor {
     }];
   }
 
-  private async executeTool(toolCall: ToolCall, perCallConfig?: PerCallToolConfig): Promise<unknown> {
+  private async executeTool(
+    toolCall: ToolCall,
+    perCallConfig?: PerCallToolConfig,
+    authority?: AuthorityDescriptor,
+  ): Promise<unknown> {
     const session = this.currentSession;
     const turnId = session
       ? perCallConfig?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount, 1)}`
@@ -1314,6 +1335,7 @@ export class RuntimeSessionToolExecutor {
             ? { sandbox: { cwd: perCallConfig.workingDirectory } }
             : {}),
           ...(perCallConfig?.toolAllowlist ? { allowedToolNames: [...perCallConfig.toolAllowlist] } : {}),
+          ...(authority ? { authority } : {}),
           requestApproval: (description: string) => this.requestApproval(session.id, description),
           ...(perCallConfig?.effectiveTurnAuthority
             ? { effectiveTurnAuthority: perCallConfig.effectiveTurnAuthority }

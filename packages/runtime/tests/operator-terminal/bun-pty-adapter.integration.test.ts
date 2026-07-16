@@ -1,13 +1,19 @@
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
+import { delimiter, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 describe("BunPtyAdapter", () => {
   it("supports bidirectional input through the platform PTY", () => {
-    const runtimeRoot = resolve(process.cwd(), "packages/runtime");
+    const runtimeRoot = fileURLToPath(new URL("../..", import.meta.url));
     const serviceUrl = pathToFileURL(resolve(runtimeRoot, "src/operator-terminal/operator-terminal-service.ts"));
     const adapterUrl = pathToFileURL(resolve(runtimeRoot, "src/operator-terminal/bun-pty-adapter.ts"));
+    const bunExecutable = (process.env.PATH ?? "")
+      .split(delimiter)
+      .map((directory) => resolve(directory, process.platform === "win32" ? "bun.exe" : "bun"))
+      .find(existsSync);
+    expect(bunExecutable, "Bun executable must be available on PATH for the PTY integration test").toBeDefined();
     const script = `
       import { OperatorTerminalService } from ${JSON.stringify(serviceUrl.href)};
       import { BunPtyAdapter } from ${JSON.stringify(adapterUrl.href)};
@@ -30,7 +36,7 @@ describe("BunPtyAdapter", () => {
       service.closeOwner("test");
       console.log("PTY_INTEGRATION_OK");
     `;
-    const result = spawnSync("bun", ["-e", script], {
+    const result = spawnSync(bunExecutable!, ["-e", script], {
       cwd: runtimeRoot,
       encoding: "utf8",
       timeout: 10_000,

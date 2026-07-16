@@ -2704,4 +2704,25 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(result.metadata?.["stdoutTruncated"]).toBe(true);
     expect(Buffer.byteLength(String(result.metadata?.["stdout"] ?? ""), "utf8")).toBeLessThanOrEqual(8 * 1024);
   });
+
+  it("hands admitted invocation authority to the core tool bridge", async () => {
+    const commandRunner = vi.fn(async () => ({ stdout: "ok\n", stderr: "" }));
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { bash: { commandRunner } },
+    });
+
+    const result = await runtimeSurface.callBuiltinTools.get("bash")?.({
+      command: "bunx vitest run",
+    }, {
+      authority: {
+        level: 4,
+        allowed: true,
+        requiresApproval: false,
+        reason: "Destructive authority admitted by the runtime turn",
+      },
+    }) as { isError: boolean; output: string };
+
+    expect(result).toMatchObject({ isError: false, output: "ok" });
+    expect(commandRunner).toHaveBeenCalledTimes(1);
+  });
 });

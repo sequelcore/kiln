@@ -127,8 +127,8 @@ describe("Transcript", () => {
     expect(screen.queryByText(/Read transcript\.tsx/u)).not.toBeInTheDocument();
     fireEvent.click(scopedActions);
     expect(screen.getByText(/Read transcript\.tsx/u)).toBeVisible();
-    expect(document.querySelector('[data-role="workflow-activity"]')?.closest('[data-slot="transcript-surface"]'))
-      .toHaveClass("max-w-[min(44rem,90%)]");
+    expect(document.querySelector('[data-role="workflow-activity"]')?.closest('[data-slot="transcript-operational-content"]'))
+      .toHaveClass("min-w-0", "max-w-[min(42rem,94%)]", "flex-1", "pl-5", "sm:pl-8");
   });
 
   it("keeps an optimistic user message before the workflow events it triggered", () => {
@@ -562,6 +562,8 @@ describe("Transcript", () => {
     expect(rows).toHaveLength(3);
     expect(rows[1]).toHaveAttribute("data-role", "tool-group");
     expect(rows[2]).toHaveAttribute("data-role", "assistant");
+    expect(rows[1]!.querySelector('[data-slot="transcript-operational-content"]'))
+      .toHaveClass("min-w-0", "max-w-[min(42rem,94%)]", "flex-1", "pl-5", "sm:pl-8");
     expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
 
     fireEvent.click(within(rows[1]!).getByRole("button", { name: "2 actions. Show actions" }));

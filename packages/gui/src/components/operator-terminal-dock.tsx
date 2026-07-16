@@ -5,6 +5,11 @@ import { ChevronDown, RotateCcw, SquareTerminal, X } from "lucide-react";
 import type { GuiInboundFrame, GuiOutboundFrame } from "@kilnai/gateway-contracts";
 import { Button } from "@/components/ui/button";
 import {
+  projectOperatorThemeHexVariables,
+  resolveAppliedOperatorThemePalette,
+} from "@/lib/operator-theme-projection";
+import { useAppliedOperatorThemeSignature } from "@/lib/use-operator-theme";
+import {
   MAX_OPERATOR_TERMINAL_HEIGHT,
   MIN_OPERATOR_TERMINAL_HEIGHT,
   persistOperatorTerminalHeightPreference,
@@ -34,6 +39,18 @@ interface ResizeState {
 const RESIZE_STEP = 16;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 
+function readTerminalTheme() {
+  const root = document.documentElement;
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const tokens = projectOperatorThemeHexVariables(resolveAppliedOperatorThemePalette(root, prefersDark));
+  return {
+    background: tokens["--color-background-panel"],
+    foreground: tokens["--color-text"],
+    cursor: tokens["--color-primary"],
+    selectionBackground: tokens["--color-surface-selected"],
+  };
+}
+
 function maximumDrawerHeight(section: HTMLElement | null) {
   const availableHeight = section?.parentElement?.clientHeight || window.innerHeight;
   return Math.min(MAX_OPERATOR_TERMINAL_HEIGHT, Math.max(
@@ -57,6 +74,7 @@ export function OperatorTerminalDock(props: OperatorTerminalDockProps) {
   const [status, setStatus] = useState<"idle" | "opening" | "running" | "exited" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [height, setHeight] = useState(() => readOperatorTerminalHeightPreference(workspaceScope));
+  const operatorThemeSignature = useAppliedOperatorThemeSignature();
   const sectionRef = useRef<HTMLElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -107,7 +125,6 @@ export function OperatorTerminalDock(props: OperatorTerminalDockProps) {
 
   useEffect(() => {
     if (!requestId || !containerRef.current) return;
-    const styles = getComputedStyle(document.documentElement);
     const terminal = new Terminal({
       cursorBlink: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -115,12 +132,7 @@ export function OperatorTerminalDock(props: OperatorTerminalDockProps) {
       lineHeight: 1.35,
       screenReaderMode: true,
       scrollback: 5_000,
-      theme: {
-        background: styles.getPropertyValue("--color-background-panel").trim(),
-        foreground: styles.getPropertyValue("--color-text").trim(),
-        cursor: styles.getPropertyValue("--color-primary").trim(),
-        selectionBackground: `color-mix(in srgb, ${styles.getPropertyValue("--color-primary").trim()} 30%, transparent)`,
-      },
+      theme: readTerminalTheme(),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -159,6 +171,10 @@ export function OperatorTerminalDock(props: OperatorTerminalDockProps) {
       fitRef.current = null;
     };
   }, [requestId, send]);
+
+  useEffect(() => {
+    if (terminalRef.current) terminalRef.current.options.theme = readTerminalTheme();
+  }, [operatorThemeSignature]);
 
   useEffect(() => {
     if (!expanded) return;

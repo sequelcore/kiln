@@ -243,7 +243,7 @@ export function Composer(props: ComposerProps) {
       draft={draft}
       continuityHint={props.continuityHint}
       contextUsage={props.contextUsage}
-      turnActive={isBusy}
+      status={props.status}
       activity={activity}
       providerControl={props.providerControl}
       reasoningControl={props.reasoningControl}

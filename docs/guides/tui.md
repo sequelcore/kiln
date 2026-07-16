@@ -80,6 +80,11 @@ must be rendered by both surfaces. `system-follow` is accepted for config parity
 with the GUI; the terminal renderer maps it to `kiln-dark` because terminal
 processes do not expose a dependable OS color-scheme signal.
 
+The shared contract is authored as semantic OKLCH roles. `theme.ts` is a TUI
+renderer adapter: it converts those roles to terminal-safe sRGB hex and maps
+them onto the compact `KilnTheme` interface below. It must not define a second
+palette or tune colors independently from the operator-theme contract.
+
 Executable providers connected through the TUI gateway can call
 `operator_set_theme` to request a live theme change. The gateway sends an
 `operator_theme_set` frame to the TUI, the TUI applies the theme, and it returns

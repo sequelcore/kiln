@@ -17,6 +17,7 @@ import type {
   ProviderCreateConfig,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
+import type { SessionRunOptions } from "../wrapper/session.js";
 import type { PersistedProviderTokenUsage } from "../wrapper/session-store.js";
 import { isDirectApiProvider } from "../wrapper/session-registry.js";
 import type { CleanupRegistry } from "../wrapper/cleanup-registry.js";
@@ -50,6 +51,7 @@ export interface RunSessionOptions {
   readonly sessionHooks: SessionHooks;
   readonly abortSignal?: AbortSignal;
   readonly output?: RunOutputSink;
+  readonly requestApproval?: SessionRunOptions["requestApproval"];
 }
 
 export interface RunSessionRouteCandidate {
@@ -135,7 +137,6 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let isFirstDeltaOfTurn = false;
   let awaitingTurnStart = true;
   let lastToolName: string | undefined;
-
   for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
     const candidate = candidates[candidateIndex]!;
     const providerId = candidate.provider;
@@ -151,6 +152,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
     let attemptError: string | null = null;
+    const pendingToolEvidence: Array<{
+      readonly toolCallId?: string;
+      readonly toolName: string;
+      readonly command?: string;
+      readonly filePath?: string;
+    }> = [];
     const accumulatedTextBeforeAttempt = accumulatedText.length;
 
     const session = options.registry.createSession(providerId, effectiveSessionConfig);
@@ -165,6 +172,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         abortSignal: options.abortSignal,
         reasoningEffort: candidateReasoningEffort,
         requestedAuthority: options.sessionConfig.requestedAuthority,
+        requestApproval: options.requestApproval,
       })) {
         switch (event.type) {
           case "text_delta": {
@@ -240,9 +248,6 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
             const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";
             const command = extractCommandFromToolInput(event.input);
-            if (command !== undefined) {
-              exactArtifacts.add(`Command executed: ${command}`);
-            }
             let matchedCommandApprovalMemory: ApprovalMemoryRecord | null = null;
             if (isBashLikeTool && command !== undefined) {
               const commandDecision = permissionEvaluator.evaluateCommand(command, "bash");
@@ -270,9 +275,6 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
 
             const filePath = extractFilePathFromToolInput(event.input);
-            if (filePath !== undefined) {
-              exactArtifacts.add(`File path touched: ${filePath}`);
-            }
             if (filePath !== undefined) {
               const fileDecision = permissionEvaluator.evaluateFile(filePath);
               if (fileDecision.action === "deny") {
@@ -352,10 +354,32 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
             toolCallCount++;
             lastToolName = event.toolName;
+            pendingToolEvidence.push({
+              ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+              toolName: event.toolName,
+              ...(command ? { command } : {}),
+              ...(filePath ? { filePath } : {}),
+            });
             options.sessionHooks.preToolUse(event.toolName);
             break;
           }
           case "tool_result": {
+            const pendingEvidenceIndex = pendingToolEvidence.findIndex((candidate) =>
+              event.toolCallId
+                ? candidate.toolCallId === event.toolCallId
+                : candidate.toolName.toLowerCase() === event.toolName.toLowerCase());
+            const pendingEvidence = pendingEvidenceIndex >= 0
+              ? pendingToolEvidence.splice(pendingEvidenceIndex, 1)[0]
+              : undefined;
+            if (!event.isError && pendingEvidence) {
+              if (pendingEvidence.command) {
+                exactArtifacts.add(`Command executed: ${pendingEvidence.command}`);
+              }
+              if (pendingEvidence.filePath) {
+                const access = isFileMutationTool(pendingEvidence.toolName) ? "modified" : "inspected";
+                exactArtifacts.add(`File ${access}: ${pendingEvidence.filePath}`);
+              }
+            }
             transcript.push({
               seq: ++transcriptSeq,
               ts: new Date().toISOString(),
@@ -532,6 +556,10 @@ function extractFilePathFromToolInput(input: unknown): string | undefined {
   if (typeof withPath.filePath === "string") return withPath.filePath;
   if (typeof withPath.path === "string") return withPath.path;
   return undefined;
+}
+
+function isFileMutationTool(toolName: string): boolean {
+  return /^(write|edit|apply_patch|delete|move|copy)$/i.test(toolName);
 }
 
 function extractPlanFromToolInput(input: unknown): string | undefined {

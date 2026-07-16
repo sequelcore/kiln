@@ -197,6 +197,14 @@ the GUI, TUI, CLI config parsing, and runtime operator-surface tools. Add or
 remove operator themes here first, then update each renderer to consume the
 same contract instead of maintaining a private list.
 
+Palette values are authored once as in-gamut OKLCH coordinates and organized
+by semantic responsibility: surfaces, borders, text, brand, actions, and
+status foreground/background/border sets. The contract owns perceptual color;
+renderers own only representation. Browser surfaces project the values to CSS
+`oklch()`, while terminal, canvas, and WebGL adapters project the same values to
+sRGB hex. Contract tests enforce gamut and WCAG contrast invariants so a theme
+cannot be added as an unchecked collection of literals.
+
 The catalog is intentionally curated as Kiln identity, not a generic collection
 of popular editor themes:
 

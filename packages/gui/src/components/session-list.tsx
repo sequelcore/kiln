@@ -110,9 +110,14 @@ function SessionStateIndicator({ state }: { readonly state: SessionIndicator }) 
       : "text-[var(--color-accent)]";
 
   return (
-    <span aria-label={label} title={label} className={cn("grid size-4 shrink-0 place-items-center [&_svg]:size-3.5", className)}>
+    <span
+      data-slot="session-status"
+      aria-label={label}
+      title={label}
+      className={cn("grid size-4 shrink-0 place-items-center [&_svg]:size-3.5", className)}
+    >
       {state === "running" ? (
-        <LoaderCircle aria-hidden="true" className="animate-spin" />
+        <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
       ) : state === "detached" ? (
         <Unplug aria-hidden="true" />
       ) : (
@@ -278,11 +283,19 @@ export function SessionList(props: SessionListProps) {
                             selected ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-sidebar-foreground/80",
                           )}
                         >
-                          {indicator ? <SessionStateIndicator state={indicator} /> : <span aria-hidden="true" className="size-4 shrink-0" />}
-                          <span className="min-w-0 flex-1 truncate">{sessionTitle(session)}</span>
-                          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/65">
-                            {formatSessionAge(session.completedAt)}
+                          <span
+                            data-slot="session-title"
+                            className="session-title-fade min-w-0 flex-1 overflow-hidden whitespace-nowrap"
+                          >
+                            {sessionTitle(session)}
                           </span>
+                          {indicator ? (
+                            <SessionStateIndicator state={indicator} />
+                          ) : (
+                            <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/65">
+                              {formatSessionAge(session.completedAt)}
+                            </span>
+                          )}
                         </button>
                       </li>
                     );

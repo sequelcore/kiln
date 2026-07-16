@@ -162,6 +162,9 @@ export interface SessionRunOptions {
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly env?: Record<string, string>;
   readonly abortSignal?: AbortSignal;
+  readonly requestApproval?: (
+    description: string,
+  ) => Promise<{ readonly approved: boolean; readonly reason?: string }>;
 }
 
 export interface IKilnSession {

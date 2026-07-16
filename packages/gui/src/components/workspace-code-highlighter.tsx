@@ -100,9 +100,9 @@ export function WorkspaceCodeHighlighter(props: WorkspaceCodeHighlighterProps) {
         marginRight: "1rem",
         paddingRight: "0.75rem",
         textAlign: "right",
-        color: "color-mix(in srgb, var(--color-text-muted) 65%, transparent)",
+        color: "color-mix(in oklch, var(--color-text-muted) 65%, transparent)",
         background: "var(--workspace-viewer-gutter)",
-        borderRight: "1px solid color-mix(in srgb, var(--color-border) 50%, transparent)",
+        borderRight: "1px solid color-mix(in oklch, var(--color-border) 50%, transparent)",
         userSelect: "none",
       }}
     >

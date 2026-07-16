@@ -1398,6 +1398,7 @@ function buildBuiltinToolExecutors(
         const execution = await surface.bridge.execute({
           name: toolName,
           input,
+          ...(context?.authority ? { authority: context.authority } : {}),
           ...(sandbox !== undefined ? { sandbox } : {}),
           ...((context?.abortSignal || context?.emitOutput)
             ? {

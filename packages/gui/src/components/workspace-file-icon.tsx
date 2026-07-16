@@ -7,13 +7,6 @@ interface WorkspaceFileIconProps {
   readonly entry: OperatorWorkspaceTreeEntry;
 }
 
-const SPECIAL_FILE_STYLES: Record<string, FileIconProps> = {
-  "package.json": { color: "#73c991", glyphColor: "#0d0f13", labelColor: "#246b3d", type: "settings" },
-  "bun.lock": { color: "#e0b557", glyphColor: "#0d0f13", labelColor: "#73530f", type: "binary" },
-  "bun.lockb": { color: "#e0b557", glyphColor: "#0d0f13", labelColor: "#73530f", type: "binary" },
-  "readme.md": { color: "#76c7e8", glyphColor: "#0d0f13", labelColor: "#0b6785", type: "document" },
-};
-
 const EXTENSION_TYPE_OVERRIDES: Record<string, FileIconGlyph> = {
   cjs: "code",
   css: "code",
@@ -48,13 +41,11 @@ function fileExtension(fileName: string): string {
 }
 
 function fileIconStyle(fileName: string): FileIconProps {
-  const normalizedName = fileName.toLowerCase();
   const extension = fileExtension(fileName);
   const defaultStyle = extension ? defaultStyles[extension] ?? {} : {};
   const type = EXTENSION_TYPE_OVERRIDES[extension] ?? defaultStyle.type;
   return {
     ...defaultStyle,
-    ...SPECIAL_FILE_STYLES[normalizedName],
     extension: extension || undefined,
     fold: false,
     labelUppercase: false,

@@ -99,6 +99,34 @@ describe("SessionList", () => {
     expect(screen.queryByText("Detached")).not.toBeInTheDocument();
   });
 
+  it("reserves the trailing edge for activity and fades overflowing titles into it", () => {
+    renderSessionList({
+      selectedSessionId: null,
+      liveSessionId: "session-1",
+      status: "running",
+    });
+
+    const row = screen.getByRole("button", { name: /Runtime boundary review/ });
+    const title = within(row).getByText("Runtime boundary review");
+    const activity = within(row).getByLabelText("Running session");
+
+    expect(title).toHaveAttribute("data-slot", "session-title");
+    expect(title).toHaveClass("session-title-fade");
+    expect(title.nextElementSibling).toBe(activity);
+    expect(within(row).queryByText(/(?:now|\d+[mhd]|[A-Z][a-z]{2} \d{1,2})/)).not.toBeInTheDocument();
+  });
+
+  it("fades ordinary session titles before the timestamp without an ellipsis", () => {
+    renderSessionList({ selectedSessionId: "session-2" });
+
+    const row = screen.getByRole("button", { name: /Runtime boundary review/ });
+    const title = within(row).getByText("Runtime boundary review");
+
+    expect(title).toHaveClass("session-title-fade");
+    expect(title).not.toHaveClass("truncate");
+    expect(title.nextElementSibling).toHaveClass("tabular-nums");
+  });
+
   it("selects a session through the row without a redundant continue action", () => {
     const onSelect = vi.fn();
     renderSessionList({ selectedSessionId: "session-2", onSelect });

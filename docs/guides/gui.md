@@ -160,9 +160,20 @@ imports use the `@/` alias rooted at `packages/gui/src`.
 
 Kiln's visual tokens remain canonical. shadcn contract tokens such as
 `--background`, `--card`, `--secondary`, `--border`, `--ring`, and sidebar
-tokens are mapped onto the existing Kiln theme variables in
-`packages/gui/src/styles.css`. Do not introduce a parallel palette or raw
-provider colors for normal UI state.
+tokens are aliases over the semantic operator-theme projection. The canonical
+OKLCH palette lives in `@kilnai/gateway-contracts`; GUI startup and live theme
+changes project it through `packages/gui/src/lib/operator-theme-projection.ts`.
+`packages/gui/src/styles.css` owns stable component aliases and layout effects,
+not palette literals. Do not introduce a parallel palette or raw provider/state
+colors for normal UI state.
+
+Use the narrowest semantic role that describes the UI responsibility:
+surface roles for elevation and selection, border roles for separation and
+focus, action roles for controls, and the complete status triplet for success,
+warning, danger, or information surfaces. Terminal, canvas, and WebGL widgets
+must use the renderer-safe hex projection instead of parsing CSS `oklch()` or
+carrying fallback colors. This keeps Graphite, Obsidian, Paper, and
+`system-follow` coherent across native DOM and non-DOM renderers.
 
 Workspace document previews use the same token discipline. Viewer-specific
 surfaces are exposed as `--workspace-viewer`, `--workspace-viewer-panel`, and

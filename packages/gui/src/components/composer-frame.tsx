@@ -1,6 +1,6 @@
-import type { ClipboardEventHandler, FormEventHandler, KeyboardEventHandler, ReactNode } from "react";
+import { useEffect, useRef, type ClipboardEventHandler, type FormEventHandler, type KeyboardEventHandler, type ReactNode } from "react";
 import { BorderBeam } from "border-beam";
-import type { ActivityPhase } from "../lib/session-store.js";
+import type { ActivityPhase, SessionStatus } from "../lib/session-store.js";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { resolveBorderBeamTheme } from "../lib/border-beam-theme.js";
 import { useUiStore } from "../lib/ui-store.js";
@@ -27,11 +27,86 @@ export interface ComposerActivity {
   readonly details?: string;
 }
 
+type BeamTreatment = "contained" | "completion" | "paused" | "off";
+
+interface ComposerBeamVisual {
+  readonly treatment: BeamTreatment;
+  readonly size: "pulse-inner" | "pulse-outside";
+  readonly strength: number;
+  readonly duration: number;
+  readonly hueRange: number;
+}
+
+const INACTIVE_BEAM: ComposerBeamVisual = {
+  treatment: "off",
+  size: "pulse-inner",
+  strength: 0,
+  duration: 5.8,
+  hueRange: 8,
+};
+
+function resolveComposerBeamVisual(
+  status: SessionStatus,
+  phase: ActivityPhase,
+  completedStreamingResponse: boolean,
+): ComposerBeamVisual {
+  if (status === "ready" && completedStreamingResponse) {
+    return {
+      treatment: "completion",
+      size: "pulse-outside",
+      strength: 0.34,
+      duration: 4.2,
+      hueRange: 10,
+    };
+  }
+  if (status !== "running" && status !== "connecting") {
+    return INACTIVE_BEAM;
+  }
+  if (phase === "awaiting_approval") {
+    return { ...INACTIVE_BEAM, treatment: "paused" };
+  }
+
+  switch (phase) {
+    case "thinking":
+      return {
+        treatment: "contained",
+        size: "pulse-inner",
+        strength: 0.32,
+        duration: 4.6,
+        hueRange: 16,
+      };
+    case "tool_running":
+      return {
+        treatment: "contained",
+        size: "pulse-inner",
+        strength: 0.26,
+        duration: 5.2,
+        hueRange: 12,
+      };
+    case "streaming":
+      return {
+        treatment: "contained",
+        size: "pulse-inner",
+        strength: 0.2,
+        duration: 5.8,
+        hueRange: 10,
+      };
+    case "idle":
+      return {
+        treatment: "contained",
+        size: "pulse-inner",
+        strength: 0.18,
+        duration: 5.8,
+        hueRange: 8,
+      };
+  }
+}
+
 export function ComposerFrame(props: {
   readonly draft: string;
   readonly continuityHint: ComposerContinuityHint;
   readonly contextUsage?: ContextUsageProjection | null;
-  readonly turnActive: boolean;
+  readonly status: SessionStatus;
   readonly activity?: ComposerActivity;
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
@@ -47,7 +122,15 @@ export function ComposerFrame(props: {
   const hasRuntimeControls = Boolean(props.providerControl || props.reasoningControl || props.authorityControl);
   const kilnTheme = useUiStore((state) => state.theme);
   const beamTheme = resolveBorderBeamTheme(kilnTheme);
-  const beamActive = props.turnActive && props.activity?.phase !== "awaiting_approval";
+  const phase = props.activity?.phase ?? "idle";
+  const previousPhase = useRef<ActivityPhase>(phase);
+  const completedStreamingResponse = previousPhase.current === "streaming" && phase === "idle" && props.status === "ready";
+  const beam = resolveComposerBeamVisual(props.status, phase, completedStreamingResponse);
+  const beamActive = (props.status === "running" || props.status === "connecting") && beam.treatment === "contained";
+
+  useEffect(() => {
+    previousPhase.current = phase;
+  }, [phase]);
 
   return (
     <section className="relative z-10 bg-workspace-viewer px-4 pb-4 pt-2">
@@ -79,12 +162,15 @@ export function ComposerFrame(props: {
           colorVariant="colorful"
           data-beam-motion="pulse"
           data-beam-palette="colorful"
+          data-beam-size={beam.size}
           data-beam-theme={beamTheme}
+          data-beam-treatment={beam.treatment}
           data-role="composer-activity-beam"
           data-state={props.activity?.phase ?? "idle"}
-          duration={2.8}
-          size="pulse-outside"
-          strength={0.7}
+          duration={beam.duration}
+          hueRange={beam.hueRange}
+          size={beam.size}
+          strength={beam.strength}
           theme={beamTheme}
         >
           <InputGroup
