@@ -10,27 +10,7 @@ const repoRoot = resolve(import.meta.dirname, "..");
 test("profiles the first usable GUI interaction when browser measurement is enabled", async () => {
   const gatewayPort = await reservePort();
   const guiPort = await reservePort();
-  const { stdout } = await execFile("bun", [
-    "run",
-    "scripts/profile-startup.ts",
-    "--mode",
-    "dev",
-    "--cwd",
-    repoRoot,
-    "--port",
-    String(gatewayPort),
-    "--gui-port",
-    String(guiPort),
-    "--timeout-ms",
-    "30000",
-    "--measure-first-paint",
-    "--no-open",
-  ], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
-    timeout: 40_000,
-  });
+  const stdout = await runStartupProfile(gatewayPort, guiPort);
 
   const profile = JSON.parse(stdout) as {
     command: { measureFirstPaint?: boolean };
@@ -51,7 +31,49 @@ test("profiles the first usable GUI interaction when browser measurement is enab
   expect(profile.timings.browserResourceSummary?.slowest[0]?.name).toMatch(/^\/gui\//u);
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("browser-ready");
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("gui-first-usable-interaction");
-}, 45_000);
+}, 75_000);
+
+async function runStartupProfile(
+  gatewayPort: number,
+  guiPort: number,
+): Promise<string> {
+  try {
+    const result = await execFile("bun", [
+      "run",
+      "scripts/profile-startup.ts",
+      "--mode",
+      "dev",
+      "--cwd",
+      repoRoot,
+      "--port",
+      String(gatewayPort),
+      "--gui-port",
+      String(guiPort),
+      "--timeout-ms",
+      "60000",
+      "--measure-first-paint",
+      "--no-open",
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 70_000,
+    });
+    return result.stdout;
+  } catch (error) {
+    const failure = error as Error & { stdout?: string; stderr?: string };
+    throw new Error(
+      [
+        "GUI startup profile command failed",
+        failure.stdout,
+        failure.stderr,
+        failure.message,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
+}
 
 async function reservePort(): Promise<number> {
   const server = createServer();

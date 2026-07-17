@@ -230,10 +230,21 @@ async function runBrowserProbe(guiUrl: string): Promise<{
   const stdoutPromise = new Response(probe.stdout).text();
   const stderrPromise = new Response(probe.stderr).text();
   const timedOut = Symbol("browser-probe-timeout");
-  const exitCode = await Promise.race([
-    probe.exited,
-    sleep(remainingTimeoutMs()).then(() => timedOut),
-  ]);
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<typeof timedOut>((resolveTimeout) => {
+    timeoutHandle = setTimeout(
+      () => resolveTimeout(timedOut),
+      remainingTimeoutMs(),
+    );
+  });
+  let exitCode: number | typeof timedOut;
+  try {
+    exitCode = await Promise.race([probe.exited, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
   if (exitCode === timedOut) {
     terminateProcessTree(probe.pid);
     throw new Error("Timed out waiting for the GUI browser probe");

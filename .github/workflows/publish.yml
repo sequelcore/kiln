@@ -40,6 +40,12 @@ jobs:
       - name: Test
         run: bun run test
 
+      - name: Install Chromium for startup profile
+        run: bunx playwright install --with-deps chromium
+
+      - name: Test GUI startup profile
+        run: bun run test:startup-profile
+
       - name: Build
         run: bun run build
 
