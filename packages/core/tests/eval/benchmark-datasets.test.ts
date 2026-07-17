@@ -7,6 +7,7 @@ const DATASET_DIR = join(process.cwd(), "evals", "benchmark");
 const REQUIRED_DATASETS = [
   "kiln-tool-agent-v1.jsonl",
   "kiln-managed-child-agent-v1.jsonl",
+  "kiln-managed-frontend-team-v1.jsonl",
   "kiln-managed-coding-agent-v1.jsonl",
   "kiln-safety-agent-v1.jsonl",
 ] as const;

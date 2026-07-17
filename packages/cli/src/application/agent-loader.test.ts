@@ -188,6 +188,23 @@ describe("agent-loader", () => {
     expect(definition?.instructions).toBe("# Plan\n\nCreate a concrete implementation plan.");
   });
 
+  it("rejects agent definitions with unknown authority profiles", async () => {
+    configureDirectories(["invalid.md"], []);
+    configureFiles({
+      [join(GLOBAL_AGENTS_DIR, "invalid.md")]: markdownWithFrontmatter(
+        [
+          "name: Invalid",
+          "role: Invalid authority fixture",
+          "goal: Must not load",
+          "tier: reasoning",
+          "authorityProfile: unrestricted",
+        ].join("\n"),
+      ),
+    });
+
+    await expect(loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false })).resolves.toEqual([]);
+  });
+
   it("project agents override global agents with same name", async () => {
     configureDirectories(["shared.md", "global-only.md"], ["shared.md", "project-only.md"]);
     configureFiles({

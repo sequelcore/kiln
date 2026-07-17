@@ -212,6 +212,7 @@ export type {
 } from "./remote-harness-adapter.js";
 export {
   attachManagedInvocationSessionEventSink,
+  createManagedAgentOrchestrateToolDefinition,
   createManagedAgentStartToolDefinition,
   createManagedInvocationToolAttachment,
   createManagedInvocationToolExecutor,

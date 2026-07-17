@@ -8,6 +8,15 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Added governed heterogeneous agent teams to the existing managed
+  orchestration controller: every work item now preserves its configured agent
+  identity, route, and dependencies; Runtime propagates completed handoffs and
+  resource URIs, blocks failed dependency chains, and requires genuinely
+  distinct provider/model identities for independent review. The initial
+  frontend roster uses Kimi K3 for visual production, Kimi K2.7 for
+  repository-specific implementation advice, and Codex Terra for independent
+  React/TypeScript review. Its structural benchmark profile requires paired
+  individual evidence before the team can be promoted.
 - Closed managed-orchestration replay and handoff gaps: child handoff contracts
   are projected into direct-provider and native-harness prompts, exact structured
   results are validated without synthetic evidence, and every orchestration

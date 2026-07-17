@@ -113,7 +113,131 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     ]);
   });
 
+  it("routes each team member independently and propagates completed dependency handoffs", async () => {
+    const observedRequests: ManagedAgentRuntimeInvocationInput["request"][] = [];
+    const managedInvocation = createManagedInvocation({
+      requestObserver: (request) => observedRequests.push(request),
+    });
+    const primaryRoute = managedInvocation.routes[0]!;
+    const secondaryRoute = {
+      ...primaryRoute,
+      routeId: "test-write-secondary",
+      providerId: "codex",
+      model: "kimi-k2.7",
+    };
+
+    const result = await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: buildManagedAgentDecompositionOrchestrationRequest({
+        orchestrationId: "team-test",
+        parentSessionId: "parent-session",
+        parentTurnId: "parent-turn",
+        requestedBy: "operator",
+        requestSource: "runtime-test",
+        task: "Produce and integrate a frontend change.",
+        childPlans: [
+          {
+            key: "visual-producer",
+            roleIntent: "visual-producer",
+            task: "Produce the visual specification.",
+            routeId: primaryRoute.routeId,
+          },
+          {
+            key: "repository-integrator",
+            roleIntent: "repository-integrator",
+            task: "Integrate the approved specification.",
+            routeId: secondaryRoute.routeId,
+            dependsOn: ["visual-producer"],
+          },
+        ],
+        maxConcurrentChildren: 2,
+        workingDirectoryMode: "isolated-worktree",
+      }),
+      managedInvocation: {
+        ...managedInvocation,
+        routes: [primaryRoute, secondaryRoute],
+      },
+      profile: "foundation-apply-approved-writes",
+    });
+
+    expect(result.orchestrationResult.childResults.map((child) => child.routeId)).toEqual([
+      "test-write",
+      "test-write-secondary",
+    ]);
+    expect(observedRequests[1]?.input.prompt).toContain("## Dependency handoffs");
+    expect(observedRequests[1]?.input.prompt).toContain("Worker 1 completed");
+    expect(observedRequests[1]?.input.resourceUris).toEqual([
+      "kiln://managed-agents/invocations/team-test%3Achild%3A1/handoff",
+    ]);
+  });
+
+  it("blocks dependent team members when a required producer fails", async () => {
+    const observedInvocations: string[] = [];
+    const result = await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: buildManagedAgentDecompositionOrchestrationRequest({
+        orchestrationId: "blocked-team-test",
+        parentSessionId: "parent-session",
+        parentTurnId: "parent-turn",
+        requestedBy: "operator",
+        requestSource: "runtime-test",
+        task: "Produce and integrate a frontend change.",
+        childPlans: [
+          { key: "producer", roleIntent: "producer", task: "Produce.", routeId: "test-write" },
+          {
+            key: "integrator",
+            roleIntent: "integrator",
+            task: "Integrate.",
+            routeId: "test-write",
+            dependsOn: ["producer"],
+          },
+        ],
+        maxConcurrentChildren: 2,
+        workingDirectoryMode: "isolated-worktree",
+      }),
+      managedInvocation: createManagedInvocation({
+        failOrdinals: new Set([1]),
+        requestObserver: (request) => observedInvocations.push(request.invocationId),
+      }),
+      profile: "foundation-apply-approved-writes",
+    });
+
+    expect(observedInvocations).toEqual(["blocked-team-test:child:1"]);
+    expect(result.orchestrationResult.failedCount).toBe(2);
+    expect(result.childRecords[1]?.error).toContain("Blocked by failed dependencies: producer");
+  });
+
+  it("rejects unknown agent identities at the lifecycle boundary", async () => {
+    await expect(runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: buildManagedAgentDecompositionOrchestrationRequest({
+        orchestrationId: "unknown-agent-test",
+        parentSessionId: "parent-session",
+        parentTurnId: "parent-turn",
+        requestedBy: "operator",
+        requestSource: "runtime-test",
+        task: "Inspect with a configured specialist.",
+        childPlans: [{
+          key: "unknown",
+          roleIntent: "reviewer",
+          task: "Review.",
+          agentProfile: "invented-agent",
+          routeId: "test-write",
+        }, {
+          key: "known",
+          roleIntent: "verifier",
+          task: "Verify.",
+          routeId: "test-write",
+        }],
+        maxConcurrentChildren: 1,
+        workingDirectoryMode: "isolated-worktree",
+      }),
+      managedInvocation: createManagedInvocation(),
+      profile: "foundation-apply-approved-writes",
+    })).rejects.toThrow("unknown agent profile 'invented-agent'");
+  });
+
   it("executes non-mutating review through a read-only route without a worktree lease", async () => {
+    const managedInvocation = createReadOnlyManagedInvocation();
+    const primaryRoute = managedInvocation.routes[0]!;
+    const secondaryRoute = { ...primaryRoute, routeId: "test-read-only-secondary", model: "gpt-5.6-terra" };
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: buildManagedAgentReviewSwarmOrchestrationRequest({
         orchestrationId: "review-read-only-test",
@@ -123,13 +247,13 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         requestSource: "runtime-test",
         task: "Review the implementation without modifying the workspace.",
         childPlans: [
-          { roleIntent: "correctness-review", task: "Review correctness." },
-          { roleIntent: "boundary-review", task: "Review architecture boundaries." },
+          { roleIntent: "correctness-review", task: "Review correctness.", routeId: primaryRoute.routeId },
+          { roleIntent: "boundary-review", task: "Review architecture boundaries.", routeId: secondaryRoute.routeId },
         ],
         maxConcurrentChildren: 2,
         workingDirectoryMode: "read-only",
       }),
-      managedInvocation: createReadOnlyManagedInvocation(),
+      managedInvocation: { ...managedInvocation, routes: [primaryRoute, secondaryRoute] },
       profile: "foundation-readonly-plan",
     });
 
@@ -139,6 +263,27 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       succeededCount: 2,
     });
     expect(result.childRecords.every((child) => child.record?.authority.workingDirectory.mode === "read-only")).toBe(true);
+  });
+
+  it("rejects independent review when all reviewers resolve to the same provider and model", async () => {
+    await expect(runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: buildManagedAgentReviewSwarmOrchestrationRequest({
+        orchestrationId: "review-identity-test",
+        parentSessionId: "parent-session",
+        parentTurnId: "parent-turn",
+        requestedBy: "operator",
+        requestSource: "runtime-test",
+        task: "Review independently.",
+        childPlans: [
+          { roleIntent: "correctness-review", task: "Review correctness." },
+          { roleIntent: "boundary-review", task: "Review architecture boundaries." },
+        ],
+        maxConcurrentChildren: 2,
+        workingDirectoryMode: "read-only",
+      }),
+      managedInvocation: createReadOnlyManagedInvocation(),
+      profile: "foundation-readonly-plan",
+    })).rejects.toThrow("requires at least two distinct provider/model identities");
   });
 
   it("maps failed joined children into orchestration evidence", async () => {
@@ -348,6 +493,7 @@ function createManagedInvocation(input: {
   readonly rootPath?: string;
   readonly allowedPaths?: readonly string[];
   readonly deniedPaths?: readonly string[];
+  readonly requestObserver?: (request: ManagedAgentRuntimeInvocationInput["request"]) => void;
 } = {}): ManagedInvocationToolOptions {
   const sourcePath = input.sourcePath ?? "C:\\repo";
   const rootPath = input.rootPath ?? "C:\\repo\\.kiln\\worktrees";
@@ -377,6 +523,7 @@ function createManagedInvocation(input: {
         failOrdinals: input.failOrdinals ?? new Set(),
         recoveredOrdinals: input.recoveredOrdinals ?? new Set(),
         holdOrdinals: input.holdOrdinals ?? new Set(),
+        ...(input.requestObserver ? { requestObserver: input.requestObserver } : {}),
       }),
       profiles: {
         "foundation-apply-approved-writes": {
@@ -485,6 +632,7 @@ function createAdapter(input: {
   readonly failOrdinals: ReadonlySet<number>;
   readonly recoveredOrdinals: ReadonlySet<number>;
   readonly holdOrdinals: ReadonlySet<number>;
+  readonly requestObserver?: (request: ManagedAgentRuntimeInvocationInput["request"]) => void;
 }): ManagedAgentRuntimeAdapter {
   return {
     descriptor: defineManagedAgentAdapterDescriptor({
@@ -526,6 +674,7 @@ function createAdapter(input: {
       cleanup: { supported: true },
     }),
     invoke: async ({ request, admission, abortSignal }: ManagedAgentRuntimeInvocationInput) => {
+      input.requestObserver?.(request);
       expect(request.executionIntent).toEqual({
         attendance: "unattended",
         lifecycle: "background",

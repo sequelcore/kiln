@@ -65,6 +65,13 @@ instruction.
 - OpenCode Go publishes its current curated model catalog and exposes `/models`
   as the live source of availability. Kiln should ingest that evidence rather
   than freeze a provider ranking in code: https://dev.opencode.ai/docs/go/
+- Z.ai's GLM-5.2 release reports strong vendor results on SWE-Bench Pro and
+  Terminal-Bench. These results justify a candidate pilot but remain
+  vendor-authored evidence: https://huggingface.co/blog/zai-org/glm-52-blog
+- Artificial Analysis reports Kimi K3 as a high-capability, high-context model
+  in its independent composite evaluation. It does not provide the isolated
+  React/TypeScript product fixture Kiln needs for a frontend write-route
+  promotion: https://artificialanalysis.ai/models/kimi-k3/
 - Agentless shows that localization, repair, and validation can compete with
   heavier orchestration, supporting selective delegation rather than mandatory
   fan-out: https://arxiv.org/abs/2407.01489
@@ -101,14 +108,20 @@ The operational baseline is evidence-driven, not a universal leaderboard:
 - `codex-oauth/gpt-5.6-terra`: default coding, verification, and bounded
   architecture route while locally eligible;
 - `codex-oauth/gpt-5.6-luna`: fast bounded work where its route is eligible;
-- GPT-5.6 Sol: discovered and evaluated, but do not promote it until broader
-  task-specific evidence justifies its measured latency tradeoff;
-- `opencode-go/kimi-k2.7-code`: frontend implementation candidate with existing
-  local `kiln-tool-agent` passing evidence;
+- `codex-oauth/gpt-5.6-sol`: read-only advisor for high-stakes architecture and
+  escalation; it is not the everyday worker;
+- `opencode-go/kimi-k3`: read-only frontend visual producer for hierarchy,
+  interaction states, and bounded design handoffs; public/community evidence is
+  a prior, not proof of write-route reliability;
+- `opencode-go/kimi-k2.7-code`: read-only implementation advisor after K3 and
+  the current approved-write frontend specialist when a separately admitted
+  write task is required;
 - `opencode-go/qwen3.7-max`: read-only research and visual-reference route;
 - `opencode-go/deepseek-v4-flash`: scout/mechanical candidate;
-- GLM and DeepSeek Pro routes remain configured capabilities, but promotion to
-  preferred tool-agent routing requires fresh task-specific benchmark evidence.
+- `opencode-go/glm-5.2`: preferred OpenCode backend route based on better local
+  terminal reliability and latency than DeepSeek V4 Pro;
+- `opencode-go/deepseek-v4-pro`: retained backend challenger, not the preferred
+  route.
 
 The rejected Codex OAuth credentials remain invalid and non-executable. A new
 operator login restored fresh provider discovery and all configured Codex OAuth
@@ -124,11 +137,11 @@ rankings.
 Kiln now selects coordination topology in Core through
 `managed-agent-coordination-v1` and executes it through the shared Runtime
 managed-invocation lifecycle. The production topologies are direct,
-sequential, centralized, and independent review. Dependency-bearing and
-high-risk graphs are serialized; independent graphs may run concurrently only
-within the resolved project `parallelWorkers` limit. `managed_agent.orchestrate`
-validates and topologically orders the explicit graph, then emits typed terminal
-evidence plus a cross-surface timeline presentation intent.
+sequential, centralized, and independent review. Each work item resolves its
+own admitted agent profile and route. Runtime executes dependency-ready waves,
+propagates bounded handoffs and resource URIs, blocks failed dependency chains,
+and requires distinct provider/model identities for independent review.
+Concurrency remains bounded by the resolved project `parallelWorkers` limit.
 
 This controller replaces the disconnected threshold allocator, chain-energy
 governor, parallel task registry, and delegation-efficiency candidate. Learned
@@ -137,29 +150,30 @@ to benchmark promotion; they are not hidden runtime behavior.
 
 ## Benchmark Interpretation
 
-The 2026-07-16 profile-v2 `kiln-tool-agent` pilots passed at `k=1`:
+The 2026-07-16 roster experiment used the profile-v2 `kiln-tool-agent` dataset
+with five repetitions per item. A later audit found that profile v2 could award
+tool-call and trajectory credit after a terminal provider failure. Profile v3
+therefore adds the required `execution-integrity` scorer. The v2 artifacts below
+remain useful diagnostic route evidence because terminal state was inspected
+directly, but they are not current readiness baselines.
 
-| Route | pass@1 | Duration | Input tokens | Output tokens |
-| --- | ---: | ---: | ---: | ---: |
-| `codex-oauth/gpt-5.6-terra` | 1.0 | 22,870 ms | 33,706 | 552 |
-| `codex-oauth/gpt-5.6-luna` | 1.0 | 28,041 ms | 49,315 | 587 |
-| `codex-oauth/gpt-5.6-sol` | 1.0 | 74,478 ms | not reported | not reported |
+| Route | Successful sessions | Total duration | Input / output tokens | Interpretation |
+| --- | ---: | ---: | ---: | --- |
+| `codex-oauth/gpt-5.6-terra` | 10/10 | 324,260 ms | 458,176 / 8,790 | Reliable balanced default. |
+| `codex-oauth/gpt-5.6-sol` | 10/10 | 343,759 ms | 421,764 / 10,014 | Reliable, slightly slower advisor with fewer requests and input tokens. |
+| `codex-oauth/gpt-5.6-luna` | 10/10 | 273,466 ms | 470,378 / 7,509 | Fastest valid Codex pilot for bounded work. |
+| `opencode-go/glm-5.2` | 9/10 | 312,274 ms | 517,143 / 13,015 | Best OpenCode backend candidate in this pilot, below readiness. |
+| `opencode-go/deepseek-v4-pro` | 8/10 | 395,034 ms | 717,767 / 18,442 | Slower, less reliable challenger in this pilot. |
+| `opencode-go/kimi-k3` | 0/10 terminally | 134,692 ms at prior k=1 | 79,047 / 2,109 at prior k=1 | k=1 passed, then k=5 hit provider rate limits; no frontend promotion. |
+| `opencode-go/kimi-k2.7-code` | 2/2 in smoke | 380,567 ms | 130,122 / 2,249 | Slower smoke; existing frontend route remains provisional. |
 
-Both scored `1` for tool-calling accuracy and trajectory. Terra used fewer
-tokens and completed faster in this single sample, supporting it as the current
-default but not proving general superiority. Sol passed the same tool behavior
-after reauthentication, but took materially longer and did not report comparable
-token usage, so it remains evaluated rather than promoted. `k=1` remains below
-the release readiness minimum of five runs.
-
-Profile v2 deliberately separates tool-agent success from cache-policy
-promotion. The v1 scorer required invalid-reuse and paired cache-gain probes
-that the ordinary model runner does not execute, which produced `pass@1=0`
-despite correct tool behavior. Cache topology remains an evidence artifact and
-cache promotion still requires those probes; they are no longer fabricated or
-treated as model capability.
-
-Earlier Kimi samples passed, while GLM and DeepSeek Pro samples were mixed on
-search behavior. All samples are route-local evidence, not general model
-rankings. Any release recommendation must report profile/version, sample count,
-tool surface, provider/model id, date, failures, token use, and latency.
+Official GPT-5.6 results separately support Sol as the highest-capability Codex
+route, Terra as the balanced route, and Luna as the fast route. Those public
+benchmarks are external priors, not substitutes for Kiln route evidence.
+Likewise, public Kimi K3 and GLM-5.2 results justify evaluation, not an automatic
+write-capable promotion. A frontend promotion requires an isolated React/
+TypeScript fixture with visual, accessibility, typecheck, test, and diff
+evidence under the managed-coding profile. The `kiln-managed-frontend-team`
+profile separately measures K3-to-K2.7 handoff composition and independent
+frontend review against paired individual-agent baselines; it does not promote
+either model to write authority by itself.

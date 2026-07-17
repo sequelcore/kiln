@@ -106,7 +106,7 @@ describe("benchmarkCommand", () => {
     expect(printed).toHaveLength(KILN_BENCHMARK_PROFILES.length);
     expect(printed[0]).toMatchObject({
       id: "kiln-tool-agent",
-      version: "2",
+      version: "3",
     });
   });
 
@@ -234,6 +234,9 @@ describe("benchmarkCommand", () => {
           outputTokens: 3,
           metadata: {
             activeAgentId: context.profile.id,
+            providerId: "codex-oauth",
+            modelId: "gpt-5.6-terra",
+            sessionSucceeded: true,
             toolCalls: [{ name: "status" }],
             ...CACHE_TOPOLOGY_METADATA,
           },

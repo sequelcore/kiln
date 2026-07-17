@@ -54,6 +54,7 @@ import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective
 import {
   createManagedAgentStartToolDefinition,
   createManagedAgentInvokeToolDefinition,
+  createManagedAgentOrchestrateToolDefinition,
   createManagedInvocationToolCallMetadataResolver,
   createManagedInvocationLifecycleToolExecutors,
   MANAGED_AGENT_CANCEL_CAPABILITY,
@@ -63,7 +64,6 @@ import {
   MANAGED_AGENT_LIST_CAPABILITY,
   MANAGED_AGENT_LIST_TOOL,
   MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
-  MANAGED_AGENT_ORCHESTRATE_TOOL,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
   MANAGED_AGENT_START_CAPABILITY,
@@ -540,7 +540,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
       MANAGED_AGENT_LIST_TOOL,
       MANAGED_AGENT_JOIN_TOOL,
       MANAGED_AGENT_CANCEL_TOOL,
-      MANAGED_AGENT_ORCHESTRATE_TOOL,
+      createManagedAgentOrchestrateToolDefinition(managedInvocationOptions),
     ] as const;
     const managedCapabilities = [
       MANAGED_AGENT_INVOKE_CAPABILITY,

@@ -14,6 +14,7 @@ import {
   projectStructuredExecutionResult,
 } from "@kilnai/core";
 import { runManagedAgentOrchestrationLifecycle } from "./orchestration-lifecycle.js";
+import { resolveManagedInvocationAgentProfile } from "./agent-profile-catalog.js";
 import type {
   ActionEffectEnvelope,
   ArtifactResourceStore,
@@ -164,6 +165,7 @@ export interface ManagedInvocationAgentCatalogEntry {
   readonly role: string;
   readonly goal: string;
   readonly tier: string;
+  readonly authorityProfile?: ManagedAgentAdmissionProfile;
   readonly skills?: readonly string[];
   readonly taskAffinity?: readonly ModelTaskSuitabilityTask[];
   readonly routeId?: string;
@@ -554,7 +556,6 @@ export const MANAGED_AGENT_ORCHESTRATE_TOOL: ToolDefinition = {
     type: "object",
     properties: {
       profile: { type: "string", enum: MANAGED_AGENT_ORCHESTRATION_PROFILES },
-      routeId: { type: "string" },
       taskRisk: { type: "string", enum: ["low", "medium", "high", "unknown"] },
       requiresIndependentReview: { type: "boolean" },
       workItems: {
@@ -566,6 +567,8 @@ export const MANAGED_AGENT_ORCHESTRATE_TOOL: ToolDefinition = {
             id: { type: "string", minLength: 1 },
             roleIntent: { type: "string", minLength: 1 },
             task: { type: "string", minLength: 1 },
+            agentProfile: { type: "string", minLength: 1 },
+            routeId: { type: "string", minLength: 1 },
             dependencies: { type: "array", items: { type: "string", minLength: 1 } },
           },
           required: ["id", "roleIntent", "task"],
@@ -753,6 +756,41 @@ export function createManagedInvocationToolExecutor(
   return async (input, context) => executeManagedInvocationTool(input, context, attachment, service);
 }
 
+export function createManagedAgentOrchestrateToolDefinition(
+  options: ManagedInvocationToolOptions,
+): ToolDefinition {
+  const schema = cloneToolSchema(MANAGED_AGENT_ORCHESTRATE_TOOL.inputSchema);
+  const properties = readSchemaProperties(schema);
+  const workItems = readSchemaProperty(properties.workItems);
+  const itemProperties = readSchemaProperties(readSchemaProperty(workItems?.items));
+  const agentProfile = readSchemaProperty(itemProperties.agentProfile);
+  const agentProfileNames = managedInvocationAgentProfileNames(options);
+  if (agentProfile && agentProfileNames.length > 0) {
+    agentProfile.enum = agentProfileNames;
+    agentProfile.description = "Configured Kiln agent profile for this team member. Its governed route hint is authoritative.";
+  }
+  const routeId = readSchemaProperty(itemProperties.routeId);
+  const routeIds = unique([
+    ...options.routes.map((route) => route.routeId),
+    ...(options.unavailableRoutes ?? []).map((route) => route.routeId),
+  ]);
+  if (routeId && routeIds.length > 0) {
+    routeId.enum = routeIds;
+    routeId.description = "Explicit governed route for this team member. It must agree with the selected agent profile.";
+  }
+  return {
+    ...MANAGED_AGENT_ORCHESTRATE_TOOL,
+    description: [
+      MANAGED_AGENT_ORCHESTRATE_TOOL.description,
+      "Assign each work item an admitted agentProfile whenever a configured specialist matches. Runtime resolves and validates that profile's route independently for each team member.",
+      "Use dependencies to pass completed bounded handoffs and resource URIs to downstream team members. A failed dependency blocks its dependents.",
+      "Independent review requires distinct provider/model identities; duplicate aliases of one model do not count as independent evidence.",
+      buildManagedAgentSelectionDescription(options),
+    ].join("\n\n"),
+    inputSchema: schema,
+  };
+}
+
 export function createManagedInvocationLifecycleToolExecutors(
   attachment: ManagedInvocationToolAttachment,
   service = resolveManagedInvocationService(attachment.options),
@@ -914,7 +952,7 @@ export function createManagedInvocationToolCallMetadataResolver(
     if (!parsed.ok) {
       return undefined;
     }
-    const agentProfile = resolveManagedAgentProfileEntry(options, parsed.input.agentProfile);
+    const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.input.agentProfile);
     const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile);
     if (!agentRouteValidation.ok) {
       return undefined;
@@ -1062,7 +1100,7 @@ async function prepareManagedInvocationRequest(
     return { ok: false, result: errorResult(parsed.error, {}, toolName) };
   }
 
-  const agentProfile = resolveManagedAgentProfileEntry(options, parsed.input.agentProfile);
+  const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.input.agentProfile);
   const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile, toolName);
   if (!agentRouteValidation.ok) {
     const recovery = buildRouteProfileConflictRecovery(parsed.input, agentRouteValidation, context, toolName);
@@ -1846,7 +1884,13 @@ interface ManagedOrchestrationWorkItemInput {
   readonly id: string;
   readonly roleIntent: string;
   readonly task: string;
+  readonly agentProfile?: string;
+  readonly routeId?: string;
   readonly dependencies: readonly string[];
+}
+
+interface ResolvedManagedOrchestrationWorkItem extends ManagedOrchestrationWorkItemInput {
+  readonly routeId: string;
 }
 
 async function executeManagedAgentOrchestrationTool(
@@ -1872,30 +1916,13 @@ async function executeManagedAgentOrchestrationTool(
   if (!orderedWorkItems.ok) {
     return errorResult(orderedWorkItems.message, {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   }
-  const requestedRouteId = readText(rawInput.routeId);
-  const eligibleRoutes = options.routes.filter((route) => {
-    const routeProfile = route.profiles[profile];
-    return (!requestedRouteId || route.routeId === requestedRouteId)
-      && routeProfile !== undefined
-      && routeProfile.workingDirectory.mode !== "workspace-write"
-      && (routeProfile.workingDirectory.mode !== "isolated-worktree" || routeProfile.workingDirectoryLease !== undefined)
-      && route.adapter.descriptor.lifecycle.exposesStart
-      && route.adapter.descriptor.lifecycle.exposesTerminal;
-  });
-  if (eligibleRoutes.length > 1) {
-    return errorResult(
-      `managed_agent.orchestrate route selection is ambiguous. Specify routeId. Matching routes: ${eligibleRoutes.map((route) => route.routeId).join(", ")}`,
-      { operation: "managed_orchestration_denied" },
-      MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
-    );
-  }
-  const selectedRoute = eligibleRoutes[0];
+  const availableRoutes = eligibleManagedOrchestrationRoutes(options, profile);
   const maxParallelWorkers = Math.max(1, options.maxParallelChildren ?? 1);
   const budgetAdmission = await admitManagedOrchestrationBudget({
     budgetAdmission: options.orchestrationBudgetAdmission,
     sessionId: session.context.session.id,
     turnId: session.context.turnId,
-    routes: eligibleRoutes,
+    routes: availableRoutes,
   });
   const decision = decideManagedAgentCoordination({
     governanceRecommendation: "orchestrate",
@@ -1903,11 +1930,11 @@ async function executeManagedAgentOrchestrationTool(
     dependencyCount: orderedWorkItems.workItems.reduce((count, item) => count + item.dependencies.length, 0),
     requiresIndependentReview: rawInput.requiresIndependentReview === true,
     taskRisk,
-    managedRouteCount: eligibleRoutes.length,
+    managedRouteCount: availableRoutes.length,
     maxParallelWorkers,
-    routeHealth: eligibleRoutes.length > 0 ? "available" : "unavailable",
+    routeHealth: availableRoutes.length > 0 ? "available" : "unavailable",
     budget: budgetAdmission.available ? "available" : "unavailable",
-    workspace: eligibleRoutes.length > 0 ? "available" : "unavailable",
+    workspace: availableRoutes.length > 0 ? "available" : "unavailable",
   });
   if (decision.status === "denied") {
     return errorResult([
@@ -1925,6 +1952,22 @@ async function executeManagedAgentOrchestrationTool(
       coordinationDecision: decision,
     }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   }
+  const resolvedWorkItems = resolveManagedOrchestrationWorkItems(orderedWorkItems.workItems, profile, options);
+  if (!resolvedWorkItems.ok) {
+    return errorResult(resolvedWorkItems.message, { operation: "managed_orchestration_denied" }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const routesById = new Map(options.routes.map((route) => [route.routeId, route]));
+  const eligibleRoutes = unique(resolvedWorkItems.workItems.map((item) => item.routeId))
+    .map((routeId) => routesById.get(routeId)!);
+  const workingDirectoryModes = unique(eligibleRoutes.map((route) => route.profiles[profile]!.workingDirectory.mode));
+  if (workingDirectoryModes.length !== 1) {
+    return errorResult(
+      "managed_agent.orchestrate team members must currently share one governed working-directory mode.",
+      { operation: "managed_orchestration_denied" },
+      MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+    );
+  }
+  const workingDirectoryMode = workingDirectoryModes[0] as ManagedAgentWorkingDirectory["mode"];
   const orchestrationId = `managed-orchestration:${session.context.session.id}:${session.context.toolCall.id}`;
   const base = {
     orchestrationId,
@@ -1932,18 +1975,27 @@ async function executeManagedAgentOrchestrationTool(
     parentTurnId: session.context.turnId ?? session.context.toolCall.id,
     requestedBy: options.requestedBy ?? "runtime",
     requestSource: options.requestSource ?? MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
-    task: orderedWorkItems.workItems.map((item) => item.task).join("\n"),
-    workingDirectoryMode: selectedRoute!.profiles[profile]!.workingDirectory.mode,
+    task: resolvedWorkItems.workItems.map((item) => item.task).join("\n"),
+    workingDirectoryMode,
   };
-  const childPlans = orderedWorkItems.workItems.map((item) => ({
+  const childPlans = resolvedWorkItems.workItems.map((item) => ({
+    key: item.id,
     roleIntent: item.roleIntent,
     task: item.task,
+    ...(item.agentProfile ? { agentProfile: item.agentProfile } : {}),
+    routeId: item.routeId,
+    dependsOn: item.dependencies,
   }));
   const orchestrationRequest = decision.orchestrationMode === "background-job"
     ? buildManagedAgentBackgroundJobOrchestrationRequest({
       ...base,
-      roleIntent: orderedWorkItems.workItems[0]!.roleIntent,
-      task: orderedWorkItems.workItems[0]!.task,
+      key: resolvedWorkItems.workItems[0]!.id,
+      roleIntent: resolvedWorkItems.workItems[0]!.roleIntent,
+      task: resolvedWorkItems.workItems[0]!.task,
+      ...(resolvedWorkItems.workItems[0]!.agentProfile
+        ? { agentProfile: resolvedWorkItems.workItems[0]!.agentProfile }
+        : {}),
+      routeId: resolvedWorkItems.workItems[0]!.routeId,
     })
     : decision.orchestrationMode === "review-swarm"
       ? buildManagedAgentReviewSwarmOrchestrationRequest({
@@ -1962,9 +2014,6 @@ async function executeManagedAgentOrchestrationTool(
       managedInvocation: options,
       profile,
       requestedAuthority: managedOrchestrationRequestedAuthority(profile),
-      routeSelector: {
-        routeId: selectedRoute!.routeId,
-      },
       lifecycleObserver: {
         onAdmissionResolved: async ({ request, decision: admissionDecision }) => {
           await appendAndPublishManagedInvocationStartSessionEvents({
@@ -2006,11 +2055,11 @@ async function executeManagedAgentOrchestrationTool(
           items: result.orchestrationResult.childResults.map((child, index) => ({
             id: child.childId,
             order: child.ordinal,
-            label: orderedWorkItems.workItems[index]?.roleIntent ?? child.childId,
+            label: resolvedWorkItems.workItems[index]?.roleIntent ?? child.childId,
             status: child.success ? "success" : "error",
             summary: child.success
-              ? orderedWorkItems.workItems[index]?.task
-              : child.error ?? orderedWorkItems.workItems[index]?.task,
+              ? resolvedWorkItems.workItems[index]?.task
+              : child.error ?? resolvedWorkItems.workItems[index]?.task,
           })),
         } satisfies PresentationIntent,
       },
@@ -2079,6 +2128,8 @@ function readManagedOrchestrationWorkItems(value: unknown):
     const id = readText(record.id);
     const roleIntent = readText(record.roleIntent);
     const task = readText(record.task);
+    const agentProfile = readText(record.agentProfile);
+    const routeId = readText(record.routeId);
     if (!id || !roleIntent || !task || ids.has(id)) {
       return { ok: false, message: "managed_agent.orchestrate work items require unique ids, roleIntent, and task." };
     }
@@ -2089,13 +2140,83 @@ function readManagedOrchestrationWorkItems(value: unknown):
     if (dependencies.length !== (Array.isArray(record.dependencies) ? record.dependencies.length : 0)) {
       return { ok: false, message: `managed_agent.orchestrate work item '${id}' has invalid dependencies.` };
     }
-    workItems.push({ id, roleIntent, task, dependencies: unique(dependencies) });
+    workItems.push({
+      id,
+      roleIntent,
+      task,
+      ...(agentProfile ? { agentProfile } : {}),
+      ...(routeId ? { routeId } : {}),
+      dependencies: unique(dependencies),
+    });
   }
   const unknownDependency = workItems.flatMap((item) => item.dependencies).find((id) => !ids.has(id));
   if (unknownDependency) {
     return { ok: false, message: `managed_agent.orchestrate dependency '${unknownDependency}' does not reference a work item.` };
   }
   return { ok: true, workItems };
+}
+
+function resolveManagedOrchestrationWorkItems(
+  workItems: readonly ManagedOrchestrationWorkItemInput[],
+  profile: ManagedAgentAdmissionProfile,
+  options: ManagedInvocationToolOptions,
+):
+  | { readonly ok: true; readonly workItems: readonly ResolvedManagedOrchestrationWorkItem[] }
+  | { readonly ok: false; readonly message: string } {
+  const eligibleRoutes = eligibleManagedOrchestrationRoutes(options, profile);
+  const eligibleById = new Map(eligibleRoutes.map((route) => [route.routeId, route]));
+  const resolved: ResolvedManagedOrchestrationWorkItem[] = [];
+  for (const item of workItems) {
+    const agent = resolveManagedInvocationAgentProfile(options, item.agentProfile);
+    if (item.agentProfile && !agent) {
+      return { ok: false, message: `managed_agent.orchestrate work item '${item.id}' references unknown agentProfile '${item.agentProfile}'.` };
+    }
+    if (item.routeId && agent?.routeId && item.routeId !== agent.routeId) {
+      return {
+        ok: false,
+        message: `managed_agent.orchestrate work item '${item.id}' routeId '${item.routeId}' contradicts agentProfile '${agent.name}' route hint '${agent.routeId}'.`,
+      };
+    }
+    if (agent?.authorityProfile && agent.authorityProfile !== profile) {
+      return {
+        ok: false,
+        message: `managed_agent.orchestrate work item '${item.id}' agentProfile '${agent.name}' requires authority profile '${agent.authorityProfile}', not '${profile}'.`,
+      };
+    }
+    const routeId = item.routeId ?? agent?.routeId ?? (eligibleRoutes.length === 1 ? eligibleRoutes[0]!.routeId : undefined);
+    if (!routeId) {
+      return {
+        ok: false,
+        message: `managed_agent.orchestrate work item '${item.id}' requires an admitted agentProfile or explicit routeId because route selection is ambiguous.`,
+      };
+    }
+    if (!eligibleById.has(routeId)) {
+      return {
+        ok: false,
+        message: `managed_agent.orchestrate work item '${item.id}' route '${routeId}' does not expose the requested governed profile.`,
+      };
+    }
+    resolved.push({
+      ...item,
+      ...(agent ? { agentProfile: agent.name } : {}),
+      routeId,
+    });
+  }
+  return { ok: true, workItems: resolved };
+}
+
+function eligibleManagedOrchestrationRoutes(
+  options: ManagedInvocationToolOptions,
+  profile: ManagedAgentAdmissionProfile,
+): readonly ManagedInvocationToolRoute[] {
+  return options.routes.filter((route) => {
+    const routeProfile = route.profiles[profile];
+    return routeProfile !== undefined
+      && routeProfile.workingDirectory.mode !== "workspace-write"
+      && (routeProfile.workingDirectory.mode !== "isolated-worktree" || routeProfile.workingDirectoryLease !== undefined)
+      && route.adapter.descriptor.lifecycle.exposesStart
+      && route.adapter.descriptor.lifecycle.exposesTerminal;
+  });
 }
 
 function orderManagedOrchestrationWorkItems(workItems: readonly ManagedOrchestrationWorkItemInput[]):
@@ -2835,20 +2956,6 @@ function resolveRoute(
     };
   }
   return { status: "missing" };
-}
-
-function resolveManagedAgentProfileEntry(
-  options: ManagedInvocationToolOptions,
-  profile: string | undefined,
-): ManagedInvocationAgentCatalogEntry | undefined {
-  if (!profile) {
-    return undefined;
-  }
-  return (options.agentCatalog ?? []).find((agent) =>
-    agent.name === profile
-    || agent.displayName === profile
-    || (agent.nicknameCandidates ?? []).includes(profile)
-  );
 }
 
 function validateAgentRouteHint(

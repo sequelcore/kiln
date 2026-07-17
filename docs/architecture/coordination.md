@@ -52,21 +52,24 @@ runtime lifecycle.
 ## Runtime Execution
 
 `managed_agent.orchestrate` accepts an explicit work graph. It rejects duplicate
-ids, missing fields, unknown dependencies, and cycles. Work is topologically
-ordered before request construction. Runtime filters routes by the requested
-admission profile, an explicit non-shared working-directory mode, and lifecycle
-capability. An `isolated-worktree` route must carry its lease; `read-only` and
+ids, missing fields, unknown dependencies, and cycles. Every child carries its
+own stable key, configured agent profile, resolved route, and dependency keys.
+Runtime validates profile/route agreement, filters each route by the requested
+admission profile and lifecycle capability, and executes dependency-ready
+waves. An `isolated-worktree` route must carry its lease; `read-only` and
 policy-backed `sandbox` routes need no worktree lease. Unisolated
-`workspace-write` is never admitted. Ambiguous route selection fails closed.
+`workspace-write` is never admitted. Ambiguous per-child selection fails closed.
 
 The common lifecycle executor:
 
 1. performs budget admission;
-2. starts at most `maxConcurrentChildren` children;
+2. starts at most `maxConcurrentChildren` dependency-ready children;
 3. verifies the running lifecycle projection;
 4. joins every started child;
 5. cancels and joins already-started siblings when batch start fails;
-6. builds typed completed, partial, or failed orchestration evidence.
+6. passes successful dependency summaries and resource URIs into downstream
+   child requests, while blocking dependents of failed children;
+7. builds typed completed, partial, or failed orchestration evidence.
 
 High-risk orchestration is admissible only when serialized. Parallel high-risk
 execution fails admission.
@@ -83,6 +86,7 @@ inventing local status semantics.
 - one deterministic topology policy in Core;
 - one managed child lifecycle in Runtime;
 - explicit graph, authority profile, route identity, and evidence contract;
+- configured agent identity and route authority are preserved per child;
 - isolation follows effective authority: non-mutating decomposition and review
   may use `read-only` or policy-backed `sandbox`; duplicate-candidate fan-out
   and write-capable execution use leased `isolated-worktree` routes;
@@ -90,5 +94,6 @@ inventing local status semantics.
 - no concurrency above the configured runtime limit;
 - no dependency edge may execute concurrently under the current request
   contract;
+- independent review requires distinct provider/model identities;
 - no surface may create a competing coordination state machine;
 - terminal and replay evidence remain attributable to child and parent.

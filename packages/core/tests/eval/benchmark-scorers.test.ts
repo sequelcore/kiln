@@ -38,6 +38,32 @@ describe("createBenchmarkProfileScorers", () => {
     await expect(trajectory.score(input)).resolves.toMatchObject({ score: 1 });
   });
 
+  it("scores governed team roles and dependency contracts from the orchestration work graph", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-managed-frontend-team")!;
+    const composition = createBenchmarkProfileScorers(profile)
+      .find((scorer) => scorer.name === "team-composition")!;
+
+    await expect(composition.score({
+      input: "Produce and refine a frontend handoff.",
+      output: "Completed team handoff.",
+      metadata: {
+        expectedTeam: [
+          { id: "producer", agentProfile: "frontend-producer", dependencies: [] },
+          { id: "advisor", agentProfile: "frontend-implementation-advisor", dependencies: ["producer"] },
+        ],
+        toolCalls: [{
+          name: "managed_agent.orchestrate",
+          args: {
+            workItems: [
+              { id: "producer", agentProfile: "frontend-producer" },
+              { id: "advisor", agentProfile: "frontend-implementation-advisor", dependencies: ["producer"] },
+            ],
+          },
+        }],
+      },
+    })).resolves.toMatchObject({ score: 1 });
+  });
+
   it("fails trajectory for prohibited tools, exact redundant calls, and declared tool budget excess", async () => {
     const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-tool-agent")!;
     const trajectory = createBenchmarkProfileScorers(profile).find((scorer) => scorer.name === "tool-trajectory")!;
@@ -70,6 +96,38 @@ describe("createBenchmarkProfileScorers", () => {
         toolCalls: [{ name: "grep" }, { name: "read" }],
       },
     })).resolves.toMatchObject({ score: 0, reasoning: expect.stringContaining("tool budget") });
+  });
+
+  it("fails execution integrity when the route did not terminate successfully", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-tool-agent")!;
+    const integrity = createBenchmarkProfileScorers(profile)
+      .find((scorer) => scorer.name === "execution-integrity")!;
+
+    await expect(integrity.score({
+      input: "Read a file.",
+      output: "partial answer",
+      metadata: {
+        sessionSucceeded: false,
+        providerId: "opencode-go",
+        modelId: "kimi-k3",
+        expectedToolCalls: [{ name: "read" }],
+        toolCalls: [{ name: "read" }],
+        policyViolations: ["provider rate limit exceeded"],
+      },
+    })).resolves.toMatchObject({
+      score: 0,
+      reasoning: expect.stringContaining("session did not complete successfully"),
+    });
+
+    await expect(integrity.score({
+      input: "Read a file.",
+      output: "complete answer",
+      metadata: {
+        sessionSucceeded: true,
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-terra",
+      },
+    })).resolves.toMatchObject({ score: 1 });
   });
 
   it("scores cache topology only when request evidence includes prefix partition and invalid-reuse probes", async () => {

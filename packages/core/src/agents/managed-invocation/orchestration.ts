@@ -41,15 +41,23 @@ export interface ManagedAgentOrchestrationExpectedEvidence {
 
 export interface ManagedAgentOrchestrationChildRequest {
   readonly childId: string;
+  readonly key: string;
   readonly ordinal: number;
   readonly roleIntent: string;
   readonly task: string;
+  readonly agentProfile?: string;
+  readonly routeId?: string;
+  readonly dependsOn: readonly string[];
   readonly expectedEvidence: readonly ManagedAgentOrchestrationExpectedEvidence[];
 }
 
 export interface ManagedAgentOrchestrationChildPlan {
+  readonly key?: string;
   readonly roleIntent: string;
   readonly task: string;
+  readonly agentProfile?: string;
+  readonly routeId?: string;
+  readonly dependsOn?: readonly string[];
   readonly expectedEvidence?: readonly ManagedAgentOrchestrationExpectedEvidence[];
 }
 
@@ -209,9 +217,11 @@ export function buildManagedAgentFanOutOrchestrationRequest(input: {
     task: input.task,
     childRequests: Array.from({ length: input.childCount }, (_, index) => ({
       childId: `${input.orchestrationId}:child:${index + 1}`,
+      key: `candidate-${index + 1}`,
       ordinal: index + 1,
       roleIntent: "duplicate-candidate",
       task: input.task,
+      dependsOn: [],
       expectedEvidence,
     })),
     maxConcurrentChildren: input.maxConcurrentChildren,
@@ -283,6 +293,9 @@ export function buildManagedAgentRouteComparisonOrchestrationRequest(
 export function buildManagedAgentBackgroundJobOrchestrationRequest(
   input: ManagedAgentOrchestrationRequestBuilderBaseInput & {
     readonly roleIntent: string;
+    readonly key?: string;
+    readonly agentProfile?: string;
+    readonly routeId?: string;
   },
 ): ManagedAgentOrchestrationRequest {
   const expectedEvidence = buildModeExpectedEvidence("background-job");
@@ -290,8 +303,11 @@ export function buildManagedAgentBackgroundJobOrchestrationRequest(
     mode: "background-job",
     childPlans: [
       {
+        ...(input.key !== undefined ? { key: input.key } : {}),
         roleIntent: input.roleIntent,
         task: input.task,
+        ...(input.agentProfile !== undefined ? { agentProfile: input.agentProfile } : {}),
+        ...(input.routeId !== undefined ? { routeId: input.routeId } : {}),
         expectedEvidence,
       },
     ],
@@ -356,6 +372,7 @@ export function defineManagedAgentOrchestrationRequest(
     throw new Error("Managed fan-out orchestration requires at least two children");
   }
   requireUniqueChildRequests(childRequests);
+  requireValidChildDependencies(childRequests);
   const isolation = requireIsolationPolicy(mode, input.isolation);
   const mergePolicy = {
     mode: requireMergePolicyMode(input.mergePolicy.mode),
@@ -463,9 +480,19 @@ export function buildManagedAgentOrchestrationResultEvidence(
 function requireChildRequest(input: ManagedAgentOrchestrationChildRequest): ManagedAgentOrchestrationChildRequest {
   return {
     childId: requireText(input.childId, "Managed orchestration child id is required"),
+    key: requireText(input.key, "Managed orchestration child key is required"),
     ordinal: requirePositiveInteger(input.ordinal, "Managed orchestration child ordinal must be greater than zero"),
     roleIntent: requireText(input.roleIntent, "Managed orchestration child role intent is required"),
     task: requireText(input.task, "Managed orchestration child task is required"),
+    ...(input.agentProfile !== undefined
+      ? { agentProfile: requireText(input.agentProfile, "Managed orchestration child agent profile is required") }
+      : {}),
+    ...(input.routeId !== undefined
+      ? { routeId: requireText(input.routeId, "Managed orchestration child route id is required") }
+      : {}),
+    dependsOn: input.dependsOn.map((dependency) =>
+      requireText(dependency, "Managed orchestration child dependency key is required")
+    ),
     expectedEvidence: requireNonEmptyArray(
       input.expectedEvidence,
       "Managed orchestration child expected evidence is required",
@@ -554,11 +581,37 @@ function buildChildRequests(
   return requireNonEmptyArray(childPlans, "Managed orchestration child plans are required")
     .map((plan, index) => ({
       childId: `${orchestrationId}:child:${index + 1}`,
+      key: plan.key ?? `child-${index + 1}`,
       ordinal: index + 1,
       roleIntent: plan.roleIntent,
       task: plan.task,
+      ...(plan.agentProfile !== undefined ? { agentProfile: plan.agentProfile } : {}),
+      ...(plan.routeId !== undefined ? { routeId: plan.routeId } : {}),
+      dependsOn: plan.dependsOn ?? [],
       expectedEvidence: plan.expectedEvidence ?? expectedEvidence,
     }));
+}
+
+function requireValidChildDependencies(
+  children: readonly ManagedAgentOrchestrationChildRequest[],
+): void {
+  const keys = new Set<string>();
+  for (const child of children) {
+    if (keys.has(child.key)) {
+      throw new Error(`Managed orchestration child key must be unique: ${child.key}`);
+    }
+    keys.add(child.key);
+  }
+  for (const child of children) {
+    for (const dependency of child.dependsOn) {
+      if (dependency === child.key) {
+        throw new Error(`Managed orchestration child cannot depend on itself: ${child.key}`);
+      }
+      if (!keys.has(dependency)) {
+        throw new Error(`Managed orchestration child dependency is unknown: ${dependency}`);
+      }
+    }
+  }
 }
 
 function requireChildResult(input: ManagedAgentOrchestrationChildResult): ManagedAgentOrchestrationChildResult {

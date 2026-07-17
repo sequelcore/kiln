@@ -30,18 +30,64 @@ function createBenchmarkScorer(name: string): Scorer {
       return new LatencyScorer(DEFAULT_BENCHMARK_MAX_LATENCY_MS);
     case "cost":
       return new CostScorer(DEFAULT_BENCHMARK_MAX_COST_USD);
+    case "execution-integrity":
+      return new ExecutionIntegrityScorer();
     case "cache-topology":
       return new CacheTopologyEvidenceScorer();
     case "tool-trajectory":
       return new ToolTrajectoryEvidenceScorer();
     case "handoff-quality":
       return new HandoffEvidenceScorer();
+    case "team-composition":
+      return new TeamCompositionScorer();
     case "policy-adherence":
       return new PolicyEvidenceScorer("policy-adherence");
     case "safety-preservation":
       return new PolicyEvidenceScorer("safety-preservation");
     default:
       return new EvidencePresenceScorer(name);
+  }
+}
+
+class ExecutionIntegrityScorer implements Scorer {
+  readonly name = "execution-integrity";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    if (input.metadata?.sessionSucceeded !== true) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: "session did not complete successfully",
+      };
+    }
+    const violations = readStringArray(input.metadata.policyViolations);
+    const routeFailures = readStringArray(input.metadata.routeFailures);
+    if (violations.length > 0 || routeFailures.length > 0) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: `terminal execution evidence failed: ${[...violations, ...routeFailures].join(", ")}`,
+      };
+    }
+    const providerId = input.metadata.providerId;
+    const modelId = input.metadata.modelId;
+    if (
+      typeof providerId !== "string"
+      || providerId.trim().length === 0
+      || typeof modelId !== "string"
+      || modelId.trim().length === 0
+    ) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: "successful session is missing resolved provider/model route identity",
+      };
+    }
+    return {
+      name: this.name,
+      score: 1,
+      reasoning: "successful terminal state and resolved route identity observed",
+    };
   }
 }
 
@@ -366,8 +412,9 @@ class HandoffEvidenceScorer implements Scorer {
     const outputPresent = input.output.trim().length > 0;
     const expected = readToolCalls(input.metadata, "expectedToolCalls");
     const actual = readToolCalls(input.metadata, "toolCalls");
-    const requiresManagedInvocation = expected.some((call) => call.name === "managed_agent.invoke");
-    const invokedManagedChild = actual.some((call) => call.name === "managed_agent.invoke");
+    const managedTools = new Set(["managed_agent.invoke", "managed_agent.orchestrate"]);
+    const requiresManagedInvocation = expected.some((call) => managedTools.has(call.name));
+    const invokedManagedChild = actual.some((call) => managedTools.has(call.name));
     const passed = outputPresent && (!requiresManagedInvocation || invokedManagedChild);
     return {
       name: this.name,
@@ -377,6 +424,53 @@ class HandoffEvidenceScorer implements Scorer {
         : "missing substantive output or managed child invocation evidence",
     };
   }
+}
+
+class TeamCompositionScorer implements Scorer {
+  readonly name = "team-composition";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const expected = readTeamMembers(input.metadata?.expectedTeam);
+    const orchestration = readToolCalls(input.metadata, "toolCalls")
+      .find((call) => call.name === "managed_agent.orchestrate");
+    const actual = readTeamMembers(orchestration?.args?.workItems);
+    if (expected.length === 0) {
+      return { name: this.name, score: 0, reasoning: "benchmark item is missing expected team composition" };
+    }
+    if (actual.length === 0) {
+      return { name: this.name, score: 0, reasoning: "managed orchestration work graph was not observed" };
+    }
+    const actualById = new Map(actual.map((member) => [member.id, member]));
+    const matched = expected.filter((member) => {
+      const candidate = actualById.get(member.id);
+      return candidate?.agentProfile === member.agentProfile
+        && stableStringify(candidate.dependencies) === stableStringify(member.dependencies);
+    });
+    return {
+      name: this.name,
+      score: matched.length / expected.length,
+      reasoning: `${matched.length}/${expected.length} governed team roles and dependency contracts observed`,
+    };
+  }
+}
+
+interface BenchmarkTeamMember {
+  readonly id: string;
+  readonly agentProfile: string;
+  readonly dependencies: readonly string[];
+}
+
+function readTeamMembers(value: unknown): readonly BenchmarkTeamMember[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const record = entry as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.agentProfile !== "string") return [];
+    const dependencies = Array.isArray(record.dependencies)
+      ? record.dependencies.filter((dependency): dependency is string => typeof dependency === "string")
+      : [];
+    return [{ id: record.id, agentProfile: record.agentProfile, dependencies }];
+  });
 }
 
 class PolicyEvidenceScorer implements Scorer {

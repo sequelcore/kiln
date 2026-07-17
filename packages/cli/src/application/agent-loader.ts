@@ -4,7 +4,9 @@ import { homedir } from "node:os";
 import { parse } from "yaml";
 import {
   defineWorkClassification,
+  MANAGED_AGENT_ADMISSION_PROFILES,
   type AgentTier,
+  type ManagedAgentAdmissionProfile,
   type ModelTaskSuitabilityTask,
   type WorkClassification,
   type WorkClassificationInput,
@@ -29,7 +31,7 @@ export interface KilnAgentDefinition {
   readonly count?: number;
   readonly sandbox?: boolean;
   readonly modalities?: readonly string[];
-  readonly authorityProfile?: string;
+  readonly authorityProfile?: ManagedAgentAdmissionProfile;
   readonly routeId?: string;
   readonly providerRoute?: KilnAgentProviderRoute;
   readonly workClassification?: WorkClassification;
@@ -191,7 +193,10 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const count = asPositiveInteger(record.count);
   const sandbox = asBoolean(record.sandbox);
   const modalities = asStringArray(record.modalities);
-  const authorityProfile = asNonEmptyString(record.authorityProfile);
+  const authorityProfile = asManagedAgentAdmissionProfile(record.authorityProfile);
+  if (record.authorityProfile !== undefined && !authorityProfile) {
+    return undefined;
+  }
   const routeId = asNonEmptyString(record.routeId);
   const providerRoute = asProviderRoute(record.providerRoute);
   let workClassification: WorkClassification | undefined;
@@ -229,6 +234,12 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(instructions ? { instructions } : {}),
     scope,
   };
+}
+
+function asManagedAgentAdmissionProfile(value: unknown): ManagedAgentAdmissionProfile | undefined {
+  return typeof value === "string" && MANAGED_AGENT_ADMISSION_PROFILES.includes(value as ManagedAgentAdmissionProfile)
+    ? value as ManagedAgentAdmissionProfile
+    : undefined;
 }
 
 export function parseAgentDefinitionContent(raw: string, scope: "global" | "project" = "project"): KilnAgentDefinition | undefined {

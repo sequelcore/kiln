@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createManagedAgentOrchestrateToolDefinition,
   createManagedInvocationLifecycleToolExecutors,
   RuntimeManagedAgentInvocationService,
   type ManagedInvocationToolAttachment,
@@ -7,6 +8,34 @@ import {
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
 
 describe("managed_agent.orchestrate", () => {
+  it("projects configured agent profiles and routes into each work-item schema", () => {
+    const definition = createManagedAgentOrchestrateToolDefinition({
+      routes: [],
+      unavailableRoutes: [{
+        routeId: "frontend-readonly",
+        routeSource: "explicit-managed-route",
+        providerId: "opencode-go",
+        model: "kimi-k3",
+        profiles: ["foundation-readonly-plan"],
+        reason: "schema projection fixture",
+      }],
+      agentCatalog: [{
+        name: "frontend-producer",
+        role: "Frontend producer",
+        goal: "Produce a bounded visual handoff.",
+        tier: "reasoning",
+        authorityProfile: "foundation-readonly-plan",
+        routeId: "frontend-readonly",
+      }],
+    });
+    const properties = definition.inputSchema.properties as Record<string, Record<string, unknown>>;
+    const workItems = properties.workItems!;
+    const items = workItems.items as { properties: Record<string, Record<string, unknown>> };
+
+    expect(items.properties.agentProfile?.enum).toEqual(["frontend-producer"]);
+    expect(items.properties.routeId?.enum).toEqual(["frontend-readonly"]);
+  });
+
   it("rejects cyclic work graphs before route selection or child start", async () => {
     const result = await execute({
       profile: "foundation-readonly-plan",

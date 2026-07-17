@@ -116,7 +116,7 @@ describe("BenchmarkBaselineRunner", () => {
 
     expect(result.baseline).toMatchObject({
       profileId: "kiln-tool-agent",
-      profileVersion: "2",
+      profileVersion: "3",
       datasetName: "kiln-tool-agent-v1",
       datasetVersion: "v1",
       k: profile.minimumK,

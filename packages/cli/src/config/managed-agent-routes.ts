@@ -286,6 +286,7 @@ function projectManagedAgentCatalogEntry(
       role: agent.role,
       goal: agent.goal,
       tier: agent.tier,
+      ...(agent.authorityProfile ? { authorityProfile: agent.authorityProfile } : {}),
       ...(agent.skills ? { skills: agent.skills } : {}),
       ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
       ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
@@ -328,6 +329,14 @@ function validateExplicitAgentRoute(
       available: false,
       routeId: route.routeId,
       reason: `Agent model '${agent.providerRoute.model}' does not match route model '${route.model ?? "unspecified"}'.`,
+    };
+  }
+  if (agent.authorityProfile && !route.profiles[agent.authorityProfile]) {
+    return {
+      agentName: agent.name,
+      available: false,
+      routeId: route.routeId,
+      reason: `Agent authority profile '${agent.authorityProfile}' is not admitted by route '${route.routeId}'.`,
     };
   }
   const routeTools = new Set(Object.values(route.profiles).flatMap((profile) => profile?.allowedToolNames ?? []));

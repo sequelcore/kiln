@@ -9,6 +9,10 @@
 - [Architecture](architecture/README.md)
   Canonical architecture doctrine for Kiln as a biocybernetic control plane.
 
+- [Coordination Guide](guides/coordination-intelligence.md)
+  Operator workflow for governed work graphs, specialist selection, dependency
+  handoffs, and independent review.
+
 - [Research](research/README.md)
   Canonical research foundations, mechanism mapping, and implementation gap
   analysis.
@@ -19,6 +23,10 @@
 - [Examples](examples/README.md)
   Source-run examples for gateway apps, MCP tools, widgets, tenants, and
   channels.
+
+- [Multi-Agent and Role Routing](guides/multi-agent.md)
+  When multiple roles are justified and how they remain subordinate to Kiln's
+  control-plane contracts.
 
 - [Guides](guides/channels.md)
   Operational and usage documentation. Architecture doctrine lives under

@@ -533,6 +533,7 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(result.metadata).toMatchObject({
       sessionSucceeded: false,
       policyViolations: ["Provider failed"],
+      routeFailures: ["codex: Provider failed"],
     });
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();

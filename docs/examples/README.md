@@ -19,7 +19,7 @@ to the published `@kilnai/*@2.1.0` package line.
 | [research-brief](research-brief/) | Evidence-backed research | Source-grounded MCP tools, citations, saved briefs, API channel |
 | [incident-triage](incident-triage/) | Internal operations triage | Runbooks, service status, incident mutations, API channel |
 | [configs](configs/) | Operator config | Global routing, managed agents, skills, work-governance policy, app voice policy, and local operator voice policy |
-| [operator-routing-profile](operator-routing-profile.md) | Personal Kiln development routing | Codex OAuth primary route, OpenCode Go specialists, task suitability, effort policy, and permission-integrity evidence |
+| [operator-routing-profile](operator-routing-profile.md) | Personal Kiln development routing | Codex OAuth coordination, governed frontend team, OpenCode Go specialists, task suitability, effort policy, and permission-integrity evidence |
 
 ## Run From Source
 

@@ -237,6 +237,13 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       closeBuiltinResources(configuredBuiltinToolOptions);
     });
     await recordDirectRouteHealth(configuredRouteCandidates, result.attempts, result.lastError);
+    const routeFailures = result.attempts.flatMap((attempt) => {
+      if (attempt.succeeded || !attempt.error) return [];
+      const routeIdentity = attempt.model
+        ? `${attempt.providerId}/${attempt.model}`
+        : attempt.providerId;
+      return [`${routeIdentity}: ${attempt.error}`];
+    });
 
     return {
       output: result.accumulatedText,
@@ -263,6 +270,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         }),
         exactArtifacts: result.exactArtifacts,
         ...(result.lastError ? { policyViolations: [result.lastError] } : {}),
+        ...(routeFailures.length > 0 ? { routeFailures } : {}),
       },
     };
   };

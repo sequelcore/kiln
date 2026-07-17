@@ -1110,13 +1110,23 @@ successful canonical write, and runs the existing native projection pipeline.
 Native Claude Code, Codex, and OpenCode files remain generated projections.
 
 When managed invocation is enabled, Kiln exposes a compact admitted agent
-catalog to the `managed_agent.invoke` tool description. Parent assistants should
+catalog to both `managed_agent.invoke` and `managed_agent.orchestrate`. Parent assistants should
 select a configured `agentProfile` when the child task clearly matches a
 profile, such as scout/context discovery, TDD, implementation, research, review,
 or DDD validation. If no configured profile matches a one-off read-only task,
 the parent may omit `agentProfile` and invoke a generic governed child. Parents
 must not invent profile names; unknown profiles fail closed during context
 resolution.
+
+For orchestration, profile and route selection belong to each work item rather
+than one global worker route. `managed_agent.orchestrate` validates that an
+explicit `routeId` agrees with the selected profile's route hint and that the
+profile's authority profile matches the request. Dependencies are executable
+contracts: Runtime starts a dependent only after its producers succeed, then
+passes their bounded summaries and resource URIs into the dependent request.
+Failed producers block downstream work. Independent review requires at least
+two distinct provider/model identities; two aliases for the same model do not
+count as independent evidence.
 
 The model-facing tool also projects configured route ids, provider/model task
 suitability, agent-profile task affinity, the configured skill catalog, and

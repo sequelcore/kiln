@@ -466,11 +466,16 @@ contract; they do not own a separate worker lifecycle.
 
 The cross-surface execution entrypoint is `managed_agent.orchestrate`. It
 accepts the bounded work graph produced by governance, not prose instructions
-to spawn agents. Core selects the topology; Runtime owns topological ordering,
-route/profile admission, concurrency, lifecycle, and terminal evidence. Any
-dependency edge serializes the current request because the canonical request
-does not claim distributed DAG scheduling semantics. High-risk orchestration is
-also serialized; parallel high-risk admission fails closed.
+to spawn agents. Every work item names a stable id, bounded role intent, task,
+dependencies, and either an admitted `agentProfile` or explicit `routeId`.
+Core selects the topology and preserves those contracts. Runtime validates each
+profile and route, schedules dependency-ready work, passes successful bounded
+handoffs and resource URIs downstream, and records terminal evidence. A failed
+dependency blocks its dependents. The current coordination policy serializes
+dependency-bearing and high-risk graphs; it does not claim a distributed DAG
+scheduler. Parallel high-risk admission fails closed. Independent review also
+fails closed unless at least two distinct provider/model identities are
+admitted.
 
 For broad work items, `work_item.execution.start` scopes each generated
 managed invocation to the next missing evidence phase instead of asking one

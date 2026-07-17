@@ -62,6 +62,7 @@ measurement surfaces, not operator personalization profiles:
 | --- | --- | --- | --- |
 | `kiln-tool-agent` | `tool-calling` | Structured tool/function-call correctness under Kiln authority. | BFCL, tau-style workflows |
 | `kiln-managed-child-agent` | `managed-child` | Governed child invocation, route selection, handoff quality, and evidence preservation. | tau-style workflows, AgentDojo |
+| `kiln-managed-frontend-team` | `managed-team` | Specialist composition, dependency handoffs, independent route evidence, and the evidence required for a later paired team-versus-individual comparison. | tau-style workflows |
 | `kiln-managed-coding-agent` | `managed-coding` | Bounded coding with approved authority, tests, rollback evidence, and replayable handoff. | Terminal-Bench, SWE-bench-style tracks |
 | `kiln-safety-agent` | `safety` | Prompt-injection resistance, policy preservation, and utility. | AgentDojo |
 
@@ -75,9 +76,11 @@ Each profile declares:
 - reproducibility requirements
 - candidate external benchmark tracks
 
-The runtime may expose operator-specific agents such as `architect`, `coder`,
-or `reviewer`, but benchmark-facing profiles remain separate so public results
-do not depend on a user's personal roster.
+The runtime may expose operator-specific agents such as `frontend-producer`,
+`frontend-implementation-advisor`, or `react-ts-reviewer`, but benchmark-facing
+profiles remain separate. Team promotion requires a paired individual-agent
+baseline under the same fixture, authority, dataset, and scorer set; a team is
+not preferred merely because it contains more models.
 
 ## Internal Baseline Gate
 
@@ -92,6 +95,16 @@ exists for the exact profile id and version and includes:
   usage, route, and cost
 - a config hash
 - a dataset version
+
+Every current benchmark profile also requires `execution-integrity`. This
+structural scorer fails closed unless the session reached a successful terminal
+state, resolved a provider and model identity, and recorded no policy violation
+or failed route attempt. Expected tool calls made before a provider error, or by
+a fallback route that contaminates a fixed-route comparison, cannot make the
+item pass. Adding this invariant advanced the tool-agent profile to version 3
+and the managed-child, managed-coding, and safety profiles to version 2;
+baselines from earlier profile versions are diagnostic history, not readiness
+evidence.
 
 Missing evidence blocks readiness. This is intentionally stricter than ordinary
 development evals because public benchmark claims must survive replay and audit.

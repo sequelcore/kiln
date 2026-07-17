@@ -180,6 +180,52 @@ describe("managed agent orchestration contracts", () => {
     ]);
   });
 
+  it("preserves governed per-child identity and dependency contracts for sequential teams", () => {
+    const request = buildManagedAgentDecompositionOrchestrationRequest({
+      orchestrationId: "frontend-team-1",
+      parentSessionId: "session-parent",
+      parentTurnId: "turn-parent",
+      requestedBy: "operator",
+      requestSource: "runtime:managed-agent",
+      task: "Implement and verify the frontend change.",
+      workingDirectoryMode: "isolated-worktree",
+      childPlans: [
+        {
+          key: "visual-producer",
+          roleIntent: "frontend-visual-producer",
+          task: "Produce the visual implementation plan.",
+          agentProfile: "frontend-producer",
+          routeId: "opencode-go-kimi-k3-readonly",
+          dependsOn: [],
+        },
+        {
+          key: "repository-integrator",
+          roleIntent: "frontend-repository-integrator",
+          task: "Integrate the approved visual plan.",
+          agentProfile: "frontend-integrator",
+          routeId: "opencode-go-frontend-approved-write",
+          dependsOn: ["visual-producer"],
+        },
+      ],
+      maxConcurrentChildren: 1,
+    });
+
+    expect(request.childRequests).toEqual([
+      expect.objectContaining({
+        key: "visual-producer",
+        agentProfile: "frontend-producer",
+        routeId: "opencode-go-kimi-k3-readonly",
+        dependsOn: [],
+      }),
+      expect.objectContaining({
+        key: "repository-integrator",
+        agentProfile: "frontend-integrator",
+        routeId: "opencode-go-frontend-approved-write",
+        dependsOn: ["visual-producer"],
+      }),
+    ]);
+  });
+
   it("permits non-mutating review and decomposition in read-only routes", () => {
     const reviewSwarm = buildManagedAgentReviewSwarmOrchestrationRequest({
       orchestrationId: "review-swarm-read-only",
@@ -363,6 +409,7 @@ describe("managed agent orchestration contracts", () => {
         {
           ...backgroundJob.childRequests[0]!,
           childId: "background-job-1:child:2",
+          key: "child-2",
           ordinal: 2,
         },
       ],

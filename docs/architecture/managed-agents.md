@@ -300,12 +300,15 @@ CLI-local, managed-orchestration-local, or gateway-billing shim for child
 budget admission.
 
 `managed_agent.orchestrate` is the canonical cross-surface entrypoint for an
-explicit work graph. It rejects duplicate ids, unknown dependencies, and
-cycles; selects direct, sequential, centralized, or independent-review
-topology through the Core policy; topologically orders dependent work; and
-executes the typed request with the common runtime lifecycle. The runtime-owned
-parallel-worker limit bounds concurrency. Terminal metadata carries a timeline
-presentation intent for GUI, TUI, CLI, transcript, and replay parity.
+explicit work graph. It rejects duplicate ids, unknown dependencies, cycles,
+unknown agent profiles, route/profile contradictions, and authority-profile
+mismatches. Core preserves per-child identity, route, and dependency contracts;
+Runtime executes dependency-ready waves through the common lifecycle, passes
+completed bounded handoffs into downstream requests, and blocks dependents of
+failed children. Independent review requires distinct provider/model
+identities. The runtime-owned parallel-worker limit bounds concurrency.
+Terminal metadata carries a timeline presentation intent for GUI, TUI, CLI,
+transcript, and replay parity.
 
 Route admission binds the request to one explicit safe working-directory mode.
 Non-mutating review and decomposition may use `read-only` or policy-backed

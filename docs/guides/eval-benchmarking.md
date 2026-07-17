@@ -1,6 +1,6 @@
 # Eval Benchmarking
 
-Kiln's eval framework implements 23 scorers aligned with leading AI agent benchmarks and academic research. This document maps each scorer to its research basis, explains the metrics that predict real-world agent quality, and catalogs the industry standards Kiln's eval aligns with.
+Kiln's eval framework implements 23 reusable eval scorers aligned with leading AI agent benchmarks and academic research, plus profile-specific structural benchmark scorers. This document maps each scorer to its research basis, explains the metrics that predict real-world agent quality, and catalogs the industry standards Kiln's eval aligns with.
 
 Source: `packages/core/src/eval/`.
 
@@ -14,6 +14,12 @@ Source: `packages/core/src/eval/`.
 | `policy-adherence` | LLM-judge | tau-bench | Business rule compliance beyond task completion. |
 | `effort` | Rule-based | CES research | Customer Effort Score -- most predictive metric for customer loyalty. |
 | `resolution` | Rule-based | Industry FCR | First Contact Resolution quality (resolved/partial/ambiguous/unresolved). |
+
+### Benchmark Integrity Scorers
+
+| Scorer | Type | Research Basis | What It Validates |
+|--------|------|----------------|-------------------|
+| `execution-integrity` | Rule-based | Reproducible agent evaluation | The scored route terminated successfully, retained provider/model identity, and had no policy or route failure. Partial tool activity before a terminal error cannot pass. |
 
 ### Tool & Function Calling Scorers
 
@@ -36,6 +42,7 @@ Source: `packages/core/src/eval/`.
 |--------|------|----------------|-------------------|
 | `routing-accuracy` | Rule-based | MultiAgentBench/MARBLE | Did the correct agent handle the message? |
 | `handoff-quality` | LLM-judge | MultiAgentBench/MARBLE | Context preservation across agent switches. |
+| `team-composition` | Rule-based | MultiAgentBench/MARBLE | The observed orchestration graph uses the expected admitted profiles and dependency contracts. |
 | `milestone` | Rule-based | MultiAgentBench/MARBLE | Intermediate checkpoint achievement in multi-step workflows. |
 
 ### Safety & Adversarial Scorers

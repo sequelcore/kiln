@@ -91,6 +91,7 @@ export {
   createManagedInvocationToolAttachment,
   createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,
+  createManagedAgentOrchestrateToolDefinition,
   buildManagedAgentCoordinationUsage,
   resolveManagedInvocationService,
   withManagedInvocationService,

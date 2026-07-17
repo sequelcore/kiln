@@ -1,27 +1,28 @@
 # Operator Routing Profile
 
-This example documents the personal routing profile currently used to develop
-Kiln on Ricardo's workstation. It is an operator example, not team doctrine.
-Copy the decision shape only after running local discovery, route health, and
-permission-integrity checks on the target machine.
+This example documents the personal routing profile used to develop Kiln on
+Ricardo's workstation. It is an operator example, not team doctrine. Copy its
+decision shape only after validating route health, authority, and provider
+availability on the target machine.
 
 ## Purpose
 
-The profile optimizes for high-quality engineering work with bounded token and
-quota use:
+The profile keeps coordination, specialist advice, implementation authority,
+and independent review explicit:
 
-- use Codex OAuth as the primary delegated engineering route;
-- use OpenCode Go routes as specialized workers and fallback capacity;
-- keep native OpenCode free routes as low-priority escape hatches only;
-- let task suitability rank eligible routes without turning catalog membership
-  into execution authority;
-- expose reasoning effort only when the selected route advertises support for
-  it;
-- keep trusted/full-access execution as explicit evidence, not a UI label.
+- Codex OAuth Terra is the default workday coordinator and implementation
+  route;
+- Codex OAuth Sol is a read-only architecture advisor;
+- OpenCode Go specialists provide bounded frontend, backend, research, and
+  mechanical-work capacity;
+- frontend analysis uses a governed heterogeneous team before write authority
+  is admitted;
+- task suitability ranks only routes that are already eligible;
+- native harness projections remain generated views of canonical Kiln config.
 
-## Local Evidence
+## Verify the Workstation
 
-The local setup was diagnosed on 2026-07-02 with read-only Kiln commands:
+Use read-only commands before adopting or changing the profile:
 
 ```bash
 bun packages\cli\src\index.ts doctor
@@ -32,60 +33,18 @@ bun packages\cli\src\index.ts config read permissions
 bun packages\cli\src\index.ts config read agents
 ```
 
-Observed state:
+The canonical global config is authoritative. Provider catalogs are discovery
+evidence, not entitlement or route authority. Native Codex and OpenCode files
+may drift from canonical config and must be regenerated through the supported
+sync flow; a successful canonical health check does not prove that every native
+projection is current.
 
-- `route` resolves the default worker to `codex-oauth`.
-- Current OpenAI model guidance recommends GPT-5.6 Sol for frontier work,
-  GPT-5.6 Terra for balanced workday tasks, and GPT-5.6 Luna for fast,
-  cost-sensitive work. Local Codex CLI discovery may lag that rollout and
-  should be treated as route-readiness evidence, not as durable model policy.
-- OpenCode is authenticated and advertises a large model catalog. That catalog
-  is diagnostic evidence, not entitlement or route authority.
-- Repo shims are current.
-- Native projections are managed and current, including `codex-config` and
-  `opencode-config`.
-- The effective permission read model reports `workspace-write` for the active
-  policy, while canonical global config still declares conservative safe
-  defaults. This is expected evidence layering, not a reason to flatten policy.
+Live provider probes are optional and explicit because they may use credentials,
+quota, network access, or paid inference.
 
-No live provider probes, paid inference, destructive checks, or credentialed
-model calls are required to use this example. The diagnostic pilot described
-below was separately and explicitly authorized.
+## Routing Shape
 
-Benchmark-integrity repairs completed on 2026-07-02 now make follow-up route
-comparisons safer to interpret:
-
-- provider tool names round-trip to canonical Kiln identities across supported
-  providers;
-- route failures are classified as compatibility, auth, quota, rate-limit,
-  transient, or unknown evidence instead of generic provider failure;
-- subscription/free/unknown/metered economics are separate and comparable only
-  when the evidence says they are comparable;
-- internal benchmark baselines emit typed evidence artifacts for transcript,
-  tool calls, diagnostics, usage, route, cost, and result.
-
-The authorized post-repair `kiln-tool-agent` pilots recorded the following
-bounded evidence through the normal benchmark path:
-
-| Route | k | passAtK | Input tokens | Requests | Status |
-|---|---:|---:|---:|---:|---|
-| `codex-oauth/gpt-5.5` | 1 | 1.0 | 37,354 | 9 | Passed bounded pilot. |
-| `opencode-go/kimi-k2.7-code` | 1 | 1.0 | 76,496 | 17 | Passed bounded pilot. |
-| `opencode-go/glm-5.2` | 1 | 0.5 | 19,023 | 5 | Failed readiness on search latency. |
-| `opencode-go/deepseek-v4-pro` | 1 | 0.5 | 71,366 | 15 | Failed search tool trajectory. |
-| `codex-oauth/gpt-5.5` | 5 | 1.0 | 192,637 | 48 | Internal baseline ready for this profile. |
-| `codex-oauth/gpt-5.6-terra` (profile v2) | 1 | 1.0 | 33,706 | 2 | 2026-07-16 bounded pilot; below readiness `k >= 5`. |
-| `codex-oauth/gpt-5.6-luna` (profile v2) | 1 | 1.0 | 49,315 | 4 | 2026-07-16 bounded pilot; below readiness `k >= 5`. |
-| `codex-oauth/gpt-5.6-sol` (profile v2) | 1 | 1.0 | not reported | 13 | 2026-07-16 bounded pilot; passed but materially slower, so evaluated rather than promoted. |
-| `opencode-go/kimi-k2.7-code` | 5 | 1.0 | 388,909 | 67 | Internal baseline ready for this profile. |
-
-These numbers validate the token-pressure repair and the local routing shape
-for this workstation. They do not rank general model capability, because the
-dataset is intentionally small and specific to Kiln read-only tool-agent work.
-
-## Routing Policy
-
-The current global routing shape is:
+The current operator routing shape is:
 
 ```yaml
 routing:
@@ -95,56 +54,96 @@ routing:
     - provider: codex-oauth
       model: gpt-5.6-terra
     - provider: codex-oauth
-      model: gpt-5.6
-    - provider: codex-oauth
       model: gpt-5.6-luna
+    - provider: codex-oauth
+      model: gpt-5.6-sol
+    - provider: opencode-go
+      model: kimi-k3
     - provider: opencode-go
       model: kimi-k2.7-code
+    - provider: opencode-go
+      model: glm-5.2
     - provider: opencode-go
       model: deepseek-v4-pro
     - provider: opencode-go
       model: qwen3.7-max
     - provider: opencode-go
-      model: glm-5.2
-    - provider: opencode-go
-      model: minimax-m3
-    - provider: opencode-go
       model: deepseek-v4-flash
-    - provider: opencode
-      model: opencode/minimax-m2.5-free
-  budgetAware: false
 ```
 
-This does not mean OpenCode Go is the main orchestrator. `codex-oauth` remains
-the default worker and the default managed-agent provider. OpenCode Go appears
-often because it supplies specialized route candidates for frontend,
-backend/runtime, research, service, and mechanical work.
+OpenCode Go is not the orchestrator. It supplies eligible specialist routes;
+Kiln owns admission, topology, authority, lifecycle, and evidence.
 
 ## Task Suitability
 
-Task suitability is advisory ranking over routes that are already eligible. It
-does not authorize a provider, prove a credential, bypass route health, or make
-a stale catalog selectable.
+Task suitability is advisory ranking over eligible routes. It cannot authorize
+a provider, prove credentials, bypass route health, or make a stale catalog
+entry selectable.
 
-| Task | Preferred route | Reason |
-|---|---|---|
-| Workday coding and tests | `codex-oauth/gpt-5.6-terra` | Balanced default for normal Kiln implementation and regression work. |
-| Architecture, planning, high-risk coding | `codex-oauth/gpt-5.6` | Sol alias for complex Kiln work that needs the highest reasoning headroom. |
-| Final review | `codex-oauth/codex-auto-review` | Review-specialized route; not a general implementation model. |
-| Frontend implementation | `opencode-go/kimi-k2.7-code` | Specialist route for React, TypeScript, layout, and visual work. |
-| Backend/runtime implementation | `opencode-go/deepseek-v4-pro` | Specialist route for runtime contracts, provider routing, and debugging. |
-| Service/adapters/refactors | `opencode-go/glm-5.2` | Structured route for medium-complexity implementation. |
-| Research and synthesis | `opencode-go/qwen3.7-max` | Specialist route for source-grounded comparison work. |
-| Scout and mechanical edits | `opencode-go/deepseek-v4-flash` | Fast route for read-only scouting and repetitive low-risk edits. |
+| Task | Preferred route | Role |
+| --- | --- | --- |
+| Workday coding and tests | `codex-oauth/gpt-5.6-terra` | Balanced default and final integration. |
+| Architecture and high-risk advice | `codex-oauth/gpt-5.6-sol` | Read-only critical advisor. |
+| Independent React/TypeScript review | `codex-oauth/gpt-5.6-terra` | Separately routed correctness and accessibility reviewer. |
+| Frontend visual production | `opencode-go/kimi-k3` | Read-only visual hierarchy, interaction, and acceptance-criteria producer. |
+| Frontend implementation advice | `opencode-go/kimi-k2.7-code` | Read-only repository-grounded component and test handoff. |
+| Frontend implementation | `opencode-go/kimi-k2.7-code` | Separate approved-write route after governance admits mutation. |
+| Backend/runtime implementation | `opencode-go/glm-5.2` | Preferred OpenCode backend route for this workstation. |
+| Backend comparison | `opencode-go/deepseek-v4-pro` | Challenger for bounded comparative diagnosis. |
+| Research and synthesis | `opencode-go/qwen3.7-max` | Source-grounded comparison specialist. |
+| Scout and mechanical work | `opencode-go/deepseek-v4-flash` | Fast low-risk route. |
 
-The large OpenCode catalog should stay searchable and explainable, but operator
-surfaces should show eligible routes first. A model that appears in the catalog
-is still rejected when canonical eligibility, permission integrity, route
-health, or task policy fails.
+Kimi K3 has a productive read-only role; it is not promoted to write authority
+without frontend-specific implementation, visual, accessibility, and test
+evidence. The approved-write Kimi K2.7 route remains a separate authority
+contract rather than an implicit consequence of team membership.
+
+## Governed Frontend Team
+
+The analysis stage uses `managed_agent.orchestrate` with one bounded work graph:
+
+```json
+{
+  "profile": "foundation-readonly-plan",
+  "taskRisk": "medium",
+  "requiresIndependentReview": false,
+  "workItems": [
+    {
+      "id": "visual-producer",
+      "roleIntent": "frontend-visual-producer",
+      "task": "Produce visual hierarchy, interaction states, accessibility expectations, and acceptance criteria.",
+      "agentProfile": "frontend-producer",
+      "dependencies": []
+    },
+    {
+      "id": "implementation-advisor",
+      "roleIntent": "frontend-implementation-advisor",
+      "task": "Verify the visual specification against repository evidence and produce component, state, test, and integration guidance.",
+      "agentProfile": "frontend-implementation-advisor",
+      "dependencies": ["visual-producer"]
+    }
+  ]
+}
+```
+
+Runtime resolves each profile independently. The second child starts only after
+the first succeeds and receives its bounded summary and resource URIs. A failed
+producer blocks its dependent.
+
+Independent review is a separate dependency-free graph using
+`frontend-producer` and `react-ts-reviewer` with
+`requiresIndependentReview: true`. Runtime admits it only when the two profiles
+resolve to distinct provider/model identities. Implementation then proceeds as
+a separate governed write task through `frontend-coder`; read-only team members
+never acquire write authority by composition.
+
+See [Coordination Guide](../guides/coordination-intelligence.md) for lifecycle
+semantics and [Managed Invocation Routing Research](../research/21-managed-invocation-routing-2026.md)
+for the evidence and decision record behind this topology.
 
 ## Reasoning Effort
 
-The profile uses normalized Kiln reasoning effort:
+The profile uses normalized, capability-gated effort:
 
 ```yaml
 reasoningPolicy:
@@ -159,54 +158,27 @@ reasoningPolicy:
     mechanical-edit: low
 ```
 
-This policy is capability-gated. If the selected provider/model advertises
-supported reasoning efforts, Kiln may send the requested normalized effort. If
-the selected route does not advertise effort support, Kiln omits the setting by
-default instead of inventing a provider-specific value.
-
-The global workstation config already declares this policy. The authorized
-`kiln-tool-agent` benchmark runs did not explicitly set or vary reasoning
-effort from the benchmark command, so their results should be interpreted as
-route baselines under the current execution path, not as `medium` versus
-`high` effort comparisons. `xhigh` remains an explicit opt-in experiment only,
-because it can consume quota disproportionately on subscription plans. Future
-effort-sensitive comparisons must record the resolved effort, include it in the
-benchmark config hash, and report when a selected route omits effort because
-support is unknown or unavailable.
-
-## Managed Agents
-
-Managed routes use the same evidence plane as interactive routing:
-
-- read-only scout and research routes are explicit;
-- write-capable routes require explicit managed-agent entries;
-- write authority remains `apply-approved`, scoped to the project workspace;
-- background/unattended children require proven runtime authority;
-- parent Full Access does not automatically prove child authority.
-
-For this workstation, Codex OAuth Terra handles workday coding and tests, Codex
-OAuth Sol handles critical planning and difficult changes, and Codex review
-handles final review. OpenCode Go handles specialized implementation routes
-when the task class matches and the route is eligible.
+Kiln sends an effort value only when the selected provider/model advertises
+support. Unsupported or unknown routes omit it instead of receiving an invented
+provider-specific value.
 
 ## Permission Integrity
 
-Trusted/full-access operation is intentionally not encoded as a single enum.
-Kiln distinguishes:
+Trusted execution is evidence, not one UI enum. Kiln keeps these layers
+separate:
 
 - canonical desired policy from `~/.kiln/config.yaml`;
-- persisted native projection, such as Codex or OpenCode config files;
-- session-only overrides, such as a Codex Desktop Full Access selector;
-- observed effective runtime policy when the harness exposes proof;
+- generated native projections;
+- session-only operator overrides;
+- observed effective runtime policy;
 - harness enforcement capability and semantic loss;
-- operator authorization, freshness, and recommendation.
+- operator authorization and evidence freshness.
 
-For personal unattended development, the operator may run Codex Desktop in Full
-Access. Kiln must still report that as session/effective evidence rather than
-silently persisting it into canonical config. Background agents fail closed when
-the child route cannot prove the required runtime authority.
+A parent Full Access selection does not grant a managed child authority. Write
+children require their own admitted authority envelope and an isolated worktree
+when policy requires it.
 
-## Recommended Operating Loop
+## Operating Loop
 
 Before changing routes:
 
@@ -226,44 +198,18 @@ bun packages\cli\src\index.ts config setup --action sync-repo-shims
 git diff --check
 ```
 
-Use `doctor` as read-only evidence. It should diagnose drift, competing
-executables, catalog status, auth state, and permission-integrity layers; it
-should not silently repair native config.
+Use `doctor` to diagnose drift, competing executables, catalog status, auth,
+and permission layers. Do not treat diagnostics as silent repair.
 
-## Public Benchmark Readiness
+## Benchmark Evidence
 
-Benchmark evidence can support public marketing only after the claim is scoped
-to Kiln's governance value rather than broad model superiority. A publishable
-claim should separate:
+The operator pilots are local routing evidence, not a general model ranking.
+The canonical methodology, historical results, limitations, and promotion
+criteria live in [Managed Invocation Routing Research](../research/21-managed-invocation-routing-2026.md).
+The `kiln-managed-frontend-team` profile freezes structural team composition,
+handoff, route-diversity, and execution-integrity requirements. Team promotion
+still requires a paired individual baseline under the same fixture, authority,
+dataset, and scorer set.
 
-- model performance on a named task profile;
-- Kiln's provider-neutral tool projection and authority governance;
-- token-pressure reduction relative to an earlier Kiln execution path;
-- non-comparable subscription economics from metered cost.
-
-Before publishing, require resolvable artifacts, profile and dataset versions,
-commit, provider/model identifiers, scorer set, `k`, config hash, transcripts,
-tool calls, diagnostics, usage evidence, failed cases, and explicit
-limitations. Current `k=5` evidence is suitable for internal routing decisions
-and product narrative exploration, not yet a public leaderboard or broad model
-claim.
-
-## Current Follow-Up Items
-
-- Re-run discovery and suitability review when an eligible provider catalog
-  adds or materially changes a frontier model; update canonical config and
-  this example only after the route is actually available and evidenced.
-- Treat `codex-oauth/gpt-5.6-terra` as the workday route for this profile and
-  `codex-oauth/gpt-5.6` as the critical route until a fresh benchmark sweep
-  distinguishes Terra and Sol under Kiln tool-agent workloads.
-- Keep `opencode-go/kimi-k2.7-code` as an eligible fallback or specialist
-  route for this profile. It passed `k=5`, but used more token and request
-  budget in this local comparison.
-- Do not promote GLM 5.2 or DeepSeek V4 Pro for this profile until their
-  failed `k=1` cases are diagnosed and revalidated.
-- Consider pruning or ranking the visible OpenCode model catalog in operator
-  surfaces so the large discovered catalog does not bury eligible routes.
-- Review competing Codex executables on `PATH`; current Codex auth and model
-  discovery work, but duplicate entries can confuse native invocation evidence.
-- Keep live provider probes optional and explicit because they can use
-  credentials, quota, network, or paid inference.
+Do not duplicate benchmark result tables in this operator example. Update the
+research decision record and versioned benchmark artifacts instead.

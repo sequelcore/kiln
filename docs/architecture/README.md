@@ -50,7 +50,8 @@ is documented by concern, not as a single monolith.
 
 - `coordination.md`
   Deterministic topology selection, governed work graphs, bounded runtime
-  scheduling, role intent, failure semantics, and cross-surface projection.
+  scheduling, per-child route identity, dependency handoffs, independent
+  review, failure semantics, and cross-surface projection.
 
 - `managed-agents.md`
   Provider-neutral managed child invocation, admission, authority profiles,

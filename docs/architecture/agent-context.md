@@ -533,6 +533,8 @@ The active implementation owns:
 - agent default skill admission through `SkillRegistry`
 - managed child `agentProfile`, `skills`, `instructionProfiles`, and
   `contextMode` resolution
+- managed orchestration preservation of each admitted agent profile, route,
+  authority profile, and dependency handoff
 - explicit work classification parsing, validation, skill recommendation, and
   managed invocation metadata
 - native projection of canonical agent, skill, and instruction-profile
