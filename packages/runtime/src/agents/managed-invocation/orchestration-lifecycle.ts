@@ -4,6 +4,7 @@ import {
   defineManagedAgentInvocationRequest,
   type BudgetAdmissionPolicy,
   type BudgetAdmissionRouteCandidate,
+  type ManagedAgentAdmissionDecision,
   type ManagedAgentAdmissionProfile,
   type ManagedAgentAuthorityProfile,
   type ManagedAgentInvocationRecord,
@@ -45,6 +46,19 @@ export interface ManagedAgentOrchestrationLifecycleInput {
   readonly routeSelector?: ManagedAgentOrchestrationLifecycleRouteSelector;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly budgetAdmission?: ManagedAgentOrchestrationBudgetAdmissionInput;
+  readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
+}
+
+export interface ManagedAgentOrchestrationLifecycleObserver {
+  onAdmissionResolved(input: {
+    readonly request: ManagedAgentInvocationRequest;
+    readonly decision: ManagedAgentAdmissionDecision;
+  }): void | Promise<void>;
+  onTerminal(input: {
+    readonly request: ManagedAgentInvocationRequest;
+    readonly record: ManagedAgentInvocationRecord;
+    readonly durationMs?: number;
+  }): void | Promise<void>;
 }
 
 export interface ManagedAgentOrchestrationLifecycleChildRecord {
@@ -110,6 +124,7 @@ export async function runManagedAgentOrchestrationLifecycle(
       route,
       requests: requestBatch,
       children: childBatch,
+      ...(input.lifecycleObserver ? { lifecycleObserver: input.lifecycleObserver } : {}),
     });
     childRecords.push(...batchRecords);
   }
@@ -153,6 +168,7 @@ async function runOrchestrationBatch(input: {
   readonly route: ManagedInvocationToolRoute;
   readonly requests: readonly ManagedAgentInvocationRequest[];
   readonly children: ManagedAgentOrchestrationRequest["childRequests"];
+  readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }): Promise<readonly ManagedAgentOrchestrationLifecycleChildRecord[]> {
   const startResults = await Promise.allSettled(input.requests.map(async (request) => {
     const startResult = await input.service.start(request, input.route.adapter, {
@@ -178,6 +194,7 @@ async function runOrchestrationBatch(input: {
         ...(input.route.voiceProfile ? { voiceProfile: input.route.voiceProfile } : {}),
       },
     });
+    await input.lifecycleObserver?.onAdmissionResolved({ request, decision: startResult.decision });
     if (startResult.status === "denied") {
       throw new Error(`Managed orchestration child '${request.invocationId}' denied: ${startResult.decision.reason}`);
     }
@@ -194,6 +211,7 @@ async function runOrchestrationBatch(input: {
       input.requests,
       startResults,
       "Managed orchestration start failed; cancelling already-started children.",
+      input.lifecycleObserver,
     );
     throw new Error(`Managed orchestration child start failed: ${startFailures.map((result) =>
       result.reason instanceof Error ? result.reason.message : String(result.reason)
@@ -205,10 +223,30 @@ async function runOrchestrationBatch(input: {
   });
   const settled = await Promise.allSettled(invocationIds.map(async (invocationId, index) => {
     const child = input.children[index]!;
-    const joined = await input.service.join(invocationId);
+    const request = input.requests[index]!;
+    let joined: Awaited<ReturnType<typeof input.service.join>>;
+    try {
+      joined = await input.service.join(invocationId);
+    } catch (error) {
+      const snapshot = input.service.status(invocationId);
+      if (snapshot?.record) {
+        await input.lifecycleObserver?.onTerminal({
+          request,
+          record: snapshot.record,
+          ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
+        });
+      }
+      throw error;
+    }
     if (joined.status !== "completed") {
       throw new Error(`Managed orchestration child '${invocationId}' did not reach terminal completion`);
     }
+    const snapshot = input.service.status(invocationId);
+    await input.lifecycleObserver?.onTerminal({
+      request,
+      record: joined.record,
+      ...(snapshot?.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
+    });
     return {
       childId: child.childId,
       ordinal: child.ordinal,
@@ -264,6 +302,7 @@ async function cleanupStartedOrchestrationChildren(
   requests: readonly ManagedAgentInvocationRequest[],
   startResults: readonly PromiseSettledResult<string>[],
   reason: string,
+  lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver,
 ): Promise<void> {
   await Promise.allSettled(requests.map(async (request, index) => {
     const startResult = startResults[index];
@@ -279,7 +318,15 @@ async function cleanupStartedOrchestrationChildren(
         await service.cancel(startedInvocationId, reason);
       }
     } finally {
-      await service.join(startedInvocationId).catch(() => undefined);
+      const joined = await service.join(startedInvocationId).catch(() => undefined);
+      if (joined?.status === "completed") {
+        const terminalSnapshot = service.status(startedInvocationId);
+        await lifecycleObserver?.onTerminal({
+          request,
+          record: joined.record,
+          ...(terminalSnapshot?.durationMs !== undefined ? { durationMs: terminalSnapshot.durationMs } : {}),
+        });
+      }
     }
   }));
 }

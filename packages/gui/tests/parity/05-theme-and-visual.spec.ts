@@ -177,6 +177,10 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const activeBeams = page.locator('[data-role="active-tool-beam"]');
     await expect(activeBeams).toHaveCount(0);
 
+    const actionGroup = page.getByRole("button", { name: "2 actions. Show actions" });
+    await expect(actionGroup).toBeVisible({ timeout: 5_000 });
+    await actionGroup.click();
+
     const completedRow = page.locator('[data-slot="ai-tool"][data-state="completed"]');
     const failedRow = page.locator('[data-slot="ai-tool"][data-state="failed"]');
     await expect(completedRow).toHaveCount(1, { timeout: 5_000 });

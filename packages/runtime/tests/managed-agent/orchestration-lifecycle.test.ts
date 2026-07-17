@@ -30,11 +30,21 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
   it("starts, observes, and joins all managed fan-out children", async () => {
     const managedInvocation = createManagedInvocation();
     const orchestrationRequest = request(2);
+    const admissions: string[] = [];
+    const terminals: string[] = [];
 
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest,
       managedInvocation,
       profile: "foundation-apply-approved-writes",
+      lifecycleObserver: {
+        onAdmissionResolved: ({ request, decision }) => {
+          admissions.push(`${request.invocationId}:${decision.status}`);
+        },
+        onTerminal: ({ request, record }) => {
+          terminals.push(`${request.invocationId}:${record.lifecycleState}`);
+        },
+      },
     });
 
     expect(result.orchestrationResult.status).toBe("completed");
@@ -62,6 +72,14 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     expect(result.childRecords[0]?.record?.authority.workingDirectory.path).toContain("fan-out-test:child:1");
     expect(result.childRecords[0]?.record?.capabilitySnapshot.authorityEvidence.requested.source).toBe("managed-invocation-request");
     expect(result.childRecords[0]?.record?.capabilitySnapshot.authorityEvidence.classification).toBe("current-verified");
+    expect(admissions).toEqual([
+      "fan-out-test:child:1:admitted",
+      "fan-out-test:child:2:admitted",
+    ]);
+    expect(terminals).toEqual([
+      "fan-out-test:child:1:completed",
+      "fan-out-test:child:2:completed",
+    ]);
   });
 
   it("executes decomposition through the same governed lifecycle", async () => {
@@ -189,16 +207,24 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       failAcquireOrdinals: new Set([2]),
       holdOrdinals: new Set([1]),
     });
+    const terminalStates: string[] = [];
 
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
       managedInvocation,
       profile: "foundation-apply-approved-writes",
+      lifecycleObserver: {
+        onAdmissionResolved: () => undefined,
+        onTerminal: ({ request, record }) => {
+          terminalStates.push(`${request.invocationId}:${record.lifecycleState}`);
+        },
+      },
     })).rejects.toThrow("Managed orchestration child start failed");
 
     const lifecycleStates = managedInvocation.invocationService?.list().map((snapshot) => snapshot.lifecycleState);
     expect(lifecycleStates).toContain("cancelled");
     expect(lifecycleStates).not.toContain("running");
+    expect(terminalStates).toContain("fan-out-test:child:1:cancelled");
   });
 
   it("joins started children when cleanup cancel races with terminal completion", async () => {

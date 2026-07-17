@@ -40,6 +40,10 @@ The integration model has these boundaries:
 - Harness stdout, stderr, usage, file-change evidence, approvals, and failures
   are translated into typed Kiln events before any GUI, TUI, native, or CLI
   surface renders them.
+- Native harness processes are launched with argument arrays and verified native
+  executables. Windows command shims (`.cmd`/`.bat`) are not passed to `spawn`
+  and are not executed through a shell; Codex and OpenCode resolution prefers
+  discoverable `.exe`/`.com` binaries and fails clearly when none is runnable.
 - Cross-harness handoff uses Kiln sessions, resources, managed invocation
   context, and coordination memory. It must not depend on hidden CLI state.
 

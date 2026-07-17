@@ -81,12 +81,23 @@ Useful flags:
 - `--effort <minimal|low|medium|high|xhigh>` or
   `--reasoning-effort <minimal|low|medium|high|xhigh>` to set reasoning effort
   for providers/models that support it
+- `--authority <auto|read_only|audited|destructive>` to request a bounded turn
+  authority on direct providers
 - `--plan` to start in plan mode
 - `--workers <number>` to run isolated parallel workers
 
 Reasoning effort is forwarded through the shared session contract. For the
 Codex CLI wrapper it becomes Codex's `model_reasoning_effort` config override;
 for direct runtime providers it is sent as provider request metadata.
+
+`audited` keeps action-level approval gates. Human interactive CLI runs prompt
+when Runtime emits `approval_requested`; non-interactive and structured-output
+runs fail closed instead of auto-approving. `destructive` is an explicit
+operator authority request, not a substitute for `audited` automation.
+`codex-oauth` is a Kiln direct provider and does not launch Codex CLI. The
+separate `codex` provider is the native harness route; on Windows it requires a
+spawnable native executable (`.exe`/`.com`) and never executes `.cmd`/`.bat`
+through a shell.
 
 ### `kiln tui`
 

@@ -1965,6 +1965,25 @@ async function executeManagedAgentOrchestrationTool(
       routeSelector: {
         routeId: selectedRoute!.routeId,
       },
+      lifecycleObserver: {
+        onAdmissionResolved: async ({ request, decision: admissionDecision }) => {
+          await appendAndPublishManagedInvocationStartSessionEvents({
+            options,
+            context: session.context,
+            request,
+            decision: admissionDecision,
+          });
+        },
+        onTerminal: async ({ request, record, durationMs }) => {
+          await appendAndPublishManagedInvocationTerminalSessionEvent({
+            options,
+            context: session.context,
+            request,
+            record,
+            ...(durationMs !== undefined ? { durationMs } : {}),
+          });
+        },
+      },
     });
     return {
       output: JSON.stringify({

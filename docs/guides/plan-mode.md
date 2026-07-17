@@ -185,11 +185,11 @@ and operator surfaces summarize that same admitted authority.
 
 Requested authority cannot widen plan mode. Plan turns are recorded as
 `planning` and admit only the narrowed read-only/planning tool surface.
-`destructive` is not an operator-requestable turn authority until the authority
-elevation approval flow exists. Execute turns may request `read_only` or
-`audited` authority; those requests narrow the provider tool surface before
-invocation, and malformed authority values fail instead of falling back to full
-authority.
+Execute turns on supported direct-provider surfaces may request `read_only`,
+`audited`, or the explicit high-authority `destructive` mode. The first two
+narrow the provider tool surface; `destructive` removes per-action approval and
+must be a deliberate operator choice. Malformed authority values fail instead
+of falling back to full authority.
 
 Approval UI appears only for runtime approval events. If an assistant reports
 that it is blocked by read-only or fail-closed authority, switch to an admitted

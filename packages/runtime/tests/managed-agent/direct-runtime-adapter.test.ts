@@ -149,6 +149,65 @@ function startManaged(
 }
 
 describe("ManagedDirectProviderRuntimeAdapter", () => {
+  it("projects the managed handoff contract into the child prompt and accepts its structured result", async () => {
+    const structuredResult = {
+      version: "structured-execution-result-v1",
+      status: "completed",
+      summary: "README heading verified.",
+      limitations: [],
+      operatorDecisions: [],
+      evidence: [{ uri: "kiln://managed-invocations/inv-direct-1/readme", kind: "artifact" }],
+      citations: [],
+      warnings: [],
+      failures: [],
+      approvalRequirements: [],
+      residualRisks: ["Only the requested heading was verified."],
+      verificationResults: [{
+        requirementId: "readme-heading",
+        method: "deterministic",
+        status: "passed",
+        summary: "The heading was read from README.md.",
+        evidenceUris: ["kiln://managed-invocations/inv-direct-1/readme"],
+      }],
+    } as const;
+    const provider = providerWithResponses([response(JSON.stringify(structuredResult))]);
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", vi.fn(async () => "# Kiln")]]),
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
+      input: {
+        summary: "Verify the README heading.",
+        prompt: "Read README.md and report its first heading.",
+        handoff: {
+          roleIntent: "verifier",
+          expectedEvidence: ["result-handoff"],
+          requiredResultFields: ["summary", "evidence", "checks"],
+          doneCriteria: ["Return the verified heading."],
+          residualRiskRequired: true,
+        },
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("expected completed");
+    expect(result.record.resultHandoff?.structuredResult).toMatchObject({
+      version: "structured-execution-result-v1",
+      status: "completed",
+      summary: "README heading verified.",
+      residualRisks: ["Only the requested heading was verified."],
+      verificationResults: [expect.objectContaining({ requirementId: "readme-heading", status: "passed" })],
+    });
+    const firstProviderCall = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(JSON.stringify(firstProviderCall)).toContain("Managed Result Handoff Contract");
+    expect(JSON.stringify(firstProviderCall)).toContain("structured-execution-result-v1");
+    expect(JSON.stringify(firstProviderCall)).toContain("residualRisks");
+  });
+
   it("runs a child RuntimeSessionOrchestrator and returns the shared managed invocation record shape", async () => {
     const provider = providerWithResponses([
       response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),

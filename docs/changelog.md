@@ -8,6 +8,13 @@ baseline. Active and deferred execution tracks live in
 
 ## v2.1.0
 
+- Closed managed-orchestration replay and handoff gaps: child handoff contracts
+  are projected into direct-provider and native-harness prompts, exact structured
+  results are validated without synthetic evidence, and every orchestration
+  child now persists canonical lifecycle events into its parent session. The
+  interactive CLI handles audited runtime approval requests, while structured
+  output remains fail-closed. Native Codex/OpenCode launch on Windows now uses
+  verified executables rather than shell command shims.
 - Completed the verified-efficiency control plane: reconciled lifecycle and
   cache-topology evidence, progressive loading, typed lossless and reversible
   context reduction, utility and phase-aware allocation, delegation and

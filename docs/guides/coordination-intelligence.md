@@ -15,6 +15,11 @@ the result requires independently attributable review.
 5. Inspect the returned coordination decision and terminal orchestration
    evidence. Record accepted child handoffs on their governed work items.
 
+Each admitted child is also persisted into the parent session as canonical
+`agent_invocation_*` events while it runs. CLI, GUI, TUI, and replay consumers
+must use that lineage instead of reconstructing children from the final
+`managed_agent.orchestrate` tool output.
+
 Do not choose a worker count in the prompt. Runtime uses the resolved Kiln
 parallel-worker limit. Do not add dependency-free duplicate work solely to
 force parallelism.

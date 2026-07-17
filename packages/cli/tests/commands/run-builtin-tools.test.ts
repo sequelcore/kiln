@@ -3,7 +3,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ManagedAgentOrchestrationLifecycleInput } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
-import { buildRunSessionRequirements, resolveRunProviderModelAdmission, runCommand } from "../../src/commands/run.js";
+import {
+  buildRunSessionRequirements,
+  createCliRuntimeApprovalHandler,
+  resolveRunProviderModelAdmission,
+  runCommand,
+} from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -410,6 +415,34 @@ const APP_CONFIG: KilnAppConfig = {
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
 
 describe("run command builtin tool wiring", () => {
+  it("exposes runtime approval only on an interactive human CLI surface", async () => {
+    const prompt = vi.fn().mockResolvedValue(true);
+    const handler = createCliRuntimeApprovalHandler({
+      outputMode: "human",
+      inputInteractive: true,
+      outputInteractive: true,
+      prompt,
+    });
+
+    await expect(handler?.("Allow managed orchestration")).resolves.toEqual({
+      approved: true,
+      reason: "Approved by the interactive CLI operator.",
+    });
+    expect(prompt).toHaveBeenCalledWith("Allow managed orchestration");
+    expect(createCliRuntimeApprovalHandler({
+      outputMode: "json",
+      inputInteractive: true,
+      outputInteractive: true,
+      prompt,
+    })).toBeUndefined();
+    expect(createCliRuntimeApprovalHandler({
+      outputMode: "human",
+      inputInteractive: false,
+      outputInteractive: true,
+      prompt,
+    })).toBeUndefined();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     runWiringMocks.capturedSessionConfigs.length = 0;

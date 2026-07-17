@@ -286,12 +286,12 @@ Operator surfaces may request turn authority, but runtime validates and admits
 the effective authority. Invalid requested-authority values fail before
 admission. In execute mode, `read_only` and `audited` requests narrow the
 provider tool surface before invocation; `auto` preserves the current admitted
-surface. `destructive` is not an operator-requestable turn authority until the
-authority elevation approval flow exists, though effective authority displays
-may still report destructive when an admitted tool surface contains
-approval-required destructive tools. Done-frame authority status is projected
-from the same per-call config used for the turn, not from a freshly derived
-default.
+surface. An explicit `destructive` request on a supported direct-provider
+surface admits destructive capabilities without per-action approval; it is a
+high-authority operator decision and must never be inferred from prompt prose or
+used as an unattended substitute for `audited`. Done-frame authority status is
+projected from the same per-call config used for the turn, not from a freshly
+derived default.
 
 Authority modes are not natural-language approval prompts. A surface may render
 an approval action only after runtime emits `approval_requested` with an

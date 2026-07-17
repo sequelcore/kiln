@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import {
   CODEX_DEFAULT_MODEL,
@@ -17,6 +17,7 @@ import type {
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
+import { resolveNativeCliExecutable } from "./native-cli-executable.js";
 
 interface TranslationRuleMetadata {
   readonly category: string;
@@ -637,27 +638,10 @@ export class CodexSession implements IKilnSession {
 
   private _findCodexBinary(): string {
     const homedir = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    const fallbackPaths = [
-      `${homedir}\\AppData\\Roaming\\npm\\codex.cmd`,
-      `${homedir}\\.codex\\.sandbox-bin\\codex.exe`,
-    ];
-
-    const candidates = [fallbackPaths[0], "codex", fallbackPaths[1]].filter(
-      (candidate): candidate is string => candidate !== undefined,
-    );
-
-    for (const candidate of candidates) {
-      try {
-        execSync(`"${candidate}" --version`, { stdio: "ignore" });
-        return candidate;
-      } catch {
-        // try next
-      }
-    }
-
-    throw new Error(
-      "codex binary not found. Ensure codex is installed and accessible in PATH, or ensure one of the fallback paths exists.",
-    );
+    return resolveNativeCliExecutable({
+      command: "codex",
+      fallbackPaths: [`${homedir}\\.codex\\.sandbox-bin\\codex.exe`],
+    });
   }
 
   private _killProcess(): void {

@@ -996,6 +996,12 @@ runtime-owned side effect, such as a lease acquisition that must be cleaned up,
 same canonical path instead of leaving the failure as an unpersisted thrown
 startup error.
 
+`managed_agent.orchestrate` uses the same observer boundary for every child.
+Admission publishes requested/started or denied events immediately, and terminal
+finalization publishes the completed, failed, or cancelled event before the
+orchestration result returns. Orchestration therefore cannot bypass canonical
+parent-session replay merely because it starts and joins children internally.
+
 When a managed invocation is used to satisfy a governed work item, the parent
 work item records the child handoff through `work_item.execution.start` by
 storing the `managedInvocationId` on the execution attempt. The same attempt is
@@ -1162,6 +1168,13 @@ review. Write-capable profiles may complete without text only when canonical
 write evidence provides the substantive handoff. This keeps parent agents,
 operators, replay, and future SDK surfaces from treating an empty child run as
 usable work.
+
+When an invocation declares a structured handoff contract, Runtime appends that
+contract to the child prompt for both direct providers and native harness
+adapters. The child must return one exact `structured-execution-result-v1` JSON
+object containing the required summary, evidence, checks, verification results,
+and residual risks. Runtime parses and validates that object against the
+contract; it does not synthesize missing success evidence from prose.
 
 ## Verification
 

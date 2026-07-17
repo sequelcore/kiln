@@ -38,6 +38,7 @@ import {
   createManagedInvocationRuntimeResourceReader,
   type ManagedInvocationResourceReader,
 } from "./resource-context.js";
+import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
 
 export interface ManagedCliHarnessAdapterConfig {
   readonly providerId: string;
@@ -158,7 +159,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       ...(resourceReader ? { resourceReader } : {}),
     });
     const system = withManagedInvocationResourceContext(request.input.summary, resourceContext?.content);
-    const prompt = request.input.prompt ?? request.input.summary;
+    const prompt = appendManagedResultHandoffContract(
+      request.input.prompt ?? request.input.summary,
+      request,
+    );
     const filesystemSnapshot = await snapshotFilesystemBoundary(this.filesystemBoundary);
     const session = this.factory(system, cwd, {
       kilnSessionId: childSessionId,

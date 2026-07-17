@@ -705,8 +705,8 @@ async function readSubmittedPlanFromTranscript(projectPath: string, sessionId: s
   }
 }
 
-async function promptForPlanApproval(): Promise<boolean> {
-  process.stdout.write("Approve and execute? [y/N]: ");
+async function promptForConfirmation(message: string): Promise<boolean> {
+  process.stdout.write(message);
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -728,6 +728,34 @@ async function promptForPlanApproval(): Promise<boolean> {
 
   rl.close();
   return answer.trim().toLowerCase() === "y";
+}
+
+async function promptForPlanApproval(): Promise<boolean> {
+  return promptForConfirmation("Approve and execute? [y/N]: ");
+}
+
+export function createCliRuntimeApprovalHandler(input: {
+  readonly outputMode: RunOutputMode;
+  readonly inputInteractive: boolean;
+  readonly outputInteractive: boolean;
+  readonly prompt?: (description: string) => Promise<boolean>;
+}): ((description: string) => Promise<{ readonly approved: boolean; readonly reason: string }>) | undefined {
+  if (input.outputMode !== "human" || !input.inputInteractive || !input.outputInteractive) {
+    return undefined;
+  }
+  const prompt = input.prompt ?? (async (description: string) => {
+    process.stdout.write(`\nApproval required: ${description}\n`);
+    return promptForConfirmation("Approve this action? [y/N]: ");
+  });
+  return async (description) => {
+    const approved = await prompt(description);
+    return {
+      approved,
+      reason: approved
+        ? "Approved by the interactive CLI operator."
+        : "Denied by the interactive CLI operator.",
+    };
+  };
 }
 
 export async function runCommand(
@@ -1301,6 +1329,11 @@ export async function runCommand(
     workingDirectory: context.workingDirectory,
   });
   const approvalMemoryStore: ApprovalMemoryStore = new ApprovalMemoryStoreImpl(cwd);
+  const requestApproval = createCliRuntimeApprovalHandler({
+    outputMode: runOutput.mode,
+    inputInteractive: process.stdin.isTTY === true,
+    outputInteractive: process.stdout.isTTY === true,
+  });
   const runAbortController = new AbortController();
 
   let signalHandlersRegistered = false;
@@ -1347,6 +1380,7 @@ export async function runCommand(
       sessionHooks,
       abortSignal: runAbortController.signal,
       output: runOutput,
+      ...(requestApproval ? { requestApproval } : {}),
     });
   } catch (error) {
     const errorMessage = errorToMessage(error);

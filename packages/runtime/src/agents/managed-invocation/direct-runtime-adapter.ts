@@ -55,6 +55,7 @@ import {
   buildManagedInvocationResourceContext,
   createManagedInvocationRuntimeResourceReader,
 } from "./resource-context.js";
+import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
 
 export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly providerId: string;
@@ -271,7 +272,10 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       });
       const result = await orchestrator.processMessage(
         childSession,
-        textParts(request.input.prompt ?? request.input.summary),
+        textParts(appendManagedResultHandoffContract(
+          request.input.prompt ?? request.input.summary,
+          request,
+        )),
         governedResourceContext,
         builtinTools,
         perCallConfig,
