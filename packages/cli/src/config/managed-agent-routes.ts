@@ -1702,11 +1702,11 @@ function defaultManagedWorkspaceDeniedPaths(cwd: string, allowedPaths: readonly 
 }
 
 function joinManagedRoutePath(rootPath: string, childPath: string): string {
-  if (win32.isAbsolute(rootPath)) {
-    return win32.join(rootPath, childPath);
-  }
   if (posix.isAbsolute(rootPath)) {
     return posix.join(rootPath, childPath);
+  }
+  if (win32.isAbsolute(rootPath)) {
+    return win32.join(rootPath, childPath);
   }
   return resolve(rootPath, childPath);
 }
@@ -1716,17 +1716,17 @@ function uniqueStrings(values: readonly string[]): readonly string[] {
 }
 
 function normalizeManagedRoutePath(path: string, cwd: string): string {
-  if (win32.isAbsolute(path)) {
-    return win32.normalize(path);
-  }
   if (posix.isAbsolute(path)) {
     return posix.normalize(path);
   }
-  if (win32.isAbsolute(cwd)) {
-    return win32.resolve(cwd, path);
+  if (win32.isAbsolute(path)) {
+    return win32.normalize(path);
   }
   if (posix.isAbsolute(cwd)) {
     return posix.resolve(cwd, path);
+  }
+  if (win32.isAbsolute(cwd)) {
+    return win32.resolve(cwd, path);
   }
   return resolve(cwd, path);
 }

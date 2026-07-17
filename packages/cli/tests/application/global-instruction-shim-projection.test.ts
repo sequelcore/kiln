@@ -19,7 +19,7 @@ function resetFixture(): void {
   mkdirSync(join(PROJECT_PATH, ".kiln"), { recursive: true });
   mkdirSync(join(USER_HOME, ".kiln", "instructions"), { recursive: true });
   writeFileSync(join(PROJECT_PATH, "package.json"), JSON.stringify({ name: "shim-project" }), "utf-8");
-  writeFileSync(join(PROJECT_PATH, ".kiln", "config.yaml"), [
+  writeFileSync(join(PROJECT_PATH, ".kiln", "kiln.yaml"), [
     "version: \"1\"",
     "activeInstructionProfiles:",
     "  - sequel-engineering",

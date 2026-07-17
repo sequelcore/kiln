@@ -1,5 +1,72 @@
 import { describe, expect, it, vi } from "vitest";
 import { ManagedJobApplicationService } from "@kilnai/runtime";
+
+vi.mock("../../src/application/config-status.js", () => ({
+  readConfigStatusSnapshot: vi.fn(async () => {
+    const effectiveConfig = {
+      version: "1",
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: { maxFiles: 1, maxRisk: "low" },
+        requireDelegationFor: ["managed-agents"],
+        requiredEvidence: ["surface-map", "tests"],
+      },
+      managedAgents: {
+        enabled: true,
+        routes: [
+          {
+            id: "test-readonly-route",
+            kind: "direct",
+            provider: "codex-oauth",
+            model: "gpt-5.6-terra",
+            profiles: ["foundation-readonly-plan"],
+            workingDirectory: "project",
+            tools: {
+              allowed: ["read"],
+              network: false,
+              writes: false,
+            },
+            memory: { access: "read-only" },
+            credentials: { mode: "runtime-selected" },
+          },
+        ],
+      },
+    };
+    return {
+      evidenceVersion: 1,
+      generatedAt: new Date().toISOString(),
+      project: {
+        rootPath: "C:/workspace/kiln",
+        projectName: "kiln",
+        hasGitRoot: true,
+        hasKilnYaml: true,
+        kilnYaml: { path: "C:/workspace/kiln/.kiln/kiln.yaml", status: "valid" },
+        projectContext: { path: "C:/workspace/kiln/.kiln/project-context.md", status: "valid" },
+      },
+      global: { path: "C:/Users/ExampleUser/.kiln/config.yaml", status: "valid" },
+      effectiveConfigStatus: "valid",
+      effectiveConfig,
+      errors: [],
+      projections: [],
+      permissionIntegrity: [],
+      setup: {
+        projectRoot: "C:/workspace/kiln",
+        projectContext: {
+          path: "C:/workspace/kiln/.kiln/project-context.md",
+          status: "valid",
+          recommendation: "none",
+        },
+        repoShims: [],
+        globalInstructionShims: [],
+        nativeProjections: [],
+        permissionIntegrity: [],
+        recommendedActions: ["none"],
+      },
+      harnessCapabilities: [],
+    };
+  }),
+}));
+
 import {
   createCodexAppManagedJobApplicationComposition,
   createCodexAppManagedJobApplicationService,

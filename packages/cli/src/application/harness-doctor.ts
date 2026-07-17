@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { posix, win32 } from "node:path";
 import { discoverGuiCliOperatorModels } from "@kilnai/runtime";
 import type { KilnConfigStatusSnapshot, KilnProjectionTargetSnapshot, KilnSkillCatalogSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { readConfigStatusSnapshot } from "./config-status.js";
@@ -62,6 +62,7 @@ export interface HarnessDoctorProjectionReport {
 
 export interface HarnessDoctorOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly platform?: NodeJS.Platform;
   readonly projectRoot?: string;
   readonly now?: () => Date;
   readonly fileExists?: (path: string) => boolean;
@@ -74,8 +75,14 @@ export interface HarnessDoctorOptions {
 interface HarnessDefinition {
   readonly harnessId: "kiln" | "codex" | "opencode";
   readonly commandNames: readonly string[];
-  readonly preferredCandidates: (env: Readonly<Record<string, string | undefined>>) => readonly string[];
-  readonly fallbackCandidates?: (env: Readonly<Record<string, string | undefined>>) => readonly string[];
+  readonly preferredCandidates: (
+    env: Readonly<Record<string, string | undefined>>,
+    platform: NodeJS.Platform,
+  ) => readonly string[];
+  readonly fallbackCandidates?: (
+    env: Readonly<Record<string, string | undefined>>,
+    platform: NodeJS.Platform,
+  ) => readonly string[];
   readonly releaseWarning?: string;
 }
 
@@ -89,29 +96,29 @@ const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = [
   {
     harnessId: "codex",
     commandNames: ["codex.cmd", "codex.exe", "codex"],
-    preferredCandidates: (env) => {
+    preferredCandidates: (env, platform) => {
       const home = resolveHome(env);
       return home
         ? [
-            join(home, "AppData", "Roaming", "npm", "codex.cmd"),
+            pathApi(platform).join(home, "AppData", "Roaming", "npm", "codex.cmd"),
           ]
         : [];
     },
-    fallbackCandidates: (env) => {
+    fallbackCandidates: (env, platform) => {
       const home = resolveHome(env);
-      return home ? [join(home, ".codex", ".sandbox-bin", "codex.exe")] : [];
+      return home ? [pathApi(platform).join(home, ".codex", ".sandbox-bin", "codex.exe")] : [];
     },
   },
   {
     harnessId: "opencode",
     commandNames: ["opencode.exe", "opencode.cmd", "opencode"],
     preferredCandidates: () => [],
-    fallbackCandidates: (env) => {
+    fallbackCandidates: (env, platform) => {
       const home = resolveHome(env);
       return home
         ? [
-            join(home, ".bun", "bin", "opencode.exe"),
-            join(home, "AppData", "Roaming", "npm", "opencode.cmd"),
+            pathApi(platform).join(home, ".bun", "bin", "opencode.exe"),
+            pathApi(platform).join(home, "AppData", "Roaming", "npm", "opencode.cmd"),
           ]
         : [];
     },
@@ -120,6 +127,7 @@ const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = [
 
 export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {}): Promise<HarnessDoctorReport> {
   const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
   const fileExists = options.fileExists ?? existsSync;
   const runVersion = options.runVersion ?? defaultRunVersion;
   const modelDiscovery = await (options.discoverModels ?? (() => discoverGuiCliOperatorModels({
@@ -135,6 +143,7 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
     env,
     fileExists,
     runVersion,
+    platform,
     options.projectRoot,
   );
   const codex = await resolveHarnessReport(
@@ -143,6 +152,7 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
     env,
     fileExists,
     runVersion,
+    platform,
   );
   const opencode = await resolveHarnessReport(
     definitionFor("opencode"),
@@ -150,6 +160,7 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
     env,
     fileExists,
     runVersion,
+    platform,
   );
 
   return {
@@ -268,8 +279,9 @@ async function resolveHarnessReport(
   env: Readonly<Record<string, string | undefined>>,
   fileExists: (path: string) => boolean,
   runVersion: (path: string) => Promise<string | undefined>,
+  platform: NodeJS.Platform,
 ): Promise<HarnessDoctorHarnessReport> {
-  const executable = await resolveExecutableReport(definition, env, fileExists, runVersion);
+  const executable = await resolveExecutableReport(definition, env, fileExists, runVersion, platform);
   return {
     ...executable,
     harnessId: definition.harnessId as "codex" | "opencode",
@@ -285,13 +297,14 @@ async function resolveExecutableReport(
   env: Readonly<Record<string, string | undefined>>,
   fileExists: (path: string) => boolean,
   runVersion: (path: string) => Promise<string | undefined>,
+  platform: NodeJS.Platform,
   projectRoot?: string,
 ): Promise<HarnessDoctorExecutableReport> {
-  const pathExecutables = findPathExecutables(definition.commandNames, env, fileExists);
+  const pathExecutables = findPathExecutables(definition.commandNames, env, fileExists, platform);
   const candidates = dedupePaths([
-    ...definition.preferredCandidates(env),
+    ...definition.preferredCandidates(env, platform),
     ...pathExecutables,
-    ...(definition.fallbackCandidates?.(env) ?? []),
+    ...(definition.fallbackCandidates?.(env, platform) ?? []),
   ]);
   let canonicalExecutable: string | undefined;
   let version: string | undefined;
@@ -397,12 +410,18 @@ function findPathExecutables(
   commandNames: readonly string[],
   env: Readonly<Record<string, string | undefined>>,
   fileExists: (path: string) => boolean,
+  platform: NodeJS.Platform,
 ): string[] {
+  const path = pathApi(platform);
   const pathValue = env.PATH ?? env.Path ?? "";
-  const entries = pathValue.split(delimiter).filter((entry) => entry.trim().length > 0);
+  const entries = pathValue.split(path.delimiter).filter((entry) => entry.trim().length > 0);
   return dedupePaths(entries.flatMap((entry) =>
-    commandNames.map((commandName) => join(entry, commandName)).filter(fileExists)
+    commandNames.map((commandName) => path.join(entry, commandName)).filter(fileExists)
   ));
+}
+
+function pathApi(platform: NodeJS.Platform): typeof posix | typeof win32 {
+  return platform === "win32" ? win32 : posix;
 }
 
 function definitionFor(harnessId: HarnessDefinition["harnessId"]): HarnessDefinition {

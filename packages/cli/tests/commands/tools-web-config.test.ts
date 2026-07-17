@@ -94,7 +94,8 @@ describe("tools command web config", () => {
       const repository = (toolsMocks.surfaceOptions as {
         readonly memoryResources?: { readonly repository?: { readonly options?: { readonly dbPath?: string } } };
       }).memoryResources?.repository;
-      expect(repository?.options?.dbPath).toContain(join("Kiln", "memory", "projects"));
+      expect(repository?.options?.dbPath?.replace(/\\/gu, "/").toLowerCase())
+        .toContain("/kiln/memory/projects/");
       expect(repository?.options?.dbPath).not.toBe(join(tempDir, ".kiln", "memory.db"));
       expect(existsSync(join(tempDir, ".kiln"))).toBe(false);
       expect(toolsMocks.initialized).toBe(true);

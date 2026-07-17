@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { join, delimiter } from "node:path";
+import { win32 } from "node:path";
 import {
   buildHarnessDoctorReport,
   renderHarnessDoctorText,
   type HarnessDoctorModelDiscovery,
 } from "../../src/application/harness-doctor.js";
 import type { TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
+
+const { delimiter, join } = win32;
 
 function createDiscovery(overrides: Partial<HarnessDoctorModelDiscovery> = {}): HarnessDoctorModelDiscovery {
   return {
@@ -91,6 +93,7 @@ describe("harness doctor", () => {
 
     const report = await buildHarnessDoctorReport({
       env,
+      platform: "win32",
       fileExists: (path) => existing.has(path),
       runVersion: vi.fn(async (path) => path.endsWith("codex.cmd") ? "codex-cli 0.142.0" : "codex app 0.140.0"),
       discoverModels: vi.fn(async () => createDiscovery()),
@@ -124,6 +127,7 @@ describe("harness doctor", () => {
 
     const report = await buildHarnessDoctorReport({
       env,
+      platform: "win32",
       projectRoot: "C:\\workspace\\kiln",
       fileExists: (path) => existing.has(path),
       runVersion: vi.fn(async () => "kiln 0.1.0"),
@@ -146,6 +150,7 @@ describe("harness doctor", () => {
     const integrity = permissionIntegrity();
     const report = await buildHarnessDoctorReport({
       env: { USERPROFILE: "C:\\Users\\ExampleUser", PATH: "" },
+      platform: "win32",
       fileExists: () => false,
       runVersion: vi.fn(async () => undefined),
       readConfigProjections: vi.fn(async () => [{
