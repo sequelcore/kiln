@@ -91,6 +91,7 @@ export class CodexOAuthCredentialPoolService {
     validateCodexOAuthTokenFile(options.tokenFile, this.credentialFilePath(id));
     await mkdir(this.providerDirectory(), { recursive: true });
     await writeFile(this.credentialFilePath(id), `${JSON.stringify(options.tokenFile, null, 2)}\n`, "utf8");
+    await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, id);
   }
 
   async listStatus(): Promise<readonly CodexOAuthCredentialStatus[]> {
@@ -116,11 +117,13 @@ export class CodexOAuthCredentialPoolService {
             : undefined,
         };
       }
+      const remotelyInvalid = record?.lastOutcome?.type === "auth-failed";
       return {
         id: entry.id,
         label: entry.id,
         expiresAt: entry.tokenFile.expires_at,
-        status: describeExpiry(entry.tokenFile.expires_at),
+        status: remotelyInvalid ? "invalid" : describeExpiry(entry.tokenFile.expires_at),
+        ...(remotelyInvalid ? { invalidReason: "Provider rejected this credential. Sign in again." } : {}),
         health: record
           ? {
               requestCount: record.requestCount,
@@ -141,8 +144,15 @@ export class CodexOAuthCredentialPoolService {
 
   async listValidAccessTokenCandidates(): Promise<readonly CodexOAuthAccessTokenCandidate[]> {
     const credentials = await this.readCredentials();
+    const health = await this.healthStore.readProviderHealth(CODEX_OAUTH_POOL_PROVIDER_ID);
+    const invalidCredentialIds = new Set(
+      health.filter((record) => record.lastOutcome?.type === "auth-failed").map((record) => record.credentialId),
+    );
     const candidates: CodexOAuthAccessTokenCandidate[] = [];
     for (const credential of credentials) {
+      if (invalidCredentialIds.has(credential.id)) {
+        continue;
+      }
       try {
         const token = await new CodexOAuthAuth({ tokenPath: credential.tokenPath }).getValidAccessToken();
         if (token.trim().length > 0) {
@@ -153,6 +163,15 @@ export class CodexOAuthCredentialPoolService {
       }
     }
     return candidates;
+  }
+
+  async recordAuthenticationFailure(credentialId: string): Promise<void> {
+    await this.healthStore.recordOutcome(
+      CODEX_OAUTH_POOL_PROVIDER_ID,
+      credentialId,
+      { type: "auth-failed" },
+      null,
+    );
   }
 
   async clearCredentials(): Promise<void> {
@@ -198,25 +217,30 @@ export class CodexOAuthCredentialPoolService {
   }
 
   private async loadCredentialsForPool(): Promise<Credential<CodexOAuthPoolCredential>[]> {
+    const health = await this.healthStore.readProviderHealth(CODEX_OAUTH_POOL_PROVIDER_ID);
     return (await this.readCredentials())
       .filter((entry) => isExecutableTokenFile(entry.tokenFile))
-      .map((entry): Credential<CodexOAuthPoolCredential> => ({
-        id: entry.id,
-        label: entry.id,
-        providerId: CODEX_OAUTH_POOL_PROVIDER_ID,
-        source: "manual",
-        priority: 0,
-        tier: undefined,
-        auth: {
-          tokenFile: entry.tokenFile,
-          tokenPath: entry.tokenPath,
-        },
-        requestCount: 0,
-        lastSuccess: null,
-        lastExhausted: null,
-        cooldownUntil: null,
-        softLeaseCount: 0,
-      }));
+      .map((entry): Credential<CodexOAuthPoolCredential> => {
+        const record = health.find((candidate) => candidate.credentialId === entry.id);
+        return {
+          id: entry.id,
+          label: entry.id,
+          providerId: CODEX_OAUTH_POOL_PROVIDER_ID,
+          source: "manual",
+          priority: 0,
+          tier: undefined,
+          auth: {
+            tokenFile: entry.tokenFile,
+            tokenPath: entry.tokenPath,
+          },
+          requestCount: record?.requestCount ?? 0,
+          lastSuccess: record?.lastSuccess ?? null,
+          lastExhausted: record?.lastExhausted ?? null,
+          cooldownUntil: record?.cooldownUntil ?? null,
+          invalidReason: record?.lastOutcome?.type === "auth-failed" ? "auth-failed" : null,
+          softLeaseCount: 0,
+        };
+      });
   }
 
   private async readCredentials(): Promise<ReadonlyArray<CodexOAuthCredentialRecord & {

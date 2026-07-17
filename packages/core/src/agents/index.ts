@@ -1,4 +1,6 @@
 import type { ContentPart } from "../engine/domain/content.js";
+import type { ContextUsageRawEvidence } from "../events/context-usage-projection.js";
+import type { ReasoningEffort } from "./phase-aware-route-policy.js";
 
 /**
  * Agent role in the orchestration.
@@ -19,7 +21,28 @@ export interface AgentStreamEvent {
   readonly content: string;
 }
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export {
+  PhaseAwareModelRouter,
+  resolveNormalizedReasoningEffort,
+  selectPhaseAwareRoute,
+} from "./phase-aware-route-policy.js";
+export type {
+  ModelRoutingPhase,
+  NormalizedReasoningEffortResolution,
+  PhaseAwareRouteCandidate,
+  PhaseAwareRouteDecision,
+  PhaseAwareRouteDiagnostic,
+  PhaseAwareRouteProjection,
+  PhaseAwareRoutingSignals,
+  PhaseAwareModelRouterOptions,
+  ReasoningEffortOmissionReason,
+  ReasoningEffort,
+  ReasoningEffortSupportEvidence,
+  ResolveNormalizedReasoningEffortInput,
+  RouteHealthState,
+  SelectPhaseAwareRouteInput,
+  UnsupportedReasoningEffortPolicy,
+} from "./phase-aware-route-policy.js";
 
 /** Provider adapter interface -- all LLM providers implement this */
 export interface ProviderAdapter {
@@ -35,6 +58,16 @@ export type ToolChoiceOption =
   | { readonly type: "none" }
   | { readonly type: "tool"; readonly name: string };
 
+/** Authority already admitted by the host for a nested provider execution. */
+export type ProviderExecutionRequestedAuthority = "read_only" | "audited" | "destructive";
+
+/** Host-owned context required to execute a provider turn in the intended workspace and authority envelope. */
+export interface ProviderExecutionContext {
+  readonly workingDirectory?: string;
+  readonly requestedAuthority?: ProviderExecutionRequestedAuthority;
+  readonly executionScope?: import("../events/session-execution-scope.js").SessionExecutionScope;
+}
+
 /** Options for creating a message */
 export interface CreateMessageOptions {
   readonly sessionId?: string;
@@ -46,6 +79,7 @@ export interface CreateMessageOptions {
   readonly maxTokens?: number;
   readonly reasoningEffort?: ReasoningEffort;
   readonly signal?: AbortSignal;
+  readonly executionContext?: ProviderExecutionContext;
 }
 
 /** Response from an agent */
@@ -57,6 +91,8 @@ export interface AgentResponse {
   readonly cacheWriteTokens: number;
   readonly toolCalls: readonly ToolCall[];
   readonly stopReason: string;
+  /** Adapter-owned cache semantics for the accompanying token fields. */
+  readonly contextUsage?: ContextUsageRawEvidence;
 }
 
 /** Tool definition for agent */
@@ -139,14 +175,41 @@ export { classifyToolError } from "./tool-error-classifier.js";
 export { executeWithRetry } from "./tool-execution-engine.js";
 export type { ToolExecutor } from "./tool-execution-engine.js";
 export { SlidingWindowRateLimiter } from "./sliding-window-rate-limiter.js";
-export { ModelCapabilityRegistry } from "./model-capability-registry.js";
+export {
+  CANONICAL_MODEL_CAPABILITIES,
+  ModelCapabilityRegistry,
+  isCanonicalModelCapability,
+} from "./model-capability-registry.js";
 export type {
+  CanonicalModelCapability,
   ModelTaskSuitability,
   ModelTaskSuitabilityEvidence,
   ModelTaskSuitabilityLevel,
   ModelTaskSuitabilitySource,
   ModelTaskSuitabilityTask,
 } from "./model-capability-registry.js";
+export {
+  WORK_CLASSIFICATION_ARTIFACTS,
+  WORK_CLASSIFICATION_DOMAINS,
+  WORK_CLASSIFICATION_EFFECTS,
+  WORK_CLASSIFICATION_INTENTS,
+  WORK_CLASSIFICATION_MODES,
+  defineWorkClassification,
+  defineWorkClassificationProvenance,
+  recommendedSkillsForWorkClassification,
+} from "./work-classification.js";
+export type {
+  WorkClassification,
+  WorkClassificationArtifact,
+  WorkClassificationDomain,
+  WorkClassificationEffect,
+  WorkClassificationInput,
+  WorkClassificationIntent,
+  WorkClassificationMode,
+  WorkClassificationProvenance,
+  WorkClassificationProvenanceInput,
+  WorkClassificationProvenanceSourceKind,
+} from "./work-classification.js";
 export {
   normalizeToolCall,
   normalizeToolInput,
@@ -188,7 +251,38 @@ export type {
   ProviderModelRouteHealthDecision,
   ProviderModelRouteHealthRecord,
   ProviderModelRouteKey,
+  ProviderModelRouteOutcome,
 } from "./provider-model-route-health.js";
+export {
+  PROVIDER_MODEL_EVIDENCE_STATES,
+  createProviderModelEvidence,
+} from "./provider-model-evidence.js";
+export type {
+  ProviderModelAliasEvidence,
+  ProviderModelEvidence,
+  ProviderModelEvidenceAuthority,
+  ProviderModelEvidenceFailure,
+  ProviderModelEvidenceFreshness,
+  ProviderModelEvidenceInput,
+  ProviderModelEvidenceObservation,
+  ProviderModelEvidenceSourceIdentity,
+  ProviderModelEvidenceState,
+  ProviderModelEvidenceStates,
+  ProviderModelEvidenceValue,
+  ProviderModelHarnessIdentity,
+  ProviderModelIdentity,
+  ProviderModelNormalizedIdentity,
+  ProviderModelProviderIdentity,
+  ProviderModelRouteIdentity,
+} from "./provider-model-evidence.js";
+export { deriveProviderModelEligibility } from "./provider-model-eligibility.js";
+export type {
+  ProviderModelCapabilityClaim,
+  ProviderModelEligibilityDecision,
+  ProviderModelEligibilityReason,
+  ProviderModelEligibilityRequirements,
+  ProviderModelEligibilityUse,
+} from "./provider-model-eligibility.js";
 
 export {
   CredentialPool,

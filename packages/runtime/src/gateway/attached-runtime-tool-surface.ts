@@ -8,7 +8,9 @@ import type {
   DefaultBuiltinToolRegistryOptions,
   DiscoveredDirectProviderModelCapabilities,
   ManagedAgentAdmissionProfile,
+  ManagedAgentCallerAttachmentIdentity,
   ToolDefinition,
+  ToolResultMetadata,
   ToolResourceDisplayDescriptor,
   ToolResourceReadOptions,
   ToolResourceReadResult,
@@ -21,8 +23,13 @@ import {
   createDefaultBuiltinToolSurface,
   createSessionBuiltinToolOptions,
   isDirectProviderId,
+  projectDevToolCapabilities,
+  projectDevToolDefinitions,
   projectToolResourceDescriptor,
   projectToolResultResourceLinks,
+  ResourceListTool,
+  ResourceReadTool,
+  ResourceTemplateListTool,
   resolveDirectProviderExecutionProfile,
   getBuiltinEffectEnvelope,
 } from "@kilnai/core";
@@ -47,6 +54,7 @@ import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective
 import {
   createManagedAgentStartToolDefinition,
   createManagedAgentInvokeToolDefinition,
+  createManagedAgentOrchestrateToolDefinition,
   createManagedInvocationToolCallMetadataResolver,
   createManagedInvocationLifecycleToolExecutors,
   MANAGED_AGENT_CANCEL_CAPABILITY,
@@ -55,6 +63,7 @@ import {
   MANAGED_AGENT_JOIN_TOOL,
   MANAGED_AGENT_LIST_CAPABILITY,
   MANAGED_AGENT_LIST_TOOL,
+  MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
   MANAGED_AGENT_START_CAPABILITY,
@@ -62,7 +71,12 @@ import {
   MANAGED_AGENT_STATUS_CAPABILITY,
   MANAGED_AGENT_STATUS_TOOL,
   type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
+import {
+  createManagedAgentInvocationResourceProvider,
+  isManagedAgentInvocationResourceProvider,
+} from "../agents/managed-invocation/resource-provider.js";
 import {
   buildManagedInvocationPhaseRecovery,
   managedInvocationFailureReasonFromStatus,
@@ -73,6 +87,8 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readonly callBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly toolDefinitions: readonly ToolDefinition[];
   readonly capabilities: ReadonlyMap<string, Capability>;
+  readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
+  readonly materializableCapabilities: ReadonlyMap<string, Capability>;
   readonly toolAuthority: ReadonlyMap<string, AuthorityDescriptor>;
   readonly toolCallMetadata: NonNullable<PerCallToolConfig["toolCallMetadata"]>;
   readonly analysisStateStore?: AnalysisStateStore;
@@ -84,11 +100,17 @@ export interface AttachedRuntimeBuiltinToolSurface {
   readResource(uri: string, options?: ToolResourceReadOptions): Promise<ToolResourceReadResult>;
 }
 
+export type AttachedRuntimeManagedInvocationConfig =
+  | ManagedInvocationToolAttachment
+  | (ManagedInvocationToolOptions & {
+    readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  });
+
 export interface AttachedRuntimeBuiltinToolSurfaceOptions {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly executionMode?: OperatorExecutionMode;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: AttachedRuntimeManagedInvocationConfig;
 }
 
 const RUNTIME_OBSERVE_METADATA_EGRESS: ActionEffectEnvelope = {
@@ -417,6 +439,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
   options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
 ): AttachedRuntimeBuiltinToolSurface {
   const themeController = options.operatorSurface?.theme;
+  const managedInvocation = options.managedInvocation
+    ? normalizeManagedInvocationAttachment(options.managedInvocation)
+    : undefined;
   const requiresPlanningStores = options.executionMode === "plan";
   const coreSurface = options.builtinToolOptions
     ? createDefaultBuiltinToolSurface(
@@ -433,6 +458,8 @@ export function createAttachedRuntimeBuiltinToolSurface(
 
   const callBuiltinTools = new Map(baseSurface.callBuiltinTools);
   const capabilities = new Map(baseSurface.capabilities);
+  const materializableTools = new Map(baseSurface.materializableTools);
+  const materializableCapabilities = new Map(baseSurface.materializableCapabilities);
   const toolAuthority = new Map(baseSurface.toolAuthority);
   const toolCallMetadata = new Map(baseSurface.toolCallMetadata);
   const toolDefinitions = [...baseSurface.toolDefinitions];
@@ -442,15 +469,19 @@ export function createAttachedRuntimeBuiltinToolSurface(
     callBuiltinTools.set(GOAL_CREATE_TOOL_NAME, createSessionAwareGoalCreateExecutor(goalCreateExecutor));
   }
 
-  if (!themeController && options.executionMode !== "plan" && !options.managedInvocation && !goalCreateExecutor) {
+  const registerRuntimeTool = (tool: ToolDefinition, capability: Capability): void => {
+    toolDefinitions.push(tool);
+    capabilities.set(tool.name, capability);
+    toolAuthority.set(tool.name, authorityFromCapability(tool.name, capability));
+  };
+
+  if (!themeController && options.executionMode !== "plan" && !managedInvocation && !goalCreateExecutor) {
     return baseSurface;
   }
 
   if (themeController) {
     callBuiltinTools.set(OPERATOR_SET_THEME_TOOL.name, async (input) => executeOperatorSetTheme(input, themeController));
-    capabilities.set(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY);
-    toolAuthority.set(OPERATOR_SET_THEME_TOOL.name, authorityFromCapability(OPERATOR_SET_THEME_TOOL.name, OPERATOR_SET_THEME_CAPABILITY));
-    toolDefinitions.push(OPERATOR_SET_THEME_TOOL);
+    registerRuntimeTool(OPERATOR_SET_THEME_TOOL, OPERATOR_SET_THEME_CAPABILITY);
   }
 
   if (options.executionMode === "plan") {
@@ -469,29 +500,24 @@ export function createAttachedRuntimeBuiltinToolSurface(
         specificationStateStore,
       ),
     );
-    capabilities.set(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY);
-    toolAuthority.set(SUBMIT_PLAN_TOOL.name, authorityFromCapability(SUBMIT_PLAN_TOOL.name, SUBMIT_PLAN_CAPABILITY));
-    toolDefinitions.push(SUBMIT_PLAN_TOOL);
+    registerRuntimeTool(SUBMIT_PLAN_TOOL, SUBMIT_PLAN_CAPABILITY);
 
     callBuiltinTools.set(
       SUBMIT_SPECIFICATION_TOOL.name,
       async (input) => executeSubmitSpecification(input, specificationStateStore),
     );
-    capabilities.set(SUBMIT_SPECIFICATION_TOOL.name, SUBMIT_SPECIFICATION_CAPABILITY);
-    toolAuthority.set(SUBMIT_SPECIFICATION_TOOL.name, authorityFromCapability(SUBMIT_SPECIFICATION_TOOL.name, SUBMIT_SPECIFICATION_CAPABILITY));
-    toolDefinitions.push(SUBMIT_SPECIFICATION_TOOL);
+    registerRuntimeTool(SUBMIT_SPECIFICATION_TOOL, SUBMIT_SPECIFICATION_CAPABILITY);
 
     callBuiltinTools.set(
       RECORD_CLARIFICATION_TOOL.name,
       async (input) => executeRecordClarification(input, specificationStateStore),
     );
-    capabilities.set(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY);
-    toolAuthority.set(RECORD_CLARIFICATION_TOOL.name, authorityFromCapability(RECORD_CLARIFICATION_TOOL.name, RECORD_CLARIFICATION_CAPABILITY));
-    toolDefinitions.push(RECORD_CLARIFICATION_TOOL);
+    registerRuntimeTool(RECORD_CLARIFICATION_TOOL, RECORD_CLARIFICATION_CAPABILITY);
   }
 
-  if (options.managedInvocation) {
-    const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(options.managedInvocation);
+  if (managedInvocation) {
+    const managedInvocationOptions = managedInvocation.options;
+    const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(managedInvocation);
     const managedInvocationExecutor = managedInvocationExecutors.get(MANAGED_AGENT_INVOKE_TOOL.name);
     for (const [toolName, executor] of managedInvocationExecutors) {
       callBuiltinTools.set(toolName, executor);
@@ -503,43 +529,60 @@ export function createAttachedRuntimeBuiltinToolSurface(
         createManagedDelegationWorkItemStartExecutor(
           workItemExecutionStart,
           managedInvocationExecutor,
-          options.managedInvocation,
+          managedInvocationOptions,
         ),
       );
     }
-    const managedCapabilities = [
-      [MANAGED_AGENT_INVOKE_TOOL.name, MANAGED_AGENT_INVOKE_CAPABILITY],
-      [MANAGED_AGENT_START_TOOL.name, MANAGED_AGENT_START_CAPABILITY],
-      [MANAGED_AGENT_STATUS_TOOL.name, MANAGED_AGENT_STATUS_CAPABILITY],
-      [MANAGED_AGENT_LIST_TOOL.name, MANAGED_AGENT_LIST_CAPABILITY],
-      [MANAGED_AGENT_JOIN_TOOL.name, MANAGED_AGENT_JOIN_CAPABILITY],
-      [MANAGED_AGENT_CANCEL_TOOL.name, MANAGED_AGENT_CANCEL_CAPABILITY],
+    const managedToolDefinitions = [
+      createManagedAgentInvokeToolDefinition(managedInvocationOptions),
+      createManagedAgentStartToolDefinition(managedInvocationOptions),
+      MANAGED_AGENT_STATUS_TOOL,
+      MANAGED_AGENT_LIST_TOOL,
+      MANAGED_AGENT_JOIN_TOOL,
+      MANAGED_AGENT_CANCEL_TOOL,
+      createManagedAgentOrchestrateToolDefinition(managedInvocationOptions),
     ] as const;
-    for (const [toolName, capability] of managedCapabilities) {
-      capabilities.set(toolName, capability);
-      const authority = authorityFromCapability(toolName, capability);
-      toolAuthority.set(toolName, authority);
+    const managedCapabilities = [
+      MANAGED_AGENT_INVOKE_CAPABILITY,
+      MANAGED_AGENT_START_CAPABILITY,
+      MANAGED_AGENT_STATUS_CAPABILITY,
+      MANAGED_AGENT_LIST_CAPABILITY,
+      MANAGED_AGENT_JOIN_CAPABILITY,
+      MANAGED_AGENT_CANCEL_CAPABILITY,
+      MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
+    ] as const;
+    for (const [index, tool] of managedToolDefinitions.entries()) {
+      const capability = managedCapabilities[index];
+      if (capability) {
+        registerRuntimeTool(tool, capability);
+      }
+    }
+    if (
+      managedInvocationOptions.invocationService
+      && !coreSurface.resources.hasProvider(isManagedAgentInvocationResourceProvider)
+    ) {
+      attachSessionScopedManagedResourceExecutors(
+        callBuiltinTools,
+        coreSurface,
+        managedInvocationOptions,
+      );
     }
     toolCallMetadata.set(
       MANAGED_AGENT_INVOKE_TOOL.name,
-      createManagedInvocationToolCallMetadataResolver(options.managedInvocation),
+      createManagedInvocationToolCallMetadataResolver(managedInvocationOptions),
     );
     toolCallMetadata.set(
       MANAGED_AGENT_START_TOOL.name,
-      createManagedInvocationToolCallMetadataResolver(options.managedInvocation),
+      createManagedInvocationToolCallMetadataResolver(managedInvocationOptions),
     );
-    toolDefinitions.push(createManagedAgentInvokeToolDefinition(options.managedInvocation));
-    toolDefinitions.push(createManagedAgentStartToolDefinition(options.managedInvocation));
-    toolDefinitions.push(MANAGED_AGENT_STATUS_TOOL);
-    toolDefinitions.push(MANAGED_AGENT_LIST_TOOL);
-    toolDefinitions.push(MANAGED_AGENT_JOIN_TOOL);
-    toolDefinitions.push(MANAGED_AGENT_CANCEL_TOOL);
   }
 
   return {
     callBuiltinTools,
     toolDefinitions,
     capabilities,
+    materializableTools,
+    materializableCapabilities,
     toolAuthority,
     toolCallMetadata,
     analysisStateStore: baseSurface.analysisStateStore,
@@ -552,15 +595,86 @@ export function createAttachedRuntimeBuiltinToolSurface(
   };
 }
 
+function attachSessionScopedManagedResourceExecutors(
+  executors: Map<string, RuntimeBuiltinToolExecutor>,
+  surface: DefaultBuiltinToolSurface,
+  options: ManagedInvocationToolOptions,
+): void {
+  const invocationService = options.invocationService;
+  if (!invocationService) {
+    return;
+  }
+  const tools = [
+    new ResourceListTool({ resources: () => undefined }),
+    new ResourceTemplateListTool({ resources: () => undefined }),
+    new ResourceReadTool({ resources: () => undefined }),
+  ] as const;
+  for (const tool of tools) {
+    executors.set(tool.name, async (input, context) => {
+      const parentSessionId = context?.session.id;
+      if (!parentSessionId) {
+        return {
+          output: "Managed invocation resources require an attached runtime session.",
+          isError: true,
+          metadata: { errorCode: "session_boundary_required" },
+        };
+      }
+      const resources = surface.resources.withAdditionalProviders([
+        createManagedAgentInvocationResourceProvider({
+          service: invocationService,
+          parentSessionId,
+          artifactStore: options.artifactStore ?? surface.artifactStore,
+        }),
+      ]);
+      const scopedTool = tool.name === "resource_list"
+        ? new ResourceListTool({ resources: () => resources })
+        : tool.name === "resource_template_list"
+          ? new ResourceTemplateListTool({ resources: () => resources })
+          : new ResourceReadTool({ resources: () => resources });
+      const result = await scopedTool.execute({ name: scopedTool.name, input });
+      const resourceLinks = projectToolResultResourceLinks(result);
+      const resourceLinkContent = (result.content ?? []).filter(isResourceLinkContent);
+      return {
+        output: resourceLinks.length > 0 ? formatLinkedOutput(resourceLinks, result.metadata) : result.output,
+        isError: result.isError,
+        metadata: result.metadata,
+        ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+        ...(resourceLinkContent.length > 0 ? { content: resourceLinkContent } : {}),
+      };
+    });
+  }
+}
+
+function normalizeManagedInvocationAttachment(
+  managedInvocation: AttachedRuntimeManagedInvocationConfig,
+): ManagedInvocationToolAttachment {
+  if ("options" in managedInvocation && "callerIdentity" in managedInvocation) {
+    return managedInvocation;
+  }
+  const { callerIdentity, ...options } = managedInvocation;
+  return {
+    options,
+    callerIdentity: callerIdentity ?? {
+      kind: "kiln-runtime",
+      surface: "runtime",
+      attachmentId: "attachment:runtime",
+    },
+  };
+}
+
 function createSessionAwareGoalCreateExecutor(goalCreateExecutor: RuntimeBuiltinToolExecutor): RuntimeBuiltinToolExecutor {
   return async (input, context) => {
     const ownerSessionId = readTextFromUnknown(input.ownerSessionId);
-    if (ownerSessionId || !context?.session.id) {
+    const operatorTurnId = readTextFromUnknown(input.operatorTurnId);
+    const needsOwnerSessionId = !ownerSessionId && Boolean(context?.session.id);
+    const needsOperatorTurnId = !operatorTurnId && Boolean(context?.turnId);
+    if (!needsOwnerSessionId && !needsOperatorTurnId) {
       return goalCreateExecutor(input, context);
     }
     return goalCreateExecutor({
       ...input,
-      ownerSessionId: context.session.id,
+      ...(needsOwnerSessionId ? { ownerSessionId: context!.session.id } : {}),
+      ...(needsOperatorTurnId ? { operatorTurnId: context!.turnId } : {}),
     }, context);
   };
 }
@@ -579,15 +693,6 @@ function createManagedDelegationWorkItemStartExecutor(
 
     const preparedRequest = prepareManagedInvocationRequest(managedPause.request, managedInvocationOptions);
     const managedRequest = preparedRequest.request;
-    const autoStartDecision = managedInvocationAutoStartDecision(managedRequest);
-    if (autoStartDecision.decision === "skipped") {
-      return managedDelegationAutoStartSkippedResult(
-        initialResult,
-        managedRequest,
-        autoStartDecision.reason,
-        preparedRequest.metadata,
-      );
-    }
     const managedContext = context
       ? {
         ...context,
@@ -610,6 +715,17 @@ function createManagedDelegationWorkItemStartExecutor(
       return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.");
     }
 
+    const completionTool = readTextFromUnknown(readRecord(managedRequest.executionPhase)?.completionTool);
+    if (completionTool === "work_item.update") {
+      return managedIntermediatePhaseCompletedResult(
+        initialResult,
+        managedRequest,
+        managedEnvelope,
+        managedInvocationId,
+        preparedRequest.metadata,
+      );
+    }
+
     const resumedResult = await startExecutor({
       ...input,
       managedInvocationId,
@@ -630,53 +746,39 @@ function createManagedDelegationWorkItemStartExecutor(
   };
 }
 
-function managedInvocationAutoStartDecision(
-  managedRequest: Record<string, unknown>,
-): { readonly decision: "allowed" } | { readonly decision: "skipped"; readonly reason: string } {
-  const executionPhase = readRecord(managedRequest.executionPhase);
-  const completionTool = readTextFromUnknown(executionPhase?.completionTool);
-  if (executionPhase?.autoStartAllowed === false || completionTool === "work_item.update") {
-    return {
-      decision: "skipped",
-      reason: "intermediate_phase_requires_explicit_parent_invocation",
-    };
-  }
-  return { decision: "allowed" };
-}
-
-function managedDelegationAutoStartSkippedResult(
+function managedIntermediatePhaseCompletedResult(
   initialResult: unknown,
   managedRequest: Record<string, unknown>,
-  reason: string,
+  managedResult: RuntimeToolResultEnvelope,
+  managedInvocationId: string,
   requestMetadata: Record<string, unknown> | undefined = undefined,
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
   const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
-  const output = initialOutput
-    ? {
-        ...initialOutput,
-        managedInvocationRequest: managedRequest,
-      }
-    : {
-        status: "paused",
-        reason: "Managed child invocation requires explicit parent invocation.",
-        nextTool: MANAGED_AGENT_INVOKE_TOOL.name,
-        managedInvocationRequest: managedRequest,
-      };
+  const managedOutput = parseJsonRecord(managedResult.output) ?? managedResult.output;
+  const output = {
+    ...(initialOutput ?? {}),
+    status: "paused",
+    reason: "Managed child completed the intermediate evidence phase.",
+    nextTool: "work_item.update",
+    managedInvocationId,
+    managedInvocation: managedOutput,
+    managedInvocationRequest: managedRequest,
+  };
   return {
     output: JSON.stringify(output, null, 2),
     isError: false,
     metadata: {
       ...(initialEnvelope?.metadata ?? {}),
       toolName: WORK_ITEM_EXECUTION_START_TOOL_NAME,
-      operation: "managed_invocation_paused",
-      managedInvocationAutoStarted: false,
-      managedInvocationAutoStart: {
-        decision: "skipped",
-        reason,
-      },
+      operation: "managed_intermediate_phase_completed",
+      managedInvocationAutoStarted: true,
+      managedInvocationId,
+      ...(managedResult.metadata ? { managedInvocation: managedResult.metadata } : {}),
       ...(requestMetadata ?? {}),
     },
+    ...(managedResult.resourceLinks !== undefined ? { resourceLinks: managedResult.resourceLinks } : {}),
+    ...(managedResult.content !== undefined ? { content: managedResult.content } : {}),
   };
 }
 
@@ -700,6 +802,7 @@ function hydrateManagedInvocationRequest(
   const routeId = readTextFromUnknown(request.routeId);
   const forbiddenInputFields = readTextArray(request.forbiddenInputFields);
   const requestedProfile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const requiredToolNames = requiredToolNamesFromManagedRequest(request);
   const exactRoute = routeId
     ? options.routes.find((route) => route.routeId === routeId)
     : undefined;
@@ -721,11 +824,12 @@ function hydrateManagedInvocationRequest(
   const matches = options.routes.filter((route) =>
     (!routeId || route.routeId === routeId)
     && route.profiles[profile] !== undefined
+    && routeSupportsRequiredTools(route, profile, requiredToolNames)
   );
-  if (matches.length !== 1) {
+  const route = matches.length === 1 ? matches[0] : selectUniqueSuitableRoute(matches, request);
+  if (!route) {
     return request;
   }
-  const route = matches[0]!;
   return {
     ...request,
     routeId: routeId ?? route.routeId,
@@ -757,10 +861,12 @@ function repairManagedInvocationRouteForRequiredTools(
     candidate.routeId !== routeId
     && routeSupportsRequiredTools(candidate, profile, requiredToolNames)
   );
-  if (compatibleRoutes.length !== 1) {
+  const replacement = compatibleRoutes.length === 1
+    ? compatibleRoutes[0]
+    : selectUniqueSuitableRoute(compatibleRoutes, request);
+  if (!replacement) {
     return { request };
   }
-  const replacement = compatibleRoutes[0]!;
   const providerRoute = readRecord(request.providerRoute);
   return {
     request: {
@@ -978,10 +1084,13 @@ function buildRuntimeSurface(
   if (options.requireSessionStores && (!analysisStateStore || !planStateStore || !specificationStateStore)) {
     throw new Error("Runtime builtin tool surface requires analysis, plan, and specification state stores.");
   }
+  const materializableToolDefinitions = projectDevToolDefinitions(coreSurface.registry.list());
   return {
     callBuiltinTools: buildBuiltinToolExecutors(coreSurface),
     toolDefinitions: coreSurface.toolDefinitions,
     capabilities: coreSurface.capabilities,
+    materializableTools: new Map(materializableToolDefinitions.map((tool) => [tool.name, tool] as const)),
+    materializableCapabilities: projectDevToolCapabilities(coreSurface.registry.list()),
     toolAuthority: buildBuiltinToolAuthority(coreSurface.capabilities),
     toolCallMetadata: new Map(),
     analysisStateStore,
@@ -996,6 +1105,8 @@ function buildRuntimeSurface(
 
 export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly tenantId: string;
+  readonly workingDirectory?: string;
+  readonly governedWorkRequirement?: PerCallToolConfig["governedWorkRequirement"];
   readonly activeProvider?: string;
   readonly activeModel?: string;
   readonly activeModelCapabilities?: DiscoveredDirectProviderModelCapabilities;
@@ -1023,6 +1134,8 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     : undefined;
   const config: PerCallToolConfig = {
     tenantId: input.tenantId,
+    ...(input.workingDirectory ? { workingDirectory: input.workingDirectory } : {}),
+    ...(input.governedWorkRequirement ? { governedWorkRequirement: input.governedWorkRequirement } : {}),
     ...(modelOverride ? { modelOverride } : {}),
     ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.authorityContext ? { authorityContext: input.authorityContext } : {}),
@@ -1079,7 +1192,12 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   const executeConfig: PerCallToolConfig = {
     ...config,
     toolAllowlist: new Set<string>(builtinToolSurface.toolDefinitions.map((tool) => tool.name)),
-    toolAuthority: builtinToolSurface.toolAuthority,
+    toolAuthority: buildEffectiveRuntimeToolAuthority({
+      baseAuthority: builtinToolSurface.toolAuthority,
+      capabilities: builtinToolSurface.capabilities,
+      requestedAuthority,
+      authorityContext: input.authorityContext,
+    }),
     toolCallMetadata: builtinToolSurface.toolCallMetadata,
     additionalTools: builtinToolSurface.toolDefinitions,
     perCallCapabilities: builtinToolSurface.capabilities,
@@ -1092,6 +1210,88 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     sandboxProjection: "workspace_write",
     requestedAuthority,
   })!);
+}
+
+function selectUniqueSuitableRoute(
+  routes: readonly ManagedInvocationToolOptions["routes"][number][],
+  request: Record<string, unknown>,
+): ManagedInvocationToolOptions["routes"][number] | undefined {
+  const executionPhase = readRecord(request.executionPhase);
+  const taskAffinity = readTextArray(executionPhase?.taskAffinity);
+  if (taskAffinity.length === 0) {
+    return undefined;
+  }
+  const scored = routes.map((route) => ({
+    route,
+    score: taskAffinity.reduce((score, task) => {
+      const suitability = route.taskSuitability?.find((entry) => entry.task === task);
+      return score + (suitability?.level === "preferred" ? 3 : suitability?.level === "capable" ? 2 : suitability?.level === "limited" ? 1 : 0);
+    }, 0),
+  }));
+  const bestScore = Math.max(...scored.map((entry) => entry.score));
+  if (bestScore === 0) {
+    return undefined;
+  }
+  const best = scored.filter((entry) => entry.score === bestScore);
+  return best.length === 1 ? best[0]!.route : undefined;
+}
+
+function buildEffectiveRuntimeToolAuthority(input: {
+  readonly baseAuthority: ReadonlyMap<string, AuthorityDescriptor>;
+  readonly capabilities: ReadonlyMap<string, Capability>;
+  readonly requestedAuthority: OperatorTurnRequestedAuthority;
+  readonly authorityContext: EffectiveTurnAuthorityAdmissionContext | undefined;
+}): ReadonlyMap<string, AuthorityDescriptor> {
+  if (!hasGovernedDestructiveTurnAuthority(input.requestedAuthority, input.authorityContext)) {
+    return input.baseAuthority;
+  }
+
+  const projected = new Map(input.baseAuthority);
+  for (const [toolName, descriptor] of input.baseAuthority.entries()) {
+    const capability = input.capabilities.get(toolName);
+    if (descriptor.level < 4 || descriptor.allowed || !isDestructiveRuntimeCapability(capability)) {
+      continue;
+    }
+    projected.set(toolName, {
+      level: 4,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Governed destructive execution admitted by effective turn authority.",
+    });
+  }
+  return projected;
+}
+
+function hasGovernedDestructiveTurnAuthority(
+  requestedAuthority: OperatorTurnRequestedAuthority,
+  authorityContext: EffectiveTurnAuthorityAdmissionContext | undefined,
+): boolean {
+  if (requestedAuthority !== "destructive") {
+    return false;
+  }
+  if (authorityContext?.executionUse === "operator_interactive") {
+    return authorityContext.sessionPolicy?.maximumAuthority === "destructive"
+      && authorityContext.tenantPolicy?.maximumAuthority === "destructive"
+      && authorityContext.routePolicy?.maximumAuthority === "destructive";
+  }
+  return authorityContext?.goalEnvelope?.maximumAuthority === "destructive"
+    && authorityContext.workItemAuthority?.maximumAuthority === "destructive";
+}
+
+function isDestructiveRuntimeCapability(capability: Capability | undefined): boolean {
+  const envelope = capability?.effectEnvelope ?? (capability ? getBuiltinEffectEnvelope(capability.name) : undefined);
+  if (!envelope) {
+    return false;
+  }
+  return envelope.operation === "mutate"
+    && (
+      envelope.reversibility === "irreversible"
+      || envelope.reversibility === "unknown"
+      || envelope.identityUse === "privileged"
+      || envelope.identityUse === "unknown"
+      || envelope.dataEgress === "unknown"
+      || envelope.consequences.includes("unknown")
+    );
 }
 
 function recordRuntimeAuthoritySnapshot(
@@ -1211,19 +1411,29 @@ function buildBuiltinToolExecutors(
   surface: DefaultBuiltinToolSurface,
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
   const executors = new Map<string, RuntimeBuiltinToolExecutor>();
-  for (const toolName of surface.toolNames) {
+  for (const tool of surface.registry.list()) {
+    const toolName = tool.name;
     executors.set(toolName, async (input, context) => {
       const sandbox = mergeToolSandboxContext(context?.sandbox, context?.allowedToolNames);
-      const execution = await surface.bridge.execute({
-        name: toolName,
-        input,
-        ...(sandbox !== undefined ? { sandbox } : {}),
-      });
+        const execution = await surface.bridge.execute({
+          name: toolName,
+          input,
+          ...(context?.authority ? { authority: context.authority } : {}),
+          ...(sandbox !== undefined ? { sandbox } : {}),
+          ...((context?.abortSignal || context?.emitOutput)
+            ? {
+              executionContext: {
+                ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
+                ...(context.emitOutput ? { onOutput: context.emitOutput } : {}),
+              },
+            }
+            : {}),
+        });
       const result = execution.result;
       const resourceLinks = projectToolResultResourceLinks(result);
       const resourceLinkContent = (result.content ?? []).filter(isResourceLinkContent);
       return {
-        output: resourceLinks.length > 0 ? formatLinkedOutput(resourceLinks) : result.output,
+        output: resourceLinks.length > 0 ? formatLinkedOutput(resourceLinks, result.metadata) : result.output,
         isError: result.isError,
         metadata: result.metadata,
         ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
@@ -1252,11 +1462,55 @@ function mergeToolSandboxContext(
 
 function formatLinkedOutput(
   resourceLinks: readonly { readonly uri: string; readonly title?: string }[],
+  metadata: ToolResultMetadata | undefined,
 ): string {
   return [
+    ...formatLinkedOutputSourceLedger(metadata),
     "Full tool output is available as resource links:",
     ...resourceLinks.map((link) => `- ${link.title ?? "tool output"}: ${link.uri}`),
   ].join("\n");
+}
+
+function formatLinkedOutputSourceLedger(metadata: ToolResultMetadata | undefined): string[] {
+  if (metadata?.kind !== "web") {
+    return [];
+  }
+
+  if (metadata.sources?.length) {
+    return [
+      "Source summary:",
+      ...metadata.sources.slice(0, 8).map((source) => [
+        source.rank ? `${source.rank}.` : "-",
+        truncateLinkedOutputText(source.title ?? source.url, 120),
+        source.url,
+      ].join(" ")),
+      "",
+    ];
+  }
+
+  if (metadata.pages?.length) {
+    return [
+      "Source pages:",
+      ...metadata.pages.slice(0, 8).map((page) => [
+        page.title ? truncateLinkedOutputText(page.title, 120) : undefined,
+        page.url,
+      ].filter(Boolean).join(" ")),
+      "",
+    ];
+  }
+
+  if (metadata.url) {
+    return ["Source:", metadata.url, ""];
+  }
+
+  return [];
+}
+
+function truncateLinkedOutputText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function isResourceLinkContent(

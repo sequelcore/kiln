@@ -319,6 +319,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       outputTokens: response.usage.output_tokens,
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
+      contextUsage: { measurement: "provider_reported", cacheSemantics: "additive_to_input" },
       toolCalls,
       stopReason: response.stop_reason ?? "end_turn",
     };

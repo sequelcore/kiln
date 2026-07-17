@@ -36,8 +36,13 @@ export type {
   BenchmarkItemExecutionContext,
   BenchmarkItemExecutor,
 } from "./benchmark-runner.js";
-export { compareExperiments } from "./experiment-comparator.js";
-export type { ComparisonResult, ScorerComparison } from "./experiment-comparator.js";
+export { compareExperiments, evaluateCachePolicyPromotion } from "./experiment-comparator.js";
+export type {
+  CachePolicyPromotionInput,
+  CachePolicyPromotionResult,
+  ComparisonResult,
+  ScorerComparison,
+} from "./experiment-comparator.js";
 export { ConsistencyRunner } from "./consistency-runner.js";
 export type { ConsistencyRunnerConfig, ConsistencyResult, ConsistencyItemResult, ExperimentExecutor } from "./consistency-runner.js";
 export {
@@ -45,6 +50,35 @@ export {
   KILN_EXTERNAL_BENCHMARK_TRACKS,
   evaluateBenchmarkReadiness,
 } from "./benchmark-baseline.js";
+export { evaluateProgressiveLoadingPromotion } from "./progressive-loading-benchmark.js";
+export type {
+  ProgressiveLoadingObservation,
+  ProgressiveLoadingPolicy,
+  ProgressiveLoadingPromotionOptions,
+  ProgressiveLoadingPromotionReport,
+  ProgressiveLoadingTokenDelta,
+} from "./progressive-loading-benchmark.js";
+export { evaluateContextAllocationPromotion } from "./context-allocation-benchmark.js";
+export type {
+  ContextAllocationBenchmarkPolicy,
+  ContextAllocationObservation,
+  ContextAllocationPromotionReport,
+  ContextAllocationTaskClassComparison,
+} from "./context-allocation-benchmark.js";
+export {
+  evaluatePhaseAwareRoutePromotion,
+  evaluateReasoningEffortPromotion,
+} from "./phase-aware-routing-benchmark.js";
+export type {
+  PhaseAwareRouteBenchmarkPolicy,
+  PhaseAwareRouteObservation,
+  PhaseAwareRoutePromotionReport,
+  PhaseAwareRouteTaskClassComparison,
+  ReasoningEffortBenchmarkLevel,
+  ReasoningEffortObservation,
+  ReasoningEffortPromotionReport,
+  ReasoningEffortTaskClassComparison,
+} from "./phase-aware-routing-benchmark.js";
 export { createBenchmarkProfileScorers } from "./benchmark-scorers.js";
 export { projectBfclDataset } from "./adapters/bfcl-adapter.js";
 export type { BfclAdapterOptions, BfclFunctionCall, BfclProjectionResult, BfclUnsupportedRow } from "./adapters/bfcl-adapter.js";
@@ -60,6 +94,8 @@ export { generateBenchmarkPublicReport } from "./benchmark-report.js";
 export type { BenchmarkPublicReport, BenchmarkPublicReportInput } from "./benchmark-report.js";
 export type {
   BenchmarkBaselineResult,
+  BenchmarkEvidenceArtifact,
+  BenchmarkEvidenceArtifactKind,
   BenchmarkProfile,
   BenchmarkProfileReadiness,
   BenchmarkReadinessInput,

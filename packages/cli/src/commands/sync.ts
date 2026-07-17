@@ -5,13 +5,23 @@ import { syncNativePermissionProjections } from "../config/native-permission-pro
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { writeRepoShimProjections } from "../application/repo-shim-projection.js";
+import { syncGlobalInstructionShimProjections } from "../application/global-instruction-shim-projection.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
 import { listHarnessIntegrationCapabilities } from "../config/harness-integration-capabilities.js";
 import type { KilnAppConfig } from "../config.js";
 
-export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "skills"] as const;
+export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "global-instructions", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
+
+const LEGACY_SYNC_FLAGS: Readonly<Record<string, SyncTargetId>> = {
+  "--permissions": "permissions",
+  "--hooks": "hooks",
+  "--agents": "agents",
+  "--repo-shims": "repo-shims",
+  "--global-instructions": "global-instructions",
+  "--skills": "skills",
+};
 
 export interface SyncFlags {
   readonly targets: readonly SyncTargetId[];
@@ -24,13 +34,9 @@ export function parseSyncFlags(args: readonly string[]): SyncFlags {
   const explicitTargets = readFlagValues(args, "--target").flatMap((value) =>
     value.split(",").map((target) => target.trim()).filter(Boolean)
   );
-  const legacyFlagTargets: SyncTargetId[] = [
-    args.includes("--permissions") ? "permissions" : undefined,
-    args.includes("--hooks") ? "hooks" : undefined,
-    args.includes("--agents") ? "agents" : undefined,
-    args.includes("--repo-shims") ? "repo-shims" : undefined,
-    args.includes("--skills") ? "skills" : undefined,
-  ].filter((target): target is SyncTargetId => target !== undefined);
+  const legacyFlagTargets = Object.entries(LEGACY_SYNC_FLAGS)
+    .filter(([flag]) => args.includes(flag))
+    .map(([, target]) => target);
 
   const requestedTargets = [...explicitTargets, ...legacyFlagTargets].map(parseSyncTargetId);
   const targets = [...new Set(requestedTargets)];
@@ -49,12 +55,17 @@ export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
     || isSyncTargetSelected(flags, "hooks")
     || isSyncTargetSelected(flags, "agents")
     || isSyncTargetSelected(flags, "repo-shims")
+    || isSyncTargetSelected(flags, "global-instructions")
     || isSyncTargetSelected(flags, "skills")
   );
 }
 
 function isSyncTargetSelected(flags: SyncFlags, target: SyncTargetId): boolean {
   return flags.syncAll || flags.targets.includes(target);
+}
+
+function isForceSyncTargetSelected(flags: SyncFlags, target: SyncTargetId): boolean {
+  return flags.force && isSyncTargetSelected(flags, target);
 }
 
 function parseSyncTargetId(target: string): SyncTargetId {
@@ -128,11 +139,12 @@ export async function syncCommand(
     process.exit(1);
   }
   const forceNativeProjectionSync = requiresForceSyncConfirmation(flags);
-  const forcePermissionSync = flags.force && isSyncTargetSelected(flags, "permissions");
-  const forceHookSync = flags.force && isSyncTargetSelected(flags, "hooks");
-  const forceAgentSync = flags.force && isSyncTargetSelected(flags, "agents");
-  const forceRepoShimSync = flags.force && isSyncTargetSelected(flags, "repo-shims");
-  const forceSkillSync = flags.force && isSyncTargetSelected(flags, "skills");
+  const forcePermissionSync = isForceSyncTargetSelected(flags, "permissions");
+  const forceHookSync = isForceSyncTargetSelected(flags, "hooks");
+  const forceAgentSync = isForceSyncTargetSelected(flags, "agents");
+  const forceRepoShimSync = isForceSyncTargetSelected(flags, "repo-shims");
+  const forceGlobalInstructionSync = isForceSyncTargetSelected(flags, "global-instructions");
+  const forceSkillSync = isForceSyncTargetSelected(flags, "skills");
 
   const projectRoot = resolveProjectRoot({ explicitPath: flags.projectPath });
   const root = projectRoot.rootPath;
@@ -157,6 +169,7 @@ export async function syncCommand(
   let hookResult: Awaited<ReturnType<typeof syncNativeHookProjections>> | null = null;
   let agentResult: Awaited<ReturnType<typeof syncNativeAgentProjections>> | null = null;
   let repoShimResult: Awaited<ReturnType<typeof writeRepoShimProjections>> | null = null;
+  let globalInstructionResult: Awaited<ReturnType<typeof syncGlobalInstructionShimProjections>> | null = null;
   let skillsResult: Awaited<ReturnType<typeof syncNativeSkillProjections>> | null = null;
 
   const allErrors: string[] = [];
@@ -198,6 +211,14 @@ export async function syncCommand(
     allErrors.push(...repoShimResult.errors);
   }
 
+  if (isSyncTargetSelected(flags, "global-instructions")) {
+    globalInstructionResult = await syncGlobalInstructionShimProjections(root, {
+      force: forceGlobalInstructionSync,
+      disabledHarnesses,
+    });
+    allErrors.push(...globalInstructionResult.errors);
+  }
+
   if (isSyncTargetSelected(flags, "skills")) {
     skillsResult = await syncNativeSkillProjections(root, {
       force: forceSkillSync,
@@ -211,7 +232,7 @@ export async function syncCommand(
     ? " (Windows: Codex hooks skipped)"
     : "";
 
-  if (permResult || hookResult || agentResult || repoShimResult || skillsResult) {
+  if (permResult || hookResult || agentResult || repoShimResult || globalInstructionResult || skillsResult) {
     console.log("\nSync Results:");
     console.log("─".repeat(40));
 
@@ -245,16 +266,24 @@ export async function syncCommand(
       }
     }
 
+    if (globalInstructionResult) {
+      console.log(`Global instruction shims: ${globalInstructionResult.synced}`);
+      for (const target of globalInstructionResult.targets) {
+        console.log(`${target.filePath}: ${target.status === "blocked" ? "FAIL" : "OK"} (${target.status})`);
+      }
+    }
+
     if (skillsResult) {
-      console.log(`Skills (Claude Code):   ${skillsResult.claude ? "OK" : "FAIL"} (${skillsResult.synced} skills)`);
-      console.log(`Skills (Codex):         ${skillsResult.codex ? "OK" : "FAIL"} (${skillsResult.synced} skills)`);
-      console.log(`Skills (OpenCode):      ${skillsResult.opencode ? "OK" : "FAIL"} (${skillsResult.synced} skills)`);
+      console.log(`Skills (Claude Code):   ${skillsResult.claude ? "OK" : "FAIL"}`);
+      console.log(`Skills (Codex):         ${skillsResult.codex ? "OK" : "FAIL"}`);
+      console.log(`Skills (OpenCode):      ${skillsResult.opencode ? "OK" : "FAIL"}`);
+      console.log(`Skill projections:       ${skillsResult.synced}`);
     }
 
     console.log("─".repeat(40));
   }
 
-  if (permResult || hookResult || agentResult || repoShimResult || skillsResult) {
+  if (permResult || hookResult || agentResult || repoShimResult || globalInstructionResult || skillsResult) {
     console.log("");
     console.log("Harness capabilities:");
     for (const capability of listHarnessIntegrationCapabilities()) {

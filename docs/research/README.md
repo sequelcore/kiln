@@ -82,12 +82,37 @@ define the active architecture contract. For doctrine, use
   Official X platform, MCP/community demand, mixed-initiative UX, and
   social-listening limitation research for governed external engagement.
 
+- `17-inspectable-agent-work.md`
+  External tracing, hooks, observability, review, and human-AI interaction
+  research supporting Kiln's cross-surface inspectable agent work contract.
+
+- `18-execution-surfaces-strategy.md`
+  Accepted research basis from external docs, cloned-repo comparison, community
+  signal, and local architecture diagnosis supporting Kiln Operator Workspace,
+  Kiln Gateway as app AI runtime, and contract-first execution-surface
+  convergence.
+
+- `19-clear-writing-skill.md`
+  Plain-language, content-design, and developer-documentation research basis
+  for promoting a neutral `clear-writing` skill into Kiln core while keeping
+  brand, regional, legal, and organization voice outside native product
+  doctrine.
+
+- `20-cross-domain-task-taxonomy.md`
+  Harness, lab, spec, paper, and local architecture research supporting a
+  separate cross-domain work classification model instead of expanding
+  model-route suitability into a giant task enum.
+
+- `21-managed-invocation-routing-2026.md`
+  Runtime ownership, cloned-harness comparison, current provider/model evidence,
+  benchmark limits, and community failure signals for managed child routing.
+
 ## Supporting Reference
 
 - `10-coordination-intelligence.md`
-  Deep research note on coordination primitives and their biological and
-  computer-science lineage. Keep this as supporting reference, not as the
-  entrypoint for general readers.
+  Adopted research synthesis for deterministic topology selection, bounded
+  managed execution, independent review, and the explicit non-adoption of
+  disconnected threshold, chain-energy, and parallel-registry prototypes.
 
 ## Reading Order
 
@@ -107,3 +132,8 @@ define the active architecture contract. For doctrine, use
 14. `14-live-browser-operator-surface.md`
 15. `15-background-parallel-agent-surface.md`
 16. `16-external-engagement.md`
+17. `17-inspectable-agent-work.md`
+18. `18-execution-surfaces-strategy.md`
+19. `19-clear-writing-skill.md`
+20. `20-cross-domain-task-taxonomy.md`
+21. `21-managed-invocation-routing-2026.md`

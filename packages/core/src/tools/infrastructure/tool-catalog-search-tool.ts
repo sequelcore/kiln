@@ -50,6 +50,13 @@ export class ToolCatalogSearchTool implements DevTool {
       totalIndexed: result.totalIndexed,
       includedSchemas: request.includeSchemas ?? false,
       stale: result.stale ?? false,
+      ...(request.exact
+        && request.includeSchemas === true
+        && result.stale !== true
+        && result.entries.length === 1
+        && result.entries[0]?.name === request.exact
+        ? { materializableToolName: request.exact }
+        : {}),
       verbosity: verbosity.value,
     }));
   }

@@ -53,6 +53,7 @@ const BUILTIN_TOOL_NAMES = [
   "computer_close_application",
   "grep",
   "glob",
+  "json_query",
   "git",
   "code_intelligence",
   "monitor_start",
@@ -63,6 +64,7 @@ const BUILTIN_TOOL_NAMES = [
   "task_update",
   "operator_elicit",
   "tool_catalog_search",
+  "memory_search",
   "memory_save",
   "resource_list",
   "resource_template_list",
@@ -126,6 +128,7 @@ function createAuthorityDeniedMemoryReadRepository(repository: MemoryRepository)
     saveRelation: (relation) => repository.saveRelation(relation),
     getRelation: () => denyRead(),
     listRelations: () => denyRead(),
+    listIncomingRelations: () => denyRead(),
     saveContextAdmission: (admission) => repository.saveContextAdmission(admission),
     listContextAdmissions: () => denyRead(),
     close: () => repository.close(),
@@ -355,8 +358,7 @@ describe("default builtin tool surface", () => {
   });
 
   it("exposes memory resources through the default builtin surface when configured", async () => {
-    const tempDir = await makeTempDir();
-    const repository = new SqliteMemoryRepository({ dbPath: join(tempDir, "memory.db") });
+    const repository = new SqliteMemoryRepository({ dbPath: ":memory:" });
     try {
       repository.saveRecord({
         id: "root",
@@ -376,9 +378,54 @@ describe("default builtin tool surface", () => {
       const surface = createDefaultBuiltinToolSurface({ memoryResources: { repository } });
 
       expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://memory/graph");
+      expect(surface.toolNames).toContain("memory_search");
       expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain(
         "kiln://memory/nodes/{id}{?scope,scopeKind,scopeId}",
       );
+      await expect(surface.bridge.execute({
+        name: "memory_search",
+        input: {
+          query: "root",
+          scopeKind: "project",
+          scopeId: "kiln",
+          limit: 5,
+        },
+      })).resolves.toMatchObject({
+        attempts: 1,
+        fallbackUsed: false,
+        result: {
+          isError: false,
+          output: expect.stringContaining("Root memory."),
+          metadata: expect.objectContaining({
+            toolName: "memory_search",
+            kind: "memory",
+            operation: "search",
+            scopeKind: "project",
+            scopeId: "kiln",
+            query: "root",
+            resultCount: 1,
+            resourceUri: "kiln://memory/graph?scopeKind=project&scopeId=kiln&query=root&limit=5",
+          }),
+        },
+      });
+      const graph = await surface.resources.read("kiln://memory/graph?query=root&limit=5");
+      expect(graph.summary).toEqual({
+        kind: "memory-graph",
+        totalCount: 1,
+        counts: {
+          node: 1,
+          edge: 0,
+          truncated: 0,
+        },
+        facets: {
+          layers: ["semantic"],
+          scopeKinds: ["project"],
+        },
+        meta: {
+          depth: 0,
+          limit: 5,
+        },
+      });
       await expect(surface.bridge.execute({
         name: "resource_read",
         input: { uri: "kiln://memory/graph?query=root&limit=5" },
@@ -392,37 +439,55 @@ describe("default builtin tool surface", () => {
       });
     } finally {
       repository.close();
-      await removeTempDir(tempDir);
     }
   });
 
   it("returns structured authorization-denied metadata for unauthorized memory resource reads", async () => {
-    const tempDir = await makeTempDir();
-    const repository = new SqliteMemoryRepository({ dbPath: join(tempDir, "memory.db") });
+    const repository = new SqliteMemoryRepository({ dbPath: ":memory:" });
     try {
       const surface = createDefaultBuiltinToolSurface({
         memoryResources: {
           repository: createAuthorityDeniedMemoryReadRepository(repository),
         },
       });
-      const result = await surface.bridge.execute({
+      const resourceReadResult = await surface.bridge.execute({
         name: "resource_read",
         input: { uri: "kiln://memory/graph?query=root&limit=5" },
       });
 
-      expect(result.result.isError).toBe(true);
-      expect(result.result.output).toBe("Resource read denied by authority policy.");
-      expect(result.result.output).not.toContain("hidden-payload-token");
-      expect(result.result.metadata).toMatchObject({
+      expect(resourceReadResult.result.isError).toBe(true);
+      expect(resourceReadResult.result.output).toBe("Resource read denied by authority policy.");
+      expect(resourceReadResult.result.output).not.toContain("hidden-payload-token");
+      expect(resourceReadResult.result.metadata).toMatchObject({
         toolName: "resource_read",
         kind: "resource",
         operation: "read",
         uri: "kiln://memory/graph?query=root&limit=5",
         errorCode: "authorization_denied",
       });
+
+      const memorySearchResult = await surface.bridge.execute({
+        name: "memory_search",
+        input: {
+          query: "root",
+          scopeKind: "project",
+          scopeId: "kiln",
+          limit: 5,
+        },
+      });
+
+      expect(memorySearchResult.result.isError).toBe(true);
+      expect(memorySearchResult.result.output).toBe("Memory search denied by authority policy.");
+      expect(memorySearchResult.result.output).not.toContain("hidden-payload-token");
+      expect(memorySearchResult.result.metadata).toMatchObject({
+        toolName: "memory_search",
+        kind: "memory",
+        operation: "search",
+        resourceUri: "kiln://memory/graph?scopeKind=project&scopeId=kiln&query=root&limit=5",
+        errorCode: "authorization_denied",
+      });
     } finally {
       repository.close();
-      await removeTempDir(tempDir);
     }
   });
 
@@ -464,8 +529,7 @@ describe("default builtin tool surface", () => {
   });
 
   it("fails closed for memory_save when fallback mutation service inherits zero-rule memory resource authority", async () => {
-    const tempDir = await makeTempDir();
-    const repository = new SqliteMemoryRepository({ dbPath: join(tempDir, "memory.db") });
+    const repository = new SqliteMemoryRepository({ dbPath: ":memory:" });
     try {
       const surface = createDefaultBuiltinToolSurface({
         memoryResources: {
@@ -504,7 +568,6 @@ describe("default builtin tool surface", () => {
       });
     } finally {
       repository.close();
-      await removeTempDir(tempDir);
     }
   });
 
@@ -562,22 +625,24 @@ describe("default builtin tool surface", () => {
       });
 
       const link = result.result.metadata?.resourceLinks?.[0];
+      const linkUri = link?.uri;
+      expect(linkUri).toEqual(expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/));
       expect(link).toMatchObject({
-        uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+        uri: linkUri,
         relation: "full_output",
         mimeType: "text/plain",
         title: "read_many full output",
       });
       expect(result.result.content).toContainEqual(expect.objectContaining({
         type: "resource_link",
-        uri: link?.uri,
+        uri: linkUri,
         name: "read_many full output",
         mimeType: "text/plain",
       }));
 
-      const artifact = await surface.resources.read(link!.uri);
+      const artifact = await surface.resources.read(linkUri!);
       expect(artifact.contents[0]).toMatchObject({
-        uri: link?.uri,
+        uri: linkUri,
         mimeType: "text/plain",
         text: expect.stringContaining("---"),
       });
@@ -603,8 +668,10 @@ describe("default builtin tool surface", () => {
     });
 
     const link = result.result.metadata?.resourceLinks?.[0];
+    const linkUri = link?.uri;
+    expect(linkUri).toEqual(expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/));
     expect(link).toMatchObject({
-      uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+      uri: linkUri,
       relation: "full_output",
       mimeType: "text/plain",
       title: "bash full output",
@@ -613,7 +680,7 @@ describe("default builtin tool surface", () => {
     expect(result.result.metadata?.["stdoutTruncated"]).toBe(true);
     expect(Buffer.byteLength(String(result.result.metadata?.["stdout"] ?? ""), "utf8")).toBeLessThanOrEqual(8 * 1024);
 
-    const artifact = await surface.resources.read(link!.uri);
+    const artifact = await surface.resources.read(linkUri!);
     const artifactText = artifact.contents[0] && "text" in artifact.contents[0]
       ? artifact.contents[0].text
       : "";
@@ -707,18 +774,19 @@ describe("default builtin tool surface", () => {
       expect(result.result.output).toBe("1 file read, 0 skipped, 120 bytes (truncated)");
       expect(result.result).not.toHaveProperty("resourcePayload");
       const link = result.result.metadata?.resourceLinks?.[0];
+      const linkUri = link?.uri;
       expect(link).toMatchObject({
         relation: "full_output",
         mimeType: "text/plain",
         title: "read_many full output",
       });
 
-      const artifact = await surface.resources.read(link!.uri);
+      const artifact = await surface.resources.read(linkUri!);
       const artifactText = artifact.contents[0] && "text" in artifact.contents[0]
         ? artifact.contents[0].text
         : "";
       expect(artifact.contents[0]).toMatchObject({
-        uri: link?.uri,
+        uri: linkUri,
         mimeType: "text/plain",
         text: expect.stringContaining("---"),
       });
@@ -738,7 +806,14 @@ describe("default builtin tool surface", () => {
       },
     });
 
-    const projectedTools = ["read", "tool_catalog_search", "resource_list", "resource_template_list", "resource_read"];
+    const projectedTools = [
+      "read",
+      "tool_catalog_search",
+      "memory_search",
+      "resource_list",
+      "resource_template_list",
+      "resource_read",
+    ];
     expect(surface.toolNames).toEqual(projectedTools);
     expect(surface.tools.map((tool) => tool.name)).toEqual(projectedTools);
     expect(surface.toolDefinitions.map((tool) => tool.name)).toEqual(projectedTools);
@@ -749,6 +824,7 @@ describe("default builtin tool surface", () => {
     expect(surface.registry.has("monitor_start")).toBe(true);
     expect(surface.registry.has("task_update")).toBe(true);
     expect(surface.registry.has("operator_elicit")).toBe(true);
+    expect(surface.registry.has("memory_search")).toBe(true);
     expect(surface.registry.has("resource_read")).toBe(true);
     expect(surface.bridge.listTools().map((tool) => tool.name)).toEqual(BUILTIN_TOOL_NAMES);
 
@@ -772,23 +848,33 @@ describe("default builtin tool surface", () => {
     });
   });
 
-  it("supports surface-owned read-only additional tools in deferred projection", async () => {
+  it("admits only explicitly requested surface-owned tools in deferred projection", async () => {
     const surface = createDefaultBuiltinToolSurface({
-      additionalTools: [{
-        name: "kiln_config.read",
-        description: "Read config.",
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
-        effectEnvelope: READ_ONLY_EFFECT,
-        execute: async () => ({ output: "{}", isError: false }),
-      }],
+      additionalTools: [
+        {
+          name: "kiln_config.read",
+          description: "Read config.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          effectEnvelope: READ_ONLY_EFFECT,
+          execute: async () => ({ output: "{}", isError: false }),
+        },
+        {
+          name: "kiln_config.apply_change",
+          description: "Apply config.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          execute: async () => ({ output: "applied", isError: false }),
+        },
+      ],
       toolProjection: {
         mode: "deferred",
-        alwaysOnTools: ["read"],
+        alwaysOnTools: ["read", "kiln_config.read"],
       },
     });
 
     expect(surface.toolNames).toContain("kiln_config.read");
+    expect(surface.toolNames).not.toContain("kiln_config.apply_change");
     expect(surface.registry.has("kiln_config.read")).toBe(true);
+    expect(surface.registry.has("kiln_config.apply_change")).toBe(true);
     await expect(surface.bridge.execute({
       name: "kiln_config.read",
       input: {},

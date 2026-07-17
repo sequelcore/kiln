@@ -156,6 +156,11 @@ function tagsForTool(tool: DevTool): readonly string[] {
   if (tool.name === "grep" || tool.name === "glob") {
     tags.add("search");
   }
+  if (tool.name === "json_query") {
+    tags.add("structured-data");
+    tags.add("json");
+    tags.add("query");
+  }
   if (tool.name === "stat" || tool.name === "tree") {
     tags.add("inspection");
   }

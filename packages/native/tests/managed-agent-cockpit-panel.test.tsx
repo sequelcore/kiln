@@ -282,6 +282,51 @@ describe("native managed-agent cockpit panel", () => {
     expect(markup).toContain("agent_invocation_failed");
   });
 
+  it("renders managed invocation recovery as an actionable next work-item step", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:local",
+      projectedAt: "2026-05-24T12:01:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "native-local",
+          label: "Local native",
+          kind: "local",
+        },
+      ],
+      events: [
+        managedEvent("evt-recovery", 1, "agent_invocation_failed", {
+          managedInvocationId: "child-recovery",
+          lifecycleState: "timed_out",
+          managedInvocationRecovery: {
+            status: "phase_evidence_required",
+            reason: "Child produced partial research evidence before timeout.",
+            nextTool: "work_item.update",
+            thenTool: "work_item.execution.start",
+            workItemId: "work-42",
+            evidenceToRecord: ["source-map", "risk-hypothesis"],
+            requiredToolNames: ["resource_read"],
+            sourceResourceUris: ["kiln://managed-agent/child-recovery/handoff"],
+          },
+        }),
+      ],
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:local",
+      projection: projection.view,
+      viewState: {},
+    });
+
+    const markup = renderToStaticMarkup(<ManagedAgentCockpitPanel cockpit={cockpit} />);
+
+    expect(markup).toContain("Next governed action");
+    expect(markup).toContain("work_item.update -&gt; work_item.execution.start");
+    expect(markup).toContain("work work-42");
+    expect(markup).toContain("Child produced partial research evidence before timeout.");
+    expect(markup).toContain("evidence source-map, risk-hypothesis");
+    expect(markup).toContain("tools resource_read");
+    expect(markup).toContain("source kiln://managed-agent/child-recovery/handoff");
+  });
+
   it("renders stale heartbeat managed child attention from shared view-state", () => {
     const projection = createNativeCockpitReadOnlyProjection({
       surfaceId: "native:local",

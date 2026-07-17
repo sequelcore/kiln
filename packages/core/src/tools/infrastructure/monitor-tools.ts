@@ -1,9 +1,11 @@
-import { spawn } from "node:child_process";
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { monitorToolMetadata, type MonitorStatus } from "../domain/tool-result-metadata.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import type { ToolResourceChangeNotifier } from "../domain/tool-resource-notifications.js";
 import { parseOutputVerbosity } from "./output-verbosity.js";
+import {
+  SpawnCommandProcessRunner,
+  type CommandProcessRunner,
+} from "./command-process.js";
 import {
   getSandboxContext,
   optionalNumber,
@@ -111,7 +113,7 @@ export class MonitorRegistry {
   private nextId = 1;
 
   constructor(options: MonitorRegistryOptions = {}) {
-    this.commandRunner = options.commandRunner ?? new SpawnMonitorCommandRunner();
+    this.commandRunner = options.commandRunner ?? new SpawnMonitorCommandRunner(new SpawnCommandProcessRunner());
     this.now = options.now ?? Date.now;
     this.resourceNotifications = options.resourceNotifications;
   }
@@ -453,25 +455,20 @@ export class MonitorListTool implements DevTool {
 }
 
 class SpawnMonitorCommandRunner implements MonitorCommandRunner {
+  constructor(private readonly processRunner: CommandProcessRunner) {}
+
   start(request: MonitorCommandRequest, sink: MonitorOutputSink): MonitorProcessHandle {
-    const child = spawn("bash", ["-c", request.command], {
+    const handle = this.processRunner.start({
+      executable: "bash",
+      args: ["-c", request.command],
       cwd: request.cwd,
-      windowsHide: true,
-    }) as ChildProcessWithoutNullStreams;
-    child.stdout.on("data", (chunk: Buffer) => sink.stdout(chunk.toString("utf8")));
-    child.stderr.on("data", (chunk: Buffer) => sink.stderr(chunk.toString("utf8")));
-    child.on("error", (error) => sink.finish({ error }));
-    child.on("close", (code, signal) => sink.finish({
-      exitCode: code ?? undefined,
-      signal: signal ?? undefined,
-    }));
+    }, {
+      output: ({ stream, text }) => stream === "stdout" ? sink.stdout(text) : sink.stderr(text),
+      finish: sink.finish,
+    });
     return {
-      pid: child.pid,
-      stop: async () => {
-        if (!child.killed) {
-          child.kill();
-        }
-      },
+      pid: handle.pid,
+      stop: async () => handle.stop("stopped"),
     };
   }
 }

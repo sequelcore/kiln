@@ -39,8 +39,7 @@ describe("goal execution loop", () => {
       id: "goal-execution",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
-      planHash: "sha256:plan",
+      source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
       workItemIds: [completed.id, ready.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -92,7 +91,7 @@ describe("goal execution loop", () => {
       id: "goal-managed-failure",
       objective: "Record managed child failure.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -158,7 +157,7 @@ describe("goal execution loop", () => {
       id: "goal-managed-cancelled",
       objective: "Record managed child cancellation.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -224,7 +223,7 @@ describe("goal execution loop", () => {
       id: "goal-paused",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [blocked.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -270,7 +269,7 @@ describe("goal execution loop", () => {
       id: "goal-needs-input",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -326,6 +325,58 @@ describe("goal execution loop", () => {
     });
   });
 
+  it("represents missing harness capability as an unresolved pause requirement", () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-needs-harness-capability",
+      summary: "Run delegated review only after a capable route is admitted.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: ["managed-agent review"],
+      pauseRequirements: [
+        {
+          id: "missing-managed-review-route",
+          kind: "capability",
+          summary: "No admitted managed route can perform delegated review in the active harness.",
+          status: "pending",
+        },
+      ],
+    });
+    const goal = new GoalRunStore({ now: fixedNow }).create({
+      id: "goal-needs-harness-capability",
+      objective: "Execute governed review.",
+      ownerSessionId: "session-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+
+    const paused = selectNextGoalExecutionStep({
+      goalRun: goal,
+      workItems: workItemStore.snapshot().items,
+    });
+
+    expect(paused).toMatchObject({
+      status: "paused",
+      reasonCode: "pause_requirements_unresolved",
+      blockingWorkItemIds: [item.id],
+      pendingPauseRequirements: [
+        {
+          id: "missing-managed-review-route",
+          kind: "capability",
+          status: "pending",
+        },
+      ],
+    });
+  });
+
   it("records execution attempts and blocks completion until required evidence and residual risk are present", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
@@ -341,7 +392,7 @@ describe("goal execution loop", () => {
       id: "goal-attempts",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -411,7 +462,7 @@ describe("goal execution loop", () => {
       id: "goal-skipped-gate",
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -496,7 +547,7 @@ describe("goal execution loop", () => {
       id: "goal-gate-results",
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -592,7 +643,7 @@ describe("goal execution loop", () => {
       id: "goal-review-gate",
       objective: "Execute risky profile work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -673,7 +724,7 @@ describe("goal execution loop", () => {
       id: "goal-browser-gate",
       objective: "Execute UI profile work.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -757,7 +808,7 @@ describe("goal execution loop", () => {
       id: "goal-evidence-closeout",
       objective: "Close only with goal-level evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -847,7 +898,7 @@ describe("goal execution loop", () => {
       id: "goal-managed-adoption",
       objective: "Close with managed adoption evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -979,7 +1030,7 @@ describe("goal execution loop", () => {
       id: "goal-managed-readiness",
       objective: "Close only after adoption readiness.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1295,7 +1346,7 @@ describe("goal execution loop", () => {
       id: "goal-raw-adoption",
       objective: "Do not close with raw adoption evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1394,7 +1445,7 @@ describe("goal execution loop", () => {
       id: "goal-raw-handoff",
       objective: "Do not close with raw handoff evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1502,7 +1553,7 @@ describe("goal execution loop", () => {
       id: "goal-policy-handoff",
       objective: "Do not close without policy-required managed handoff.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id, second.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1605,7 +1656,7 @@ describe("goal execution loop", () => {
       id: "goal-rejected-adoption",
       objective: "Do not close with rejected adoption.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [adoptedButRejected.id, second.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1741,7 +1792,7 @@ describe("goal execution loop", () => {
       id: "goal-closeout-summary",
       objective: "Generate closeout from evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1800,7 +1851,7 @@ describe("goal execution loop", () => {
       id: "goal-replay",
       objective: "Replay execution.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",

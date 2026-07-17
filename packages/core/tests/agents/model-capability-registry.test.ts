@@ -1,9 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { ModelCapabilityRegistry } from "../../src/agents/model-capability-registry.js";
+import {
+  isCanonicalModelCapability,
+  ModelCapabilityRegistry,
+} from "../../src/agents/model-capability-registry.js";
 import { MODEL_CATALOG } from "../../src/agents/model-pricing.js";
 
 describe("ModelCapabilityRegistry", () => {
   const registry = new ModelCapabilityRegistry();
+
+  it("owns the canonical capability vocabulary consumed by eligibility", () => {
+    expect(isCanonicalModelCapability("tools")).toBe(true);
+    expect(isCanonicalModelCapability("structured-output")).toBe(true);
+    expect(isCanonicalModelCapability("provider-special-secret-mode")).toBe(false);
+  });
 
   it("has capability profiles for all MODEL_CATALOG entries", () => {
     for (const entry of MODEL_CATALOG) {
@@ -29,12 +38,12 @@ describe("ModelCapabilityRegistry", () => {
   });
 
   it("getByProvider() resolves direct-api profiles", () => {
-    const openaiProfile = registry.getByProvider("openai", "gpt-5.4");
+    const openaiProfile = registry.getByProvider("openai", "gpt-5.6");
 
     expect(openaiProfile).toBeDefined();
     expect(openaiProfile!.provider).toBe("openai");
-    expect(openaiProfile!.inputPer1M).toBe(2.5);
-    expect(openaiProfile!.outputPer1M).toBe(15);
+    expect(openaiProfile!.inputPer1M).toBe(5);
+    expect(openaiProfile!.outputPer1M).toBe(30);
   });
 
   it("projects multimodal capabilities only when the provider adapter can serialize them", () => {
@@ -46,9 +55,9 @@ describe("ModelCapabilityRegistry", () => {
       toolResultModalities: ["text"],
     });
 
-    expect(registry.modalityCapabilities("codex-oauth", "gpt-5.4")).toMatchObject({
+    expect(registry.modalityCapabilities("codex-oauth", "gpt-5.6")).toMatchObject({
       provider: "codex-oauth",
-      model: "gpt-5.4",
+      model: "gpt-5.6",
       supportedCapabilities: [],
       inputModalities: ["text"],
       toolResultModalities: ["text"],
@@ -79,29 +88,8 @@ describe("ModelCapabilityRegistry", () => {
     expect(registry.get("nonexistent-model")).toBeUndefined();
   });
 
-  it("eligible() filters by tools support", () => {
-    const eligible = registry.eligible({ hasTools: true, requiresStreaming: false });
-    for (const p of eligible) {
-      expect(p.supportsTools).toBe(true);
-    }
-    // deepseek-reasoner and ollama-local don't support tools
-    expect(eligible.find((p) => p.model === "deepseek-reasoner")).toBeUndefined();
-    expect(eligible.find((p) => p.model === "ollama-local")).toBeUndefined();
-  });
-
-  it("eligible() filters by streaming support", () => {
-    const eligible = registry.eligible({ hasTools: false, requiresStreaming: true });
-    for (const p of eligible) {
-      expect(p.supportsStreaming).toBe(true);
-    }
-    // o3 and o3-mini don't support streaming
-    expect(eligible.find((p) => p.model === "o3")).toBeUndefined();
-    expect(eligible.find((p) => p.model === "o3-mini")).toBeUndefined();
-  });
-
-  it("eligible() with no requirements returns all models", () => {
-    const eligible = registry.eligible({ hasTools: false, requiresStreaming: false });
-    expect(eligible.length).toBe(MODEL_CATALOG.length);
+  it("does not own execution eligibility alongside the canonical eligibility service", () => {
+    expect("eligible" in registry).toBe(false);
   });
 
   it("all() returns all profiles", () => {
@@ -116,7 +104,7 @@ describe("ModelCapabilityRegistry", () => {
   });
 
   it("returns static task suitability evidence for configured model routes", () => {
-    expect(registry.taskSuitability("codex-oauth", "gpt-5.5")).toEqual(
+    expect(registry.taskSuitability("codex-oauth", "gpt-5.6")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           task: "backend-coding",
@@ -153,7 +141,7 @@ describe("ModelCapabilityRegistry", () => {
         }),
       ]),
     );
-    expect(registry.taskSuitability("codex-oauth", "gpt-5.4-mini")).toEqual(
+    expect(registry.taskSuitability("codex-oauth", "gpt-5.6-luna")).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           task: "mechanical-edit",

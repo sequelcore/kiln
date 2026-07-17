@@ -24,6 +24,8 @@ describe("ChatWorkbench", () => {
     );
 
     const workspace = screen.getByRole("region", { name: "Chat workspace" });
+    expect(workspace).toHaveAttribute("data-layout", "kiln-chat-workbench");
+    expect(workspace.firstElementChild).toHaveClass("min-w-[min(100%,38rem)]");
     expect(workspace).toHaveTextContent("Transcript surface");
     expect(workspace).toHaveTextContent("Message composer");
     expect(screen.queryByRole("region", { name: "Approval required" })).not.toBeInTheDocument();
@@ -47,6 +49,7 @@ describe("ChatWorkbench", () => {
 
     const dock = screen.getByRole("region", { name: "Approval required" });
     expect(dock).toHaveTextContent("Tool \"bash\" requires approval");
+    expect(dock.firstElementChild).toHaveClass("mx-auto", "max-w-3xl");
 
     fireEvent.click(within(dock).getByRole("button", { name: "Approve" }));
     expect(onApprove).toHaveBeenCalledWith("approval-1");
@@ -77,6 +80,7 @@ describe("ChatWorkbench", () => {
 
     const dock = screen.getByRole("region", { name: "Pending approvals" });
     expect(dock).toHaveTextContent("2 approvals are waiting in other sessions.");
+    expect(dock.firstElementChild).toHaveClass("mx-auto", "max-w-3xl");
     fireEvent.click(within(dock).getByRole("button", { name: "Review" }));
     expect(onOpenApprovals).toHaveBeenCalledTimes(1);
   });

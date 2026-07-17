@@ -1,9 +1,14 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ManagedAgentFanOutLifecycleInput } from "@kilnai/runtime";
+import type { ManagedAgentOrchestrationLifecycleInput } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
-import { buildRunSessionRequirements, resolveRunProviderModelAdmission, runCommand } from "../../src/commands/run.js";
+import {
+  buildRunSessionRequirements,
+  createCliRuntimeApprovalHandler,
+  resolveRunProviderModelAdmission,
+  runCommand,
+} from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -22,6 +27,7 @@ const runWiringMocks = vi.hoisted(() => {
       toolCallCount: 0,
       turnDepth: 0,
       successfulProviderId: "openai",
+      providersUsed: ["openai"],
       transcript: [],
       exactArtifacts: [],
       submittedPlan: undefined,
@@ -33,7 +39,7 @@ const runWiringMocks = vi.hoisted(() => {
     cleanupWorktree: vi.fn().mockResolvedValue(undefined),
     cleanupRegistryRunAll: vi.fn().mockResolvedValue(undefined),
     createManagedAgentInvocationResourceProvider: vi.fn(() => ({ id: "managed-agent-resource-provider" })),
-    runManagedAgentFanOutLifecycle: vi.fn(),
+    runManagedAgentOrchestrationLifecycle: vi.fn(),
     runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
     transcriptInit: vi.fn().mockResolvedValue(undefined),
     transcriptFinalize: vi.fn().mockResolvedValue(undefined),
@@ -42,10 +48,46 @@ const runWiringMocks = vi.hoisted(() => {
     capturedRunSessionInputs: [] as unknown[],
     evaluateRouteHealth: vi.fn().mockResolvedValue({ healthy: true }),
     recordRouteOutcome: vi.fn().mockResolvedValue(undefined),
+    discoverGuiCliOperatorModels: vi.fn().mockResolvedValue({
+      codexModels: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+      codexDiscovery: {
+        models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+        status: "available",
+        reason: "Codex models discovered.",
+        authState: "authenticated",
+      },
+      opencodeModels: ["opencode/minimax-m2.5-free"],
+      opencodeDiscovery: {
+        models: ["opencode/minimax-m2.5-free"],
+        status: "available",
+        reason: "OpenCode models discovered.",
+        authState: "authenticated",
+      },
+    }),
+    probeCodexCliModelReadiness: vi.fn().mockResolvedValue({
+      provider: "codex",
+      model: "gpt-5.5",
+      runnable: true,
+      status: "available",
+      reason: "Codex CLI model 'gpt-5.5' passed live readiness probe.",
+      authState: "authenticated",
+    }),
   };
 });
 
-vi.mock("@kilnai/runtime", () => ({
+vi.mock("@kilnai/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/runtime")>();
+  return {
+  ...actual,
+  attachManagedInvocationSessionEventSink: vi.fn((attachment: Record<string, unknown> | undefined, sessionEventSink: unknown) => {
+    if (!attachment) {
+      return undefined;
+    }
+    return {
+      ...attachment,
+      sessionEventSink,
+    };
+  }),
   getProjectContextArtifactCache: vi.fn().mockResolvedValue({
     set: vi.fn(),
   }),
@@ -98,6 +140,8 @@ vi.mock("@kilnai/runtime", () => ({
       authState: "authenticated",
     },
   }),
+  discoverGuiCliOperatorModels: runWiringMocks.discoverGuiCliOperatorModels,
+  probeCodexCliModelReadiness: runWiringMocks.probeCodexCliModelReadiness,
   discoverCodexCliModelDiscovery: vi.fn().mockResolvedValue({
     models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
     status: "available",
@@ -134,7 +178,7 @@ vi.mock("@kilnai/runtime", () => ({
     ...options,
     invocationService: options.invocationService ?? {},
   }),
-  runManagedAgentFanOutLifecycle: runWiringMocks.runManagedAgentFanOutLifecycle,
+  runManagedAgentOrchestrationLifecycle: runWiringMocks.runManagedAgentOrchestrationLifecycle,
   ProviderModelRouteHealthStore: class {
     evaluateRouteHealth(providerId: string, modelId: string) {
       return runWiringMocks.evaluateRouteHealth(providerId, modelId);
@@ -163,7 +207,8 @@ vi.mock("@kilnai/runtime", () => ({
   WindowsUiaComputerUseProvider: class MockWindowsUiaComputerUseProvider {
     constructor(readonly options: unknown) {}
   },
-}));
+  };
+});
 
 vi.mock("@kilnai/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/core")>();
@@ -370,17 +415,69 @@ const APP_CONFIG: KilnAppConfig = {
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
 
 describe("run command builtin tool wiring", () => {
+  it("exposes runtime approval only on an interactive human CLI surface", async () => {
+    const prompt = vi.fn().mockResolvedValue(true);
+    const handler = createCliRuntimeApprovalHandler({
+      outputMode: "human",
+      inputInteractive: true,
+      outputInteractive: true,
+      prompt,
+    });
+
+    await expect(handler?.("Allow managed orchestration")).resolves.toEqual({
+      approved: true,
+      reason: "Approved by the interactive CLI operator.",
+    });
+    expect(prompt).toHaveBeenCalledWith("Allow managed orchestration");
+    expect(createCliRuntimeApprovalHandler({
+      outputMode: "json",
+      inputInteractive: true,
+      outputInteractive: true,
+      prompt,
+    })).toBeUndefined();
+    expect(createCliRuntimeApprovalHandler({
+      outputMode: "human",
+      inputInteractive: false,
+      outputInteractive: true,
+      prompt,
+    })).toBeUndefined();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     runWiringMocks.capturedSessionConfigs.length = 0;
     runWiringMocks.capturedRunSessionInputs.length = 0;
     runWiringMocks.evaluateRouteHealth.mockResolvedValue({ healthy: true });
     runWiringMocks.recordRouteOutcome.mockResolvedValue(undefined);
+    runWiringMocks.discoverGuiCliOperatorModels.mockResolvedValue({
+      codexModels: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+      codexDiscovery: {
+        models: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
+        status: "available",
+        reason: "Codex models discovered.",
+        authState: "authenticated",
+      },
+      opencodeModels: ["opencode/minimax-m2.5-free"],
+      opencodeDiscovery: {
+        models: ["opencode/minimax-m2.5-free"],
+        status: "available",
+        reason: "OpenCode models discovered.",
+        authState: "authenticated",
+      },
+    });
+    runWiringMocks.probeCodexCliModelReadiness.mockResolvedValue({
+      provider: "codex",
+      model: "gpt-5.5",
+      runnable: true,
+      status: "available",
+      reason: "Codex CLI model 'gpt-5.5' passed live readiness probe.",
+      authState: "authenticated",
+    });
     runWiringMocks.cleanupWorktree.mockResolvedValue(undefined);
     runWiringMocks.cleanupRegistryRunAll.mockResolvedValue(undefined);
     runWiringMocks.createManagedAgentInvocationResourceProvider.mockReturnValue({ id: "managed-agent-resource-provider" });
-    runWiringMocks.runManagedAgentFanOutLifecycle.mockImplementation(
-      async (input: ManagedAgentFanOutLifecycleInput) => {
+    runWiringMocks.runManagedAgentOrchestrationLifecycle.mockImplementation(
+      async (input: ManagedAgentOrchestrationLifecycleInput) => {
         const orchestrationId = input.orchestrationRequest.orchestrationId;
         return {
           orchestrationResult: {
@@ -449,6 +546,10 @@ describe("run command builtin tool wiring", () => {
     );
     expect(runWiringMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
       id: "surface-options",
+      toolProjection: expect.objectContaining({
+        mode: "deferred",
+        alwaysOnTools: expect.arrayContaining(["read", "write", "work_item.update"]),
+      }),
       workItemStore: expect.any(Object),
       additionalTools: expect.arrayContaining([
         expect.objectContaining({ name: "kiln_config.read" }),
@@ -479,7 +580,17 @@ describe("run command builtin tool wiring", () => {
     }));
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },
-      managedInvocation,
+      managedInvocation: {
+        options: managedInvocation,
+        callerIdentity: {
+          kind: "kiln-runtime",
+          surface: "run",
+          attachmentId: "kiln-runtime:run",
+        },
+        sessionEventSink: {
+          publish: expect.any(Function),
+        },
+      },
     });
   });
 
@@ -502,8 +613,8 @@ describe("run command builtin tool wiring", () => {
       managedInvocation: parallelManagedInvocation(),
     }, "parallel budget", { provider: "codex", workers: 2 });
 
-    const input = runWiringMocks.runManagedAgentFanOutLifecycle.mock.calls[0]?.[0] as
-      | ManagedAgentFanOutLifecycleInput
+    const input = runWiringMocks.runManagedAgentOrchestrationLifecycle.mock.calls[0]?.[0] as
+      | ManagedAgentOrchestrationLifecycleInput
       | undefined;
     if (!input) {
       throw new Error("Expected parallel fan-out lifecycle input.");
@@ -602,6 +713,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -637,6 +749,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -696,6 +809,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: undefined,
       successfulModelId: undefined,
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         succeeded: false,
@@ -864,6 +978,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "openrouter",
       successfulModelId: "qwen/qwen3-coder:free",
+      providersUsed: ["openrouter"],
       attempts: [{
         providerId: "openrouter",
         model: "qwen/qwen3-coder:free",
@@ -909,6 +1024,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: undefined,
       successfulModelId: undefined,
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -953,6 +1069,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1000,6 +1117,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1049,6 +1167,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1104,6 +1223,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1152,6 +1272,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 1,
       successfulProviderId: "codex",
       successfulModelId: "gpt-5.5",
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         model: "gpt-5.5",
@@ -1233,6 +1354,90 @@ describe("run command builtin tool wiring", () => {
     })).toEqual({ ok: true });
   });
 
+  it("fails wrapper admission when discovery does not advertise an explicit model", () => {
+    expect(resolveRunProviderModelAdmission({
+      provider: "codex",
+      model: "gpt-5.5",
+      discovery: {
+        codex: {
+          models: ["gpt-5.4-mini"],
+          status: "available",
+          reason: "Codex models discovered.",
+        },
+      },
+    })).toEqual({
+      ok: false,
+      error: "Provider 'codex' does not advertise model 'gpt-5.5'",
+    });
+  });
+
+  it("allows wrapper admission without an explicit model so the native harness default can run", () => {
+    expect(resolveRunProviderModelAdmission({
+      provider: "codex",
+      model: undefined,
+      discovery: {},
+    })).toEqual({ ok: true });
+  });
+
+  it("admits wrapper execution for discovered explicit model ids", () => {
+    expect(resolveRunProviderModelAdmission({
+      provider: "codex",
+      model: "gpt-5.4-mini",
+      discovery: {
+        codex: {
+          models: ["gpt-5.4-mini"],
+          status: "available",
+          reason: "Codex models discovered.",
+        },
+      },
+    })).toEqual({ ok: true });
+  });
+
+  it("blocks wrapper execution before runSession when explicit model readiness fails", async () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit");
+    }) as never);
+    runWiringMocks.probeCodexCliModelReadiness.mockResolvedValueOnce({
+      provider: "codex",
+      model: "gpt-5.5",
+      runnable: false,
+      status: "model_version_unsupported",
+      reason: "Codex CLI model support is out of date: The 'gpt-5.5' model requires a newer version of Codex.",
+      authState: "authenticated",
+    });
+
+    await expect(runCommand(APP_CONFIG, "ship it", {
+      provider: "codex",
+      model: "gpt-5.5",
+    })).rejects.toThrow("process.exit");
+
+    expect(runWiringMocks.discoverGuiCliOperatorModels).toHaveBeenCalledWith(expect.objectContaining({
+      codex: true,
+      opencode: false,
+    }));
+    expect(runWiringMocks.probeCodexCliModelReadiness).toHaveBeenCalledWith(expect.objectContaining({
+      model: "gpt-5.5",
+    }));
+    expect(runWiringMocks.runSession).not.toHaveBeenCalled();
+    exit.mockRestore();
+  });
+
+  it("admits wrapper execution when explicit missing model passes live readiness probe", async () => {
+    await runCommand(APP_CONFIG, "ship it", {
+      provider: "codex",
+      model: "gpt-5.5",
+    });
+
+    expect(runWiringMocks.probeCodexCliModelReadiness).toHaveBeenCalledWith(expect.objectContaining({
+      model: "gpt-5.5",
+    }));
+    expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
+      routeCandidates: [
+        { provider: "codex", model: "gpt-5.5" },
+      ],
+    });
+  });
+
   it("checks route health before direct provider execution and records success", async () => {
     await runCommand(APP_CONFIG, "ship it", { provider: "openrouter", model: "qwen/qwen3-coder:free" });
 
@@ -1310,6 +1515,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 0,
       successfulProviderId: undefined,
       successfulModelId: undefined,
+      providersUsed: ["openrouter"],
       attempts: [{
         providerId: "openrouter",
         model: "qwen/qwen3-coder:free",
@@ -1368,6 +1574,7 @@ describe("run command builtin tool wiring", () => {
         turnDepth: 0,
         successfulProviderId: undefined,
         successfulModelId: undefined,
+        providersUsed: ["codex"],
         attempts: [{
           providerId: "codex",
           succeeded: false,
@@ -1536,6 +1743,7 @@ describe("run command builtin tool wiring", () => {
       turnDepth: 0,
       successfulProviderId: undefined,
       successfulModelId: undefined,
+      providersUsed: ["codex"],
       attempts: [{
         providerId: "codex",
         succeeded: false,

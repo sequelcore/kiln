@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { AllCredentialsExhaustedError, type CredentialOutcome, type CredentialPool } from "@kilnai/core";
+import { AllCredentialsExhaustedError, type CredentialOutcome, type CredentialPool, type ExecutionSessionEvent } from "@kilnai/core";
 import type { HarnessHomeAuth, HarnessPoolProviderId } from "@kilnai/runtime";
-import type { IKilnSession, SessionCapabilities, SessionEvent, SessionRunOptions } from "./session.js";
+import type { IKilnSession, SessionCapabilities, SessionRunOptions } from "./session.js";
 
 export interface PooledHarnessSessionConfig {
   readonly runtimeSessionId?: string;
@@ -47,7 +47,7 @@ export class PooledHarnessSession implements IKilnSession {
     return this.activeSession?.providerSessionId;
   }
 
-  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     const pool = await this.pool;
     if (pool.snapshot().metrics.totalCredentials === 0) {
       const session = this.createDefaultSession();
@@ -76,7 +76,7 @@ export class PooledHarnessSession implements IKilnSession {
 
       const session = this.createSession(lease.auth);
       this.activeSession = session;
-      const events: SessionEvent[] = [];
+      const events: ExecutionSessionEvent[] = [];
 
       try {
         for await (const event of session.run(options)) {
@@ -120,7 +120,7 @@ export class PooledHarnessSession implements IKilnSession {
   }
 }
 
-function mapHarnessEventsToOutcome(events: readonly SessionEvent[]): CredentialOutcome {
+function mapHarnessEventsToOutcome(events: readonly ExecutionSessionEvent[]): CredentialOutcome {
   const error = events.find((event) => event.type === "error");
   if (!error) {
     return { type: "ok" };

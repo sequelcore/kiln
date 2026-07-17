@@ -23,6 +23,12 @@ describe("operator command contract", () => {
     expect(listOperatorCommands("gui").map((command) => command.trigger)).not.toContain("resume");
   });
 
+  it("publishes the embedded operator terminal only on the GUI surface", () => {
+    expect(findOperatorCommand("terminal", "gui")?.id).toBe("terminal");
+    expect(findOperatorCommand("terminal", "cli")).toBeUndefined();
+    expect(findOperatorCommand("terminal", "tui")).toBeUndefined();
+  });
+
   it.each(["cli", "gui", "tui"] as const)("does not duplicate triggers on %s", (surface: OperatorCommandSurfaceKind) => {
     const triggers = listOperatorCommands(surface).map((command) => command.trigger);
 

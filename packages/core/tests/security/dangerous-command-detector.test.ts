@@ -112,6 +112,20 @@ describe("DeterministicDangerousCommandDetector", () => {
     expect(decision.reasonCode).toBe("safe_read_only");
   });
 
+  it("allows deterministic read-only search and file-summary commands", () => {
+    for (const command of [
+      "grep -n pattern docs/architecture/tool-execution.md",
+      "head -20 package.json",
+      "tail -20 package.json",
+      "wc -l package.json",
+      "git show --stat HEAD",
+    ]) {
+      const decision = detector.evaluate({ command, shell: "bash" });
+      expect(decision.action, command).toBe("allow");
+      expect(decision.reasonCode, command).toBe("safe_read_only");
+    }
+  });
+
   it("asks for ambiguous expansion instead of deny", () => {
     const decision = detector.evaluate({ command: "echo $(cat .env)", shell: "bash" });
     expect(decision.action).toBe("ask");

@@ -56,7 +56,16 @@ import type {
   GuiAppDescriptor,
   GuiSessionDetail,
   GuiSessionSummary,
+  OperatorCockpitAttachTarget,
+  OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
+  GuiProviderModelDiscoveryProjection,
+} from "@kilnai/gateway-contracts";
+import {
+  createEmptyOperatorWorkspaceHomeProjection,
+  createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
+  projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
 import {
   appendCoordinationProviderFailureAudit,
@@ -67,6 +76,7 @@ import {
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { verifySignedArtifactMediaRequest } from "./public-media-delivery.js";
 import type { RuntimeSession } from "../session/runtime-session.js";
+import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 
 export interface LoadedApp {
   readonly name: string;
@@ -113,6 +123,30 @@ export interface GatewayServerConfig {
   readonly validateToken?: WsRoutesConfig["validateToken"];
   /** Gateway-level JWT verifier. When set, applied to all API and admin routes. */
   readonly jwtVerifier?: JwtVerifyFn;
+}
+
+function emptyGuiProviderModelDiscoveryProjection(sourceId: string): GuiProviderModelDiscoveryProjection {
+  const observedAt = new Date().toISOString();
+  return {
+    catalogEvidence: {
+      status: "failed",
+      source: {
+        kind: "runtime-provider-catalog",
+        id: sourceId,
+      },
+      observedAt,
+      counts: {
+        total: 0,
+        returned: 0,
+        omitted: 0,
+      },
+      failure: {
+        classification: "catalog-unavailable",
+        summary: "Provider model discovery is unavailable for this gateway route.",
+      },
+    },
+    entries: [],
+  };
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -227,6 +261,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
           const selectedRuntime = resolveAppGatewayGuiRuntime(config);
           ws.send(JSON.stringify({
             type: "welcome",
+            providerModelDiscovery: emptyGuiProviderModelDiscoveryProjection("app-gateway"),
             models: {},
             providers: [],
             executionMode: "execute",
@@ -263,6 +298,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
           if (frame.type === "refresh_providers") {
             ws.send(JSON.stringify({
               type: "providers_refreshed",
+              providerModelDiscovery: emptyGuiProviderModelDiscoveryProjection("app-gateway"),
               models: {},
               providerDiscovery: [],
               providers: [],
@@ -456,7 +492,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
               const baseProjectedTurnContext = projectAdmittedTurnContext({
                 userContext: session.userContext,
                 cachedRuntimeSummary: undefined,
-                recalledMemory: undefined,
+                recalledMemoryCandidates: undefined,
                 knowledgeContext: undefined,
                 contactContext: undefined,
                 groundingMode: undefined,
@@ -568,9 +604,11 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
 async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise<GuiDashboardSnapshot> {
   const selectedRuntime = resolveAppGatewayGuiRuntime(config);
+  const projectedAt = new Date().toISOString();
+  const runtimeSessions = await collectAppGatewayRuntimeSessions(config);
   return {
     providers: [],
-    sessions: await listAppGatewayGuiSessions(config),
+    sessions: projectAppGatewayGuiSessions(runtimeSessions),
     telemetry: {
       status: "stable",
       dominantRegions: config.apps.map((app) => app.name).slice(0, 3),
@@ -578,6 +616,7 @@ async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise
       entropy: 0,
     },
     continuationInfoByProvider: {},
+    operatorWorkspaceHome: buildAppGatewayOperatorWorkspaceHome(config, projectedAt, runtimeSessions),
     apps: buildAppGatewayGuiApps(config),
     ...(selectedRuntime ? { activeAppName: selectedRuntime.loadedApp.name } : {}),
     ...(selectedRuntime ? { activeTenantId: selectedRuntime.tenantId } : {}),
@@ -609,7 +648,10 @@ function buildAppGatewayGuiApps(config: GatewayServerConfig): readonly GuiAppDes
 }
 
 async function listAppGatewayGuiSessions(config: GatewayServerConfig): Promise<readonly GuiSessionSummary[]> {
-  const sessions = await collectAppGatewayRuntimeSessions(config);
+  return projectAppGatewayGuiSessions(await collectAppGatewayRuntimeSessions(config));
+}
+
+function projectAppGatewayGuiSessions(sessions: readonly RuntimeSession[]): readonly GuiSessionSummary[] {
   return sessions.map((session) => {
     const firstUserMessage = session.conversationHistory.find((message) => message.role === "user");
     const taskSummary = firstUserMessage ? extractText(firstUserMessage.parts) : `${session.appName} session`;
@@ -661,6 +703,116 @@ async function getAppGatewayGuiSessionDetail(
   };
 }
 
+function buildAppGatewayOperatorWorkspaceHome(
+  config: GatewayServerConfig,
+  projectedAt: string,
+  sessions: readonly RuntimeSession[],
+): NonNullable<GuiDashboardSnapshot["operatorWorkspaceHome"]> {
+  const attachTargets = buildAppGatewayOperatorWorkspaceAttachTargets(config);
+  if (attachTargets.length === 0) {
+    return createEmptyOperatorWorkspaceHomeProjection({ projectedAt });
+  }
+  const events = sessions.flatMap((session) => {
+    const instanceId = appGatewayOperatorWorkspaceInstanceId(session.appName);
+    return session.sessionEvents.length > 0
+      ? session.sessionEvents.map((event, index) => toOperatorSessionEventFrame(event, {
+        eventId: event.eventId,
+        sequence: index + 1,
+        instanceId,
+      }).event)
+      : [appGatewaySessionSummaryEvent(session, instanceId)];
+  });
+  const cockpitProjection = projectOperatorCockpitReadOnlyView({
+    projectedAt,
+    attachTargets,
+    events,
+  });
+  const cockpitView = createOperatorCockpitReadOnlyViewState({
+    projection: cockpitProjection,
+    viewState: {},
+  });
+  return createOperatorWorkspaceHomeProjection({
+    projectedAt,
+    cockpitView,
+    events,
+  });
+}
+
+function buildAppGatewayOperatorWorkspaceAttachTargets(
+  config: GatewayServerConfig,
+): readonly OperatorCockpitAttachTarget[] {
+  return config.apps.flatMap((loadedApp) => {
+    const appTarget: OperatorCockpitAttachTarget = {
+      instanceId: appGatewayOperatorWorkspaceInstanceId(loadedApp.name),
+      label: loadedApp.name,
+      kind: "remote",
+      gatewayUrl: "http://localhost",
+      gatewayTarget: {
+        targetId: `app-gateway:${loadedApp.name}`,
+        kind: "local-app-gateway",
+        trust: "local",
+        label: loadedApp.name,
+        gatewayUrl: "http://localhost",
+        appId: loadedApp.name,
+      },
+    };
+
+    const tenantTargets = loadedApp.tenantRuntime
+      ? loadedApp.tenantRuntime.tenantRegistry.list(loadedApp.name)
+        .filter((tenant) => tenant.enabled)
+        .map((tenant): OperatorCockpitAttachTarget => ({
+          instanceId: appGatewayOperatorWorkspaceTenantInstanceId(loadedApp.name, tenant.tenantId),
+          label: tenant.businessName ?? tenant.name,
+          kind: "remote",
+          gatewayUrl: "http://localhost",
+          gatewayTarget: {
+            targetId: `app-gateway:${loadedApp.name}:tenant:${tenant.tenantId}`,
+            kind: "local-app-gateway",
+            trust: "local",
+            label: tenant.businessName ?? tenant.name,
+            gatewayUrl: "http://localhost",
+            appId: loadedApp.name,
+            tenantId: tenant.tenantId,
+          },
+        }))
+      : [];
+
+    return [appTarget, ...tenantTargets];
+  });
+}
+
+function appGatewayOperatorWorkspaceInstanceId(appName: string): string {
+  return `app-gateway:${appName}`;
+}
+
+function appGatewayOperatorWorkspaceTenantInstanceId(appName: string, tenantId: string): string {
+  return `app-gateway:${appName}:tenant:${tenantId}`;
+}
+
+function appGatewaySessionSummaryEvent(
+  session: RuntimeSession,
+  instanceId: string,
+): OperatorSessionEvent {
+  return {
+    eventId: `${session.id}:operator-workspace-summary`,
+    kilnSessionId: session.id,
+    sequence: 0,
+    timestamp: session.lastActivityAt.toISOString(),
+    kind: "turn_started",
+    source: {
+      actor: "runtime",
+      surface: "gui",
+      component: "app-gateway-dashboard",
+    },
+    payload: {
+      instanceId,
+      sessionId: session.id,
+      appId: session.appName,
+      tenantId: session.tenantId,
+    },
+  };
+}
+
 function collectSessionProvidersUsed(session: RuntimeSession): readonly string[] {
   const providers = new Set<string>();
   if (session.sessionLedger.lastProvider) {
@@ -704,14 +856,18 @@ type AppGatewayGuiRuntimeSelection =
 
 function resolveAppGatewayGuiRuntime(
   config: GatewayServerConfig,
-  selection?: { readonly appName?: string; readonly tenantId?: string },
+  selection?: { readonly gatewayTargetId?: string; readonly appName?: string; readonly tenantId?: string },
 ): AppGatewayGuiRuntimeSelection | undefined {
-  if (selection?.appName) {
-    const loadedApp = config.apps.find((app) => app.name === selection.appName);
+  const normalizedSelection = normalizeAppGatewayGuiRuntimeSelection(selection);
+  if (!normalizedSelection.ok) {
+    return undefined;
+  }
+  if (normalizedSelection.selection?.appName) {
+    const loadedApp = config.apps.find((app) => app.name === normalizedSelection.selection?.appName);
     if (!loadedApp) {
       return undefined;
     }
-    return resolveLoadedAppGatewayGuiRuntime(loadedApp, selection.tenantId);
+    return resolveLoadedAppGatewayGuiRuntime(loadedApp, normalizedSelection.selection.tenantId);
   }
 
   for (const loadedApp of config.apps) {
@@ -727,6 +883,59 @@ function resolveAppGatewayGuiRuntime(
   }
 
   return undefined;
+}
+
+type AppGatewayGuiRuntimeSelectionInput = {
+  readonly gatewayTargetId?: string;
+  readonly appName?: string;
+  readonly tenantId?: string;
+};
+
+type AppGatewayGuiRuntimeSelectionResult =
+  | { readonly ok: true; readonly selection?: { readonly appName?: string; readonly tenantId?: string } }
+  | { readonly ok: false; readonly code: "invalid" | "conflict" };
+
+function normalizeAppGatewayGuiRuntimeSelection(
+  selection?: AppGatewayGuiRuntimeSelectionInput,
+): AppGatewayGuiRuntimeSelectionResult {
+  if (!selection?.gatewayTargetId) {
+    return { ok: true, selection };
+  }
+
+  const parsedTarget = parseAppGatewayTargetId(selection.gatewayTargetId);
+  if (!parsedTarget) {
+    return { ok: false, code: "invalid" };
+  }
+  if (selection.appName && selection.appName !== parsedTarget.appName) {
+    return { ok: false, code: "conflict" };
+  }
+  if (selection.tenantId && parsedTarget.tenantId && selection.tenantId !== parsedTarget.tenantId) {
+    return { ok: false, code: "conflict" };
+  }
+  if (selection.tenantId && !parsedTarget.tenantId) {
+    return { ok: false, code: "conflict" };
+  }
+
+  return {
+    ok: true,
+    selection: {
+      appName: parsedTarget.appName,
+      ...(parsedTarget.tenantId ? { tenantId: parsedTarget.tenantId } : {}),
+    },
+  };
+}
+
+function parseAppGatewayTargetId(
+  targetId: string,
+): { readonly appName: string; readonly tenantId?: string } | null {
+  const parts = targetId.split(":");
+  if (parts.length === 2 && parts[0] === "app-gateway" && parts[1]) {
+    return { appName: parts[1] };
+  }
+  if (parts.length === 4 && parts[0] === "app-gateway" && parts[1] && parts[2] === "tenant" && parts[3]) {
+    return { appName: parts[1], tenantId: parts[3] };
+  }
+  return null;
 }
 
 function resolveLoadedAppGatewayGuiRuntime(
@@ -766,16 +975,34 @@ async function processAppGatewayGuiMessage(
   frame: Extract<GuiOutboundFrame, { type: "message" }>,
   ws: WSContext,
 ): Promise<void> {
-  const selectedRuntime = resolveAppGatewayGuiRuntime(config, {
+  const targetSelection = normalizeAppGatewayGuiRuntimeSelection({
+    gatewayTargetId: frame.gatewayTargetId,
     appName: frame.appName,
     tenantId: frame.tenantId,
   });
+  if (!targetSelection.ok) {
+    ws.send(JSON.stringify({
+      type: "error",
+      code: targetSelection.code === "conflict"
+        ? "APP_GATEWAY_CONFLICTING_TARGET_IDENTITY"
+        : "APP_GATEWAY_INVALID_TARGET_IDENTITY",
+      message: targetSelection.code === "conflict"
+        ? "gatewayTargetId conflicts with the supplied appName or tenantId."
+        : "gatewayTargetId must identify an App Gateway app or tenant target.",
+    } satisfies GuiInboundFrame));
+    return;
+  }
+  const selectedRuntime = resolveAppGatewayGuiRuntime(config, {
+    appName: targetSelection.selection?.appName,
+    tenantId: targetSelection.selection?.tenantId,
+  });
   if (!selectedRuntime) {
+    const selectedAppName = targetSelection.selection?.appName ?? frame.appName;
     ws.send(JSON.stringify({
       type: "error",
       code: "APP_GATEWAY_NO_GUI_RUNTIME",
-      message: frame.appName
-        ? `No runtime-capable App Gateway app matched '${frame.appName}'.`
+      message: selectedAppName
+        ? `No runtime-capable App Gateway app matched '${selectedAppName}'.`
         : "No runtime-capable App Gateway app is available for GUI attach mode.",
     } satisfies GuiInboundFrame));
     return;
@@ -967,7 +1194,7 @@ function parseGuiOutboundFrame(data: unknown): GuiOutboundFrame | null {
 }
 
 async function collectAppGatewayRuntimeSessions(config: GatewayServerConfig): Promise<readonly RuntimeSession[]> {
-  const registries = new Set<import("../session/session-registry.js").SessionRegistry>();
+  const registries = new Set<import("../session/persistence/session-registry.js").SessionRegistry>();
   for (const app of config.apps) {
     if (app.providerAdapterRuntime) {
       registries.add(app.providerAdapterRuntime.sessionRegistry);

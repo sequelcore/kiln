@@ -1,4 +1,8 @@
-import type { ReasoningEffort } from "@kilnai/core";
+import {
+  resolveNormalizedReasoningEffort,
+  type NormalizedReasoningEffortResolution,
+  type ReasoningEffort,
+} from "@kilnai/core";
 import type {
   KilnModelTaskSuitabilityTask,
   KilnReasoningPolicyConfig,
@@ -11,30 +15,39 @@ export interface ResolveConfiguredReasoningEffortInput {
   readonly provider?: string;
   readonly model?: string;
   readonly supportedReasoningEfforts?: readonly ReasoningEffort[];
+  readonly allowExperimentalXhigh?: boolean;
+  readonly xhighPromotionEligible?: boolean;
+  readonly purpose?: "production" | "benchmark";
+  readonly budgetUsd?: number;
+  readonly estimatedEffortCostUsd?: number;
 }
 
 export function resolveConfiguredReasoningEffort(
   input: ResolveConfiguredReasoningEffortInput,
 ): ReasoningEffort | undefined {
-  if (input.explicitReasoningEffort) {
-    return input.explicitReasoningEffort;
-  }
+  const resolution = resolveConfiguredReasoningEffortEvidence(input);
+  return resolution.status === "resolved" ? resolution.resolved : undefined;
+}
 
-  const desired = desiredReasoningEffort(input.policy, input.task);
-  if (!desired) {
-    return undefined;
-  }
+export function resolveConfiguredReasoningEffortEvidence(
+  input: ResolveConfiguredReasoningEffortInput,
+): NormalizedReasoningEffortResolution {
+  const explicit = input.explicitReasoningEffort;
+  const desired = explicit ?? desiredReasoningEffort(input.policy, input.task);
+  if (!desired) return { status: "omitted", reason: "not-requested" };
 
-  const supported = input.supportedReasoningEfforts;
-  if (supported?.includes(desired)) {
-    return desired;
-  }
-
-  if (input.policy?.unsupported === "fail") {
-    throw new Error(`Reasoning effort '${desired}' is not supported by ${routeLabel(input)}`);
-  }
-
-  return undefined;
+  return resolveNormalizedReasoningEffort({
+    requested: desired,
+    requestedSource: explicit ? "explicit" : "policy",
+    supportEvidence: input.supportedReasoningEfforts ? "known" : "unknown",
+    supported: input.supportedReasoningEfforts,
+    unsupportedPolicy: input.policy?.unsupported ?? (explicit ? "fail" : "omit"),
+    allowExperimentalXhigh: input.allowExperimentalXhigh,
+    xhighPromotionEligible: input.xhighPromotionEligible,
+    purpose: input.purpose,
+    budgetUsd: input.budgetUsd,
+    estimatedEffortCostUsd: input.estimatedEffortCostUsd,
+  });
 }
 
 function desiredReasoningEffort(
@@ -45,17 +58,4 @@ function desiredReasoningEffort(
     return undefined;
   }
   return (task ? policy.byTask?.[task] : undefined) ?? policy.default;
-}
-
-function routeLabel(input: ResolveConfiguredReasoningEffortInput): string {
-  if (input.provider && input.model) {
-    return `${input.provider}/${input.model}`;
-  }
-  if (input.provider) {
-    return input.provider;
-  }
-  if (input.model) {
-    return input.model;
-  }
-  return "selected route";
 }

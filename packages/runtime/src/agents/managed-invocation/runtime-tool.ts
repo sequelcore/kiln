@@ -1,3 +1,20 @@
+import {
+  buildManagedAgentBackgroundJobOrchestrationRequest,
+  buildManagedAgentDecompositionOrchestrationRequest,
+  buildManagedAgentReviewSwarmOrchestrationRequest,
+  decideManagedAgentCoordination,
+  MANAGED_AGENT_ADMISSION_PROFILES,
+  WORK_CLASSIFICATION_ARTIFACTS,
+  WORK_CLASSIFICATION_DOMAINS,
+  WORK_CLASSIFICATION_EFFECTS,
+  WORK_CLASSIFICATION_INTENTS,
+  WORK_CLASSIFICATION_MODES,
+  defineManagedAgentInvocationRequest,
+  defineWorkClassification,
+  projectStructuredExecutionResult,
+} from "@kilnai/core";
+import { runManagedAgentOrchestrationLifecycle } from "./orchestration-lifecycle.js";
+import { resolveManagedInvocationAgentProfile } from "./agent-profile-catalog.js";
 import type {
   ActionEffectEnvelope,
   ArtifactResourceStore,
@@ -6,10 +23,12 @@ import type {
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityApproval,
   ManagedAgentAuthorityProfile,
+  ManagedAgentCallerAttachmentIdentity,
   ManagedAgentCapabilitySnapshotInput,
   ManagedAgentCredentialRoute,
   ManagedAgentMemoryScope,
   ManagedAgentInvocationContextMode,
+  ManagedAgentInvocationContextSelection,
   ManagedAgentInvocationHandoffContract,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
@@ -19,16 +38,20 @@ import type {
   ManagedAgentWorkingDirectory,
   ModelTaskSuitability,
   ModelTaskSuitabilityTask,
+  WorkClassification,
+  WorkClassificationInput,
+  WorkRecommendedSkillDiagnostic,
   CanonicalSessionEvent,
   ToolDefinition,
 } from "@kilnai/core";
-import { defineManagedAgentInvocationRequest } from "@kilnai/core";
+import { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
 import type { PresentationIntent } from "@kilnai/gateway-contracts";
 import { posix, resolve, win32 } from "node:path";
 import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
 } from "../../session/runtime-session-orchestrator.types.js";
+import type { RuntimeBudgetAdmissionPort } from "../../session/runtime-budget-admission.js";
 import { RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON } from "../../session/runtime-session-orchestrator.types.js";
 import {
   ManagedRuntimeCredentialRouteLeaseManager,
@@ -54,6 +77,7 @@ import {
   managedInvocationFailureReasonFromStatus,
 } from "./phase-recovery.js";
 import {
+  projectManagedInvocationAuthorityResources,
   projectManagedInvocationCapabilitySnapshotResources,
   projectManagedInvocationPublicResourceUri,
   projectManagedInvocationRecordResources,
@@ -66,6 +90,10 @@ export const MANAGED_AGENT_STATUS_TOOL_NAME = "managed_agent.status";
 export const MANAGED_AGENT_LIST_TOOL_NAME = "managed_agent.list";
 export const MANAGED_AGENT_JOIN_TOOL_NAME = "managed_agent.join";
 export const MANAGED_AGENT_CANCEL_TOOL_NAME = "managed_agent.cancel";
+export const MANAGED_AGENT_ORCHESTRATE_TOOL_NAME = "managed_agent.orchestrate";
+const MANAGED_AGENT_ORCHESTRATION_PROFILES = MANAGED_AGENT_ADMISSION_PROFILES.filter(
+  (profile): profile is Exclude<ManagedAgentAdmissionProfile, "rejected"> => profile !== "rejected",
+);
 
 export interface ManagedInvocationRouteProfile {
   readonly authorityProfileId: string;
@@ -117,11 +145,18 @@ export interface ManagedInvocationToolOptions {
   readonly invocationServiceKey?: string;
   readonly sessionEventSink?: ManagedInvocationSessionEventSink;
   readonly contextResolver?: ManagedInvocationContextResolver;
+  readonly maxParallelChildren?: number;
+  readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
 }
 
 export type ManagedInvocationToolOptionsWithService = ManagedInvocationToolOptions & {
   readonly invocationService: RuntimeManagedAgentInvocationService;
 };
+
+export interface ManagedInvocationToolAttachment {
+  readonly options: ManagedInvocationToolOptions;
+  readonly callerIdentity: ManagedAgentCallerAttachmentIdentity;
+}
 
 export interface ManagedInvocationAgentCatalogEntry {
   readonly name: string;
@@ -130,6 +165,7 @@ export interface ManagedInvocationAgentCatalogEntry {
   readonly role: string;
   readonly goal: string;
   readonly tier: string;
+  readonly authorityProfile?: ManagedAgentAdmissionProfile;
   readonly skills?: readonly string[];
   readonly taskAffinity?: readonly ModelTaskSuitabilityTask[];
   readonly routeId?: string;
@@ -150,6 +186,20 @@ export interface ManagedInvocationWorkingDirectoryLease {
 export interface ManagedInvocationSkillCatalogEntry {
   readonly name: string;
   readonly description: string;
+  readonly origin?: string;
+  readonly configured?: boolean;
+  readonly builtIn?: boolean;
+  readonly sourcePath?: string;
+  readonly admission?: {
+    readonly state: string;
+    readonly reason: string;
+  };
+  readonly projections?: readonly {
+    readonly target: string;
+    readonly status: string;
+    readonly path: string;
+  }[];
+  readonly omissionReason?: string;
   readonly tags?: readonly string[];
 }
 
@@ -170,6 +220,7 @@ export interface ManagedInvocationContextResolverInput {
     readonly model?: string;
   };
   readonly taskSuitability?: readonly ModelTaskSuitability[];
+  readonly workClassification?: WorkClassification;
 }
 
 export interface ManagedInvocationContextResolution {
@@ -178,6 +229,9 @@ export interface ManagedInvocationContextResolution {
   readonly admittedSkills?: readonly string[];
   readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
+  readonly workClassification?: WorkClassification;
+  readonly workRecommendedSkills?: readonly string[];
+  readonly workRecommendedSkillDiagnostics?: readonly WorkRecommendedSkillDiagnostic[];
 }
 
 export type ManagedInvocationContextResolver = (
@@ -195,6 +249,7 @@ interface ManagedInvocationToolInput {
   readonly agentProfile?: string;
   readonly forbiddenInputFields?: readonly string[];
   readonly skills?: readonly string[];
+  readonly workClassification?: WorkClassification;
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly goalRunId?: string;
   readonly workItemId?: string;
@@ -206,6 +261,7 @@ interface ManagedInvocationToolInput {
   readonly requiredResultFields?: readonly string[];
   readonly doneCriteria?: readonly string[];
   readonly residualRiskRequired?: boolean;
+  readonly outputVerbosity?: "concise" | "standard" | "detailed";
   readonly executionPhase?: Record<string, unknown>;
 }
 
@@ -283,6 +339,38 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         items: { type: "string" },
         description: "Optional configured Kiln skills to request for the child. Only request skills from the configured agent profile or an explicitly known Kiln skill catalog; do not invent skill names.",
       },
+      workClassification: {
+        type: "object",
+        properties: {
+          intents: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_INTENTS] },
+            description: "Optional governed work intents, such as write, edit, review, support, code, or design.",
+          },
+          artifacts: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_ARTIFACTS] },
+            description: "Optional artifact families the child will produce or review.",
+          },
+          domains: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_DOMAINS] },
+            description: "Optional domain context for the child work.",
+          },
+          effects: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_EFFECTS] },
+            description: "Optional authority/effect class for the child work.",
+          },
+          modes: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_MODES] },
+            description: "Optional interaction mode, such as answer, coauthor, transform, critique, delegate, automate, or monitor.",
+          },
+        },
+        additionalProperties: false,
+        description: "Optional explicit cross-domain work classification. It informs governed skill recommendation and diagnostics; it does not grant tool authority.",
+      },
       contextMode: {
         type: "string",
         enum: ["isolated", "resources", "fork"],
@@ -333,6 +421,11 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
       residualRiskRequired: {
         type: "boolean",
         description: "True when the child handoff must include explicit residual risk.",
+      },
+      outputVerbosity: {
+        type: "string",
+        enum: ["concise", "standard", "detailed"],
+        description: "Visible handoff detail level, independent from provider reasoning effort. Control evidence is always preserved.",
       },
       executionPhase: {
         type: "object",
@@ -456,6 +549,39 @@ export const MANAGED_AGENT_CANCEL_TOOL: ToolDefinition = {
   tags: new Set<string>(["managed-invocation", "operator-control"]),
 };
 
+export const MANAGED_AGENT_ORCHESTRATE_TOOL: ToolDefinition = {
+  name: MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+  description: "Select and execute a governed managed-agent coordination topology from an explicit work graph. Runtime capacity bounds concurrency; the caller does not choose a provider ranking or worker count.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      profile: { type: "string", enum: MANAGED_AGENT_ORCHESTRATION_PROFILES },
+      taskRisk: { type: "string", enum: ["low", "medium", "high", "unknown"] },
+      requiresIndependentReview: { type: "boolean" },
+      workItems: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", minLength: 1 },
+            roleIntent: { type: "string", minLength: 1 },
+            task: { type: "string", minLength: 1 },
+            agentProfile: { type: "string", minLength: 1 },
+            routeId: { type: "string", minLength: 1 },
+            dependencies: { type: "array", items: { type: "string", minLength: 1 } },
+          },
+          required: ["id", "roleIntent", "task"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["profile", "taskRisk", "requiresIndependentReview", "workItems"],
+    additionalProperties: false,
+  },
+  tags: new Set<string>(["managed-invocation", "orchestration", "operator-approval"]),
+};
+
 const MANAGED_AGENT_DESTRUCTIVE_ENVELOPE: ActionEffectEnvelope = {
   operation: "mutate",
   boundaries: ["process", "workspace", "network"],
@@ -532,6 +658,14 @@ export const MANAGED_AGENT_CANCEL_CAPABILITY: Capability = {
   schema: MANAGED_AGENT_CANCEL_TOOL.inputSchema,
   tags: ["managed-invocation", "operator-control"],
   effectEnvelope: MANAGED_AGENT_CONTROL_ENVELOPE,
+};
+
+export const MANAGED_AGENT_ORCHESTRATE_CAPABILITY: Capability = {
+  name: MANAGED_AGENT_ORCHESTRATE_TOOL.name,
+  description: MANAGED_AGENT_ORCHESTRATE_TOOL.description,
+  schema: MANAGED_AGENT_ORCHESTRATE_TOOL.inputSchema,
+  tags: ["managed-invocation", "orchestration", "operator-approval"],
+  effectEnvelope: MANAGED_AGENT_DESTRUCTIVE_ENVELOPE,
 };
 
 export function createManagedAgentInvokeToolDefinition(
@@ -616,24 +750,71 @@ export function createManagedAgentStartToolDefinition(
 }
 
 export function createManagedInvocationToolExecutor(
-  options: ManagedInvocationToolOptions,
-  service = resolveManagedInvocationService(options),
+  attachment: ManagedInvocationToolAttachment,
+  service = resolveManagedInvocationService(attachment.options),
 ): RuntimeBuiltinToolExecutor {
-  return async (input, context) => executeManagedInvocationTool(input, context, options, service);
+  return async (input, context) => executeManagedInvocationTool(input, context, attachment, service);
+}
+
+export function createManagedAgentOrchestrateToolDefinition(
+  options: ManagedInvocationToolOptions,
+): ToolDefinition {
+  const schema = cloneToolSchema(MANAGED_AGENT_ORCHESTRATE_TOOL.inputSchema);
+  const properties = readSchemaProperties(schema);
+  const workItems = readSchemaProperty(properties.workItems);
+  const itemProperties = readSchemaProperties(readSchemaProperty(workItems?.items));
+  const agentProfile = readSchemaProperty(itemProperties.agentProfile);
+  const agentProfileNames = managedInvocationAgentProfileNames(options);
+  if (agentProfile && agentProfileNames.length > 0) {
+    agentProfile.enum = agentProfileNames;
+    agentProfile.description = "Configured Kiln agent profile for this team member. Its governed route hint is authoritative.";
+  }
+  const routeId = readSchemaProperty(itemProperties.routeId);
+  const routeIds = unique([
+    ...options.routes.map((route) => route.routeId),
+    ...(options.unavailableRoutes ?? []).map((route) => route.routeId),
+  ]);
+  if (routeId && routeIds.length > 0) {
+    routeId.enum = routeIds;
+    routeId.description = "Explicit governed route for this team member. It must agree with the selected agent profile.";
+  }
+  return {
+    ...MANAGED_AGENT_ORCHESTRATE_TOOL,
+    description: [
+      MANAGED_AGENT_ORCHESTRATE_TOOL.description,
+      "Assign each work item an admitted agentProfile whenever a configured specialist matches. Runtime resolves and validates that profile's route independently for each team member.",
+      "Use dependencies to pass completed bounded handoffs and resource URIs to downstream team members. A failed dependency blocks its dependents.",
+      "Independent review requires distinct provider/model identities; duplicate aliases of one model do not count as independent evidence.",
+      buildManagedAgentSelectionDescription(options),
+    ].join("\n\n"),
+    inputSchema: schema,
+  };
 }
 
 export function createManagedInvocationLifecycleToolExecutors(
-  options: ManagedInvocationToolOptions,
-  service = resolveManagedInvocationService(options),
+  attachment: ManagedInvocationToolAttachment,
+  service = resolveManagedInvocationService(attachment.options),
 ): ReadonlyMap<string, RuntimeBuiltinToolExecutor> {
+  const options = attachment.options;
   return new Map([
-    [MANAGED_AGENT_INVOKE_TOOL_NAME, createManagedInvocationToolExecutor(options, service)],
-    [MANAGED_AGENT_START_TOOL_NAME, async (input, context) => executeManagedInvocationStartTool(input, context, options, service)],
+    [MANAGED_AGENT_INVOKE_TOOL_NAME, createManagedInvocationToolExecutor(attachment, service)],
+    [MANAGED_AGENT_START_TOOL_NAME, async (input, context) => executeManagedInvocationStartTool(input, context, attachment, service)],
     [MANAGED_AGENT_STATUS_TOOL_NAME, async (input, context) => executeManagedInvocationStatusTool(input, context, service)],
     [MANAGED_AGENT_LIST_TOOL_NAME, async (_input, context) => executeManagedInvocationListTool(context, service)],
     [MANAGED_AGENT_JOIN_TOOL_NAME, async (input, context) => executeManagedInvocationJoinTool(input, context, options, service)],
     [MANAGED_AGENT_CANCEL_TOOL_NAME, async (input, context) => executeManagedInvocationCancelTool(input, context, options, service)],
+    [MANAGED_AGENT_ORCHESTRATE_TOOL_NAME, async (input, context) => executeManagedAgentOrchestrationTool(input, context, {
+      ...options,
+      invocationService: service,
+    })],
   ]);
+}
+
+export function createManagedInvocationToolAttachment(
+  options: ManagedInvocationToolOptions,
+  callerIdentity: ManagedAgentCallerAttachmentIdentity,
+): ManagedInvocationToolAttachment {
+  return { options, callerIdentity };
 }
 
 export function withManagedInvocationService(
@@ -771,7 +952,7 @@ export function createManagedInvocationToolCallMetadataResolver(
     if (!parsed.ok) {
       return undefined;
     }
-    const agentProfile = resolveManagedAgentProfileEntry(options, parsed.input.agentProfile);
+    const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.input.agentProfile);
     const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile);
     if (!agentRouteValidation.ok) {
       return undefined;
@@ -808,22 +989,32 @@ export function createManagedInvocationToolCallMetadataResolver(
 }
 
 export function attachManagedInvocationSessionEventSink(
-  options: ManagedInvocationToolOptions | undefined,
+  attachment: ManagedInvocationToolAttachment | undefined,
   sessionEventSink: ManagedInvocationSessionEventSink,
-): ManagedInvocationToolOptions | undefined {
-  if (!options) {
+): ManagedInvocationToolAttachment | undefined {
+  if (!attachment) {
     return undefined;
   }
-  const existingSink = options.sessionEventSink;
+  const { options } = attachment;
   return {
-    ...options,
-    sessionEventSink: {
-      publish: async (events, context) => {
-        const sinks = [existingSink, sessionEventSink].filter((sink): sink is ManagedInvocationSessionEventSink => (
-          sink !== undefined
-        ));
-        await Promise.allSettled(sinks.map((sink) => sink.publish(events, context)));
-      },
+    get callerIdentity() {
+      return attachment.callerIdentity;
+    },
+    get options() {
+      return {
+        ...options,
+        sessionEventSink: {
+          publish: async (
+            events: readonly CanonicalSessionEvent[],
+            context: RuntimeBuiltinToolExecutionContext,
+          ) => {
+            const sinks = [options.sessionEventSink, sessionEventSink].filter((sink): sink is ManagedInvocationSessionEventSink => (
+              sink !== undefined
+            ));
+            await Promise.allSettled(sinks.map((sink) => sink.publish(events, context)));
+          },
+        },
+      };
     },
   };
 }
@@ -892,12 +1083,13 @@ function routeOwnedProviderRoute(
 async function prepareManagedInvocationRequest(
   rawInput: Record<string, unknown>,
   context: RuntimeBuiltinToolExecutionContext | undefined,
-  options: ManagedInvocationToolOptions,
+  attachment: ManagedInvocationToolAttachment,
   toolName: string,
 ): Promise<
   | { readonly ok: true; readonly prepared: PreparedManagedInvocationRequest }
   | { readonly ok: false; readonly result: ManagedInvocationToolResult }
 > {
+  const { options, callerIdentity } = attachment;
   if (!context) {
     return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
   }
@@ -908,7 +1100,7 @@ async function prepareManagedInvocationRequest(
     return { ok: false, result: errorResult(parsed.error, {}, toolName) };
   }
 
-  const agentProfile = resolveManagedAgentProfileEntry(options, parsed.input.agentProfile);
+  const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.input.agentProfile);
   const agentRouteValidation = validateAgentRouteHint(parsed.input, agentProfile, toolName);
   if (!agentRouteValidation.ok) {
     const recovery = buildRouteProfileConflictRecovery(parsed.input, agentRouteValidation, context, toolName);
@@ -959,6 +1151,36 @@ async function prepareManagedInvocationRequest(
     };
   }
   const route = routeResolution.route;
+  const invocationCapabilityEvidence = evaluateManagedInvocationCallerCapability({
+    callerIdentity,
+    providerId: route.providerId,
+    ...(route.model ? { model: route.model } : {}),
+    adapterEvidence: {
+      adapterDescriptorId: route.adapter.descriptor.adapterDescriptorId,
+      adapterId: "kiln-managed-invocation",
+    },
+  });
+  if (invocationCapabilityEvidence.decision === "denied") {
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation denied: ${invocationCapabilityEvidence.reason}`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.input.profile,
+          providerRoute: {
+            providerId: route.providerId,
+            ...(route.model ? { model: route.model } : {}),
+          },
+          status: "denied",
+          callerIdentity,
+          invocationCapabilityEvidence,
+        },
+        toolName,
+      ),
+    };
+  }
 
   const profileDefaults = route.profiles[parsed.input.profile];
   if (!profileDefaults) {
@@ -1105,7 +1327,7 @@ async function prepareManagedInvocationRequest(
           ...(route.surface ? { surface: route.surface } : {}),
         },
         status: contextResolution.status,
-        ...(contextMetadata ? { context: contextMetadata } : {}),
+        context: contextMetadata,
         presentationIntent: buildManagedInvocationPresentationIntent({
           sourceToolName: toolName,
           routeId: route.routeId,
@@ -1133,6 +1355,7 @@ async function prepareManagedInvocationRequest(
   );
   const resolvedAuthority = resolveManagedInvocationRouteAuthority(profileDefaults, invocationId);
   const handoffContract = buildHandoffContract(parsed.input);
+  const contextMetadata = buildManagedInvocationContextMetadata(parsed.input, contextResolution.resolution);
   const authorityApproval = await requestManagedInvocationAuthorityApproval({
     requestedAuthority,
     routeId: route.routeId,
@@ -1151,6 +1374,17 @@ async function prepareManagedInvocationRequest(
     };
   }
 
+  const executionScope = parsed.input.workItemId
+    ? {
+        kind: "work_item" as const,
+        goalRunId: parsed.input.goalRunId!,
+        workItemId: parsed.input.workItemId,
+        ...(parsed.input.attemptId ? { attemptId: parsed.input.attemptId } : {}),
+        managedInvocationId: invocationId,
+      }
+    : parsed.input.goalRunId
+      ? { kind: "goal" as const, goalRunId: parsed.input.goalRunId, managedInvocationId: invocationId }
+      : undefined;
   const request = defineManagedAgentInvocationRequest({
     invocationId,
     agentId: `${route.routeId}:${parsed.input.profile}`,
@@ -1159,6 +1393,9 @@ async function prepareManagedInvocationRequest(
     profile: parsed.input.profile,
     requestedBy: options.requestedBy ?? "assistant",
     requestSource: options.requestSource ?? "runtime-tool",
+    executionIntent: toolName === MANAGED_AGENT_START_TOOL_NAME
+      ? { attendance: "unattended", lifecycle: "background" }
+      : { attendance: "attended", lifecycle: "foreground" },
     requestedAuthority,
     ...(authorityApproval.authorityApproval ? { authorityApproval: authorityApproval.authorityApproval } : {}),
     providerRoute: {
@@ -1169,6 +1406,7 @@ async function prepareManagedInvocationRequest(
     },
     adapterKind: route.adapter.descriptor.adapterKind,
     executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+    ...(executionScope ? { executionScope } : {}),
     authority: {
       authorityProfileId: profileDefaults.authorityProfileId,
       permissionProfile: profileDefaults.permissionProfile,
@@ -1189,15 +1427,7 @@ async function prepareManagedInvocationRequest(
       summary: parsed.input.summary,
       prompt,
       ...(parsed.input.resourceUris ? { resourceUris: parsed.input.resourceUris } : {}),
-      context: {
-        mode: parsed.input.contextMode,
-        ...(parsed.input.agentProfile ? { agentProfile: parsed.input.agentProfile } : {}),
-        ...(parsed.input.skills ? { skills: parsed.input.skills } : {}),
-        ...(contextResolution.resolution.admittedAgentProfile ? { admittedAgentProfile: contextResolution.resolution.admittedAgentProfile } : {}),
-        ...(contextResolution.resolution.admittedSkills ? { admittedSkills: contextResolution.resolution.admittedSkills } : {}),
-        ...(contextResolution.resolution.admittedInstructionProfiles ? { admittedInstructionProfiles: contextResolution.resolution.admittedInstructionProfiles } : {}),
-        ...(contextResolution.resolution.deniedSkills ? { deniedSkills: contextResolution.resolution.deniedSkills } : {}),
-      },
+      context: contextMetadata,
       ...(handoffContract ? { handoff: handoffContract } : {}),
     },
   });
@@ -1213,6 +1443,8 @@ async function prepareManagedInvocationRequest(
       capabilitySnapshotInput: {
         routeId: route.routeId,
         routeSource: route.routeSource,
+        callerIdentity,
+        invocationCapabilityEvidence,
         routeHealth: {
           status: "healthy",
           reason: managedInvocationRouteHealthReason(profileDefaults, route.routeSource),
@@ -1346,10 +1578,11 @@ function joinManagedInvocationLeasePath(rootPath: string, childId: string): stri
 async function executeManagedInvocationTool(
   rawInput: Record<string, unknown>,
   context: RuntimeBuiltinToolExecutionContext | undefined,
-  options: ManagedInvocationToolOptions,
+  attachment: ManagedInvocationToolAttachment,
   service: RuntimeManagedAgentInvocationService,
 ): Promise<ManagedInvocationToolResult> {
-  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, options, MANAGED_AGENT_INVOKE_TOOL_NAME);
+  const { options } = attachment;
+  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, attachment, MANAGED_AGENT_INVOKE_TOOL_NAME);
   if (!preparedResult.ok) {
     return preparedResult.result;
   }
@@ -1427,6 +1660,7 @@ async function executeManagedInvocationTool(
     };
   }
 
+  const terminalSnapshot = service.status(prepared.request.invocationId);
   return terminalManagedInvocationResult({
     toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
     rawInput: prepared.canonicalizedRawInput,
@@ -1435,6 +1669,7 @@ async function executeManagedInvocationTool(
     contextMode: prepared.parsed.contextMode,
     request: prepared.request,
     record: result.record,
+    progressEvents: terminalSnapshot?.progressEvents,
     ...(prepared.canonicalizedForbiddenInputFields
       ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
       : {}),
@@ -1445,10 +1680,11 @@ async function executeManagedInvocationTool(
 async function executeManagedInvocationStartTool(
   rawInput: Record<string, unknown>,
   context: RuntimeBuiltinToolExecutionContext | undefined,
-  options: ManagedInvocationToolOptions,
+  attachment: ManagedInvocationToolAttachment,
   service: RuntimeManagedAgentInvocationService,
 ): Promise<ManagedInvocationToolResult> {
-  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, options, MANAGED_AGENT_START_TOOL_NAME);
+  const { options } = attachment;
+  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, attachment, MANAGED_AGENT_START_TOOL_NAME);
   if (!preparedResult.ok) {
     return preparedResult.result;
   }
@@ -1520,6 +1756,7 @@ async function executeManagedInvocationStartTool(
         contextMode: terminalizedSnapshot.decision.capabilitySnapshot.contextMode,
         request: terminalizedSnapshot.request,
         record,
+        progressEvents: terminalizedSnapshot.progressEvents,
         ...(prepared.canonicalizedForbiddenInputFields
           ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
           : {}),
@@ -1598,6 +1835,7 @@ async function executeManagedInvocationStartTool(
     startResult.snapshot.decision.capabilitySnapshot,
     projectManagedInvocationPublicResourceUri,
   );
+  const authoritySnapshot = projectManagedInvocationAuthoritySnapshot(startResult.snapshot.request.authority);
   const timeoutEvidence = projectManagedInvocationTimeoutEvidence(
     startResult.snapshot.decision.capabilitySnapshot.authorityProfile,
   );
@@ -1612,6 +1850,7 @@ async function executeManagedInvocationStartTool(
       parentTurnId: startResult.snapshot.parentTurnId,
       profile: startResult.snapshot.profile,
       ...timeoutEvidence,
+      authoritySnapshot,
     }, null, 2),
     isError: false,
     metadata: {
@@ -1632,12 +1871,372 @@ async function executeManagedInvocationStartTool(
       executionMode: startResult.snapshot.executionMode,
       requestedAuthority: prepared.request.requestedAuthority,
       authorityProfileId: startResult.snapshot.authorityProfileId,
+      authoritySnapshot,
       capabilitySnapshot,
       context: prepared.request.input.context,
       ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
       sessionEventIds: events.map((event) => event.eventId),
     },
   };
+}
+
+interface ManagedOrchestrationWorkItemInput {
+  readonly id: string;
+  readonly roleIntent: string;
+  readonly task: string;
+  readonly agentProfile?: string;
+  readonly routeId?: string;
+  readonly dependencies: readonly string[];
+}
+
+interface ResolvedManagedOrchestrationWorkItem extends ManagedOrchestrationWorkItemInput {
+  readonly routeId: string;
+}
+
+async function executeManagedAgentOrchestrationTool(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  options: ManagedInvocationToolOptionsWithService,
+): Promise<ManagedInvocationToolResult> {
+  const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  if (!session.ok) return session.result;
+  const profile = readText(rawInput.profile) as ManagedAgentAdmissionProfile | undefined;
+  if (!profile || profile === "rejected" || !MANAGED_AGENT_ORCHESTRATION_PROFILES.includes(profile)) {
+    return errorResult("managed_agent.orchestrate requires a supported profile.", {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const taskRisk = readText(rawInput.taskRisk);
+  if (taskRisk !== "low" && taskRisk !== "medium" && taskRisk !== "high" && taskRisk !== "unknown") {
+    return errorResult("managed_agent.orchestrate requires taskRisk.", {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const parsedWorkItems = readManagedOrchestrationWorkItems(rawInput.workItems);
+  if (!parsedWorkItems.ok) {
+    return errorResult(parsedWorkItems.message, {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const orderedWorkItems = orderManagedOrchestrationWorkItems(parsedWorkItems.workItems);
+  if (!orderedWorkItems.ok) {
+    return errorResult(orderedWorkItems.message, {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const availableRoutes = eligibleManagedOrchestrationRoutes(options, profile);
+  const maxParallelWorkers = Math.max(1, options.maxParallelChildren ?? 1);
+  const budgetAdmission = await admitManagedOrchestrationBudget({
+    budgetAdmission: options.orchestrationBudgetAdmission,
+    sessionId: session.context.session.id,
+    turnId: session.context.turnId,
+    routes: availableRoutes,
+  });
+  const decision = decideManagedAgentCoordination({
+    governanceRecommendation: "orchestrate",
+    workItemCount: orderedWorkItems.workItems.length,
+    dependencyCount: orderedWorkItems.workItems.reduce((count, item) => count + item.dependencies.length, 0),
+    requiresIndependentReview: rawInput.requiresIndependentReview === true,
+    taskRisk,
+    managedRouteCount: availableRoutes.length,
+    maxParallelWorkers,
+    routeHealth: availableRoutes.length > 0 ? "available" : "unavailable",
+    budget: budgetAdmission.available ? "available" : "unavailable",
+    workspace: availableRoutes.length > 0 ? "available" : "unavailable",
+  });
+  if (decision.status === "denied") {
+    return errorResult([
+      ...decision.reasons,
+      ...(!budgetAdmission.available ? [budgetAdmission.reason] : []),
+    ].join("; "), {
+      operation: "managed_orchestration_denied",
+      coordinationDecision: decision,
+      ...(!budgetAdmission.available ? { budgetAdmissionReason: budgetAdmission.reason } : {}),
+    }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  if (decision.topology === "direct" || !decision.orchestrationMode) {
+    return errorResult("managed_agent.orchestrate cannot execute a direct topology.", {
+      operation: "managed_orchestration_direct",
+      coordinationDecision: decision,
+    }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const resolvedWorkItems = resolveManagedOrchestrationWorkItems(orderedWorkItems.workItems, profile, options);
+  if (!resolvedWorkItems.ok) {
+    return errorResult(resolvedWorkItems.message, { operation: "managed_orchestration_denied" }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const routesById = new Map(options.routes.map((route) => [route.routeId, route]));
+  const eligibleRoutes = unique(resolvedWorkItems.workItems.map((item) => item.routeId))
+    .map((routeId) => routesById.get(routeId)!);
+  const workingDirectoryModes = unique(eligibleRoutes.map((route) => route.profiles[profile]!.workingDirectory.mode));
+  if (workingDirectoryModes.length !== 1) {
+    return errorResult(
+      "managed_agent.orchestrate team members must currently share one governed working-directory mode.",
+      { operation: "managed_orchestration_denied" },
+      MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+    );
+  }
+  const workingDirectoryMode = workingDirectoryModes[0] as ManagedAgentWorkingDirectory["mode"];
+  const orchestrationId = `managed-orchestration:${session.context.session.id}:${session.context.toolCall.id}`;
+  const base = {
+    orchestrationId,
+    parentSessionId: session.context.session.id,
+    parentTurnId: session.context.turnId ?? session.context.toolCall.id,
+    requestedBy: options.requestedBy ?? "runtime",
+    requestSource: options.requestSource ?? MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+    task: resolvedWorkItems.workItems.map((item) => item.task).join("\n"),
+    workingDirectoryMode,
+  };
+  const childPlans = resolvedWorkItems.workItems.map((item) => ({
+    key: item.id,
+    roleIntent: item.roleIntent,
+    task: item.task,
+    ...(item.agentProfile ? { agentProfile: item.agentProfile } : {}),
+    routeId: item.routeId,
+    dependsOn: item.dependencies,
+  }));
+  const orchestrationRequest = decision.orchestrationMode === "background-job"
+    ? buildManagedAgentBackgroundJobOrchestrationRequest({
+      ...base,
+      key: resolvedWorkItems.workItems[0]!.id,
+      roleIntent: resolvedWorkItems.workItems[0]!.roleIntent,
+      task: resolvedWorkItems.workItems[0]!.task,
+      ...(resolvedWorkItems.workItems[0]!.agentProfile
+        ? { agentProfile: resolvedWorkItems.workItems[0]!.agentProfile }
+        : {}),
+      routeId: resolvedWorkItems.workItems[0]!.routeId,
+    })
+    : decision.orchestrationMode === "review-swarm"
+      ? buildManagedAgentReviewSwarmOrchestrationRequest({
+        ...base,
+        childPlans,
+        maxConcurrentChildren: decision.maxConcurrentChildren,
+      })
+      : buildManagedAgentDecompositionOrchestrationRequest({
+        ...base,
+        childPlans,
+        maxConcurrentChildren: decision.maxConcurrentChildren,
+      });
+  try {
+    const result = await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest,
+      managedInvocation: options,
+      profile,
+      requestedAuthority: managedOrchestrationRequestedAuthority(profile),
+      lifecycleObserver: {
+        onAdmissionResolved: async ({ request, decision: admissionDecision }) => {
+          await appendAndPublishManagedInvocationStartSessionEvents({
+            options,
+            context: session.context,
+            request,
+            decision: admissionDecision,
+          });
+        },
+        onTerminal: async ({ request, record, durationMs }) => {
+          await appendAndPublishManagedInvocationTerminalSessionEvent({
+            options,
+            context: session.context,
+            request,
+            record,
+            ...(durationMs !== undefined ? { durationMs } : {}),
+          });
+        },
+      },
+    });
+    return {
+      output: JSON.stringify({
+        status: result.orchestrationResult.status,
+        coordinationDecision: decision,
+        orchestrationResult: result.orchestrationResult,
+      }, null, 2),
+      isError: result.orchestrationResult.status === "failed",
+      metadata: {
+        toolName: MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+        operation: "managed_orchestration_completed",
+        orchestrationId,
+        coordinationDecision: decision,
+        presentationIntent: {
+          kind: "timeline",
+          title: "Managed orchestration",
+          summary: `${decision.topology} · ${result.orchestrationResult.status}`,
+          source: MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+          confidence: "high",
+          items: result.orchestrationResult.childResults.map((child, index) => ({
+            id: child.childId,
+            order: child.ordinal,
+            label: resolvedWorkItems.workItems[index]?.roleIntent ?? child.childId,
+            status: child.success ? "success" : "error",
+            summary: child.success
+              ? resolvedWorkItems.workItems[index]?.task
+              : child.error ?? resolvedWorkItems.workItems[index]?.task,
+          })),
+        } satisfies PresentationIntent,
+      },
+    };
+  } catch (error) {
+    return errorResult(error instanceof Error ? error.message : String(error), {
+      operation: "managed_orchestration_failed",
+      orchestrationId,
+      coordinationDecision: decision,
+    }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+}
+
+function managedOrchestrationRequestedAuthority(
+  profile: ManagedAgentAdmissionProfile,
+): ManagedAgentRequestedAuthority {
+  return profile === "foundation-readonly-plan"
+    || profile === "diagnostic-only"
+    || profile === "comparison-only"
+    ? "read_only"
+    : "audited";
+}
+
+async function admitManagedOrchestrationBudget(input: {
+  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly sessionId: string;
+  readonly turnId?: string;
+  readonly routes: readonly ManagedInvocationToolRoute[];
+}): Promise<{ readonly available: true } | { readonly available: false; readonly reason: string }> {
+  if (!input.budgetAdmission) return { available: true };
+  try {
+    const decision = await input.budgetAdmission.admit({
+      subject: "managed-orchestration",
+      sessionId: input.sessionId,
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+      routeCandidates: input.routes.map((route) => ({
+        routeId: route.routeId,
+        providerId: route.providerId,
+        ...(route.model ? { model: route.model } : {}),
+      })),
+    });
+    return decision.status === "admitted"
+      ? { available: true }
+      : { available: false, reason: decision.message ?? decision.reason };
+  } catch (error) {
+    return {
+      available: false,
+      reason: `Managed orchestration budget admission failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function readManagedOrchestrationWorkItems(value: unknown):
+  | { readonly ok: true; readonly workItems: readonly ManagedOrchestrationWorkItemInput[] }
+  | { readonly ok: false; readonly message: string } {
+  if (!Array.isArray(value) || value.length === 0) {
+    return { ok: false, message: "managed_agent.orchestrate requires at least one work item." };
+  }
+  const workItems: ManagedOrchestrationWorkItemInput[] = [];
+  const ids = new Set<string>();
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      return { ok: false, message: "managed_agent.orchestrate work items must be objects." };
+    }
+    const record = candidate as Record<string, unknown>;
+    const id = readText(record.id);
+    const roleIntent = readText(record.roleIntent);
+    const task = readText(record.task);
+    const agentProfile = readText(record.agentProfile);
+    const routeId = readText(record.routeId);
+    if (!id || !roleIntent || !task || ids.has(id)) {
+      return { ok: false, message: "managed_agent.orchestrate work items require unique ids, roleIntent, and task." };
+    }
+    ids.add(id);
+    const dependencies = Array.isArray(record.dependencies)
+      ? record.dependencies.map(readText).filter((dependency): dependency is string => dependency !== undefined)
+      : [];
+    if (dependencies.length !== (Array.isArray(record.dependencies) ? record.dependencies.length : 0)) {
+      return { ok: false, message: `managed_agent.orchestrate work item '${id}' has invalid dependencies.` };
+    }
+    workItems.push({
+      id,
+      roleIntent,
+      task,
+      ...(agentProfile ? { agentProfile } : {}),
+      ...(routeId ? { routeId } : {}),
+      dependencies: unique(dependencies),
+    });
+  }
+  const unknownDependency = workItems.flatMap((item) => item.dependencies).find((id) => !ids.has(id));
+  if (unknownDependency) {
+    return { ok: false, message: `managed_agent.orchestrate dependency '${unknownDependency}' does not reference a work item.` };
+  }
+  return { ok: true, workItems };
+}
+
+function resolveManagedOrchestrationWorkItems(
+  workItems: readonly ManagedOrchestrationWorkItemInput[],
+  profile: ManagedAgentAdmissionProfile,
+  options: ManagedInvocationToolOptions,
+):
+  | { readonly ok: true; readonly workItems: readonly ResolvedManagedOrchestrationWorkItem[] }
+  | { readonly ok: false; readonly message: string } {
+  const eligibleRoutes = eligibleManagedOrchestrationRoutes(options, profile);
+  const eligibleById = new Map(eligibleRoutes.map((route) => [route.routeId, route]));
+  const resolved: ResolvedManagedOrchestrationWorkItem[] = [];
+  for (const item of workItems) {
+    const agent = resolveManagedInvocationAgentProfile(options, item.agentProfile);
+    if (item.agentProfile && !agent) {
+      return { ok: false, message: `managed_agent.orchestrate work item '${item.id}' references unknown agentProfile '${item.agentProfile}'.` };
+    }
+    if (item.routeId && agent?.routeId && item.routeId !== agent.routeId) {
+      return {
+        ok: false,
+        message: `managed_agent.orchestrate work item '${item.id}' routeId '${item.routeId}' contradicts agentProfile '${agent.name}' route hint '${agent.routeId}'.`,
+      };
+    }
+    if (agent?.authorityProfile && agent.authorityProfile !== profile) {
+      return {
+        ok: false,
+        message: `managed_agent.orchestrate work item '${item.id}' agentProfile '${agent.name}' requires authority profile '${agent.authorityProfile}', not '${profile}'.`,
+      };
+    }
+    const routeId = item.routeId ?? agent?.routeId ?? (eligibleRoutes.length === 1 ? eligibleRoutes[0]!.routeId : undefined);
+    if (!routeId) {
+      return {
+        ok: false,
+        message: `managed_agent.orchestrate work item '${item.id}' requires an admitted agentProfile or explicit routeId because route selection is ambiguous.`,
+      };
+    }
+    if (!eligibleById.has(routeId)) {
+      return {
+        ok: false,
+        message: `managed_agent.orchestrate work item '${item.id}' route '${routeId}' does not expose the requested governed profile.`,
+      };
+    }
+    resolved.push({
+      ...item,
+      ...(agent ? { agentProfile: agent.name } : {}),
+      routeId,
+    });
+  }
+  return { ok: true, workItems: resolved };
+}
+
+function eligibleManagedOrchestrationRoutes(
+  options: ManagedInvocationToolOptions,
+  profile: ManagedAgentAdmissionProfile,
+): readonly ManagedInvocationToolRoute[] {
+  return options.routes.filter((route) => {
+    const routeProfile = route.profiles[profile];
+    return routeProfile !== undefined
+      && routeProfile.workingDirectory.mode !== "workspace-write"
+      && (routeProfile.workingDirectory.mode !== "isolated-worktree" || routeProfile.workingDirectoryLease !== undefined)
+      && route.adapter.descriptor.lifecycle.exposesStart
+      && route.adapter.descriptor.lifecycle.exposesTerminal;
+  });
+}
+
+function orderManagedOrchestrationWorkItems(workItems: readonly ManagedOrchestrationWorkItemInput[]):
+  | { readonly ok: true; readonly workItems: readonly ManagedOrchestrationWorkItemInput[] }
+  | { readonly ok: false; readonly message: string } {
+  const remaining = new Map(workItems.map((item) => [item.id, item]));
+  const completed = new Set<string>();
+  const ordered: ManagedOrchestrationWorkItemInput[] = [];
+  while (remaining.size > 0) {
+    const ready = [...remaining.values()].filter((item) => item.dependencies.every((id) => completed.has(id)));
+    if (ready.length === 0) {
+      return { ok: false, message: "managed_agent.orchestrate work item dependencies contain a cycle." };
+    }
+    for (const item of ready) {
+      ordered.push(item);
+      completed.add(item.id);
+      remaining.delete(item.id);
+    }
+  }
+  return { ok: true, workItems: ordered };
 }
 
 async function executeManagedInvocationStatusTool(
@@ -1780,6 +2379,7 @@ async function executeManagedInvocationJoinTool(
     contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
     request: visibility.snapshot.request,
     record,
+    progressEvents: terminalSnapshot?.progressEvents,
     sessionEventIds: terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value }),
   });
 }
@@ -1832,11 +2432,12 @@ async function executeManagedInvocationCancelTool(
     );
   }
   const record = projectManagedInvocationRecordResources(terminalResult.record, { artifactStore: options.artifactStore });
+  const cancelledSnapshot = service.status(invocationId.value);
   const events = appendManagedInvocationTerminalSessionEvent({
     session: session.context.session,
     request: visibility.snapshot.request,
     record,
-    durationMs: service.status(invocationId.value)?.durationMs,
+    durationMs: cancelledSnapshot?.durationMs,
   });
   await publishManagedInvocationSessionEvents(options, session.context, events);
   return terminalManagedInvocationResult({
@@ -1848,6 +2449,7 @@ async function executeManagedInvocationCancelTool(
     request: visibility.snapshot.request,
     record,
     expectedTerminalLifecycleState: "cancelled",
+    progressEvents: cancelledSnapshot?.progressEvents,
     sessionEventIds: terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value }),
   });
 }
@@ -1909,6 +2511,7 @@ function managedInvocationSnapshotResult(
 
 function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeInvocationSnapshot): Record<string, unknown> {
   const capabilitySnapshot = snapshot.decision.capabilitySnapshot;
+  const authoritySnapshot = projectManagedInvocationAuthoritySnapshot(snapshot.request.authority);
   return {
     invocationId: snapshot.invocationId,
     agentId: snapshot.agentId,
@@ -1923,10 +2526,12 @@ function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeInvocatio
     adapterKind: snapshot.adapterKind,
     executionMode: snapshot.executionMode,
     authorityProfileId: snapshot.authorityProfileId,
+    authoritySnapshot,
     lifecycleState: snapshot.lifecycleState,
     startedAt: snapshot.startedAt,
     ...(snapshot.finishedAt ? { finishedAt: snapshot.finishedAt } : {}),
     ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
+    ...(snapshot.progressEvents && snapshot.progressEvents.length > 0 ? { progressEvents: snapshot.progressEvents } : {}),
     terminalEvidenceAvailable: snapshot.record !== undefined || snapshot.error !== undefined,
   };
 }
@@ -1961,6 +2566,7 @@ function terminalManagedInvocationResult(input: {
   readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
   readonly record: ManagedAgentInvocationRecord;
   readonly expectedTerminalLifecycleState?: ManagedAgentInvocationRecord["lifecycleState"];
+  readonly progressEvents?: ManagedAgentRuntimeInvocationSnapshot["progressEvents"];
   readonly canonicalizedForbiddenInputFields?: readonly string[];
   readonly sessionEventIds: readonly string[];
 }): ManagedInvocationToolResult {
@@ -1987,11 +2593,24 @@ function terminalManagedInvocationResult(input: {
   const resourceLease = input.record.resourceLease ?? input.record.capabilitySnapshot.resourceLease;
   const routeSource = input.record.capabilitySnapshot.routeSource;
   const timeoutEvidence = projectManagedInvocationTimeoutEvidence(input.record.capabilitySnapshot.authorityProfile);
+  const authoritySnapshot = projectManagedInvocationAuthoritySnapshot(input.record.authority);
   const childLineage = projectManagedInvocationChildLineage(input.record);
+  const terminalProgressEvents = projectManagedInvocationTerminalProgressEvents(input.progressEvents);
+  const resourceLinks = projectManagedInvocationResultResourceLinks(input.record);
   const structuredEvidence = input.record.resultHandoff !== undefined
     || input.record.transcript !== undefined
     || resourceLease !== undefined
-    || (input.record.diagnostics !== undefined && input.record.diagnostics.length > 0);
+    || (input.record.diagnostics !== undefined && input.record.diagnostics.length > 0)
+    || terminalProgressEvents.length > 0;
+  const outputVerbosity = input.request.input.handoff?.outputVerbosity ?? "standard";
+  const projectedResultHandoff = input.record.resultHandoff
+    ? {
+        ...input.record.resultHandoff,
+        ...(input.record.resultHandoff.structuredResult
+          ? { structuredResult: projectStructuredExecutionResult(input.record.resultHandoff.structuredResult, outputVerbosity) }
+          : {}),
+      }
+    : undefined;
   return {
     output: recovery || handoffRecovery || phaseCompletion || structuredEvidence
       ? JSON.stringify({
@@ -2004,10 +2623,13 @@ function terminalManagedInvocationResult(input: {
           parentTurnId: input.record.parentTurnId,
           ...childLineage,
           ...timeoutEvidence,
-          ...(input.record.resultHandoff ? { resultHandoff: input.record.resultHandoff } : {}),
+          authoritySnapshot,
+          ...(projectedResultHandoff ? { resultHandoff: projectedResultHandoff } : {}),
           ...(input.record.transcript ? { transcript: input.record.transcript } : {}),
+          ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
           ...(resourceLease ? { resourceLease } : {}),
           ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
+          ...(terminalProgressEvents.length > 0 ? { progressEvents: terminalProgressEvents } : {}),
           ...(recovery ? { recovery } : {}),
           ...(handoffRecovery ? { recovery: handoffRecovery } : {}),
           ...(phaseCompletion ? { phaseCompletion } : {}),
@@ -2033,14 +2655,17 @@ function terminalManagedInvocationResult(input: {
       executionMode: input.record.executionMode,
       requestedAuthority: input.request.requestedAuthority,
       authorityProfileId: input.record.authority.authorityProfileId,
+      authoritySnapshot,
       capabilitySnapshot: input.record.capabilitySnapshot,
       context: input.request.input.context,
       ...(input.canonicalizedForbiddenInputFields
         ? { canonicalizedForbiddenInputFields: input.canonicalizedForbiddenInputFields }
         : {}),
       ...(input.request.input.handoff ? { handoffContract: input.request.input.handoff } : {}),
-      resultHandoff: input.record.resultHandoff,
+      resultHandoff: projectedResultHandoff,
       transcript: input.record.transcript,
+      ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+      ...(terminalProgressEvents.length > 0 ? { progressEvents: terminalProgressEvents } : {}),
       ...(resourceLease ? { resourceLease } : {}),
       ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
@@ -2063,11 +2688,39 @@ function terminalManagedInvocationResult(input: {
   };
 }
 
+function projectManagedInvocationResultResourceLinks(
+  record: ManagedAgentInvocationRecord,
+): readonly {
+  readonly uri: string;
+  readonly title?: string;
+  readonly relation?: string;
+}[] {
+  const links = new Map<string, { readonly uri: string; readonly title?: string; readonly relation?: string }>();
+  const addLink = (uri: string | undefined, title: string, relation: string) => {
+    if (!uri || uri.trim().length === 0 || links.has(uri)) {
+      return;
+    }
+    links.set(uri, { uri, title, relation });
+  };
+  addLink(record.transcript?.uri, "Managed invocation transcript", "events");
+  for (const [index, uri] of (record.resultHandoff?.resourceUris ?? []).entries()) {
+    addLink(uri, `Managed invocation result ${index + 1}`, "summary");
+  }
+  for (const [index, uri] of (record.resultHandoff?.memoryWriteProposalUris ?? []).entries()) {
+    addLink(uri, `Managed invocation memory proposal ${index + 1}`, "source");
+  }
+  return [...links.values()];
+}
+
 function projectManagedInvocationTimeoutEvidence(authority: ManagedAgentAuthorityProfile): Record<string, unknown> {
   return {
     timeoutMs: authority.timeoutMs,
     ...(authority.timeoutSource ? { timeoutSource: authority.timeoutSource } : {}),
   };
+}
+
+function projectManagedInvocationAuthoritySnapshot(authority: ManagedAgentAuthorityProfile): ManagedAgentAuthorityProfile {
+  return projectManagedInvocationAuthorityResources(authority, projectManagedInvocationPublicResourceUri);
 }
 
 function projectManagedInvocationChildLineage(record: ManagedAgentInvocationRecord | undefined): Record<string, unknown> {
@@ -2118,6 +2771,21 @@ function buildManagedInvocationPresentationIntent(input: {
       failureReason: boundedPresentationText(input.failureReason ?? ""),
     }],
   };
+}
+
+function projectManagedInvocationTerminalProgressEvents(
+  progressEvents: ManagedAgentRuntimeInvocationSnapshot["progressEvents"] | undefined,
+): readonly Record<string, unknown>[] {
+  return (progressEvents ?? []).map((event) => ({
+    eventId: event.eventId,
+    kind: event.kind,
+    recordedAt: event.recordedAt,
+    summary: event.summary,
+    ...(event.toolName ? { toolName: event.toolName } : {}),
+    ...(event.success !== undefined ? { success: event.success } : {}),
+    ...(event.isError !== undefined ? { isError: event.isError } : {}),
+    ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+  }));
 }
 
 function boundedPresentationText(value: string): string {
@@ -2185,7 +2853,10 @@ function managedInvocationCanReadPath(
   requiredPath: string,
   profileDefaults: ManagedInvocationRouteProfile,
 ): boolean {
-  const normalizedRequired = normalizeManagedInvocationReadPath(requiredPath);
+  const normalizedRequired = normalizeManagedInvocationReadPath(
+    requiredPath,
+    profileDefaults.workingDirectory.path,
+  );
   if (!normalizedRequired) {
     return false;
   }
@@ -2213,9 +2884,22 @@ function pathEqualsOrContains(rootPath: string | undefined, candidatePath: strin
   return rootPath === candidatePath || candidatePath.startsWith(`${rootPath}/`);
 }
 
-function normalizeManagedInvocationReadPath(pathValue: string): string | undefined {
+function normalizeManagedInvocationReadPath(pathValue: string, relativeRoot?: string): string | undefined {
   const normalized = pathValue.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
-  return normalized.length > 0 ? normalized : undefined;
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  if (managedInvocationPathIsAbsolute(normalized) || !relativeRoot) {
+    return posix.normalize(normalized);
+  }
+  const root = relativeRoot.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
+  return root.length > 0
+    ? posix.normalize(`${root}/${normalized}`)
+    : posix.normalize(normalized);
+}
+
+function managedInvocationPathIsAbsolute(pathValue: string): boolean {
+  return pathValue.startsWith("/") || /^[A-Za-z]:\//.test(pathValue);
 }
 
 function requiresNetworkCapability(toolName: string): boolean {
@@ -2272,20 +2956,6 @@ function resolveRoute(
     };
   }
   return { status: "missing" };
-}
-
-function resolveManagedAgentProfileEntry(
-  options: ManagedInvocationToolOptions,
-  profile: string | undefined,
-): ManagedInvocationAgentCatalogEntry | undefined {
-  if (!profile) {
-    return undefined;
-  }
-  return (options.agentCatalog ?? []).find((agent) =>
-    agent.name === profile
-    || agent.displayName === profile
-    || (agent.nicknameCandidates ?? []).includes(profile)
-  );
 }
 
 function validateAgentRouteHint(
@@ -2444,6 +3114,7 @@ function formatRouteTimeoutEntry(entry: {
     : `timeoutMs=${entry.timeoutMs}`;
 }
 
+
 function managedInvocationRouteHealthReason(profile: ManagedInvocationRouteProfile, routeSource: ManagedAgentRouteSource): string {
   return profile.timeoutSource
     ? `Configured managed invocation route selected by runtime tool; routeSource=${routeSource}; effective timeoutMs=${profile.timeoutMs} source=${profile.timeoutSource}.`
@@ -2490,7 +3161,7 @@ function buildManagedAgentSelectionDescription(options: ManagedInvocationToolOpt
   return [
     "Configured admitted agent profiles:",
     agents,
-    `Configured admitted skills: ${managedInvocationSkillNames(options).join(", ") || "none"}`,
+    `Configured admitted skills: ${formatBoundedList(managedInvocationSkillNames(options), 24)}`,
     buildManagedSkillCatalogDescription(options),
     buildManagedTaskAffinityDescription(options),
     "Selection policy:",
@@ -2509,11 +3180,37 @@ function buildManagedSkillCatalogDescription(options: ManagedInvocationToolOptio
   if (skillCatalog.length === 0) {
     return "Configured skill catalog: none";
   }
-  const rows = skillCatalog.map((skill) => {
+  const configured = skillCatalog.filter((skill) =>
+    skill.configured !== false && skill.admission?.state !== "unavailable"
+  );
+  const diagnostics = skillCatalog.filter((skill) =>
+    skill.configured === false || skill.admission?.state === "unavailable"
+  );
+  const rows = configured.slice(0, 24).map((skill) => {
     const tags = skill.tags && skill.tags.length > 0 ? `, tags=${skill.tags.join(",")}` : "";
-    return `- ${skill.name}: ${skill.description}${tags}`;
+    const origin = skill.origin ? `, origin=${skill.origin}` : "";
+    const admission = skill.admission ? `, admission=${skill.admission.state}` : "";
+    const projection = skill.projections && skill.projections.length > 0
+      ? `, projections=${skill.projections.map((entry) => `${entry.target}:${entry.status}`).join(",")}`
+      : "";
+    const omitted = skill.omissionReason ? `, omission=${skill.omissionReason}` : "";
+    return `- ${skill.name}: ${skill.description}${origin}${admission}${projection}${omitted}${tags}`;
   });
-  return ["Configured skill catalog:", ...rows].join("\n");
+  const omittedConfigured = configured.length - rows.length;
+  if (omittedConfigured > 0) {
+    rows.push(`- ${omittedConfigured} additional configured skill(s) omitted from this bounded catalog summary.`);
+  }
+  if (diagnostics.length > 0) {
+    const byReason = new Map<string, number>();
+    for (const skill of diagnostics) {
+      const reason = skill.omissionReason ?? skill.admission?.state ?? "diagnostic";
+      byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+    }
+    rows.push(
+      `- Diagnostic-only native skill entries: ${diagnostics.length} (${[...byReason.entries()].map(([reason, count]) => `${reason}=${count}`).join(", ")}).`,
+    );
+  }
+  return ["Configured skill catalog summary:", ...rows].join("\n");
 }
 
 function buildManagedTaskAffinityDescription(options: ManagedInvocationToolOptions): string {
@@ -2523,7 +3220,7 @@ function buildManagedTaskAffinityDescription(options: ManagedInvocationToolOptio
     "Task-affinity hints:",
     routeRows.length > 0 ? `Routes: ${routeRows.join("; ")}` : "Routes: no task suitability evidence",
     agentRows.length > 0 ? `Agent profiles: ${agentRows.join("; ")}` : "Agent profiles: no configured agent profiles",
-    "Skills: request a skill only when its name appears in the configured skill catalog or on the selected agent profile.",
+    "Skills: request a skill only when its name appears in the configured Kiln skill catalog or on the selected agent profile. Harness-local native skills marked unmanaged-native are diagnostics only and are not admissible.",
   ].join("\n");
 }
 
@@ -2537,7 +3234,9 @@ function managedInvocationAgentProfileNames(options: ManagedInvocationToolOption
 
 function managedInvocationSkillNames(options: ManagedInvocationToolOptions): readonly string[] {
   return unique([
-    ...(options.skillCatalog ?? []).map((skill) => skill.name),
+    ...(options.skillCatalog ?? [])
+      .filter((skill) => skill.configured !== false && skill.admission?.state !== "unavailable")
+      .map((skill) => skill.name),
     ...(options.agentCatalog ?? []).flatMap((agent) => agent.skills ?? []),
   ]);
 }
@@ -2577,6 +3276,15 @@ function managedAgentDisplayName(
 
 function unique(values: readonly string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.trim().length > 0)));
+}
+
+function formatBoundedList(values: readonly string[], limit: number): string {
+  if (values.length === 0) {
+    return "none";
+  }
+  const visible = values.slice(0, limit).join(", ");
+  const omitted = values.length - limit;
+  return omitted > 0 ? `${visible}, ... (${omitted} more)` : visible;
 }
 
 function cloneToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
@@ -2638,7 +3346,15 @@ function parseInput(
   const requiredReadPaths = readTextArray(input.requiredReadPaths);
   const requiredResultFields = readTextArray(input.requiredResultFields);
   const doneCriteria = readTextArray(input.doneCriteria);
+  const outputVerbosity = parseAssistantOutputVerbosity(input.outputVerbosity);
+  if (input.outputVerbosity !== undefined && !outputVerbosity) {
+    return { ok: false, error: `${toolName} outputVerbosity is not supported.` };
+  }
   const forbiddenInputFields = readTextArray(input.forbiddenInputFields);
+  const workClassification = parseWorkClassification(input.workClassification, toolName);
+  if (!workClassification.ok) {
+    return { ok: false, error: workClassification.error };
+  }
   const requestedAuthority = parseManagedInvocationRequestedAuthority(input.requestedAuthority);
   if (!requestedAuthority.ok) {
     return { ok: false, error: `${toolName} requestedAuthority is not supported.` };
@@ -2649,6 +3365,15 @@ function parseInput(
   }
   if (contextMode === "resources" && (!resourceUris || resourceUris.length === 0)) {
     return { ok: false, error: `${toolName} contextMode resources requires at least one resourceUris entry. Use contextMode isolated when no governed resources are supplied.` };
+  }
+  const goalRunId = readText(input.goalRunId);
+  const workItemId = readText(input.workItemId);
+  const attemptId = readText(input.attemptId);
+  if ((workItemId || attemptId) && !goalRunId) {
+    return { ok: false, error: `${toolName} goalRunId is required when workItemId or attemptId is supplied.` };
+  }
+  if (attemptId && !workItemId) {
+    return { ok: false, error: `${toolName} workItemId is required when attemptId is supplied.` };
   }
   return {
     ok: true,
@@ -2668,10 +3393,11 @@ function parseInput(
       ...(readText(input.agentProfile) ? { agentProfile: readText(input.agentProfile) } : {}),
       ...(forbiddenInputFields && forbiddenInputFields.length > 0 ? { forbiddenInputFields } : {}),
       ...(skills && skills.length > 0 ? { skills } : {}),
+      ...(workClassification.value ? { workClassification: workClassification.value } : {}),
       contextMode,
-      ...(readText(input.goalRunId) ? { goalRunId: readText(input.goalRunId) } : {}),
-      ...(readText(input.workItemId) ? { workItemId: readText(input.workItemId) } : {}),
-      ...(readText(input.attemptId) ? { attemptId: readText(input.attemptId) } : {}),
+      ...(goalRunId ? { goalRunId } : {}),
+      ...(workItemId ? { workItemId } : {}),
+      ...(attemptId ? { attemptId } : {}),
       ...(readText(input.roleIntent) ? { roleIntent: readText(input.roleIntent) } : {}),
       ...(expectedEvidence && expectedEvidence.length > 0 ? { expectedEvidence } : {}),
       ...(requiredToolNames && requiredToolNames.length > 0 ? { requiredToolNames } : {}),
@@ -2679,6 +3405,7 @@ function parseInput(
       ...(requiredResultFields && requiredResultFields.length > 0 ? { requiredResultFields } : {}),
       ...(doneCriteria && doneCriteria.length > 0 ? { doneCriteria } : {}),
       ...(typeof input.residualRiskRequired === "boolean" ? { residualRiskRequired: input.residualRiskRequired } : {}),
+      ...(outputVerbosity ? { outputVerbosity } : {}),
       ...(readRecord(input.executionPhase) ? { executionPhase: readRecord(input.executionPhase)! } : {}),
     },
   };
@@ -2697,14 +3424,14 @@ async function resolveInvocationContext(
     readonly resolution?: ManagedInvocationContextResolution;
   }
 > {
-  const needsResolver = Boolean(options.contextResolver || input.agentProfile || input.skills?.length || input.contextMode === "fork");
+  const needsResolver = Boolean(options.contextResolver || input.agentProfile || input.skills?.length || input.workClassification || input.contextMode === "fork");
   if (!needsResolver) {
     return { ok: true, resolution: {} };
   }
   if (!options.contextResolver) {
     return {
       ok: false,
-      error: "Managed invocation context resolver is not configured for requested agentProfile, skills, or fork context.",
+      error: "Managed invocation context resolver is not configured for requested agentProfile, skills, workClassification, or fork context.",
       status: "failed",
     };
   }
@@ -2719,6 +3446,7 @@ async function resolveInvocationContext(
         ...(input.providerRoute.model ?? route?.model ? { model: input.providerRoute.model ?? route?.model } : {}),
       },
       ...(route?.taskSuitability ? { taskSuitability: route.taskSuitability } : {}),
+      ...(input.workClassification ? { workClassification: input.workClassification } : {}),
     });
     if (resolution.deniedSkills && resolution.deniedSkills.length > 0) {
       return {
@@ -2741,17 +3469,20 @@ async function resolveInvocationContext(
 function buildManagedInvocationContextMetadata(
   input: ManagedInvocationToolInput,
   resolution: ManagedInvocationContextResolution | undefined,
-): Record<string, unknown> | undefined {
-  const context = {
-    ...(input.contextMode ? { mode: input.contextMode } : {}),
+): ManagedAgentInvocationContextSelection {
+  return {
+    mode: input.contextMode,
     ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
     ...(input.skills && input.skills.length > 0 ? { skills: input.skills } : {}),
+    ...(input.workClassification ? { workClassification: input.workClassification } : {}),
     ...(resolution?.admittedAgentProfile ? { admittedAgentProfile: resolution.admittedAgentProfile } : {}),
     ...(resolution?.admittedSkills ? { admittedSkills: resolution.admittedSkills } : {}),
     ...(resolution?.admittedInstructionProfiles ? { admittedInstructionProfiles: resolution.admittedInstructionProfiles } : {}),
     ...(resolution?.deniedSkills ? { deniedSkills: resolution.deniedSkills } : {}),
+    ...(resolution?.workClassification ? { resolvedWorkClassification: resolution.workClassification } : {}),
+    ...(resolution?.workRecommendedSkills ? { workRecommendedSkills: resolution.workRecommendedSkills } : {}),
+    ...(resolution?.workRecommendedSkillDiagnostics ? { workRecommendedSkillDiagnostics: resolution.workRecommendedSkillDiagnostics } : {}),
   };
-  return Object.keys(context).length > 0 ? context : undefined;
 }
 
 function parseContextMode(input: unknown): ManagedAgentInvocationContextMode | undefined {
@@ -2762,6 +3493,62 @@ function parseContextMode(input: unknown): ManagedAgentInvocationContextMode | u
     return input;
   }
   return undefined;
+}
+
+function parseWorkClassification(
+  input: unknown,
+  toolName: string,
+): { readonly ok: true; readonly value?: WorkClassification } | { readonly ok: false; readonly error: string } {
+  if (input === undefined) {
+    return { ok: true };
+  }
+  const record = readRecord(input);
+  if (!record) {
+    return { ok: false, error: `${toolName} workClassification must be an object.` };
+  }
+  const supportedFields = new Set(["intents", "artifacts", "domains", "effects", "modes"]);
+  const unsupportedField = Object.keys(record).find((field) => !supportedFields.has(field));
+  if (unsupportedField) {
+    return { ok: false, error: `${toolName} Unsupported work classification field: ${unsupportedField}.` };
+  }
+  const intents = parseWorkClassificationFacet(record, "intents", toolName);
+  if (!intents.ok) return intents;
+  const artifacts = parseWorkClassificationFacet(record, "artifacts", toolName);
+  if (!artifacts.ok) return artifacts;
+  const domains = parseWorkClassificationFacet(record, "domains", toolName);
+  if (!domains.ok) return domains;
+  const effects = parseWorkClassificationFacet(record, "effects", toolName);
+  if (!effects.ok) return effects;
+  const modes = parseWorkClassificationFacet(record, "modes", toolName);
+  if (!modes.ok) return modes;
+  const classificationInput: WorkClassificationInput = {
+    ...(intents.value ? { intents: intents.value } : {}),
+    ...(artifacts.value ? { artifacts: artifacts.value } : {}),
+    ...(domains.value ? { domains: domains.value } : {}),
+    ...(effects.value ? { effects: effects.value } : {}),
+    ...(modes.value ? { modes: modes.value } : {}),
+  };
+  try {
+    const value = defineWorkClassification(classificationInput);
+    return Object.keys(value).length > 0 ? { ok: true, value } : { ok: true };
+  } catch (error) {
+    return { ok: false, error: `${toolName} ${error instanceof Error ? error.message : String(error)}.` };
+  }
+}
+
+function parseWorkClassificationFacet(
+  record: Record<string, unknown>,
+  field: "intents" | "artifacts" | "domains" | "effects" | "modes",
+  toolName: string,
+): { readonly ok: true; readonly value?: readonly string[] } | { readonly ok: false; readonly error: string } {
+  if (!(field in record)) {
+    return { ok: true };
+  }
+  const value = record[field];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    return { ok: false, error: `${toolName} workClassification.${field} must be an array of strings.` };
+  }
+  return { ok: true, value };
 }
 
 function parseManagedInvocationRequestedAuthority(
@@ -2884,6 +3671,7 @@ function buildHandoffContract(input: ManagedInvocationToolInput): ManagedAgentIn
     ...(input.requiredResultFields && input.requiredResultFields.length > 0 ? { requiredResultFields: input.requiredResultFields } : {}),
     ...(input.doneCriteria && input.doneCriteria.length > 0 ? { doneCriteria: input.doneCriteria } : {}),
     ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired } : {}),
+    ...(input.outputVerbosity !== undefined ? { outputVerbosity: input.outputVerbosity } : {}),
   };
   return Object.keys(contract).length > 0 ? contract : undefined;
 }
@@ -2917,6 +3705,10 @@ function readText(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseAssistantOutputVerbosity(value: unknown): "concise" | "standard" | "detailed" | undefined {
+  return value === "concise" || value === "standard" || value === "detailed" ? value : undefined;
 }
 
 function readTextArray(value: unknown): readonly string[] | undefined {

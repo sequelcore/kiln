@@ -119,6 +119,7 @@ Current core built-ins:
 - `managed-agent-risk-review`
 - `benchmark-readiness-review`
 - `config-projection-review`
+- `clear-writing`
 
 Use global config to make the policy explicit:
 
@@ -150,7 +151,46 @@ Built-ins are projected to supported native harness skill directories during
 remain projections; canonical user and project skills live under
 `~/.kiln/skills` and `.kiln/skills`.
 
-## Task-Aware Selection
+## Skill Status And Admission
+
+Kiln reports skill status through `kiln config read skills`, `kiln config read
+setup`, GUI setup, TUI setup, and the model-callable `kiln_config.read` view.
+The status contract separates:
+
+- configured registry entries from project, user, plugin, or built-in sources
+- built-in versus user/project content
+- native projection state for Claude Code, Codex, and OpenCode
+- unmanaged native harness-local skills that exist outside Kiln
+- route/session admission into current procedural context
+- omission or unavailable reasons
+
+GUI Setup presents this as a diagnostic Skill Catalog with explicit copy-path
+controls; TUI Setup prints the same shared evidence deterministically. In both
+surfaces, `available` means Kiln governance may admit the skill. It does not
+mean the skill is already loaded in the active session; only `admitted` records
+that context state.
+
+This distinction is deliberate. A local Codex skill such as `shadcn` may exist
+under `~/.codex/skills`, but Kiln treats that as `native-harness` and
+`unmanaged-native` until it is adopted or installed into `~/.kiln/skills` or
+`.kiln/skills`. Managed invocation does not silently import native harness
+folders, because those folders may have different trust, policy, plugin, or
+route assumptions than the current Kiln session.
+
+When setup recommends `adopt-or-back-up-native-guidance`, the governed repair
+is to run the setup action. Kiln copies parseable, non-conflicting native
+skills into the global Kiln registry once, then projects that canonical copy to
+Claude Code, Codex, and OpenCode. If two harnesses contain the same skill name
+with different content, adoption blocks and reports the conflict so the
+operator can reconcile the source before Kiln admits it.
+
+Explicit skill requests fail closed when the skill is not in the governed Kiln
+registry. Recommended skills are advisory unless `skills.selection.mode: auto`
+is enabled. Auto mode admits only configured skills and records the admission
+in managed invocation context metadata; unavailable recommendations are skipped
+instead of invented.
+
+## Work-Aware Selection
 
 Models and routes may advertise recommended skills for task classes such as
 `architecture-review`, `backend-coding`, `frontend-design`, `mechanical-edit`,
@@ -167,9 +207,59 @@ Auto-selection is still governed admission:
 - explicitly requested missing skills fail closed
 - admitted skills are recorded in managed invocation context metadata
 
+Route task suitability and work classification are separate contracts.
+Suitability describes whether a provider/model route is appropriate for a
+bounded execution class. `WorkClassification` describes the operator's work
+through independent `intents`, `artifacts`, `domains`, `effects`, and `modes`
+facets. This keeps writing, support, education, business, document, and other
+non-programming work from being forced into software-oriented route labels.
+
+Managed invocations may supply an explicit classification:
+
+```json
+{
+  "workClassification": {
+    "intents": ["write"],
+    "artifacts": ["document"],
+    "domains": ["education"],
+    "effects": ["write-artifact"],
+    "modes": ["coauthor"]
+  }
+}
+```
+
+Unknown explicit facet values fail closed. In advisory mode, the classification
+is recorded and recommendations remain diagnostics. In auto mode, Kiln may
+admit a recommended skill only when it exists in the governed registry. The
+invocation metadata records requested classification, resolved classification,
+recommended skill ids, admitted skill ids, and per-skill diagnostic state:
+`admitted`, `advisory`, or `unavailable`.
+
+For governed work, the long-lived source is the approved plan work item. A
+classified plan work item stores `workClassification` and
+`workClassificationProvenance` together, binds both to the approved content
+hash, and materializes them into the durable `WorkItem`. A managed invocation
+generated from that work item carries the stored classification automatically;
+operators do not need to restate it in the child request. If the classification
+changes, the plan must be revised and re-approved before the new value can
+govern execution.
+
+Manual governed work may also be classified through `work_item.update` by
+supplying `workClassification` and matching `workClassificationProvenance`.
+Agent profiles may declare a default `workClassification` for specialized
+roles such as report writing, support, or education. Explicit invocation or
+work-item classification takes precedence over profile defaults.
+
+`clear-writing` is a neutral first-party writing procedure. Use it when an
+agent is asked to write, rewrite, or review prose in reports, research briefs,
+proposals, support replies, UI copy, public content, internal communication,
+education, or technical documentation. It is not a brand voice, legal style, or
+regional government style; stricter project, organization, legal, academic, or
+regulatory formats remain higher-precedence constraints.
+
 Future official packs are deferred. They may later provide web, backend,
-security, data, or opinionated engineering workflows, but packs must be
-installable/removable content rather than core doctrine.
+security, data, brand, regional-content, or opinionated engineering workflows,
+but packs must be installable/removable content rather than core doctrine.
 
 ### Registry API
 
@@ -301,6 +391,10 @@ Sessions run in CLI-wrapper mode without an API key print a capture hint after c
 | `kiln skill install <path>` | Install a SKILL.md file to project |
 | `kiln skill publish` | Validate SKILL.md for npm publishing |
 | `kiln skill capture [sessionId]` | Generate a skill from a session transcript |
+
+Use `kiln config read skills` when you need origin, projection, unmanaged
+native, or admission diagnostics. Use `kiln skill list` for the shorter
+operator-facing configured registry list.
 
 ## Event Triggers
 

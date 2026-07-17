@@ -5,12 +5,15 @@
 
 import {
   createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
   projectOperatorCockpitReadOnlyView,
   type OperatorCockpitAttachTarget,
   type OperatorCockpitManagedAgentDrilldownTarget,
   type OperatorCockpitManagedAgentViewItem,
   type OperatorCockpitManagedAgentViewState,
+  type OperatorCockpitReadOnlyViewState,
   type OperatorSessionEvent,
+  type OperatorWorkspaceHomeProjection,
 } from "@kilnai/gateway-contracts";
 
 const TUI_COCKPIT_ATTACH_TARGET: OperatorCockpitAttachTarget = {
@@ -28,6 +31,11 @@ export const EMPTY_TUI_MANAGED_AGENT_VIEW_STATE: OperatorCockpitManagedAgentView
 
 export interface TuiManagedAgentProjectionOptions {
   readonly drilldownTarget?: OperatorCockpitManagedAgentDrilldownTarget;
+}
+
+export interface TuiOperatorWorkspaceState {
+  readonly cockpitView: OperatorCockpitReadOnlyViewState;
+  readonly home: OperatorWorkspaceHomeProjection;
 }
 
 export function appendManagedAgentSessionEvent(
@@ -71,27 +79,36 @@ export function projectTuiManagedAgentViewState(
   events: readonly OperatorSessionEvent[],
   options: TuiManagedAgentProjectionOptions = {},
 ): OperatorCockpitManagedAgentViewState {
-  if (events.length === 0) {
-    return {
-      ...EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
-      ...(options.drilldownTarget
-        ? { drilldown: { resolved: false, reason: "managed-invocation-not-found" } as const }
-        : {}),
-    };
-  }
+  return projectTuiOperatorWorkspaceState(events, options).cockpitView.managedAgents;
+}
 
+export function projectTuiOperatorWorkspaceState(
+  events: readonly OperatorSessionEvent[],
+  options: TuiManagedAgentProjectionOptions = {},
+): TuiOperatorWorkspaceState {
+  const projectedAt = new Date().toISOString();
   const projection = projectOperatorCockpitReadOnlyView({
-    projectedAt: new Date().toISOString(),
+    projectedAt,
     attachTargets: [TUI_COCKPIT_ATTACH_TARGET],
     events,
   });
-  return createOperatorCockpitReadOnlyViewState({
+  const cockpitView = createOperatorCockpitReadOnlyViewState({
     projection,
     viewState: {
       ...(options.drilldownTarget ? { managedAgentDrilldownTarget: options.drilldownTarget } : {}),
     },
-  }).managedAgents;
+  });
+  return {
+    cockpitView,
+    home: createOperatorWorkspaceHomeProjection({
+      projectedAt,
+      cockpitView,
+      events,
+    }),
+  };
 }
+
+export const EMPTY_TUI_OPERATOR_WORKSPACE_HOME = projectTuiOperatorWorkspaceState([]).home;
 
 export function formatManagedAgentCockpitLines(
   viewState: OperatorCockpitManagedAgentViewState,
@@ -175,6 +192,7 @@ function formatManagedAgentItemLines(item: OperatorCockpitManagedAgentViewItem):
     lines.push(`  tx ${item.transcriptUri}`);
   }
   lines.push(...formatManagedAgentWorktreeConflictLines(item));
+  lines.push(...formatManagedAgentNextActionLines(item));
   for (const uri of formatManagedAgentGenericResourceUris(item).slice(0, 2)) {
     lines.push(`  res ${uri}`);
   }
@@ -195,6 +213,7 @@ function formatManagedAgentDrilldownLines(
     `  replay ${drilldown.replay.entry.eventId}`,
     `  prev ${drilldown.replay.previousEventId ?? "--"} next ${drilldown.replay.nextEventId ?? "--"}`,
     ...formatManagedAgentWorktreeConflictLines(item),
+    ...formatManagedAgentNextActionLines(item),
     ...formatManagedAgentAdoptionGateLines(item),
     "  timeline:",
     ...item.lifecycleTimeline.map((entry) => (
@@ -234,6 +253,21 @@ function formatManagedAgentGenericResourceUris(item: OperatorCockpitManagedAgent
     ...conflict.diagnosticUris,
   ]);
   return item.resourceUris.filter((uri) => !conflictUris.has(uri));
+}
+
+function formatManagedAgentNextActionLines(item: OperatorCockpitManagedAgentViewItem): readonly string[] {
+  const action = item.managedInvocationRecovery ?? item.managedInvocationPhaseCompletion;
+  if (!action?.nextTool) {
+    return [];
+  }
+  const toolChain = action.thenTool ? `${action.nextTool} -> ${action.thenTool}` : action.nextTool;
+  return [
+    `  next ${toolChain}${action.workItemId ? ` work:${action.workItemId}` : ""}`,
+    ...(action.reason ? [`  reason ${action.reason}`] : []),
+    ...(action.evidenceToRecord.length > 0 ? [`  evidence ${action.evidenceToRecord.join(",")}`] : []),
+    ...(action.requiredToolNames.length > 0 ? [`  tools ${action.requiredToolNames.join(",")}`] : []),
+    ...action.sourceResourceUris.map((uri) => `  source ${uri}`),
+  ];
 }
 
 function formatManagedAgentAdoptionGateLines(item: OperatorCockpitManagedAgentViewItem): readonly string[] {

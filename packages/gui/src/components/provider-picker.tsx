@@ -5,12 +5,14 @@ import {
   getGuiProviderMetadata,
   isGuiProviderModeless,
   type GuiProviderGroup,
+  type GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import type { ProviderAuthDetails, ProviderDescriptor } from "../lib/session-store.js";
 
 interface ProviderPickerProps {
   readonly open: boolean;
   readonly providers: readonly ProviderDescriptor[];
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection | null;
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
   readonly onSwitchProvider: (provider: string, model?: string) => Promise<void>;
@@ -34,6 +36,7 @@ interface PickerProvider {
   readonly free: boolean;
   readonly available: boolean;
   readonly models: readonly string[];
+  readonly diagnosticModelCount: number;
   readonly reason?: string;
   readonly authState?: string;
   readonly authMethod?: "device_code" | "api_key";
@@ -57,24 +60,40 @@ function providerDisplayIndex(providerId: string): number {
   return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
 }
 
-function normalizeProviders(providers: readonly ProviderDescriptor[]): PickerProvider[] {
+function normalizeProviders(
+  providers: readonly ProviderDescriptor[],
+  providerModelDiscovery: GuiProviderModelDiscoveryProjection | null,
+): PickerProvider[] {
   const byId = new Map<string, PickerProvider>();
+  const routeEntries = providerModelDiscovery?.entries ?? [];
   for (const provider of providers) {
     const meta = getGuiProviderMetadata(provider.id);
     if (!meta) {
       continue;
     }
-    const models = provider.models
+    const eligibleModels = routeEntries
+      .filter((entry) => entry.providerRoute.providerId === provider.id && entry.eligibility.eligible)
+      .map((entry) => entry.providerRoute.providerModelId);
+    const diagnosticModelCount = routeEntries.filter((entry) => entry.providerRoute.providerId === provider.id).length;
+    const models = (providerModelDiscovery ? eligibleModels : provider.models)
       .map((model) => model.trim())
       .filter((model) => model.length > 0);
+    const firstIneligibleReason = routeEntries.find((entry) => (
+      entry.providerRoute.providerId === provider.id
+      && !entry.eligibility.eligible
+      && entry.eligibility.reasonCodes.length > 0
+    ))?.eligibility.reasonCodes.join(", ");
     byId.set(provider.id, {
       id: provider.id,
       label: meta.label,
       category: meta.group,
       free: meta.free,
-      available: provider.available && (models.length > 0 || isGuiProviderModeless(provider.id)),
+      available: isGuiProviderModeless(provider.id)
+        ? provider.available
+        : models.length > 0,
       models,
-      reason: provider.reason,
+      diagnosticModelCount,
+      reason: firstIneligibleReason ?? provider.reason,
       authState: provider.authState,
       authMethod: meta.authMethod,
       authTier: meta.authTier,
@@ -88,6 +107,9 @@ function normalizeProviders(providers: readonly ProviderDescriptor[]): PickerPro
 function providerModelSummary(provider: PickerProvider): string {
   if (isGuiProviderModeless(provider.id)) {
     return "No model selection";
+  }
+  if (provider.diagnosticModelCount > provider.models.length) {
+    return `${provider.models.length} eligible / ${provider.diagnosticModelCount} observed`;
   }
   return provider.models.length > 0 ? `${provider.models.length} models` : "No models";
 }
@@ -122,6 +144,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
     onSwitchProvider,
     open,
     providerAuthenticating,
+    providerModelDiscovery,
     providers,
   } = props;
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -138,8 +161,8 @@ export function ProviderPicker(props: ProviderPickerProps) {
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const providerItems = useMemo(
-    () => normalizeProviders(providers),
-    [providers],
+    () => normalizeProviders(providers, providerModelDiscovery),
+    [providerModelDiscovery, providers],
   );
   const providerIds = useMemo(
     () => providerItems.map((provider) => provider.id),
@@ -584,7 +607,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
                             <span className="flex items-center gap-2">
                               <span className="text-[var(--color-text)]">{provider.label}</span>
                               {provider.free ? (
-                                <span className="rounded border border-[var(--color-success)]/60 bg-[var(--color-success)]/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-success)]">
+                                <span className="rounded border border-status-success-border bg-status-success-background px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-success">
                                   Free
                                 </span>
                               ) : null}

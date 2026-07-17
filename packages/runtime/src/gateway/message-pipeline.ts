@@ -31,8 +31,10 @@ import type {
   VoiceFailureMode,
   VoiceSurface,
   SessionTurnOutcome,
+  CanonicalSessionEvent,
+  ContextUsageProjection,
 } from "@kilnai/core";
-import { DefaultContextGovernor, extractText, hasModality, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate, VALID_VOICE_SURFACES } from "@kilnai/core";
+import { DefaultContextGovernor, estimateTextTokens, extractText, hasModality, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate, VALID_VOICE_SURFACES } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
 import { detectRepetitiveAbuse } from "../session/repetitive-abuse-detector.js";
 import type {
@@ -43,11 +45,16 @@ import type {
   ToolExecutionSummary,
 } from "../session/runtime-session-orchestrator.js";
 import {
+  RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
+  RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
+  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
+} from "../session/runtime-session-orchestrator.types.js";
+import {
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
   projectEffectiveTurnAuthorityPerCallConfig,
 } from "../session/effective-turn-authority.js";
-import type { SessionRegistry } from "../session/session-registry.js";
+import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
@@ -72,6 +79,7 @@ import {
 } from "../session/runtime-turn-record.js";
 import { deriveGovernedTurnOutcome } from "../session/governed-turn-outcome.js";
 import { appendCanonicalTurnEvents, type RuntimeTurnAuthorityMutationViolation } from "../session/runtime-session-event-ledger.js";
+import { normalizeContextUsageProjection, type ContextUsageWindowEvidence } from "../session/context-usage-projection.js";
 import { sanitizeAssistantEgressText as sanitizeAssistantEgressTextCanonical } from "../session/assistant-egress-sanitizer.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import { buildTenantSystemPrompt } from "../tenant/system-prompt-builder.js";
@@ -91,6 +99,7 @@ import { synthesizeVoiceOutput } from "./voice-output-synthesizer.js";
 type EgressDestination = "webhook";
 type EgressPermissionDecision = "allow" | "deny" | "redact";
 type EgressPayloadType = "assistant-response" | "context-summary" | "tool-result-summary";
+const WEB_TOOL_NAMES = ["web_search", "web_fetch", "web_extract"] as const;
 type RuntimePipelineLedgerEvent =
   | ApprovalRequestedEvent
   | ApprovalReceivedEvent
@@ -105,12 +114,24 @@ function deriveCanonicalTurnOutcome(input: {
   readonly runtimeEvents: readonly RuntimePipelineLedgerEvent[];
   readonly surfaceToolCompletions?: readonly RuntimeTurnToolCompletion[];
   readonly toolExecutions?: readonly ToolExecutionSummary[];
+  readonly stopReason?: string;
 }): SessionTurnOutcome | undefined {
+  if (input.stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON) {
+    return "paused";
+  }
+  if (isFailedRuntimeStopReason(input.stopReason)) {
+    return "failed";
+  }
   return deriveGovernedTurnOutcome({
     runtimeToolResults: input.runtimeEvents.filter((event): event is ToolResultEvent => event.type === "tool_result"),
     surfaceToolCompletions: input.surfaceToolCompletions,
     toolExecutions: input.toolExecutions,
   });
+}
+
+function isFailedRuntimeStopReason(stopReason: string | undefined): boolean {
+  return stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
+    || stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
 }
 
 function sanitizeAssistantEgressParts(parts: readonly ContentPart[]): readonly ContentPart[] {
@@ -298,7 +319,7 @@ export interface AdmittedTurnContext {
   readonly channel: string;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly idleTimeoutMs?: number;
-  readonly recalledMemory?: string;
+  readonly recalledMemoryCandidates?: readonly ContextCandidate[];
   readonly knowledgeContext?: string;
   readonly knowledgePipeline?: RetrievalPipeline;
   readonly knowledgeMode?: "auto" | "tool";
@@ -309,6 +330,8 @@ export interface AdmittedTurnContext {
   readonly runtimeEvents?: readonly RuntimePipelineLedgerEvent[];
   readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly perCallConfig?: PerCallToolConfig;
+  readonly contextPolicy?: NonNullable<PerCallToolConfig["contextPolicy"]>;
+  readonly contextUsageWindow?: ContextUsageWindowEvidence;
   readonly traceId?: string;
   readonly activeAgentId?: string;
   readonly activeAgentName?: string;
@@ -373,6 +396,8 @@ export interface AdmittedTurnContext {
     );
     readonly abort?: (sessionId: string) => void | Promise<void>;
   };
+  /** Publishes persisted canonical turn evidence to the active operator surface. */
+  readonly publishCanonicalSessionEvents?: (events: readonly CanonicalSessionEvent[]) => void;
 }
 
 export interface RuntimeSessionHydrationResult {
@@ -1075,13 +1100,14 @@ function turnAuthorityDisallowsMutation(
 interface AdmittedTurnContextProjectionInput {
   readonly userContext: Record<string, string> | undefined;
   readonly cachedRuntimeSummary: string | undefined;
-  readonly recalledMemory: string | undefined;
+  readonly recalledMemoryCandidates?: readonly ContextCandidate[];
   readonly knowledgeContext: string | undefined;
   readonly contactContext: string | undefined;
   readonly visitorContext?: string | undefined;
   readonly groundingMode: GroundingMode | undefined;
   readonly proceduralContextCandidates?: readonly ContextCandidate[];
   readonly coordinationContextCandidates?: readonly ContextCandidate[];
+  readonly contextPolicy?: NonNullable<PerCallToolConfig["contextPolicy"]>;
 }
 
 export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): {
@@ -1108,14 +1134,7 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
       score: 0.9,
     });
   }
-  if (input.recalledMemory) {
-    candidates.push({
-      kind: "memory",
-      source: "runtime-recalled-memory",
-      content: input.recalledMemory,
-      score: 0.8,
-    });
-  }
+  candidates.push(...(input.recalledMemoryCandidates ?? []));
   if (input.knowledgeContext) {
     candidates.push({
       kind: "knowledge",
@@ -1149,6 +1168,7 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
     never
   >().project({
     artifacts: candidates,
+    contextAllocationMode: input.contextPolicy?.contextAllocationMode,
   });
   const mergedMemory = renderProjectedContext(projectedContext);
   const audit = projectedContext.auditTrail?.[projectedContext.auditTrail.length - 1];
@@ -1248,6 +1268,9 @@ export function appendCoordinationProviderFailureAudit(
   if (!failureReason) return audit;
   const baseAudit: ContextAuditEntry = audit ?? {
     governor: "DefaultContextGovernor",
+    allocationMode: "whole-block",
+    positionProfile: "balanced",
+    requiredOverflowPolicy: "admit-and-report",
     selectedBlockIds: [],
     deferredBlockIds: [],
     requiredBlockIds: [],
@@ -1265,6 +1288,31 @@ export function appendCoordinationProviderFailureAudit(
       reason: failureReason,
     }],
   } satisfies RuntimeContextAudit;
+}
+
+function projectCompletedTurnContextUsage(input: {
+  readonly result: OrchestrateResult;
+  readonly turnId: string | undefined;
+  readonly contextWindow: ContextUsageWindowEvidence | undefined;
+}): ContextUsageProjection {
+  const request = input.result.providerRequests?.at(-1);
+  const providerId = request?.providerId ?? "unknown";
+  const modelId = request?.modelId ?? "unknown";
+  return normalizeContextUsageProjection({
+    providerId,
+    modelId,
+    turnId: input.turnId ?? "unresolved",
+    observedAt: new Date().toISOString(),
+    usage: request ? {
+      inputTokens: request.inputTokens,
+      cacheReadTokens: request.cacheReadTokens,
+      cacheWriteTokens: request.cacheWriteTokens,
+      cacheSemantics: request.contextUsage?.cacheSemantics ?? "unknown",
+    } : undefined,
+    contextWindow: input.contextWindow,
+    measurement: request?.contextUsage?.measurement ?? "runtime_estimate",
+    lifecycle: "completed",
+  });
 }
 
 function buildAuthorityGuidanceContextCandidate(perCallConfig: PerCallToolConfig | undefined, input: {
@@ -1292,13 +1340,191 @@ function buildGovernedWorkCloseoutContextCandidate(): ContextCandidate {
     score: 1,
     content: [
       "Governed work closeout:",
-      "In execute mode, a work_governance.assess recommendation of orchestrate or delegate is not complete after research, inspection, planning prose, or a read-only scout.",
-      "Do not end an execute-mode governed turn after only research, inspection, planning prose, or a read-only scout.",
+      "Use shared work tools for operator-requested implementation, refactoring, mutation, commit, or other executable governed work.",
       "Materialize governed work with the shared work tools, then either start execution, finish execution, complete the work item, submit a structured plan when planning is the terminal deliverable, or record a concrete pending pause requirement.",
       "After a successful managed_agent.invoke for an open work item, continue with the same work item until it is started, finished, completed, or explicitly blocked with a pause requirement.",
       "A pending, in_progress, or blocked work item without terminal closeout projects as failed in CLI, TUI, and GUI.",
     ].join("\n"),
   };
+}
+
+function buildGovernedWorkMaterializationContextCandidate(
+  requirement: NonNullable<PerCallToolConfig["governedWorkRequirement"]>,
+): ContextCandidate {
+  return {
+    kind: "procedural",
+    source: "runtime-governed-work-requirement",
+    required: true,
+    score: 1,
+    content: [
+      "[KILN GOVERNED WORK REQUIREMENT]",
+      `Before any repository inspection or execution, materialize exactly ${requirement.requiredWorkItemCount} distinct governed work items with work_item.update.`,
+      "Then call goal.create and link exactly those work-item ids; runtime turn context supplies canonical operator provenance.",
+      "The runtime supplies ownerSessionId and operatorTurnId. Repository, shell, web, managed-agent, and execution tools remain blocked until the goal is created.",
+    ].join("\n"),
+  };
+}
+
+function buildWebSourceAttributionContextCandidate(): ContextCandidate {
+  return {
+    kind: "procedural",
+    source: "runtime-web-source-attribution",
+    required: true,
+    score: 1,
+    content: [
+      "Web source attribution:",
+      "When web_search, web_fetch, or web_extract informs the answer, include a final sources section with the exact source URLs used.",
+      "Do not rely on tool artifacts as the only citation surface; user-facing answers must carry the relevant URLs directly.",
+    ].join("\n"),
+  };
+}
+
+function hasWebToolAvailable(perCallConfig: PerCallToolConfig | undefined): boolean {
+  const toolNames = new Set<string>([
+    ...(perCallConfig?.toolAllowlist ? Array.from(perCallConfig.toolAllowlist) : []),
+    ...(perCallConfig?.additionalTools?.map((tool) => tool.name) ?? []),
+    ...(perCallConfig?.perCallCapabilities ? Array.from(perCallConfig.perCallCapabilities.keys()) : []),
+  ]);
+  return WEB_TOOL_NAMES.some((toolName) => toolNames.has(toolName));
+}
+
+function shouldIncludeGovernedWorkCloseoutContext(userText: string): boolean {
+  const normalized = userText.toLocaleLowerCase();
+  return [
+    /\b(implement|fix|fixes|fixing|patch|edit|modify|change|refactor|commit|build|write tests|add tests|delete|remove)\b/u,
+    /\b(implementa|corrige|arregla|edita|modifica|cambia|refactoriza|comitea|construye|borra|elimina)\b/u,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function appendWebSourceAttributionIfMissing(
+  parts: readonly ContentPart[],
+  toolExecutions: readonly ToolExecutionSummary[] | undefined,
+): readonly ContentPart[] {
+  const responseText = extractText(parts);
+  if (!responseText.trim()) {
+    return parts;
+  }
+
+  const sources = collectWebAttributionSources(toolExecutions);
+  if (sources.length === 0) {
+    return parts;
+  }
+  if (sources.some((source) => responseText.includes(source.url))) {
+    return parts;
+  }
+
+  const attribution = [
+    "",
+    "## Fuentes",
+    "",
+    ...sources.map((source) => `- ${source.title ? `${source.title}: ` : ""}${source.url}`),
+  ].join("\n");
+
+  let appended = false;
+  const nextParts = parts.map((part) => {
+    if (part.type !== "text" || appended) {
+      return part;
+    }
+    appended = true;
+    return { ...part, text: `${part.text.trimEnd()}${attribution}` };
+  });
+
+  return appended ? nextParts : textParts(attribution.trimStart());
+}
+
+function collectWebAttributionSources(
+  toolExecutions: readonly ToolExecutionSummary[] | undefined,
+): readonly { readonly title?: string; readonly url: string }[] {
+  const sources: { title?: string; url: string }[] = [];
+  const seen = new Set<string>();
+  for (const execution of toolExecutions ?? []) {
+    if (!WEB_TOOL_NAMES.includes(execution.toolName as (typeof WEB_TOOL_NAMES)[number])) {
+      continue;
+    }
+    for (const source of readWebSourcesFromExecution(execution)) {
+      const normalizedUrl = normalizeAttributionUrl(source.url);
+      if (!normalizedUrl || seen.has(normalizedUrl)) {
+        continue;
+      }
+      seen.add(normalizedUrl);
+      sources.push({
+        ...(source.title ? { title: truncateAttributionTitle(source.title) } : {}),
+        url: normalizedUrl,
+      });
+      if (sources.length >= 8) {
+        return sources;
+      }
+    }
+  }
+  return sources;
+}
+
+function readWebSourcesFromExecution(
+  execution: ToolExecutionSummary,
+): readonly { readonly title?: string; readonly url: string }[] {
+  const sources: { title?: string; url: string }[] = [];
+  const metadata = execution.metadata;
+  const metadataSources = Array.isArray(metadata?.["sources"]) ? metadata["sources"] : [];
+  for (const source of metadataSources) {
+    const record = readAttributionRecord(source);
+    const url = readAttributionText(record?.["url"]);
+    if (url) {
+      const title = readAttributionText(record?.["title"]);
+      sources.push({ ...(title ? { title } : {}), url });
+    }
+  }
+
+  const metadataPages = Array.isArray(metadata?.["pages"]) ? metadata["pages"] : [];
+  for (const page of metadataPages) {
+    const record = readAttributionRecord(page);
+    const url = readAttributionText(record?.["url"]);
+    if (url) {
+      const title = readAttributionText(record?.["title"]);
+      sources.push({ ...(title ? { title } : {}), url });
+    }
+  }
+
+  const metadataUrl = readAttributionText(metadata?.["url"]);
+  if (metadataUrl) {
+    sources.push({ url: metadataUrl });
+  }
+
+  if (sources.length > 0) {
+    return sources;
+  }
+
+  return extractUrlsFromText(`${execution.output ?? ""}\n${execution.resultSummary ?? ""}`)
+    .map((url) => ({ url }));
+}
+
+function readAttributionRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readAttributionText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function extractUrlsFromText(text: string): readonly string[] {
+  return Array.from(text.matchAll(/https?:\/\/[^\s<>)\]]+/gi), (match) => match[0]);
+}
+
+function normalizeAttributionUrl(url: string): string | undefined {
+  const trimmed = url.trim().replace(/[.,;:!?]+$/u, "");
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function truncateAttributionTitle(title: string): string {
+  const compact = title.replace(/\s+/gu, " ").trim();
+  if (compact.length <= 120) {
+    return compact;
+  }
+  return `${compact.slice(0, 117).trimEnd()}...`;
 }
 
 function projectRequestedAuthorityPerCallConfig(
@@ -1338,6 +1564,40 @@ function replayCapturedRuntimeLedgerEvents(
     }
   }
   return { events, keys };
+}
+
+function resolveTurnToolExecutions(
+  resultToolExecutions: readonly ToolExecutionSummary[] | undefined,
+  runtimeEvents: readonly RuntimePipelineLedgerEvent[],
+  surfaceToolCompletions: readonly RuntimeTurnToolCompletion[] | undefined,
+): readonly ToolExecutionSummary[] | undefined {
+  if (resultToolExecutions && resultToolExecutions.length > 0) {
+    return resultToolExecutions;
+  }
+  const projected = runtimeEvents
+    .filter((event): event is ToolResultEvent => event.type === "tool_result")
+    .map((event): ToolExecutionSummary => ({
+      toolName: event.toolName,
+      durationMs: event.durationMs,
+      success: event.success,
+      ...(event.output !== undefined ? { output: event.output } : {}),
+      resultSummary: event.resultSummary ?? "",
+      ...(event.metadata ? { metadata: event.metadata } : {}),
+      ...(event.resolvedEffect ? { resolvedEffect: event.resolvedEffect } : {}),
+      ...(event.authority ? { authority: event.authority } : {}),
+    }));
+  if (projected.length > 0) {
+    return projected;
+  }
+  const surfaceProjected = surfaceToolCompletions?.map((completion): ToolExecutionSummary => ({
+    toolName: completion.toolName,
+    durationMs: 0,
+    success: completion.success,
+    ...(completion.output !== undefined ? { output: completion.output } : {}),
+    resultSummary: completion.resultSummary ?? "",
+    ...(completion.metadata ? { metadata: completion.metadata } : {}),
+  }));
+  return surfaceProjected && surfaceProjected.length > 0 ? surfaceProjected : undefined;
 }
 
 function isRuntimeLedgerEvent(event: KilnEvent): event is
@@ -1511,9 +1771,9 @@ function runtimeLedgerEventKey(event: RuntimePipelineLedgerEvent): string {
     case "multimodal_routed":
       return `${base}|${event.provider}|${event.model}|${event.strategy}|${event.reasonCode}|${event.requestedCapability}`;
     case "tool_called":
-      return `${base}|${event.toolName}|${event.taskId ?? ""}`;
+      return `${base}|${event.toolCallId}|${event.toolName}|${event.taskId ?? ""}`;
     case "tool_result":
-      return `${base}|${event.toolName}|${event.success}|${event.resultSummary}`;
+      return `${base}|${event.toolCallId}|${event.toolName}|${event.success}|${event.resultSummary}`;
   }
 }
 
@@ -1683,6 +1943,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       rateLimiter: tenantToolCtx.rateLimiter,
       additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
       perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
+      ...(tenantToolCtx.executionEnvelope ? { executionEnvelope: tenantToolCtx.executionEnvelope } : {}),
     };
 
     session.setSystemPrompt(agentCtx.systemPrompt);
@@ -1825,12 +2086,15 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     feedback: runtimeContinuityPresentation.runtimeContinuity.feedbackLabel,
     influenced: runtimeSupport.decision.resumeFeedback?.influencedChoice ?? false,
   });
-  const perCallConfig = projectRequestedAuthorityPerCallConfig(
+  const authorityPerCallConfig = projectRequestedAuthorityPerCallConfig(
     effectivePerCallConfig,
     executionMode,
     ctx.requestedAuthority,
     "gateway admitted turn requested authority",
   );
+  const perCallConfig = ctx.contextPolicy
+    ? { ...authorityPerCallConfig, contextPolicy: ctx.contextPolicy }
+    : authorityPerCallConfig;
   const proceduralContextCandidates: ContextCandidate[] = [];
   if (executionMode === "plan") {
     proceduralContextCandidates.push({
@@ -1850,8 +2114,16 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     executionMode,
     requestedAuthority: ctx.requestedAuthority,
   }));
-  if (executionMode === "execute") {
+  if (perCallConfig?.governedWorkRequirement) {
+    proceduralContextCandidates.push(
+      buildGovernedWorkMaterializationContextCandidate(perCallConfig.governedWorkRequirement),
+    );
+  }
+  if (executionMode === "execute" && shouldIncludeGovernedWorkCloseoutContext(userText)) {
     proceduralContextCandidates.push(buildGovernedWorkCloseoutContextCandidate());
+  }
+  if (hasWebToolAvailable(perCallConfig)) {
+    proceduralContextCandidates.push(buildWebSourceAttributionContextCandidate());
   }
   if (ctx.skillRegistry && (ctx.activeSkills?.length || ctx.activeSkillTags?.length)) {
     const resolved = ctx.skillRegistry.resolve(ctx.activeSkills, ctx.activeSkillTags);
@@ -1873,12 +2145,13 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
   const projectedTurnContext = projectAdmittedTurnContext({
     userContext: session.userContext,
     cachedRuntimeSummary,
-    recalledMemory: ctx.recalledMemory,
+    recalledMemoryCandidates: ctx.recalledMemoryCandidates,
     knowledgeContext: effectiveKnowledgeContext,
     contactContext: ctx.contactContext,
     groundingMode: ctx.groundingMode,
     proceduralContextCandidates,
     coordinationContextCandidates: coordinationContext.candidates,
+    contextPolicy: ctx.contextPolicy,
   });
   const projectedContextAudit = appendCoordinationProviderFailureAudit(
     projectedTurnContext.audit,
@@ -1961,22 +2234,27 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     );
   } catch (error) {
     const turnFailedAt = new Date();
-    const failureRuntimeEvents = capturedRuntimeEvents.some((event) => event.type === "error")
-      ? capturedRuntimeEvents
-      : [...capturedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
-    appendCanonicalTurnEvents({
+    const cancelled = perCallConfig?.abortSignal?.aborted === true;
+    const retainedRuntimeEvents = cancelled
+      ? capturedRuntimeEvents.filter((event) => event.type !== "error" || !isCancellationErrorEvent(event))
+      : capturedRuntimeEvents;
+    const failureRuntimeEvents = cancelled || retainedRuntimeEvents.some((event) => event.type === "error")
+      ? retainedRuntimeEvents
+      : [...retainedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
+    const failureEvents = appendCanonicalTurnEvents({
       session,
       turnId: perCallConfig?.turnId,
       channel: ctx.channel,
       userMessageContent: userText,
       queued: false,
-      turnOutcome: "failed",
+      turnOutcome: cancelled ? "cancelled" : "failed",
       turnStartedAt,
       turnCompletedAt: turnFailedAt,
       continuity: runtimeContinuityPresentation.runtimeContinuity,
       runtimeEvents: failureRuntimeEvents,
     });
     await ctx.sessionRegistry.save(session);
+    ctx.publishCanonicalSessionEvents?.(failureEvents);
     await ctx.turnCapture?.abort?.(session.id);
     throw error;
   } finally {
@@ -1994,7 +2272,10 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
 
   // Post-generation grounding verification (Tier 2)
   let groundingResult: GroundingResult | undefined;
+  const runtimeFinalOutputText = extractText(result.parts);
   let resultParts = result.parts;
+  let canonicalTurnEventsAppended = false;
+  try {
   if (
     ctx.groundingMode === "verified" &&
     ctx.groundingDeps &&
@@ -2006,11 +2287,11 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     const responseText = extractText(result.parts);
     try {
       // Select cheapest model with structured output support
-      const eligible = ctx.groundingDeps.modelRegistry
-        .eligible({ hasTools: false, requiresStreaming: false })
+      const groundingCandidates = ctx.groundingDeps.modelRegistry
+        .all()
         .filter((p) => p.supportsStructuredOutput)
         .sort((a, b) => a.inputPer1M - b.inputPer1M);
-      const judge = eligible[0];
+      const judge = groundingCandidates[0];
       const provider = judge ? ctx.groundingDeps.providerPool.get(judge.provider) : undefined;
       if (provider && judge) {
         groundingResult = await ctx.groundingDeps.rail.evaluate(responseText, chunks, provider, judge.model);
@@ -2044,7 +2325,12 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     }
   }
 
-  const fileChanges = result.toolExecutions?.flatMap((exec) => exec.fileChanges ?? []);
+  const turnToolExecutions = resolveTurnToolExecutions(
+    result.toolExecutions,
+    capturedRuntimeEvents,
+    externalTurnCapture?.toolCompletions,
+  );
+  const fileChanges = turnToolExecutions?.flatMap((exec) => exec.fileChanges ?? []);
   const mergedFileChanges = dedupeByStableKey([
     ...(fileChanges ?? []),
     ...(externalTurnCapture?.fileChanges ?? []),
@@ -2057,7 +2343,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     ...authorityDecisions,
     ...(externalTurnCapture?.authorityDecisions ?? []),
   ], (decision) => `${decision.toolName}|${decision.level}|${decision.allowed}|${decision.reason ?? ""}`);
-  const dangerousCommandOutcomes = result.toolExecutions
+  const dangerousCommandOutcomes = turnToolExecutions
     ?.map((execution) => dangerousCommandOutcomeFromExecution(execution))
     .filter((outcome): outcome is RuntimeTurnDangerousCommandOutcome => outcome !== undefined)
     ?? [];
@@ -2066,24 +2352,25 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     ...(externalTurnCapture?.dangerousCommandOutcomes ?? []),
   ], (outcome) => `${outcome.toolName}|${outcome.action}|${outcome.reasonCode}|${outcome.reason}`);
   const planSubmissions = executionMode === "plan"
-    ? extractPlanSubmissions(result.toolExecutions)
+    ? extractPlanSubmissions(turnToolExecutions)
     : [];
   const specificationSubmissions = executionMode === "plan"
-    ? extractSpecificationSubmissions(result.toolExecutions)
+    ? extractSpecificationSubmissions(turnToolExecutions)
     : [];
   const clarificationRecords = executionMode === "plan"
-    ? extractClarificationRecords(result.toolExecutions)
+    ? extractClarificationRecords(turnToolExecutions)
     : [];
   const analysisReports = executionMode === "plan"
-    ? extractPlanAnalysisReports(result.toolExecutions)
+    ? extractPlanAnalysisReports(turnToolExecutions)
     : [];
   const authorityMutationViolation = buildAuthorityMutationViolation(
     perCallConfig?.effectiveTurnAuthority,
     mergedFileChanges,
   );
 
+  resultParts = appendWebSourceAttributionIfMissing(resultParts, turnToolExecutions);
   let egressContextSummary = result.contextSummary;
-  let egressToolExecutions = result.toolExecutions;
+  let egressToolExecutions = turnToolExecutions;
   resultParts = sanitizeAssistantEgressParts(resultParts);
   const assistantDecision = await resolveEgressDecision(
     ctx,
@@ -2180,7 +2467,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
     contextSummary: result.contextSummary,
-    toolExecutions: result.toolExecutions,
+    toolExecutions: turnToolExecutions,
     routingDecision: result.routingDecision,
     escalationReason: result.escalation?.reason,
     groundingBlockedClaims: groundingResult && !groundingResult.grounded
@@ -2202,7 +2489,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     escalationReason: result.escalation?.reason,
     escalationDetail: result.escalation?.detail,
   });
-  appendCanonicalTurnEvents({
+  const completedTurnEvents = appendCanonicalTurnEvents({
     session,
     turnId: perCallConfig?.turnId,
     channel: ctx.channel,
@@ -2212,7 +2499,8 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     turnOutcome: deriveCanonicalTurnOutcome({
       runtimeEvents: capturedRuntimeEvents,
       surfaceToolCompletions: externalTurnCapture?.toolCompletions,
-      toolExecutions: result.toolExecutions,
+      toolExecutions: turnToolExecutions,
+      stopReason: result.stopReason,
     }),
     turnStartedAt,
     turnCompletedAt: new Date(),
@@ -2221,13 +2509,33 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     planSubmissions,
     analysisReports,
     specificationSubmissions,
+    lifecycleAttributionEvidence: {
+      contextAudit: projectedContextAudit,
+      finalOutput: {
+        estimatedTokens: estimateTextTokens(runtimeFinalOutputText),
+      },
+    },
+    efficiencyPolicy: ctx.contextPolicy
+      ? {
+          owner: "ContextGovernor",
+          policyId: ctx.contextPolicy.policyId,
+          configurationHash: ctx.contextPolicy.configurationHash,
+        }
+      : undefined,
     clarificationRecords,
     authorityMutationViolations: authorityMutationViolation ? [authorityMutationViolation] : undefined,
     fileChanges: mergedFileChanges.length > 0 ? mergedFileChanges : undefined,
+    contextUsage: projectCompletedTurnContextUsage({
+      result,
+      turnId: perCallConfig?.turnId,
+      contextWindow: ctx.contextUsageWindow,
+    }),
   });
+  canonicalTurnEventsAppended = true;
 
   // Persist mutated session (required for non-reference stores like Redis)
   await ctx.sessionRegistry.save(session);
+  ctx.publishCanonicalSessionEvents?.(completedTurnEvents);
 
   // Report usage (fire-and-forget)
   if (ctx.billing) {
@@ -2421,6 +2729,37 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,
     },
   };
+  } catch (error) {
+    if (!canonicalTurnEventsAppended) {
+      const turnFailedAt = new Date();
+      const failureRuntimeEvents = capturedRuntimeEvents.some((event) => event.type === "error")
+        ? capturedRuntimeEvents
+        : [...capturedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
+      const failureEvents = appendCanonicalTurnEvents({
+        session,
+        turnId: perCallConfig?.turnId,
+        channel: ctx.channel,
+        userMessageContent: userText,
+        assistantMessageContent: runtimeFinalOutputText,
+        queued: result.queued,
+        turnOutcome: "failed",
+        turnStartedAt,
+        turnCompletedAt: turnFailedAt,
+        continuity: runtimeContinuityPresentation.runtimeContinuity,
+        runtimeEvents: failureRuntimeEvents,
+        lifecycleAttributionEvidence: {
+          contextAudit: projectedContextAudit,
+          finalOutput: {
+            estimatedTokens: estimateTextTokens(runtimeFinalOutputText),
+          },
+        },
+      });
+      await ctx.sessionRegistry.save(session);
+      ctx.publishCanonicalSessionEvents?.(failureEvents);
+    }
+    await ctx.turnCapture?.abort?.(session.id);
+    throw error;
+  }
 }
 
 function runtimeFailureEvent(error: unknown, sessionId: string, timestamp: Date): ErrorEvent {
@@ -2432,4 +2771,10 @@ function runtimeFailureEvent(error: unknown, sessionId: string, timestamp: Date)
     timestamp,
     sessionId,
   };
+}
+
+function isCancellationErrorEvent(event: ErrorEvent): boolean {
+  return event.code === "ABORTED"
+    || event.code === "ABORT_ERR"
+    || /\babort(?:ed|ing)?\b/i.test(event.message);
 }

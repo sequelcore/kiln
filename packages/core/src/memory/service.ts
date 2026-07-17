@@ -21,6 +21,11 @@ import type {
   MemoryRepository,
 } from "./repository.js";
 import type { MemoryRelationDraft } from "./domain/relation.js";
+import {
+  evaluateMemoryWriteAdmission,
+  type MemoryWriteAdmissionInput,
+  type MemoryWriteAdmissionResult,
+} from "./efficiency.js";
 
 export interface MemoryMutationServiceOptions {
   readonly repository: MemoryRepository;
@@ -47,8 +52,21 @@ export class MemoryMutationService {
     this.authority = options.authority;
   }
 
-  saveRecord(input: CreateMemoryRecordInput): MemoryRecord {
+  saveRecord(
+    input: CreateMemoryRecordInput,
+    writeAdmission?: Omit<MemoryWriteAdmissionInput, "layer" | "topicKey" | "provenance" | "confidence">,
+  ): MemoryRecord {
     this.assertWriteAuthority(input);
+    if (writeAdmission) {
+      const admission = evaluateMemoryWriteAdmission({
+        layer: input.layer,
+        topicKey: input.topicKey,
+        provenance: input.provenance,
+        confidence: input.confidence,
+        ...writeAdmission,
+      });
+      assertMemoryWriteAdmitted(admission);
+    }
     const existing = input.id ? this.repository.getRecord(input.id) : undefined;
     const record = this.repository.saveRecord(input);
     this.emitRecordEvent(existing ? "memory_record_updated" : "memory_record_created", record);
@@ -150,4 +168,9 @@ export class MemoryMutationService {
       layer: input.layer,
     });
   }
+}
+
+function assertMemoryWriteAdmitted(admission: MemoryWriteAdmissionResult): void {
+  if (admission.decision === "admit") return;
+  throw new Error(`Memory write ${admission.decision} by ${admission.policyId}: ${admission.reasons.join(", ")}`);
 }

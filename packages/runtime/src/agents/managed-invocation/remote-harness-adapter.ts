@@ -84,6 +84,9 @@ export class ManagedRemoteHarnessAdapter implements ManagedAgentRuntimeAdapter {
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output"],
+        semanticSourceGranularity: "unknown",
+        evidenceBasis: "adapter",
       },
       resultHandoff: {
         boundedSummary: true,

@@ -33,6 +33,11 @@ import type {
 } from "@kilnai/gateway-contracts";
 import { GUI_MEMORY_LATTICE_LAYER_KINDS } from "@kilnai/gateway-contracts";
 import { Button } from "@/components/ui/button";
+import {
+  projectOperatorThemeHexVariables,
+  resolveAppliedOperatorThemePalette,
+} from "@/lib/operator-theme-projection";
+import { useAppliedOperatorThemeSignature } from "@/lib/use-operator-theme";
 
 interface MemoryGraphSceneProps {
   readonly nodes: readonly GuiMemoryLatticeGraphNode[];
@@ -75,7 +80,7 @@ export function MemoryGraphScene(props: MemoryGraphSceneProps) {
   const selectedRecordIdRef = useRef<string | null>(selectedRecordId);
   const [webglUnavailable, setWebglUnavailable] = useState(false);
   const graphPoints = useMemo(() => projectGraphPoints(nodes), [nodes]);
-  selectedRecordIdRef.current = selectedRecordId;
+  const operatorThemeSignature = useAppliedOperatorThemeSignature();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -406,7 +411,7 @@ export function MemoryGraphScene(props: MemoryGraphSceneProps) {
       for (const material of disposableMaterials) material.dispose();
       for (const texture of disposableTextures) texture.dispose();
     };
-  }, [edges, graphPoints, onSelect, reducedMotion]);
+  }, [edges, graphPoints, onSelect, operatorThemeSignature, reducedMotion]);
 
   useEffect(() => {
     selectedRecordIdRef.current = selectedRecordId;
@@ -418,9 +423,9 @@ export function MemoryGraphScene(props: MemoryGraphSceneProps) {
       aria-label="Memory graph"
       data-reduced-motion={reducedMotion ? "true" : "false"}
       data-renderer="three"
-      className="relative overflow-hidden rounded-lg border border-border bg-background shadow-[inset_0_0_96px_color-mix(in_srgb,var(--color-primary)_12%,transparent)]"
+      className="relative overflow-hidden rounded-lg border border-border bg-background shadow-[inset_0_0_96px_color-mix(in_oklch,var(--color-primary)_12%,transparent)]"
     >
-      <div className="pointer-events-none absolute inset-0 opacity-80 [background-image:radial-gradient(circle_at_50%_42%,color-mix(in_srgb,var(--color-primary)_15%,transparent),transparent_52%),linear-gradient(color-mix(in_srgb,var(--color-border)_28%,transparent)_1px,transparent_1px),linear-gradient(90deg,color-mix(in_srgb,var(--color-border)_28%,transparent)_1px,transparent_1px)] [background-size:100%_100%,28px_28px,28px_28px]" />
+      <div className="pointer-events-none absolute inset-0 opacity-80 [background-image:radial-gradient(circle_at_50%_42%,color-mix(in_oklch,var(--color-primary)_15%,transparent),transparent_52%),linear-gradient(color-mix(in_oklch,var(--color-border)_28%,transparent)_1px,transparent_1px),linear-gradient(90deg,color-mix(in_oklch,var(--color-border)_28%,transparent)_1px,transparent_1px)] [background-size:100%_100%,28px_28px,28px_28px]" />
       <canvas
         ref={canvasRef}
         className="relative h-full w-full touch-none"
@@ -511,16 +516,24 @@ function layerColor(layer: string, theme: GraphSceneTheme): Color {
 
 function readGraphSceneTheme(root: HTMLElement): GraphSceneTheme {
   const style = getComputedStyle(root);
-  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const fallbackTokens = projectOperatorThemeHexVariables(resolveAppliedOperatorThemePalette(root, prefersDark));
+  const fallback = (name: string): string => {
+    const value = fallbackTokens[name];
+    if (!value) throw new Error(`Missing operator theme renderer token: ${name}`);
+    return value;
+  };
+  const token = (name: string) => style.getPropertyValue(name).trim() || fallback(name);
+  const color = (name: string) => readColor(token(name), fallback(name));
   return {
-    background: readColor(token("--color-background", "#080b10"), "#080b10"),
-    border: readColor(token("--color-border", "#515d78"), "#515d78"),
-    foreground: readColor(token("--color-text", "#d9e1f2"), "#d9e1f2"),
-    muted: readColor(token("--color-background-element", "#1d2230"), "#1d2230"),
-    primary: readColor(token("--color-primary", "#7ad7ff"), "#7ad7ff"),
-    accent: readColor(token("--color-accent", "#b8a1ff"), "#b8a1ff"),
-    success: readColor(token("--color-success", "#8fe1a5"), "#8fe1a5"),
-    selected: readColor(token("--color-warning", "#ffd36d"), "#ffd36d"),
+    background: color("--color-background"),
+    border: color("--color-border"),
+    foreground: color("--color-text"),
+    muted: color("--color-background-element"),
+    primary: color("--color-primary"),
+    accent: color("--color-accent"),
+    success: color("--color-success"),
+    selected: color("--color-warning"),
   };
 }
 

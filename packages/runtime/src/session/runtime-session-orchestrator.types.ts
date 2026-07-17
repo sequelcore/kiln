@@ -15,9 +15,12 @@ import type {
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityProfile,
   ManagedAgentInvocationContextMode,
+  ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
+  SessionExecutionScope,
 } from "@kilnai/core";
+import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
 import type { ContextAuditEntry } from "@kilnai/core";
@@ -40,18 +43,33 @@ import type { EscalationDetector, EscalationSignal } from "./support/escalation/
 import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 import type { RuntimeSession } from "./runtime-session.js";
 
-export const RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON = "tool_rounds_exhausted";
+export const RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON = "tool_round_budget_exhausted";
 export const RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON = "no_tool_finalization_failed";
 export const RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON =
   "managed_invocation_state_transition_required";
+export const RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON =
+  "governed_work_materialization_required";
+
+export interface RuntimeExecutionEnvelope {
+  readonly toolRounds?: RuntimeToolRoundBudget;
+}
+
+export interface RuntimeToolRoundBudget {
+  readonly max: number;
+}
 
 export interface RuntimeBuiltinToolExecutionContext {
   readonly session: RuntimeSession;
   readonly turnId?: string;
   readonly toolCall: ToolCall;
   readonly abortSignal?: AbortSignal;
+  readonly emitOutput?: (output: {
+    readonly stream: "stdout" | "stderr";
+    readonly delta: string;
+  }) => void;
   readonly sandbox?: unknown;
   readonly allowedToolNames?: readonly string[];
+  readonly authority?: AuthorityDescriptor;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly requestApproval?: (
     description: string,
@@ -67,8 +85,9 @@ export interface OrchestratorDeps {
   readonly provider: ProviderAdapter;
   readonly model?: string;
   readonly maxTokens?: number;
-  readonly maxToolRounds?: number;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly tools?: readonly ToolDefinition[];
+  readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
   readonly mcpClients?: readonly McpClient[];
   readonly builtinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly eventBus?: EventBus;
@@ -95,6 +114,7 @@ export interface RuntimeMultimodalDelegationRoute {
   readonly profile: ManagedAgentAdmissionProfile;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly providerRoute: ManagedAgentProviderRoute;
+  readonly observedRuntimeAuthority?: ManagedAgentObservedRuntimeAuthorityEvidence;
   readonly authority: ManagedAgentAuthorityProfile;
   readonly contextMode?: ManagedAgentInvocationContextMode;
   readonly agentProfile?: string;
@@ -160,6 +180,7 @@ export interface OrchestrateResult {
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
+  readonly providerRequests?: readonly ProviderRequestEvidence[];
   readonly queued: boolean;
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;
@@ -258,6 +279,7 @@ export interface WorkItemAuthorityPolicyBound extends EffectiveTurnAuthorityPoli
 }
 
 export interface EffectiveTurnAuthorityAdmissionContext {
+  readonly executionUse?: "operator_interactive" | "managed_unattended";
   readonly sessionPolicy?: EffectiveTurnAuthorityPolicyBound;
   readonly tenantPolicy?: EffectiveTurnAuthorityPolicyBound;
   readonly routePolicy?: EffectiveTurnAuthorityPolicyBound;
@@ -272,6 +294,12 @@ export interface ModelRoutingRouteCapabilities {
 
 export interface ModelRoutingPolicyConfig {
   readonly task?: string;
+  readonly phase?: "orient" | "plan" | "execute" | "verify" | "handoff";
+  readonly uncertainty?: number;
+  readonly verificationNeed?: number;
+  readonly retryRisk?: number;
+  readonly cacheInvalidationCostUsd?: number;
+  readonly verifierCostUsd?: number;
   readonly rankingEvidence?: readonly ModelRoutingRankingEvidence[];
   readonly routeCapabilities?: ReadonlyMap<string, ModelRoutingRouteCapabilities>;
   readonly now?: Date;
@@ -279,6 +307,12 @@ export interface ModelRoutingPolicyConfig {
 
 export interface PerCallToolConfig {
   readonly turnId?: string;
+  readonly executionScope?: SessionExecutionScope;
+  readonly workingDirectory?: string;
+  readonly governedWorkRequirement?: {
+    readonly kind: "goal_materialization";
+    readonly requiredWorkItemCount: number;
+  };
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
   readonly abortSignal?: AbortSignal;
@@ -298,6 +332,12 @@ export interface PerCallToolConfig {
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly modelRoutingPolicy?: ModelRoutingPolicyConfig;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly contextPolicy?: {
+    readonly policyId: string;
+    readonly configurationHash: string;
+    readonly contextAllocationMode: "whole-block" | "segmented" | "retrieval-on-demand";
+  };
 }
 
 export type RuntimeToolCallMetadataResolver = (

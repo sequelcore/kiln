@@ -20,7 +20,7 @@ interface WorkflowGoalPreview {
   readonly id: string;
   readonly objective: string;
   readonly status: string;
-  readonly planId?: string;
+  readonly source?: string;
   readonly workflowProfile?: string;
   readonly authority?: string;
   readonly escalation?: string;
@@ -71,9 +71,9 @@ function readRecord(value: unknown): Record<string, unknown> {
 }
 
 function badgeTone(value: string): string {
-  if (value === "approved" || value === "completed") return "border-emerald-500/35 bg-emerald-500/10 text-emerald-300";
-  if (value === "analysis-blocked" || value === "blocked" || value === "failed") return "border-amber-500/35 bg-amber-500/10 text-amber-300";
-  if (value === "active" || value === "submitted") return "border-sky-500/35 bg-sky-500/10 text-sky-300";
+  if (value === "approved" || value === "completed") return "border-status-success-border bg-status-success-background text-success";
+  if (value === "analysis-blocked" || value === "blocked" || value === "failed") return "border-status-warning-border bg-status-warning-background text-warning";
+  if (value === "active" || value === "submitted") return "border-status-info-border bg-status-info-background text-info";
   return "border-border bg-background text-muted-foreground";
 }
 
@@ -179,12 +179,17 @@ function latestWorkflowPreview(entries: readonly TimelineEntry[]): {
       const status = readString(rawGoal.status);
       const routePolicy = isRecord(rawGoal.routePolicy) ? rawGoal.routePolicy : {};
       const authorityEnvelope = isRecord(rawGoal.authorityEnvelope) ? rawGoal.authorityEnvelope : {};
+      const source = isRecord(rawGoal.source) ? rawGoal.source : {};
       if (id && objective && status) {
         goal = {
           id,
           objective,
           status,
-          planId: readString(rawGoal.planId),
+          source: source.kind === "approved_plan"
+            ? `Approved plan ${readString(source.planId) ?? "unknown"}`
+            : source.kind === "operator_direct"
+              ? `Operator turn ${readString(source.turnId) ?? "unknown"}`
+              : undefined,
           workflowProfile: readString(routePolicy.workflowProfile),
           authority: readString(authorityEnvelope.maximumAuthority),
           escalation: readString(authorityEnvelope.escalationPolicy),
@@ -289,7 +294,7 @@ export function WorkflowOverviewPanel(props: WorkflowOverviewPanelProps) {
             </div>
             <div className="mt-3">
               <MetricRow label="Goal" value={goal.id} />
-              <MetricRow label="Plan" value={goal.planId} />
+              <MetricRow label="Source" value={goal.source} />
               <MetricRow label="Work items" value={goal.workItemCount} />
             </div>
           </article>
@@ -304,7 +309,7 @@ export function WorkflowOverviewPanel(props: WorkflowOverviewPanelProps) {
                   {materialization.createdCount} created, {materialization.reusedCount} reused.
                 </p>
               </div>
-              <Badge variant="outline" className="shrink-0 border-emerald-500/35 bg-emerald-500/10 text-emerald-300">
+              <Badge variant="outline" className="shrink-0 border-status-success-border bg-status-success-background text-success">
                 {materialization.workItemCount} materialized
               </Badge>
             </div>

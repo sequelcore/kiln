@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SessionList } from "../src/components/session-list.js";
 import { deriveSessionContinuity } from "../src/lib/session-continuity.js";
@@ -6,6 +6,9 @@ import { deriveSessionContinuity } from "../src/lib/session-continuity.js";
 const sessions = [
   {
     id: "session-1",
+    title: "Runtime boundary review",
+    summary: "Validate the execution envelope across operator surfaces.",
+    tags: ["runtime", "review"],
     providersUsed: ["claude"],
     lastProvider: "claude",
     completedAt: "2026-04-21T20:00:00.000Z",
@@ -14,6 +17,9 @@ const sessions = [
   },
   {
     id: "session-2",
+    title: "Sidebar continuity",
+    summary: "Align navigation and history into one surface.",
+    tags: ["gui"],
     providersUsed: ["codex"],
     lastProvider: "codex",
     completedAt: "2026-04-21T21:00:00.000Z",
@@ -57,7 +63,8 @@ describe("SessionList", () => {
     const onSelect = vi.fn();
     renderSessionList({ selectedSessionId: "session-1", onSelect });
 
-    const options = screen.getAllByRole("option");
+    const history = screen.getByRole("navigation", { name: "Session history" });
+    const options = within(history).getAllByRole("button");
     fireEvent.keyDown(options[0], { key: "ArrowDown" });
     expect(onSelect).toHaveBeenCalledWith("session-2");
 
@@ -65,7 +72,7 @@ describe("SessionList", () => {
     expect(onSelect).toHaveBeenCalledWith("session-1");
   });
 
-  it("marks selected sessions as continuation targets", () => {
+  it("keeps routine continuation state visually silent", () => {
     renderSessionList({
       selectedSessionId: "session-2",
     });
@@ -73,12 +80,12 @@ describe("SessionList", () => {
     expect(screen.queryByText("Session Preview")).not.toBeInTheDocument();
     expect(screen.queryByText("Loaded")).not.toBeInTheDocument();
     expect(screen.queryByText("Active")).not.toBeInTheDocument();
-    expect(screen.getByText("Continue")).toBeInTheDocument();
+    expect(screen.queryByText("Continue")).not.toBeInTheDocument();
     expect(screen.queryByText("Preview")).not.toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /Second task/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: /Sidebar continuity/ })).toHaveAttribute("aria-current", "page");
   });
 
-  it("marks running and detached sessions distinctly", () => {
+  it("announces exceptional session states without rendering status badges", () => {
     renderSessionList({
       selectedSessionId: null,
       liveSessionId: "session-1",
@@ -86,39 +93,77 @@ describe("SessionList", () => {
       status: "running",
     });
 
-    expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(screen.getByText("Detached")).toBeInTheDocument();
+    expect(screen.getByLabelText("Running session")).toBeInTheDocument();
+    expect(screen.getByLabelText("Detached session")).toBeInTheDocument();
+    expect(screen.queryByText("Running")).not.toBeInTheDocument();
+    expect(screen.queryByText("Detached")).not.toBeInTheDocument();
+  });
+
+  it("reserves the trailing edge for activity and fades overflowing titles into it", () => {
+    renderSessionList({
+      selectedSessionId: null,
+      liveSessionId: "session-1",
+      status: "running",
+    });
+
+    const row = screen.getByRole("button", { name: /Runtime boundary review/ });
+    const title = within(row).getByText("Runtime boundary review");
+    const activity = within(row).getByLabelText("Running session");
+
+    expect(title).toHaveAttribute("data-slot", "session-title");
+    expect(title).toHaveClass("session-title-fade");
+    expect(title.nextElementSibling).toBe(activity);
+    expect(within(row).queryByText(/(?:now|\d+[mhd]|[A-Z][a-z]{2} \d{1,2})/)).not.toBeInTheDocument();
+  });
+
+  it("fades ordinary session titles before the timestamp without an ellipsis", () => {
+    renderSessionList({ selectedSessionId: "session-2" });
+
+    const row = screen.getByRole("button", { name: /Runtime boundary review/ });
+    const title = within(row).getByText("Runtime boundary review");
+
+    expect(title).toHaveClass("session-title-fade");
+    expect(title).not.toHaveClass("truncate");
+    expect(title.nextElementSibling).toHaveClass("tabular-nums");
   });
 
   it("selects a session through the row without a redundant continue action", () => {
     const onSelect = vi.fn();
     renderSessionList({ selectedSessionId: "session-2", onSelect });
 
-    expect(screen.queryByRole("button", { name: "Continue First task" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: /First task/ }));
+    expect(screen.queryByRole("button", { name: "Continue Runtime boundary review" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Runtime boundary review/ }));
     expect(onSelect).toHaveBeenCalledWith("session-1");
   });
 
-  it("keeps new session reset action separate from row selection", () => {
-    const onStartNewSession = vi.fn();
-    const onSelect = vi.fn();
-    renderSessionList({
-      selectedSessionId: "session-2",
-      onSelect,
-      onStartNewSession,
-    });
-
-    fireEvent.click(screen.getAllByRole("option")[1] as Element);
-    expect(onSelect).toHaveBeenCalledWith("session-2");
-
-    fireEvent.click(screen.getByRole("button", { name: "New Session" }));
-    expect(onStartNewSession).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not render unavailable search and filter controls", () => {
+  it("reveals search on demand and filters compact history rows", () => {
     renderSessionList();
 
-    expect(screen.queryByLabelText("Search sessions")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Filter sessions")).not.toBeInTheDocument();
+    expect(screen.queryByRole("searchbox", { name: "Search sessions" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Search sessions" }));
+    const search = screen.getByRole("searchbox", { name: "Search sessions" });
+    fireEvent.change(search, { target: { value: "sidebar" } });
+
+    expect(screen.queryByRole("button", { name: /Runtime boundary review/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sidebar continuity/ })).toBeVisible();
+    expect(screen.queryByText("1 of 2 sessions")).not.toBeInTheDocument();
+  });
+
+  it("omits provider, summary, tag, and count noise from history rows", () => {
+    renderSessionList();
+
+    expect(screen.getByText("Runtime boundary review")).toBeVisible();
+    expect(screen.queryByText("Validate the execution envelope across operator surfaces.")).not.toBeInTheDocument();
+    expect(screen.queryByText("claude")).not.toBeInTheDocument();
+    expect(screen.queryByText("#runtime")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 sessions")).not.toBeInTheDocument();
+  });
+
+  it("keeps history spacing aligned with sidebar navigation", () => {
+    renderSessionList();
+
+    expect(screen.getByRole("heading", { name: "Recent" }).closest("header")).toHaveClass("h-9", "px-3");
+    expect(screen.getByRole("navigation", { name: "Session history" }).parentElement).toHaveClass("px-2");
+    expect(screen.getByRole("button", { name: /Runtime boundary review/ })).toHaveClass("h-8", "px-2");
   });
 });

@@ -1,9 +1,13 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
+import type { ExecutionSessionToolResultResourceLink } from "./execution-session-event.js";
+import type { ContextUsageProjection } from "./context-usage-projection.js";
+import type { VerifiedEfficiencyEvidenceProjection } from "../efficiency/verified-efficiency-evidence.js";
 
 import type {
   ManagedAgentAdapterKind,
   ManagedAgentAdmissionProfile,
   ManagedAgentCapabilitySnapshot,
+  ManagedAgentCoordinationUsageReport,
   ManagedAgentInvocationContextMode,
   ManagedAgentInvocationHandoffContract,
   ManagedAgentExecutionMode,
@@ -14,9 +18,17 @@ import type {
   ManagedAgentRouteSource,
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
+  WorkRecommendedSkillDiagnostic,
 } from "../agents/managed-invocation/index.js";
+import type { WorkClassification } from "../agents/work-classification.js";
 import type { MultimodalDelegationEvidence } from "../engine/domain/multimodal-routing.js";
+import type {
+  SessionLifecycleAttributionLedger,
+  SessionLifecycleAttributionSummary,
+} from "./session-lifecycle-attribution.js";
+import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
+import type { SessionExecutionScope } from "./session-execution-scope.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -46,6 +58,8 @@ export type CanonicalSessionEventKind =
   | "config_change_failed"
   | "file_changed"
   | "cost_updated"
+  | "context_usage_observed"
+  | "lifecycle_attribution_recorded"
   | "work_item_updated"
   | "work_item_execution_started"
   | "work_item_execution_finished"
@@ -75,6 +89,7 @@ export interface SessionEventEnvelope<K extends CanonicalSessionEventKind = Cano
   readonly sequence: number;
   readonly timestamp: Date;
   readonly kind: K;
+  readonly executionScope?: SessionExecutionScope;
   readonly turnId?: string;
   readonly parentEventId?: string;
   readonly source?: SessionEventSource;
@@ -100,6 +115,7 @@ export interface SessionCost {
   readonly currency: "USD";
   readonly deltaUsd: number;
   readonly totalUsd?: number;
+  readonly evidence?: ExecutionCostEvidence;
 }
 
 export type SessionFileChangeType = "created" | "updated" | "deleted" | "renamed";
@@ -133,8 +149,14 @@ export interface SessionToolStatus {
   readonly errorMessage?: string;
 }
 
+export interface SessionToolUsageSnapshot {
+  readonly scope: "turn";
+  readonly toolName: string;
+  readonly calls: number;
+}
+
 export type SessionContinuityDecision = "continue" | "handoff" | "fork" | "close";
-export type SessionTurnOutcome = "completed" | "failed" | "cancelled";
+export type SessionTurnOutcome = "completed" | "failed" | "cancelled" | "paused";
 export type SessionExecutionMode = "execute" | "plan";
 
 export interface CanonicalTurnStartedEvent extends SessionEventEnvelope<"turn_started"> {
@@ -321,6 +343,9 @@ export interface CanonicalToolCallCompletedEvent extends SessionEventEnvelope<"t
   readonly durationMs: number;
   readonly output?: string;
   readonly outputSummary?: string;
+  readonly metadata?: Record<string, unknown>;
+  readonly resourceLinks?: readonly ExecutionSessionToolResultResourceLink[];
+  readonly toolUsage?: SessionToolUsageSnapshot;
 }
 
 export interface CanonicalApprovalRequestedEvent extends SessionEventEnvelope<"approval_requested"> {
@@ -371,6 +396,16 @@ export interface CanonicalCostUpdatedEvent extends SessionEventEnvelope<"cost_up
   readonly provider: SessionProviderIdentity;
   readonly usage: SessionTokenUsage;
   readonly cost: SessionCost;
+}
+
+export interface CanonicalContextUsageObservedEvent extends SessionEventEnvelope<"context_usage_observed"> {
+  readonly contextUsage: ContextUsageProjection;
+}
+
+export interface CanonicalLifecycleAttributionRecordedEvent extends SessionEventEnvelope<"lifecycle_attribution_recorded"> {
+  readonly ledger: SessionLifecycleAttributionLedger;
+  readonly summary: SessionLifecycleAttributionSummary;
+  readonly efficiencyEvidence: VerifiedEfficiencyEvidenceProjection;
 }
 
 export interface CanonicalWorkItemUpdatedEvent extends SessionEventEnvelope<"work_item_updated"> {
@@ -432,6 +467,10 @@ export interface SessionAgentInvocationContext {
   readonly admittedSkills?: readonly string[];
   readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
+  readonly workClassification?: WorkClassification;
+  readonly resolvedWorkClassification?: WorkClassification;
+  readonly workRecommendedSkills?: readonly string[];
+  readonly workRecommendedSkillDiagnostics?: readonly WorkRecommendedSkillDiagnostic[];
 }
 
 export interface SessionAgentInvocationTranscriptPointer {
@@ -474,6 +513,7 @@ export interface SessionAgentInvocationEvidence {
   readonly transcript?: SessionAgentInvocationTranscriptPointer;
   readonly diagnostics?: readonly SessionAgentInvocationDiagnosticPointer[];
   readonly usage?: SessionAgentInvocationUsageReport;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
   readonly resultHandoff?: SessionAgentInvocationResultHandoff;
   readonly writeAuthority?: ManagedAgentWriteAuthority;
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
@@ -577,6 +617,8 @@ export interface CanonicalSessionEventMap {
   config_change_failed: CanonicalConfigChangeFailedEvent;
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
+  context_usage_observed: CanonicalContextUsageObservedEvent;
+  lifecycle_attribution_recorded: CanonicalLifecycleAttributionRecordedEvent;
   work_item_updated: CanonicalWorkItemUpdatedEvent;
   work_item_execution_started: CanonicalWorkItemExecutionStartedEvent;
   work_item_execution_finished: CanonicalWorkItemExecutionFinishedEvent;

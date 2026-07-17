@@ -8,6 +8,16 @@ const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();
 const sendMock = vi.fn();
 const loadResourceDataUrlMock = vi.fn();
+const loadWorkspaceFileMock = vi.fn(async (path: string) => ({
+  path,
+  name: path.replace(/\\/g, "/").split("/").at(-1) ?? path,
+  kind: "text" as const,
+  sizeBytes: 17,
+  source: "gateway" as const,
+  encoding: "utf-8" as const,
+  language: path.endsWith(".json") ? "json" : "markdown",
+  content: path.endsWith(".json") ? "{\"ok\":true}" : "# Project Context",
+}));
 let guiWsOnFrame: ((frame: GuiInboundFrame) => void) | null = null;
 
 vi.mock("@tanstack/react-query", () => ({
@@ -54,17 +64,8 @@ vi.mock("../src/api/client.js", () => ({
       };
     }
 
-    async loadWorkspaceFile() {
-      return {
-        path: "C:/workspace/kiln/package.json",
-        name: "package.json",
-        kind: "text",
-        sizeBytes: 17,
-        source: "gateway",
-        encoding: "utf-8",
-        language: "json",
-        content: "{\"ok\":true}",
-      };
+    async loadWorkspaceFile(path: string) {
+      return loadWorkspaceFileMock(path);
     }
 
     async loadMemoryLatticeGraph() {
@@ -107,7 +108,9 @@ vi.mock("../src/api/client.js", () => ({
             recommendation: "none",
           },
         ],
+        globalInstructionShims: [],
         nativeProjections: [],
+        permissionIntegrity: [],
         recommendedActions: ["none"],
       };
     }
@@ -303,6 +306,7 @@ describe("AppShell sidebar modes", () => {
     installMatchMedia(false);
     resetStore();
     waitForGatewayMock.mockResolvedValue(undefined);
+    loadWorkspaceFileMock.mockClear();
     loadResourceDataUrlMock.mockResolvedValue("data:text/plain;base64,b2s=");
     useQueryMock.mockImplementation((options: { queryKey?: readonly unknown[] }) => {
       const queryKey = options.queryKey?.join(":") ?? "";
@@ -359,7 +363,9 @@ describe("AppShell sidebar modes", () => {
                 recommendation: "none" as const,
               },
             ],
+            globalInstructionShims: [],
             nativeProjections: [],
+            permissionIntegrity: [],
             recommendedActions: ["none" as const],
           },
           error: null,
@@ -477,6 +483,58 @@ describe("AppShell sidebar modes", () => {
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
+  it("opens canonical work item resources from the work surface", async () => {
+    const openedWindow = {
+      location: { href: "" },
+      close: vi.fn(),
+    };
+    vi.spyOn(window, "open").mockImplementation(() => openedWindow as unknown as Window);
+    useSessionStore.setState({
+      timelineEntries: [
+        ...useSessionStore.getState().timelineEntries,
+        {
+          id: "timeline:evt-work-update",
+          type: "event",
+          eventKind: "work_item_updated",
+          createdAt: "2026-06-24T10:00:00.000Z",
+          sequence: 3,
+          title: "Work item updated",
+          summary: "Inspect work item resource",
+          tone: "warning",
+          details: {
+            operation: "update",
+            workItem: {
+              id: "work-shell-resource",
+              summary: "Inspect work item resource",
+              status: "blocked",
+              workflowProfile: "verification-heavy",
+              authorityProfile: "authority:foundation-readonly-plan",
+              expectedEvidence: ["surface-map"],
+              providedEvidence: [],
+              verificationGates: ["bun test"],
+              updatedAt: "2026-06-24T10:00:00.000Z",
+            },
+          },
+        },
+      ],
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open work item work-shell-resource resource" }));
+
+    await waitFor(() => {
+      expect(loadResourceDataUrlMock).toHaveBeenCalledWith("kiln://session/work-items/work-shell-resource");
+    });
+    expect(openedWindow.location.href).toBe("data:text/plain;base64,b2s=");
+    expect(openedWindow.close).not.toHaveBeenCalled();
+  });
+
   it("opens managed agents as a main workbench surface and opens resources from the click gesture", async () => {
     const callOrder: string[] = [];
     const openedWindow = {
@@ -535,6 +593,43 @@ describe("AppShell sidebar modes", () => {
     expect(callOrder).toEqual(["open", "load"]);
     expect(openedWindow.location.href).toBe("data:text/plain;base64,dHJhbnNjcmlwdA==");
     expect(openedWindow.close).not.toHaveBeenCalled();
+  });
+
+  it("sends managed-agent controls with the projected gateway target identity", async () => {
+    useSessionStore.setState({
+      sessionEvents: [
+        {
+          eventId: "event-agent-started",
+          kilnSessionId: "session-1",
+          sequence: 3,
+          timestamp: "2026-05-23T12:03:00.000Z",
+          kind: "agent_invocation_started",
+          payload: {
+            instanceId: "local-gui",
+            sessionId: "session-1",
+            managedInvocationId: "child-gui",
+            lifecycleState: "running",
+          },
+        },
+      ],
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel managed child child-gui" }));
+
+    expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: "managed_agent_control",
+      action: "cancel",
+      sessionId: "session-1",
+      invocationId: "child-gui",
+      gatewayTargetId: "local-gui",
+    }));
   });
 
   it("surfaces managed-agent cancel acknowledgement failures and clears them on acceptance", async () => {
@@ -680,6 +775,11 @@ describe("AppShell sidebar modes", () => {
     })?.[0] as { enabled?: boolean; refetchInterval?: unknown } | undefined;
     expect(setupQueryOptions).toMatchObject({ enabled: true });
     expect(setupQueryOptions).not.toHaveProperty("refetchInterval");
+    fireEvent.click(screen.getByRole("button", { name: "Preview Project Context" }));
+    await waitFor(() => {
+      expect(loadWorkspaceFileMock).toHaveBeenCalledWith("C:/workspace/kiln/.kiln/project-context.md");
+    });
+    expect(screen.getByRole("tab", { name: "project-context.md" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 

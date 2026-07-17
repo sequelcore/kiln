@@ -9,6 +9,10 @@
 - [Architecture](architecture/README.md)
   Canonical architecture doctrine for Kiln as a biocybernetic control plane.
 
+- [Coordination Guide](guides/coordination-intelligence.md)
+  Operator workflow for governed work graphs, specialist selection, dependency
+  handoffs, and independent review.
+
 - [Research](research/README.md)
   Canonical research foundations, mechanism mapping, and implementation gap
   analysis.
@@ -20,6 +24,10 @@
   Source-run examples for gateway apps, MCP tools, widgets, tenants, and
   channels.
 
+- [Multi-Agent and Role Routing](guides/multi-agent.md)
+  When multiple roles are justified and how they remain subordinate to Kiln's
+  control-plane contracts.
+
 - [Guides](guides/channels.md)
   Operational and usage documentation. Architecture doctrine lives under
   `docs/architecture/`; guides focus on configuration, workflows, and runtime
@@ -29,13 +37,16 @@
   Versioned Kiln project files, ignored operator state, and gitignore guidance.
 
 - [Roadmap](roadmap/README.md)
-  Active, deferred, and completed implementation tracks.
+  Canonical execution queue, track states, dependencies, and admission boundaries.
 
 - [Changelog](changelog.md)
   Supported public change log beginning with the 2.0 baseline.
 
 - [Release Notes](releases/README.md)
-  Curated notes for supported public releases.
+  Curated notes for supported public releases and clearly marked prerelease
+  candidates.
+- [Release Runbook](operations/release.md)
+  Canonical package publication, verification, and recovery procedure.
 
 ## Public Baseline
 
@@ -83,6 +94,7 @@ High-use guides today:
 - [GUI Parity](guides/gui-parity.md)
 - [GUI Parity Walkthrough](guides/gui-parity-walkthrough.md)
 - [Operator Surfaces](guides/operator-surfaces.md)
+- [Gateway App Runtime](guides/gateway-app-runtime.md)
 - [Operator Doctrine](guides/operator-doctrine.md)
 - [Channels](guides/channels.md)
 - [Knowledge](guides/knowledge.md)

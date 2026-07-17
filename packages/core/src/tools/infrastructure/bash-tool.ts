@@ -1,11 +1,22 @@
-import { execFile as execFileCallback } from "node:child_process";
-import { promisify } from "node:util";
+import { win32 } from "node:path";
+
 import {
   detectToolEnvironment,
   type ToolEnvironment,
 } from "../domain/tool-environment.js";
 import { commandToolMetadata } from "../domain/tool-result-metadata.js";
-import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
+import {
+  TOOL_SCHEMAS,
+  type DevTool,
+  type DevToolExecutionContext,
+  type ToolInput,
+  type ToolResult,
+} from "../domain/tool.js";
+import {
+  SpawnCommandProcessRunner,
+  type CommandProcessHandle,
+  type CommandProcessRunner,
+} from "./command-process.js";
 import {
   getSandboxContext,
   optionalNumber,
@@ -18,7 +29,6 @@ import {
 } from "./tool-helpers.js";
 import { parseOutputVerbosity } from "./output-verbosity.js";
 
-const execFile = promisify(execFileCallback);
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const MAX_BUFFER = 2 * 1024 * 1024;
@@ -35,18 +45,11 @@ type BashCommandRunner = (
   timeoutMs: number,
 ) => Promise<BashCommandResult>;
 
-type BashProcessRunner = (
-  executable: string,
-  args: readonly string[],
-  cwd: string,
-  timeoutMs: number,
-) => Promise<BashCommandResult>;
-
 type EnvironmentProvider = () => Promise<ToolEnvironment>;
 
 export interface BashToolOptions {
   readonly commandRunner?: BashCommandRunner;
-  readonly processRunner?: BashProcessRunner;
+  readonly processRunner?: CommandProcessRunner;
   readonly environmentProvider?: EnvironmentProvider;
   readonly platform?: NodeJS.Platform;
 }
@@ -57,18 +60,18 @@ export class BashTool implements DevTool {
   readonly inputSchema = TOOL_SCHEMAS.bash.inputSchema;
 
   private readonly commandRunner?: BashCommandRunner;
-  private readonly processRunner: BashProcessRunner;
+  private readonly processRunner: CommandProcessRunner;
   private readonly environmentProvider: EnvironmentProvider;
   private readonly platform: NodeJS.Platform;
 
   constructor(options: BashToolOptions = {}) {
     this.commandRunner = options.commandRunner;
-    this.processRunner = options.processRunner ?? runBashProcess;
+    this.processRunner = options.processRunner ?? new SpawnCommandProcessRunner();
     this.environmentProvider = options.environmentProvider ?? detectToolEnvironment;
     this.platform = options.platform ?? process.platform;
   }
 
-  async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
+  async execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
     const commandInput = requireString(input, "command");
     if (!commandInput.ok) {
       return commandInput.result;
@@ -84,9 +87,10 @@ export class BashTool implements DevTool {
     }
 
     const sandboxContext = getSandboxContext(sandbox);
-    const cwd = resolvePath(
-      normalizeShellCwdForHost(optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(), this.platform),
+    const cwd = resolveShellCwd(
+      optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(),
       sandbox,
+      this.platform,
     );
 
     // Validate cwd is within sandbox boundaries (read access implies path containment)
@@ -121,6 +125,7 @@ export class BashTool implements DevTool {
           timeoutInput.value,
           this.environmentProvider,
           this.processRunner,
+          context,
         );
       const durationMs = elapsedDurationMs(startedAtMs);
       const stdout = result.stdout;
@@ -141,6 +146,7 @@ export class BashTool implements DevTool {
         stderrBytes: byteLength(stderr),
         exitCode: 0,
         timedOut: false,
+        status: "succeeded",
         truncated: metadataTruncated,
         durationMs,
         verbosity: verbosityInput.value,
@@ -166,6 +172,7 @@ export class BashTool implements DevTool {
         code?: number | string;
         signal?: NodeJS.Signals;
         killed?: boolean;
+        cancelled?: boolean;
       };
       const durationMs = elapsedDurationMs(startedAtMs);
       const stdout = err.stdout ?? "";
@@ -195,6 +202,7 @@ export class BashTool implements DevTool {
         stderrBytes: byteLength(stderr),
         exitCode: deriveExitCode(err.code),
         timedOut: isTimedOut(err),
+        status: err.cancelled ? "cancelled" : isTimedOut(err) ? "timed_out" : "failed",
         truncated: metadataTruncated,
         durationMs,
         verbosity: verbosityInput.value,
@@ -269,7 +277,8 @@ async function runBashCommand(
   cwd: string,
   timeoutMs: number,
   environmentProvider: EnvironmentProvider,
-  processRunner: BashProcessRunner,
+  processRunner: CommandProcessRunner,
+  context?: DevToolExecutionContext,
 ): Promise<BashCommandResult> {
   const environment = await environmentProvider();
   const executable = environment.bash?.path;
@@ -279,28 +288,78 @@ async function runBashCommand(
     });
   }
 
-  return await processRunner(executable, ["-c", command], cwd, timeoutMs);
-}
-
-async function runBashProcess(
-  executable: string,
-  args: readonly string[],
-  cwd: string,
-  timeoutMs: number,
-): Promise<BashCommandResult> {
-  const { stdout, stderr } = await execFile(executable, [...args], {
-    cwd,
-    timeout: timeoutMs,
-    windowsHide: true,
-    maxBuffer: MAX_BUFFER,
+  return await new Promise<BashCommandResult>((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    let capturedBytes = 0;
+    let maxBufferExceeded = false;
+    let handle: CommandProcessHandle | undefined;
+    handle = processRunner.start({
+      executable,
+      args: ["-c", command],
+      cwd,
+      timeoutMs,
+      ...(context?.abortSignal ? { signal: context.abortSignal } : {}),
+    }, {
+      output: ({ stream, text }) => {
+        context?.onOutput?.({ stream, delta: text });
+        const remaining = Math.max(0, MAX_BUFFER - capturedBytes);
+        const clipped = clipTextToBytes(text, remaining);
+        capturedBytes += byteLength(clipped.text);
+        if (stream === "stdout") stdout += clipped.text;
+        else stderr += clipped.text;
+        if (clipped.truncated && !maxBufferExceeded) {
+          maxBufferExceeded = true;
+          void handle?.stop("stopped");
+        }
+      },
+      finish: (result) => {
+        if (result.error || result.exitCode !== 0 || result.signal || result.timedOut || result.cancelled || maxBufferExceeded) {
+          const error = Object.assign(
+            result.error ?? new Error(result.cancelled
+              ? "bash command cancelled"
+              : result.timedOut
+                ? "bash command timed out"
+                : maxBufferExceeded
+                  ? `bash command exceeded ${MAX_BUFFER} output bytes`
+                  : `bash command exited with code ${String(result.exitCode ?? "unknown")}`),
+            {
+              stdout,
+              stderr,
+              code: maxBufferExceeded ? "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" : result.exitCode,
+              signal: result.signal,
+              killed: Boolean(result.timedOut || result.cancelled || maxBufferExceeded),
+              cancelled: result.cancelled,
+            },
+          );
+          reject(error);
+          return;
+        }
+        resolve({ stdout, stderr });
+      },
+    });
   });
-
-  return { stdout, stderr };
 }
 
 function normalizeShellCwdForHost(cwd: string, platform: NodeJS.Platform): string {
   if (platform !== "win32") return cwd;
   return normalizeWindowsShellPath(cwd);
+}
+
+function resolveShellCwd(cwd: string, sandbox: unknown, platform: NodeJS.Platform): string {
+  const normalizedCwd = normalizeShellCwdForHost(cwd, platform);
+  if (platform !== "win32") {
+    return resolvePath(normalizedCwd, sandbox);
+  }
+
+  if (win32.isAbsolute(normalizedCwd)) {
+    return win32.normalize(normalizedCwd);
+  }
+
+  const sandboxCwd = getSandboxContext(sandbox)?.cwd;
+  return sandboxCwd
+    ? win32.resolve(normalizeWindowsShellPath(sandboxCwd), normalizedCwd)
+    : win32.resolve(normalizedCwd);
 }
 
 function normalizeWindowsShellPath(pathValue: string): string {
@@ -357,8 +416,11 @@ function deriveExitCode(code: number | string | undefined): number | string | un
 }
 
 function isTimedOut(
-  error: NodeJS.ErrnoException & { code?: number | string; signal?: NodeJS.Signals; killed?: boolean },
+  error: NodeJS.ErrnoException & { code?: number | string; signal?: NodeJS.Signals; killed?: boolean; cancelled?: boolean },
 ): boolean {
+  if (error.cancelled) {
+    return false;
+  }
   if (isMaxBufferExceeded(error)) {
     return false;
   }

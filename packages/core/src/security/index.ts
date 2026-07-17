@@ -33,3 +33,25 @@ export type {
 } from "./self-audit.js";
 export { ActionEffectAuthorizer } from "./action-effect-authorizer.js";
 export { DeterministicDangerousCommandDetector } from "./dangerous-command-detector.js";
+export {
+  TRUSTED_EXECUTION_CLASSIFICATIONS,
+  TRUSTED_EXECUTION_EVIDENCE_FRESHNESS,
+  TRUSTED_EXECUTION_EVIDENCE_SOURCES,
+  TRUSTED_EXECUTION_PROFILES,
+  TRUSTED_EXECUTION_PROOF_STATUSES,
+  authorizeTrustedExecutionIntent,
+  classifyTrustedExecutionIntegrity,
+} from "./trusted-execution-integrity.js";
+export type {
+  TrustedExecutionAuthorization,
+  TrustedExecutionClassification,
+  TrustedExecutionClassificationInput,
+  TrustedExecutionClassificationResult,
+  TrustedExecutionEnforcement,
+  TrustedExecutionEvidence,
+  TrustedExecutionEvidenceSource,
+  TrustedExecutionFreshness,
+  TrustedExecutionIntentRequest,
+  TrustedExecutionProfile,
+  TrustedExecutionProof,
+} from "./trusted-execution-integrity.js";

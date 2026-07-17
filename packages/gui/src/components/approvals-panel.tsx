@@ -3,7 +3,7 @@ import type { ApprovalRequest } from "../lib/session-store.js";
 import { CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { SidebarPanelShell } from "./sidebar-panel-shell.js";
+import { InspectorDetailRow, InspectorEmptyState, InspectorPanelShell } from "./inspector-panel-shell.js";
 
 interface ApprovalsPanelProps {
   readonly approvals: readonly ApprovalRequest[];
@@ -61,20 +61,16 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
   };
 
   return (
-    <SidebarPanelShell title="Approvals" meta={`${props.approvals.length} pending`}>
+    <InspectorPanelShell title="Approvals" meta={`${props.approvals.length} pending`}>
       <div className="grid min-h-0 flex-1 lg:grid-rows-[minmax(0,1.1fr)_minmax(14rem,0.9fr)]">
         <div className="min-h-0 overflow-y-auto border-b border-border/60">
           {props.approvals.length === 0 ? (
-            <div className="grid h-full place-items-center px-6 py-16 text-center">
-              <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">no cross-session approvals</p>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  Current-turn approvals appear inline in the transcript and above the message composer.
-                </p>
-              </div>
-            </div>
+            <InspectorEmptyState
+              label="No cross-session approvals"
+              description="Current-turn approvals appear inline in the transcript and above the message composer."
+            />
           ) : (
-            <ul aria-label="Pending approvals" className="divide-y divide-border/60">
+            <ul aria-label="Pending approvals" className="flex min-w-0 flex-col gap-1 px-2 py-2">
               {props.approvals.map((approval) => {
                 const active = selectedApproval ? approvalKey(approval) === approvalKey(selectedApproval) : false;
                 return (
@@ -84,8 +80,8 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
                       aria-pressed={active}
                       onClick={() => setSelectedKey(approvalKey(approval))}
                       className={cn(
-                        "grid w-full grid-cols-[1.5rem_1fr] gap-3 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-                        active ? "bg-secondary/60" : "hover:bg-secondary/35",
+                        "grid w-full grid-cols-[1.5rem_minmax(0,1fr)] gap-3 rounded-md px-2 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                        active ? "bg-secondary/75" : "hover:bg-secondary/35",
                       )}
                     >
                       <span className="mt-0.5 inline-flex size-5 items-center justify-center rounded border border-border/80 font-mono text-[11px] text-muted-foreground">
@@ -118,14 +114,8 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
               </div>
 
               <div className="grid gap-2">
-                <div className="rounded-md border border-border/60 bg-background px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Session</p>
-                  <p className="mt-1 text-sm leading-5 text-foreground">{selectedApproval.sessionId}</p>
-                </div>
-                <div className="rounded-md border border-border/60 bg-background px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Requested</p>
-                  <p className="mt-1 text-sm leading-5 text-foreground">{formatRequestedAt(selectedApproval.requestedAt)}</p>
-                </div>
+                <InspectorDetailRow label="Session" value={selectedApproval.sessionId} />
+                <InspectorDetailRow label="Requested" value={formatRequestedAt(selectedApproval.requestedAt)} />
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -144,6 +134,6 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
           )}
         </div>
       </div>
-    </SidebarPanelShell>
+    </InspectorPanelShell>
   );
 }

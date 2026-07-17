@@ -1,10 +1,10 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const homeDir = join(tmpdir(), `kiln-auth-test-${randomUUID()}`);
+const { homeDir } = vi.hoisted(() => ({
+  homeDir: `${process.env.TEMP ?? "."}/kiln-auth-test-${globalThis.crypto.randomUUID()}`,
+}));
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
@@ -13,6 +13,8 @@ vi.mock("node:os", async (importOriginal) => {
     homedir: () => homeDir,
   };
 });
+
+import { runAuth } from "../../../src/commands/auth.js";
 
 function openCodeCredential(id: string, tier: "go" | "zen", apiKey: string) {
   return {
@@ -88,8 +90,6 @@ describe("auth command", () => {
   });
 
   it("prints per-entry OpenCode health columns", async () => {
-    const { runAuth } = await import("../../../src/commands/auth.js");
-
     await runAuth(["opencode", "status"]);
 
     expect(logs.join("\n")).toContain("Name");
@@ -122,8 +122,6 @@ describe("auth command", () => {
       })}\n`,
       "utf8",
     );
-    const { runAuth } = await import("../../../src/commands/auth.js");
-
     await runAuth(["status"]);
 
     const output = logs.join("\n");
@@ -134,17 +132,49 @@ describe("auth command", () => {
     expect(output).not.toContain("Codex OAuth");
   }, 10_000);
 
-  it("rejects invalid OpenCode tiers instead of silently falling back to go", async () => {
-    const { runAuth } = await import("../../../src/commands/auth.js");
+  it("explains remotely invalidated Codex OAuth credentials", async () => {
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"),
+      `${JSON.stringify({
+        access_token: "revoked-access-token",
+        refresh_token: "revoked-refresh-token",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        client_id: "client",
+      })}\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(homeDir, ".kiln", "auth", ".health", "codex-oauth.json"),
+      `${JSON.stringify([{
+        providerId: "codex-oauth",
+        credentialId: "work",
+        requestCount: 1,
+        lastSuccess: null,
+        lastExhausted: null,
+        cooldownUntil: null,
+        lastOutcome: { type: "auth-failed" },
+        updatedAt: "2026-07-16T00:00:00.000Z",
+      }])}\n`,
+      "utf8",
+    );
 
+    await runAuth(["codex", "status"]);
+
+    const output = logs.join("\n");
+    expect(output).toContain("Status: invalid");
+    expect(output).toContain("Reason: Provider rejected this credential. Sign in again.");
+    expect(output).not.toContain("revoked-access-token");
+    expect(output).not.toContain("revoked-refresh-token");
+  }, 10_000);
+
+  it("rejects invalid OpenCode tiers instead of silently falling back to go", async () => {
     await runAuth(["opencode", "link", "--tier", "code", "--key", "sk-test"]);
 
     expect(logs.join("\n")).toContain("Invalid OpenCode tier 'code'. Expected 'go' or 'zen'.");
   }, 10_000);
 
   it("links an explicit OpenCode key under a stable caller-provided id", async () => {
-    const { runAuth } = await import("../../../src/commands/auth.js");
-
     await runAuth(["opencode", "link", "--tier", "zen", "--id", "zen-work", "--key", "sk-zen-work"]);
 
     const raw = JSON.parse(
@@ -169,8 +199,6 @@ describe("auth command", () => {
   }, 10_000);
 
   it("filters OpenCode status by tier", async () => {
-    const { runAuth } = await import("../../../src/commands/auth.js");
-
     await runAuth(["opencode", "status", "--tier", "zen"]);
 
     expect(logs.join("\n")).toContain("zen-primary");
@@ -178,8 +206,6 @@ describe("auth command", () => {
   }, 10_000);
 
   it("logs out only the selected OpenCode credential", async () => {
-    const { runAuth } = await import("../../../src/commands/auth.js");
-
     await runAuth(["opencode", "logout", "--tier", "go", "--id", "go-primary"]);
     expect(logs.join("\n")).toContain("Logged out of OpenCode credentials matching tier go and id go-primary");
 

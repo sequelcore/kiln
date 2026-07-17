@@ -17,11 +17,13 @@ import {
   reduceNativeGatewayCockpitFrame,
   resolveNativeGatewayCockpitWebSocketUrl,
   selectNativeManagedAgentDrilldownTarget,
+  selectNativeWorkItems,
 } from "./native-gateway-cockpit";
 import type {
   EmbeddedBrowserOperatorSurfaceSnapshot,
 } from "./native-api";
 import { ManagedAgentCockpitPanel } from "./managed-agent-cockpit-panel";
+import { NativeWorkItemsPanel } from "./native-work-items-panel";
 import "./styles.css";
 
 const gatewayUrl = new URLSearchParams(window.location.search).get("gateway")
@@ -102,6 +104,7 @@ export function NativeSurfaceApp(): ReactElement {
       },
     });
   }, [cockpitFrameState.events]);
+  const workItems = useMemo(() => selectNativeWorkItems(cockpitFrameState.events), [cockpitFrameState.events]);
   const browserApi = window.kilnNativeBrowser;
 
   const readBrowserRegionBounds = useCallback(() => {
@@ -358,6 +361,7 @@ export function NativeSurfaceApp(): ReactElement {
             : undefined
         }
       />
+      <NativeWorkItemsPanel items={workItems} />
       <section className="native-panel" aria-label="Surface capabilities">
         <h2>Capabilities</h2>
         <ul className="capability-list">

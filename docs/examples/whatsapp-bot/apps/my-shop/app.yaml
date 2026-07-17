@@ -6,7 +6,7 @@ channels: [whatsapp]
 
 provider:
   name: codex-oauth
-  model: gpt-5.4-mini
+  model: gpt-5.6-luna
 
 memory:
   scopes: [user]

@@ -1,7 +1,7 @@
 // Tests for compareExperiments
 
 import { describe, it, expect } from "vitest";
-import { compareExperiments } from "../../src/eval/experiment-comparator.js";
+import { compareExperiments, evaluateCachePolicyPromotion } from "../../src/eval/experiment-comparator.js";
 import type { Experiment } from "../../src/eval/types.js";
 
 describe("compareExperiments", () => {
@@ -120,4 +120,162 @@ describe("compareExperiments", () => {
     expect(scorerNames).toContain("latency");
     expect(scorerNames).toContain("new-scorer");
   });
+
+  it("promotes cache policy only with rollback to baseline and non-inferior behavior", () => {
+    const baseline = cacheExperiment("baseline", {
+      cachedInputTokens: 0,
+      policyId: "stable-prefix.v0",
+    });
+    const candidate = cacheExperiment("candidate", {
+      cachedInputTokens: 1200,
+      policyId: "stable-prefix.v1",
+    });
+
+    expect(evaluateCachePolicyPromotion({
+      baseline,
+      candidate,
+      baselinePolicyId: "stable-prefix.v0",
+      candidatePolicyId: "stable-prefix.v1",
+      rollbackPolicyId: "stable-prefix.v0",
+    })).toMatchObject({
+      status: "promotable",
+      rollbackPolicyId: "stable-prefix.v0",
+      cachedInputTokenDelta: 1200,
+      issues: [],
+    });
+  });
+
+  it("blocks cache policy promotion when rollback is not the baseline policy", () => {
+    const result = evaluateCachePolicyPromotion({
+      baseline: cacheExperiment("baseline", {
+        cachedInputTokens: 0,
+        policyId: "stable-prefix.v0",
+      }),
+      candidate: cacheExperiment("candidate", {
+        cachedInputTokens: 1200,
+        policyId: "stable-prefix.v1",
+      }),
+      baselinePolicyId: "stable-prefix.v0",
+      candidatePolicyId: "stable-prefix.v1",
+      rollbackPolicyId: "stable-prefix.v1",
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.issues).toContain("rollback policy must restore the baseline policy");
+  });
+
+  it("blocks cache policy promotion when experiment policy evidence does not match declared ids", () => {
+    const result = evaluateCachePolicyPromotion({
+      baseline: cacheExperiment("baseline", {
+        cachedInputTokens: 0,
+        policyId: "stable-prefix.other-baseline",
+      }),
+      candidate: cacheExperiment("candidate", {
+        cachedInputTokens: 1200,
+        policyId: "stable-prefix.other-candidate",
+      }),
+      baselinePolicyId: "stable-prefix.v0",
+      candidatePolicyId: "stable-prefix.v1",
+      rollbackPolicyId: "stable-prefix.v0",
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.issues).toEqual(expect.arrayContaining([
+      "baseline policy evidence does not match declared baseline policy",
+      "candidate policy evidence does not match declared candidate policy",
+    ]));
+  });
+
+  it("blocks cache policy promotion when candidate changes output authority tools or scores", () => {
+    const baseline = cacheExperiment("baseline", {
+      cachedInputTokens: 0,
+      policyId: "stable-prefix.v0",
+    });
+    const candidate = cacheExperiment("candidate", {
+      cachedInputTokens: 1200,
+      output: "changed",
+      policyId: "stable-prefix.v1",
+      authority: { scope: "write" },
+      toolCalls: [{ name: "write_file", args: { path: "docs/a.md" } }],
+      accuracyScore: 0.8,
+    });
+
+    const result = evaluateCachePolicyPromotion({
+      baseline,
+      candidate,
+      baselinePolicyId: "stable-prefix.v0",
+      candidatePolicyId: "stable-prefix.v1",
+      rollbackPolicyId: "stable-prefix.v0",
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.issues).toEqual(expect.arrayContaining([
+      "item task-1 output changed",
+      "item task-1 authority evidence changed",
+      "item task-1 tool trajectory changed",
+      "scorer accuracy regressed by -0.19999999999999996",
+    ]));
+  });
+
+  it("blocks cache policy promotion without measured cached-token gain", () => {
+    const result = evaluateCachePolicyPromotion({
+      baseline: cacheExperiment("baseline", {
+        cachedInputTokens: 1200,
+        policyId: "stable-prefix.v0",
+      }),
+      candidate: cacheExperiment("candidate", {
+        cachedInputTokens: 1200,
+        policyId: "stable-prefix.v1",
+      }),
+      baselinePolicyId: "stable-prefix.v0",
+      candidatePolicyId: "stable-prefix.v1",
+      rollbackPolicyId: "stable-prefix.v0",
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.issues).toContain("candidate did not improve cached input tokens");
+  });
 });
+
+function cacheExperiment(
+  name: string,
+  options: {
+    readonly cachedInputTokens: number;
+    readonly policyId: string;
+    readonly output?: string;
+    readonly authority?: Record<string, unknown>;
+    readonly toolCalls?: readonly { readonly name: string; readonly args?: Record<string, unknown> }[];
+    readonly accuracyScore?: number;
+  },
+): Experiment {
+  return {
+    name,
+    datasetName: "cache-fixture",
+    scorers: ["accuracy", "cache-topology"],
+    results: [{
+      itemId: "task-1",
+      output: options.output ?? "unchanged",
+      scores: [
+        { name: "accuracy", score: options.accuracyScore ?? 1 },
+        { name: "cache-topology", score: 1 },
+      ],
+      durationMs: 100,
+      tokenUsage: { inputTokens: 2000, outputTokens: 20 },
+      metadata: {
+        activeAgentId: "kiln-tool-agent",
+        authority: options.authority ?? { scope: "read" },
+        cachePolicyId: options.policyId,
+        toolCalls: options.toolCalls ?? [{ name: "read_file", args: { path: "docs/a.md" } }],
+        cacheGainComparisons: [{
+          stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          baselineInputTokens: 2000,
+          candidateInputTokens: 2000,
+          baselineCachedInputTokens: name === "baseline" ? options.cachedInputTokens : 0,
+          candidateCachedInputTokens: name === "candidate" ? options.cachedInputTokens : 0,
+        }],
+      },
+    }],
+    startedAt: "2026-07-04T00:00:00.000Z",
+    completedAt: "2026-07-04T00:01:00.000Z",
+  };
+}

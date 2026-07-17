@@ -51,6 +51,7 @@ describe("ManagedAgentCockpitPanel", () => {
         },
         {
           managedInvocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           instanceId: "local",
           sessionId: "session-1",
           status: "running",
@@ -100,8 +101,18 @@ describe("ManagedAgentCockpitPanel", () => {
     fireEvent.click(screen.getByText("Transcript"));
     fireEvent.click(screen.getByText("handoff"));
 
-    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-review/transcript");
-    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-review/handoff");
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-review/transcript", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-review",
+      resourceUri: "kiln://managed-agents/child-review/transcript",
+    });
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-review/handoff", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-review",
+      resourceUri: "kiln://managed-agents/child-review/handoff",
+    });
   });
 
   it("renders an empty read-only state without controls", () => {
@@ -186,8 +197,64 @@ describe("ManagedAgentCockpitPanel", () => {
     fireEvent.click(screen.getByText("conflict resource"));
     fireEvent.click(screen.getByText("conflict diagnostic"));
 
-    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-blocked/conflict-resource");
-    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-blocked/conflict-diagnostic");
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-blocked/conflict-resource", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-blocked",
+      resourceUri: "kiln://managed-agents/child-blocked/conflict-resource",
+    });
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-blocked/conflict-diagnostic", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-blocked",
+      resourceUri: "kiln://managed-agents/child-blocked/conflict-diagnostic",
+    });
+  });
+
+  it("renders managed invocation recovery as an actionable next work-item step", () => {
+    const viewState: OperatorCockpitManagedAgentViewState = {
+      activeCount: 0,
+      attentionCount: 1,
+      items: [
+        {
+          managedInvocationId: "child-recovery",
+          instanceId: "local",
+          sessionId: "session-1",
+          status: "failed",
+          lifecycleState: "timed_out",
+          attentionState: "needs_review",
+          dirtyWorkspaceReviewRequired: false,
+          worktreeConflictBlocked: false,
+          managedInvocationRecovery: {
+            status: "phase_evidence_required",
+            reason: "Child produced partial research evidence before timeout.",
+            nextTool: "work_item.update",
+            thenTool: "work_item.execution.start",
+            workItemId: "work-42",
+            evidenceToRecord: ["source-map", "risk-hypothesis"],
+            requiredToolNames: ["resource_read"],
+            sourceResourceUris: ["kiln://managed-agents/child-recovery/resources/handoff"],
+          },
+          resourceUris: ["kiln://managed-agents/child-recovery/resources/handoff"],
+          latestEventId: "event-recovery",
+          lifecycleTimeline: [],
+          cancelControl: {
+            status: "unavailable",
+            reason: "Managed invocation is not active.",
+          },
+        },
+      ],
+    };
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} />);
+
+    expect(screen.getByText("Next governed action")).toBeVisible();
+    expect(screen.getByText("work_item.update -> work_item.execution.start")).toBeVisible();
+    expect(screen.getByText("work work-42")).toBeVisible();
+    expect(screen.getByText("Child produced partial research evidence before timeout.")).toBeVisible();
+    expect(screen.getByText("evidence source-map, risk-hypothesis")).toBeVisible();
+    expect(screen.getByText("tools resource_read")).toBeVisible();
+    expect(screen.getByText("source kiln://managed-agents/child-recovery/resources/handoff")).toBeVisible();
   });
 
   it("renders timed-out managed children as distinct attention", () => {
@@ -370,8 +437,18 @@ describe("ManagedAgentCockpitPanel", () => {
     fireEvent.click(screen.getByText("failure"));
     fireEvent.click(screen.getByText("handoff"));
 
-    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-failed/failure");
-    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-failed/handoff");
+    expect(onOpenResource).toHaveBeenNthCalledWith(1, "kiln://managed-agents/child-failed/failure", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-failed",
+      resourceUri: "kiln://managed-agents/child-failed/failure",
+    });
+    expect(onOpenResource).toHaveBeenNthCalledWith(2, "kiln://managed-agents/child-failed/handoff", {
+      instanceId: "local",
+      sessionId: "session-1",
+      managedInvocationId: "child-failed",
+      resourceUri: "kiln://managed-agents/child-failed/handoff",
+    });
   });
 
   it("dispatches live cancel when a control channel callback is present", () => {
@@ -382,6 +459,7 @@ describe("ManagedAgentCockpitPanel", () => {
       items: [
         {
           managedInvocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           instanceId: "local",
           sessionId: "session-1",
           status: "running",
@@ -406,6 +484,7 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(onCancel).toHaveBeenCalledWith({
       sessionId: "session-1",
       invocationId: "child-running",
+      gatewayTargetId: "gateway:local-app",
     });
   });
 
@@ -417,6 +496,7 @@ describe("ManagedAgentCockpitPanel", () => {
       items: [
         {
           managedInvocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           instanceId: "local",
           sessionId: "session-1",
           status: "running",
@@ -445,6 +525,7 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(onPrompt).toHaveBeenCalledWith({
       sessionId: "session-1",
       invocationId: "child-running",
+      gatewayTargetId: "gateway:local-app",
       prompt: "Continue from the latest runtime ledger evidence.",
       deliveryMode: "queue",
       wakeRequested: false,

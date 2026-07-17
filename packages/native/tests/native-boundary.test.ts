@@ -41,6 +41,7 @@ import {
   reduceNativeGatewayCockpitFrame,
   resolveNativeGatewayCockpitWebSocketUrl,
   selectNativeManagedAgentDrilldownTarget,
+  selectNativeWorkItems,
 } from "../src/renderer/native-gateway-cockpit.js";
 
 describe("native operator surface foundation", () => {
@@ -62,7 +63,7 @@ describe("native operator surface foundation", () => {
     expect(snapshot.capabilities).toContainEqual({
       capability: "native-cockpit-contract",
       status: "available",
-      reason: "Roadmap 05 target, precondition, benchmark, read-only attach-plan, projection, and action-intent contracts are available.",
+      reason: "Canonical native cockpit target, precondition, benchmark, read-only attach-plan, projection, and action-intent contracts are available.",
     });
     expect(snapshot.capabilities).toContainEqual({
       capability: "embedded-browser-host",
@@ -512,6 +513,7 @@ describe("native operator surface foundation", () => {
     expect(createNativeManagedAgentCancelControlFrame({
       sessionId: "session-1",
       invocationId: "child-running",
+      gatewayTargetId: "gateway:native-app",
       requestId: "native-managed-agent-cancel-1",
       reason: "Operator cancelled the managed child from the native cockpit.",
     })).toEqual({
@@ -519,6 +521,7 @@ describe("native operator surface foundation", () => {
       action: "cancel",
       sessionId: "session-1",
       invocationId: "child-running",
+      gatewayTargetId: "gateway:native-app",
       requestId: "native-managed-agent-cancel-1",
       reason: "Operator cancelled the managed child from the native cockpit.",
     });
@@ -628,6 +631,58 @@ describe("native operator surface foundation", () => {
       managedInvocationId: "child-3",
       replayEventId: "event-work-adoption",
     });
+  });
+
+  it("projects governed work item visibility from canonical session events", () => {
+    const events: OperatorSessionEvent[] = [
+      {
+        eventId: "event-work-visible",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-06-24T10:00:00.000Z",
+        kind: "work_item_updated",
+        payload: {
+          workItem: {
+            id: "work-visible",
+            summary: "Audit native work item visibility.",
+            status: "blocked",
+            workflowProfile: "verification-heavy",
+            authorityProfile: "authority:foundation-readonly-plan",
+            assignedAgentProfile: "foundation-readonly-plan",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+            missingEvidence: ["tests"],
+            missingResidualRisk: true,
+            pauseRequirements: [
+              {
+                id: "capability-1",
+                kind: "capability",
+                summary: "Route unavailable",
+                status: "pending",
+              },
+            ],
+            updatedAt: "2026-06-24T10:00:00.000Z",
+          },
+        },
+      },
+    ];
+
+    expect(selectNativeWorkItems(events)).toEqual([
+      {
+        id: "work-visible",
+        resourceUri: "kiln://session/work-items/work-visible",
+        summary: "Audit native work item visibility.",
+        status: "blocked",
+        workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
+        assignedAgentProfile: "foundation-readonly-plan",
+        expectedEvidence: ["surface-map", "tests"],
+        providedEvidence: ["surface-map"],
+        missingEvidence: ["tests", "residual-risk"],
+        pendingPauseRequirementCount: 1,
+        updatedAt: "2026-06-24T10:00:00.000Z",
+      },
+    ]);
   });
 
   it("marks native gateway cockpit attach as closed without dropping read-only event state", () => {
@@ -755,6 +810,18 @@ describe("native operator surface foundation", () => {
     expect(viewState.mutationDispatch).toBe("disabled");
     expect(viewState.view.mode).toBe("read-only");
     expect(viewState.view.dispatch).toBe("not-dispatched");
+    expect(viewState.workspaceHome.mode).toBe("read-only");
+    expect(viewState.workspaceHome.projectedAt).toBe(projection.view.projectedAt);
+    expect(viewState.workspaceHome.managedAgents).toEqual({
+      totalCount: viewState.view.managedAgents.items.length,
+      activeCount: viewState.view.managedAgents.activeCount,
+      attentionCount: viewState.view.managedAgents.attentionCount,
+    });
+    expect(viewState.workspaceHome.gatewayTargets[0]?.gatewayTarget).toMatchObject({
+      targetId: "native-view-state:instance:1",
+      kind: "local-operator-gateway",
+      trust: "local",
+    });
     expect(viewState.view.focus.resolved).toBe(true);
     expect(viewState.view.replay.resolved).toBe(true);
     expect(viewState.view.replay.entry?.eventId).toBe(cursorEvent.eventId);

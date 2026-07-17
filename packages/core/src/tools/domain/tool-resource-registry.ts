@@ -6,7 +6,7 @@ import type { AuthorityStateStore } from "../infrastructure/authority-state-stor
 import type { PlanStateStore } from "../infrastructure/plan-state-store.js";
 import type { SpecificationStateStore } from "../infrastructure/specification-state-store.js";
 import type { TaskStateStore } from "../infrastructure/task-state-tools.js";
-import type { GoalRunStore, WorkItemStore } from "../../work-governance/index.js";
+import type { GoalRun, GoalRunStore, WorkItem, WorkItemStore } from "../../work-governance/index.js";
 import { createHash } from "node:crypto";
 
 const JSON_MIME_TYPE = "application/json";
@@ -52,14 +52,37 @@ export type ToolResourceContent =
     readonly _meta?: Record<string, unknown>;
   };
 
+export interface ToolResourceReadSummary {
+  readonly kind: string;
+  readonly totalCount?: number;
+  readonly counts?: Record<string, number>;
+  readonly facets?: Record<string, string[]>;
+  readonly meta?: Record<string, unknown>;
+}
+
 export interface ToolResourceReadResult {
+  readonly summary?: ToolResourceReadSummary;
   readonly contents: readonly ToolResourceContent[];
   readonly nextCursor?: string;
+}
+
+export interface ToolResourceReadTarget {
+  readonly gatewayTargetId?: string;
+  readonly instanceId?: string;
+  readonly appId?: string;
+  readonly tenantId?: string;
+  readonly sessionId?: string;
+  readonly eventId?: string;
+  readonly resourceUri?: string;
+  readonly workItemId?: string;
+  readonly managedInvocationId?: string;
+  readonly toolCallId?: string;
 }
 
 export interface ToolResourceReadOptions {
   readonly cursor?: string;
   readonly limit?: number;
+  readonly target?: ToolResourceReadTarget;
 }
 
 export type ToolResourceReadRangeUnit = "line" | "byte";
@@ -126,6 +149,25 @@ export class ToolResourceRegistry {
     this.goalRunStore = options.goalRunStore;
     this.monitorRegistry = options.monitorRegistry;
     this.providers = options.providers ?? [];
+  }
+
+  withAdditionalProviders(providers: readonly ToolResourceProvider[]): ToolResourceRegistry {
+    return new ToolResourceRegistry({
+      catalog: this.catalog,
+      taskStateStore: this.taskStateStore,
+      ...(this.analysisStateStore ? { analysisStateStore: this.analysisStateStore } : {}),
+      ...(this.authorityStateStore ? { authorityStateStore: this.authorityStateStore } : {}),
+      ...(this.planStateStore ? { planStateStore: this.planStateStore } : {}),
+      ...(this.specificationStateStore ? { specificationStateStore: this.specificationStateStore } : {}),
+      ...(this.workItemStore ? { workItemStore: this.workItemStore } : {}),
+      ...(this.goalRunStore ? { goalRunStore: this.goalRunStore } : {}),
+      monitorRegistry: this.monitorRegistry,
+      providers: [...this.providers, ...providers],
+    });
+  }
+
+  hasProvider(predicate: (provider: ToolResourceProvider) => boolean): boolean {
+    return this.providers.some(predicate);
   }
 
   list(): readonly ToolResourceDescriptor[] {
@@ -334,7 +376,7 @@ export class ToolResourceRegistry {
       return jsonResource(uri, {
         totalIndexed: entries.length,
         entries,
-      });
+      }, summarizeToolCatalog(entries.length));
     }
 
     if (parsed.host === "tools" && parsed.path.length === 2 && parsed.path[0] === "catalog") {
@@ -449,11 +491,17 @@ export class ToolResourceRegistry {
     }
 
     if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "work-items" && this.workItemStore) {
-      return jsonResource(uri, this.workItemStore.snapshot());
+      const snapshot = this.workItemStore.snapshot();
+      const items = snapshot.items.map(projectWorkItemResource);
+      return jsonResource(uri, {
+        ...snapshot,
+        items,
+      }, summarizeWorkItems(items));
     }
 
     if (parsed.host === "session" && parsed.path.length === 1 && parsed.path[0] === "goals" && this.goalRunStore) {
-      return jsonResource(uri, this.goalRunStore.snapshot());
+      const snapshot = this.goalRunStore.snapshot();
+      return jsonResource(uri, snapshot, summarizeGoals(snapshot.goals));
     }
 
     if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "work-items" && this.workItemStore) {
@@ -462,7 +510,7 @@ export class ToolResourceRegistry {
       if (!item) {
         throw resourceNotFound(uri);
       }
-      return jsonResource(uri, item);
+      return jsonResource(uri, projectWorkItemResource(item));
     }
 
     if (parsed.host === "session" && parsed.path.length === 2 && parsed.path[0] === "goals" && this.goalRunStore) {
@@ -769,14 +817,109 @@ function resourceReadCursorError(message: string, context: Record<string, unknow
   });
 }
 
-function jsonResource(uri: string, value: unknown): ToolResourceReadResult {
+function jsonResource(
+  uri: string,
+  value: unknown,
+  summary?: ToolResourceReadSummary,
+): ToolResourceReadResult {
   return {
+    ...(summary ? { summary } : {}),
     contents: [{
       uri,
       mimeType: JSON_MIME_TYPE,
       text: JSON.stringify(value, null, 2),
     }],
   };
+}
+
+function summarizeToolCatalog(total: number): ToolResourceReadSummary {
+  return {
+    kind: "tool-catalog",
+    totalCount: total,
+    counts: {
+      tool: total,
+    },
+  };
+}
+
+function summarizeWorkItems(
+  items: readonly ReturnType<typeof projectWorkItemResource>[],
+): ToolResourceReadSummary {
+  return {
+    kind: "session-work-items",
+    totalCount: items.length,
+    counts: {
+      workItem: items.length,
+      pending: countWhere(items, (item) => item.status === "pending"),
+      inProgress: countWhere(items, (item) => item.status === "in_progress"),
+      paused: countWhere(items, (item) => (item.pauseRequirements ?? []).some((requirement) => requirement.status === "pending")),
+      completed: countWhere(items, (item) => item.status === "completed"),
+      blocked: countWhere(items, (item) => item.status === "blocked"),
+      cancelled: countWhere(items, (item) => item.status === "cancelled"),
+      executionAttempt: sum(items, (item) => item.executionAttempts.length),
+      pauseRequirement: sum(items, (item) => (item.pauseRequirements ?? []).length),
+      missingEvidence: sum(items, (item) => item.missingEvidence.length),
+    },
+    facets: {
+      workflowProfiles: uniqueSorted(items.map((item) => item.workflowProfile)),
+      goalRunIds: uniqueSorted(items.map((item) => item.goalRunId).filter(isNonEmptyString)),
+    },
+  };
+}
+
+function summarizeGoals(goals: readonly GoalRun[]): ToolResourceReadSummary {
+  return {
+    kind: "session-goals",
+    totalCount: goals.length,
+    counts: {
+      goal: goals.length,
+      active: countWhere(goals, (goal) => goal.status === "active"),
+      completed: countWhere(goals, (goal) => goal.status === "completed"),
+      failed: countWhere(goals, (goal) => goal.status === "failed"),
+      cancelled: countWhere(goals, (goal) => goal.status === "cancelled"),
+      workItem: sum(goals, (goal) => goal.workItemIds.length),
+      evidenceRequirement: sum(goals, (goal) => goal.evidenceRequirements.length),
+    },
+    facets: {
+      workflowProfiles: uniqueSorted(goals.map((goal) => goal.routePolicy.workflowProfile)),
+    },
+  };
+}
+
+function projectWorkItemResource(item: WorkItem): WorkItem & {
+  readonly resourceUri: string;
+  readonly missingEvidence: readonly string[];
+} {
+  const missingEvidence = item.expectedEvidence.filter((evidence) => {
+    if (item.providedEvidence.includes(evidence)) {
+      return false;
+    }
+    if (evidence === "residual-risk" && item.residualRisk?.trim()) {
+      return false;
+    }
+    return true;
+  });
+  return {
+    ...item,
+    resourceUri: `kiln://session/work-items/${encodeURIComponent(item.id)}`,
+    missingEvidence,
+  };
+}
+
+function countWhere<T>(items: readonly T[], predicate: (item: T) => boolean): number {
+  return items.filter(predicate).length;
+}
+
+function sum<T>(items: readonly T[], selector: (item: T) => number): number {
+  return items.reduce((total, item) => total + selector(item), 0);
+}
+
+function uniqueSorted(values: readonly string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right, "en"));
+}
+
+function isNonEmptyString(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function parseKilnResourceUri(uri: string): { readonly host: string; readonly path: readonly string[] } | undefined {

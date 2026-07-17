@@ -60,6 +60,7 @@ interface MemoryRevisionRow {
   readonly sequence: number;
   readonly kind: MemoryRevision["kind"];
   readonly content: string;
+  readonly provenance: string;
   readonly reason: string | null;
   readonly created_at: string;
 }
@@ -268,7 +269,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       ${where === "" ? "WHERE" : `${where} AND`} memory_fts MATCH ?
       ORDER BY bm25(memory_fts), r.updated_at DESC, r.created_at DESC, r.id ASC
       LIMIT ?
-    `).all(...args, query.query.trim(), limit) as MemorySearchRow[];
+    `).all(...args, toFtsQuery(query.query), limit) as MemorySearchRow[];
 
     return rows.map((row) => ({
       record: this.toRecord(row),
@@ -347,9 +348,10 @@ export class SqliteMemoryRepository implements MemoryRepository {
         sequence,
         kind,
         content,
+        provenance,
         reason,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       requiredText(revision.id, "Memory revision id is required"),
       requiredText(revision.recordId, "Memory revision record id is required"),
@@ -357,6 +359,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       revision.sequence,
       revision.kind,
       requiredText(revision.content, "Memory revision content is required"),
+      JSON.stringify(normalizeProvenance(revision.provenance)),
       revision.reason ?? null,
       requiredText(revision.createdAt, "Memory revision createdAt is required"),
     );
@@ -384,6 +387,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
       sequence: row.sequence,
       kind: row.kind,
       content: row.content,
+      provenance: normalizeProvenance(JSON.parse(row.provenance) as MemoryProvenance),
       reason: row.reason ?? undefined,
       createdAt: row.created_at,
     }));
@@ -391,6 +395,15 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
   saveRelation(input: MemoryRelationDraft): MemoryRelation {
     const relation = createMemoryRelation(input);
+    const sourceRecord = this.getRecord(relation.sourceRecordId);
+    if (!sourceRecord) throw new Error("Memory relation source record was not found");
+    if (relation.target.kind === "memory_record") {
+      const targetRecord = this.getRecord(relation.target.id);
+      if (!targetRecord) throw new Error("Memory relation target record was not found");
+      if (sourceRecord.scope.kind !== targetRecord.scope.kind || sourceRecord.scope.id !== targetRecord.scope.id) {
+        throw new Error("Memory relation source and target records must share the same scope");
+      }
+    }
     this.db.prepare(`
       INSERT INTO memory_relations (
         id,
@@ -440,6 +453,36 @@ export class SqliteMemoryRepository implements MemoryRepository {
       FROM memory_relations
       WHERE source_record_id = ?
       ORDER BY created_at ASC, id ASC
+      ${limitClause}
+    `).all(...args) as MemoryRelationRow[];
+    return rows.map((row) => this.toRelation(row));
+  }
+
+  listIncomingRelations(targetRecordId: string, query: {
+    readonly limit?: number;
+    readonly sourceScope?: MemoryScope;
+  } = {}): readonly MemoryRelation[] {
+    const args: SqlBinding[] = [requiredText(targetRecordId, "Memory relation target record id is required")];
+    let scopeClause = "";
+    if (query.sourceScope) {
+      const scope = defineMemoryScope(query.sourceScope);
+      scopeClause = "AND source.scope_kind = ? AND source.scope_id = ?";
+      args.push(scope.kind, scope.id);
+    }
+    let limitClause = "";
+    if (query.limit !== undefined) {
+      limitClause = "LIMIT ?";
+      args.push(this.resolveRelationLimit(query.limit));
+    }
+    const rows = this.db.prepare(`
+      SELECT relation.*
+      FROM memory_relations relation
+      JOIN memory_records source ON source.id = relation.source_record_id
+      WHERE relation.target_kind = 'memory_record'
+        AND relation.target_record_id = ?
+        AND source.deleted_at IS NULL
+        ${scopeClause}
+      ORDER BY relation.created_at ASC, relation.id ASC
       ${limitClause}
     `).all(...args) as MemoryRelationRow[];
     return rows.map((row) => this.toRelation(row));
@@ -527,6 +570,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
   }
 
   close(): void {
+    this.db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
     this.db.close();
   }
 
@@ -579,6 +623,7 @@ export class SqliteMemoryRepository implements MemoryRepository {
         sequence INTEGER NOT NULL,
         kind TEXT NOT NULL,
         content TEXT NOT NULL,
+        provenance TEXT NOT NULL,
         reason TEXT,
         created_at TEXT NOT NULL,
         UNIQUE(record_id, sequence),
@@ -601,6 +646,8 @@ export class SqliteMemoryRepository implements MemoryRepository {
 
       CREATE INDEX IF NOT EXISTS idx_memory_relations_source
         ON memory_relations(source_record_id, relation_type);
+      CREATE INDEX IF NOT EXISTS idx_memory_relations_target_record
+        ON memory_relations(target_kind, target_record_id, relation_type);
 
       CREATE TABLE IF NOT EXISTS memory_context_admissions (
         id TEXT PRIMARY KEY,
@@ -634,7 +681,25 @@ export class SqliteMemoryRepository implements MemoryRepository {
         archived_at TEXT NOT NULL
       );
     `);
+    this.ensureMemoryRevisionProvenance();
     this.removeMemoryRecordTopicUniqueness();
+  }
+
+  private ensureMemoryRevisionProvenance(): void {
+    const columns = this.db.prepare("PRAGMA table_info('memory_revisions')").all() as Array<{ readonly name: string }>;
+    if (columns.some((column) => column.name === "provenance")) return;
+
+    this.runTransaction(() => {
+      this.db.exec("ALTER TABLE memory_revisions ADD COLUMN provenance TEXT NOT NULL DEFAULT '{}'");
+      this.db.exec(`
+        UPDATE memory_revisions
+        SET provenance = (
+          SELECT memory_records.provenance
+          FROM memory_records
+          WHERE memory_records.id = memory_revisions.record_id
+        )
+      `);
+    });
   }
 
   private removeMemoryRecordTopicUniqueness(): void {
@@ -885,6 +950,14 @@ function normalizeProvenance(provenance: MemoryProvenance): MemoryProvenance {
 
 function normalizeTags(tags: readonly string[]): readonly string[] {
   return [...new Set(tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0))];
+}
+
+function toFtsQuery(query: string): string {
+  return query
+    .trim()
+    .split(/\s+/g)
+    .map((term) => `"${term.replace(/"/g, "\"\"")}"`)
+    .join(" ");
 }
 
 function requiredText(value: string, message: string): string {

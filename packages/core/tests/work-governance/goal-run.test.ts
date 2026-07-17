@@ -19,8 +19,7 @@ describe("GoalRunStore", () => {
       id: "goal-1",
       objective: "Execute approved plan through governed work items.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
-      planHash: "sha256:plan",
+      source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
       workItemIds: ["wi-1", "wi-2"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -41,8 +40,7 @@ describe("GoalRunStore", () => {
       id: "goal-1",
       status: "active",
       ownerSessionId: "session-1",
-      planId: "plan-1",
-      planHash: "sha256:plan",
+      source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
       workItemIds: ["wi-1", "wi-2"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -71,7 +69,7 @@ describe("GoalRunStore", () => {
       id: "goal-terminal",
       objective: "Complete once.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -97,7 +95,7 @@ describe("GoalRunStore", () => {
       id: "goal-validation",
       objective: "Validate goal input.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: ["wi-1"],
       authorityEnvelope: {
         maximumAuthority: "audited" as const,
@@ -144,8 +142,7 @@ describe("GoalRunStore", () => {
       id: "goal-replay",
       objective: "Replay goal from session events.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
-      planHash: "sha256:plan",
+      source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
       status: "active" as const,
       workItemIds: ["wi-1"],
       currentPhase: "implementation",

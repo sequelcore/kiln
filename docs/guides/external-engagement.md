@@ -169,6 +169,19 @@ engineering-standards assessment. Signals are grouped by theme and each
 evidence artifact contributes to at most two signal groups to avoid noisy
 candidate fan-out. It does not resolve credentials or call external APIs.
 
+Inspect generated artifacts through the shared resource plane:
+
+```bash
+kiln tools --resources
+kiln tools --resource kiln://external-engagement/artifacts
+kiln tools --resource kiln://external-engagement/artifacts/x-candidates.json
+```
+
+The artifact index reports aggregate evidence, signal, candidate, review,
+decision, and proposal counts through `OperatorResourceReadResult.summary`.
+CLI and GUI resource presentation preserve that shared read contract for
+summarized resources instead of collapsing the result to raw text.
+
 Build a review-friendly Markdown report from candidates:
 
 ```bash
@@ -233,6 +246,24 @@ intake report contains candidate ids, titles, themes, evidence artifact ids,
 operator reason, scope, and the architecture boundary. It is the handoff point
 for implementation planning; it still does not grant write-capable engagement
 authority.
+
+Inspect generated artifacts through the shared resource plane:
+
+```bash
+kiln tools --resource kiln://external-engagement/artifacts
+kiln tools --resource kiln://external-engagement/artifacts/x-review.md
+kiln tools --resource kiln://external-engagement/evidence/1000000000000000001
+```
+
+The resource provider reads only workspace artifacts under
+`.kiln/external-engagement`. Artifact resources expose generated evidence,
+candidate, review, decision, and intake files. The artifact index derives each
+artifact kind from file content when possible and reports aggregate counts for
+evidence artifacts, signals, candidates, review items, decisions, and feature
+intake proposals through the shared `OperatorResourceReadResult.summary`
+contract. Evidence resources resolve a provider artifact id from existing
+evidence reports and include the source report resource URI. They do not call
+X, refresh credentials, broaden platform access, or grant write authority.
 
 Input files are newline-delimited and may contain X URLs or post ids:
 
@@ -395,13 +426,15 @@ Current ownership:
   future action proposal/approval/execution contracts, and provider-agnostic
   credential references.
 - `@kilnai/cli`: first operator surface, env-backed credential resolver, and X
-  REST fetch/search boundary.
-- GUI/TUI/SDK: should consume the same provider-neutral reports and future
-  runtime events. This slice does not add placeholder UI because the shared
-  runtime channel for external-engagement artifacts is not yet the owning
-  surface.
-- `@kilnai/runtime`: not touched in this slice. A runtime channel or
-  write-capable adapter requires a later action-proposal and approval workflow.
+  REST fetch/search boundary. The configured builtin tool surface also exposes
+  generated workspace artifacts through `kiln://external-engagement/...`
+  resource reads.
+- GUI/TUI/SDK: should consume the same provider-neutral reports and resource
+  reads. Rich external-engagement UI remains deferred until the shared runtime
+  channel for external-engagement artifacts becomes the owning surface.
+- `@kilnai/runtime`: can serve the configured resource plane through existing
+  resource-read paths. A write-capable adapter requires a later action-proposal
+  and approval workflow.
 
 This completes the read-only X lifecycle:
 

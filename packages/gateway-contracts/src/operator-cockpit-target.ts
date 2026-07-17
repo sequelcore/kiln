@@ -24,8 +24,40 @@ export const OPERATOR_COCKPIT_READ_ONLY_ACTIONS = [
 
 export type OperatorCockpitReadOnlyAction = typeof OPERATOR_COCKPIT_READ_ONLY_ACTIONS[number];
 
+export const OPERATOR_GATEWAY_TARGET_KINDS = [
+  "local-operator-gateway",
+  "local-app-gateway",
+  "remote-app-gateway",
+  "simulated-app-gateway",
+] as const;
+
+export type OperatorGatewayTargetKind = typeof OPERATOR_GATEWAY_TARGET_KINDS[number];
+
+export const OPERATOR_GATEWAY_TARGET_TRUST = [
+  "local",
+  "remote",
+  "simulated",
+] as const;
+
+export type OperatorGatewayTargetTrust = typeof OPERATOR_GATEWAY_TARGET_TRUST[number];
+
+export const OperatorGatewayTargetIdentitySchema = z.object({
+  targetId: z.string().min(1),
+  kind: z.enum(OPERATOR_GATEWAY_TARGET_KINDS),
+  trust: z.enum(OPERATOR_GATEWAY_TARGET_TRUST),
+  label: z.string().min(1).optional(),
+  gatewayUrl: z.string().min(1).optional(),
+  appId: z.string().min(1).optional(),
+  tenantId: z.string().min(1).optional(),
+});
+
+export type OperatorGatewayTargetIdentity = z.infer<typeof OperatorGatewayTargetIdentitySchema>;
+
 export const OperatorCockpitActionTargetSchema = z.object({
+  gatewayTargetId: z.string().min(1).optional(),
   instanceId: z.string().min(1).optional(),
+  appId: z.string().min(1).optional(),
+  tenantId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
   eventId: z.string().min(1).optional(),
   resourceUri: z.string().min(1).optional(),

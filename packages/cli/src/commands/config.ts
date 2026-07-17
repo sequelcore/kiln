@@ -12,7 +12,14 @@ import {
   readConfigStatusSnapshot,
   readConfigStatusView,
 } from "../application/config-status.js";
+import { executeConfigSetupAction } from "../application/config-setup-actions.js";
 import { approveConfigChangeProposal } from "../application/config-approval.js";
+import {
+  KILN_CONFIG_SETUP_ACTIONS,
+  type KilnConfigSetupAction,
+  type KilnConfigSetupActionResult,
+  type KilnConfigSetupSnapshot,
+} from "@kilnai/gateway-contracts";
 import {
   defaultGlobalConfig,
   readGlobalConfig,
@@ -142,6 +149,12 @@ export async function configCommand(
       const snapshot = await readConfigStatusSnapshot({ projectPath: root });
       const result = await readConfigStatusView(snapshot, viewArg);
       console.log(JSON.stringify(result.value, null, 2));
+      break;
+    }
+
+    case "setup": {
+      const setup = await runConfigSetupCommand(root, args);
+      console.log(JSON.stringify(setup, null, 2));
       break;
     }
 
@@ -632,12 +645,54 @@ function printConfigHelp(): void {
   console.log("Subcommands:");
   console.log("  show              Print current config");
   console.log("  read [view]       Print canonical config/status view as JSON");
+  console.log("  setup [--apply|--action <id>] Inspect or execute setup recommendations");
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set [--global] <key> <value> Update a project or global config value");
   console.log("  reset             Reset config to defaults");
   console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
   console.log(`\nValid keys: ${[...VALID_KEYS].join(", ")}`);
   console.log("");
+}
+
+async function runConfigSetupCommand(
+  projectPath: string,
+  args: readonly string[],
+): Promise<KilnConfigSetupSnapshot | readonly KilnConfigSetupActionResult[]> {
+  const action = readActionFlag(args);
+  if (action) {
+    return [await executeConfigSetupAction({ projectPath, action })];
+  }
+  if (!args.includes("--apply")) {
+    return (await readConfigStatusSnapshot({ projectPath })).setup;
+  }
+
+  const results: KilnConfigSetupActionResult[] = [];
+  for (let index = 0; index < KILN_CONFIG_SETUP_ACTIONS.length; index += 1) {
+    const snapshot = await readConfigStatusSnapshot({ projectPath });
+    const next = snapshot.setup.recommendedActions.find((candidate) => candidate !== "none");
+    if (!next) {
+      break;
+    }
+    const result = await executeConfigSetupAction({ projectPath, action: next });
+    results.push(result);
+    if (result.status === "blocked" || result.status === "failed") {
+      break;
+    }
+  }
+  return results;
+}
+
+function readActionFlag(args: readonly string[]): KilnConfigSetupAction | undefined {
+  const index = args.findIndex((arg) => arg === "--action");
+  const value = index >= 0 ? args[index + 1] : args.find((arg) => arg.startsWith("--action="))?.slice("--action=".length);
+  if (!value) {
+    return undefined;
+  }
+  if (!KILN_CONFIG_SETUP_ACTIONS.includes(value as KilnConfigSetupAction)) {
+    console.error(`Invalid setup action: ${value}. Must be one of ${KILN_CONFIG_SETUP_ACTIONS.join(", ")}.`);
+    process.exit(1);
+  }
+  return value as KilnConfigSetupAction;
 }
 
 function hasGlobalFlag(args: readonly string[]): boolean {
@@ -662,6 +717,13 @@ function readPositionalArgs(args: readonly string[]): readonly string[] {
       continue;
     }
     if (arg === "--global") {
+      continue;
+    }
+    if (arg === "--action") {
+      index += 1;
+      continue;
+    }
+    if (arg === "--apply" || arg.startsWith("--action=")) {
       continue;
     }
     if (arg.startsWith("--project=") || arg.startsWith("--cwd=")) {

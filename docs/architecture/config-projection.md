@@ -5,6 +5,15 @@ operator and harness configuration. Project `kiln.yaml` may override it for a
 workspace, but native harness files are projected artifacts, not source state.
 
 Supported native projection targets are Claude Code, Codex, and OpenCode.
+
+Codex projection preserves native settings only when Kiln can keep them valid
+for the target harness. Provider-specific values outside Codex native contract
+are removed during sync instead of being carried forward as compatibility
+baggage. For example, service_tier is preserved only for supported Codex tiers
+(fast and flex); unsupported values such as default are backed up with the
+previous file and omitted from the projected config. This keeps standalone
+Codex and Kiln-launched Codex on the same valid configuration surface.
+
 Harness integration strategy is capability-driven; see
 `harness-integration-capabilities.md` for runtime config injection, plugin,
 MCP, hook, and proof rules. Additional harnesses require a new roadmap slice
@@ -21,6 +30,10 @@ The config projection boundary is owned by the CLI config layer.
 - `packages/cli/src/config/config-merger.ts` merges global and project config.
 - `packages/cli/src/config/native-*-projection.ts` owns native file IO for
   permissions, hooks, agents, and skills.
+- `packages/cli/src/application/global-instruction-shim-projection.ts` owns
+  generated global instruction entrypoints for native harness startup:
+  `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, and
+  `~/.config/opencode/AGENTS.md`.
 - `packages/cli/src/application/instruction-profile-loader.ts` owns canonical
   instruction profile loading from Kiln filesystem config.
 - `packages/cli/src/config/native-projection-state.ts` owns install-state,
@@ -56,11 +69,18 @@ Instruction profiles, agents, and skills are canonical filesystem config, not
 inline YAML fields. Global definitions live under `~/.kiln/instructions/`,
 `~/.kiln/agents/`, and `~/.kiln/skills/`; project definitions live under
 `.kiln/instructions/`, `.kiln/agents/`, and `.kiln/skills/`. Native harness
-agent and skill files remain generated projections, and `AGENTS.md` may project
-active instruction profile ids and canonical file paths for direct harness use.
+agent, skill, and global instruction files remain generated projections.
+Repo-local `AGENTS.md` and `CLAUDE.md` may reference active instruction profile
+ids and canonical file paths for project startup, but they must not duplicate
+global doctrine or global agent rosters.
 Kiln core built-in skills are lowest-precedence product defaults controlled by
 `skills.builtin` activation policy. They are projected like other skills during
 native sync, but user and project skills with the same id override them.
+Native harness-local skills discovered under Codex, OpenCode, or Claude Code
+directories are not imported implicitly. Status surfaces classify them as
+`native-harness` origin with `unmanaged-native` projection state so operators
+can decide whether to install them into Kiln project/user config, ignore them,
+or remove native drift.
 
 ## Sync Contract
 
@@ -79,22 +99,144 @@ If global config marks a known harness engine as `enabled: false`, sync first
 uninstalls recorded managed projections for that harness and excludes that
 harness from new permission, hook, agent, and skill projection writes.
 
+`kiln sync --global-instructions` projects global Kiln instruction profiles
+into the official native harness user-level instruction entrypoints:
+
+- Codex: `~/.codex/AGENTS.md`
+- Claude Code: `~/.claude/CLAUDE.md`
+- OpenCode: `~/.config/opencode/AGENTS.md`
+
+These files are signed whole-file projections recorded in install-state.
+Unmanaged files, including symlinked entrypoints with no install-state
+ownership, block until explicit adoption backs them up. Managed drift blocks
+until explicit force. Symlinked entrypoints that Kiln already owns are treated
+as stale because each harness target needs independent metadata, hash
+ownership, and drift classification.
+
+Global instruction shims include the direct-provider boundary: `codex-oauth`,
+`opencode-go`, and `opencode-zen` are Kiln direct providers governed by Kiln
+runtime authority. Native Codex/OpenCode/Claude CLI permission files apply only
+to explicit native harness routes, not to Kiln direct-provider execution.
+
+## Native Route Defaults
+
+Kiln projects native default routes only from canonical Kiln config. The
+resolved route is the merged `provider` plus `model.default`; native files never
+become route truth. Before writing a native default, the projection layer must
+validate that the selected provider/model can be represented by that harness:
+
+- Codex native config receives `model = "<model>"` only for Codex-native
+  provider ids such as `codex` or `codex-oauth`.
+- OpenCode native config receives `model: "<provider>/<model>"` when the
+  selected provider/model has OpenCode-native syntax.
+- Claude Code native default projection is unsupported until a stable
+  public/native default-route contract is proven.
+
+Each native config file has one composed writer for its managed route field.
+The Codex writer owns `codex-config`; the OpenCode writer owns
+`opencode-config`. Route defaults are composed with permissions and supported
+settings before the atomic file write, then recorded in install-state with
+per-field hashes. Hook, agent, and skill projections remain separate target
+families and must not write the native `model` field.
+
+Unmanaged native fields are preserved. A preexisting native `model` is never
+deleted on first sync merely because the canonical route targets another
+harness. Kiln may remove a stale native default only when install-state proves
+Kiln previously owned the `model` field. After removal, ownership of `model` is
+dropped from install-state so status surfaces do not report a false missing
+default for a harness that is no longer targeted.
+
+No compatibility aliases or obsolete model mappings are allowed. If a canonical
+route cannot be encoded for a harness, Kiln omits or removes only previously
+managed native route fields and reports the unsupported capability through the
+shared status contract.
+
+## Route Integrity Evidence
+
+`KilnConfigStatusSnapshot` carries native route integrity evidence for managed
+native default fields. Operator surfaces must keep these fields separate:
+
+- canonical route: the provider/model resolved from Kiln config
+- native configured default: the provider/model represented by the native file
+- selected runtime route: the route observed from native proof when available,
+  or the configured native default when only static evidence exists
+- catalog status: whether the provider/model is available, unknown, stale,
+  disabled, missing, or not observable
+- explicit probe status: credential-safe route probe result
+- credential source class: `env`, `kiln-auth-store`, `native-auth-store`,
+  `none`, or `unknown`
+- bare proof support: whether the harness can non-destructively prove its bare
+  invocation default
+- classification: the normalized failure layer
+
+Setup, status, doctor, sync, GUI, TUI, resource, and model-callable config-read
+surfaces consume this shared contract. They must not re-read native files and
+invent their own route health, credential health, or drift language.
+
+## Permission Integrity Evidence
+
+Kiln models trusted or full-access execution as evidence, not as one flattened
+provider enum. Canonical permissions describe the operator's desired policy;
+native files, desktop session selection, runtime observation, harness
+capability, projection ownership, and operator authorization remain distinct
+fields in `TrustedExecutionIntegrity`.
+
+The shared config/status contract must keep these facts separate:
+
+- canonical desired policy from Kiln config or operator-local trusted profile
+- persisted native projection and whether Kiln owns the managed fields
+- session-only override such as a desktop Full Access selector
+- observed effective runtime policy when the harness exposes proof
+- harness enforcement capability for approval, filesystem, and network
+- evidence source, freshness, proof status, and last verification time
+- operator authorization scope, revocability, and approval requirement
+- mismatch classification and exact recommended action
+
+Classifications such as `current-verified`, `intentional-operator-override`,
+`native-projection-drift`, `runtime-policy-mismatch`,
+`effective-policy-unproven`, `unsupported-semantic-translation`,
+`dangerous-unapproved-broadening`, `stale-evidence`, `partial-observation`,
+and `observation-failed` are Gateway/Core vocabulary. CLI, doctor, setup, GUI,
+TUI, model-callable config reads, and workspace health consume that vocabulary;
+they do not recalculate policy from native files, UI labels, or assistant text.
+
+A desktop UI selection is never runtime proof. A session-only override is not
+promoted into canonical config or persisted native policy unless the operator
+uses Kiln's governed proposal, approval, and apply lifecycle. Conversely, an
+operator-approved personal trusted profile is not unexplained drift when the
+authorization evidence is current and scoped to the local operator.
+
+Kiln's own attended operator surface has a narrower, enforceable meaning. When
+an operator explicitly selects Full Access for a GUI turn, the attached Kiln
+runtime records `operator_interactive` execution use and applies session,
+tenant, and route bounds before admitting Kiln-owned local tools. This is valid
+authority for that attended Kiln turn; it is not evidence about a native
+harness sandbox, is not persisted as provider policy, and is not inherited by
+managed, background, or unattended children. Those children continue to require
+their own goal, work-item, route, and effective-runtime authority evidence.
+
+Projection remains idempotent and preserves unmanaged native fields. When a
+harness cannot preserve Kiln's canonical semantics, the adapter must emit
+lossy or unsupported evidence and fail closed for authority-sensitive
+background work instead of silently broadening or narrowing the policy.
+
 ## Project Roots And Repo Shims
 
 Global native projections and repo-local instruction shims are different target
 families.
 
 Global native projections write into harness-owned user config locations such as
-Claude Code, Codex, and OpenCode config, agent, and skill directories. They make
-direct standalone harness use see Kiln's canonical operator doctrine and agent
-roster.
+Claude Code, Codex, and OpenCode config, instruction, agent, and skill
+directories. They make direct standalone harness use see Kiln's canonical
+operator doctrine and projected capabilities.
 
 Repo shims write into a specific project root, such as generated `AGENTS.md` and
 generated `CLAUDE.md`. They are scoped project entrypoints for harnesses that
 load repository guidance before Kiln runtime exists. Repo shims must be derived
-from the merged canonical config for that project: global config, global
-instruction profiles, global agents, global skills, project `kiln.yaml`, and
-project `.kiln/instructions|agents|skills`.
+from the merged canonical config for that project: global config, active
+instruction profile references, project `kiln.yaml`, project context, and
+project `.kiln/instructions|agents|skills`. Global doctrine and global agent
+rosters belong to global native projections, not repo-local shim bodies.
 
 Repo-shim projection must resolve the project root before writing. The durable
 resolution order is:
@@ -174,21 +316,31 @@ Configuration inspection uses the same canonical status contract across
 operator surfaces. `KilnConfigStatusSnapshot` reports resolved project root,
 global config status, project config status, adopted project-context status,
 effective config availability, repo-shim projection status, native projection
-install-state status, workflow snapshot manifest status, and harness integration
-capabilities. CLI commands, runtime setup endpoints, GUI/TUI setup screens,
-SDK/widget descriptors, and audit events must consume that shared contract
-instead of re-reading YAML or native files independently. The model-callable
-`kiln_config.read` tool is a read-only projection of this contract; it may
-inspect effective config and status but must not mutate configuration or native
-provider files.
+install-state status, workflow snapshot manifest status, skill catalog status,
+permission integrity, and harness integration capabilities. Skill catalog
+status includes origin, built-in flag, source path, native projection status
+for Claude Code, Codex, and OpenCode, and admission availability. CLI commands,
+runtime setup
+endpoints, GUI/TUI setup screens, SDK/widget descriptors, and audit events must
+consume that shared contract instead of re-reading YAML or native files
+independently. The model-callable `kiln_config.read` tool is a read-only
+projection of this contract; it may inspect effective config and status but
+must not mutate configuration or native provider files.
 
 For setup surfaces, `KilnConfigStatusSnapshot.setup` is the domain-specific
 read model. It contains project-context status, repo-shim status, native
-projection status, and deterministic recommended actions such as
-`adopt-project-context`, `sync-repo-shims`, `sync-native-projections`, or
-`adopt-or-back-up-native-guidance`. GUI, TUI, CLI, SDK/widget, and runtime tools
-must use this setup read model instead of locally filtering generic projection
-lists.
+projection status, global instruction shim status, permission-integrity
+status, skill projection/admission diagnostics, and deterministic recommended
+actions such as `adopt-project-context`, `sync-repo-shims`,
+`sync-native-projections`, `sync-global-instruction-shims`,
+`adopt-or-back-up-global-instructions`, or
+`review-global-instruction-drift`. Native skill adoption is explicit: setup
+may copy parseable, non-conflicting harness-local skills into the canonical
+global Kiln registry, then run native skill projection so every supported
+harness sees the same governed copy. Conflicting same-name native skills block
+adoption until the operator reconciles them. GUI, TUI, CLI, SDK/widget, and
+runtime tools must use this setup read model instead of locally filtering
+generic projection lists.
 
 The setup read model remains the shared source of truth. `kiln config read
 setup` prints the raw setup snapshot, `kiln status` includes deterministic
@@ -198,11 +350,21 @@ re-reading YAML, repo shims, or native harness files.
 
 GUI setup actions use a separate governed action boundary:
 `POST /gui/api/config/setup/actions`. The runtime validates the request through
-the shared gateway contract and delegates to CLI-owned setup services. Only
-non-force actions may execute from the GUI: project-context adoption,
-repo-shim sync, and native projection sync. Review-only or drift-sensitive
-actions, including force sync and native guidance adoption, return blocked
-results and keep the operator in an explicit review flow.
+the shared gateway contract, enforces the shared GUI-executable action allowlist,
+and delegates only allowed actions to CLI-owned setup services. Button disabled
+state is defense in depth, not the authority boundary: valid but disallowed
+actions return a deterministic blocked setup result and never reach CLI mutation
+services. GUI may
+execute project-context adoption, repo-shim sync, native projection sync, and
+safe global instruction shim sync. The global sync service itself blocks
+unmanaged files and managed drift unless the CLI receives a separate explicit
+adoption or force request. Adoption or backup actions, force, and
+drift-sensitive actions return blocked results and keep the operator in an
+explicit review flow.
+
+Global instruction shim setup snapshots carry canonical `harness` identity from
+the shared setup contract (`codex`, `claude-code`, or `opencode`); GUI and TUI
+render that field directly and do not derive identity from target IDs.
 
 This boundary is not model-callable config mutation. Agents still use
 `kiln_config.read` for setup inspection and `kiln_config.propose_change` /
@@ -433,5 +595,8 @@ tool behavior or write authority.
   route provenance.
 - Instruction profile, agent, and skill definitions are canonical only under
   Kiln-owned directories, never in native harness folders.
+- Native harness-local skills are setup diagnostics until explicitly adopted or
+  imported into Kiln canonical config; they are never admitted into managed
+  invocation by their native presence alone.
 - Config mutation is a governed proposal/approval/apply lifecycle; direct YAML,
   native harness, or arbitrary filesystem edits are not configuration mutation.

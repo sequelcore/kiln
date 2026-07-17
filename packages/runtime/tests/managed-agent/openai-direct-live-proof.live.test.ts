@@ -45,7 +45,7 @@ describeManagedAgentProviderLive("managed agent OpenAI direct-provider live proo
         builtinTools: childSurface.callBuiltinTools,
         capabilityMap: childSurface.capabilities,
         toolAuthority: childSurface.toolAuthority,
-        maxToolRounds: 4,
+        executionEnvelope: { toolRounds: { max: 4 } },
       });
       const request = defineManagedAgentInvocationRequest({
         invocationId: "invocation-openai-direct-live-readonly-1",

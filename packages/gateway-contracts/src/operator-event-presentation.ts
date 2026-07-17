@@ -1,14 +1,23 @@
 import type { OperatorSessionEvent, OperatorSessionEventKind } from "./frames.js";
 import {
-  formatPresentationIntentAsText,
   parsePresentationIntent,
   presentationIntentBrief,
   type PresentationIntent,
   type PresentationIntentResourceLink,
 } from "./presentation-intent.js";
+import {
+  parseOperatorToolResultEnvelope,
+  parseOperatorToolResultResourceLinks,
+  type ToolResultResourceLinkPresentation,
+} from "./operator-tool-result.js";
+import {
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  formatVerifiedEfficiencyEvidence,
+} from "./verified-efficiency-evidence.js";
 
 export type OperatorEventTone = "info" | "running" | "success" | "warning" | "error";
 export type OperatorEventSurface = "conversation_inline" | "activity_panel" | "inspector";
+export type OperatorEventConversationDisposition = "none" | "activity" | "action" | "result" | "exception";
 
 export interface OperatorEventDetailItem {
   readonly label: string;
@@ -17,25 +26,83 @@ export interface OperatorEventDetailItem {
 
 export type ToolResultOutputKind =
   | "text"
+  | "data"
   | "markdown"
   | "code"
+  | "search_results"
   | "table"
   | "tree"
   | "diff"
   | "image"
   | "resource_links"
   | "command"
+  | "task"
+  | "work_item"
+  | "goal"
+  | "diagnostic"
   | "form"
   | "empty";
 
-export interface ToolResultResourceLinkPresentation {
-  readonly uri: string;
-  readonly title?: string;
-  readonly label?: string;
-  readonly sequence?: number;
-  readonly mimeType?: string;
-  readonly size?: number;
-  readonly relation?: string;
+export interface ToolResultDiagnosticInputPresentation {
+  readonly name: string;
+  readonly expected: string;
+}
+
+export interface ToolResultDiagnosticPresentation {
+  readonly code?: string;
+  readonly message: string;
+  readonly recoverable?: boolean;
+  readonly suggestedNextTool?: string;
+  readonly requiredInput: readonly ToolResultDiagnosticInputPresentation[];
+}
+
+export type ToolResultTaskStatus = "pending" | "in_progress" | "completed" | "paused" | "blocked" | "cancelled" | "failed";
+
+export interface ToolResultTaskItemPresentation {
+  readonly label: string;
+  readonly status: "pending" | "in_progress" | "completed" | "blocked" | "failed";
+}
+
+export interface ToolResultTaskPresentation {
+  readonly status: ToolResultTaskStatus;
+  readonly reason?: string;
+  readonly workItemId?: string;
+  readonly routeId?: string;
+  readonly nextTool?: string;
+  readonly items: readonly ToolResultTaskItemPresentation[];
+}
+
+export interface ToolResultWorkItemPresentation {
+  readonly id: string;
+  readonly summary: string;
+  readonly status: ToolResultTaskStatus;
+  readonly workflowProfile?: string;
+  readonly risk?: string;
+  readonly surface?: string;
+  readonly authorityProfile?: string;
+  readonly evidence: readonly ToolResultTaskItemPresentation[];
+  readonly nextTools: readonly string[];
+  readonly pauseRequirements: readonly string[];
+  readonly residualRisk?: string;
+}
+
+export interface ToolResultGoalEvidenceRequirementPresentation {
+  readonly id: string;
+  readonly description: string;
+  readonly required: boolean;
+}
+
+export interface ToolResultGoalPresentation {
+  readonly id: string;
+  readonly objective: string;
+  readonly status: string;
+  readonly phase?: string;
+  readonly planId?: string;
+  readonly workItemIds: readonly string[];
+  readonly authority?: string;
+  readonly escalationPolicy?: string;
+  readonly workflowProfile?: string;
+  readonly evidenceRequirements: readonly ToolResultGoalEvidenceRequirementPresentation[];
 }
 
 export interface ToolResultPreview {
@@ -50,14 +117,41 @@ export interface ToolResultRawAvailability {
   readonly reason?: string;
 }
 
+export interface ToolResultSearchResult {
+  readonly title: string;
+  readonly url: string;
+  readonly snippet?: string;
+  readonly source?: string;
+}
+
+export type ToolResultClassificationSource =
+  | "presentation-intent"
+  | "tool-metadata"
+  | "resource-link"
+  | "content-heuristic"
+  | "fallback";
+
+export interface ToolResultClassification {
+  readonly source: ToolResultClassificationSource;
+  readonly reason: string;
+  readonly fallbackReason?: string;
+  readonly confidence?: "low" | "medium" | "high";
+}
+
 export interface ToolResultPresentation {
   readonly outputKind: ToolResultOutputKind;
+  readonly classification: ToolResultClassification;
   readonly title: string;
   readonly summary?: string;
   readonly fields: readonly OperatorEventDetailItem[];
   readonly presentationIntent?: PresentationIntent;
   readonly preview?: ToolResultPreview;
+  readonly searchResults?: readonly ToolResultSearchResult[];
   readonly resourceLinks?: readonly ToolResultResourceLinkPresentation[];
+  readonly task?: ToolResultTaskPresentation;
+  readonly workItem?: ToolResultWorkItemPresentation;
+  readonly goal?: ToolResultGoalPresentation;
+  readonly diagnostic?: ToolResultDiagnosticPresentation;
   readonly raw: ToolResultRawAvailability;
 }
 
@@ -68,6 +162,7 @@ export interface OperatorEventPresentation {
   readonly details: readonly OperatorEventDetailItem[];
   readonly compactText?: string;
   readonly surfaces: readonly OperatorEventSurface[];
+  readonly conversationDisposition: OperatorEventConversationDisposition;
   readonly toolPresentation?: ToolResultPresentation;
 }
 
@@ -132,6 +227,11 @@ function formatStringList(value: unknown): string | null {
   return items.length > 0 ? items.join(", ") : null;
 }
 
+function sentenceFromKey(value: string): string {
+  const words = value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+}
+
 function readRequiredStringList(value: unknown): readonly string[] | null {
   if (!Array.isArray(value)) {
     return null;
@@ -170,77 +270,23 @@ function toolResultEnvelopeText(payload: Record<string, unknown>): string | null
     ?? eventPayloadText(payload);
 }
 
+function formatToolUsageSummary(payload: Record<string, unknown>): string | null {
+  const toolUsage = asRecord(payload.toolUsage);
+  if (!toolUsage) return null;
+  const toolName = readString(toolUsage.toolName) ?? readString(payload.toolName);
+  const calls = readNumber(toolUsage.calls);
+  if (!toolName || calls === null || !Number.isSafeInteger(calls) || calls < 0) {
+    return null;
+  }
+  return `${toolName} ${calls}`;
+}
+
 function parseJsonRecord(value: string): Record<string, unknown> | null {
   try {
     return asRecord(JSON.parse(value));
   } catch {
     return null;
   }
-}
-
-function parseToolResultEnvelope(value: string | null): {
-  readonly output?: string;
-  readonly isError?: boolean;
-  readonly metadata?: Record<string, unknown>;
-  readonly presentationIntent?: unknown;
-  readonly resourceLinks: readonly ToolResultResourceLinkPresentation[];
-} | null {
-  if (!value) return null;
-  let output: string | undefined;
-  let isError: boolean | undefined;
-  let metadata: Record<string, unknown> | undefined;
-  let presentationIntent: unknown;
-  let resourceLinks: readonly ToolResultResourceLinkPresentation[] = [];
-  let current: string | null = value;
-  for (let depth = 0; depth < 4 && current; depth += 1) {
-    const parsed = parseJsonRecord(current);
-    if (!parsed) {
-      output = current;
-      break;
-    }
-    const result = asRecord(parsed.result) ?? parsed;
-    const nextMetadata = asRecord(result.metadata);
-    if (nextMetadata) {
-      metadata = {
-        ...(metadata ?? {}),
-        ...nextMetadata,
-      };
-      if ("presentationIntent" in nextMetadata) {
-        presentationIntent = nextMetadata.presentationIntent;
-      }
-      const links = readResourceLinks(nextMetadata.resourceLinks);
-      if (links.length > 0) {
-        resourceLinks = links;
-      }
-    }
-    if ("presentationIntent" in result) {
-      presentationIntent = result.presentationIntent;
-    }
-    const directLinks = readResourceLinks(result.resourceLinks);
-    if (directLinks.length > 0) {
-      resourceLinks = directLinks;
-    }
-    if (typeof result.isError === "boolean") {
-      isError = result.isError;
-    }
-    const nextOutput = readString(result.output);
-    if (!nextOutput) {
-      break;
-    }
-    const nested = parseJsonRecord(nextOutput);
-    if (!nested || (!("output" in nested) && !("result" in nested) && !("metadata" in nested))) {
-      output = nextOutput;
-      break;
-    }
-    current = nextOutput;
-  }
-  return {
-    ...(output ? { output } : {}),
-    ...(isError !== undefined ? { isError } : {}),
-    ...(metadata ? { metadata } : {}),
-    ...(presentationIntent !== undefined ? { presentationIntent } : {}),
-    resourceLinks,
-  };
 }
 
 function compactText(value: string, maxLength = 140): string {
@@ -252,26 +298,6 @@ function compactText(value: string, maxLength = 140): string {
     ?? value.trim();
   const normalized = firstLine.replace(/\s+/g, " ").trim();
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
-}
-
-function readResourceLinks(value: unknown): readonly ToolResultResourceLinkPresentation[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      const record = asRecord(item);
-      const uri = readString(record?.uri);
-      if (!uri) return null;
-      return {
-        uri,
-        ...(readString(record?.title) ? { title: readString(record?.title)! } : {}),
-        ...(readString(record?.label) ? { label: readString(record?.label)! } : {}),
-        ...(readNumber(record?.sequence) !== null ? { sequence: readNumber(record?.sequence)! } : {}),
-        ...(readString(record?.mimeType) ? { mimeType: readString(record?.mimeType)! } : {}),
-        ...(readNumber(record?.size) !== null ? { size: readNumber(record?.size)! } : {}),
-        ...(readString(record?.relation) ? { relation: readString(record?.relation)! } : {}),
-      } satisfies ToolResultResourceLinkPresentation;
-    })
-    .filter((item): item is ToolResultResourceLinkPresentation => item !== null);
 }
 
 function projectIntentResourceLinks(
@@ -378,6 +404,22 @@ function toolResultRawAvailability(resourceLinks: readonly ToolResultResourceLin
     : { available: false, reason: "No raw output resource" };
 }
 
+function toolResultClassification(
+  source: ToolResultClassificationSource,
+  reason: string,
+  options: {
+    readonly fallbackReason?: string;
+    readonly confidence?: "low" | "medium" | "high";
+  } = {},
+): ToolResultClassification {
+  return {
+    source,
+    reason,
+    ...(options.fallbackReason ? { fallbackReason: options.fallbackReason } : {}),
+    ...(options.confidence ? { confidence: options.confidence } : {}),
+  };
+}
+
 function toolResultTitle(toolName: string, metadata: Record<string, unknown> | undefined, fallback: string): string {
   return readString(metadata?.filePath)
     ?? readString(metadata?.path)
@@ -407,6 +449,7 @@ function projectDiffPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "diff",
+    classification: toolResultClassification("tool-metadata", "file mutation metadata carries diff evidence", { confidence: "high" }),
     title: toolResultTitle(toolName, metadata, "Diff"),
     summary,
     fields,
@@ -429,6 +472,9 @@ function projectResourceLinkPresentation(
   const summary = readString(metadata.operation) === "read_many"
     ? formatReadManySummary(metadata)
     : compactText(output ?? resourceLinks[0]?.title ?? `${toolName} output`);
+  const reason = readString(metadata.operation) === "read_many"
+    ? "large read_many output is represented by resource links"
+    : "resource links carry external output evidence";
   const fileCount = readMetadataNumber(metadata, "fileCount");
   const skippedCount = readMetadataNumber(metadata, "skippedCount");
   const totalBytes = readMetadataNumber(metadata, "totalBytes");
@@ -441,6 +487,7 @@ function projectResourceLinkPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "resource_links",
+    classification: toolResultClassification("resource-link", reason, { confidence: "high" }),
     title: resourceLinks[0]?.title ?? toolResultTitle(toolName, metadata, `${toolName} output`),
     summary,
     fields,
@@ -491,6 +538,7 @@ function projectBrowserScreenshotPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "image",
+    classification: toolResultClassification("resource-link", "browser snapshot resource links identify image output", { confidence: "high" }),
     title: "Browser screenshots",
     summary,
     fields,
@@ -533,6 +581,7 @@ function projectCommandPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "command",
+    classification: toolResultClassification("tool-metadata", "command metadata identifies command output", { confidence: "high" }),
     title: toolResultTitle(toolName, metadata, "Command"),
     summary,
     fields,
@@ -558,6 +607,7 @@ function projectTreePresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "tree",
+    classification: toolResultClassification("tool-metadata", "inspection metadata identifies tree output", { confidence: "high" }),
     title: path ?? toolName,
     summary,
     fields,
@@ -608,6 +658,7 @@ function projectStatPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "text",
+    classification: toolResultClassification("tool-metadata", "inspection metadata identifies stat output", { confidence: "high" }),
     title: path ?? toolName,
     summary: [type, formatBytes(size)].filter((value): value is string => Boolean(value)).join(" · ") || "Metadata read",
     fields,
@@ -641,6 +692,7 @@ function projectOcrPresentation(
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: text ? "text" : "empty",
+    classification: toolResultClassification("tool-metadata", "media metadata identifies OCR output", { confidence: "high" }),
     title: path ?? toolName,
     summary: text ? compactText(text) : fallbackSummary,
     fields,
@@ -650,33 +702,345 @@ function projectOcrPresentation(
   };
 }
 
+function isSearchResultTool(toolName: string, metadata: Record<string, unknown> | undefined): boolean {
+  const metadataToolName = readString(metadata?.toolName);
+  const kind = readString(metadata?.kind);
+  const operation = readString(metadata?.operation);
+  const normalizedNames = [toolName, metadataToolName]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase().replace(/[^a-z0-9]+/g, "_"));
+  return (kind === "web" && operation === "search")
+    || normalizedNames.some((value) => value === "web_search" || value.endsWith("_web_search"));
+}
+
+function projectSearchResultsPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+  resourceLinks: readonly ToolResultResourceLinkPresentation[],
+): ToolResultPresentation | null {
+  const outputRecord = parseOutputRecord(output);
+  const outputMetadata = asRecord(outputRecord?.metadata);
+  const effectiveMetadata = metadata || outputMetadata
+    ? {
+        ...(outputMetadata ?? {}),
+        ...(metadata ?? {}),
+      }
+    : undefined;
+  if (!isSearchResultTool(toolName, effectiveMetadata)) return null;
+  const text = readSearchOutputText(output, outputRecord);
+  const searchResults = dedupeSearchResults([
+    ...readSearchResultsFromRecord(effectiveMetadata),
+    ...readSearchResultsFromRecord(outputRecord),
+    ...parseSearchResultsText(text),
+  ]);
+  if (searchResults.length === 0) return null;
+  const summary = compactText(text);
+  const preview = compactPreview(text);
+  const fields = [
+    field("Results", searchResults.length),
+    field("Query", effectiveMetadata?.query),
+    field("Source", readString(effectiveMetadata?.toolName) ?? toolName),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "search_results",
+    classification: toolResultClassification("tool-metadata", "web/search metadata identifies search result output", { confidence: "high" }),
+    title: toolResultTitle(toolName, effectiveMetadata, "Search results"),
+    ...(summary ? { summary } : {}),
+    fields,
+    ...(preview ? { preview } : {}),
+    searchResults,
+    ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
+    raw: toolResultRawAvailability(resourceLinks),
+  };
+}
+
+function readSearchOutputText(output: string | undefined, outputRecord: Record<string, unknown> | null): string {
+  const direct = readString(outputRecord?.output);
+  if (direct) return direct;
+  if (Array.isArray(outputRecord?.output)) {
+    return outputRecord.output
+      .filter((item): item is string => typeof item === "string")
+      .join("\n");
+  }
+  return output ?? "";
+}
+
+function readSearchResultsFromRecord(value: Record<string, unknown> | null | undefined): readonly ToolResultSearchResult[] {
+  if (!value) return [];
+  const candidates = [value.results, value.sources, value.items, value.searchResults];
+  return candidates.flatMap((candidate) => Array.isArray(candidate) ? candidate.map(readSearchResultRecord) : [])
+    .filter((result): result is ToolResultSearchResult => result !== null);
+}
+
+function readSearchResultRecord(value: unknown): ToolResultSearchResult | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const title = readString(record.title) ?? readString(record.name) ?? readString(record.label);
+  const url = readString(record.url) ?? readString(record.uri) ?? readString(record.link) ?? readString(record.href);
+  if (!title || !url || !isHttpUrl(url)) return null;
+  const snippet = readString(record.snippet) ?? readString(record.summary) ?? readString(record.description);
+  const source = readString(record.source) ?? readString(record.domain) ?? readString(record.provider);
+  return {
+    title: cleanSearchTitle(title),
+    url,
+    ...(snippet ? { snippet } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+
+function parseSearchResultsText(text: string): readonly ToolResultSearchResult[] {
+  const results: ToolResultSearchResult[] = [];
+  let current: { title: string; url?: string; snippets: string[] } | null = null;
+  for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/u);
+    const link = readMarkdownLink(line);
+    const url = link?.url ?? readFirstHttpUrl(line);
+    if (numbered) {
+      if (current) pushSearchResult(results, current);
+      const numberedText = numbered[1] ?? "";
+      const numberedLink = readMarkdownLink(numberedText);
+      current = {
+        title: cleanSearchTitle(numberedLink?.title ?? numberedText),
+        ...(numberedLink?.url ? { url: numberedLink.url } : {}),
+        snippets: [],
+      };
+      continue;
+    }
+    if (url) {
+      if (current) {
+        current.url = url;
+        if (link?.title && current.title === cleanSearchTitle(link.title)) {
+          continue;
+        }
+        if (link?.title && current.title.length === 0) {
+          current.title = cleanSearchTitle(link.title);
+        }
+      } else if (link?.title) {
+        current = { title: cleanSearchTitle(link.title), url, snippets: [] };
+      }
+      continue;
+    }
+    if (current && !/^\d+\s+sources?\s+for\s+/iu.test(line)) {
+      current.snippets.push(line);
+    }
+  }
+  if (current) pushSearchResult(results, current);
+  return results;
+}
+
+function pushSearchResult(
+  results: ToolResultSearchResult[],
+  value: { title: string; url?: string; snippets: string[] },
+): void {
+  if (!value.url || !isHttpUrl(value.url)) return;
+  const title = cleanSearchTitle(value.title);
+  if (!title) return;
+  const snippet = compactText(value.snippets.join(" "));
+  results.push({
+    title,
+    url: value.url,
+    ...(snippet ? { snippet } : {}),
+    source: hostForUrl(value.url),
+  });
+}
+
+function dedupeSearchResults(results: readonly ToolResultSearchResult[]): readonly ToolResultSearchResult[] {
+  const seen = new Set<string>();
+  const unique: ToolResultSearchResult[] = [];
+  for (const result of results) {
+    if (seen.has(result.url)) continue;
+    seen.add(result.url);
+    unique.push(result);
+  }
+  return unique.slice(0, 12);
+}
+
+function readMarkdownLink(value: string): { readonly title: string; readonly url: string } | null {
+  const match = value.match(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/u);
+  if (!match?.[1] || !match[2]) return null;
+  return { title: match[1], url: match[2] };
+}
+
+function readFirstHttpUrl(value: string): string | null {
+  const match = value.match(/https?:\/\/[^\s)]+/u);
+  return match?.[0] ?? null;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function hostForUrl(value: string): string | undefined {
+  try {
+    return new URL(value).hostname.replace(/^www\./u, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanSearchTitle(value: string): string {
+  return value
+    .replace(/\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\)/u, "$1")
+    .replace(/https?:\/\/\S+/gu, "")
+    .trim();
+}
+
 function projectTextPresentation(
   toolName: string,
   output: string | undefined,
   metadata: Record<string, unknown> | undefined,
   resourceLinks: readonly ToolResultResourceLinkPresentation[],
+  classificationOverride?: ToolResultClassification,
 ): ToolResultPresentation {
   const text = output ?? "";
   const filePath = readString(metadata?.filePath);
-  const outputKind: ToolResultOutputKind = filePath?.toLowerCase().endsWith(".md") || /^#\s/u.test(text.trim())
-    ? "markdown"
-    : text.trim().length === 0
-      ? "empty"
-      : "text";
+  const outputKind = classifyTextOutput(filePath, text);
+  const language = outputKind === "data" ? "json" : languageForPath(filePath);
+  const totalLines = readMetadataNumber(metadata, "totalLines");
+  const totalBytes = readMetadataNumber(metadata, "totalBytes");
   const fields = [
     field("Path", filePath),
-    field("Lines", readMetadataNumber(metadata, "totalLines")),
-    field("Bytes", readMetadataNumber(metadata, "totalBytes")),
+    field("Lines", totalLines),
+    field("Bytes", totalBytes),
   ].filter((item): item is OperatorEventDetailItem => item !== null);
+  const preview = compactPreview(text);
+  const operation = readString(metadata?.operation);
+  const classification = classificationOverride
+    ?? (operation === "read" || toolName === "read"
+      ? toolResultClassification("tool-metadata", "read output classified from file metadata and content", { confidence: "high" })
+      : languageForPath(filePath)
+        ? toolResultClassification("tool-metadata", "file extension metadata selected source renderer", { confidence: "medium" })
+        : outputKind === "data"
+          ? toolResultClassification("content-heuristic", "structured JSON output classified from content", { confidence: "high" })
+          : toolResultClassification("content-heuristic", "text output classified from content", { confidence: "medium" }));
   return {
     outputKind,
+    classification,
     title: toolResultTitle(toolName, metadata, toolName),
-    summary: text.trim().length > 0 ? compactText(text) : "No output",
+    summary: summarizeTextOutput(outputKind, text, totalLines, totalBytes),
     fields,
-    preview: compactPreview(text),
+    ...(preview ? { preview: language ? { ...preview, language } : preview } : {}),
     ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
     raw: toolResultRawAvailability(resourceLinks),
   };
+}
+
+function classifyTextOutput(filePath: string | null, text: string): ToolResultOutputKind {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return "empty";
+  const language = languageForPath(filePath);
+  if (language === "markdown" || isMarkdownLikeText(trimmed)) return "markdown";
+  if (language) return "code";
+  if (structuredJsonShape(trimmed)) return "data";
+  return "text";
+}
+
+function structuredJsonShape(value: string): { readonly label: string } | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return { label: `${parsed.length} ${parsed.length === 1 ? "item" : "items"}` };
+    }
+    const record = asRecord(parsed);
+    if (record) {
+      const count = Object.keys(record).length;
+      return { label: `${count} ${count === 1 ? "field" : "fields"}` };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function isMarkdownLikeText(trimmed: string): boolean {
+  if (/^#{1,6}\s+\S/mu.test(trimmed)) return true;
+  if (/```/u.test(trimmed)) return true;
+  if (/^\s{0,3}>\s+\S/mu.test(trimmed)) return true;
+  if (/\[[^\]\n]+\]\([^)]+\)/u.test(trimmed)) return true;
+  if (/^\s{0,3}\|.+\|\s*$/mu.test(trimmed)) return true;
+  const listLines = trimmed
+    .split(/\r?\n/u)
+    .filter((line) => /^\s{0,3}(?:[-*+]\s+|\d+[.)]\s+)\S/u.test(line));
+  return listLines.length >= 2;
+}
+
+function summarizeTextOutput(
+  outputKind: ToolResultOutputKind,
+  text: string,
+  totalLines: number | null,
+  totalBytes: number | null,
+): string {
+  if (text.trim().length === 0) return "No output";
+  if (outputKind === "data") return structuredJsonShape(text)?.label ?? "Structured data";
+  if (outputKind !== "code") return compactText(text);
+  const metrics = [
+    totalLines !== null ? `${totalLines} ${totalLines === 1 ? "line" : "lines"}` : null,
+    totalBytes !== null ? `${totalBytes} ${totalBytes === 1 ? "byte" : "bytes"}` : null,
+  ].filter((item): item is string => item !== null);
+  return metrics.length > 0 ? metrics.join(" · ") : "Source file";
+}
+
+function languageForPath(filePath: string | null): string | undefined {
+  if (!filePath) return undefined;
+  const normalized = filePath.toLowerCase();
+  const extension = normalized.match(/\.([a-z0-9]+)$/u)?.[1];
+  switch (extension) {
+    case "md":
+    case "mdx":
+      return "markdown";
+    case "json":
+    case "jsonc":
+      return "json";
+    case "ts":
+    case "tsx":
+      return "typescript";
+    case "js":
+    case "jsx":
+    case "mjs":
+    case "cjs":
+      return "javascript";
+    case "yml":
+    case "yaml":
+      return "yaml";
+    case "toml":
+      return "toml";
+    case "css":
+      return "css";
+    case "html":
+    case "xml":
+    case "svg":
+      return "xml";
+    case "sh":
+    case "bash":
+      return "bash";
+    case "ps1":
+      return "powershell";
+    case "py":
+      return "python";
+    case "sql":
+      return "sql";
+    case "java":
+      return "java";
+    case "kt":
+    case "kts":
+      return "kotlin";
+    case "go":
+      return "go";
+    case "rs":
+      return "rust";
+    case "rb":
+      return "ruby";
+    default:
+      return undefined;
+  }
 }
 
 function presentationIntentOutputKind(intent: PresentationIntent): ToolResultOutputKind {
@@ -709,14 +1073,13 @@ function projectPresentationIntentToolPresentation(
     intent.kind === "resource_bundle" ? intent.resources : intent.resourceLinks,
   );
   const resourceLinks = intentResourceLinks.length > 0 ? intentResourceLinks : fallbackResourceLinks;
-  const text = formatPresentationIntentAsText(intent);
   return {
     outputKind: presentationIntentOutputKind(intent),
+    classification: toolResultClassification("presentation-intent", "validated presentation intent selected renderer", { confidence: "high" }),
     title: intent.title,
     summary: presentationIntentBrief(intent),
     fields: presentationIntentFields(intent),
     presentationIntent: intent,
-    preview: compactPreview(text, 4_000),
     ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
     raw: toolResultRawAvailability(resourceLinks),
   };
@@ -724,10 +1087,10 @@ function projectPresentationIntentToolPresentation(
 
 function readPresentationIntent(
   payload: Record<string, unknown>,
-  envelope: ReturnType<typeof parseToolResultEnvelope>,
+  envelope: ReturnType<typeof parseOperatorToolResultEnvelope>,
   output: string | undefined,
   metadata: Record<string, unknown> | undefined,
-): PresentationIntent | undefined {
+): { readonly intent?: PresentationIntent; readonly invalidReason?: string } {
   const outputRecord = parseOutputRecord(output);
   const candidates = [
     metadata?.presentationIntent,
@@ -735,12 +1098,14 @@ function readPresentationIntent(
     payload.presentationIntent,
     outputRecord?.presentationIntent,
   ];
+  let invalidReason: string | undefined;
   for (const candidate of candidates) {
     if (candidate === undefined) continue;
     const parsed = parsePresentationIntent(candidate);
-    if (parsed.ok) return parsed.intent;
+    if (parsed.ok) return { intent: parsed.intent };
+    invalidReason ??= parsed.error;
   }
-  return undefined;
+  return invalidReason ? { invalidReason } : {};
 }
 
 function projectConfigToolPresentation(toolName: string, output: string | undefined): ToolResultPresentation | undefined {
@@ -780,6 +1145,7 @@ function projectConfigToolPresentation(toolName: string, output: string | undefi
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: toolName === "kiln_config.propose_change" ? "diff" : "text",
+    classification: toolResultClassification("tool-metadata", "config tool output uses canonical config mutation metadata", { confidence: "high" }),
     title: toolName === "kiln_config.propose_change"
       ? "Kiln config proposal"
       : toolName === "kiln_config.apply_change"
@@ -792,11 +1158,305 @@ function projectConfigToolPresentation(toolName: string, output: string | undefi
   };
 }
 
+function normalizeWorkItemTaskStatus(value: string | null): ToolResultTaskStatus | null {
+  switch (value) {
+    case "pending":
+    case "in_progress":
+    case "completed":
+    case "paused":
+    case "blocked":
+    case "cancelled":
+    case "failed":
+      return value;
+    case "started":
+    case "running":
+      return "in_progress";
+    case "success":
+    case "succeeded":
+      return "completed";
+    case "error":
+      return "failed";
+    default:
+      return null;
+  }
+}
+
+function formatRequiredInputShape(value: unknown): string {
+  if (typeof value === "string" && value.trim().length > 0) return value;
+  if (Array.isArray(value)) {
+    return value.length > 0 ? `${formatRequiredInputShape(value[0])}[]` : "array";
+  }
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (asRecord(value)) return "object";
+  return "value";
+}
+
+function projectDiagnosticToolPresentation(output: string | undefined): ToolResultPresentation | undefined {
+  const record = parseOutputRecord(output);
+  const error = asRecord(record?.error);
+  const message = readString(error?.message);
+  if (!error || !message) return undefined;
+  const code = readString(error.code) ?? undefined;
+  const recoverable = typeof error.recoverable === "boolean" ? error.recoverable : undefined;
+  const suggestedNextTool = readString(error.suggestedNextTool) ?? undefined;
+  const requiredInputShape = asRecord(error.requiredInputShape);
+  const requiredInput = requiredInputShape
+    ? Object.entries(requiredInputShape).map(([name, expected]) => ({
+        name,
+        expected: formatRequiredInputShape(expected),
+      }))
+    : [];
+  return {
+    outputKind: "diagnostic",
+    classification: toolResultClassification(
+      "content-heuristic",
+      "structured error envelope",
+      { confidence: "high" },
+    ),
+    title: code ? sentenceFromKey(code) : "Tool error",
+    summary: message,
+    fields: [],
+    diagnostic: {
+      ...(code ? { code } : {}),
+      message,
+      ...(recoverable !== undefined ? { recoverable } : {}),
+      ...(suggestedNextTool ? { suggestedNextTool } : {}),
+      requiredInput,
+    },
+    raw: { available: false, reason: "Structured diagnostic is rendered inline" },
+  };
+}
+
+function readPauseRequirementSummaries(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const requirement = asRecord(entry);
+    const summary = readString(requirement?.summary);
+    return summary ? [summary] : [];
+  });
+}
+
+function projectWorkItemUpdateToolPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+): ToolResultPresentation | undefined {
+  if (toolName !== "work_item.update") return undefined;
+  const record = parseOutputRecord(output);
+  const item = asRecord(record?.item) ?? asRecord(metadata?.item);
+  const id = readString(item?.id) ?? readString(metadata?.id);
+  const summary = readString(item?.summary);
+  const status = normalizeWorkItemTaskStatus(readString(item?.status) ?? readString(metadata?.status));
+  if (!item || !id || !summary || !status) return undefined;
+  const expectedEvidence = readStringList(item.expectedEvidence);
+  const providedEvidence = new Set(readStringList(item.providedEvidence));
+  const nextTools = readStringList(record?.nextRequiredTools);
+  const pauseRequirements = readPauseRequirementSummaries(item.pauseRequirements);
+  const residualRisk = readString(item.residualRisk) ?? undefined;
+  const workflowProfile = readString(item.workflowProfile) ?? undefined;
+  const risk = readString(item.risk) ?? undefined;
+  const surface = readString(item.surface) ?? undefined;
+  const authorityProfile = readString(item.authorityProfile) ?? undefined;
+  const fields = [
+    field("Work item", id),
+    field("Workflow", workflowProfile),
+    field("Risk", risk),
+    field("Surface", surface),
+    field("Authority", authorityProfile),
+    field("Evidence", `${providedEvidence.size} / ${expectedEvidence.length}`),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "work_item",
+    classification: toolResultClassification(
+      "tool-metadata",
+      "canonical work item update envelope",
+      { confidence: "high" },
+    ),
+    title: summary,
+    summary,
+    fields,
+    workItem: {
+      id,
+      summary,
+      status,
+      ...(workflowProfile ? { workflowProfile } : {}),
+      ...(risk ? { risk } : {}),
+      ...(surface ? { surface } : {}),
+      ...(authorityProfile ? { authorityProfile } : {}),
+      evidence: expectedEvidence.map((label) => ({
+        label,
+        status: providedEvidence.has(label) ? "completed" : "pending",
+      })),
+      nextTools,
+      pauseRequirements,
+      ...(residualRisk ? { residualRisk } : {}),
+    },
+    raw: { available: false, reason: "Canonical work item state is rendered inline" },
+  };
+}
+
+function readGoalEvidenceRequirements(value: unknown): readonly ToolResultGoalEvidenceRequirementPresentation[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const requirement = asRecord(entry);
+    const id = readString(requirement?.id);
+    const description = readString(requirement?.description);
+    if (!id || !description) return [];
+    return [{ id, description, required: requirement?.required === true }];
+  });
+}
+
+function projectGoalToolPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+): ToolResultPresentation | undefined {
+  if (toolName !== "goal.create") return undefined;
+  const record = parseOutputRecord(output);
+  const goal = asRecord(record?.goal) ?? asRecord(metadata?.goal);
+  const id = readString(goal?.id) ?? readString(metadata?.id);
+  const objective = readString(goal?.objective);
+  const status = readString(goal?.status);
+  if (!goal || !id || !objective || !status) return undefined;
+  const authorityEnvelope = asRecord(goal.authorityEnvelope);
+  const routePolicy = asRecord(goal.routePolicy);
+  const source = asRecord(goal.source);
+  const phase = readString(goal.currentPhase) ?? undefined;
+  const planId = source?.kind === "approved_plan" ? readString(source.planId) ?? undefined : undefined;
+  const sourceLabel = source?.kind === "operator_direct"
+    ? `Operator turn ${readString(source.turnId) ?? "unknown"}`
+    : planId ? `Approved plan ${planId}` : undefined;
+  const authority = readString(authorityEnvelope?.maximumAuthority) ?? undefined;
+  const escalationPolicy = readString(authorityEnvelope?.escalationPolicy) ?? undefined;
+  const workflowProfile = readString(routePolicy?.workflowProfile) ?? undefined;
+  const workItemIds = readStringList(goal.workItemIds);
+  const evidenceRequirements = readGoalEvidenceRequirements(goal.evidenceRequirements);
+  const fields = [
+    field("Goal", id),
+    field("Status", status),
+    field("Phase", phase),
+    field("Source", sourceLabel),
+    field("Authority", authority),
+    field("Escalation", escalationPolicy),
+    field("Workflow", workflowProfile),
+    field("Work items", workItemIds.length),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "goal",
+    classification: toolResultClassification(
+      "tool-metadata",
+      "canonical governed goal envelope",
+      { confidence: "high" },
+    ),
+    title: objective,
+    summary: objective,
+    fields,
+    goal: {
+      id,
+      objective,
+      status,
+      ...(phase ? { phase } : {}),
+      ...(planId ? { planId } : {}),
+      workItemIds,
+      ...(authority ? { authority } : {}),
+      ...(escalationPolicy ? { escalationPolicy } : {}),
+      ...(workflowProfile ? { workflowProfile } : {}),
+      evidenceRequirements,
+    },
+    raw: { available: false, reason: "Canonical goal state is rendered inline" },
+  };
+}
+
+function projectFailedToolPresentation(
+  toolName: string,
+  output: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+): ToolResultPresentation | undefined {
+  const message = readString(output);
+  if (!message) return undefined;
+  const code = readString(metadata?.code) ?? undefined;
+  const filePath = readString(metadata?.filePath) ?? undefined;
+  return {
+    outputKind: "diagnostic",
+    classification: toolResultClassification(
+      "tool-metadata",
+      "failed tool result with diagnostic metadata",
+      { confidence: "high" },
+    ),
+    title: `${sentenceFromKey(toolName)} failed`,
+    summary: message,
+    fields: [field("Path", filePath)].filter((item): item is OperatorEventDetailItem => item !== null),
+    diagnostic: {
+      ...(code ? { code } : {}),
+      message,
+      requiredInput: [],
+    },
+    raw: { available: false, reason: "Failed tool result is rendered as a diagnostic" },
+  };
+}
+
+function projectWorkItemExecutionToolPresentation(
+  toolName: string,
+  output: string | undefined,
+): ToolResultPresentation | undefined {
+  if (toolName !== "work_item.execution.start" || !output) return undefined;
+  const record = parseOutputRecord(output);
+  if (!record) return undefined;
+  const item = asRecord(record.item);
+  const attempt = asRecord(record.attempt);
+  const status = normalizeWorkItemTaskStatus(readString(item?.status) ?? readString(record.status));
+  if (!status) return undefined;
+  const managedInvocationRequest = asRecord(record.managedInvocationRequest);
+  const reason = readString(record.reason) ?? undefined;
+  const workItemId = readString(record.workItemId) ?? readString(item?.id) ?? undefined;
+  const routeId = readString(record.routeId) ?? readString(managedInvocationRequest?.routeId) ?? undefined;
+  const nextTool = readString(record.nextTool) ?? undefined;
+  const requiredEvidence = readStringList(record.requiredEvidence).length > 0
+    ? readStringList(record.requiredEvidence)
+    : readStringList(item?.expectedEvidence).length > 0
+      ? readStringList(item?.expectedEvidence)
+      : readStringList(managedInvocationRequest?.expectedEvidence);
+  const providedEvidence = new Set(readStringList(item?.providedEvidence));
+  const items = requiredEvidence.map((label) => ({
+    label,
+    status: providedEvidence.has(label) ? "completed" as const : "pending" as const,
+  }));
+  const itemSummary = readString(item?.summary) ?? undefined;
+  const attemptSummary = readString(attempt?.summary) ?? undefined;
+  const summary = reason ?? itemSummary ?? attemptSummary ?? (items.length > 0 ? `${items.length} evidence requirements` : undefined) ?? workItemId;
+  const fields = [
+    field("Work item", workItemId),
+    field("Route", routeId),
+    field("Next tool", nextTool),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+  return {
+    outputKind: "task",
+    classification: toolResultClassification(
+      "tool-metadata",
+      "work item execution output uses the governed task result contract",
+      { confidence: "high" },
+    ),
+    title: itemSummary ?? "Work item execution",
+    ...(summary ? { summary } : {}),
+    fields,
+    task: {
+      status,
+      ...(reason ? { reason } : {}),
+      ...(workItemId ? { workItemId } : {}),
+      ...(routeId ? { routeId } : {}),
+      ...(nextTool ? { nextTool } : {}),
+      items,
+    },
+    raw: { available: false, reason: "Structured work item result is rendered inline" },
+  };
+}
+
 function projectToolResultPresentation(
   toolName: string,
   payload: Record<string, unknown>,
 ): ToolResultPresentation | undefined {
-  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  const envelope = parseOperatorToolResultEnvelope(toolResultEnvelopeText(payload));
   const payloadMetadata = asRecord(payload.metadata);
   const output = envelope?.output ?? readString(payload.output) ?? readString(payload.outputSummary) ?? undefined;
   const metadata = envelope?.metadata || payloadMetadata
@@ -805,12 +1465,34 @@ function projectToolResultPresentation(
         ...(payloadMetadata ?? {}),
       }
     : undefined;
-  const payloadResourceLinks = readResourceLinks(payloadMetadata?.resourceLinks);
+  const payloadResourceLinks = parseOperatorToolResultResourceLinks(payloadMetadata?.resourceLinks);
   const resourceLinks = payloadResourceLinks.length > 0 ? payloadResourceLinks : envelope?.resourceLinks ?? [];
   const presentationIntent = readPresentationIntent(payload, envelope, output, metadata);
-  if (!output && !metadata && resourceLinks.length === 0 && !presentationIntent) return undefined;
-  if (presentationIntent) {
-    return projectPresentationIntentToolPresentation(presentationIntent, resourceLinks);
+  if (!output && !metadata && resourceLinks.length === 0 && !presentationIntent.intent && !presentationIntent.invalidReason) return undefined;
+  if (presentationIntent.intent) {
+    return projectPresentationIntentToolPresentation(presentationIntent.intent, resourceLinks);
+  }
+  const fallbackClassification = presentationIntent.invalidReason
+    ? toolResultClassification("fallback", "invalid presentation intent fell back to textual output", {
+        fallbackReason: presentationIntent.invalidReason,
+        confidence: "medium",
+      })
+    : undefined;
+  const diagnosticPresentation = projectDiagnosticToolPresentation(output);
+  if (diagnosticPresentation) {
+    return diagnosticPresentation;
+  }
+  const workItemUpdatePresentation = projectWorkItemUpdateToolPresentation(toolName, output, metadata);
+  if (workItemUpdatePresentation) {
+    return workItemUpdatePresentation;
+  }
+  const goalPresentation = projectGoalToolPresentation(toolName, output, metadata);
+  if (goalPresentation) {
+    return goalPresentation;
+  }
+  const workItemExecutionPresentation = projectWorkItemExecutionToolPresentation(toolName, output);
+  if (workItemExecutionPresentation) {
+    return workItemExecutionPresentation;
   }
   const configPresentation = projectConfigToolPresentation(toolName, output);
   if (configPresentation) {
@@ -842,22 +1524,32 @@ function projectToolResultPresentation(
   if (kind === "media" && operation === "ocr" && metadata) {
     return projectOcrPresentation(toolName, output, metadata, resourceLinks);
   }
+  const searchResultsPresentation = projectSearchResultsPresentation(toolName, output, metadata, resourceLinks);
+  if (searchResultsPresentation) {
+    return searchResultsPresentation;
+  }
   if (operation === "read_many" && resourceLinks.length > 0) {
     return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
   }
+  if (toolResultIsError(payload)) {
+    const failedPresentation = projectFailedToolPresentation(toolName, output, metadata);
+    if (failedPresentation) {
+      return failedPresentation;
+    }
+  }
   if (operation === "read" || toolName === "read") {
-    return projectTextPresentation(toolName, output, metadata, resourceLinks);
+    return projectTextPresentation(toolName, output, metadata, resourceLinks, fallbackClassification);
   }
   if (resourceLinks.length > 0) {
     return projectResourceLinkPresentation(toolName, output, metadata ?? {}, resourceLinks);
   }
-  return projectTextPresentation(toolName, output, metadata, resourceLinks);
+  return projectTextPresentation(toolName, output, metadata, resourceLinks, fallbackClassification);
 }
 
 function toolResultText(payload: Record<string, unknown>): string | null {
   const raw = toolResultEnvelopeText(payload);
   if (!raw) return null;
-  const envelope = parseToolResultEnvelope(raw);
+  const envelope = parseOperatorToolResultEnvelope(raw);
   const payloadMetadata = asRecord(payload.metadata);
   const metadata = envelope?.metadata || payloadMetadata
     ? {
@@ -881,12 +1573,15 @@ function toolResultText(payload: Record<string, unknown>): string | null {
 }
 
 function toolResultIsError(payload: Record<string, unknown>): boolean {
-  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  const status = asRecord(payload.status);
+  const state = readString(status?.state) ?? readString(payload.status);
+  if (state === "failed" || state === "error") return true;
+  const envelope = parseOperatorToolResultEnvelope(toolResultEnvelopeText(payload));
   return envelope?.isError === true;
 }
 
 function toolResultMetadata(payload: Record<string, unknown>): Record<string, unknown> | null {
-  const envelope = parseToolResultEnvelope(toolResultEnvelopeText(payload));
+  const envelope = parseOperatorToolResultEnvelope(toolResultEnvelopeText(payload));
   const payloadMetadata = asRecord(payload.metadata);
   if (!envelope?.metadata && !payloadMetadata) {
     return null;
@@ -1028,6 +1723,7 @@ function addManagedCapabilitySnapshotDetails(
   addItem(details, "Lease cleanup", resourceLease?.cleanupStatus);
   addItem(details, "Lease resources", formatStringList(resourceLease?.resourceUris));
   addItem(details, "Lease diagnostics", formatStringList(resourceLease?.diagnosticUris));
+  addItem(details, "Source resources", formatStringList(lifecycle?.sourceResourceUris));
   const worktreeReview = asRecord(resourceLease?.worktreeReview);
   const worktreeReviewStatus = readString(worktreeReview?.status);
   const worktreeReviewReason = readString(worktreeReview?.reason);
@@ -1105,6 +1801,7 @@ function providerRoutedPresentation(payload: Record<string, unknown>): OperatorE
     tone: "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1143,6 +1840,7 @@ function multimodalRoutedPresentation(payload: Record<string, unknown>): Operato
         : "error",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: strategy === "unsupported" || strategy === "failed" ? "exception" : "none",
   };
 }
 
@@ -1165,36 +1863,79 @@ function toolStartedPresentation(payload: Record<string, unknown>): OperatorEven
     tone: "running",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "activity",
   };
+}
+
+function toolOutputDeltaPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const toolName = readString(payload.toolName) ?? "tool";
+  return {
+    title: `${toolName} output`,
+    compactText: toolName,
+    tone: "running",
+    details: [],
+    surfaces: ["activity_panel"],
+    conversationDisposition: "none",
+  };
+}
+
+function workItemTaskEventState(status: ToolResultTaskStatus | undefined): {
+  readonly title: string;
+  readonly tone: OperatorEventTone;
+  readonly disposition: OperatorEventConversationDisposition;
+} | null {
+  switch (status) {
+    case "paused":
+      return { title: "Execution paused", tone: "warning", disposition: "exception" };
+    case "blocked":
+      return { title: "Execution blocked", tone: "warning", disposition: "exception" };
+    case "failed":
+      return { title: "Execution failed", tone: "error", disposition: "exception" };
+    case "in_progress":
+    case "pending":
+      return { title: "Execution started", tone: "running", disposition: "result" };
+    case "cancelled":
+      return { title: "Execution cancelled", tone: "warning", disposition: "exception" };
+    case "completed":
+      return { title: "Execution completed", tone: "success", disposition: "result" };
+    default:
+      return null;
+  }
 }
 
 function toolCompletedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const toolName = readString(payload.toolName) ?? "tool";
   const status = asRecord(payload.status);
   const rawStatusValue = readString(status?.state) ?? readString(payload.status);
-  const isError = toolResultIsError(payload);
-  const statusValue = isError ? "failed" : rawStatusValue;
   const toolPresentation = projectToolResultPresentation(toolName, payload);
+  const isError = toolResultIsError(payload) || toolPresentation?.diagnostic !== undefined;
+  const taskStatus = toolPresentation?.task?.status;
+  const statusValue = taskStatus ?? (isError ? "failed" : rawStatusValue);
   const result = toolPresentation?.summary ?? toolResultText(payload);
+  const toolUsageSummary = formatToolUsageSummary(payload);
   const managedInvocation = managedInvocationToolIdentity(payload);
   const managedInvocationSummary = managedInvocation ? invocationRouteSummary(managedInvocation) : null;
-  const summary = managedInvocationSummary && result ? `${managedInvocationSummary} · ${result}` : result;
+  const resultWithUsage = [result, toolUsageSummary].filter((value): value is string => Boolean(value)).join(" · ") || null;
+  const summary = managedInvocationSummary && resultWithUsage ? `${managedInvocationSummary} · ${resultWithUsage}` : resultWithUsage;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Tool", toolName);
   addItem(details, "Tool call ID", payload.toolCallId);
   addItem(details, "Status", statusValue);
   addItem(details, "Result", result);
+  addItem(details, "Tool usage", toolUsageSummary);
   if (managedInvocation) {
     addManagedInvocationToolDetails(details, managedInvocation, { includeRuntimeEvidence: true });
   }
   addPrimitiveItems(details, asRecord(payload.input), 16, ["toolName", "toolCallId", "input", "status", "result", "profile", "providerRoute", "routeId", "routeSource", "parentTurnId", "task", "summary", "resourceUris", "agentProfile", "skills", "contextMode", "context", "capabilitySnapshot"]);
+  const taskState = workItemTaskEventState(taskStatus);
   return {
-    title: `${isError ? "Failed" : "Completed"} ${toolName}`,
+    title: taskState?.title ?? `${isError ? "Failed" : "Completed"} ${toolName}`,
     summary: summary ?? undefined,
     compactText: summary ?? managedInvocationSummary ?? toolName,
-    tone: !isError && (statusValue === "succeeded" || statusValue === "success") ? "success" : "error",
+    tone: taskState?.tone ?? (!isError && (statusValue === "succeeded" || statusValue === "success") ? "success" : "error"),
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: taskState?.disposition ?? (isError ? "exception" : "result"),
     ...(toolPresentation ? { toolPresentation } : {}),
   };
 }
@@ -1216,6 +1957,7 @@ function fileChangedPresentation(payload: Record<string, unknown>): OperatorEven
     tone: "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1240,6 +1982,48 @@ function costUpdatedPresentation(payload: Record<string, unknown>): OperatorEven
     tone: "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
+  };
+}
+
+function lifecycleAttributionPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const ledger = asRecord(payload.ledger);
+  const parsed = VerifiedEfficiencyEvidenceProjectionSchema.safeParse(payload.efficiencyEvidence);
+  if (!parsed.success) {
+    return {
+      title: "Efficiency evidence unavailable",
+      summary: "Canonical efficiency evidence is missing or invalid",
+      compactText: "Efficiency evidence unavailable",
+      tone: "warning",
+      details: [],
+      surfaces: ACTIVITY_SURFACES,
+      conversationDisposition: "none",
+    };
+  }
+  const projection = parsed.data;
+  const summary = formatVerifiedEfficiencyEvidence(projection);
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Provider total tokens", projection.totals.providerTotalTokens);
+  addItem(details, "Measured tokens", projection.totals.measured.tokens);
+  addItem(details, "Estimated tokens", projection.totals.estimated.tokens);
+  addItem(details, "Cached tokens", projection.totals.cached.tokens);
+  addItem(details, "Avoided tokens", projection.totals.avoided.tokens);
+  addItem(details, "Unknown tokens", projection.totals.unknown.tokens);
+  addItem(details, "Policy", `${projection.policy.owner}/${projection.policy.policyId}`);
+  addItem(details, "Policy configuration", projection.policy.configurationHash);
+  addItem(details, "Outcome", projection.outcome);
+  addItem(details, "Verification", projection.verification.status);
+  addItem(details, "Savings evidence", projection.savings.length);
+  addItem(details, "Evidence resources", projection.evidenceUris.length);
+  addItem(details, "Source event", ledger?.sourceEventId);
+  return {
+    title: "Verified efficiency evidence",
+    summary,
+    compactText: summary,
+    tone: "info",
+    details,
+    surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1256,6 +2040,7 @@ function approvalRequestedPresentation(payload: Record<string, unknown>): Operat
     tone: "warning",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "action",
   };
 }
 
@@ -1274,6 +2059,7 @@ function approvalResolvedPresentation(payload: Record<string, unknown>): Operato
     tone: decision === "approved" ? "success" : "error",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "activity",
   };
 }
 
@@ -1315,6 +2101,11 @@ function configChangePresentation(kind: OperatorSessionEventKind, payload: Recor
         : "warning",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: kind === "config_change_proposed"
+      ? "action"
+      : kind === "config_change_failed"
+        ? "exception"
+        : "none",
   };
 }
 
@@ -1338,6 +2129,7 @@ function planSubmittedPresentation(payload: Record<string, unknown>): OperatorEv
     tone: "info",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1363,6 +2155,7 @@ function specificationSubmittedPresentation(payload: Record<string, unknown>): O
       ...(blockingIssueCodes.length > 0 ? [{ label: "Blocking", value: blockingIssueCodes.join(", ") }] : []),
     ],
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1395,6 +2188,7 @@ function planAnalysisReportedPresentation(payload: Record<string, unknown>): Ope
       ...(blocking.length > 0 ? [{ label: "Blocking findings", value: blocking.join(", ") }] : []),
     ],
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1413,6 +2207,7 @@ function clarificationRecordedPresentation(payload: Record<string, unknown>): Op
       ...(affectedSection ? [{ label: "Section", value: affectedSection }] : []),
     ],
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1434,6 +2229,7 @@ function planApprovedPresentation(payload: Record<string, unknown>): OperatorEve
     tone: "success",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1543,6 +2339,11 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
             : "info",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: kind === "agent_invocation_completed"
+      ? "result"
+      : kind === "agent_invocation_failed" || kind === "agent_invocation_cancelled"
+        ? "exception"
+        : "none",
   };
 }
 
@@ -1565,6 +2366,7 @@ function continuityPresentation(payload: Record<string, unknown>): OperatorEvent
     tone: "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1590,6 +2392,7 @@ function turnCompletedPresentation(payload: Record<string, unknown>): OperatorEv
     tone: "success",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1604,6 +2407,7 @@ function genericPresentation(kind: OperatorSessionEventKind, payload: Record<str
     tone: kind === "error_recorded" ? "error" : "info",
     details,
     surfaces: kind === "error_recorded" ? INLINE_ACTIVITY_SURFACES : ACTIVITY_SURFACES,
+    conversationDisposition: kind === "error_recorded" ? "exception" : "none",
   };
 }
 
@@ -1612,13 +2416,11 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
   const summary = readString(item?.summary) ?? "Governed work item updated";
   const status = readString(item?.status) ?? "unknown";
   const operation = readString(payload.operation) ?? "update";
-  const missingEvidence = Array.isArray(payload.missingEvidence)
-    ? payload.missingEvidence.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
-    : [];
+  const missingEvidence = workItemMissingEvidence(payload, item);
   const missingGoalEvidence = readStringList(payload.missingGoalEvidence);
   const missingVerificationGates = readStringList(payload.missingVerificationGates);
   const failedVerificationGates = readStringList(payload.failedVerificationGates);
-  const missingResidualRisk = payload.missingResidualRisk === true;
+  const missingResidualRisk = payload.missingResidualRisk === true || item?.missingResidualRisk === true;
   const hasMissingCloseout = missingEvidence.length > 0
     || missingGoalEvidence.length > 0
     || missingVerificationGates.length > 0
@@ -1626,6 +2428,7 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
     || missingResidualRisk;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Work item", item?.id);
+  addItem(details, "Resource", workItemResourceUri(readString(item?.id)));
   addItem(details, "Status", status);
   addItem(details, "Workflow", item?.workflowProfile);
   addItem(details, "Risk", item?.risk);
@@ -1654,6 +2457,7 @@ function workItemPresentation(payload: Record<string, unknown>): OperatorEventPr
         : "info",
     details,
     surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1666,11 +2470,11 @@ function workItemExecutionPresentation(
   const summary = readString(item?.summary) ?? "Governed work item execution";
   const status = readString(attempt?.status) ?? readString(item?.status) ?? "unknown";
   const executionMode = readString(attempt?.executionMode) ?? "unknown";
-  const missingEvidence = readStringList(payload.missingEvidence);
+  const missingEvidence = workItemMissingEvidence(payload, item);
   const missingGoalEvidence = readStringList(payload.missingGoalEvidence);
   const missingVerificationGates = readStringList(payload.missingVerificationGates);
   const failedVerificationGates = readStringList(payload.failedVerificationGates);
-  const missingResidualRisk = payload.missingResidualRisk === true;
+  const missingResidualRisk = payload.missingResidualRisk === true || item?.missingResidualRisk === true;
   const hasMissingCloseout = missingEvidence.length > 0
     || missingGoalEvidence.length > 0
     || missingVerificationGates.length > 0
@@ -1678,10 +2482,12 @@ function workItemExecutionPresentation(
     || missingResidualRisk;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Work item", item?.id);
+  addItem(details, "Resource", workItemResourceUri(readString(item?.id)));
   addItem(details, "Attempt", attempt?.id);
   addItem(details, "Status", status);
   addItem(details, "Execution mode", executionMode);
   addItem(details, "Managed invocation", attempt?.managedInvocationId);
+  addItem(details, "Authority", item?.authorityProfile);
   addItem(details, "Reference roots", readStringList(item?.referenceRoots).join(", "));
   addItem(details, "Started", attempt?.startedAt);
   addItem(details, "Completed", attempt?.completedAt);
@@ -1712,20 +2518,50 @@ function workItemExecutionPresentation(
             : "info",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: hasMissingCloseout || status === "failed" || status === "blocked" || status === "cancelled"
+      ? "exception"
+      : "none",
   };
+}
+
+function workItemResourceUri(id: string | null): string | undefined {
+  return id ? `kiln://session/work-items/${encodeURIComponent(id)}` : undefined;
+}
+
+function workItemMissingEvidence(
+  payload: Record<string, unknown>,
+  item: Record<string, unknown> | null,
+): readonly string[] {
+  const provided = readStringList(item?.providedEvidence);
+  const derived = readStringList(item?.expectedEvidence).filter((evidence) => !provided.includes(evidence));
+  return [...new Set([
+    ...readStringList(payload.missingEvidence),
+    ...readStringList(item?.missingEvidence),
+    ...derived,
+    ...(payload.missingResidualRisk === true || item?.missingResidualRisk === true ? ["residual-risk"] : []),
+  ])];
 }
 
 function goalPresentation(kind: OperatorSessionEventKind, payload: Record<string, unknown>): OperatorEventPresentation {
   const goal = asRecord(payload.goal);
   const authority = asRecord(goal?.authorityEnvelope);
   const routePolicy = asRecord(goal?.routePolicy);
+  const source = asRecord(goal?.source);
   const status = readString(goal?.status) ?? "unknown";
   const objective = readString(goal?.objective) ?? "Governed goal";
   const summary = `${status} · ${compactText(objective)}`;
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Goal", goal?.id);
   addItem(details, "Status", status);
-  addItem(details, "Plan", goal?.planId);
+  addItem(
+    details,
+    "Source",
+    source?.kind === "approved_plan"
+      ? `Approved plan ${readString(source.planId) ?? "unknown"}`
+      : source?.kind === "operator_direct"
+        ? `Operator turn ${readString(source.turnId) ?? "unknown"}`
+        : undefined,
+  );
   addItem(details, "Work items", Array.isArray(goal?.workItemIds) ? goal.workItemIds.join(", ") : undefined);
   addItem(details, "Workflow", routePolicy?.workflowProfile);
   addItem(details, "Authority", authority?.maximumAuthority);
@@ -1754,6 +2590,11 @@ function goalPresentation(kind: OperatorSessionEventKind, payload: Record<string
           : "info",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: status === "completed"
+      ? "result"
+      : status === "failed" || status === "cancelled"
+        ? "exception"
+        : "none",
   };
 }
 
@@ -1779,6 +2620,7 @@ function workItemsMaterializedPresentation(payload: Record<string, unknown>): Op
     tone: "success",
     details,
     surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "none",
   };
 }
 
@@ -1787,6 +2629,12 @@ export function operatorEventTargetsSurface(
   surface: OperatorEventSurface,
 ): boolean {
   return presentation.surfaces.includes(surface);
+}
+
+export function operatorEventTargetsConversation(
+  presentation: Pick<OperatorEventPresentation, "conversationDisposition">,
+): boolean {
+  return presentation.conversationDisposition !== "none";
 }
 
 export function presentOperatorEventPayload(
@@ -1810,12 +2658,16 @@ export function presentOperatorEventPayload(
       return multimodalRoutedPresentation(payload);
     case "tool_call_started":
       return toolStartedPresentation(payload);
+    case "tool_call_output_delta":
+      return toolOutputDeltaPresentation(payload);
     case "tool_call_completed":
       return toolCompletedPresentation(payload);
     case "file_changed":
       return fileChangedPresentation(payload);
     case "cost_updated":
       return costUpdatedPresentation(payload);
+    case "lifecycle_attribution_recorded":
+      return lifecycleAttributionPresentation(payload);
     case "goal.created":
     case "goal.updated":
     case "goal.completed":

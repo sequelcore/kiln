@@ -28,9 +28,13 @@ export const MODEL_CATALOG: readonly CatalogPricing[] = [
   // Local
   { model: "ollama-local", provider: "ollama", inputPer1M: 0, outputPer1M: 0, qualityTier: "low" },
   // OpenAI Codex
+  { model: "gpt-5.6", provider: "openai", inputPer1M: 5.00, outputPer1M: 30.00, qualityTier: "high", cachedInputRatePer1M: 0.50 },
+  { model: "gpt-5.6-sol", provider: "openai", inputPer1M: 5.00, outputPer1M: 30.00, qualityTier: "high", cachedInputRatePer1M: 0.50 },
+  { model: "gpt-5.6-terra", provider: "openai", inputPer1M: 2.50, outputPer1M: 15.00, qualityTier: "high", cachedInputRatePer1M: 0.25 },
+  { model: "gpt-5.6-luna", provider: "openai", inputPer1M: 1.00, outputPer1M: 6.00, qualityTier: "medium", cachedInputRatePer1M: 0.10 },
   { model: "gpt-5.4", provider: "openai", inputPer1M: 2.50, outputPer1M: 15.00, qualityTier: "high", cachedInputRatePer1M: 0.25 },
   { model: "gpt-5.3-codex", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
   { model: "gpt-5.3-codex-spark", provider: "openai", inputPer1M: 1.75, outputPer1M: 14.00, qualityTier: "high", cachedInputRatePer1M: 0.175 },
 ];
 
-export const CODEX_DEFAULT_MODEL = "gpt-5.4";
+export const CODEX_DEFAULT_MODEL = "gpt-5.6";

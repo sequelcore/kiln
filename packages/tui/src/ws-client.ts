@@ -3,6 +3,7 @@
  * @module @kilnai/tui
  */
 import type {
+  GuiProviderModelDiscoveryProjection,
   OperatorActivityPhaseFrame,
   OperatorExecutionMode,
   OperatorSessionEvent,
@@ -97,6 +98,7 @@ export type TuiInboundFrame =
       type: "welcome";
       greeting?: string;
       models?: Record<string, string[]>;
+      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
       providerDiscovery?: TuiProviderDiscoveryFrame[];
       executionMode?: OperatorExecutionMode;
     }
@@ -121,12 +123,14 @@ export type TuiInboundFrame =
       type: "provider_auth_completed";
       provider: string;
       requestId: string;
+      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
       models: Record<string, string[]>;
       providerDiscovery: TuiProviderDiscoveryFrame[];
     }
   | { type: "provider_auth_failed"; provider: string; requestId: string; message: string }
   | {
       type: "providers_refreshed";
+      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
       models: Record<string, string[]>;
       providerDiscovery: TuiProviderDiscoveryFrame[];
     }

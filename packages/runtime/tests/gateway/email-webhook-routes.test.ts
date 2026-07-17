@@ -4,7 +4,7 @@ import { textParts } from "@kilnai/core";
 import { createEmailWebhookRoutes } from "../../src/gateway/email-webhook-routes.js";
 import type { EmailWebhookConfig } from "../../src/gateway/email-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
-import { SessionRegistry } from "../../src/session/session-registry.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { InMemoryEmailThreadStore } from "../../src/gateway/email-thread-store.js";
 import { mkdtempSync } from "node:fs";
@@ -111,7 +111,7 @@ describe("createEmailWebhookRoutes", () => {
         toolAuthority: mockedToolAuthority,
         toolAllowlist: undefined,
         rateLimiter: undefined,
-        maxToolRounds: undefined,
+        executionEnvelope: undefined,
       },
       isHandoff: false,
     });

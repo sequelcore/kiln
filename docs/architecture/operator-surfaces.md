@@ -35,6 +35,11 @@ If behavior affects session identity, tool authority, provider routing, cost,
 memory, replay, audit, execution mode, approvals, diffs, or safety policy, it
 belongs in core/runtime and is projected through stable contracts.
 
+Context usage follows this rule: Core owns its semantic event, Runtime owns
+normalization and Core-to-Gateway mapping, and GUI/TUI/CLI only render the
+shared projection. See [Context Usage Projection](./context-usage-projection.md)
+for authority, restoration, and accessibility rules.
+
 Allowed surface-owned state is limited to presentation and interaction state:
 
 - selected panel, open popover, expanded row, focused item, and layout state
@@ -76,6 +81,12 @@ Required operator evidence includes:
 - governed work-item lifecycle, expected evidence, provided evidence,
   verification gates, and residual-risk closeout status
 - session replay data with stable IDs
+- tool execution continuity keyed by canonical `toolCallId`, with repeated
+  `eventId` delivery deduplicated before presentation
+- bounded structured-output presentation with readable fallback for invalid or
+  unsupported intents
+- durable semantic transcript anchors and explicit live-edge navigation on
+  surfaces that present long conversations
 - execution-mode transitions and planning submissions
 - managed child invocation capability snapshots: admitted route id and health,
   provider/model proof, adapter/execution mode, authority profile,
@@ -249,6 +260,31 @@ paint, frame handling, projection update time, memory usage, and dropped
 frames. Rust, WASM, or sidecar acceleration may be added only for measured
 projection/replay hot paths and must never own authority, scheduling, provider
 routing, memory, config, replay truth, or policy.
+
+## Startup And Operator Performance
+
+Startup performance is cross-surface operator evidence, not a GUI-only Vite
+metric. CLI, GUI, TUI, local Operator Gateway, App Gateway attach mode, runtime
+session startup, config/setup diagnostics, provider/model discovery, managed
+agent route catalog setup, and first usable interaction must be measured as
+separate phases before optimization.
+
+Normal startup must stay quiet and must not pay profiling overhead. Profiling
+belongs behind explicit diagnostic commands or flags that emit structured,
+secret-free evidence: commit SHA, OS, runtime versions, cache state, command
+line, browser/window launch state, and phase timings. Local paths should be
+redacted or bounded to the workspace identity unless the operator explicitly
+requests raw diagnostic detail.
+
+Provider/model discovery and managed-agent route refreshes remain runtime-owned
+background work after the relevant operator transport is listening. Cached or
+stale startup projections may improve diagnostics, but they must not become
+execution admission evidence until fresh runtime discovery succeeds.
+Startup-path discovery adapters must not run synchronous child processes or
+blocking network probes from the gateway event loop. External CLI probes belong
+behind async process boundaries with bounded timeouts and diagnostic statuses,
+so operator transports can become usable while deeper provider evidence is
+still being refreshed.
 
 Native operator surface projection is contract-only until the active native operator surface
 benchmark-validation roadmap proves value with benchmark fixtures. Stable

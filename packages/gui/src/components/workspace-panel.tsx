@@ -6,8 +6,9 @@ import type {
   OperatorWorkspaceTreeEntry,
   OperatorWorkspaceVcsStatus,
 } from "@kilnai/gateway-contracts";
-import { ChevronDown, ChevronRight, File, Folder } from "lucide-react";
-import { SidebarPanelShell } from "./sidebar-panel-shell.js";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { InspectorPanelShell } from "./inspector-panel-shell.js";
+import { WorkspaceFileIcon } from "./workspace-file-icon.js";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceExplorerClient {
@@ -83,8 +84,8 @@ function WorkspaceTreeRow(props: {
         else props.onOpenFile(props.entry);
       }}
       className={cn(
-        "grid w-full grid-cols-[1rem_1rem_minmax(0,1fr)_1.5rem] items-center gap-2 px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-        props.selected ? "bg-secondary/70" : "hover:bg-secondary/35",
+        "grid w-full min-w-0 grid-cols-[1rem_1rem_minmax(0,1fr)_1.5rem] items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+        props.selected ? "bg-secondary/75" : "hover:bg-secondary/35",
         props.entry.vcs ? vcsTextClass(props.entry.vcs) : "text-foreground",
       )}
       style={{ paddingLeft: `${0.5 + props.depth * 0.875}rem` }}
@@ -93,8 +94,8 @@ function WorkspaceTreeRow(props: {
       <span className="text-muted-foreground">
         {isDirectory ? (props.expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />) : null}
       </span>
-      <span className="text-muted-foreground">
-        {isDirectory ? <Folder className="size-3.5" /> : <File className="size-3.5" />}
+      <span className="flex size-3.5 items-center justify-center text-muted-foreground">
+        <WorkspaceFileIcon entry={props.entry} />
       </span>
       <span className="min-w-0 truncate font-mono text-[12px] leading-5">{props.entry.name}</span>
       {props.entry.vcs ? (
@@ -184,19 +185,24 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
   };
 
   return (
-    <SidebarPanelShell title="Workspace" meta={rootSnapshot ? "explorer" : "metadata"}>
+    <InspectorPanelShell title="Workspace" meta={rootSnapshot ? "explorer" : "metadata"}>
       <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)]">
-        <div className="border-b border-border/60 px-3 py-2">
+        <div className="border-b border-border/60 px-3 py-2.5">
           {workspaceRoot ? (
-            <div aria-label="Workspace root" className="min-w-0">
-              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Root</p>
-              <p className="mt-1 truncate font-mono text-[12px] leading-5 text-foreground" title={normalizePath(workspaceRoot)}>
-                {normalizePath(workspaceRoot)}
-              </p>
-              {worktreePath ? (
-                <p className="mt-1 truncate font-mono text-[11px] leading-5 text-muted-foreground" title={normalizePath(worktreePath)}>
-                  worktree: {normalizePath(worktreePath)}
+            <div aria-label="Workspace root" className="flex min-w-0 flex-col gap-1.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">Root</p>
+                <p className="min-w-0 truncate font-mono text-[12px] leading-5 text-foreground" title={normalizePath(workspaceRoot)}>
+                  {normalizePath(workspaceRoot)}
                 </p>
+              </div>
+              {worktreePath ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <p className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">Worktree</p>
+                  <p className="min-w-0 truncate font-mono text-[11px] leading-5 text-muted-foreground" title={normalizePath(worktreePath)}>
+                    {normalizePath(worktreePath)}
+                  </p>
+                </div>
               ) : null}
             </div>
           ) : (
@@ -204,10 +210,10 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
           )}
         </div>
 
-        <section aria-label="Workspace tree" className="min-h-0 overflow-y-auto border-b border-border/60">
+        <section aria-label="Workspace tree" className="min-h-0 min-w-0 overflow-y-auto">
           {rootSnapshot ? (
-            <div>
-              <div aria-label="Workspace files">{renderEntries(rootSnapshot)}</div>
+            <div className="min-w-0 px-2 py-2">
+              <div aria-label="Workspace files" className="flex flex-col gap-0.5">{renderEntries(rootSnapshot)}</div>
               {loadingPath ? <p className="px-3 py-2 text-xs text-muted-foreground">Loading {normalizePath(loadingPath)}...</p> : null}
               {treeError ? <p className="px-3 py-2 text-xs text-destructive">{treeError}</p> : null}
               {rootSnapshot.truncated ? <p className="px-3 py-2 text-xs text-muted-foreground">Showing first {rootSnapshot.entries.length} entries.</p> : null}
@@ -218,6 +224,6 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
         </section>
 
       </div>
-    </SidebarPanelShell>
+    </InspectorPanelShell>
   );
 }

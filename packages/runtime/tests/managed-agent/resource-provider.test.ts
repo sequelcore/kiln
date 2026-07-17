@@ -1,11 +1,65 @@
 import { describe, expect, it } from "vitest";
 import { MemoryArtifactResourceStore } from "@kilnai/core";
 import {
-  createManagedAgentInvocationResourceProvider,
+  createManagedAgentInvocationResourceProvider as createScopedManagedAgentInvocationResourceProvider,
   type ManagedAgentRuntimeInvocationSnapshot,
 } from "../../src/agents/managed-invocation/index.js";
+import { buildManagedAgentCoordinationUsage } from "../../src/agents/managed-invocation/coordination-usage.js";
+
+type ProviderInput = Parameters<typeof createScopedManagedAgentInvocationResourceProvider>[0];
+
+function createManagedAgentInvocationResourceProvider(
+  input: Omit<ProviderInput, "parentSessionId"> & { readonly parentSessionId?: string },
+) {
+  return createScopedManagedAgentInvocationResourceProvider({
+    ...input,
+    parentSessionId: input.parentSessionId ?? "parent-session",
+  });
+}
 
 describe("createManagedAgentInvocationResourceProvider", () => {
+  it("isolates aggregate, listing, and direct reads to the owning parent session", async () => {
+    const owned = managedInvocationSnapshot();
+    const foreign: ManagedAgentRuntimeInvocationSnapshot = {
+      ...owned,
+      invocationId: "child-foreign",
+      parentSessionId: "foreign-session",
+      request: {
+        ...owned.request,
+        invocationId: "child-foreign",
+        parentSessionId: "foreign-session",
+      },
+      record: owned.record ? {
+        ...owned.record,
+        invocationId: "child-foreign",
+        parentSessionId: "foreign-session",
+      } : undefined,
+    };
+    const provider = createManagedAgentInvocationResourceProvider({
+      parentSessionId: "parent-session",
+      service: { list: () => [owned, foreign] },
+    });
+
+    const listedUris = provider.listResources().map((resource) => resource.uri);
+    expect(listedUris).toContain("kiln://managed-agents/invocations/child-1");
+    expect(listedUris.some((uri) => uri.includes("child-foreign"))).toBe(false);
+    const aggregate = await provider.read("kiln://managed-agents/invocations");
+    expect(JSON.parse(aggregate?.contents[0]?.text ?? "{}")).toMatchObject({
+      total: 1,
+      invocations: [{ invocationId: "child-1" }],
+    });
+    expect(await provider.read("kiln://managed-agents/invocations/child-foreign")).toBeUndefined();
+    expect(await provider.read("kiln://managed-agents/invocations/child-foreign/transcript")).toBeUndefined();
+    expect(await provider.read("kiln://managed-agents/invocations/child-foreign/resources")).toBeUndefined();
+  });
+
+  it("rejects an empty parent session boundary", () => {
+    expect(() => createScopedManagedAgentInvocationResourceProvider({
+      parentSessionId: "  ",
+      service: { list: () => [] },
+    })).toThrow("require a parent session id");
+  });
+
   it("projects adapter transcript pointers as readable managed-agent resource URIs", async () => {
     const snapshot = managedInvocationSnapshot();
     const rawTranscriptUri = "kiln://managed-invocations/child-1/transcript";
@@ -39,6 +93,16 @@ describe("createManagedAgentInvocationResourceProvider", () => {
           },
           record: {
             ...snapshot.record!,
+            usage: {
+              source: "provider",
+              tokenClasses: [
+                { name: "input", value: 100 },
+                { name: "output", value: 20 },
+                { name: "cache_read", value: 30 },
+                { name: "cache_write", value: 10 },
+              ],
+              cost: { currency: "USD", amount: 0.012 },
+            },
             transcript: {
               ...snapshot.record!.transcript!,
               uri: rawTranscriptUri,
@@ -53,11 +117,39 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const aggregate = await provider.read("kiln://managed-agents/invocations");
+    expect(aggregate!.summary).toEqual({
+      kind: "managed-agent-invocations",
+      totalCount: 1,
+      counts: {
+        invocation: 1,
+        completed: 1,
+        failed: 0,
+        timedOut: 0,
+        cancelled: 0,
+        stale: 0,
+        recovered: 0,
+        running: 0,
+        transcript: 1,
+        handoff: 1,
+        sourceResource: 3,
+        resource: 12,
+        diagnostic: 0,
+        writeEvidence: 0,
+      },
+      facets: {
+        agentIds: ["agent-reviewer"],
+        profiles: ["foundation-apply-approved-writes"],
+        adapterKinds: ["harness"],
+        providerIds: ["codex"],
+      },
+    });
     const aggregatePayload = JSON.parse(aggregate!.contents[0]!.text);
     expect(aggregatePayload.invocations[0]).toMatchObject({
       transcriptUri: canonicalTranscriptUri,
       handoffResourceUris: [canonicalTranscriptUri, canonicalSiblingHandoffUri],
+      sourceResourceUris: expect.arrayContaining([canonicalContextUri, canonicalSiblingHandoffUri]),
       resourceUris: expect.arrayContaining([
+        canonicalContextUri,
         canonicalTranscriptUri,
         canonicalSiblingHandoffUri,
         canonicalAdmissionLeaseUri,
@@ -77,11 +169,30 @@ describe("createManagedAgentInvocationResourceProvider", () => {
         },
       },
       resourceUris: expect.arrayContaining([canonicalAdmissionLeaseUri]),
+      usage: {
+        source: "provider",
+        cost: { currency: "USD", amount: 0.012 },
+      },
+      efficiencyEvidence: {
+        schemaVersion: "verified-efficiency-evidence-v1",
+        provider: { providerId: "codex", modelId: "gpt-5.5" },
+        policy: { owner: "ManagedInvocationService", policyId: "managed-invocation-admission-v1" },
+        totals: {
+          providerTotalTokens: 160,
+          measured: { tokens: 120 },
+          cached: { tokens: 30 },
+          cacheWritten: { tokens: 10 },
+          avoided: { tokens: 0 },
+        },
+      },
+      efficiencyEvidenceStatus: "available",
     });
     expect(JSON.stringify(detailPayload)).not.toContain("kiln://managed-invocations/");
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
     const resourcePayload = JSON.parse(resources!.contents[0]!.text);
+    expect(resourcePayload.sourceResourceUris).toContain(canonicalContextUri);
+    expect(resourcePayload.resourceUris).toContain(canonicalContextUri);
     expect(resourcePayload.resourceUris).toContain(canonicalTranscriptUri);
     expect(JSON.stringify(resourcePayload)).not.toContain("kiln://managed-invocations/");
 
@@ -93,6 +204,92 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(transcript!.contents[0]!.text).toContain("# Managed Invocation Transcript");
     expect(transcript!.contents[0]!.text).toContain("Invocation ID: child-1");
     expect(transcript!.contents[0]!.text).not.toContain("kiln://managed-invocations/");
+  });
+
+  it("does not summarize cancelled stale or recovered invocations as running", async () => {
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [
+          managedInvocationWithLifecycleState("cancelled"),
+          managedInvocationWithLifecycleState("stale"),
+          managedInvocationWithLifecycleState("recovered"),
+        ],
+      },
+    });
+
+    const aggregate = await provider.read("kiln://managed-agents/invocations");
+
+    expect(aggregate!.summary?.counts).toMatchObject({
+      invocation: 3,
+      completed: 0,
+      failed: 0,
+      timedOut: 0,
+      cancelled: 1,
+      stale: 1,
+      recovered: 1,
+      running: 0,
+    });
+  });
+
+  it("marks efficiency evidence unavailable when a required token class is absent", async () => {
+    const snapshot = managedInvocationSnapshot();
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [{
+          ...snapshot,
+          record: {
+            ...snapshot.record!,
+            usage: {
+              source: "provider",
+              tokenClasses: [{ name: "input", value: 100 }],
+              cost: { currency: "USD", amount: 0.01 },
+            },
+          },
+        }],
+      },
+    });
+
+    const detail = await provider.read("kiln://managed-agents/invocations/child-1");
+    expect(JSON.parse(detail!.contents[0]!.text).invocation).toMatchObject({
+      efficiencyEvidenceStatus: "unavailable",
+    });
+    expect(JSON.parse(detail!.contents[0]!.text).invocation).not.toHaveProperty("efficiencyEvidence");
+  });
+
+  it.each([
+    ["duplicate", [
+      { name: "input", value: 100 },
+      { name: "input", value: 40 },
+      { name: "output", value: 20 },
+      { name: "cache_read", value: 0 },
+    ]],
+    ["negative", [
+      { name: "input", value: -1 },
+      { name: "output", value: 20 },
+      { name: "cache_read", value: 0 },
+    ]],
+  ] as const)("marks efficiency evidence unavailable for %s token values", async (_label, tokenClasses) => {
+    const snapshot = managedInvocationSnapshot();
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [{
+          ...snapshot,
+          record: {
+            ...snapshot.record!,
+            usage: {
+              source: "provider",
+              tokenClasses,
+              cost: { currency: "USD", amount: 0.01 },
+            },
+          },
+        } as ManagedAgentRuntimeInvocationSnapshot],
+      },
+    });
+
+    const detail = await provider.read("kiln://managed-agents/invocations/child-1");
+    expect(JSON.parse(detail!.contents[0]!.text).invocation).toMatchObject({
+      efficiencyEvidenceStatus: "unavailable",
+    });
   });
 
   it("serves full child result resources through public managed-agent resource URIs", async () => {
@@ -271,7 +468,9 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
     expect(JSON.parse(resources!.contents[0]!.text)).toEqual({
       invocationId: "child-1",
+      sourceResourceUris: ["kiln://session/work-items/work-1"],
       resourceUris: [
+        "kiln://session/work-items/work-1",
         "kiln://artifacts/child-1/transcript",
         "kiln://artifacts/child-1/handoff",
         "kiln://artifacts/child-1/worktree",
@@ -481,6 +680,134 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(JSON.stringify(nestedPayload)).not.toContain("kiln://managed-invocations/");
   });
 
+  it("integrates mutually-exclusive coordination and verification usage into the reconciled worker ledger", async () => {
+    const snapshot = managedInvocationWithVerifiedUsage(
+      "kiln://managed-invocations/child-1/transcript",
+      true,
+    );
+    const provider = createManagedAgentInvocationResourceProvider({
+      parentSessionId: "parent-session",
+      service: { list: () => [snapshot] },
+    });
+
+    const detail = await provider.read("kiln://managed-agents/invocations/child-1");
+    const invocation = JSON.parse(detail!.contents[0]!.text).invocation;
+
+    expect(invocation.lifecycleAttribution.summary).toMatchObject({ totalTokens: 120 });
+    expect(invocation.lifecycleAttribution.ledger.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: "coordination",
+        providerTokenClass: "input",
+        tokens: 10,
+        workerId: "worker-coordinator",
+      }),
+      expect.objectContaining({
+        source: "verification",
+        providerTokenClass: "input",
+        tokens: 5,
+        workerId: "child-1",
+      }),
+      expect.objectContaining({
+        source: "unknown",
+        providerTokenClass: "input",
+        tokens: 85,
+      }),
+      expect.objectContaining({
+        source: "final_output",
+        providerTokenClass: "output",
+        tokens: 20,
+        workerId: "child-1",
+      }),
+    ]));
+    expect(invocation.efficiencyEvidence).toMatchObject({
+      totals: {
+        providerTotalTokens: 120,
+        measured: { tokens: 115 },
+        estimated: { tokens: 5 },
+        unknown: { tokens: 0 },
+      },
+      verification: {
+        status: "passed",
+        results: [{ verificationResultId: "trusted-check", status: "passed" }],
+      },
+    });
+  });
+
+  it("reconciles provider-reported output after attributed handoff output without double counting", async () => {
+    const snapshot = managedInvocationWithVerifiedUsage(
+      "kiln://managed-invocations/child-1/transcript",
+    );
+    const resultHandoff = {
+      ...snapshot.record!.resultHandoff!,
+      summary: "H".repeat(400),
+    };
+    const provider = createManagedAgentInvocationResourceProvider({
+      service: {
+        list: () => [{
+          ...snapshot,
+          record: {
+            ...snapshot.record!,
+            usage: {
+              source: "provider",
+              tokenClasses: [
+                { name: "input", value: 20 },
+                { name: "output", value: 150 },
+                { name: "cache_read", value: 0 },
+              ],
+              cost: { currency: "USD", amount: 0.012 },
+            },
+            coordinationUsage: buildManagedAgentCoordinationUsage({
+              invocationId: snapshot.invocationId,
+              childSessionId: snapshot.record!.childSessionId,
+              parentPrompt: "Inspect the contract",
+              sourceResourceUris: snapshot.request.input.resourceUris,
+              resultHandoff,
+            }),
+            resultHandoff,
+          },
+        }],
+      },
+    });
+
+    const detail = await provider.read("kiln://managed-agents/invocations/child-1");
+    const invocation = JSON.parse(detail!.contents[0]!.text).invocation;
+
+    expect(invocation.efficiencyEvidence.totals.providerTotalTokens).toBe(170);
+    expect(invocation.lifecycleAttribution.summary.totalTokens).toBe(170);
+    expect(invocation.lifecycleAttribution.ledger.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: "coordination",
+        providerTokenClass: "output",
+        tokens: 100,
+      }),
+      expect.objectContaining({
+        source: "final_output",
+        providerTokenClass: "output",
+        tokens: 50,
+      }),
+    ]));
+  });
+
+  it.each([
+    ["nonexistent artifact", "kiln://artifacts/managed-invocations/missing/content", 0],
+    ["foreign invocation", "kiln://managed-invocations/other-child/transcript", 0],
+    ["admitted invocation artifact", "kiln://managed-invocations/child-1/transcript", 1],
+  ] as const)("does not grant passed verification to %s evidence", async (_label, evidenceUri, expectedResults) => {
+    const artifactStore = new MemoryArtifactResourceStore();
+    const snapshot = managedInvocationWithVerifiedUsage(evidenceUri);
+    const provider = createManagedAgentInvocationResourceProvider({
+      parentSessionId: "parent-session",
+      artifactStore,
+      service: { list: () => [snapshot] },
+    });
+
+    const detail = await provider.read("kiln://managed-agents/invocations/child-1");
+    const verification = JSON.parse(detail!.contents[0]!.text).invocation.efficiencyEvidence.verification;
+
+    expect(verification.results).toHaveLength(expectedResults);
+    expect(verification.status).toBe(expectedResults === 1 ? "passed" : "not_run");
+  });
+
   it("returns undefined for unknown managed child resource URIs", async () => {
     const provider = createManagedAgentInvocationResourceProvider({
       service: {
@@ -668,6 +995,112 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
         },
       },
     } as ManagedAgentRuntimeInvocationSnapshot["record"],
+  };
+}
+
+function managedInvocationWithVerifiedUsage(
+  verificationEvidenceUri: string,
+  includeCoordination = false,
+): ManagedAgentRuntimeInvocationSnapshot {
+  const snapshot = managedInvocationSnapshot();
+  const transcriptUri = "kiln://managed-invocations/child-1/transcript";
+  return {
+    ...snapshot,
+    record: {
+      ...snapshot.record!,
+      transcript: {
+        ...snapshot.record!.transcript!,
+        uri: transcriptUri,
+      },
+      usage: {
+        source: "provider",
+        tokenClasses: [
+          { name: "input", value: 100 },
+          { name: "output", value: 20 },
+          { name: "cache_read", value: 0 },
+        ],
+        cost: { currency: "USD", amount: 0.012 },
+      },
+      ...(includeCoordination
+        ? {
+            coordinationUsage: {
+              version: "managed-agent-coordination-usage-v1",
+              workerId: "worker-coordinator",
+              coverage: "partial",
+              reconciliation: "mutually-exclusive",
+              components: [{
+                stage: "parent_prompt",
+                providerTokenClass: "input",
+                tokens: { value: 10, source: "provider_reported" },
+                costUsd: { value: "unknown", source: "unknown" },
+                latencyMs: { value: "unknown", source: "unknown" },
+                turns: { value: "unknown", source: "unknown" },
+                evidenceUris: [transcriptUri],
+              }],
+            },
+          }
+        : {}),
+      resultHandoff: {
+        ...snapshot.record!.resultHandoff!,
+        resourceUris: [transcriptUri],
+        structuredResult: {
+          version: "structured-execution-result-v1",
+          status: "completed",
+          summary: "Verified child result.",
+          limitations: [],
+          operatorDecisions: [],
+          evidence: [{ uri: verificationEvidenceUri, kind: "verification" }],
+          citations: [],
+          warnings: [],
+          failures: [],
+          approvalRequirements: [],
+          residualRisks: [],
+          verificationResults: [{
+            requirementId: "trusted-check",
+            method: "deterministic",
+            status: "passed",
+            summary: "Trusted evidence resolved.",
+            evidenceUris: [verificationEvidenceUri],
+          }],
+        },
+        verificationUsage: {
+          version: "verification-usage-v1",
+          attempts: [{
+            requirementId: "trusted-check",
+            method: "deterministic",
+            status: "passed",
+            providerTokenClass: "input",
+            tokens: { value: 5, source: "estimated" },
+            costUsd: { value: 0, source: "estimated" },
+            latencyMs: { value: 2, source: "estimated" },
+            evidenceUris: [verificationEvidenceUri],
+          }],
+          totals: { tokens: 5, costUsd: 0, latencyMs: 2 },
+        },
+      },
+    },
+  } as ManagedAgentRuntimeInvocationSnapshot;
+}
+
+function managedInvocationWithLifecycleState(
+  lifecycleState: "cancelled" | "stale" | "recovered",
+): ManagedAgentRuntimeInvocationSnapshot {
+  const snapshot = managedInvocationSnapshot();
+  return {
+    ...snapshot,
+    invocationId: `child-${lifecycleState}`,
+    lifecycleState,
+    finishedAt: "2026-05-22T00:00:06.000Z",
+    record: {
+      ...snapshot.record!,
+      invocationId: `child-${lifecycleState}`,
+      lifecycleState,
+      resultHandoff: {
+        summary: `Child ${lifecycleState}.`,
+        resourceUris: [],
+        memoryWriteProposalUris: [],
+      },
+    },
   };
 }
 

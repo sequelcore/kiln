@@ -49,13 +49,28 @@ is documented by concern, not as a single monolith.
   Safety doctrine, layered threat detection, escalation, and threat memory.
 
 - `coordination.md`
-  Coordination model, allocation, task registry, chain control, role
-  activation, and shared-state coordination.
+  Deterministic topology selection, governed work graphs, bounded runtime
+  scheduling, per-child route identity, dependency handoffs, independent
+  review, failure semantics, and cross-surface projection.
 
 - `managed-agents.md`
   Provider-neutral managed child invocation, admission, authority profiles,
   lifecycle tools, parallel orchestration, leases, resource projection, remote
   harness routes, write evidence, terminal events, and replay invariants.
+
+- `lifecycle-attribution.md`
+  Provider-neutral token and cost attribution over canonical session events:
+  source classes, reconciliation, replay, request neutrality, managed-route
+  usage capability gaps, and benchmark evidence.
+
+- `context-usage-projection.md`
+  Per-turn context-usage authority states, adapter cache semantics, runtime
+  normalization, Gateway mapping, persistence/replay, and surface rules.
+
+- `verified-efficiency-control-plane.md`
+  Progressive loading promotion, typed lossless reduction, reversible context
+  projection, protected evidence retention, retrieval audits, and canonical
+  evidence gates.
 
 - `session-feedback-pipeline.md`
   Local-first operator feedback, redaction, evidence selection, issue draft,
@@ -91,8 +106,8 @@ is documented by concern, not as a single monolith.
   tools, and consumer projection.
 
 - `provider-model-discovery.md`
-  Runtime provider availability, model discovery, operator diagnostics, and
-  provider/model selection invariants.
+  Runtime provider/model evidence, catalog normalization, canonical
+  eligibility, operator diagnostics, and provider/model selection invariants.
 
 - `multimodal-transport.md`
   Canonical multimodal artifact transport, capability-aware route admission,
@@ -125,6 +140,21 @@ is documented by concern, not as a single monolith.
   Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
   CLI, GUI, native, TUI, SDK/widget, and MCP boundaries.
 
+- `execution-surfaces.md`
+  Canonical product and architecture contract for Kiln Operator Workspace,
+  Kiln Gateway as app AI runtime, harnesses as adapters, and contract-first
+  surface convergence.
+
+- `operator-workspace.md`
+  Canonical human workspace contract: shared home projection ownership, target
+  switcher rules, resource inspector boundary, and surface parity rules.
+
+- `app-gateway-runtime.md`
+  Canonical App Gateway runtime contract for app/tenant/session/tool/MCP
+  ownership and operator attachment.
+
+  Guide projection: `../guides/gateway-app-runtime.md`.
+
 - `config-projection.md`
   Canonical global config, native harness projection, install-state, drift detection,
   sync/uninstall/import-native behavior, engine enablement removal, and
@@ -139,6 +169,11 @@ is documented by concern, not as a single monolith.
   Canonical human operator surface model: GUI, native, CLI, TUI, IDE, remote,
   supervision evidence, embedded browser host boundaries, and surface ownership
   rules.
+
+- `inspectable-agent-work.md`
+  Canonical cross-surface and cross-harness inspectability contract for agent
+  work: work identity, authority, lifecycle, evidence, resources, attention
+  state, long-running visibility, and external observability normalization.
 
 - `native-operator-surface.md`
   Contract-only architecture for native operator surface projection:

@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/react",
-  "version": "2.1.0",
+  "version": "3.0.0-beta.1",
   "description": "React hooks SDK for building apps on the Kiln control plane",
   "type": "module",
   "exports": {
@@ -15,7 +15,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -36,17 +36,17 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@kilnai/core": "^2.1.0",
-    "@kilnai/gateway-contracts": "^2.1.0",
+    "@kilnai/core": "3.0.0-beta.1",
+    "@kilnai/gateway-contracts": "3.0.0-beta.1",
     "react": "^19.0.0"
   },
   "devDependencies": {
-    "@kilnai/gateway-contracts": "^2.1.0",
+    "@kilnai/gateway-contracts": "3.0.0-beta.1",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "jsdom": "^25.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.9"
   }
 }

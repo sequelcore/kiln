@@ -7,6 +7,16 @@ import type { SessionHooks } from "./session-hooks.js";
 describe("runSession", () => {
   it("passes per-route reasoning effort to the selected session attempt", async () => {
     const run = vi.fn(async function* () {
+      yield {
+        type: "cost_update",
+        usd: 0,
+        provider: "codex-oauth",
+        model: "gpt-5.5",
+        inputTokens: 10,
+        outputTokens: 2,
+        cacheReadTokens: 3,
+        cacheWriteTokens: 4,
+      };
       yield { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false };
     });
     const createSession = vi.fn(() => ({
@@ -19,7 +29,8 @@ describe("runSession", () => {
       reasoningEffort: "xhigh",
     }];
 
-    await runSession({
+    const trackCostUpdate = vi.fn();
+    const result = await runSession({
       registry: {
         createSession,
         selectBest: vi.fn(),
@@ -29,7 +40,7 @@ describe("runSession", () => {
       cleanupRegistry: {
         register: vi.fn(),
       } as never,
-      manager: {} as never,
+      manager: { trackCostUpdate } as never,
       context: {
         mode: "cli-wrapper",
         domain: {
@@ -79,6 +90,11 @@ describe("runSession", () => {
       cwd: "/repo",
       reasoningEffort: "xhigh",
     }));
+    expect(result.providerTokenUsage).toEqual([expect.objectContaining({
+      provider: "codex-oauth",
+      cacheReadTokens: 3,
+      cacheWriteTokens: 4,
+    })]);
   });
 
   it("records managed child provider routes in the session provider list", async () => {
@@ -158,6 +174,13 @@ describe("runSession", () => {
       });
 
       expect(result.providersUsed).toEqual(["codex-oauth", "opencode-go"]);
+      expect(result.transcript).toContainEqual(expect.objectContaining({
+        event: expect.objectContaining({
+          type: "tool_result",
+          toolName: "managed_agent.invoke",
+          output: "ok",
+        }),
+      }));
     } finally {
       consoleLog.mockRestore();
     }

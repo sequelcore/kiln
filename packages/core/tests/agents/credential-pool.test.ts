@@ -140,6 +140,7 @@ describe("CredentialPool", () => {
           lastSuccess: null,
           lastExhausted: Date.now() - 2 * 60 * 60 * 1000,
           cooldownUntil: Date.now() - 60 * 1000,
+          invalidReason: null,
           softLeaseCount: 0,
         }],
       });
@@ -297,7 +298,7 @@ describe("CredentialPool", () => {
       expect(() => pool.report(lease, { type: "auth-failed" })).not.toThrow();
     });
 
-    it("does not record auth-failed as a successful request", () => {
+    it("permanently invalidates auth-failed credentials until credentials are reloaded", () => {
       pool.addCredential("cred-1", "Test", { apiKey: "key-1" });
       const lease = pool.acquire();
 
@@ -306,7 +307,8 @@ describe("CredentialPool", () => {
       const entry = pool.snapshot().entries[0]!;
       expect(entry.lastSuccess).toBeNull();
       expect(entry.requestCount).toBe(1);
-      expect(entry.health).toBe("ok");
+      expect(entry.health).toBe("invalid");
+      expect(() => pool.acquire()).toThrow(AllCredentialsExhaustedError);
     });
 
     it("increments request count on success", () => {

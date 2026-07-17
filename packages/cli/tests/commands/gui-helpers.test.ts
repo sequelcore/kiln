@@ -49,6 +49,9 @@ describe("gui command helpers", () => {
     expect(written).toContain("ui:");
     expect(written).toContain("theme: kiln-light");
     expect(buildGuiUrl("http://localhost:5183/gui/", "kiln-light")).toBe("http://localhost:5183/gui/?theme=kiln-light");
+    expect(buildGuiUrl("http://localhost:5183/gui/", "kiln-light", "terminal-secret")).toBe(
+      "http://localhost:5183/gui/?theme=kiln-light#operatorToken=terminal-secret",
+    );
     expect(buildGuiAttachUrl("http://localhost:3800", "kiln-light")).toBe("http://localhost:3800/gui/?theme=kiln-light");
     expect(buildGuiAttachUrl("https://gateway.example.com/apps", "kiln-light")).toBe("https://gateway.example.com/gui/?theme=kiln-light");
   });

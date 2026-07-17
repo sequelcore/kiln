@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import type { ContentPart, ToolDefinition } from "@kilnai/core";
 import { extractText } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
-import type { SessionRegistry } from "../session/session-registry.js";
+import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
@@ -224,7 +224,7 @@ async function processEmailMessage(
   const userId = `email:${senderEmail}`;
 
   // --- Memory: recall past context about this user ---
-  let recalledMemory: string | undefined;
+  let recalledMemory: ReturnType<TenantConversationMemory["recall"]>;
   if (config.memoryBasePath) {
     try {
       const memory = getConversationMemory(config.memoryBasePath, config.eventBus);
@@ -233,7 +233,6 @@ async function processEmailMessage(
         tenantId,
         participantId: senderEmail,
         query,
-        tokenBudget: 500,
       });
     } catch (err) {
       trace.warn("email", "Memory recall failed", { tenantId, error: err instanceof Error ? err.message : String(err) });
@@ -307,7 +306,7 @@ async function processEmailMessage(
   const projectedTurnContext = projectAdmittedTurnContext({
     userContext: session.userContext,
     cachedRuntimeSummary: undefined,
-    recalledMemory,
+    recalledMemoryCandidates: recalledMemory?.candidates,
     knowledgeContext,
     contactContext,
     groundingMode: tenant.groundingMode,

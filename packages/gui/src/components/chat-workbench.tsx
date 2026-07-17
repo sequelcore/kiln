@@ -41,7 +41,7 @@ function ApprovalDock(props: {
         aria-label="Pending approvals"
         className="border-t border-border/70 bg-card px-4 py-2"
       >
-        <div className="mx-auto flex max-w-4xl items-center gap-3">
+        <div className="mx-auto flex max-w-3xl items-center gap-3">
           <AlertTriangle className="size-4 shrink-0 text-[var(--color-warning)]" aria-hidden="true" />
           <p className="min-w-0 flex-1 truncate text-sm text-foreground">
             {props.approvals.length} approvals are waiting in other sessions.
@@ -59,7 +59,7 @@ function ApprovalDock(props: {
       aria-label="Approval required"
       className="border-t border-border/70 bg-card px-4 py-2"
     >
-      <div className="mx-auto grid max-w-4xl gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+      <div className="mx-auto grid max-w-3xl gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <AlertTriangle className="size-4 shrink-0 text-[var(--color-warning)]" aria-hidden="true" />
@@ -100,8 +100,12 @@ function ApprovalDock(props: {
 
 export function ChatWorkbench(props: ChatWorkbenchProps) {
   return (
-    <section aria-label="Chat workspace" className="flex h-full min-h-0 flex-col bg-workspace-viewer">
-      <div className="min-h-0 flex-1">
+    <section
+      aria-label="Chat workspace"
+      className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer"
+      data-layout="kiln-chat-workbench"
+    >
+      <div className="min-h-0 min-w-[min(100%,38rem)] flex-1 overflow-hidden">
         {props.surfaces}
       </div>
       <ApprovalDock

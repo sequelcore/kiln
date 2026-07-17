@@ -24,20 +24,28 @@ const facehashSize = {
 } as const;
 
 const kindColors: Record<OperatorIdentityProjection["kind"], readonly string[]> = {
-  operator: ["#38bdf8", "#2563eb", "#14b8a6", "#f59e0b"],
-  assistant: ["#8b5cf6", "#06b6d4", "#22c55e", "#f97316"],
-  agent: ["#22c55e", "#06b6d4", "#f97316", "#e11d48", "#8b5cf6", "#eab308"],
-  agent_profile: ["#10b981", "#0ea5e9", "#f59e0b", "#d946ef"],
-  provider: ["#0ea5e9", "#6366f1", "#14b8a6", "#84cc16"],
-  tool: ["#f97316", "#eab308", "#06b6d4", "#64748b"],
-  system: ["#ef4444", "#f97316", "#64748b", "#a855f7"],
+  operator: ["var(--color-primary)", "var(--color-accent)", "var(--color-info)", "var(--color-success)"],
+  assistant: ["var(--color-accent)", "var(--color-primary)", "var(--color-success)", "var(--color-info)"],
+  agent: ["var(--color-success)", "var(--color-primary)", "var(--color-accent)", "var(--color-info)"],
+  agent_profile: ["var(--color-info)", "var(--color-success)", "var(--color-primary)", "var(--color-accent)"],
+  provider: ["var(--color-primary)", "var(--color-info)", "var(--color-accent)", "var(--color-success)"],
+  tool: ["var(--color-accent)", "var(--color-warning)", "var(--color-primary)", "var(--color-text-muted)"],
+  system: ["var(--color-error)", "var(--color-warning)", "var(--color-text-muted)", "var(--color-accent)"],
 };
 
 const stateColors: Record<Exclude<OperatorAvatarState, "idle">, readonly string[]> = {
-  running: ["#06b6d4", "#2563eb", "#22c55e", "#f59e0b"],
-  success: ["#22c55e", "#16a34a", "#06b6d4", "#84cc16"],
-  warning: ["#f59e0b", "#f97316", "#eab308", "#06b6d4"],
-  error: ["#ef4444", "#e11d48", "#f97316", "#64748b"],
+  running: ["var(--color-info)", "var(--color-primary)"],
+  success: ["var(--color-success)", "var(--status-success-border)"],
+  warning: ["var(--color-warning)", "var(--status-warning-border)"],
+  error: ["var(--color-error)", "var(--status-danger-border)"],
+};
+
+const stateIntensity: Record<OperatorAvatarState, "none" | "subtle" | "medium" | "dramatic"> = {
+  idle: "subtle",
+  running: "medium",
+  success: "subtle",
+  warning: "medium",
+  error: "none",
 };
 
 function statusMouth(state: OperatorAvatarState) {
@@ -47,10 +55,10 @@ function statusMouth(state: OperatorAvatarState) {
       aria-hidden="true"
       className={cn(
         "block rounded-full",
-        state === "running" ? "h-1.5 w-3 animate-pulse bg-white/90" : "",
-        state === "success" ? "h-1.5 w-3 bg-white/90" : "",
-        state === "warning" ? "h-2 w-2 bg-white/90" : "",
-        state === "error" ? "h-1.5 w-1.5 bg-white/90 shadow-[5px_0_0_rgba(255,255,255,0.9)]" : "",
+        state === "running" ? "h-1.5 w-3 animate-pulse bg-text-inverse/90" : "",
+        state === "success" ? "h-1.5 w-3 bg-text-inverse/90" : "",
+        state === "warning" ? "h-2 w-2 bg-text-inverse/90" : "",
+        state === "error" ? "h-1.5 w-1.5 bg-text-inverse/90 shadow-[5px_0_0_color-mix(in_oklch,var(--color-text-inverse)_90%,transparent)]" : "",
       )}
     />
   );
@@ -62,6 +70,7 @@ export function OperatorAvatar(props: OperatorAvatarProps) {
   const motion = props.motion ?? "none";
   const animated = size === "md" && motion === "subtle" && state !== "error";
   const colors = state === "idle" ? kindColors[props.identity.kind] : stateColors[state];
+  const showInitial = state === "idle";
   return (
     <span
       aria-label={`${props.identity.label} avatar`}
@@ -79,10 +88,12 @@ export function OperatorAvatar(props: OperatorAvatarProps) {
         name={props.identity.seed}
         size={facehashSize[size]}
         variant={state === "idle" ? "gradient" : "solid"}
-        intensity3d={state === "running" ? "medium" : "subtle"}
+        intensity3d={stateIntensity[state]}
         interactive={animated}
-        showInitial={false}
+        showInitial={showInitial}
         colors={[...colors]}
+        className="font-semibold text-text-inverse/95"
+        gradientOverlayClass="bg-[radial-gradient(ellipse_at_35%_22%,color-mix(in_oklch,var(--color-text-inverse)_38%,transparent),color-mix(in_oklch,var(--color-text-inverse)_12%,transparent)_38%,transparent_72%)]"
         enableBlink={animated}
         onRenderMouth={statusMouth(state)}
       />

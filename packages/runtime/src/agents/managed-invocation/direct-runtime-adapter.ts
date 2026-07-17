@@ -1,20 +1,27 @@
 import type {
   AuthorityDescriptor,
   Capability,
+  ErrorEvent,
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
   ManagedAgentReplayResource,
+  ManagedAgentUsageReport,
   ManagedAgentWriteEvidence,
   ProviderAdapter,
   SandboxConfig,
   ToolDefinition,
+  ToolAuthorizedEvent,
+  ToolCacheHitEvent,
+  ToolCalledEvent,
+  ToolResultEvent,
 } from "@kilnai/core";
 import {
   AllCredentialsExhaustedError,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
+  EventBus,
   extractText,
   SandboxPolicy,
   textParts,
@@ -27,16 +34,18 @@ import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
   OrchestrateResult,
+  RuntimeExecutionEnvelope,
   ToolExecutionSummary,
 } from "../../session/runtime-session-orchestrator.types.js";
 import {
   RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
   RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-  RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON,
+  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
 } from "../../session/runtime-session-orchestrator.types.js";
 import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationInput,
+  ManagedAgentRuntimeInvocationProgressEvent,
 } from "./index.js";
 import {
   collectManagedAgentLiveWriteEvidence,
@@ -46,6 +55,7 @@ import {
   buildManagedInvocationResourceContext,
   createManagedInvocationRuntimeResourceReader,
 } from "./resource-context.js";
+import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
 
 export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly providerId: string;
@@ -57,10 +67,11 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly capabilityMap?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
-  readonly maxToolRounds?: number;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }
 
 const TIMEOUT = { type: "managed-direct-runtime-timeout" } as const;
+const MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE: RuntimeExecutionEnvelope = { toolRounds: { max: 32 } };
 const RESULT_SUMMARY_LIMIT = 2000;
 const CHILD_EXECUTION_RESOURCE_LIMIT = 12000;
 const TOOL_OUTPUT_LIMIT = 1200;
@@ -77,7 +88,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   private readonly builtinToolsProvider: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   private readonly capabilityMap?: ReadonlyMap<string, Capability>;
   private readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
-  private readonly maxToolRounds?: number;
+  private readonly executionEnvelope: RuntimeExecutionEnvelope;
 
   constructor(config: ManagedDirectProviderRuntimeAdapterConfig) {
     this.providerId = requireText(config.providerId, "Managed direct provider id is required");
@@ -88,7 +99,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     this.builtinToolsProvider = config.builtinToolsProvider ?? (() => this.builtinTools);
     this.capabilityMap = config.capabilityMap;
     this.toolAuthority = config.toolAuthority;
-    this.maxToolRounds = config.maxToolRounds;
+    this.executionEnvelope = config.executionEnvelope ?? MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE;
     const writeAuthority = config.writeAuthority !== undefined
       ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
       : undefined;
@@ -121,6 +132,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read", "cache_write"],
+        semanticSourceGranularity: "estimated",
+        evidenceBasis: "runtime",
       },
       resultHandoff: {
         boundedSummary: true,
@@ -152,7 +166,8 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     } else {
       input.abortSignal.addEventListener("abort", abortFromRuntime, { once: true });
     }
-    const execution = this.runChildRuntime(input, childSession, abortController.signal);
+    const progressEvents: ManagedAgentRuntimeInvocationProgressEvent[] = [];
+    const execution = this.runChildRuntime(input, childSession, abortController.signal, progressEvents);
     const timeout = createManagedInvocationTimeout(request.authority.timeoutMs, abortController);
     let raced: ManagedAgentInvocationRecord | typeof TIMEOUT;
     try {
@@ -169,6 +184,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         childSessionId,
         childTurnId,
       });
+      const timeoutResource = childTimeoutReplayResource(request.invocationId, timeoutSummary, progressEvents);
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
         lifecycleState: "timed_out",
@@ -188,6 +204,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           ],
           memoryWriteProposalUris: [],
         },
+        replayResources: [timeoutResource],
       });
     }
 
@@ -198,10 +215,15 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     input: ManagedAgentRuntimeInvocationInput,
     childSession: RuntimeSession,
     abortSignal: AbortSignal,
+    progressEvents: ManagedAgentRuntimeInvocationProgressEvent[],
   ): Promise<ManagedAgentInvocationRecord> {
     const request = input.request;
     const childSessionId = childSession.id;
     const childTurnId = `${childSessionId}:turn:1`;
+    const recordProgress = (event: ManagedAgentRuntimeInvocationProgressEvent): void => {
+      progressEvents.push(event);
+      void Promise.resolve(input.progressObserver?.(event)).catch(() => undefined);
+    };
     try {
       const allowedToolNames = new Set(request.authority.toolAuthority.allowedToolNames);
       const tools = this.tools.filter((tool) => allowedToolNames.has(tool.name));
@@ -212,17 +234,26 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         runtimeBuiltinTools,
         createManagedToolSandbox(request),
       );
+      const eventBus = new EventBus();
+      const unsubscribeProgress = attachManagedChildProgressObserver(
+        eventBus,
+        childSessionId,
+        request.invocationId,
+        recordProgress,
+      );
       const deps: OrchestratorDeps = {
         provider: this.provider,
         ...(this.model ? { model: this.model } : {}),
-        maxToolRounds: this.maxToolRounds,
+        executionEnvelope: this.executionEnvelope,
         tools,
         builtinTools,
+        eventBus,
         ...(capabilityMap ? { capabilityMap } : {}),
       };
       const orchestrator = new RuntimeSessionOrchestrator(deps);
       const perCallConfig: PerCallToolConfig = {
         tenantId: request.authority.memoryScope.scope.id,
+        ...(request.executionScope ? { executionScope: request.executionScope } : {}),
         abortSignal,
         toolAllowlist: allowedToolNames,
         additionalTools: tools,
@@ -241,11 +272,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       });
       const result = await orchestrator.processMessage(
         childSession,
-        textParts(request.input.prompt ?? request.input.summary),
+        textParts(appendManagedResultHandoffContract(
+          request.input.prompt ?? request.input.summary,
+          request,
+        )),
         governedResourceContext,
         builtinTools,
         perCallConfig,
-      );
+      ).finally(unsubscribeProgress);
       const resultText = extractText(result.parts);
       const replayResource = resultReplayResource(request.invocationId, resultText);
       const childExecutionResource = childExecutionReplayResource(request.invocationId, result, resultText);
@@ -350,6 +384,101 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
     };
   }
+}
+
+function attachManagedChildProgressObserver(
+  eventBus: EventBus,
+  childSessionId: string,
+  invocationId: string,
+  observer: ManagedAgentRuntimeInvocationInput["progressObserver"],
+): () => void {
+  if (!observer) {
+    return () => undefined;
+  }
+  const handler = (
+    event: ToolAuthorizedEvent | ToolCalledEvent | ToolResultEvent | ToolCacheHitEvent | ErrorEvent,
+  ): void => {
+    if (event.sessionId !== childSessionId) {
+      return;
+    }
+    const progress = managedChildProgressEvent(invocationId, event);
+    if (progress) {
+      void Promise.resolve(observer(progress)).catch(() => undefined);
+    }
+  };
+  eventBus.on("tool_authorized", handler);
+  eventBus.on("tool_called", handler);
+  eventBus.on("tool_result", handler);
+  eventBus.on("tool_cache_hit", handler);
+  eventBus.on("error", handler);
+  return () => {
+    eventBus.off("tool_authorized", handler);
+    eventBus.off("tool_called", handler);
+    eventBus.off("tool_result", handler);
+    eventBus.off("tool_cache_hit", handler);
+    eventBus.off("error", handler);
+  };
+}
+
+function managedChildProgressEvent(
+  invocationId: string,
+  event: ToolAuthorizedEvent | ToolCalledEvent | ToolResultEvent | ToolCacheHitEvent | ErrorEvent,
+): ManagedAgentRuntimeInvocationProgressEvent {
+  const recordedAt = event.timestamp instanceof Date ? event.timestamp.toISOString() : new Date().toISOString();
+  const base = {
+    eventId: `${invocationId}:progress:${event.type}:${recordedAt}:${"toolName" in event ? event.toolName : "runtime"}`,
+    kind: event.type,
+    recordedAt,
+  };
+  if (event.type === "tool_authorized") {
+    return {
+      ...base,
+      summary: `${event.toolName} authorization ${event.allowed ? "allowed" : "denied"}`,
+      toolName: event.toolName,
+      metadata: {
+        level: event.level,
+        allowed: event.allowed,
+        reason: event.reason,
+      },
+    };
+  }
+  if (event.type === "tool_called") {
+    return {
+      ...base,
+      summary: `${event.toolName} called`,
+      toolName: event.toolName,
+      ...(event.metadata ? { metadata: event.metadata } : {}),
+    };
+  }
+  if (event.type === "tool_result") {
+    return {
+      ...base,
+      summary: `${event.toolName} ${event.success ? "succeeded" : "failed"}`,
+      toolName: event.toolName,
+      success: event.success,
+      ...(event.isError !== undefined ? { isError: event.isError } : {}),
+      durationMs: event.durationMs,
+      ...(event.resultSummary ? { resultSummary: event.resultSummary } : {}),
+      ...(event.metadata ? { metadata: event.metadata } : {}),
+    };
+  }
+  if (event.type === "tool_cache_hit") {
+    return {
+      ...base,
+      summary: `${event.toolName} cache hit`,
+      toolName: event.toolName,
+      metadata: { cacheTtl: event.cacheTtl },
+    };
+  }
+  return {
+    ...base,
+    summary: event.message,
+    isError: true,
+    metadata: {
+      code: event.code,
+      taskId: event.taskId,
+    },
+  };
 }
 
 function filterMap<T>(source: ReadonlyMap<string, T>, allowedNames: ReadonlySet<string>): ReadonlyMap<string, T> {
@@ -492,7 +621,7 @@ function transcriptPointer(invocationId: string) {
   };
 }
 
-function unknownRuntimeUsage() {
+function unknownRuntimeUsage(): ManagedAgentUsageReport {
   return {
     source: "runtime" as const,
     tokenClasses: [
@@ -526,7 +655,7 @@ function clipSummary(summary: string, resultResourceUri?: string, stopReason?: s
 
 function isNoHandoffStopReason(stopReason: string | undefined): boolean {
   return stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
-    || stopReason === RUNTIME_SESSION_TOOL_ROUND_EXHAUSTED_STOP_REASON;
+    || stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON;
 }
 
 function lifecycleStateForDirectChildStopReason(stopReason: string | undefined): "completed" | "failed" {
@@ -534,7 +663,8 @@ function lifecycleStateForDirectChildStopReason(stopReason: string | undefined):
 }
 
 function isFailedDirectChildStopReason(stopReason: string | undefined): boolean {
-  return stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
+  return isNoHandoffStopReason(stopReason)
+    || stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
 }
 
 function resultReplayResource(invocationId: string, text: string): ManagedAgentReplayResource | undefined {
@@ -570,6 +700,19 @@ function childExecutionReplayResource(
   };
 }
 
+function childTimeoutReplayResource(
+  invocationId: string,
+  summary: string,
+  progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
+): ManagedAgentReplayResource {
+  return {
+    uri: managedInvocationUri(invocationId, "timeout"),
+    title: "Managed invocation timeout evidence",
+    mimeType: "text/markdown",
+    text: clipResourceText(formatChildTimeoutEvidence(summary, progressEvents), CHILD_EXECUTION_RESOURCE_LIMIT),
+  };
+}
+
 function formatChildExecutionEvidence(result: OrchestrateResult, resultText: string): string {
   return [
     "# Direct Child Execution Evidence",
@@ -585,6 +728,34 @@ function formatChildExecutionEvidence(result: OrchestrateResult, resultText: str
     `Tool executions: ${result.toolExecutions?.length ?? 0}`,
     "",
     ...formatToolExecutionEvidence(result.toolExecutions ?? []),
+  ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatChildTimeoutEvidence(
+  summary: string,
+  progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
+): string {
+  return [
+    "# Direct Child Timeout Evidence",
+    "",
+    summary,
+    "",
+    `Progress events: ${progressEvents.length}`,
+    progressEvents.length === 0 ? "No child runtime progress events were observed before timeout." : undefined,
+    "",
+    ...progressEvents.flatMap((event, index) => [
+      `## Progress ${index + 1}: ${event.kind}`,
+      "",
+      `Recorded at: ${event.recordedAt}`,
+      `Summary: ${event.summary}`,
+      event.toolName ? `Tool: ${event.toolName}` : undefined,
+      event.success !== undefined ? `Success: ${event.success}` : undefined,
+      event.isError !== undefined ? `Error: ${event.isError}` : undefined,
+      event.durationMs !== undefined ? `Duration ms: ${event.durationMs}` : undefined,
+      event.resultSummary ? `Result summary: ${event.resultSummary}` : undefined,
+      event.metadata ? `Metadata: ${clipResourceText(JSON.stringify(event.metadata), TOOL_OUTPUT_LIMIT)}` : undefined,
+      "",
+    ].filter((line): line is string => line !== undefined)),
   ].filter((line): line is string => line !== undefined).join("\n");
 }
 

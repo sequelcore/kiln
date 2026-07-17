@@ -6,6 +6,7 @@
  */
 
 import type { OperatorSurfaceKind } from "./operator-surface-capability.js";
+import type { OperatorWorkspaceHomeProjection } from "./operator-workspace-home.js";
 
 // --- Dashboard / HTTP response shapes ---
 
@@ -30,6 +31,7 @@ export type GuiProviderDiscoveryStatus =
   | "endpoint_timeout"
   | "endpoint_error"
   | "empty_model_list"
+  | "model_version_unsupported"
   | "daemon_unreachable"
   | "model_selection_not_required"
   | "stale";
@@ -47,6 +49,11 @@ export type GuiProviderReasoningEffort = "minimal" | "low" | "medium" | "high" |
 
 export type OperatorExecutionMode = "execute" | "plan";
 export type OperatorTurnRequestedAuthority = "auto" | "read_only" | "audited" | "destructive";
+
+export interface OperatorGoalMaterializationRequirement {
+  readonly kind: "goal_materialization";
+  readonly requiredWorkItemCount: number;
+}
 
 export type GuiAuthorityLevel =
   | "fail_closed"
@@ -162,6 +169,106 @@ export interface GuiProviderDiscoveryResult {
   readonly lastCheckedAt: string;
 }
 
+export type GuiProviderCatalogEvidenceStatus = "complete" | "partial" | "failed";
+
+export interface GuiProviderCatalogEvidenceSource {
+  readonly kind: string;
+  readonly id: string;
+  readonly version?: string;
+}
+
+export interface GuiProviderCatalogEvidenceCounts {
+  readonly total: number;
+  readonly returned: number;
+  readonly omitted: number;
+}
+
+export interface GuiProviderCatalogEvidenceFailure {
+  readonly classification: string;
+  readonly summary: string;
+}
+
+export interface GuiProviderCatalogEvidenceSummary {
+  readonly status: GuiProviderCatalogEvidenceStatus;
+  readonly source: GuiProviderCatalogEvidenceSource;
+  readonly observedAt: string;
+  readonly counts: GuiProviderCatalogEvidenceCounts;
+  readonly failure?: GuiProviderCatalogEvidenceFailure;
+}
+
+export interface GuiNormalizedModelIdentity {
+  readonly family: string;
+  readonly version?: string;
+}
+
+export interface GuiProviderModelRouteIdentity {
+  readonly providerId: string;
+  readonly providerModelId: string;
+  readonly scope: string;
+}
+
+export interface GuiHarnessModelRouteIdentity {
+  readonly harnessId: string;
+  readonly reportedProviderId: string;
+  readonly reportedModelId: string;
+}
+
+export interface GuiProviderModelRawEvidenceSummary {
+  readonly rawId: string;
+  readonly provenance: string;
+}
+
+export interface GuiProviderModelCredentialEvidence {
+  readonly state: "authenticated" | "missing" | "expired" | "not-required" | "unknown";
+  readonly source: string;
+}
+
+export interface GuiProviderModelEntitlementEvidence {
+  readonly state: "confirmed" | "denied" | "not-required" | "unknown";
+  readonly source: string;
+}
+
+export interface GuiProviderModelFreshness {
+  readonly status: "fresh" | "stale" | "unknown";
+  readonly observedAt: string;
+  readonly expiresAt?: string;
+}
+
+export interface GuiProviderModelRouteHealthEvidence {
+  readonly status: "healthy" | "unhealthy" | "unknown";
+  readonly reason?: string;
+}
+
+export interface GuiProviderModelPolicyAdmission {
+  readonly use: "interactive" | "managed-agent" | "background";
+  readonly status: "admitted" | "denied" | "unknown";
+}
+
+export type GuiProviderModelEligibilityReasonCode = string;
+
+export interface GuiProviderModelEligibility {
+  readonly eligible: boolean;
+  readonly reasonCodes: readonly GuiProviderModelEligibilityReasonCode[];
+}
+
+export interface GuiProviderModelRouteEntry {
+  readonly normalizedModel: GuiNormalizedModelIdentity;
+  readonly providerRoute: GuiProviderModelRouteIdentity;
+  readonly harnessRoute?: GuiHarnessModelRouteIdentity;
+  readonly rawEvidence: GuiProviderModelRawEvidenceSummary;
+  readonly credentialEvidence: GuiProviderModelCredentialEvidence;
+  readonly entitlementEvidence: GuiProviderModelEntitlementEvidence;
+  readonly freshness: GuiProviderModelFreshness;
+  readonly routeHealth: GuiProviderModelRouteHealthEvidence;
+  readonly policyAdmission: GuiProviderModelPolicyAdmission;
+  readonly eligibility: GuiProviderModelEligibility;
+}
+
+export interface GuiProviderModelDiscoveryProjection {
+  readonly catalogEvidence: GuiProviderCatalogEvidenceSummary;
+  readonly entries: readonly GuiProviderModelRouteEntry[];
+}
+
 export type GuiProviderAuthMethod = "device_code" | "api_key";
 
 export interface GuiProviderAuthDeviceCodeStarted {
@@ -181,6 +288,7 @@ export interface GuiProviderAuthCompleted {
   readonly models: Record<string, string[]>;
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly providers?: readonly GuiProviderDescriptor[];
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
 }
 
 export interface GuiProviderAuthFailed {
@@ -190,6 +298,8 @@ export interface GuiProviderAuthFailed {
   readonly message: string;
 }
 
+export type GuiSessionTurnOutcome = "completed" | "failed" | "cancelled" | "paused";
+
 export interface GuiSessionSummary {
   readonly id: string;
   readonly title?: string;
@@ -197,7 +307,7 @@ export interface GuiSessionSummary {
   readonly tags?: readonly string[];
   readonly providersUsed: readonly string[];
   readonly lastProvider?: string;
-  readonly lastTurnOutcome?: "completed" | "failed" | "cancelled";
+  readonly lastTurnOutcome?: GuiSessionTurnOutcome;
   readonly completedAt: string;
   readonly cost: number;
   readonly taskSummary: string;
@@ -259,6 +369,7 @@ export interface GuiDashboardSnapshot {
   readonly sessions: readonly GuiSessionSummary[];
   readonly telemetry: GuiTelemetrySnapshot;
   readonly continuationInfoByProvider: Readonly<Record<string, GuiContinuationInfo>>;
+  readonly operatorWorkspaceHome?: OperatorWorkspaceHomeProjection;
   readonly apps?: readonly GuiAppDescriptor[];
   readonly activeAppName?: string;
   readonly activeTenantId?: string;
@@ -280,7 +391,7 @@ export interface GuiSessionMeta {
   readonly task: string;
   readonly startedAt: string;
   readonly completedAt?: string;
-  readonly lastTurnOutcome?: "completed" | "failed" | "cancelled";
+  readonly lastTurnOutcome?: GuiSessionTurnOutcome;
   readonly costUsd?: number;
   readonly toolCount?: number;
   readonly turnDepth?: number;
@@ -330,6 +441,7 @@ export type OperatorSessionEventKind =
   | "provider_routed"
   | "multimodal_routed"
   | "tool_call_started"
+  | "tool_call_output_delta"
   | "tool_call_completed"
   | "approval_requested"
   | "approval_resolved"
@@ -339,6 +451,8 @@ export type OperatorSessionEventKind =
   | "config_change_failed"
   | "file_changed"
   | "cost_updated"
+  | "context_usage_observed"
+  | "lifecycle_attribution_recorded"
   | "work_item_updated"
   | "work_item_execution_started"
   | "work_item_execution_finished"
@@ -370,6 +484,20 @@ export interface OperatorSessionEventSource {
   readonly surface: OperatorSurfaceKind;
   readonly component?: string;
 }
+
+export type OperatorExecutionScope =
+  | {
+      readonly kind: "goal";
+      readonly goalRunId: string;
+      readonly managedInvocationId?: string;
+    }
+  | {
+      readonly kind: "work_item";
+      readonly goalRunId: string;
+      readonly workItemId: string;
+      readonly attemptId?: string;
+      readonly managedInvocationId?: string;
+    };
 
 export type GuiSessionEventSource = OperatorSessionEventSource;
 
@@ -490,6 +618,7 @@ export interface OperatorSessionEvent {
   readonly kind: OperatorSessionEventKind;
   readonly turnId?: string;
   readonly parentEventId?: string;
+  readonly executionScope?: OperatorExecutionScope;
   readonly source?: OperatorSessionEventSource;
   readonly payload: Record<string, unknown>;
 }
@@ -590,6 +719,7 @@ export interface GuiInteractiveUseSnapshot {
   readonly toolCallId?: string;
   readonly toolName?: string;
   readonly provider?: string;
+  readonly gatewayTargetId?: string;
   readonly sessionId?: string;
   readonly operation?: string;
   readonly url?: string;
@@ -628,6 +758,7 @@ export interface GuiBrowserSessionState {
   readonly toolCallId?: string;
   readonly toolName?: string;
   readonly provider?: string;
+  readonly gatewayTargetId?: string;
   readonly sessionId?: string;
   readonly operation?: string;
   readonly url?: string;
@@ -655,6 +786,7 @@ export interface GuiBrowserSessionUpdatedFrame {
 export interface GuiBrowserSessionControlFrame {
   readonly type: "browser_session_control";
   readonly action: GuiBrowserSessionControlAction;
+  readonly gatewayTargetId?: string;
   readonly sessionId?: string;
   readonly reason?: string;
   readonly requestId?: string;
@@ -667,6 +799,7 @@ export type GuiManagedAgentControlResultStatus = "accepted" | "failed";
 export interface GuiManagedAgentControlFrame {
   readonly type: "managed_agent_control";
   readonly action: GuiManagedAgentControlAction;
+  readonly gatewayTargetId?: string;
   readonly sessionId: string;
   readonly invocationId: string;
   readonly prompt?: string;
@@ -737,6 +870,7 @@ export type GuiBrowserOperatorInput =
 export interface GuiBrowserOperatorInputFrame {
   readonly type: "browser_operator_input";
   readonly requestId: string;
+  readonly gatewayTargetId?: string;
   readonly sessionId: string;
   readonly input: GuiBrowserOperatorInput;
 }
@@ -750,6 +884,60 @@ export interface GuiBrowserOperatorInputAckFrame {
   readonly handledAt: string;
 }
 
+export interface OperatorTerminalOpenFrame {
+  readonly type: "operator_terminal_open";
+  readonly requestId: string;
+  readonly cols: number;
+  readonly rows: number;
+  readonly cwd?: string;
+}
+
+export interface OperatorTerminalWriteFrame {
+  readonly type: "operator_terminal_write";
+  readonly terminalId: string;
+  readonly data: string;
+}
+
+export interface OperatorTerminalResizeFrame {
+  readonly type: "operator_terminal_resize";
+  readonly terminalId: string;
+  readonly cols: number;
+  readonly rows: number;
+}
+
+export interface OperatorTerminalCloseFrame {
+  readonly type: "operator_terminal_close";
+  readonly terminalId: string;
+}
+
+export interface OperatorTerminalOpenedFrame {
+  readonly type: "operator_terminal_opened";
+  readonly requestId: string;
+  readonly terminalId: string;
+  readonly cwd: string;
+}
+
+export interface OperatorTerminalOutputFrame {
+  readonly type: "operator_terminal_output";
+  readonly terminalId: string;
+  readonly data: string;
+}
+
+export interface OperatorTerminalExitedFrame {
+  readonly type: "operator_terminal_exited";
+  readonly terminalId: string;
+  readonly exitCode: number;
+  readonly signal?: number;
+}
+
+export interface OperatorTerminalErrorFrame {
+  readonly type: "operator_terminal_error";
+  readonly code: string;
+  readonly message: string;
+  readonly requestId?: string;
+  readonly terminalId?: string;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -758,9 +946,11 @@ export type GuiOutboundFrame =
       parts?: readonly unknown[];
       executionMode?: OperatorExecutionMode;
       requestedAuthority?: OperatorTurnRequestedAuthority;
+      governedWorkRequirement?: OperatorGoalMaterializationRequirement;
       sessionIntent?: "fresh";
       continuationSessionId?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
+      gatewayTargetId?: string;
       appName?: string;
       tenantId?: string;
     }
@@ -768,6 +958,11 @@ export type GuiOutboundFrame =
       type: "voice_synthesis_request";
       requestId: string;
       sourceMessageId: string;
+    }
+  | {
+      type: "turn_cancel";
+      requestId: string;
+      reason?: string;
     }
   | { type: "clear" }
   | { type: "refresh_providers" }
@@ -780,23 +975,35 @@ export type GuiOutboundFrame =
     }
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | OperatorThemeSetResultFrame
-  | { type: "continue"; sessionId: string }
+  | { type: "continue"; sessionId: string; gatewayTargetId?: string }
   | GuiBrowserSessionControlFrame
   | GuiManagedAgentControlFrame
   | GuiBrowserOperatorInputFrame
-  | { type: "approve"; approvalId: string }
-  | { type: "reject"; reason: string; approvalId: string }
+  | OperatorTerminalOpenFrame
+  | OperatorTerminalWriteFrame
+  | OperatorTerminalResizeFrame
+  | OperatorTerminalCloseFrame
+  | { type: "approve"; approvalId: string; gatewayTargetId?: string }
+  | { type: "reject"; reason: string; approvalId: string; gatewayTargetId?: string }
   | {
       type: "execution_mode_transition";
       toMode: OperatorExecutionMode;
       planId?: string;
       residualRiskAcknowledged?: boolean;
       residualRiskAcknowledgement?: string;
+      gatewayTargetId?: string;
     };
 
 /** Frames sent by the gateway to the browser (operator). */
 export type GuiInboundFrame =
   | { type: "thinking" }
+  | {
+      type: "turn_cancel_result";
+      requestId: string;
+      status: "accepted" | "not_active" | "failed";
+      reason?: string;
+      kilnSessionId?: string;
+    }
   | OperatorThemeSetFrame
   | { type: "session_event"; event: OperatorSessionEvent }
   | OperatorActivityPhaseFrame
@@ -804,6 +1011,10 @@ export type GuiInboundFrame =
   | GuiBrowserSessionUpdatedFrame
   | GuiBrowserLiveViewportFrame
   | GuiBrowserOperatorInputAckFrame
+  | OperatorTerminalOpenedFrame
+  | OperatorTerminalOutputFrame
+  | OperatorTerminalExitedFrame
+  | OperatorTerminalErrorFrame
   | GuiManagedAgentControlResultFrame
   | GuiMemoryLatticeInvalidatedFrame
   | {
@@ -848,6 +1059,7 @@ export type GuiInboundFrame =
   | { type: "error"; message: string; code?: string }
   | {
       type: "welcome";
+      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
       greeting?: string;
       models?: Record<string, string[]>;
       providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -858,6 +1070,7 @@ export type GuiInboundFrame =
       workingDirectory?: string;
       domainLabel?: string;
       authorityStatus?: GuiAuthorityStatus;
+      operatorTerminalAvailable?: boolean;
     }
     | {
         type: "execution_mode_transitioned";
@@ -872,12 +1085,13 @@ export type GuiInboundFrame =
     | GuiProviderAuthFailed
     | {
       type: "providers_refreshed";
-      models: Record<string, string[]>;
-      providerDiscovery: readonly GuiProviderDiscoveryResult[];
-      providers: readonly GuiProviderDescriptor[];
+      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
+      models?: Record<string, string[]>;
+      providerDiscovery?: readonly GuiProviderDiscoveryResult[];
+      providers?: readonly GuiProviderDescriptor[];
     }
     | { type: "provider_changed"; provider: string; model?: string; requestId: string }
-    | { type: "continuation_selected"; sessionId: string };
+    | { type: "continuation_selected"; sessionId: string; gatewayTargetId?: string };
 
 /** Connection lifecycle states for the GUI session WebSocket client. */
 export type GuiSessionConnectionState = "connecting" | "connected" | "reconnecting" | "disconnected";

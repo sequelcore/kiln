@@ -1,5 +1,6 @@
 export {
   scoreMemoryRecall,
+  evaluateMemoryInjectionEligibility,
   toMemoryContextCandidates,
 } from "./scoring.js";
 export type {
@@ -10,4 +11,7 @@ export type {
   MemoryRecallScoringInput,
   MemoryRecallScoringPolicy,
   MemoryRecallScoringResult,
+  MemoryRecallIntegrityEvidence,
+  MemoryInjectionDecision,
+  MemoryInjectionEligibility,
 } from "./scoring.js";

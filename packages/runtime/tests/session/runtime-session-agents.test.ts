@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { textParts } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
+import { serializeSession, deserializeSession } from "../../src/session/persistence/session-serializer.js";
 
 function makeSession(): RuntimeSession {
   return new RuntimeSession({

@@ -30,8 +30,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-slice-7",
       objective: "Execute approved Slice 7 plan.",
       ownerSessionId: "session-1",
-      planId: approvedPlan.id,
-      planHash: approvedPlan.contentHash,
+      source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -109,8 +108,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-idempotent",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: approvedPlan.id,
-      planHash: approvedPlan.contentHash,
+      source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -142,6 +140,78 @@ describe("materializeApprovedPlanWorkItems", () => {
     })).toThrow("conflicts with approved plan materialization: routeId, routingRecommendation");
   });
 
+  it("copies approved classification provenance and detects idempotent classification conflicts", () => {
+    const approvedPlan = approvedPlanForClassification();
+    const goal = new GoalRunStore({ now: () => "2026-05-12T18:30:00.000Z" }).create({
+      id: "goal-classification",
+      objective: "Execute classified approved work.",
+      ownerSessionId: "session-1",
+      source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
+      workItemIds: [],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved classified plan.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const originalStore = new WorkItemStore({ now: () => "2026-05-12T19:00:00.000Z" });
+
+    const original = materializeApprovedPlanWorkItems({
+      plan: approvedPlan,
+      goalRun: goal,
+      workItemStore: originalStore,
+    }).workItems[0]!;
+
+    expect(original).toMatchObject({
+      sourceWorkItemId: "write-report",
+      workClassification: {
+        intents: ["write", "edit"],
+        artifacts: ["document"],
+        domains: ["business"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      workClassificationProvenance: {
+        sourceKind: "plan-work-item",
+        sourceId: "write-report",
+      },
+    });
+
+    const classificationConflictStore = new WorkItemStore();
+    classificationConflictStore.upsert({
+      ...original,
+      workClassification: {
+        intents: ["code"],
+        artifacts: ["code"],
+        domains: ["software"],
+        effects: ["mutate-workspace"],
+        modes: ["automate"],
+      },
+    });
+    expect(() => materializeApprovedPlanWorkItems({
+      plan: approvedPlan,
+      goalRun: goal,
+      workItemStore: classificationConflictStore,
+    })).toThrow(/workClassification/);
+
+    const provenanceConflictStore = new WorkItemStore();
+    provenanceConflictStore.upsert({
+      ...original,
+      sourceWorkItemId: "other-plan-item",
+      workClassificationProvenance: {
+        sourceKind: "plan-work-item",
+        sourceId: "other-plan-item",
+      },
+    });
+    expect(() => materializeApprovedPlanWorkItems({
+      plan: approvedPlan,
+      goalRun: goal,
+      workItemStore: provenanceConflictStore,
+    })).toThrow(/workClassificationProvenance/);
+  });
+
   it("fails closed unless the plan is approved for its current content hash and matches the goal", () => {
     const planStateStore = new PlanStateStore({ now: fixedNow });
     const plan = planStateStore.submitPlan(validPlanInput());
@@ -149,8 +219,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-unapproved",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: plan.id,
-      planHash: plan.contentHash,
+      source: { kind: "approved_plan", planId: plan.id, planHash: plan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -174,7 +243,10 @@ describe("materializeApprovedPlanWorkItems", () => {
 
     expect(() => materializeApprovedPlanWorkItems({
       plan: approvedPlan,
-      goalRun: { ...goal, planHash: "sha256:other" },
+      goalRun: {
+        ...goal,
+        source: { kind: "approved_plan", planId: approvedPlan.id, planHash: "sha256:other" },
+      },
       workItemStore: new WorkItemStore(),
     })).toThrow("Goal goal-unapproved is not bound to approved plan hash");
   });
@@ -196,8 +268,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-dependencies",
       objective: "Execute dependency-sensitive plan.",
       ownerSessionId: "session-1",
-      planId: missingDependencyPlan.id,
-      planHash: missingDependencyPlan.contentHash,
+      source: { kind: "approved_plan", planId: missingDependencyPlan.id, planHash: missingDependencyPlan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -216,7 +287,10 @@ describe("materializeApprovedPlanWorkItems", () => {
 
     expect(() => materializeApprovedPlanWorkItems({
       plan: cyclicPlan,
-      goalRun: { ...goal, planId: cyclicPlan.id, planHash: cyclicPlan.contentHash },
+      goalRun: {
+        ...goal,
+        source: { kind: "approved_plan", planId: cyclicPlan.id, planHash: cyclicPlan.contentHash },
+      },
       workItemStore: new WorkItemStore(),
     })).toThrow("Work item dependency cycle detected: one -> two -> one");
   });
@@ -227,8 +301,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       id: "goal-replay",
       objective: "Replay materialization.",
       ownerSessionId: "session-1",
-      planId: plan.id,
-      planHash: plan.contentHash,
+      source: { kind: "approved_plan", planId: plan.id, planHash: plan.contentHash },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -269,6 +342,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       requestSource: "core-test",
       task: "Split implementation work.",
       maxConcurrentChildren: 2,
+      workingDirectoryMode: "isolated-worktree",
       childPlans: [
         {
           roleIntent: "runtime-coder",
@@ -661,6 +735,7 @@ describe("materializeApprovedPlanWorkItems", () => {
         task: "Generate duplicate candidates.",
         childCount: 2,
         maxConcurrentChildren: 2,
+        workingDirectoryMode: "isolated-worktree",
       }),
       workItemStore: new WorkItemStore({ now: () => "2026-05-22T20:00:00.000Z" }),
       goalRunId: "goal-fan-out",
@@ -781,4 +856,27 @@ function approvedPlan(input: PlanSubmissionInput) {
   const approved = store.getPlan(plan.id);
   if (!approved) throw new Error("plan missing");
   return approved;
+}
+
+function approvedPlanForClassification() {
+  return approvedPlan(validPlanInput({
+    proposedWorkItems: [
+      workItemDraft({
+        id: "write-report",
+        summary: "Write the governed report.",
+        workflowProfile: "verification-heavy",
+        workClassification: {
+          intents: [" write ", "write", "edit"],
+          artifacts: [" document ", "document"],
+          domains: [" business "],
+          effects: [" write-artifact "],
+          modes: [" coauthor "],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: " write-report ",
+        },
+      }),
+    ],
+  }));
 }

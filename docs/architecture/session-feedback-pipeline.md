@@ -91,40 +91,75 @@ The long-term repair path is:
 The repair path reuses work-governance, managed-agent evidence, and existing
 review gates. It does not bypass delegation, verification, or approval.
 
-## Current State
+## Implemented Contract
 
-The first slice exists in `@kilnai/core`:
+The session feedback pipeline is implemented as a local-first, governed
+feedback-to-fix path:
 
-- `packages/core/src/feedback/index.ts` defines the feedback domain contract,
-  redaction, local bundle creation, and issue draft rendering.
-- `packages/core/tests/feedback/session-feedback.test.ts` verifies credential
-  and PII redaction, local-only bundle behavior, evidence selection, fail-closed
-  validation, and maintainer issue draft rendering.
-
-The runtime evidence collector slice exists in `@kilnai/runtime`:
-
-- `packages/runtime/src/session/session-feedback-evidence.ts` collects selected
-  evidence from `RuntimeSession` ledger state, conversation history, canonical
-  session events, managed-agent events, and optional caller-provided git status.
-- `packages/runtime/tests/session/session-feedback-evidence.test.ts` verifies
-  transcript opt-in, command/tool failure evidence, file changes, logs, managed
-  invocation diagnostics, and git-status snapshot handling.
-
-The CLI draft slice exists in `@kilnai/cli`:
-
+- `packages/core/src/feedback/index.ts` defines feedback reports, evidence
+  selection, redacted local bundles, maintainer issue drafts, explicit
+  publication approval evidence, GitHub issue-provider port requests and
+  redacted provider responses, and local draft pull-request metadata.
+- `packages/runtime/src/session/session-feedback-evidence.ts` extracts selected
+  evidence from runtime session ledgers, conversation history, canonical
+  session events, managed-agent events, tool failures, command failures,
+  file-change summaries, logs, and caller-provided git status snapshots.
 - `packages/cli/src/commands/feedback.ts` implements `kiln feedback draft`,
-  which writes a local-only redacted bundle and maintainer issue draft.
-- `packages/cli/tests/commands/feedback.test.ts` verifies local output,
-  fail-closed required fields, redacted preview behavior, and opt-in git status
-  evidence.
-
-The first gateway projection contract exists in `@kilnai/gateway-contracts`:
-
+  which writes a local redacted bundle and maintainer issue draft and prints a
+  redacted preview. Publication remains disabled unless an explicit adapter
+  path receives approval evidence.
 - `packages/gateway-contracts/src/session-feedback-projection.ts` defines the
-  surface-facing feedback preview shape, local artifact references, issue-draft
-  preview, selected evidence previews, and fail-closed local publication state.
-- `packages/gateway-contracts/tests/session-feedback-projection.test.ts`
-  verifies accepted local-draft previews and rejects publication-enabled state.
+  surface-facing feedback preview shape. GUI, TUI, and native consumers validate
+  this shared contract and keep their own projection helpers thin.
+- `packages/core/src/work-governance/feedback-repair.ts` converts explicitly
+  approved local feedback bundles into existing work-governance work items with
+  bundle, approval, risk, file-impact, verification, tests, typecheck, review,
+  and residual-risk evidence.
 
-This is not yet a GUI flow, TUI flow, native flow, GitHub integration, or PR
-automation.
+## Redaction And Publication
+
+Feedback redaction is mandatory before preview, bundle export, issue draft
+rendering, issue-provider handoff, repair materialization, or draft PR
+metadata creation. The first-class policy redacts common bearer credentials,
+OpenAI/Anthropic-style keys, GitHub tokens, email addresses, and phone numbers.
+Unselected transcript evidence is omitted instead of redacted and exported.
+
+Publication is fail-closed:
+
+- Local bundles and maintainer issue drafts carry publication gates with
+  `allowed: false`.
+- Issue-provider adapters require explicit approval evidence with actor,
+  canonical UTC timestamp, and local feedback approval resource URI.
+- Provider responses are stored as redacted evidence, and response provenance
+  must match the approved provider.
+- Default tests use injected provider ports and do not perform live network
+  calls. Any live adapter test path must remain explicitly gated.
+
+## Governed Repair And Draft PR
+
+Feedback repair does not create a separate repair engine. Approved local
+bundles materialize into normal work-governance items with feedback provenance
+and required evidence. Work-item completion requires the existing closeout
+rules: tests, typecheck, managed-agent review, all repair verification gates,
+and residual-risk reporting.
+
+Draft pull-request metadata can be created only from a completed feedback repair
+work item. It requires explicit PR approval evidence, changed-file evidence,
+review evidence URIs, passing repair verification gates, managed-agent review,
+tests, typecheck, and residual risk. The result is a local draft artifact; branch
+push or external PR creation remains outside the default path and requires
+separate human approval.
+
+## Verification
+
+The durable verification suite for this pipeline includes:
+
+- `packages/core/tests/feedback/session-feedback.test.ts` for redaction,
+  local-only bundles, issue drafts, issue-provider approval and response
+  evidence, repair work items, and draft PR gates.
+- `packages/runtime/tests/session/session-feedback-evidence.test.ts` for
+  runtime evidence extraction and transcript opt-in.
+- `packages/cli/tests/commands/feedback.test.ts` for local draft command
+  behavior.
+- `packages/gateway-contracts/tests/session-feedback-projection.test.ts` plus
+  GUI, TUI, and native projection tests for contract-backed surface consumers.

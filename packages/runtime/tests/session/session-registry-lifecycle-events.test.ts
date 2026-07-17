@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SessionRegistry } from "../../src/session/session-registry.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 import type { ConversationEvent } from "@kilnai/core";
 

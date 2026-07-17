@@ -39,6 +39,10 @@ but they must not become separate app control planes.
 6. MCP is the external tool/host boundary. GUI, Native, CLI, and TUI should use
    the operator HTTP/WS contract for administrative state, live sessions, logs,
    replay, approvals, config diagnostics, and telemetry.
+
+   Context usage is one such session projection: Runtime normalizes it once
+   from adapter evidence, emits it with the completed turn, and preserves it
+   for replay. Surfaces must not calculate a replacement percentage.
 7. A local machine may run multiple App Gateways only when they represent
    distinct environments, projects, or isolation boundaries.
 

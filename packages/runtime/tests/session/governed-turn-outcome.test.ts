@@ -7,6 +7,39 @@ function record(input: GovernedTurnOutcomeToolRecord): GovernedTurnOutcomeToolRe
 }
 
 describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
+  it("does not fail a completed research turn only because governance recommended orchestration", () => {
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_governance.assess",
+        success: true,
+        output: [
+          "recommendation: orchestrate",
+          "reasons: default posture is orchestrate; delegation trigger matched: architecture, cross-surface",
+        ].join("\n"),
+      }),
+      record({
+        toolName: "web_search",
+        success: true,
+        output: "5 sources for native local search tools",
+      }),
+      record({
+        toolName: "grep",
+        success: true,
+        output: "packages/core/src/tools/domain/tool.ts",
+      }),
+      record({
+        toolName: "read",
+        success: true,
+        output: "export const TOOL_SCHEMAS = ...",
+      }),
+      record({
+        toolName: "web_extract",
+        success: true,
+        output: "Full tool output is available as resource links",
+      }),
+    ])).toBeUndefined();
+  });
+
   it("keeps managed recovery blocked until the required work_item.update call records phase evidence", () => {
     const failedStart = record({
       toolName: "work_item.execution.start",

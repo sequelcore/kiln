@@ -78,21 +78,17 @@ describe("initCommand", () => {
     expect(second!.version).toBe("1");
   });
 
-  it("appends to .gitignore", async () => {
+  it("does not add ignored project-local memory database entries", async () => {
     await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
 
-    const gitignore = readFileSync(join(tempDir, ".gitignore"), "utf-8");
-    expect(gitignore).toContain(".kiln/memory.db");
-    expect(gitignore).not.toContain(".kiln/agents/");
+    expect(existsSync(join(tempDir, ".gitignore"))).toBe(false);
   });
 
-  it("does not duplicate .gitignore entries on re-init", async () => {
+  it("does not create .gitignore on re-init just for memory database entries", async () => {
     await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
     await initCommand(MOCK_APP_CONFIG, tempDir, { force: true, interactive: false });
 
-    const gitignore = readFileSync(join(tempDir, ".gitignore"), "utf-8");
-    const memoryDbCount = gitignore.split(".kiln/memory.db").length - 1;
-    expect(memoryDbCount).toBe(1);
+    expect(existsSync(join(tempDir, ".gitignore"))).toBe(false);
   });
 
   it("non-interactive init with --domain flag uses specified domain", async () => {

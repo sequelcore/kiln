@@ -32,4 +32,22 @@ describe("ProviderModelRouteHealthStore", () => {
       healthy: true,
     });
   });
+
+  it("round-trips route-specific failure evidence without converting it to a credential outcome", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "kiln-route-health-"));
+    const store = new ProviderModelRouteHealthStore({ rootDir });
+
+    await store.recordOutcome({
+      providerId: "opencode-go",
+      modelId: "kimi-k2-7-code",
+      outcome: { type: "request-incompatible", reason: "invalid function name" },
+      errorMessage: "opencode-go API error 400",
+    });
+
+    const reloaded = new ProviderModelRouteHealthStore({ rootDir });
+    await expect(reloaded.readRouteHealth("opencode-go", "kimi-k2-7-code")).resolves.toMatchObject({
+      cooldownUntil: null,
+      lastOutcome: { type: "request-incompatible", reason: "invalid function name" },
+    });
+  });
 });

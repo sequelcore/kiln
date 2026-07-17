@@ -30,7 +30,8 @@ bun run build      # Production build (output served by gateway at /studio)
 bun run typecheck  # Type checking
 ```
 
-In normal usage, Studio is accessed through `bunx kiln dev` which serves the built output at `http://localhost:{port}/studio`.
+In normal usage, Studio is accessed through `bunx @kilnai/cli dev`, which
+serves the built output at `http://localhost:{port}/studio`.
 
 ## Documentation
 

@@ -10,7 +10,7 @@ import {
 } from "@kilnai/core";
 import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 import type { RuntimeSession } from "../session/runtime-session.js";
-import type { SessionRegistry } from "../session/session-registry.js";
+import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { AttachedRuntimeBuiltinToolSurface } from "./attached-runtime-tool-surface.js";
 
 export type PlanApprovalTransitionResult =

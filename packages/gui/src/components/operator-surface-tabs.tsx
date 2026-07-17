@@ -10,6 +10,7 @@ import type {
   OperatorWorkspaceFileSnapshot,
 } from "@kilnai/gateway-contracts";
 import { File, Image, Lock, MessageSquare, Monitor, Network, Unlock, X } from "lucide-react";
+import { MarkdownTable, MarkdownTableCell, MarkdownTableHeadCell } from "./markdown-table.js";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,8 +25,15 @@ interface OperatorSurfaceTabsProps {
   readonly browserSession?: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame?: GuiBrowserLiveViewportFrame | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
-  readonly onBrowserSessionControl?: (action: "takeover" | "release", options?: { readonly sessionId?: string; readonly reason?: string }) => void;
-  readonly onBrowserOperatorInput?: (request: { readonly sessionId: string; readonly input: GuiBrowserOperatorInput }) => void;
+  readonly onBrowserSessionControl?: (
+    action: "takeover" | "release",
+    options?: { readonly sessionId?: string; readonly gatewayTargetId?: string; readonly reason?: string },
+  ) => void;
+  readonly onBrowserOperatorInput?: (request: {
+    readonly sessionId: string;
+    readonly gatewayTargetId?: string;
+    readonly input: GuiBrowserOperatorInput;
+  }) => void;
   readonly memoryContent: ReactNode;
   readonly memoryOpen: boolean;
   readonly files: readonly OperatorWorkspaceFileSnapshot[];
@@ -163,12 +171,10 @@ function MarkdownPreview(props: { readonly content: string }) {
               </pre>
             ),
             table: ({ children }) => (
-              <div className="my-4 overflow-auto">
-                <table className="w-full border-collapse text-left text-sm">{children}</table>
-              </div>
+              <MarkdownTable className="text-sm">{children}</MarkdownTable>
             ),
-            th: ({ children }) => <th className="border border-border/70 bg-workspace-viewer-panel px-3 py-2 font-semibold">{children}</th>,
-            td: ({ children }) => <td className="border border-border/70 px-3 py-2">{children}</td>,
+            th: ({ children }) => <MarkdownTableHeadCell>{children}</MarkdownTableHeadCell>,
+            td: ({ children }) => <MarkdownTableCell>{children}</MarkdownTableCell>,
             a: ({ children, href }) => (
               <a href={href} target="_blank" rel="noreferrer" className="text-[var(--color-accent)] underline-offset-4 hover:underline">
                 {children}
@@ -221,8 +227,15 @@ function BrowserUsePanel(props: {
   readonly browserSession?: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame?: GuiBrowserLiveViewportFrame | null;
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
-  readonly onBrowserSessionControl?: (action: "takeover" | "release", options?: { readonly sessionId?: string; readonly reason?: string }) => void;
-  readonly onBrowserOperatorInput?: (request: { readonly sessionId: string; readonly input: GuiBrowserOperatorInput }) => void;
+  readonly onBrowserSessionControl?: (
+    action: "takeover" | "release",
+    options?: { readonly gatewayTargetId?: string; readonly sessionId?: string; readonly reason?: string },
+  ) => void;
+  readonly onBrowserOperatorInput?: (request: {
+    readonly sessionId: string;
+    readonly gatewayTargetId?: string;
+    readonly input: GuiBrowserOperatorInput;
+  }) => void;
 }) {
   const snapshot = props.snapshot;
   const loadResourceDataUrl = props.loadResourceDataUrl;
@@ -254,7 +267,11 @@ function BrowserUsePanel(props: {
     if (!operatorOwnsBrowser || !browserSessionId || !props.onBrowserOperatorInput) {
       return;
     }
-    props.onBrowserOperatorInput({ sessionId: browserSessionId, input });
+    props.onBrowserOperatorInput({
+      sessionId: browserSessionId,
+      ...(props.browserSession?.gatewayTargetId ? { gatewayTargetId: props.browserSession.gatewayTargetId } : {}),
+      input,
+    });
   }
 
   function viewportPoint(event: MouseEvent<HTMLElement> | WheelEvent<HTMLElement>): { readonly x: number; readonly y: number } | null {
@@ -389,7 +406,7 @@ function BrowserUsePanel(props: {
           {status}
         </span>
         {status === "running" || props.browserSession?.ownership === "agent" ? (
-          <span className="shrink-0 rounded border border-amber-500/45 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-200">
+          <span className="shrink-0 rounded border border-status-warning-border bg-status-warning-background px-2 py-1 text-xs text-warning">
             Agent controlling
           </span>
         ) : null}
@@ -414,6 +431,7 @@ function BrowserUsePanel(props: {
                 operatorOwnsBrowser ? "release" : "takeover",
                 {
                   ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+                  ...(props.browserSession?.gatewayTargetId ? { gatewayTargetId: props.browserSession.gatewayTargetId } : {}),
                   reason: operatorOwnsBrowser ? "Operator released browser control." : "Operator took browser control.",
                 },
               );

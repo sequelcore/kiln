@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { spawn, execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import {
   CODEX_DEFAULT_MODEL,
   appendExecutionIdentity,
   resolveExecutionIdentity,
+  type ExecutionSessionEvent,
   type ReasoningEffort,
 } from "@kilnai/core";
 import type {
-  SessionEvent,
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
@@ -17,6 +17,7 @@ import type {
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
+import { resolveNativeCliExecutable } from "./native-cli-executable.js";
 
 interface TranslationRuleMetadata {
   readonly category: string;
@@ -188,7 +189,7 @@ export class CodexSession implements IKilnSession {
     return this._threadId ?? undefined;
   }
 
-  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this._disposed) return;
 
     const model =
@@ -421,10 +422,13 @@ export class CodexSession implements IKilnSession {
             }
 
             case "error":
+              if (isBenignCodexItemError(item.message)) {
+                break;
+              }
               lastError = item.message ?? "Unknown item error";
               yield {
                 type: "error",
-                code: "CODEX_ITEM_ERROR",
+                code: codexErrorCodeForMessage(lastError, "CODEX_ITEM_ERROR"),
                 message: lastError,
                 isRetryable: false,
               };
@@ -531,10 +535,10 @@ export class CodexSession implements IKilnSession {
           const errorType = line.error?.type;
           const isRetryable =
             errorType === "Stream" || errorType === "Timeout" || errorType === "ConnectionFailed";
-          lastError = line.message ?? "Unknown error";
+          lastError = line.message ?? line.error?.message ?? "Unknown error";
           yield {
             type: "error",
-            code: "CODEX_TURN_ERROR",
+            code: codexErrorCodeForMessage(lastError, "CODEX_TURN_ERROR"),
             message: lastError,
             isRetryable,
           };
@@ -548,7 +552,7 @@ export class CodexSession implements IKilnSession {
           lastError = line.error?.message ?? "Turn failed";
           yield {
             type: "error",
-            code: "CODEX_TURN_FAILED",
+            code: codexErrorCodeForMessage(lastError, "CODEX_TURN_FAILED"),
             message: lastError,
             isRetryable,
           };
@@ -595,7 +599,7 @@ export class CodexSession implements IKilnSession {
       const msg = lastError ?? (stderrText.length > 0 ? stderrText : `codex exited with code ${exitCode}`);
       yield {
         type: "error",
-        code: "CODEX_EXIT_ERROR",
+        code: codexErrorCodeForMessage(msg, "CODEX_EXIT_ERROR"),
         message: msg,
         isRetryable: false,
       };
@@ -634,25 +638,10 @@ export class CodexSession implements IKilnSession {
 
   private _findCodexBinary(): string {
     const homedir = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    const fallbackPaths = [
-      `${homedir}\\AppData\\Roaming\\npm\\codex.cmd`,
-      `${homedir}\\.codex\\.sandbox-bin\\codex.exe`,
-    ];
-
-    const candidates = ["codex", ...fallbackPaths];
-
-    for (const candidate of candidates) {
-      try {
-        execSync(`"${candidate}" --version`, { stdio: "ignore" });
-        return candidate;
-      } catch {
-        // try next
-      }
-    }
-
-    throw new Error(
-      "codex binary not found. Ensure codex is installed and accessible in PATH, or ensure one of the fallback paths exists.",
-    );
+    return resolveNativeCliExecutable({
+      command: "codex",
+      fallbackPaths: [`${homedir}\\.codex\\.sandbox-bin\\codex.exe`],
+    });
   }
 
   private _killProcess(): void {
@@ -671,7 +660,7 @@ export class CodexSession implements IKilnSession {
 function normalizeCodexFileChanges(
   item: NonNullable<CodexJsonlLine["item"]>,
   cwd: string,
-): Extract<SessionEvent, { readonly type: "file_changed" }>[] {
+): Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[] {
   if (Array.isArray(item.changes)) {
     if (item.status === "failed") return [];
     return item.changes.flatMap((change) => {
@@ -713,4 +702,18 @@ function summarizeCodexFileChange(item: NonNullable<CodexJsonlLine["item"]>): st
     return `File changes ${item.status ?? "completed"}: ${changes}`;
   }
   return `File ${item.path ?? "unknown"}: ${item.change_type ?? "modified"}`;
+}
+
+function isBenignCodexItemError(message: string | undefined): boolean {
+  return message?.startsWith("Skill descriptions were shortened to fit the 2% skills context budget.") ?? false;
+}
+
+function codexErrorCodeForMessage(message: string | undefined, fallback: string): string {
+  return isCodexModelVersionUnsupportedMessage(message)
+    ? "CODEX_MODEL_VERSION_UNSUPPORTED"
+    : fallback;
+}
+
+function isCodexModelVersionUnsupportedMessage(message: string | undefined): boolean {
+  return /model requires a newer version of Codex/i.test(message ?? "");
 }

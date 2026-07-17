@@ -1,6 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewaySession } from "../src/gateway-session.js";
 import { setTuiOperatorThemeHandler } from "../src/operator-theme-handler.js";
+import type { GuiProviderModelDiscoveryProjection } from "@kilnai/gateway-contracts";
+
+const EMPTY_PROVIDER_MODEL_DISCOVERY: GuiProviderModelDiscoveryProjection = {
+  catalogEvidence: {
+    status: "failed",
+    source: {
+      kind: "test",
+      id: "tui-gateway-session",
+    },
+    observedAt: "2026-07-01T00:00:00.000Z",
+    counts: {
+      total: 0,
+      returned: 0,
+      omitted: 0,
+    },
+    failure: {
+      classification: "catalog-unavailable",
+      summary: "No provider model discovery fixture.",
+    },
+  },
+  entries: [],
+};
 
 let wsInstances: MockWebSocket[] = [];
 
@@ -109,6 +131,20 @@ function sentMessageFrame(ws: MockWebSocket): {
     requestedAuthority?: "auto" | "read_only" | "audited";
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   };
+}
+
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await Promise.resolve();
+    }
+  }
+  throw lastError;
 }
 
 describe("GatewaySession provider switching", () => {
@@ -269,6 +305,57 @@ describe("GatewaySession canonical session events", () => {
     await session.dispose();
   });
 
+  it("preserves restored context evidence as historical TUI activity metadata", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "resume" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-context-restored",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-07-13T00:00:00.000Z",
+        kind: "context_usage_observed",
+        turnId: "session-1:turn:1",
+        payload: {
+          contextUsage: {
+            state: "partial",
+            usedTokens: 2400,
+            providerId: "openai",
+            modelId: "gpt-5",
+            turnId: "session-1:turn:1",
+            observedAt: "2026-07-12T23:59:00.000Z",
+            measurement: "runtime_estimate",
+            lifecycle: "restored",
+            contextWindowAuthority: "unknown",
+            freshness: "historical",
+            reason: "No compatible context window was persisted.",
+          },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({ type: "done", content: "resumed", inputTokens: 1, outputTokens: 1 }));
+
+    await collect;
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "activity",
+      activity: "context_usage",
+      metadata: {
+        contextUsage: expect.objectContaining({ lifecycle: "restored", freshness: "historical" }),
+      },
+    }));
+    await session.dispose();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -300,6 +387,24 @@ describe("GatewaySession canonical session events", () => {
           toolCallId: "tool-1",
           toolName: "write",
           input: { path: "demo.txt" },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-output",
+        kilnSessionId: "session-1",
+        sequence: 2,
+        timestamp: "2026-04-28T20:00:00.500Z",
+        kind: "tool_call_output_delta",
+        turnId: "session-1:turn:live",
+        payload: {
+          toolCallId: "tool-1",
+          toolName: "write",
+          stream: "stdout",
+          delta: "writing demo.txt\n",
+          chunkIndex: 0,
         },
       },
     }));
@@ -391,8 +496,19 @@ describe("GatewaySession canonical session events", () => {
         sessionId: "session-1",
         turnId: "session-1:turn:live",
         toolName: "write",
+        toolCallId: "tool-1",
         input: { path: "demo.txt" },
         surfaces: ["conversation_inline", "activity_panel", "inspector"],
+      }),
+      expect.objectContaining({
+        type: "activity",
+        activity: "tool_output",
+        toolCallId: "tool-1",
+        toolName: "write",
+        stream: "stdout",
+        output: "writing demo.txt\n",
+        chunkIndex: 0,
+        surfaces: ["activity_panel"],
       }),
       expect.objectContaining({
         type: "activity",
@@ -533,6 +649,98 @@ describe("GatewaySession canonical session events", () => {
     await session.dispose();
   });
 
+  it("projects lifecycle attribution as canonical activity evidence", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const events: unknown[] = [];
+    const collect = (async () => {
+      for await (const event of session.run({ prompt: "measure lifecycle use" })) {
+        events.push(event);
+      }
+    })();
+
+    await Promise.resolve();
+    ws.simulateMessage(JSON.stringify({
+      type: "session_event",
+      event: {
+        eventId: "evt-attribution",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-06-30T18:00:00.000Z",
+        kind: "lifecycle_attribution_recorded",
+        turnId: "session-1:turn:live",
+        payload: {
+          ledger: {
+            sourceEventId: "evt-cost",
+            context: { route: "codex-oauth/gpt-5.5" },
+            records: [
+              { source: "unknown", tokenClass: "raw", tokens: 100 },
+              { source: "unknown", tokenClass: "generated", tokens: 20 },
+            ],
+          },
+          summary: {
+            totalTokens: 120,
+            totalCostUsd: 0.0123,
+            bySource: { unknown: 120 },
+          },
+          efficiencyEvidence: {
+            schemaVersion: "verified-efficiency-evidence-v1",
+            sessionId: "session-1",
+            turnId: "session-1:turn:live",
+            observedAt: "2026-06-30T18:00:00.000Z",
+            provider: { providerId: "codex-oauth", modelId: "gpt-5.5", billingMode: "metered" },
+            policy: {
+              owner: "ContextGovernor",
+              policyId: "context-whole-block-static-v1",
+              configurationHash: `sha256:${"a".repeat(64)}`,
+            },
+            totals: {
+              providerTotalTokens: 120,
+              providerTotalCostUsd: 0.0123,
+              measured: { tokens: 20, costUsd: 0.0023 },
+              estimated: { tokens: 0, costUsd: 0 },
+              cached: { tokens: 0, costUsd: 0 },
+              unknown: { tokens: 100, costUsd: 0.01 },
+              cacheWritten: { tokens: 0, costUsd: 0 },
+              avoided: { tokens: 0, costUsd: 0 },
+            },
+            outcome: "succeeded",
+            verification: { status: "not_run", results: [] },
+            actions: [],
+            savings: [],
+            evidenceUris: [],
+          },
+        },
+      },
+    }));
+    ws.simulateMessage(JSON.stringify({
+      type: "done",
+      content: "done",
+      inputTokens: 1,
+      outputTokens: 1,
+    }));
+
+    await collect;
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "activity",
+      activity: "lifecycle_attribution_recorded",
+      sessionId: "session-1",
+      turnId: "session-1:turn:live",
+      details: "Efficiency: 20 measured · 0 estimated · 0 cached · 0 avoided · verification not_run · context-whole-block-static-v1",
+      surfaces: ["activity_panel", "inspector"],
+      sessionEvent: expect.objectContaining({
+        eventId: "evt-attribution",
+        kind: "lifecycle_attribution_recorded",
+        kilnSessionId: "session-1",
+      }),
+    }));
+
+    await session.dispose();
+  });
+
   it("projects read and tree tool results from full payload envelopes", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     const ws = wsInstances[0];
@@ -585,6 +793,28 @@ describe("GatewaySession canonical session events", () => {
         payload: {
           toolCallId: "tool-tree",
           toolName: "tree",
+          metadata: {
+            toolName: "tree",
+            kind: "inspection",
+            operation: "tree",
+            path: "C:\\workspace\\kiln",
+            depth: 2,
+            entryCount: 55,
+          },
+          resourceLinks: [
+            {
+              uri: "kiln://artifacts/tool-results/artifact_tree/content",
+              title: "tree full output",
+              mimeType: "text/plain",
+              size: 9000,
+              relation: "full_output",
+            },
+          ],
+          toolUsage: {
+            scope: "turn",
+            toolName: "tree",
+            calls: 1,
+          },
           output: JSON.stringify({
             output: ".\npackages/\n  tui/",
             isError: false,
@@ -638,6 +868,19 @@ describe("GatewaySession canonical session events", () => {
         activity: "tool_result",
         toolName: "tree",
         output: "55 entries under C:\\workspace\\kiln",
+        metadata: expect.objectContaining({
+          operation: "tree",
+          entryCount: 55,
+        }),
+        resourceLinks: [expect.objectContaining({
+          uri: "kiln://artifacts/tool-results/artifact_tree/content",
+          relation: "full_output",
+        })],
+        toolUsage: {
+          scope: "turn",
+          toolName: "tree",
+          calls: 1,
+        },
         toolPresentation: expect.objectContaining({
           outputKind: "tree",
           title: "C:\\workspace\\kiln",
@@ -645,7 +888,6 @@ describe("GatewaySession canonical session events", () => {
       }),
     ]));
     expect(JSON.stringify(events)).not.toContain("{\\\"output\\\"");
-    expect(JSON.stringify(events)).not.toContain("\\\"metadata\\\"");
 
     await session.dispose();
   });
@@ -928,10 +1170,15 @@ describe("GatewaySession provider authentication", () => {
       requestId: frame.requestId,
       models: { "opencode-go": ["minimax-m2.5"] },
       providerDiscovery: [],
+      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
     }));
 
     await expect(promise).resolves.toBeUndefined();
-    expect(onWelcome).toHaveBeenCalledWith({ "opencode-go": ["minimax-m2.5"] }, []);
+    expect(onWelcome).toHaveBeenCalledWith(
+      { "opencode-go": ["minimax-m2.5"] },
+      [],
+      EMPTY_PROVIDER_MODEL_DISCOVERY,
+    );
     await session.dispose();
   });
 
@@ -966,6 +1213,7 @@ describe("GatewaySession provider authentication", () => {
       requestId: frame.requestId,
       models: { "codex-oauth": ["gpt-5.4"] },
       providerDiscovery: [],
+      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
     }));
 
     await expect(promise).resolves.toBeUndefined();
@@ -1007,7 +1255,7 @@ describe("GatewaySession operator theme frames", () => {
       scope: "session",
       reason: "test",
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(ws.send.mock.calls.some(([payload]) => (
         typeof payload === "string"
         && payload !== "ping"

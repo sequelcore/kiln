@@ -160,24 +160,35 @@ unknown tools remain MCP error results.
 Governed execution uses explicit goal and work-item contracts:
 
 - `work_item.update` creates or updates bounded work items with workflow
-  profile, evidence, gates, route hints, and pause requirements.
+  profile, evidence, gates, route hints, and pause requirements. Its manual
+  tool contract requires a stable caller-owned `id`; choose it before the first
+  call and reuse it for classification provenance, execution, evidence, and
+  closeout. Do not send temporary identities such as `pending`.
 - `goal.create` creates the canonical goal run from existing work items and
   links those work items to the goal before execution starts. Attached runtime
   surfaces bind the goal to the current session when `ownerSessionId` is omitted
-  or null; callers should not pass placeholders such as `"current"`.
+  or null and record the current operator turn as its source. Callers should not
+  pass placeholders such as `"current"`, a fabricated `planId`, or a fabricated
+  turn id. Approved-plan goals use the plan approval/materialization flow instead
+  of `goal.create`.
 - `work_item.execution.start` starts the next ready work item for an existing
   goal. If the goal id is unknown, it returns a structured recoverable error
   with `suggestedNextTool: "goal.create"` instead of accepting an invented id.
   A started attempt is not closeout by itself; while the item remains
   `in_progress`, the latest governed turn is projected as failed/blocked until
-  `work_item.execution.finish` or `work_item.complete` records terminal
-  evidence.
+  `work_item.execution.finish` records terminal evidence. `work_item.complete`
+  is reserved for standalone work and rejects goal-owned items.
 - `work_item.execution.finish` closes the attempt and fails closed when
   evidence, verification gates, goal evidence, or residual-risk closeout is
   missing.
 
 Agents should not fabricate `goalRunId` values. They must call `goal.create`
 after creating the relevant work items and before starting execution.
+When an operator enables **Governed task** in the GUI, the outbound frame carries
+a typed required work-item count. Until exactly that many distinct work items and
+their linked operator-direct goal exist in canonical tool results, the runtime
+restricts the model to governance tools and rejects inspection or execution calls.
+This ordering is enforced from tool metadata; it is not inferred from prompt prose.
 After a scout or local read-only diagnosis, an open routed work item is still
 unfinished. The next governed step is `goal.create` when no goal exists, then
 `work_item.execution.start`; parent agents must not report a generic read-only
@@ -206,8 +217,8 @@ contract. If `executionPhase.completionTool` is `work_item.update`, the managed
 child is producing intermediate evidence only; record that phase's
 `expectedEvidence` on the same pending item and call
 `work_item.execution.start` again for the next phase. Do not call
-`work_item.execution.finish` or `work_item.complete` until the generated phase
-is final. If `executionPhase.completionTool` is `work_item.execution.finish`,
+`work_item.execution.finish` until the generated phase is final. If
+`executionPhase.completionTool` is `work_item.execution.finish`,
 link the returned managed invocation id with `work_item.execution.start` and
 then finish the attempt with the final evidence, checks, and residual risk.
 If a managed child fails before starting an intermediate phase but the parent
@@ -432,7 +443,8 @@ Both commands use the same core builtin surface as `kiln tools --mcp`.
 `--resources` prints compact display descriptors with URI, title, MIME type,
 size, relation, and truncation state when available. `--resource <uri>` reads
 the resource through the shared registry and prints text content directly when
-the resource has a single text payload.
+the resource has a single text payload. Non-text and multi-content reads print
+the shared `OperatorResourceReadResult` shape used by operator surfaces.
 
 Runtime-attached consumers use the same projection through
 `AttachedRuntimeBuiltinToolSurface.listResources()`,
@@ -449,13 +461,17 @@ read-only builtin tools:
 - `resource_list`: lists registry resources with optional cursor pagination
 - `resource_template_list`: lists resource templates with optional cursor
   pagination
+- `memory_search`: searches governed Memory Lattice context and returns
+  readable matched records plus the bounded graph evidence used to find them
 - `resource_read`: reads a `kiln://...` resource URI
 
 These tools are thin adapters over the same `ToolResourceRegistry`; they do not
 own a private browse/read protocol and they do not grant mutation authority.
 They stay visible in deferred tool projection alongside `tool_catalog_search`,
-so a model can follow `metadata.resourceLinks` from high-volume results without
-requiring a GUI, TUI, CLI, or MCP-client-only helper. `resource_read` returns a
+so a model can search memory or follow `metadata.resourceLinks` from high-volume
+results without requiring a GUI, TUI, CLI, or MCP-client-only helper.
+`memory_search` respects the same memory read authority as
+`kiln://memory/...` resources. `resource_read` returns a
 single text payload directly when possible and otherwise returns the resource
 content array as JSON. For paginated reads, copy the exact opaque `nextCursor`
 from the trailing `--- resource_read ---` JSON control block; do not infer a
@@ -508,7 +524,7 @@ export interface DevTool {
 }
 ```
 
-The forty-one built-in tool names are:
+The forty-seven built-in tool names are:
 
 - `bash`
 - `read`
@@ -541,6 +557,7 @@ The forty-one built-in tool names are:
 - `computer_close_application`
 - `grep`
 - `glob`
+- `json_query`
 - `git`
 - `code_intelligence`
 - `monitor_start`
@@ -551,6 +568,7 @@ The forty-one built-in tool names are:
 - `task_update`
 - `operator_elicit`
 - `tool_catalog_search`
+- `memory_search`
 - `memory_save`
 - `resource_list`
 - `resource_template_list`
@@ -591,6 +609,9 @@ High-volume tools support a shared `verbosity` field:
 
 The shared field is named `verbosity`, not `outputMode`, because `grep` already
 uses `outputMode` for match shape: `content`, `files_with_matches`, or `count`.
+`grep.matchMode` controls pattern semantics: `auto` treats valid patterns as
+regular expressions and falls back to literal matching for invalid regex syntax,
+`regex` is strict, and `literal` searches fixed strings.
 
 ### Result metadata
 
@@ -601,7 +622,7 @@ Every metadata object includes:
 
 - `toolName`: canonical builtin tool name
 - `kind`: `command`, `file`, `inspection`, `media`, `web`, `interactive`,
-  `search`, `monitor`, `task_state`, or `elicitation`
+  `search`, `structured_data`, `monitor`, `task_state`, or `elicitation`
 - optional `resourceLinks`: artifact-backed resources for large or truncated
   high-volume outputs
 
@@ -959,8 +980,9 @@ Open Calculator, click #num2Button, #plusButton, #num3Button, and #equalButton, 
 | `computer_focus_application` | Bring a governed desktop app/window to foreground | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; useful before semantic UIA interactions when the app is not active |
 | `computer_minimize_application` | Minimize a governed desktop app/window | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; used to return the operator's desktop to a quieter state after automation |
 | `computer_close_application` | Gracefully close a governed desktop app/window | `application`, `windowTitle`, `timeout`, `verbosity` | destructive lifecycle evidence; captures and reports the requested target, verifies it closed, reports `closeMethod`, and does not force-kill |
-| `grep` | Search file content by regex | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `outputMode`, `count`, and `verbosity` |
+| `grep` | Search file content by pattern | `pattern`, optional file-or-directory `path`, `glob`, `outputMode`, `matchMode`, `maxResults`, `verbosity` | `raw` output is newline-delimited matches, file paths, or counts; `structured` is JSON result data; `summary` is a bounded rollup; requires native `rg`; content/file searches pass native match, filesize, and nuisance-directory bounds before output shaping; metadata includes `path`, `strategy`, `runtimeSource`, `runtimePath`, `runtimeVersion`, `outputMode`, `matchMode`, `count`, `maxResults`, and `verbosity` |
 | `glob` | Match files by glob pattern | `pattern`, `path`, `verbosity` | `raw` output is newline-delimited relative file paths; `structured` is JSON matches; `summary` is a bounded rollup; metadata includes `path`, `strategy`, `count`, and `verbosity` |
+| `json_query` | Query JSON with jq | `filter`, exactly one of `json` or `path`, `maxBytes`, `verbosity` | `raw` output is compact jq output; `structured` wraps output and line count; `summary` is a bounded rollup; requires native `jq`; metadata includes source, path, filter, strategy, runtime source/path/version, output bytes, truncation, and `verbosity` |
 | `git` | Run a git subcommand | `subcommand`, `args` | `output` is combined stdout+stderr; metadata includes `cwd`, `command` |
 | `code_intelligence` | Query a configured language-server adapter | `operation`, `path`, `position`, `query`, `symbol`, `limit`, `verbosity` | default configuration fails closed; configured adapters return bounded semantic code results; metadata includes operation, workspace root, adapter, language, result count, errors, and `verbosity` |
 | `monitor_start` | Start a monitored long-running shell command | `command`, `cwd`, `name`, `timeout`, `verbosity` | starts a session-local monitor with timeout cleanup; metadata includes id, command, cwd, status, timeout, sequence, and `verbosity` |
@@ -971,6 +993,7 @@ Open Calculator, click #num2Button, #plusButton, #num3Button, and #equalButton, 
 | `task_update` | Create or update session-local task state | `id`, `title`, `status`, `details`, `dependsOn`, `verbosity` | creates or updates one task in the shared store; metadata includes task id, status, total task count, sequence, and `verbosity` |
 | `operator_elicit` | Ask the operator for bounded input through the attached responder | `mode`, `message`, `schema`, `url`, `sensitive`, `verbosity` | form mode collects non-sensitive structured values; URL mode requires HTTPS for sensitive handoffs; metadata records mode, outcome, surface, URL, and value keys without values |
 | `tool_catalog_search` | Search the shared tool catalog | `query`, `exact`, `prefix`, `tags`, `limit`, `includeSchemas`, `verbosity` | returns matched tool catalog entries and reports stale exact matches without falling back to unrelated tools |
+| `memory_search` | Search governed Memory Lattice context | `query`, `scopeKind`, `scopeId`, `layer`, `depth`, `limit` | returns matched memory records with content plus bounded graph evidence; metadata includes scope, query, result count, truncation, and resource URI |
 
 `patch` accepts a structured document with `*** Begin Patch` and
 `*** End Patch` sentinels. Supported operations are:
@@ -1004,8 +1027,14 @@ The built-in executors are intentionally small and predictable:
 - `WebFetchTool` validates HTTP(S) URLs, rejects private/local hosts, requires explicit network policy, validates redirect hops, caps bytes, checks supported text content types, sanitizes returned text, and supports raw, structured, or summary output.
 - `WebExtractTool` validates one or more HTTP(S) URLs against the active network policy, calls an injected extraction provider, caps bytes per page, sanitizes extracted text or markdown, emits page evidence, and fails closed when no provider is configured.
 - `Browser*Tool` and `Computer*Tool` validate the shared interactive-use schema, fail closed when no provider is configured, delegate actual automation to an injected provider, and emit shared `interactive` metadata without echoing sensitive typed text.
-- `GrepTool` uses `rg` when available and falls back to a recursive file walk plus JavaScript `RegExp`; `outputMode` controls match shape while `verbosity` controls result shape.
+- `GrepTool` requires a resolved native `rg` runtime and fails fast when none
+  is available; `matchMode` controls regex versus fixed-string matching,
+  `outputMode` controls match shape, and `verbosity` controls result shape.
+  Content and file-match searches pass native execution bounds to `rg`
+  (`maxResults`, `--max-filesize`, and default nuisance-directory excludes)
+  before Kiln applies final output shaping.
 - `GlobTool` uses `fd` when available and falls back to the same recursive walker plus glob matching helpers; it can return raw path lists, structured JSON matches, or a summary.
+- `JsonQueryTool` requires a resolved native `jq` runtime, accepts either inline JSON over stdin or a sandbox-validated JSON file path, and fails fast when no runtime exists instead of approximating jq semantics in TypeScript.
 - `GitTool` executes `git` directly and validates the reconstructed command string before running it.
 - `ReadManyTool` builds bounded multi-file text packets with deterministic ordering, include/exclude globs, optional `.gitignore` respect, default nuisance-directory excludes, per-file skipped reasons, total bytes, and truncation metadata.
 - `CodeIntelligenceTool` validates workspace paths and delegates semantic navigation, symbols, diagnostics, implementations, and call hierarchy to an injected `CodeIntelligenceAdapter`. The default fails closed with `adapter_not_configured` instead of approximating LSP behavior with text search.
@@ -1059,13 +1088,20 @@ It caches the first successful detection result process-wide, and `clearToolEnvi
 
 Kiln's developer tool stack is designed around two layers:
 
-1. System binaries discovered from PATH
-2. Pure TypeScript fallback inside the executor when no binary is available
+1. Bundled or explicitly configured native runtimes
+2. System binaries discovered from PATH
+3. Pure TypeScript fallback only for tools whose contract explicitly permits it
 
-In the current core source, `detectToolEnvironment()` performs the PATH probe
-and the fallback logic lives in `GrepTool` and `GlobTool`. The reserved
-`packages/tools` workspace is not part of the 2.0 public package line because
-Kiln does not yet ship vendored binaries.
+In the current core source, `GrepTool` resolves native `rg` through the search
+runtime provider and fails fast when no runtime exists. The resolver checks the
+vendored `@kilnai/tools` platform package first and treats it as bundled only
+when `tools.json` declares the binary and the expected binary file exists.
+`rg`, `fd`, and `jq` are vendored from upstream release artifacts with SHA-256
+verification via `bun run vendor:tools`. `GlobTool` checks vendored `fd` before
+PATH-provided `fd`, then falls back to its internal walker because file
+discovery can be expressed safely without changing `grep` result semantics.
+`JsonQueryTool` checks vendored `jq` before PATH-provided `jq` and does not
+provide a fallback because jq filter semantics are the contract.
 
 `git` is different: Kiln detects it from PATH, but there is no pure TypeScript git fallback.
 
@@ -1292,12 +1328,67 @@ Tool execution emits two families of events.
 | Event | Key fields |
 |-------|------------|
 | `tool_called` | `toolName`, `toolInput`, `resolvedEffect`, `authority`, `authorizationLevel`, `taskId` |
+| `tool_output` | `toolCallId`, `toolName`, `stream`, `delta`, `chunkIndex` |
 | `tool_authorized` | `toolName`, `level`, `allowed`, `reason` |
 | `tool_result` | `toolName`, `durationMs`, `success`, `isError`, `retryAttempt`, `resultSummary` |
 
 ### Conversation events
 
 Gateway-side runtime sessions also emit `TOOL_EXECUTED` for downstream product integrations.
+
+### Command output lifecycle
+
+Foreground command tools use the shared spawned-process runner also used by
+background monitors. The foreground execution retains a bounded terminal result
+while emitting bounded, ordered output deltas. Runtime owns correlation and adds
+the canonical `toolCallId` plus a monotonic `chunkIndex`; surfaces must fold
+those deltas into the existing tool execution rather than create transcript
+rows for individual chunks.
+
+The attended operator lifecycle is `tool_call_started`, zero or more live
+`tool_call_output_delta` frames, then exactly one durable
+`tool_call_completed` event. Incremental chunks are deliberately not persisted;
+the bounded terminal result remains the durable evidence.
+The same turn abort signal terminates the foreground process tree. Background
+monitors remain session-owned and are not cancelled with an individual turn.
+
+GUI uses the source-owned AI Elements terminal presentation for the bounded
+operator log. TUI updates the matching tool node by `toolCallId`, and CLI writes
+live command output to stderr so answer and JSON stdout remain machine-clean.
+This output presentation is read-only; an interactive operator terminal is a
+separate PTY capability with independent input, resize, and lifecycle authority.
+
+### Interactive operator terminal
+
+The local GUI launcher creates an ephemeral terminal capability and passes it
+in the GUI URL fragment. The fragment is projected into the WebSocket query by
+the loaded GUI, but is not sent in the initial HTTP request. Only a connection
+holding that capability may open a PTY. Each PTY is then owned by that specific
+WebSocket connection and is terminated when the operator closes it, the socket
+disconnects, or the gateway shuts down.
+
+The runtime terminal service uses Bun's platform PTY primitive (ConPTY on
+Windows and `openpty()` on Linux/macOS) and enforces these invariants:
+
+- the canonical working directory is the project workspace or a real directory
+  beneath it; traversal and symlink escapes fail closed
+- input and resize requests are bounded and validated at the gateway and service
+  boundaries
+- output is live and bounded per frame; it is not persisted in the session
+  ledger or supplied to the model
+- PTYs inherit the local launcher process authority, never the selected turn or
+  agent authority
+- a terminal ID is scoped to its owning connection; another connection receives
+  the same not-found response as an unknown ID
+
+GUI renders the bidirectional stream with xterm.js and forwards resize events to
+the PTY. Its workbench panel is persistent across GUI surfaces, defaults closed,
+and stores only the operator's preferred panel height per workspace. On narrow
+layouts the same PTY occupies the workbench surface rather than opening a second
+terminal implementation. CLI and TUI already run inside a native terminal, so
+operator shell use remains native to their host rather than being projected as
+transcript events. The runtime service and gateway frame vocabulary remain
+surface-neutral for future native and IDE consumers.
 
 ---
 

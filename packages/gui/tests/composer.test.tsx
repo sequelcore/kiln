@@ -1,58 +1,176 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/components/composer.js";
+import { useUiStore } from "../src/lib/ui-store.js";
 
 function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   const onSubmit = vi.fn();
   const onTogglePlanMode = vi.fn();
+  const onGovernedWorkItemCountChange = vi.fn();
   const onSubmitParts = vi.fn();
+  const onCancel = vi.fn();
   const onCommandMenuOpenChange = vi.fn();
   const onCommandMenuExecute = vi.fn();
   const onCommandMenuQueryChange = vi.fn();
-  render(
+  const props: ComponentProps<typeof Composer> = {
+    status: "ready",
+    planMode: false,
+    governedWorkItemCount: null,
+    continuityHint: {
+      label: "New session",
+      description: "Next message starts fresh",
+      tone: "muted",
+      prominence: "routine",
+    },
+    providerControl: <button type="button">Claude Sonnet 4</button>,
+    reasoningControl: <select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>,
+    authorityControl: <select aria-label="Turn authority" defaultValue="auto"><option value="auto">Auto</option></select>,
+    commandMenu: {
+      open: false,
+      query: "",
+      commands: [
+        {
+          id: "new-session",
+          trigger: "new session",
+          title: "New Session",
+        },
+      ],
+      onQueryChange: onCommandMenuQueryChange,
+      onExecute: onCommandMenuExecute,
+      onOpenChange: onCommandMenuOpenChange,
+    },
+    onSubmit,
+    onTogglePlanMode,
+    onGovernedWorkItemCountChange,
+    onSubmitParts,
+    onCancel,
+    ...overrides,
+  };
+  const result = render(
     <Composer
-      status="ready"
-      planMode={false}
-      continuityHint={{
-        label: "New session",
-        description: "Next message starts fresh",
-        tone: "muted",
-      }}
-      providerControl={<button type="button">Claude Sonnet 4</button>}
-      reasoningControl={<select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>}
-      authorityControl={<select aria-label="Turn authority" defaultValue="auto"><option value="auto">Auto</option></select>}
-      commandMenu={{
-        open: false,
-        query: "",
-        commands: [
-          {
-            id: "new-session",
-            trigger: "new session",
-            title: "New Session",
-          },
-        ],
-        onQueryChange: onCommandMenuQueryChange,
-        onExecute: onCommandMenuExecute,
-        onOpenChange: onCommandMenuOpenChange,
-      }}
-      onSubmit={onSubmit}
-      onTogglePlanMode={onTogglePlanMode}
-      onSubmitParts={onSubmitParts}
-      {...overrides}
+      {...props}
     />,
   );
   return {
     onSubmit,
     onTogglePlanMode,
+    onGovernedWorkItemCountChange,
     onSubmitParts,
+    onCancel,
     onCommandMenuOpenChange,
     onCommandMenuExecute,
     onCommandMenuQueryChange,
+    rerenderComposer(next: Partial<ComponentProps<typeof Composer>>) {
+      result.rerender(<Composer {...props} {...next} />);
+    },
   };
 }
 
 describe("Composer", () => {
+  beforeEach(() => {
+    useUiStore.getState().setTheme("kiln-dark");
+  });
+
+  it("announces thinking without duplicating visible status beside the active beam", () => {
+    renderComposer({
+      status: "running",
+      activityPhase: "thinking",
+      activityDetails: "Preparing the response",
+    });
+
+    expect(screen.getByRole("status", { name: "Activity phase: Thinking · Preparing the response" })).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "thinking");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-motion", "pulse");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "contained");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-inner");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-palette", "colorful");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "dark");
+  });
+
+  it("uses the active Kiln light theme instead of the operating-system preference", () => {
+    useUiStore.getState().setTheme("kiln-light");
+
+    renderComposer({ status: "running", activityPhase: "thinking" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "light");
+  });
+
+  it("names the active tool in the composer without creating transcript-like markup", () => {
+    renderComposer({
+      status: "running",
+      activityPhase: "tool_running",
+      activityToolName: "read_many",
+    });
+
+    expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
+    expect(screen.queryByText("Using read_many")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity"]')).not.toBeInTheDocument();
+  });
+
+  it("keeps the composer beam active until response streaming finishes", () => {
+    renderComposer({ status: "running", activityPhase: "streaming" });
+
+    expect(screen.getByRole("status", { name: "Activity phase: Responding" })).toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "streaming");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveStyle({ "--beam-strength": "0.2" });
+  });
+
+  it("uses the outward bloom only while the completed response fades out", () => {
+    const { rerenderComposer } = renderComposer({ status: "running", activityPhase: "streaming" });
+
+    rerenderComposer({ status: "ready", activityPhase: "idle" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "completion");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-outside");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-fading");
+  });
+
+  it("does not present an error transition as a completion bloom", () => {
+    const { rerenderComposer } = renderComposer({ status: "running", activityPhase: "streaming" });
+
+    rerenderComposer({ status: "error", activityPhase: "idle" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "off");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-inner");
+  });
+
+  it("does not flash the beam off between tool activity phases", () => {
+    renderComposer({ status: "running", activityPhase: "idle" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "idle");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
+  });
+
+  it("pauses aggregate motion while operator approval is required", () => {
+    renderComposer({ status: "running", activityPhase: "awaiting_approval" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "paused");
+    expect(screen.getByRole("status", { name: "Activity phase: Awaiting approval" })).toBeInTheDocument();
+  });
+
+  it("keeps the composer beam inactive and omits live status while idle", () => {
+    renderComposer({ activityPhase: "idle" });
+
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "idle");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "off");
+    expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
+  });
+
+  it("aligns the composer with the transcript axis", () => {
+    renderComposer();
+
+    const form = screen.getByLabelText("Message").closest("form");
+    expect(form).toHaveClass("mx-auto", "w-full", "max-w-3xl");
+    expect(form).not.toHaveClass("max-w-4xl");
+  });
+
   it("Enter while idle triggers submit", () => {
     const { onSubmit } = renderComposer();
     const textarea = screen.getByLabelText("Message");
@@ -130,38 +248,209 @@ describe("Composer", () => {
     expect(screen.queryByText("/command")).not.toBeInTheDocument();
   });
 
-  it("renders the composer continuity hint", () => {
+  it.each([
+    ["New session", "Next message starts fresh", "muted"],
+    ["Continue chat", "Next message continues selected session", "accent"],
+    ["Live", "Next message continues current session", "info"],
+  ] as const)("hides routine continuity state %s", (label, description, tone) => {
+    renderComposer({ continuityHint: { label, description, tone, prominence: "routine" } });
+
+    expect(screen.queryByRole("status", { name: "Session continuity" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["Detached", "Run continues in background", "warning"],
+  ] as const)("shows exceptional continuity state %s", (label, description, tone) => {
+    renderComposer({ continuityHint: { label, description, tone, prominence: "exceptional" } });
+
+    const status = screen.getByRole("status", { name: "Session continuity" });
+    expect(status).toHaveTextContent(label);
+    expect(status).toHaveAccessibleDescription(description);
+    expect(status).toHaveAttribute("data-slot", "marker");
+  });
+
+  it("hides routine running continuity while activity is already announced", () => {
     renderComposer({
+      status: "running",
+      activityPhase: "thinking",
       continuityHint: {
-        label: "Continue target",
-        description: "Next message continues selected session",
-        tone: "accent",
+        label: "Running",
+        description: "Waiting for current turn",
+        tone: "info",
+        prominence: "routine",
       },
     });
 
-    const hint = screen.getByRole("status", { name: "Session continuity" });
-    expect(within(hint).getByText("Continue target")).toBeInTheDocument();
-    expect(within(hint).getByText("Next message continues selected session")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Session continuity" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Running")).not.toBeInTheDocument();
   });
 
-  it("renders the provider/model control in the composer rail", () => {
+  it("renders turn controls as accessible message options", () => {
     renderComposer();
 
-    expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
+    const options = screen.getByRole("group", { name: "Message options" });
+    expect(within(options).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
+    expect(within(options).getByLabelText("Reasoning effort")).toBeInTheDocument();
+    expect(within(options).getByLabelText(/Turn authority/)).toBeInTheDocument();
   });
 
-  it("keeps model, effort, authority, plan, and send controls inside the input surface", () => {
+  it("configures a typed governed goal requirement from the composer", async () => {
+    const { onGovernedWorkItemCountChange } = renderComposer();
+
+    fireEvent.click(screen.getByRole("button", { name: "Configure governed task" }));
+    expect(await screen.findByRole("heading", { name: "Governed task" })).toBeVisible();
+    expect(screen.getByLabelText("Required work items")).toHaveValue(3);
+
+    fireEvent.click(screen.getByRole("button", { name: "Require goal first" }));
+    expect(onGovernedWorkItemCountChange).toHaveBeenCalledWith(3);
+  });
+
+  it("exposes and removes an active governed requirement without color-only state", async () => {
+    const onGovernedWorkItemCountChange = vi.fn();
+    renderComposer({ governedWorkItemCount: 4, onGovernedWorkItemCountChange });
+
+    const trigger = screen.getByRole("button", { name: "Governed task enabled with 4 work items" });
+    expect(trigger).toHaveAttribute("aria-pressed", "true");
+    expect(trigger).toHaveTextContent("Goal 4");
+
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove requirement" }));
+    expect(onGovernedWorkItemCountChange).toHaveBeenCalledWith(null);
+  });
+
+  it("labels authoritative, partial, and restored context evidence without color-only state", () => {
+    const { rerender } = render(
+      <Composer
+        status="ready"
+        planMode={false}
+        governedWorkItemCount={null}
+        continuityHint={{ label: "New session", description: "Next message starts fresh", tone: "muted", prominence: "routine" }}
+        contextUsage={{
+          state: "authoritative",
+          usedTokens: 2400,
+          contextWindowTokens: 8000,
+          remainingTokens: 5600,
+          usedPercentage: 30,
+          providerId: "openai",
+          modelId: "gpt-5",
+          observedAt: "2026-07-13T00:00:00.000Z",
+          measurement: "provider_reported",
+          lifecycle: "completed",
+          contextWindowAuthority: "provider_reported",
+          freshness: "fresh",
+        }}
+        commandMenu={{ open: false, query: "", commands: [], onQueryChange: vi.fn(), onExecute: vi.fn(), onOpenChange: vi.fn() }}
+        leadingActions={null}
+        trailingActions={null}
+        onSubmit={() => undefined}
+        onTogglePlanMode={() => undefined}
+        onGovernedWorkItemCountChange={() => undefined}
+      onSubmitParts={() => undefined}
+      onCancel={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Context 30%: 2.4k / 8k tokens" })).toHaveTextContent("30%");
+
+    rerender(
+      <Composer
+        status="ready"
+        planMode={false}
+        governedWorkItemCount={null}
+        continuityHint={{ label: "New session", description: "Next message starts fresh", tone: "muted", prominence: "routine" }}
+        contextUsage={{
+          state: "partial",
+          usedTokens: 2400,
+          providerId: "openai",
+          modelId: "gpt-5",
+          observedAt: "2026-07-13T00:00:00.000Z",
+          measurement: "runtime_estimate",
+          lifecycle: "restored",
+          contextWindowAuthority: "unknown",
+          freshness: "historical",
+          reason: "No compatible context window was persisted.",
+        }}
+        commandMenu={{ open: false, query: "", commands: [], onQueryChange: vi.fn(), onExecute: vi.fn(), onOpenChange: vi.fn() }}
+        leadingActions={null}
+        trailingActions={null}
+        onSubmit={() => undefined}
+        onTogglePlanMode={() => undefined}
+        onGovernedWorkItemCountChange={() => undefined}
+        onSubmitParts={() => undefined}
+        onCancel={() => undefined}
+      />,
+    );
+    const restored = screen.getByRole("button", { name: "Context partial: 2.4k tokens; restored historical measurement" });
+    expect(restored).toHaveTextContent("2.4k");
+    fireEvent.click(restored);
+    return waitFor(() => {
+      expect(screen.getByText("Context window")).toBeVisible();
+      expect(screen.getByText("Runtime estimate")).toBeVisible();
+      expect(screen.getByText("Historical")).toBeVisible();
+    });
+  });
+
+  it("keeps all composer actions inside the compact input surface", () => {
     renderComposer();
 
     const textarea = screen.getByLabelText("Message");
     const inputSurface = textarea.parentElement;
 
     expect(inputSurface).not.toBeNull();
+    const options = within(inputSurface as HTMLElement).getByRole("group", { name: "Message options" });
+    expect(options).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Attach audio file" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Attach image" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByLabelText(/Turn authority/)).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Context usage unavailable" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText("Reasoning effort")).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByLabelText("Turn authority")).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Record voice" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Send message" })).toBeInTheDocument();
+  });
+
+  it("keeps inactive composer controls visibly actionable before typing", () => {
+    renderComposer();
+
+    expect(screen.getByRole("button", { name: "Attach audio file" })).toHaveClass("bg-background/60");
+    expect(screen.getByRole("button", { name: "Attach image" })).toHaveClass("bg-background/60");
+    expect(screen.getByRole("button", { name: "Plan" })).toHaveClass("bg-background/60");
+    expect(screen.getByRole("button", { name: "Record voice" })).toHaveClass("bg-background/60");
+    expect(screen.getByRole("button", { name: "Context usage unavailable" })).toHaveClass("border", "bg-background/60");
+  });
+
+  it("orders the composer rail like a modern chat harness", () => {
+    renderComposer();
+
+    const options = screen.getByRole("group", { name: "Message options" });
+    const orderedControls = [
+      within(options).getByRole("button", { name: "Attach audio file" }),
+      within(options).getByRole("button", { name: "Attach image" }),
+      within(options).getByRole("button", { name: "Plan" }),
+      within(options).getByLabelText(/Turn authority/),
+      within(options).getByRole("button", { name: "Context usage unavailable" }),
+      within(options).getByRole("button", { name: "Claude Sonnet 4" }),
+      within(options).getByLabelText("Reasoning effort"),
+      within(options).getByRole("button", { name: "Record voice" }),
+      within(options).getByRole("button", { name: "Send message" }),
+    ];
+
+    for (let index = 0; index < orderedControls.length - 1; index += 1) {
+      expect(orderedControls[index]!.compareDocumentPosition(orderedControls[index + 1]!) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+    }
+  });
+
+  it("toggles plan mode without changing the draft", () => {
+    const { onTogglePlanMode, onSubmit } = renderComposer();
+    const textarea = screen.getByLabelText("Message");
+
+    fireEvent.change(textarea, { target: { value: "Inspect this change" } });
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+
+    expect(onTogglePlanMode).toHaveBeenCalledWith(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Inspect this change");
   });
 
   it("uses a restrained focus treatment on the input surface", () => {
@@ -174,6 +463,17 @@ describe("Composer", () => {
     expect(inputSurface).not.toHaveClass("focus-within:ring-3");
   });
 
+  it("keeps the composer surface legible when an individual action is disabled", () => {
+    renderComposer();
+
+    const inputSurface = screen.getByLabelText("Message").parentElement;
+    const sendButton = screen.getByRole("button", { name: "Send message" });
+
+    expect(sendButton).toBeDisabled();
+    expect(sendButton).toHaveClass("disabled:opacity-50");
+    expect(inputSurface).not.toHaveClass("has-disabled:opacity-50", "has-disabled:bg-input/50");
+  });
+
   it("uses theme elevation instead of default shadow scale", () => {
     renderComposer();
 
@@ -184,25 +484,39 @@ describe("Composer", () => {
     expect(inputSurface).not.toHaveClass("shadow-sm");
   });
 
-  it("keeps the input surface compact without crowding the controls", () => {
+  it("uses a compact shadcn input surface with room for multi-line work", () => {
     renderComposer();
 
     const textarea = screen.getByLabelText("Message");
     const inputSurface = textarea.parentElement;
 
-    expect(inputSurface).toHaveClass("overflow-hidden", "rounded-md");
-    expect(textarea).toHaveClass("min-h-16", "max-h-36", "px-3", "py-3", "text-sm");
+    expect(inputSurface).toHaveAttribute("data-slot", "input-group");
+    expect(inputSurface).toHaveAttribute("data-composer-surface", "message");
+    expect(inputSurface).toHaveClass("overflow-hidden", "rounded-xl", "bg-workspace-viewer-panel");
+    expect(inputSurface).not.toHaveClass("bg-card");
+    expect(inputSurface).not.toHaveClass("min-h-32");
+    expect(textarea).toHaveClass("max-h-44", "px-3", "text-sm");
+    expect(textarea).not.toHaveClass("min-h-20", "py-3");
   });
 
-  it("adds a non-interactive fade between transcript content and the composer", () => {
+  it("does not render a separate technical control rail", () => {
+    renderComposer();
+
+    const options = screen.getByRole("group", { name: "Message options" });
+    expect(options).not.toHaveClass("border-t", "bg-background/65");
+    expect(options.firstElementChild).toHaveClass("grid");
+  });
+
+  it("uses a plain dock without a redundant boundary or decorative transcript fade", () => {
     renderComposer();
 
     const section = screen.getByRole("textbox", { name: "Message" }).closest("section");
 
-    expect(section).toHaveClass("relative", "z-10", "bg-background/95");
-    expect(section).toHaveClass("border-t", "border-border/60");
-    expect(section).toHaveClass("before:pointer-events-none", "before:-top-8", "before:h-8");
-    expect(section).toHaveClass("before:bg-gradient-to-t", "before:from-background", "before:to-transparent");
+    expect(section).toHaveClass("relative", "z-10", "bg-workspace-viewer");
+    expect(section).not.toHaveClass("bg-background");
+    expect(section).not.toHaveClass("border-t", "border-border/60");
+    expect(section?.className).not.toContain("before:bg-gradient");
+    expect(section?.className).not.toContain("backdrop-filter");
   });
 
   it("renders send as an icon button with an accessible label", () => {
@@ -286,6 +600,68 @@ describe("Composer", () => {
         },
       ], "Voice input");
     });
+  });
+
+  it("replaces send with an accessible stop action while a turn is active", () => {
+    const { onCancel } = renderComposer({ status: "running" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
+  });
+
+  it("disables the stop action while cancellation is pending", () => {
+    renderComposer({ status: "running", cancelPending: true });
+
+    expect(screen.getByRole("button", { name: "Cancelling response" })).toBeDisabled();
+  });
+
+  it("attaches an image file and submits canonical image parts", async () => {
+    const { onSubmitParts } = renderComposer();
+    const file = new File(["abc"], "queja.png", { type: "image/png" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Attach image" }));
+    fireEvent.change(screen.getByLabelText("Image file input"), {
+      target: { files: [file] },
+    });
+
+    await waitFor(() => {
+      expect(onSubmitParts).toHaveBeenCalledWith([
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "YWJj",
+        },
+      ], "Image: queja.png");
+    });
+  });
+
+  it("submits pasted image clipboard data as canonical image parts", async () => {
+    const { onSubmitParts } = renderComposer();
+    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    const file = new File(["abc"], "clipboard.png", { type: "image/png" });
+    const pasteEvent = new Event("paste", { bubbles: true, cancelable: true }) as Event & {
+      clipboardData?: {
+        readonly files: readonly File[];
+      };
+    };
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: { files: [file] },
+    });
+
+    fireEvent(textarea, pasteEvent);
+
+    await waitFor(() => {
+      expect(onSubmitParts).toHaveBeenCalledWith([
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "YWJj",
+        },
+      ], "Image: clipboard.png");
+    });
+    expect(pasteEvent.defaultPrevented).toBe(true);
   });
 
   it("renders reasoning effort as part of the composer model controls", () => {

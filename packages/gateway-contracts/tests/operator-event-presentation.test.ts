@@ -1,11 +1,297 @@
 import { describe, expect, it } from "vitest";
 import {
   formatOperatorEventValue,
+  operatorEventTargetsConversation,
   operatorEventTargetsSurface,
   presentOperatorEventPayload,
 } from "../src/operator-event-presentation.js";
 
 describe("operator event presentation", () => {
+  it("projects structured tool errors as diagnostics even when the transport reports success", () => {
+    const message = "goal.create cannot combine preferredRouteId and managedAgentProfile.";
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-goal-create",
+      toolName: "goal.create",
+      output: JSON.stringify({
+        error: {
+          code: "invalid_input",
+          message,
+          recoverable: true,
+          suggestedNextTool: "goal.create",
+          requiredInputShape: {
+            objective: "string",
+            workItemIds: ["existing work item id"],
+          },
+        },
+      }, null, 2),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Failed goal.create",
+      summary: message,
+      tone: "error",
+      conversationDisposition: "exception",
+      toolPresentation: {
+        outputKind: "diagnostic",
+        title: "Invalid input",
+        summary: message,
+        diagnostic: {
+          code: "invalid_input",
+          message,
+          recoverable: true,
+          suggestedNextTool: "goal.create",
+          requiredInput: [
+            { name: "objective", expected: "string" },
+            { name: "workItemIds", expected: "existing work item id[]" },
+          ],
+        },
+      },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+    expect(presentation.details).toContainEqual({ label: "Status", value: "failed" });
+  });
+
+  it("projects work item updates from canonical output instead of raw JSON", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-work-item-update",
+      toolName: "work_item.update",
+      output: JSON.stringify({
+        item: {
+          id: "work-1",
+          summary: "Inspect composer activity ownership.",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          risk: "medium",
+          surface: "gui",
+          authorityProfile: "foundation-readonly-plan",
+          expectedEvidence: ["surface-map", "tests"],
+          providedEvidence: ["surface-map"],
+          pauseRequirements: [],
+        },
+        nextRequiredTools: ["goal.create", "work_item.execution.start"],
+      }),
+      metadata: { kind: "work_item", operation: "update" },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Completed work_item.update",
+      summary: "Inspect composer activity ownership.",
+      tone: "success",
+      toolPresentation: {
+        outputKind: "work_item",
+        title: "Inspect composer activity ownership.",
+        summary: "Inspect composer activity ownership.",
+        workItem: {
+          id: "work-1",
+          summary: "Inspect composer activity ownership.",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          risk: "medium",
+          surface: "gui",
+          authorityProfile: "foundation-readonly-plan",
+          evidence: [
+            { label: "surface-map", status: "completed" },
+            { label: "tests", status: "pending" },
+          ],
+          nextTools: ["goal.create", "work_item.execution.start"],
+        },
+      },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("projects created goals as governed goal summaries instead of raw JSON", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-goal-create",
+      toolName: "goal.create",
+      output: JSON.stringify({
+        goal: {
+          id: "goal-1",
+          objective: "Perform evidence-backed UX verification.",
+          source: { kind: "operator_direct", turnId: "turn-ux-verification" },
+          status: "active",
+          workItemIds: ["work-1", "work-2", "work-3"],
+          authorityEnvelope: {
+            maximumAuthority: "read_only",
+            escalationPolicy: "deny",
+          },
+          routePolicy: { workflowProfile: "verification-heavy" },
+          evidenceRequirements: [
+            { id: "repo-inspection", description: "Inspect the requested files.", required: true },
+          ],
+          currentPhase: "prepare",
+        },
+      }),
+      metadata: { kind: "goal", operation: "create" },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Completed goal.create",
+      summary: "Perform evidence-backed UX verification.",
+      tone: "success",
+      toolPresentation: {
+        outputKind: "goal",
+        title: "Perform evidence-backed UX verification.",
+        goal: {
+          id: "goal-1",
+          objective: "Perform evidence-backed UX verification.",
+          status: "active",
+          phase: "prepare",
+          workItemIds: ["work-1", "work-2", "work-3"],
+          authority: "read_only",
+          escalationPolicy: "deny",
+          workflowProfile: "verification-heavy",
+          evidenceRequirements: [
+            { id: "repo-inspection", description: "Inspect the requested files.", required: true },
+          ],
+        },
+      },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("projects nested work item execution state and evidence from the live envelope", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-work-item-start",
+      toolName: "work_item.execution.start",
+      output: JSON.stringify({
+        status: "started",
+        item: {
+          id: "work-1",
+          summary: "Inspect composer activity ownership.",
+          status: "in_progress",
+          expectedEvidence: ["surface-map", "tests"],
+          providedEvidence: ["surface-map"],
+        },
+        attempt: {
+          id: "goal-1:work-1:attempt:1",
+          executionMode: "direct",
+          status: "started",
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Execution started",
+      summary: "Inspect composer activity ownership.",
+      tone: "running",
+      toolPresentation: {
+        outputKind: "task",
+        title: "Inspect composer activity ownership.",
+        task: {
+          status: "in_progress",
+          workItemId: "work-1",
+          items: [
+            { label: "surface-map", status: "completed" },
+            { label: "tests", status: "pending" },
+          ],
+        },
+      },
+    });
+  });
+
+  it("projects failed file reads as diagnostics instead of text output", () => {
+    const path = "C:\\repo\\missing.ts";
+    const message = `ENOENT: no such file or directory, open '${path}'`;
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-read",
+      toolName: "read",
+      output: message,
+      metadata: { kind: "file", operation: "read", filePath: path, code: "ENOENT" },
+      status: { state: "failed" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Failed read",
+      summary: message,
+      tone: "error",
+      toolPresentation: {
+        outputKind: "diagnostic",
+        title: "Read failed",
+        diagnostic: {
+          code: "ENOENT",
+          message,
+          requiredInput: [],
+        },
+        fields: [{ label: "Path", value: path }],
+      },
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("classifies unknown JSON as structured data instead of text output", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-custom-inspection",
+      toolName: "custom.inspect",
+      output: JSON.stringify({ status: "ready", count: 3, items: ["one", "two", "three"] }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Completed custom.inspect",
+      summary: "3 fields",
+      toolPresentation: {
+        outputKind: "data",
+        summary: "3 fields",
+        preview: {
+          language: "json",
+        },
+      },
+    });
+    expect(presentation.toolPresentation?.classification).toMatchObject({
+      source: "content-heuristic",
+      reason: "structured JSON output classified from content",
+    });
+  });
+
+  it("projects paused work item execution results as structured task state", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-work-item-start",
+      toolName: "work_item.execution.start",
+      output: JSON.stringify({
+        status: "paused",
+        reason: "managedInvocationId is required before starting managed-delegation execution.",
+        workItemId: "inspect-composer-activity-ownership",
+        routeId: "opencode-go-qwen3-7-max-readonly",
+        nextTool: "managed_agent.invoke",
+        requiredEvidence: ["surface-map", "risk-hypothesis", "visual-reference-research", "tests"],
+      }, null, 2),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation).toMatchObject({
+      title: "Execution paused",
+      summary: "managedInvocationId is required before starting managed-delegation execution.",
+      tone: "warning",
+      conversationDisposition: "exception",
+      toolPresentation: {
+        outputKind: "task",
+        title: "Work item execution",
+        summary: "managedInvocationId is required before starting managed-delegation execution.",
+        task: {
+          status: "paused",
+          workItemId: "inspect-composer-activity-ownership",
+          routeId: "opencode-go-qwen3-7-max-readonly",
+          nextTool: "managed_agent.invoke",
+          items: [
+            { label: "surface-map", status: "pending" },
+            { label: "risk-hypothesis", status: "pending" },
+            { label: "visual-reference-research", status: "pending" },
+            { label: "tests", status: "pending" },
+          ],
+        },
+      },
+    });
+    expect(presentation.title).not.toContain("Completed");
+    expect(presentation.details).toContainEqual({ label: "Status", value: "paused" });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+    expect(JSON.stringify(presentation.toolPresentation)).not.toContain("{\n");
+  });
+
   it("presents plan lifecycle events without raw payload syntax", () => {
     const submitted = presentOperatorEventPayload("plan_submitted", {
       planId: "plan-1",
@@ -40,6 +326,8 @@ describe("operator event presentation", () => {
     expect(submitted.summary).toBe("Implement shared execution mode");
     expect(submitted.compactText).toBe("Implement shared execution mode");
     expect(submitted.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(submitted.conversationDisposition).toBe("none");
+    expect(operatorEventTargetsConversation(submitted)).toBe(false);
     expect(submitted.details).toEqual([
       { label: "Plan", value: "plan-1" },
       { label: "Mode", value: "plan" },
@@ -53,11 +341,14 @@ describe("operator event presentation", () => {
     expect(approved.title).toBe("Plan approved");
     expect(approved.summary).toBe("plan -> execute");
     expect(approved.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+    expect(approved.conversationDisposition).toBe("none");
+    expect(operatorEventTargetsConversation(approved)).toBe(false);
     expect(approved.details).toContainEqual({ label: "Plan hash", value: "sha256:abc123" });
 
     expect(analysis.title).toBe("Plan Analysis Reported");
     expect(analysis.summary).toBe("blocked · 1 critical finding blocks approval.");
     expect(analysis.tone).toBe("error");
+    expect(analysis.conversationDisposition).toBe("none");
     expect(analysis.details).toEqual([
       { label: "Report", value: "analysis_report_1" },
       { label: "Plan", value: "plan-1" },
@@ -146,7 +437,7 @@ describe("operator event presentation", () => {
       goal: {
         id: "goal-1",
         objective: "Finish roadmap slice 6 with verified goal resources.",
-        planId: "plan-1",
+        source: { kind: "approved_plan", planId: "plan-1" },
         status: "completed",
         workItemIds: ["wi-1", "wi-2"],
         authorityEnvelope: {
@@ -168,7 +459,7 @@ describe("operator event presentation", () => {
     expect(presentation.details).toEqual([
       { label: "Goal", value: "goal-1" },
       { label: "Status", value: "completed" },
-      { label: "Plan", value: "plan-1" },
+      { label: "Source", value: "Approved plan plan-1" },
       { label: "Work items", value: "wi-1, wi-2" },
       { label: "Workflow", value: "architecture-change" },
       { label: "Authority", value: "audited" },
@@ -208,12 +499,26 @@ describe("operator event presentation", () => {
   });
 
   it("presents work-item execution attempts as operator-visible checkpoints", () => {
+    const updated = presentOperatorEventPayload("work_item_updated", {
+      operation: "update",
+      workItem: {
+        id: "work-1",
+        summary: "Run Slice 9 verification",
+        status: "blocked",
+        workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
+        expectedEvidence: ["surface-map", "tests"],
+        providedEvidence: ["surface-map"],
+        missingResidualRisk: true,
+      },
+    });
     const started = presentOperatorEventPayload("work_item_execution_started", {
       workItem: {
         id: "work-1",
         summary: "Run Slice 9 verification",
         status: "in_progress",
         workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
       },
       attempt: {
         id: "goal-1:work-1:attempt:1",
@@ -251,6 +556,10 @@ describe("operator event presentation", () => {
       summary: "started · managed_delegation · Run Slice 9 verification",
       tone: "running",
     });
+    expect(updated.details).toContainEqual({ label: "Resource", value: "kiln://session/work-items/work-1" });
+    expect(updated.details).toContainEqual({ label: "Missing evidence", value: "tests, residual-risk" });
+    expect(started.details).toContainEqual({ label: "Resource", value: "kiln://session/work-items/work-1" });
+    expect(started.details).toContainEqual({ label: "Authority", value: "authority:foundation-readonly-plan" });
     expect(started.details).toContainEqual({ label: "Attempt", value: "goal-1:work-1:attempt:1" });
     expect(started.details).toContainEqual({ label: "Managed invocation", value: "invocation-1" });
     expect(finished).toMatchObject({
@@ -344,6 +653,7 @@ describe("operator event presentation", () => {
       managedInvocationEvidence: {
         lifecycle: {
           routeSource: "explicit-managed-route",
+          sourceResourceUris: ["kiln://managed-agents/invocations/inv-1/content"],
           resourceLease: {
             leaseId: "inv-1:resource-lease",
             createdAt: "2026-05-07T08:00:00.000Z",
@@ -388,6 +698,7 @@ describe("operator event presentation", () => {
       { label: "Lease cleanup", value: "completed" },
       { label: "Lease resources", value: "kiln://resources/context.md" },
       { label: "Lease diagnostics", value: "kiln://artifacts/inv-1/lease-diagnostics" },
+      { label: "Source resources", value: "kiln://managed-agents/invocations/inv-1/content" },
       { label: "Child identity", value: "Piama" },
       { label: "Invocation ID", value: "inv-1" },
       { label: "Parent turn", value: "session-1:turn:2" },
@@ -523,6 +834,22 @@ describe("operator event presentation", () => {
     expect(completed.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
   });
 
+  it("surfaces tool usage counts on completed tool events", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      outputSummary: "Found 4 sources",
+      toolUsage: {
+        toolName: "web_search",
+        calls: 3,
+      },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("Found 4 sources · web_search 3");
+    expect(presentation.details).toContainEqual({ label: "Tool usage", value: "web_search 3" });
+  });
+
   it("marks completed tool events as failed when the tool result envelope is an error", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",
@@ -586,6 +913,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("3 child routes compared");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "table",
+      classification: {
+        source: "presentation-intent",
+        reason: "validated presentation intent selected renderer",
+      },
       title: "Managed child comparison",
       summary: "3 child routes compared",
       presentationIntent: {
@@ -597,10 +928,153 @@ describe("operator event presentation", () => {
           }),
         ],
       },
-      preview: {
-        text: expect.stringContaining("| Route"),
+    });
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
+  });
+
+  it("projects validated resource bundle intents as resource link presentations", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-resource-bundle",
+      toolName: "managed_agent.invoke",
+      outputSummary: JSON.stringify({
+        output: "Artifacts are available for inspection.",
+        isError: false,
+        metadata: {
+          toolName: "managed_agent.invoke",
+          presentationIntent: {
+            kind: "resource_bundle",
+            title: "Managed invocation artifacts",
+            summary: "2 artifacts",
+            source: "managed_agent.invoke",
+            resources: [
+              {
+                uri: "kiln://artifacts/inv-1/plan",
+                title: "Plan",
+                mimeType: "text/markdown",
+                relation: "plan",
+              },
+              {
+                uri: "kiln://artifacts/inv-1/review",
+                title: "Review",
+                mimeType: "application/json",
+                relation: "review",
+              },
+            ],
+          },
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("2 artifacts");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "resource_links",
+      classification: {
+        source: "presentation-intent",
+        reason: "validated presentation intent selected renderer",
+      },
+      title: "Managed invocation artifacts",
+      summary: "2 artifacts",
+      presentationIntent: {
+        kind: "resource_bundle",
+        resources: [
+          expect.objectContaining({ uri: "kiln://artifacts/inv-1/plan" }),
+          expect.objectContaining({ uri: "kiln://artifacts/inv-1/review" }),
+        ],
       },
     });
+    expect(presentation.toolPresentation?.resourceLinks).toEqual([
+      expect.objectContaining({ uri: "kiln://artifacts/inv-1/plan" }),
+      expect.objectContaining({ uri: "kiln://artifacts/inv-1/review" }),
+    ]);
+  });
+
+  it("classifies every closed presentation intent kind before renderer selection", () => {
+    const cases = [
+      {
+        kind: "summary",
+        outputKind: "text",
+        intent: {
+          kind: "summary",
+          title: "Summary output",
+          summary: "Summary ready",
+          bullets: ["One fact"],
+        },
+      },
+      {
+        kind: "comparison_table",
+        outputKind: "table",
+        intent: {
+          kind: "comparison_table",
+          title: "Table output",
+          columns: [{ key: "route", label: "Route" }],
+          rows: [{ route: "codex" }],
+        },
+      },
+      {
+        kind: "risk_matrix",
+        outputKind: "text",
+        intent: {
+          kind: "risk_matrix",
+          title: "Risk output",
+          risks: [{ risk: "Renderer fork", severity: "high" }],
+        },
+      },
+      {
+        kind: "timeline",
+        outputKind: "text",
+        intent: {
+          kind: "timeline",
+          title: "Timeline output",
+          items: [{ order: 1, label: "Classified" }],
+        },
+      },
+      {
+        kind: "resource_bundle",
+        outputKind: "resource_links",
+        intent: {
+          kind: "resource_bundle",
+          title: "Bundle output",
+          resources: [{ uri: "kiln://artifacts/tool-output", title: "Tool output" }],
+        },
+      },
+      {
+        kind: "diagnostic_report",
+        outputKind: "text",
+        intent: {
+          kind: "diagnostic_report",
+          title: "Diagnostic output",
+          sections: [{ title: "Classification", status: "success" }],
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const presentation = presentOperatorEventPayload("tool_call_completed", {
+        toolCallId: `tool-${testCase.kind}`,
+        toolName: "managed_agent.invoke",
+        output: JSON.stringify({
+          output: `${testCase.kind} fallback text`,
+          isError: false,
+          metadata: {
+            toolName: "managed_agent.invoke",
+            presentationIntent: testCase.intent,
+          },
+        }),
+        status: { state: "succeeded" },
+      });
+
+      expect(presentation.toolPresentation).toMatchObject({
+        outputKind: testCase.outputKind,
+        classification: {
+          source: "presentation-intent",
+          reason: "validated presentation intent selected renderer",
+        },
+        presentationIntent: {
+          kind: testCase.kind,
+        },
+      });
+    }
   });
 
   it("projects route-unavailable managed tool results as structured operator tables", () => {
@@ -671,14 +1145,8 @@ describe("operator event presentation", () => {
           }),
         ],
       },
-      preview: {
-        text: expect.stringContaining("| Route"),
-      },
     });
-    const previewText = typeof presentation.toolPresentation?.preview?.text === "string"
-      ? presentation.toolPresentation.preview.text
-      : JSON.stringify(presentation.toolPresentation?.preview?.text);
-    expect(previewText).not.toContain("\"metadata\"");
+    expect(presentation.toolPresentation?.preview).toBeUndefined();
   });
 
   it("ignores invalid presentation intents and keeps fallback rendering", () => {
@@ -1086,6 +1554,77 @@ describe("operator event presentation", () => {
     expect(operatorEventTargetsSurface(cost, "activity_panel")).toBe(true);
   });
 
+  it("presents lifecycle attribution without exposing raw ledger syntax inline", () => {
+    const presentation = presentOperatorEventPayload("lifecycle_attribution_recorded", {
+      ledger: {
+        sourceEventId: "event-cost-1",
+        context: {
+          route: "codex-oauth/gpt-5.5",
+        },
+        records: [
+          { source: "unknown", tokenClass: "raw", tokens: 100 },
+          { source: "unknown", tokenClass: "generated", tokens: 20 },
+          { source: "unknown", tokenClass: "cached", tokens: 30 },
+        ],
+      },
+      summary: {
+        totalTokens: 150,
+        totalCostUsd: 0.0123,
+        bySource: {
+          unknown: 150,
+        },
+      },
+      efficiencyEvidence: {
+        schemaVersion: "verified-efficiency-evidence-v1",
+        sessionId: "session-1",
+        turnId: "turn-1",
+        observedAt: "2026-07-14T20:00:01.000Z",
+        provider: { providerId: "codex-oauth", modelId: "gpt-5.5", billingMode: "metered" },
+        policy: {
+          owner: "ContextGovernor",
+          policyId: "context-whole-block-static-v1",
+          configurationHash: `sha256:${"a".repeat(64)}`,
+        },
+        totals: {
+          providerTotalTokens: 150,
+          providerTotalCostUsd: 0.0123,
+          measured: { tokens: 20, costUsd: 0.002 },
+          estimated: { tokens: 50, costUsd: 0.004 },
+          cached: { tokens: 30, costUsd: 0.0023 },
+          unknown: { tokens: 40, costUsd: 0.003 },
+          cacheWritten: { tokens: 10, costUsd: 0.001 },
+          avoided: { tokens: 0, costUsd: 0 },
+        },
+        outcome: "succeeded",
+        verification: { status: "not_run", results: [] },
+        actions: [],
+        savings: [],
+        evidenceUris: [],
+      },
+    });
+
+    expect(presentation.title).toBe("Verified efficiency evidence");
+    expect(presentation.summary).toBe("Efficiency: 20 measured · 50 estimated · 30 cached · 0 avoided · verification not_run · context-whole-block-static-v1");
+    expect(presentation.details).toEqual([
+      { label: "Provider total tokens", value: "150" },
+      { label: "Measured tokens", value: "20" },
+      { label: "Estimated tokens", value: "50" },
+      { label: "Cached tokens", value: "30" },
+      { label: "Avoided tokens", value: "0" },
+      { label: "Unknown tokens", value: "40" },
+      { label: "Policy", value: "ContextGovernor/context-whole-block-static-v1" },
+      { label: "Policy configuration", value: `sha256:${"a".repeat(64)}` },
+      { label: "Outcome", value: "succeeded" },
+      { label: "Verification", value: "not_run" },
+      { label: "Savings evidence", value: "0" },
+      { label: "Evidence resources", value: "0" },
+      { label: "Source event", value: "event-cost-1" },
+    ]);
+    expect(operatorEventTargetsSurface(presentation, "conversation_inline")).toBe(false);
+    expect(operatorEventTargetsSurface(presentation, "activity_panel")).toBe(true);
+    expect(JSON.stringify(presentation)).not.toContain("\"records\"");
+  });
+
   it("summarizes JSON-shaped tool output before it reaches inline surfaces", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",
@@ -1135,6 +1674,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).not.toContain("\"output\"");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "markdown",
+      classification: {
+        source: "tool-metadata",
+        reason: "read output classified from file metadata and content",
+      },
       title: "docs/architecture/session-model.md",
       summary: "# Session Model",
       preview: {
@@ -1173,6 +1716,41 @@ describe("operator event presentation", () => {
     });
   });
 
+  it("presents known source files as code with language and file metrics", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "read",
+      output: JSON.stringify({
+        output: "{\n  \"name\": \"kiln\"\n}",
+        isError: false,
+        metadata: {
+          toolName: "read",
+          kind: "file",
+          operation: "read",
+          filePath: "package.json",
+          totalLines: 3,
+          totalBytes: 22,
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.summary).toBe("3 lines · 22 bytes");
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "code",
+      classification: {
+        source: "tool-metadata",
+        reason: "read output classified from file metadata and content",
+      },
+      title: "package.json",
+      summary: "3 lines · 22 bytes",
+      preview: {
+        text: "{\n  \"name\": \"kiln\"\n}",
+        language: "json",
+      },
+    });
+  });
+
   it("uses top-level persisted tool metadata when output is plain text", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-write",
@@ -1197,6 +1775,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("1 file changed, 1 addition, 1 removal");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "diff",
+      classification: {
+        source: "tool-metadata",
+        reason: "file mutation metadata carries diff evidence",
+      },
       title: "C:\\workspace\\kiln\\live_test_visibility.txt",
       preview: {
         text: "- kiln gui visibility baseline\n+ kiln gui visibility edit passed",
@@ -1237,6 +1819,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("55 entries under C:\\workspace\\kiln");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "tree",
+      classification: {
+        source: "tool-metadata",
+        reason: "inspection metadata identifies tree output",
+      },
       title: "C:\\workspace\\kiln",
       preview: {
         text: ".\npackages/\n  gui/\n    src/",
@@ -1382,6 +1968,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).not.toContain("--- C:");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "resource_links",
+      classification: {
+        source: "resource-link",
+        reason: "large read_many output is represented by resource links",
+      },
       title: "read_many full output",
       summary: "24 files read, 109 skipped, 200000 bytes, truncated",
     });
@@ -1442,6 +2032,10 @@ describe("operator event presentation", () => {
     expect(presentation.summary).toBe("Capture 1: Example Domain");
     expect(presentation.toolPresentation).toMatchObject({
       outputKind: "image",
+      classification: {
+        source: "resource-link",
+        reason: "browser snapshot resource links identify image output",
+      },
       title: "Browser screenshots",
       summary: "Capture 1: Example Domain",
       raw: {
@@ -1634,5 +2228,36 @@ describe("operator event presentation", () => {
 
     expect(failure.summary).toBe("OCR backend unavailable: tesseract executable was not found on PATH.");
     expect(failure.summary).not.toContain("{");
+  });
+
+  it("records fallback evidence when a supplied presentation intent is invalid", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-invalid-intent",
+      toolName: "managed_agent.invoke",
+      output: JSON.stringify({
+        output: "Managed invocation produced a textual fallback.",
+        isError: false,
+        metadata: {
+          toolName: "managed_agent.invoke",
+          presentationIntent: {
+            kind: "comparison_table",
+            title: "Broken comparison",
+            rows: [{ route: "codex" }],
+          },
+        },
+      }),
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation).toMatchObject({
+      outputKind: "text",
+      classification: {
+        source: "fallback",
+        reason: "invalid presentation intent fell back to textual output",
+      },
+    });
+    expect(presentation.toolPresentation?.classification.fallbackReason).toContain("columns");
+    expect(presentation.toolPresentation?.preview?.text).toBe("Managed invocation produced a textual fallback.");
+    expect(JSON.stringify(presentation.toolPresentation)).not.toContain("\"presentationIntent\"");
   });
 });

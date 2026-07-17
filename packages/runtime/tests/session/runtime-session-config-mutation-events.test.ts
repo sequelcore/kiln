@@ -28,6 +28,7 @@ describe("runtime config mutation session events", () => {
       runtimeEvents: [
         {
           type: "tool_result",
+          toolCallId: "tool-config-propose",
           sessionId: session.id,
           timestamp: proposedAt,
           toolName: "kiln_config.propose_change",
@@ -43,6 +44,7 @@ describe("runtime config mutation session events", () => {
         },
         {
           type: "tool_result",
+          toolCallId: "tool-config-apply",
           sessionId: session.id,
           timestamp: appliedAt,
           toolName: "kiln_config.apply_change",
@@ -113,6 +115,7 @@ describe("runtime config mutation session events", () => {
       runtimeEvents: [
         {
           type: "tool_result",
+          toolCallId: "tool-config-apply-failed",
           sessionId: session.id,
           timestamp,
           toolName: "kiln_config.apply_change",

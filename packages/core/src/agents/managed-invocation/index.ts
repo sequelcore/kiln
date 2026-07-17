@@ -1,5 +1,8 @@
 import { defineMemoryScope } from "../../memory/domain/scope.js";
 import type { MemoryScope } from "../../memory/domain/scope.js";
+import { defineWorkClassification } from "../work-classification.js";
+import type { WorkClassification } from "../work-classification.js";
+import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
 import { defineManagedAgentReadAuthority } from "./read-authority.js";
 import type { ManagedAgentReadAuthority } from "./read-authority.js";
 import {
@@ -13,11 +16,19 @@ import type {
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
 } from "./write-authority.js";
+import {
+  defineStructuredExecutionResult,
+  defineVerificationUsageReport,
+  type AssistantOutputVerbosity,
+  type StructuredExecutionResult,
+  type VerificationUsageReport,
+} from "../../efficiency/output-verification-allocation.js";
 
 export * from "./write-authority.js";
 export * from "./read-authority.js";
 export * from "./write-integration.js";
 export * from "./orchestration.js";
+export * from "./coordination-policy.js";
 
 export const MANAGED_AGENT_ADMISSION_PROFILES = [
   "foundation-readonly-plan",
@@ -52,6 +63,11 @@ export const MANAGED_AGENT_REQUESTED_AUTHORITIES = [
 ] as const;
 
 export type ManagedAgentRequestedAuthority = typeof MANAGED_AGENT_REQUESTED_AUTHORITIES[number];
+
+export interface ManagedAgentExecutionIntent {
+  readonly attendance: "attended" | "unattended";
+  readonly lifecycle: "foreground" | "background" | "automation" | "resume" | "scheduled";
+}
 
 export type ManagedAgentUnsupportedFieldPolicy = "reject" | "ignore-with-audit" | "unsupported";
 
@@ -143,6 +159,7 @@ export interface ManagedAgentInvocationHandoffContract {
   readonly requiredResultFields?: readonly string[];
   readonly doneCriteria?: readonly string[];
   readonly residualRiskRequired?: boolean;
+  readonly outputVerbosity?: AssistantOutputVerbosity;
 }
 
 export type ManagedAgentInvocationContextMode = "isolated" | "resources" | "fork";
@@ -152,10 +169,22 @@ export interface ManagedAgentInvocationContextSelection {
   readonly agentProfile?: string;
   readonly skills?: readonly string[];
   readonly instructionProfiles?: readonly string[];
+  readonly workClassification?: WorkClassification;
   readonly admittedAgentProfile?: string;
   readonly admittedSkills?: readonly string[];
   readonly admittedInstructionProfiles?: readonly string[];
   readonly deniedSkills?: readonly string[];
+  readonly resolvedWorkClassification?: WorkClassification;
+  readonly workRecommendedSkills?: readonly string[];
+  readonly workRecommendedSkillDiagnostics?: readonly WorkRecommendedSkillDiagnostic[];
+}
+
+export type WorkRecommendedSkillDiagnosticState = "admitted" | "advisory" | "unavailable";
+
+export interface WorkRecommendedSkillDiagnostic {
+  readonly skillName: string;
+  readonly state: WorkRecommendedSkillDiagnosticState;
+  readonly reason: string;
 }
 
 export interface ManagedAgentInvocationRequest {
@@ -166,6 +195,7 @@ export interface ManagedAgentInvocationRequest {
   readonly profile: ManagedAgentAdmissionProfile;
   readonly requestedBy: string;
   readonly requestSource: string;
+  readonly executionIntent?: ManagedAgentExecutionIntent;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly authorityApproval?: ManagedAgentAuthorityApproval;
   readonly providerRoute: ManagedAgentProviderRoute;
@@ -173,6 +203,7 @@ export interface ManagedAgentInvocationRequest {
   readonly executionMode: ManagedAgentExecutionMode;
   readonly authority: ManagedAgentAuthorityProfile;
   readonly input: ManagedAgentInvocationInput;
+  readonly executionScope?: SessionExecutionScope;
 }
 
 export interface ManagedAgentAdapterDescriptor {
@@ -204,6 +235,9 @@ export interface ManagedAgentAdapterDescriptor {
     readonly supported: boolean;
     readonly preservesProviderTokenClasses: boolean;
     readonly supportsExplicitUnknowns: boolean;
+    readonly tokenClasses: readonly ManagedAgentUsageTokenClassCapability[];
+    readonly semanticSourceGranularity: ManagedAgentSemanticSourceGranularity;
+    readonly evidenceBasis: ManagedAgentUsageEvidenceBasis;
   };
   readonly resultHandoff: {
     readonly boundedSummary: boolean;
@@ -222,6 +256,23 @@ export interface ManagedAgentAdapterDescriptor {
   };
   readonly limitations?: readonly string[];
 }
+
+export type ManagedAgentUsageTokenClassCapability =
+  | "input"
+  | "output"
+  | "cache_read"
+  | "cache_write";
+
+export type ManagedAgentSemanticSourceGranularity =
+  | "provider_reported"
+  | "estimated"
+  | "unknown";
+
+export type ManagedAgentUsageEvidenceBasis =
+  | "provider"
+  | "runtime"
+  | "adapter"
+  | "unknown";
 
 export type ManagedAgentRouteHealthStatus = "healthy";
 
@@ -252,11 +303,154 @@ export interface ManagedAgentChildIdentitySnapshot {
   readonly voiceProfile?: string;
 }
 
+export type ManagedAgentCallerAttachmentIdentity =
+  | {
+    readonly kind: "kiln-runtime";
+    readonly surface: string;
+    readonly attachmentId: string;
+  }
+  | {
+    readonly kind: "external-harness";
+    readonly harness: "claude" | "codex" | "opencode";
+    readonly attachmentId: string;
+    readonly evidenceId: string;
+  };
+
+export type ManagedAgentExternalHarnessId = Extract<
+  ManagedAgentCallerAttachmentIdentity,
+  { readonly kind: "external-harness" }
+>["harness"];
+
+export type ManagedAgentCrossHarnessAdapterId = "kiln-managed-invocation";
+
+export interface ManagedAgentCrossHarnessInvocationCapability {
+  readonly harness: ManagedAgentExternalHarnessId;
+  readonly adapterId: ManagedAgentCrossHarnessAdapterId;
+  readonly supportedProviderIds: readonly string[];
+}
+
+const CROSS_HARNESS_INVOCATION_CAPABILITIES = {
+  claude: {
+    harness: "claude",
+    adapterId: "kiln-managed-invocation",
+    supportedProviderIds: ["codex-oauth", "opencode-go", "opencode-zen", "openrouter"],
+  },
+  codex: {
+    harness: "codex",
+    adapterId: "kiln-managed-invocation",
+    supportedProviderIds: ["opencode-go", "opencode-zen", "openrouter"],
+  },
+  opencode: {
+    harness: "opencode",
+    adapterId: "kiln-managed-invocation",
+    supportedProviderIds: ["codex-oauth"],
+  },
+} as const satisfies Record<ManagedAgentExternalHarnessId, ManagedAgentCrossHarnessInvocationCapability>;
+
+export function listManagedAgentCrossHarnessInvocationCapabilities(): readonly ManagedAgentCrossHarnessInvocationCapability[] {
+  return [
+    CROSS_HARNESS_INVOCATION_CAPABILITIES.claude,
+    CROSS_HARNESS_INVOCATION_CAPABILITIES.codex,
+    CROSS_HARNESS_INVOCATION_CAPABILITIES.opencode,
+  ];
+}
+
+export function getManagedAgentCrossHarnessInvocationCapability(
+  harness: ManagedAgentExternalHarnessId,
+): ManagedAgentCrossHarnessInvocationCapability {
+  return CROSS_HARNESS_INVOCATION_CAPABILITIES[harness];
+}
+
+export function supportsManagedAgentCrossHarnessProvider(
+  harness: ManagedAgentExternalHarnessId,
+  providerId: string,
+): boolean {
+  return getManagedAgentCrossHarnessInvocationCapability(harness).supportedProviderIds.includes(providerId);
+}
+
+export type ManagedAgentInvocationCapabilityDecision =
+  | "admitted"
+  | "denied";
+
+export interface ManagedAgentInvocationCapabilityAdapterEvidence {
+  readonly adapterDescriptorId: string;
+  readonly adapterId: string;
+}
+
+export interface ManagedAgentInvocationCapabilityEvidence {
+  readonly decision: ManagedAgentInvocationCapabilityDecision;
+  readonly reason: string;
+  readonly adapterEvidence: ManagedAgentInvocationCapabilityAdapterEvidence;
+}
+
+export type ManagedAgentChildAuthorityProof =
+  | "proven"
+  | "inferred"
+  | "unavailable"
+  | "contradictory"
+  | "failed";
+
+export type ManagedAgentChildAuthorityApproval =
+  | "on-request"
+  | "never"
+  | "untrusted"
+  | "unknown";
+
+export type ManagedAgentChildAuthoritySandbox =
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access"
+  | "unknown";
+
+export type ManagedAgentAuthorityEvidenceClassification =
+  | "current-verified"
+  | "effective-policy-unproven"
+  | "runtime-policy-mismatch"
+  | "stale-evidence"
+  | "partial-observation"
+  | "failed-observation";
+
+export interface ManagedAgentRequestedAuthorityEvidence {
+  readonly authority: ManagedAgentRequestedAuthority;
+  readonly source: "managed-invocation-request" | "parent-authority" | "runtime-default";
+  readonly proof: "proven" | "inferred";
+  readonly reason?: string;
+}
+
+export interface ManagedAgentProjectedAuthorityEvidence {
+  readonly permissionProfile: string;
+  readonly approval: ManagedAgentChildAuthorityApproval;
+  readonly sandbox: ManagedAgentChildAuthoritySandbox;
+  readonly source: "managed-authority-profile" | "cli-harness-session-factory" | "direct-provider-adapter" | "remote-harness-adapter";
+  readonly proof: "proven" | "inferred";
+  readonly reason?: string;
+}
+
+export interface ManagedAgentObservedRuntimeAuthorityEvidence {
+  readonly approval?: ManagedAgentChildAuthorityApproval;
+  readonly sandbox?: ManagedAgentChildAuthoritySandbox;
+  readonly source: "not-observed" | "runtime-observation" | "child-session-metadata" | "harness-event";
+  readonly proof: ManagedAgentChildAuthorityProof;
+  readonly observedAt?: string;
+  readonly validUntil?: string;
+  readonly reason?: string;
+}
+
+export interface ManagedAgentAuthorityEvidence {
+  readonly requested: ManagedAgentRequestedAuthorityEvidence;
+  readonly projected: ManagedAgentProjectedAuthorityEvidence;
+  readonly observedRuntime: ManagedAgentObservedRuntimeAuthorityEvidence;
+  readonly classification: ManagedAgentAuthorityEvidenceClassification;
+  readonly recommendation?: string;
+}
+
 export interface ManagedAgentCapabilitySnapshot {
   readonly snapshotId: string;
   readonly capturedAt: string;
   readonly routeId: string;
   readonly routeSource: ManagedAgentRouteSource;
+  readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  readonly invocationCapabilityEvidence?: ManagedAgentInvocationCapabilityEvidence;
   readonly routeHealth: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof: ManagedAgentProviderModelProofSnapshot;
   readonly providerRoute: ManagedAgentProviderRoute;
@@ -264,6 +458,7 @@ export interface ManagedAgentCapabilitySnapshot {
   readonly executionMode: ManagedAgentExecutionMode;
   readonly adapterDescriptor: ManagedAgentAdapterDescriptor;
   readonly authorityProfile: ManagedAgentAuthorityProfile;
+  readonly authorityEvidence: ManagedAgentAuthorityEvidence;
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly resourcePlane: ManagedAgentResourcePlaneSnapshot;
   readonly resourceLease: ManagedAgentResourceLeaseEvidence;
@@ -274,8 +469,11 @@ export interface ManagedAgentCapabilitySnapshotInput {
   readonly capturedAt?: string;
   readonly routeId: string;
   readonly routeSource: ManagedAgentRouteSource;
+  readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  readonly invocationCapabilityEvidence?: ManagedAgentInvocationCapabilityEvidence;
   readonly routeHealth?: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof?: ManagedAgentProviderModelProofSnapshot;
+  readonly authorityEvidence?: ManagedAgentAuthorityEvidence;
   readonly resourcePlane?: ManagedAgentResourcePlaneSnapshot;
   readonly resourceLease?: ManagedAgentResourceLeaseEvidence;
   readonly childIdentity?: ManagedAgentChildIdentitySnapshot;
@@ -295,7 +493,7 @@ export interface ManagedAgentDiagnosticPointer {
 }
 
 export interface ManagedAgentTokenClassUsage {
-  readonly name: string;
+  readonly name: ManagedAgentUsageTokenClassCapability;
   readonly value: number | "unknown";
 }
 
@@ -308,10 +506,87 @@ export interface ManagedAgentUsageReport {
   };
 }
 
+export type ManagedAgentCoordinationStage =
+  | "parent_prompt"
+  | "child_bootstrap"
+  | "duplicated_reads"
+  | "handoff"
+  | "review"
+  | "synthesis";
+
+export type ManagedAgentCoordinationMetricSource = "provider_reported" | "estimated" | "unknown";
+
+export interface ManagedAgentCoordinationMetric {
+  readonly value: number | "unknown";
+  readonly source: ManagedAgentCoordinationMetricSource;
+}
+
+export interface ManagedAgentCoordinationComponentUsage {
+  readonly stage: ManagedAgentCoordinationStage;
+  readonly providerTokenClass: "input" | "output";
+  readonly tokens: ManagedAgentCoordinationMetric;
+  readonly costUsd: ManagedAgentCoordinationMetric;
+  readonly latencyMs: ManagedAgentCoordinationMetric;
+  readonly turns: ManagedAgentCoordinationMetric;
+  readonly evidenceUris: readonly string[];
+}
+
+export interface ManagedAgentCoordinationUsageReport {
+  readonly version: "managed-agent-coordination-usage-v1";
+  readonly workerId: string;
+  readonly coverage: "partial" | "complete";
+  readonly reconciliation: "components-may-overlap" | "mutually-exclusive";
+  readonly components: readonly ManagedAgentCoordinationComponentUsage[];
+}
+
 export interface ManagedAgentResultHandoff {
   readonly summary: string;
   readonly resourceUris: readonly string[];
   readonly memoryWriteProposalUris: readonly string[];
+  readonly structuredResult?: StructuredExecutionResult;
+  readonly verificationUsage?: VerificationUsageReport;
+}
+
+export function assertManagedAgentResultHandoffContract(
+  contract: ManagedAgentInvocationHandoffContract | undefined,
+  handoff: ManagedAgentResultHandoff | undefined,
+): void {
+  if (!contract) return;
+  if (!handoff) throw new Error("Managed invocation required result handoff is missing.");
+  const missing = (contract.requiredResultFields ?? []).flatMap((field) =>
+    hasManagedResultField(field, handoff) ? [] : [canonicalManagedResultField(field)]);
+  if (contract.residualRiskRequired === true && (handoff.structuredResult?.residualRisks.length ?? 0) === 0) {
+    missing.push("residualRisks");
+  }
+  if (missing.length > 0) {
+    throw new Error(`Managed invocation result handoff is missing required structured fields: ${[...new Set(missing)].join(", ")}`);
+  }
+}
+
+function canonicalManagedResultField(field: string): string {
+  const normalized = field.trim();
+  if (normalized === "residualRisk") return "residualRisks";
+  if (normalized === "checks") return "verificationResults";
+  if (normalized === "artifactUris") return "resourceUris";
+  return normalized;
+}
+
+function hasManagedResultField(field: string, handoff: ManagedAgentResultHandoff): boolean {
+  const normalized = field.trim();
+  if (normalized === "summary") return handoff.summary.trim().length > 0;
+  if (normalized === "resourceUris" || normalized === "artifactUris") return handoff.resourceUris.length > 0;
+  if (normalized === "evidence") return (handoff.structuredResult?.evidence.length ?? handoff.resourceUris.length) > 0;
+  if (normalized === "checks" || normalized === "verificationResults") {
+    return (handoff.structuredResult?.verificationResults.length ?? 0) > 0;
+  }
+  if (normalized === "uncertainty") return handoff.structuredResult?.uncertainty !== undefined;
+  if (normalized === "limitations") return handoff.structuredResult !== undefined;
+  if (normalized === "warnings") return handoff.structuredResult !== undefined;
+  if (normalized === "approvalRequirements") return handoff.structuredResult !== undefined;
+  if (normalized === "residualRisks" || normalized === "residualRisk") {
+    return (handoff.structuredResult?.residualRisks.length ?? 0) > 0;
+  }
+  return false;
 }
 
 export interface ManagedAgentReplayResource {
@@ -381,11 +656,13 @@ export interface ManagedAgentLifecycleEvidence {
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly authorityProfileId: string;
   readonly resourceLease: ManagedAgentResourceLeaseEvidence;
+  readonly sourceResourceUris: readonly string[];
   readonly transcriptUri?: string;
   readonly heartbeatAt?: string;
   readonly resultSummary?: string;
   readonly diagnosticUris: readonly string[];
   readonly usage?: ManagedAgentUsageReport;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
   readonly handoffResourceUris: readonly string[];
 }
 
@@ -407,6 +684,7 @@ export interface ManagedAgentInvocationRecord {
   readonly transcript?: ManagedAgentTranscriptPointer;
   readonly diagnostics?: readonly ManagedAgentDiagnosticPointer[];
   readonly usage?: ManagedAgentUsageReport;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
   readonly resultHandoff?: ManagedAgentResultHandoff;
   readonly replayResources?: readonly ManagedAgentReplayResource[];
   readonly writeEvidence?: readonly ManagedAgentWriteEvidence[];
@@ -445,12 +723,17 @@ export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocatio
     profile: requireAdmissionProfile(input.profile),
     requestedBy: requireText(input.requestedBy, "Managed invocation requester is required"),
     requestSource: requireText(input.requestSource, "Managed invocation request source is required"),
+    executionIntent: requireExecutionIntent(input.executionIntent ?? {
+      attendance: "attended",
+      lifecycle: "foreground",
+    }),
     requestedAuthority: requireRequestedAuthority(input.requestedAuthority ?? "auto"),
     ...(input.authorityApproval !== undefined ? { authorityApproval: requireAuthorityApproval(input.authorityApproval) } : {}),
     providerRoute: requireProviderRoute(input.providerRoute),
     adapterKind: requireAdapterKind(input.adapterKind),
     executionMode: requireExecutionMode(input.executionMode),
     authority,
+    ...(input.executionScope ? { executionScope: requireSessionExecutionScope(input.executionScope) } : {}),
     input: {
       summary: requireText(input.input?.summary, "Managed invocation input summary is required"),
       ...(input.input?.prompt !== undefined ? { prompt: input.input.prompt } : {}),
@@ -489,6 +772,12 @@ export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDe
       supported: input.usage.supported === true,
       preservesProviderTokenClasses: input.usage.preservesProviderTokenClasses === true,
       supportsExplicitUnknowns: input.usage.supportsExplicitUnknowns === true,
+      tokenClasses: input.usage.tokenClasses.map(requireUsageTokenClassCapability),
+      semanticSourceGranularity: requireSemanticSourceGranularity(
+        input.usage.semanticSourceGranularity,
+        input.usage.evidenceBasis,
+      ),
+      evidenceBasis: requireUsageEvidenceBasis(input.usage.evidenceBasis),
     },
     resultHandoff: {
       boundedSummary: input.resultHandoff.boundedSummary === true,
@@ -505,12 +794,39 @@ export function defineManagedAgentAdapterDescriptor(input: ManagedAgentAdapterDe
   };
 }
 
+function requireSessionExecutionScope(input: SessionExecutionScope): SessionExecutionScope {
+  const goalRunId = requireText(input.goalRunId, "Managed invocation execution scope goal run id is required");
+  if (input.kind === "goal") {
+    return {
+      kind: "goal",
+      goalRunId,
+      ...(input.managedInvocationId ? { managedInvocationId: requireText(input.managedInvocationId, "Managed invocation execution scope invocation id is required") } : {}),
+    };
+  }
+  if (input.kind === "work_item") {
+    return {
+      kind: "work_item",
+      goalRunId,
+      workItemId: requireText(input.workItemId, "Managed invocation execution scope work item id is required"),
+      ...(input.attemptId ? { attemptId: requireText(input.attemptId, "Managed invocation execution scope attempt id is required") } : {}),
+      ...(input.managedInvocationId ? { managedInvocationId: requireText(input.managedInvocationId, "Managed invocation execution scope invocation id is required") } : {}),
+    };
+  }
+  throw new Error(`Unsupported managed invocation execution scope: ${String((input as { readonly kind?: unknown }).kind)}`);
+}
+
 export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabilitySnapshot): ManagedAgentCapabilitySnapshot {
   return {
     snapshotId: requireText(input.snapshotId, "Managed capability snapshot id is required"),
     capturedAt: requireIsoTimestamp(input.capturedAt, "Managed capability snapshot timestamp is required"),
     routeId: requireText(input.routeId, "Managed capability snapshot route id is required"),
     routeSource: requireRouteSource(input.routeSource),
+    ...(input.callerIdentity !== undefined
+      ? { callerIdentity: requireCallerAttachmentIdentity(input.callerIdentity) }
+      : {}),
+    ...(input.invocationCapabilityEvidence !== undefined
+      ? { invocationCapabilityEvidence: requireInvocationCapabilityEvidence(input.invocationCapabilityEvidence) }
+      : {}),
     routeHealth: {
       status: requireRouteHealthStatus(input.routeHealth.status),
       reason: requireText(input.routeHealth.reason, "Managed capability snapshot route health reason is required"),
@@ -527,6 +843,7 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
     executionMode: requireExecutionMode(input.executionMode),
     adapterDescriptor: defineManagedAgentAdapterDescriptor(input.adapterDescriptor),
     authorityProfile: requireAuthority(input.authorityProfile),
+    authorityEvidence: requireAuthorityEvidence(input.authorityEvidence),
     contextMode: requireContextMode(input.contextMode),
     resourcePlane: {
       available: input.resourcePlane.available === true,
@@ -554,7 +871,323 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
   };
 }
 
+function requireCallerAttachmentIdentity(
+  input: ManagedAgentCallerAttachmentIdentity,
+): ManagedAgentCallerAttachmentIdentity {
+  if (input.kind === "kiln-runtime") {
+    return {
+      kind: input.kind,
+      surface: requireText(input.surface, "Managed invocation caller surface is required"),
+      attachmentId: requireText(input.attachmentId, "Managed invocation caller attachment id is required"),
+    };
+  }
+  if (input.kind === "external-harness") {
+    return {
+      kind: input.kind,
+      harness: requireCallerHarness(input.harness),
+      attachmentId: requireText(input.attachmentId, "Managed invocation caller attachment id is required"),
+      evidenceId: requireText(input.evidenceId, "Managed invocation caller evidence id is required"),
+    };
+  }
+  throw new Error(`Unsupported managed invocation caller identity kind: ${String((input as { readonly kind?: string }).kind ?? "")}`);
+}
+
+function requireCallerHarness(
+  harness: "claude" | "codex" | "opencode",
+): "claude" | "codex" | "opencode" {
+  if (harness === "claude" || harness === "codex" || harness === "opencode") {
+    return harness;
+  }
+  throw new Error(`Unsupported managed invocation caller harness: ${String(harness)}`);
+}
+
+function requireInvocationCapabilityEvidence(
+  input: ManagedAgentInvocationCapabilityEvidence,
+): ManagedAgentInvocationCapabilityEvidence {
+  return {
+    decision: requireInvocationCapabilityDecision(input.decision),
+    reason: requireText(input.reason, "Managed invocation capability decision reason is required"),
+    adapterEvidence: {
+      adapterDescriptorId: requireText(
+        input.adapterEvidence.adapterDescriptorId,
+        "Managed invocation capability adapter descriptor id is required",
+      ),
+      adapterId: requireText(input.adapterEvidence.adapterId, "Managed invocation capability adapter id is required"),
+    },
+  };
+}
+
+function requireInvocationCapabilityDecision(
+  decision: ManagedAgentInvocationCapabilityDecision,
+): ManagedAgentInvocationCapabilityDecision {
+  if (decision === "admitted" || decision === "denied") {
+    return decision;
+  }
+  throw new Error(`Unsupported managed invocation capability decision: ${String(decision)}`);
+}
+
+export function buildManagedAgentAuthorityEvidence(input: {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly projectedSource: ManagedAgentProjectedAuthorityEvidence["source"];
+  readonly observedRuntime?: ManagedAgentObservedRuntimeAuthorityEvidence;
+  readonly evaluatedAt?: string;
+}): ManagedAgentAuthorityEvidence {
+  const observedRuntime = input.observedRuntime ?? {
+    source: "not-observed" as const,
+    proof: "unavailable" as const,
+    reason: "Managed child runtime authority is not observable from the admission snapshot.",
+  };
+  const evidence = requireAuthorityEvidence({
+    requested: {
+      authority: input.request.requestedAuthority ?? "auto",
+      source: "managed-invocation-request",
+      proof: "proven",
+    },
+    projected: {
+      permissionProfile: input.request.authority.permissionProfile,
+      approval: approvalEvidenceFromAuthority(input.request.authority),
+      sandbox: sandboxEvidenceFromAuthority(input.request.authority),
+      source: input.projectedSource,
+      proof: "proven",
+    },
+    observedRuntime,
+    classification: "effective-policy-unproven",
+  });
+  return classifyManagedAgentAuthorityEvidence(evidence, input.evaluatedAt);
+}
+
+export function classifyManagedAgentAuthorityEvidence(
+  input: ManagedAgentAuthorityEvidence,
+  evaluatedAt = new Date().toISOString(),
+): ManagedAgentAuthorityEvidence {
+  const evidence = requireAuthorityEvidence(input);
+  const now = requireTimestamp(evaluatedAt, "Managed authority evaluation timestamp is invalid");
+  const observed = evidence.observedRuntime;
+  let classification: ManagedAgentAuthorityEvidenceClassification;
+  if (observed.proof === "contradictory") {
+    classification = "runtime-policy-mismatch";
+  } else if (observed.proof === "failed") {
+    classification = "failed-observation";
+  } else if (observed.source === "not-observed") {
+    classification = "effective-policy-unproven";
+  } else if (observed.proof === "unavailable" || observed.proof === "inferred") {
+    classification = "effective-policy-unproven";
+  } else if (
+    observed.approval === undefined || observed.sandbox === undefined ||
+    observed.observedAt === undefined || observed.validUntil === undefined
+  ) {
+    classification = "partial-observation";
+  } else if (
+    (observed.validUntil !== undefined && requireTimestamp(observed.validUntil, "Managed authority validity timestamp is invalid") < now) ||
+    requireTimestamp(observed.observedAt, "Managed authority observation timestamp is invalid") > now
+  ) {
+    classification = "stale-evidence";
+  } else if (
+    observed.approval !== evidence.projected.approval ||
+    observed.sandbox !== evidence.projected.sandbox
+  ) {
+    classification = "runtime-policy-mismatch";
+  } else {
+    classification = "current-verified";
+  }
+  return {
+    ...evidence,
+    classification,
+    recommendation: authorityRecommendation(classification),
+  };
+}
+
+function authorityRecommendation(classification: ManagedAgentAuthorityEvidenceClassification): string {
+  if (classification === "current-verified") return "Child runtime authority matches the admitted projection.";
+  if (classification === "runtime-policy-mismatch") return "Stop the child invocation and re-run only after projected and observed authority match.";
+  if (classification === "failed-observation") return "Retry runtime authority observation before execution or replay; do not infer child authority from the projection.";
+  if (classification === "stale-evidence") return "Observe child runtime authority again before execution or replay.";
+  if (classification === "partial-observation") return "Require complete approval and sandbox observations before execution.";
+  return "Do not treat projected child authority as effective until the runtime observer provides proof.";
+}
+
+function requireAuthorityEvidence(input: ManagedAgentAuthorityEvidence): ManagedAgentAuthorityEvidence {
+  return {
+    requested: {
+      authority: requireRequestedAuthority(input.requested.authority),
+      source: requireRequestedAuthorityEvidenceSource(input.requested.source),
+      proof: requireRequestedAuthorityProof(input.requested.proof),
+      ...(input.requested.reason !== undefined
+        ? { reason: requireText(input.requested.reason, "Managed authority requested evidence reason is required") }
+        : {}),
+    },
+    projected: {
+      permissionProfile: requireText(input.projected.permissionProfile, "Managed projected authority permission profile is required"),
+      approval: requireAuthorityEvidenceApproval(input.projected.approval),
+      sandbox: requireAuthorityEvidenceSandbox(input.projected.sandbox),
+      source: requireProjectedAuthorityEvidenceSource(input.projected.source),
+      proof: requireProjectedAuthorityProof(input.projected.proof),
+      ...(input.projected.reason !== undefined
+        ? { reason: requireText(input.projected.reason, "Managed projected authority evidence reason is required") }
+        : {}),
+    },
+    observedRuntime: {
+      ...(input.observedRuntime.approval !== undefined
+        ? { approval: requireAuthorityEvidenceApproval(input.observedRuntime.approval) }
+        : {}),
+      ...(input.observedRuntime.sandbox !== undefined
+        ? { sandbox: requireAuthorityEvidenceSandbox(input.observedRuntime.sandbox) }
+        : {}),
+      source: requireObservedRuntimeAuthoritySource(input.observedRuntime.source),
+      proof: requireAuthorityEvidenceProof(input.observedRuntime.proof),
+      ...(input.observedRuntime.observedAt !== undefined
+        ? { observedAt: new Date(requireTimestamp(input.observedRuntime.observedAt, "Managed authority observation timestamp is invalid")).toISOString() }
+        : {}),
+      ...(input.observedRuntime.validUntil !== undefined
+        ? { validUntil: new Date(requireTimestamp(input.observedRuntime.validUntil, "Managed authority validity timestamp is invalid")).toISOString() }
+        : {}),
+      ...(input.observedRuntime.reason !== undefined
+        ? { reason: requireText(input.observedRuntime.reason, "Managed observed runtime authority evidence reason is required") }
+        : {}),
+    },
+    classification: requireAuthorityEvidenceClassification(input.classification),
+    ...(input.recommendation !== undefined
+      ? { recommendation: requireText(input.recommendation, "Managed authority evidence recommendation is required") }
+      : {}),
+  };
+}
+
+function sandboxEvidenceFromAuthority(authority: ManagedAgentAuthorityProfile): ManagedAgentChildAuthoritySandbox {
+  return authority.toolAuthority.writeAllowed === true && authority.workingDirectory.mode !== "read-only"
+    ? "workspace-write"
+    : "read-only";
+}
+
+function approvalEvidenceFromAuthority(authority: ManagedAgentAuthorityProfile): ManagedAgentChildAuthorityApproval {
+  const profile = authority.permissionProfile.toLowerCase();
+  return profile.includes("trusted") || profile.includes("full-access") || profile.includes("danger-full-access")
+    ? "never"
+    : "on-request";
+}
+
+function collectAuthorityEvidenceGaps(
+  request: ManagedAgentInvocationRequest,
+  authorityEvidence: ManagedAgentAuthorityEvidence | undefined,
+  missingCapabilities: string[],
+  evaluatedAt?: string,
+): void {
+  const classified = authorityEvidence === undefined
+    ? undefined
+    : classifyManagedAgentAuthorityEvidence(authorityEvidence, evaluatedAt);
+  if (classified?.classification === "runtime-policy-mismatch") {
+    missingCapabilities.push("authorityEvidence.runtimePolicyMismatch");
+  }
+  if (
+    requiresProvenManagedRuntimeAuthority(request) &&
+    classified?.classification !== "current-verified" &&
+    classified?.classification !== "runtime-policy-mismatch"
+  ) {
+    missingCapabilities.push(`authorityEvidence.${classified?.classification ?? "effective-policy-unproven"}`);
+  }
+}
+
+function requiresProvenManagedRuntimeAuthority(request: ManagedAgentInvocationRequest): boolean {
+  return request.executionIntent?.attendance === "unattended" || request.executionIntent?.lifecycle !== "foreground";
+}
+
+function requireRequestedAuthorityEvidenceSource(
+  source: ManagedAgentRequestedAuthorityEvidence["source"],
+): ManagedAgentRequestedAuthorityEvidence["source"] {
+  if (source === "managed-invocation-request" || source === "parent-authority" || source === "runtime-default") {
+    return source;
+  }
+  throw new Error(`Unsupported managed requested authority evidence source: ${String(source)}`);
+}
+
+function requireProjectedAuthorityEvidenceSource(
+  source: ManagedAgentProjectedAuthorityEvidence["source"],
+): ManagedAgentProjectedAuthorityEvidence["source"] {
+  if (
+    source === "managed-authority-profile" ||
+    source === "cli-harness-session-factory" ||
+    source === "direct-provider-adapter" ||
+    source === "remote-harness-adapter"
+  ) {
+    return source;
+  }
+  throw new Error(`Unsupported managed projected authority evidence source: ${String(source)}`);
+}
+
+function requireObservedRuntimeAuthoritySource(
+  source: ManagedAgentObservedRuntimeAuthorityEvidence["source"],
+): ManagedAgentObservedRuntimeAuthorityEvidence["source"] {
+  if (
+    source === "not-observed" ||
+    source === "runtime-observation" ||
+    source === "child-session-metadata" ||
+    source === "harness-event"
+  ) {
+    return source;
+  }
+  throw new Error(`Unsupported managed observed runtime authority evidence source: ${String(source)}`);
+}
+
+function requireAuthorityEvidenceApproval(
+  approval: ManagedAgentChildAuthorityApproval,
+): ManagedAgentChildAuthorityApproval {
+  if (approval === "on-request" || approval === "never" || approval === "untrusted" || approval === "unknown") {
+    return approval;
+  }
+  throw new Error(`Unsupported managed authority evidence approval: ${String(approval)}`);
+}
+
+function requireAuthorityEvidenceSandbox(
+  sandbox: ManagedAgentChildAuthoritySandbox,
+): ManagedAgentChildAuthoritySandbox {
+  if (sandbox === "read-only" || sandbox === "workspace-write" || sandbox === "danger-full-access" || sandbox === "unknown") {
+    return sandbox;
+  }
+  throw new Error(`Unsupported managed authority evidence sandbox: ${String(sandbox)}`);
+}
+
+function requireAuthorityEvidenceProof(proof: ManagedAgentChildAuthorityProof): ManagedAgentChildAuthorityProof {
+  if (proof === "proven" || proof === "inferred" || proof === "unavailable" || proof === "contradictory" || proof === "failed") {
+    return proof;
+  }
+  throw new Error(`Unsupported managed authority evidence proof: ${String(proof)}`);
+}
+
+function requireRequestedAuthorityProof(
+  proof: ManagedAgentRequestedAuthorityEvidence["proof"],
+): ManagedAgentRequestedAuthorityEvidence["proof"] {
+  if (proof === "proven" || proof === "inferred") {
+    return proof;
+  }
+  throw new Error(`Unsupported managed requested authority evidence proof: ${String(proof)}`);
+}
+
+function requireProjectedAuthorityProof(
+  proof: ManagedAgentProjectedAuthorityEvidence["proof"],
+): ManagedAgentProjectedAuthorityEvidence["proof"] {
+  if (proof === "proven" || proof === "inferred") {
+    return proof;
+  }
+  throw new Error(`Unsupported managed projected authority evidence proof: ${String(proof)}`);
+}
+
+function requireAuthorityEvidenceClassification(
+  classification: ManagedAgentAuthorityEvidenceClassification,
+): ManagedAgentAuthorityEvidenceClassification {
+  if (
+    classification === "current-verified" ||
+    classification === "effective-policy-unproven" ||
+    classification === "runtime-policy-mismatch" ||
+    classification === "stale-evidence" ||
+    classification === "partial-observation" ||
+    classification === "failed-observation"
+  ) {
+    return classification;
+  }
+  throw new Error(`Unsupported managed authority evidence classification: ${String(classification)}`);
+}
+
 export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
+  const capabilitySnapshot = defineManagedAgentCapabilitySnapshot(input.capabilitySnapshot);
   return {
     invocationId: requireText(input.invocationId, "Managed invocation record id is required"),
     agentId: requireText(input.agentId, "Managed invocation record agent id is required"),
@@ -562,17 +1195,20 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     parentTurnId: requireText(input.parentTurnId, "Managed invocation record parent turn id is required"),
     profile: requireAdmissionProfile(input.profile),
     lifecycleState: requireLifecycleState(input.lifecycleState),
-    providerRoute: requireProviderRoute(input.providerRoute),
-    adapterKind: requireAdapterKind(input.adapterKind),
-    executionMode: requireExecutionMode(input.executionMode),
+    providerRoute: requireInvocationRecordProviderRoute(input.providerRoute, capabilitySnapshot.providerRoute),
+    adapterKind: requireMatchingAdapterKind(input.adapterKind, capabilitySnapshot.adapterKind),
+    executionMode: requireMatchingExecutionMode(input.executionMode, capabilitySnapshot.executionMode),
     authority: requireAuthority(input.authority),
-    capabilitySnapshot: defineManagedAgentCapabilitySnapshot(input.capabilitySnapshot),
+    capabilitySnapshot,
     ...(input.resourceLease !== undefined ? { resourceLease: requireResourceLease(input.resourceLease) } : {}),
     ...(input.childSessionId !== undefined ? { childSessionId: requireText(input.childSessionId, "Managed invocation child session id is required") } : {}),
     ...(input.childTurnId !== undefined ? { childTurnId: requireText(input.childTurnId, "Managed invocation child turn id is required") } : {}),
     ...(input.transcript !== undefined ? { transcript: requireTranscript(input.transcript) } : {}),
     ...(input.diagnostics !== undefined ? { diagnostics: input.diagnostics.map(requireDiagnosticPointer) } : {}),
-    ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage) } : {}),
+    ...(input.usage !== undefined ? { usage: requireUsageReport(input.usage, capabilitySnapshot.adapterDescriptor) } : {}),
+    ...(input.coordinationUsage !== undefined
+      ? { coordinationUsage: defineManagedAgentCoordinationUsageReport(input.coordinationUsage) }
+      : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: requireResultHandoff(input.resultHandoff) } : {}),
     ...(input.replayResources !== undefined ? { replayResources: input.replayResources.map(requireReplayResource) } : {}),
     ...(input.writeEvidence !== undefined ? { writeEvidence: input.writeEvidence.map(defineManagedAgentWriteEvidence) } : {}),
@@ -583,11 +1219,13 @@ export function evaluateManagedAgentAdmission(
   request: ManagedAgentInvocationRequest,
   descriptor: ManagedAgentAdapterDescriptor,
   snapshotInput: ManagedAgentCapabilitySnapshotInput,
+  options: { readonly evaluatedAt?: string } = {},
 ): ManagedAgentAdmissionDecision {
   const missingCapabilities: string[] = [];
   const routeId = requireText(snapshotInput.routeId, "Managed capability snapshot route id is required");
   const routeSource = requireRouteSource(snapshotInput.routeSource);
   collectRequestGaps(request, missingCapabilities);
+  collectAuthorityEvidenceGaps(request, snapshotInput.authorityEvidence, missingCapabilities, options.evaluatedAt);
 
   const profile = request.profile;
   if (profile === "foundation-readonly-plan") {
@@ -655,6 +1293,10 @@ export function buildManagedAgentCapabilitySnapshot(
     capturedAt,
     routeId: input.routeId,
     routeSource: input.routeSource,
+    ...(input.callerIdentity ? { callerIdentity: input.callerIdentity } : {}),
+    ...(input.invocationCapabilityEvidence
+      ? { invocationCapabilityEvidence: input.invocationCapabilityEvidence }
+      : {}),
     routeHealth: input.routeHealth ?? {
       status: "healthy",
       reason: "Route descriptor admitted by managed invocation policy.",
@@ -668,6 +1310,10 @@ export function buildManagedAgentCapabilitySnapshot(
     executionMode: request.executionMode,
     adapterDescriptor: descriptor,
     authorityProfile: request.authority,
+    authorityEvidence: input.authorityEvidence ?? buildManagedAgentAuthorityEvidence({
+      request,
+      projectedSource: "managed-authority-profile",
+    }),
     contextMode: request.input.context?.mode ?? "isolated",
     resourcePlane,
     resourceLease: input.resourceLease ?? {
@@ -875,11 +1521,13 @@ export function buildManagedAgentLifecycleEvidence(
     contextMode: record.capabilitySnapshot.contextMode,
     authorityProfileId: record.authority.authorityProfileId,
     resourceLease: record.resourceLease ?? record.capabilitySnapshot.resourceLease,
+    sourceResourceUris: record.capabilitySnapshot.resourcePlane.resourceUris,
     ...(record.transcript?.uri !== undefined ? { transcriptUri: record.transcript.uri } : {}),
     ...(input.heartbeatAt !== undefined ? { heartbeatAt: requireIsoTimestamp(input.heartbeatAt, "Managed invocation heartbeat timestamp is required") } : {}),
     ...(record.resultHandoff?.summary !== undefined ? { resultSummary: record.resultHandoff.summary } : {}),
     diagnosticUris: record.diagnostics?.map((diagnostic) => diagnostic.uri) ?? [],
     ...(record.usage !== undefined ? { usage: record.usage } : {}),
+    ...(record.coordinationUsage !== undefined ? { coordinationUsage: record.coordinationUsage } : {}),
     handoffResourceUris: record.resultHandoff?.resourceUris ?? [],
   };
 }
@@ -950,10 +1598,31 @@ function requireInvocationContext(input: ManagedAgentInvocationContextSelection)
     ...(input.agentProfile !== undefined ? { agentProfile: requireText(input.agentProfile, "Managed invocation agent profile is required") } : {}),
     ...(input.skills !== undefined ? { skills: input.skills.map((skill) => requireText(skill, "Managed invocation skill is required")) } : {}),
     ...(input.instructionProfiles !== undefined ? { instructionProfiles: input.instructionProfiles.map((profile) => requireText(profile, "Managed invocation instruction profile is required")) } : {}),
+    ...(input.workClassification !== undefined ? { workClassification: defineWorkClassification(input.workClassification) } : {}),
     ...(input.admittedAgentProfile !== undefined ? { admittedAgentProfile: requireText(input.admittedAgentProfile, "Managed invocation admitted agent profile is required") } : {}),
     ...(input.admittedSkills !== undefined ? { admittedSkills: input.admittedSkills.map((skill) => requireText(skill, "Managed invocation admitted skill is required")) } : {}),
     ...(input.admittedInstructionProfiles !== undefined ? { admittedInstructionProfiles: input.admittedInstructionProfiles.map((profile) => requireText(profile, "Managed invocation admitted instruction profile is required")) } : {}),
     ...(input.deniedSkills !== undefined ? { deniedSkills: input.deniedSkills.map((skill) => requireText(skill, "Managed invocation denied skill is required")) } : {}),
+    ...(input.resolvedWorkClassification !== undefined ? { resolvedWorkClassification: defineWorkClassification(input.resolvedWorkClassification) } : {}),
+    ...(input.workRecommendedSkills !== undefined ? { workRecommendedSkills: input.workRecommendedSkills.map((skill) => requireText(skill, "Managed invocation work recommended skill is required")) } : {}),
+    ...(input.workRecommendedSkillDiagnostics !== undefined ? { workRecommendedSkillDiagnostics: input.workRecommendedSkillDiagnostics.map(requireWorkRecommendedSkillDiagnostic) } : {}),
+  };
+}
+
+function requireWorkRecommendedSkillDiagnostic(
+  input: WorkRecommendedSkillDiagnostic,
+): WorkRecommendedSkillDiagnostic {
+  if (
+    input.state !== "admitted" &&
+    input.state !== "advisory" &&
+    input.state !== "unavailable"
+  ) {
+    throw new Error(`Unsupported work recommended skill diagnostic state: ${String(input.state)}`);
+  }
+  return {
+    skillName: requireText(input.skillName, "Managed invocation work recommended skill diagnostic skill name is required"),
+    state: input.state,
+    reason: requireText(input.reason, "Managed invocation work recommended skill diagnostic reason is required"),
   };
 }
 
@@ -965,7 +1634,15 @@ function requireHandoffContract(input: ManagedAgentInvocationHandoffContract): M
     ...(input.requiredResultFields !== undefined ? { requiredResultFields: input.requiredResultFields.map((field) => requireText(field, "Managed invocation handoff result field is required")) } : {}),
     ...(input.doneCriteria !== undefined ? { doneCriteria: input.doneCriteria.map((criterion) => requireText(criterion, "Managed invocation handoff done criterion is required")) } : {}),
     ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired === true } : {}),
+    ...(input.outputVerbosity !== undefined
+      ? { outputVerbosity: requireAssistantOutputVerbosity(input.outputVerbosity) }
+      : {}),
   };
+}
+
+function requireAssistantOutputVerbosity(input: AssistantOutputVerbosity): AssistantOutputVerbosity {
+  if (input === "concise" || input === "standard" || input === "detailed") return input;
+  throw new Error("Managed invocation handoff output verbosity is not supported");
 }
 
 function requireContextMode(input: ManagedAgentInvocationContextMode): ManagedAgentInvocationContextMode {
@@ -992,15 +1669,186 @@ function requireDiagnosticPointer(input: ManagedAgentDiagnosticPointer): Managed
   };
 }
 
-function requireUsageReport(input: ManagedAgentUsageReport): ManagedAgentUsageReport {
+function requireInvocationRecordProviderRoute(
+  input: ManagedAgentProviderRoute,
+  admitted: ManagedAgentProviderRoute,
+): ManagedAgentProviderRoute {
+  const providerRoute = requireProviderRoute(input);
+  if (
+    providerRoute.providerId !== admitted.providerId
+    || providerRoute.surface !== admitted.surface
+    || providerRoute.model !== admitted.model
+    || providerRoute.reasoningEffort !== admitted.reasoningEffort
+  ) {
+    throw new Error("Managed invocation usage route must match the admitted capability snapshot");
+  }
+  return providerRoute;
+}
+
+function requireMatchingAdapterKind(
+  value: ManagedAgentAdapterKind,
+  admitted: ManagedAgentAdapterKind,
+): ManagedAgentAdapterKind {
+  const adapterKind = requireAdapterKind(value);
+  if (adapterKind !== admitted) {
+    throw new Error("Managed invocation adapter kind must match the admitted capability snapshot");
+  }
+  return adapterKind;
+}
+
+function requireMatchingExecutionMode(
+  value: ManagedAgentExecutionMode,
+  admitted: ManagedAgentExecutionMode,
+): ManagedAgentExecutionMode {
+  const executionMode = requireExecutionMode(value);
+  if (executionMode !== admitted) {
+    throw new Error("Managed invocation execution mode must match the admitted capability snapshot");
+  }
+  return executionMode;
+}
+
+function requireUsageReport(
+  input: ManagedAgentUsageReport,
+  descriptor: ManagedAgentAdapterDescriptor,
+): ManagedAgentUsageReport {
+  if (!descriptor.usage.supported) {
+    throw new Error("Managed invocation usage report is not supported by the admitted adapter descriptor");
+  }
+  const source = requireUsageReportSource(input.source);
+  if (source !== descriptor.usage.evidenceBasis) {
+    throw new Error("Managed invocation usage evidence source must match the admitted adapter descriptor");
+  }
+  const supportedTokenClasses = new Set(descriptor.usage.tokenClasses);
+  const observedTokenClasses = new Set<ManagedAgentUsageTokenClassCapability>();
+  const tokenClasses = input.tokenClasses.map((entry) => {
+    const name = requireSupportedUsageTokenClass(entry.name, supportedTokenClasses);
+    if (observedTokenClasses.has(name)) {
+      throw new Error(`Managed invocation usage token class must be unique: ${name}`);
+    }
+    observedTokenClasses.add(name);
+    return { name, value: requireUsageTokenValue(entry.value, name) };
+  });
   return {
-    source: input.source,
-    tokenClasses: input.tokenClasses.map((entry) => ({
-      name: requireText(entry.name, "Managed invocation token class name is required"),
-      value: entry.value,
-    })),
-    cost: input.cost,
+    source,
+    tokenClasses,
+    cost: {
+      currency: input.cost.currency === "unknown"
+        ? "unknown"
+        : requireText(input.cost.currency, "Managed invocation usage cost currency is required"),
+      amount: input.cost.amount === "unknown"
+        ? "unknown"
+        : requireNonNegativeFiniteNumber(input.cost.amount, "Managed invocation usage cost amount"),
+    },
   };
+}
+
+function requireUsageTokenValue(
+  value: ManagedAgentTokenClassUsage["value"],
+  name: ManagedAgentUsageTokenClassCapability,
+): ManagedAgentTokenClassUsage["value"] {
+  if (value === "unknown") return value;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Managed invocation usage token value must be a non-negative safe integer: ${name}`);
+  }
+  return value;
+}
+
+function requireNonNegativeFiniteNumber(value: number, label: string): number {
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be a non-negative finite number`);
+  return value;
+}
+
+function requireUsageReportSource(source: ManagedAgentUsageReport["source"]): ManagedAgentUsageReport["source"] {
+  if (source === "adapter" || source === "provider" || source === "runtime" || source === "unknown") {
+    return source;
+  }
+  throw new Error(`Unsupported managed invocation usage source: ${String(source)}`);
+}
+
+export function defineManagedAgentCoordinationUsageReport(
+  input: ManagedAgentCoordinationUsageReport,
+): ManagedAgentCoordinationUsageReport {
+  const expectedStages: readonly ManagedAgentCoordinationStage[] = [
+    "parent_prompt",
+    "child_bootstrap",
+    "duplicated_reads",
+    "handoff",
+    "review",
+    "synthesis",
+  ];
+  if (input.version !== "managed-agent-coordination-usage-v1") {
+    throw new Error("Managed coordination usage version is unsupported");
+  }
+  if (input.coverage !== "partial" && input.coverage !== "complete") {
+    throw new Error("Managed coordination usage coverage is unsupported");
+  }
+  if (input.reconciliation !== "components-may-overlap" && input.reconciliation !== "mutually-exclusive") {
+    throw new Error("Managed coordination usage reconciliation is unsupported");
+  }
+  const byStage = new Map(input.components.map((component) => [component.stage, component]));
+  if (byStage.size !== expectedStages.length || expectedStages.some((stage) => !byStage.has(stage))) {
+    throw new Error("Managed coordination usage must report every coordination stage exactly once");
+  }
+  return {
+    version: input.version,
+    workerId: requireText(input.workerId, "Managed coordination worker id is required"),
+    coverage: input.coverage,
+    reconciliation: input.reconciliation,
+    components: expectedStages.map((stage) => {
+      const component = byStage.get(stage)!;
+      return {
+        stage,
+        providerTokenClass: requireCoordinationProviderTokenClass(
+          component.providerTokenClass,
+          stage,
+        ),
+        tokens: requireCoordinationMetric(component.tokens, `${stage}.tokens`),
+        costUsd: requireCoordinationMetric(component.costUsd, `${stage}.costUsd`),
+        latencyMs: requireCoordinationMetric(component.latencyMs, `${stage}.latencyMs`),
+        turns: requireCoordinationMetric(component.turns, `${stage}.turns`),
+        evidenceUris: component.evidenceUris.map((uri) =>
+          requireText(uri, `Managed coordination ${stage} evidence uri is required`)),
+      };
+    }),
+  };
+}
+
+function requireCoordinationMetric(
+  metric: ManagedAgentCoordinationMetric,
+  field: string,
+): ManagedAgentCoordinationMetric {
+  if (metric.source === "unknown") {
+    if (metric.value !== "unknown") {
+      throw new Error(`Managed coordination ${field} unknown source requires unknown value`);
+    }
+    return metric;
+  }
+  if (metric.source !== "provider_reported" && metric.source !== "estimated") {
+    throw new Error(`Managed coordination ${field} source is unsupported`);
+  }
+  if (typeof metric.value !== "number" || !Number.isFinite(metric.value) || metric.value < 0) {
+    throw new Error(`Managed coordination ${field} must be a non-negative finite number`);
+  }
+  return metric;
+}
+
+function requireCoordinationProviderTokenClass(
+  value: unknown,
+  stage: ManagedAgentCoordinationStage,
+): "input" | "output" {
+  if (value === "input" || value === "output") return value;
+  throw new Error(`Managed coordination ${stage}.providerTokenClass is unsupported`);
+}
+
+function requireSupportedUsageTokenClass(
+  value: ManagedAgentUsageTokenClassCapability,
+  supportedTokenClasses: ReadonlySet<ManagedAgentUsageTokenClassCapability>,
+): ManagedAgentUsageTokenClassCapability {
+  const tokenClass = requireUsageTokenClassCapability(value);
+  if (!supportedTokenClasses.has(tokenClass)) {
+    throw new Error(`Managed invocation usage token class is not supported by the admitted adapter descriptor: ${tokenClass}`);
+  }
+  return tokenClass;
 }
 
 function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentResultHandoff {
@@ -1008,6 +1856,12 @@ function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentRes
     summary: requireText(input.summary, "Managed invocation result handoff summary is required"),
     resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed invocation result resource uri is required")),
     memoryWriteProposalUris: input.memoryWriteProposalUris.map((uri) => requireText(uri, "Managed invocation memory proposal uri is required")),
+    ...(input.structuredResult !== undefined
+      ? { structuredResult: defineStructuredExecutionResult(input.structuredResult) }
+      : {}),
+    ...(input.verificationUsage !== undefined
+      ? { verificationUsage: defineVerificationUsageReport(input.verificationUsage) }
+      : {}),
   };
 }
 
@@ -1097,6 +1951,26 @@ function requireRequestedAuthority(value: ManagedAgentRequestedAuthority): Manag
   return value;
 }
 
+function requireExecutionIntent(input: ManagedAgentExecutionIntent): ManagedAgentExecutionIntent {
+  if (input.attendance !== "attended" && input.attendance !== "unattended") {
+    throw new Error(`Unsupported managed invocation attendance intent: ${String(input.attendance)}`);
+  }
+  if (
+    input.lifecycle !== "foreground" && input.lifecycle !== "background" &&
+    input.lifecycle !== "automation" && input.lifecycle !== "resume" &&
+    input.lifecycle !== "scheduled"
+  ) {
+    throw new Error(`Unsupported managed invocation lifecycle intent: ${String(input.lifecycle)}`);
+  }
+  return { attendance: input.attendance, lifecycle: input.lifecycle };
+}
+
+function requireTimestamp(value: string, message: string): number {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) throw new Error(message);
+  return timestamp;
+}
+
 function requireWorkingDirectoryMode(value: ManagedAgentWorkingDirectory["mode"]): ManagedAgentWorkingDirectory["mode"] {
   if (value === "read-only" || value === "workspace-write" || value === "isolated-worktree" || value === "sandbox") {
     return value;
@@ -1164,6 +2038,35 @@ function requireUnsupportedFieldPolicy(value: ManagedAgentUnsupportedFieldPolicy
     throw new Error(`Unsupported managed invocation unsupported-field policy: ${value as string}`);
   }
   return value;
+}
+
+function requireUsageTokenClassCapability(
+  value: ManagedAgentUsageTokenClassCapability,
+): ManagedAgentUsageTokenClassCapability {
+  if (value === "input" || value === "output" || value === "cache_read" || value === "cache_write") {
+    return value;
+  }
+  throw new Error(`Unsupported managed invocation usage token class: ${String(value)}`);
+}
+
+function requireSemanticSourceGranularity(
+  value: ManagedAgentSemanticSourceGranularity,
+  evidenceBasis: ManagedAgentUsageEvidenceBasis,
+): ManagedAgentSemanticSourceGranularity {
+  if (value !== "provider_reported" && value !== "estimated" && value !== "unknown") {
+    throw new Error(`Unsupported managed invocation semantic source granularity: ${String(value)}`);
+  }
+  if (value === "provider_reported" && evidenceBasis !== "provider") {
+    throw new Error("Managed invocation provider-reported semantic source granularity requires provider usage evidence");
+  }
+  return value;
+}
+
+function requireUsageEvidenceBasis(value: ManagedAgentUsageEvidenceBasis): ManagedAgentUsageEvidenceBasis {
+  if (value === "provider" || value === "runtime" || value === "adapter" || value === "unknown") {
+    return value;
+  }
+  throw new Error(`Unsupported managed invocation usage evidence basis: ${String(value)}`);
 }
 
 function requireRouteHealthStatus(value: ManagedAgentRouteHealthStatus): ManagedAgentRouteHealthStatus {

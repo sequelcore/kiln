@@ -122,6 +122,9 @@ function makeDescriptor() {
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,
@@ -279,8 +282,8 @@ function makeRecord(lifecycleState: ManagedAgentInvocationRecord["lifecycleState
     usage: {
       source: "adapter",
       tokenClasses: [
-        { name: "input_tokens", value: "unknown" },
-        { name: "output_tokens", value: "unknown" },
+        { name: "input", value: "unknown" },
+        { name: "output", value: "unknown" },
       ],
       cost: { currency: "unknown", amount: "unknown" },
     },
@@ -414,11 +417,94 @@ describe("appendManagedInvocationSessionEvents", () => {
     expect(serializedEvents).not.toContain("kiln://managed-invocations/");
   });
 
+  it("records requested and resolved work classification in replayable invocation context", () => {
+    const session = makeSession();
+    const requestedWorkClassification = {
+      intents: ["write"],
+      artifacts: ["document"],
+      domains: ["business"],
+      effects: ["write-artifact"],
+      modes: ["coauthor"],
+    } as const;
+    const resolvedWorkClassification = {
+      intents: ["write", "review"],
+      artifacts: ["document"],
+      domains: ["business"],
+      effects: ["write-artifact"],
+      modes: ["coauthor"],
+    } as const;
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(session.id, `${session.id}:turn:1`),
+      input: {
+        summary: "Write a governed report",
+        context: {
+          mode: "isolated",
+          workClassification: requestedWorkClassification,
+          resolvedWorkClassification,
+          workRecommendedSkills: ["clear-writing"],
+          workRecommendedSkillDiagnostics: [{
+            skillName: "clear-writing",
+            state: "advisory",
+            reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+          }],
+        },
+      },
+    });
+
+    const events = appendManagedInvocationStartSessionEvents({
+      session,
+      request,
+      decision: makeAdmittedDecision(request),
+      timestamp: new Date("2026-05-03T10:00:00.000Z"),
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: "agent_invocation_requested",
+        invocationContext: {
+          mode: "isolated",
+          workClassification: requestedWorkClassification,
+          resolvedWorkClassification,
+          workRecommendedSkills: ["clear-writing"],
+          workRecommendedSkillDiagnostics: [{
+            skillName: "clear-writing",
+            state: "advisory",
+            reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+          }],
+        },
+      }),
+      expect.objectContaining({
+        kind: "agent_invocation_started",
+        invocationContext: {
+          mode: "isolated",
+          workClassification: requestedWorkClassification,
+          resolvedWorkClassification,
+          workRecommendedSkills: ["clear-writing"],
+          workRecommendedSkillDiagnostics: [{
+            skillName: "clear-writing",
+            state: "advisory",
+            reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+          }],
+        },
+      }),
+    ]);
+  });
+
   it("maps requested/started/completed with transcript, usage unknowns, handoff evidence and child lineage", () => {
     const session = makeSession();
-    const request = makeRequest(session.id, `${session.id}:turn:1`);
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(session.id, `${session.id}:turn:1`),
+      input: {
+        summary: "Inspect invocation contract",
+        context: { mode: "resources" },
+        resourceUris: ["kiln://session/work-items/work-source"],
+      },
+    });
     const record = defineManagedAgentInvocationRecord({
       ...makeRecord("completed"),
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      capabilitySnapshot: makeCapabilitySnapshot(request),
       replayResources: [{
         uri: "kiln://artifacts/invocation-1/result-full",
         title: "Managed invocation final result",
@@ -482,8 +568,8 @@ describe("appendManagedInvocationSessionEvents", () => {
       usage: {
         source: "adapter",
         tokenClasses: [
-          { name: "input_tokens", value: "unknown" },
-          { name: "output_tokens", value: "unknown" },
+          { name: "input", value: "unknown" },
+          { name: "output", value: "unknown" },
         ],
         cost: { currency: "unknown", amount: "unknown" },
       },
@@ -501,8 +587,9 @@ describe("appendManagedInvocationSessionEvents", () => {
         routeSource: "explicit-managed-route",
         providerId: "opencode",
         model: "sonic",
-        contextMode: "isolated",
+        contextMode: "resources",
         authorityProfileId: "foundation-readonly",
+        sourceResourceUris: ["kiln://session/work-items/work-source"],
         resourceLease: {
           leaseId: "invocation-1:resource-lease",
           createdAt: "2026-05-07T08:00:00.000Z",
@@ -510,7 +597,7 @@ describe("appendManagedInvocationSessionEvents", () => {
           cleanupStatus: "not-required",
           workingDirectoryPath: "C:/workspace/kiln",
           workingDirectoryMode: "read-only",
-          resourceUris: [],
+          resourceUris: ["kiln://session/work-items/work-source"],
           diagnosticUris: [],
         },
         transcriptUri: "kiln://artifacts/invocation-1/transcript",

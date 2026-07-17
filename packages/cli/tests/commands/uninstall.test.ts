@@ -159,6 +159,90 @@ describe("uninstallNativeTargets", () => {
     }
   });
 
+  it("treats global instruction group uninstall as a no-op when no shims are recorded", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-empty-instructions-"));
+
+    try {
+      const result = uninstallNativeTargets(join(root, "project"), { target: "global-instructions" });
+
+      expect(result).toEqual({
+        removed: [],
+        skipped: [],
+        errors: [],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uninstalls only recorded global instruction shims for the group target", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-instructions-"));
+    const codexPath = join(root, "home", ".codex", "AGENTS.md");
+    const kilnDir = join(root, "project", ".kiln");
+    const content = "# Codex global instructions\n";
+
+    try {
+      writeFileSyncRecursive(codexPath, content, "utf-8");
+      writeNativeProjectionInstallState(
+        kilnDir,
+        upsertNativeProjectionTargetState(
+          emptyNativeProjectionInstallState(),
+          createNativeProjectionFileSnapshot({
+            targetId: "codex-global-instructions",
+            filePath: codexPath,
+            content,
+            updatedAt: "2026-07-04T00:00:00.000Z",
+          }),
+        ),
+      );
+
+      const result = uninstallNativeTargets(join(root, "project"), { target: "instructions" });
+
+      expect(result).toEqual({
+        removed: ["codex-global-instructions"],
+        skipped: [],
+        errors: [],
+      });
+      expect(() => readFileSync(codexPath, "utf-8")).toThrow();
+      expect(readNativeProjectionInstallState(kilnDir).targets).toEqual({});
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("supports exact global instruction aliases", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-codex-instructions-"));
+    const codexPath = join(root, "home", ".codex", "AGENTS.md");
+    const kilnDir = join(root, "project", ".kiln");
+    const content = "# Codex global instructions\n";
+
+    try {
+      writeFileSyncRecursive(codexPath, content, "utf-8");
+      writeNativeProjectionInstallState(
+        kilnDir,
+        upsertNativeProjectionTargetState(
+          emptyNativeProjectionInstallState(),
+          createNativeProjectionFileSnapshot({
+            targetId: "codex-global-instructions",
+            filePath: codexPath,
+            content,
+            updatedAt: "2026-07-04T00:00:00.000Z",
+          }),
+        ),
+      );
+
+      const result = uninstallNativeTargets(join(root, "project"), { target: "codex-instructions" });
+
+      expect(result).toEqual({
+        removed: ["codex-global-instructions"],
+        skipped: [],
+        errors: [],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("skips drifted managed fields unless force is set", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-drift-"));
     const opencodeConfigPath = join(root, "home", ".config", "opencode", "opencode.json");

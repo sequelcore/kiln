@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store.js";
@@ -10,6 +10,7 @@ const sendMock = vi.fn();
 let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open";
 const commandPalettePropsLog: Array<{ open: boolean }> = [];
 const dashboardRefetchMock = vi.fn();
+let appShellFrameInput: { onOperatorTerminalAvailability: (available: boolean) => void } | null = null;
 const dashboardData = {
   providers: [],
   sessions: [],
@@ -22,6 +23,74 @@ const dashboardData = {
   continuationInfoByProvider: {},
   workingDirectory: "C:/workspace/kiln",
   domainLabel: "Kiln",
+};
+
+const dashboardOperatorWorkspaceHome = {
+  mode: "read-only" as const,
+  projectedAt: "2026-06-25T12:00:00.000Z",
+  gatewayTargets: [],
+  sessions: [],
+  work: {
+    totalCount: 0,
+    activeCount: 0,
+    blockedCount: 0,
+    missingEvidenceCount: 0,
+    goalCount: 0,
+    activeGoalCount: 0,
+    items: [],
+  },
+  managedAgents: {
+    totalCount: 9,
+    activeCount: 8,
+    attentionCount: 7,
+  },
+  approvals: {
+    pendingCount: 0,
+    resolvedCount: 0,
+    items: [],
+  },
+  configHealth: {
+    status: "unknown" as const,
+    issueCount: 0,
+    items: [],
+  },
+  routeHealth: {
+    totalCount: 0,
+    healthyCount: 0,
+    degradedCount: 0,
+    blockedCount: 0,
+    unknownCount: 0,
+    items: [],
+  },
+  providerReadiness: {
+    totalCount: 0,
+    liveProvenCount: 0,
+    configuredCount: 0,
+    unprovenCount: 0,
+    unknownCount: 0,
+    items: [],
+  },
+  gatewayHealth: {
+    status: "unknown" as const,
+    targetCount: 0,
+    localCount: 0,
+    remoteCount: 0,
+    appTargetCount: 0,
+    tenantTargetCount: 0,
+    items: [],
+  },
+  resources: {
+    totalCount: 0,
+    linkedResourceCount: 0,
+    items: [],
+  },
+  attention: {
+    items: [],
+    totalCount: 7,
+    actionRequiredCount: 7,
+    blockedCount: 0,
+    failedCount: 0,
+  },
 };
 let dashboardQueryResult: {
   data: typeof dashboardData | null;
@@ -39,6 +108,25 @@ vi.mock("../src/lib/use-gui-ws.js", () => ({
     state: wsState,
     send: sendMock,
   }),
+}));
+
+vi.mock("../src/components/app-shell-frame-handler.js", () => ({
+  createAppShellFrameHandler: (input: { onOperatorTerminalAvailability: (available: boolean) => void }) => {
+    appShellFrameInput = input;
+    return vi.fn();
+  },
+}));
+
+vi.mock("../src/components/operator-terminal-dock.js", () => ({
+  OPERATOR_TERMINAL_PANEL_ID: "operator-terminal-panel",
+  OperatorTerminalDock: ({ expanded }: { expanded: boolean }) => (
+    <section
+      id="operator-terminal-panel"
+      aria-label="Operator terminal"
+      data-expanded={String(expanded)}
+      hidden={!expanded}
+    />
+  ),
 }));
 
 vi.mock("../src/lib/wait-for-gateway.js", () => ({
@@ -104,10 +192,26 @@ vi.mock("../src/components/transcript.js", () => ({
 }));
 
 vi.mock("../src/components/composer.js", () => ({
-  Composer: ({ commandMenu }: { commandMenu: { onOpenChange: (open: boolean) => void } }) => (
-    <button type="button" onClick={() => commandMenu.onOpenChange(true)}>
-      Open composer commands
-    </button>
+  Composer: ({
+    commandMenu,
+    onSubmit,
+    onTogglePlanMode,
+  }: {
+    commandMenu: { onOpenChange: (open: boolean) => void };
+    onSubmit: (text: string) => void;
+    onTogglePlanMode: (enabled: boolean) => void;
+  }) => (
+    <div>
+      <button type="button" onClick={() => commandMenu.onOpenChange(true)}>
+        Open composer commands
+      </button>
+      <button type="button" onClick={() => onSubmit("hello target")}>
+        Send test message
+      </button>
+      <button type="button" onClick={() => onTogglePlanMode(false)}>
+        Switch to execute
+      </button>
+    </div>
   ),
 }));
 
@@ -210,6 +314,7 @@ describe("AppShell command palette and telemetry regressions", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     wsState = "open";
+    appShellFrameInput = null;
     commandPalettePropsLog.length = 0;
     installMatchMedia(false);
     resetStore();
@@ -262,6 +367,27 @@ describe("AppShell command palette and telemetry regressions", () => {
     await waitFor(() => {
       expect(latestPaletteProps()?.open).toBe(true);
     });
+  });
+
+  it("toggles one persistent terminal panel across workbench surfaces with Ctrl+`", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(appShellFrameInput).not.toBeNull();
+    });
+    act(() => appShellFrameInput?.onOperatorTerminalAvailability(true));
+
+    const openTerminal = await screen.findByRole("button", { name: "Open terminal" });
+    fireEvent.keyDown(window, { key: "`", code: "Backquote", ctrlKey: true });
+    expect(openTerminal).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Operator terminal")).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    expect(screen.getByLabelText("Operator terminal")).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.keyDown(window, { key: "`", code: "Backquote", ctrlKey: true });
+    expect(screen.getByRole("button", { name: "Open terminal" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("Operator terminal")).not.toBeVisible();
   });
 
   it("keeps composer-triggered commands out of the global palette", async () => {
@@ -417,6 +543,244 @@ describe("AppShell command palette and telemetry regressions", () => {
           models: ["gpt-5.4"],
         }),
       ]);
+    });
+  });
+
+  it("uses the dashboard operator workspace home for managed-agent attention", async () => {
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        operatorWorkspaceHome: dashboardOperatorWorkspaceHome,
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Agents" })).toHaveTextContent("7");
+    });
+  });
+
+  it("sends composer messages with the selected gateway target identity", async () => {
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        apps: [
+          {
+            name: "support",
+            runtime: "tenant" as const,
+            channels: ["api"],
+            runtimeCapable: true,
+            tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+          },
+        ],
+        activeAppName: "support",
+        activeTenantId: "acme",
+        operatorWorkspaceHome: {
+          ...dashboardOperatorWorkspaceHome,
+          gatewayTargets: [
+            {
+              instanceId: "app-gateway:support",
+              label: "support",
+              gatewayTarget: {
+                targetId: "app-gateway:support",
+                kind: "local-app-gateway" as const,
+                trust: "local" as const,
+                appId: "support",
+              },
+              sessionCount: 0,
+              eventCount: 0,
+              managedInvocationCount: 0,
+              toolCallCount: 0,
+              resourceLinkCount: 0,
+              totalCostUsd: 0,
+            },
+            {
+              instanceId: "app-gateway:support:tenant:acme",
+              label: "ACME",
+              gatewayTarget: {
+                targetId: "app-gateway:support:tenant:acme",
+                kind: "local-app-gateway" as const,
+                trust: "local" as const,
+                appId: "support",
+                tenantId: "acme",
+              },
+              sessionCount: 0,
+              eventCount: 0,
+              managedInvocationCount: 0,
+              toolCallCount: 0,
+              resourceLinkCount: 0,
+              totalCostUsd: 0,
+            },
+          ],
+        },
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Send test message" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send test message" }));
+
+    await waitFor(() => {
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
+        type: "message",
+        content: "hello target",
+        gatewayTargetId: "app-gateway:support:tenant:acme",
+        appName: "support",
+        tenantId: "acme",
+      }));
+    });
+  });
+
+  it("sends approval responses with the selected gateway target identity", async () => {
+    useSessionStore.setState({
+      timelineEntries: [
+        {
+          id: "event:approval-1",
+          type: "event",
+          eventKind: "approval_requested",
+          createdAt: "2026-06-25T12:03:00.000Z",
+          title: "Approval requested",
+          summary: "Apply bounded write",
+          tone: "warning",
+          details: {
+            approvalId: "approval-1",
+            action: "Apply bounded write",
+          },
+          sessionId: "session-1",
+        },
+      ],
+    });
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        apps: [
+          {
+            name: "support",
+            runtime: "tenant" as const,
+            channels: ["api"],
+            runtimeCapable: true,
+            tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+          },
+        ],
+        activeAppName: "support",
+        activeTenantId: "acme",
+        operatorWorkspaceHome: {
+          ...dashboardOperatorWorkspaceHome,
+          gatewayTargets: [
+            {
+              instanceId: "app-gateway:support:tenant:acme",
+              label: "ACME",
+              gatewayTarget: {
+                targetId: "app-gateway:support:tenant:acme",
+                kind: "local-app-gateway" as const,
+                trust: "local" as const,
+                appId: "support",
+                tenantId: "acme",
+              },
+              sessionCount: 0,
+              eventCount: 0,
+              managedInvocationCount: 0,
+              toolCallCount: 0,
+              resourceLinkCount: 0,
+              totalCostUsd: 0,
+            },
+          ],
+        },
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }));
+
+    expect(sendMock).toHaveBeenCalledWith({
+      type: "approve",
+      approvalId: "approval-1",
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+    });
+    expect(sendMock).toHaveBeenCalledWith({
+      type: "reject",
+      approvalId: "approval-1",
+      reason: "rejected by user",
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+    });
+  });
+
+  it("sends execution mode transitions with the selected gateway target identity", async () => {
+    useSessionStore.setState({ planMode: true });
+    dashboardQueryResult = {
+      data: {
+        ...dashboardData,
+        apps: [
+          {
+            name: "support",
+            runtime: "tenant" as const,
+            channels: ["api"],
+            runtimeCapable: true,
+            tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+          },
+        ],
+        activeAppName: "support",
+        activeTenantId: "acme",
+        operatorWorkspaceHome: {
+          ...dashboardOperatorWorkspaceHome,
+          gatewayTargets: [
+            {
+              instanceId: "app-gateway:support:tenant:acme",
+              label: "ACME",
+              gatewayTarget: {
+                targetId: "app-gateway:support:tenant:acme",
+                kind: "local-app-gateway" as const,
+                trust: "local" as const,
+                appId: "support",
+                tenantId: "acme",
+              },
+              sessionCount: 0,
+              eventCount: 0,
+              managedInvocationCount: 0,
+              toolCallCount: 0,
+              resourceLinkCount: 0,
+              totalCostUsd: 0,
+            },
+          ],
+        },
+      },
+      error: null,
+      isSuccess: true,
+      refetch: dashboardRefetchMock,
+    };
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Switch to execute" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch to execute" }));
+
+    expect(sendMock).toHaveBeenCalledWith({
+      type: "execution_mode_transition",
+      toMode: "execute",
+      gatewayTargetId: "app-gateway:support:tenant:acme",
     });
   });
 

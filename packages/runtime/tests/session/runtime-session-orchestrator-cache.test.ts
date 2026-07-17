@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ActionEffectEnvelope, ProviderAdapter, Capability, ToolDefinition } from "@kilnai/core";
 import { textParts, EventBus, ToolCache } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
+import { measureProviderRequestRegions } from "../../src/session/runtime-session-orchestrator-telemetry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const READ_ONLY_EFFECT: ActionEffectEnvelope = {
@@ -96,6 +97,178 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     // Verify the cached value
     const cached = toolCache.get("get_weather", { city: "London" });
     expect(cached).toBe("sunny, 20C");
+  });
+
+  it("records reconciled provider request evidence for every tool round", async () => {
+    const provider = makeProviderWithToolCall();
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [TOOL_DEF],
+      builtinTools: new Map([["get_weather", toolFn]]),
+      capabilityMap: makeCapabilityMap(60),
+      toolCache,
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+
+    expect(result.providerRequests).toEqual([
+      expect.objectContaining({
+        requestIndex: 0,
+        inputTokens: 100,
+        outputTokens: 50,
+        cumulativeInputTokens: 100,
+        cumulativeOutputTokens: 50,
+        toolCount: 1,
+        stopReason: "tool_use",
+      }),
+      expect.objectContaining({
+        requestIndex: 1,
+        inputTokens: 100,
+        outputTokens: 50,
+        cumulativeInputTokens: 200,
+        cumulativeOutputTokens: 100,
+        toolCount: 1,
+        stopReason: "end_turn",
+      }),
+    ]);
+    expect(result.providerRequests?.[0]?.systemBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.messageBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.toolSchemaBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.systemHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.messageHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.toolSchemaHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.stablePrefixHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.stablePrefixBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.[0]?.stablePrefixRegionCount).toBe(2);
+    expect(result.providerRequests?.[0]?.volatileRegionBytes).toBe(result.providerRequests?.[0]?.messageBytes);
+    expect(result.providerRequests?.[0]?.cacheRegions.map((region) => ({
+      source: region.source,
+      stability: region.stability,
+      includedInStablePrefix: region.includedInStablePrefix,
+    }))).toEqual([
+      { source: "tool_schema", stability: "stable", includedInStablePrefix: true },
+      { source: "system", stability: "stable", includedInStablePrefix: true },
+      { source: "messages", stability: "volatile", includedInStablePrefix: false },
+    ]);
+    expect(result.providerRequests?.[0]?.cacheRegions)
+      .toEqual(expect.not.arrayContaining([expect.objectContaining({ serialized: expect.any(String) })]));
+    expect(result.providerRequests?.[0]?.cachePartition.hash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.cachePartition.dimensions.map((dimension) => dimension.source))
+      .toEqual(["tenant", "route", "policy", "authority"]);
+    expect(result.providerRequests?.[0]?.cachePartition.dimensions.every((dimension) =>
+      /^sha256:[a-f0-9]{64}$/u.test(dimension.hash)
+    )).toBe(true);
+    expect(JSON.stringify(result.providerRequests?.[0]?.cachePartition)).not.toContain("test-tenant");
+    expect(result.providerRequests?.[1]?.stablePrefixHash).toBe(result.providerRequests?.[0]?.stablePrefixHash);
+    expect(result.providerRequests?.[1]?.cachePartition.hash).toBe(result.providerRequests?.[0]?.cachePartition.hash);
+    expect(result.providerRequests?.[1]?.messageHash).not.toBe(result.providerRequests?.[0]?.messageHash);
+    expect(result.providerRequests?.[1]?.messageBytes).toBeGreaterThan(
+      result.providerRequests?.[0]?.messageBytes ?? 0,
+    );
+    expect(result.inputTokens).toBe(200);
+    expect(result.outputTokens).toBe(100);
+  });
+
+  it("partitions identical stable prefixes by tenant route policy and authority", () => {
+    const base = {
+      system: "stable system",
+      messages: [{ role: "user", parts: [{ type: "text", text: "volatile turn" }] }],
+      tools: [{ name: "stable_tool" }],
+      toolCount: 1,
+      cachePartition: {
+        tenantId: "tenant-a",
+        provider: "codex-oauth",
+        model: "gpt-5.5",
+        policyIdentity: { version: "policy-v1" },
+        authority: {
+          requestedAuthority: "read_only",
+          admittedAuthority: "read_only",
+          sourcePolicy: "runtime_surface_projection",
+        },
+      },
+    } as const;
+    const tenantB = measureProviderRequestRegions({
+      ...base,
+      cachePartition: { ...base.cachePartition, tenantId: "tenant-b" },
+    });
+    const routeB = measureProviderRequestRegions({
+      ...base,
+      cachePartition: { ...base.cachePartition, model: "kimi-k2.7-code" },
+    });
+    const policyB = measureProviderRequestRegions({
+      ...base,
+      cachePartition: { ...base.cachePartition, policyIdentity: { version: "policy-v2" } },
+    });
+    const authorityB = measureProviderRequestRegions({
+      ...base,
+      cachePartition: {
+        ...base.cachePartition,
+        authority: {
+          requestedAuthority: "destructive",
+          admittedAuthority: "fail_closed",
+          sourcePolicy: "provider_profile_gate",
+        },
+      },
+    });
+    const original = measureProviderRequestRegions(base);
+
+    expect(tenantB.stablePrefixHash).toBe(original.stablePrefixHash);
+    expect(routeB.stablePrefixHash).toBe(original.stablePrefixHash);
+    expect(policyB.stablePrefixHash).toBe(original.stablePrefixHash);
+    expect(authorityB.stablePrefixHash).toBe(original.stablePrefixHash);
+    expect(new Set([
+      original.cachePartition.hash,
+      tenantB.cachePartition.hash,
+      routeB.cachePartition.hash,
+      policyB.cachePartition.hash,
+      authorityB.cachePartition.hash,
+    ])).toHaveLength(5);
+  });
+
+  it("partitions provider requests by the approved context policy selection", async () => {
+    const baseline = await new RuntimeSessionOrchestrator({ provider: makeProviderWithToolCall(), tools: [TOOL_DEF], builtinTools: new Map([["get_weather", toolFn]]), capabilityMap: makeCapabilityMap(60) }).processMessage(
+      makeSession(),
+      textParts("same input"),
+      undefined,
+      undefined,
+      { contextPolicy: { policyId: "context-whole-block-v1", configurationHash: `sha256:${"a".repeat(64)}`, contextAllocationMode: "whole-block" } },
+    );
+    const candidate = await new RuntimeSessionOrchestrator({ provider: makeProviderWithToolCall(), tools: [TOOL_DEF], builtinTools: new Map([["get_weather", toolFn]]), capabilityMap: makeCapabilityMap(60) }).processMessage(
+      makeSession(),
+      textParts("same input"),
+      undefined,
+      undefined,
+      { contextPolicy: { policyId: "context-segmented-v1", configurationHash: `sha256:${"b".repeat(64)}`, contextAllocationMode: "segmented" } },
+    );
+
+    expect(candidate.providerRequests?.[0]?.stablePrefixHash).toBe(baseline.providerRequests?.[0]?.stablePrefixHash);
+    expect(candidate.providerRequests?.[0]?.cachePartition.hash).not.toBe(baseline.providerRequests?.[0]?.cachePartition.hash);
+  });
+
+  it("measures only the leading contiguous stable prefix", () => {
+    const evidence = measureProviderRequestRegions({
+      system: "stable system",
+      messages: [{ role: "user", parts: [{ type: "text", text: "volatile turn" }] }],
+      tools: [{ name: "stable_tool" }],
+      toolCount: 1,
+      requestRegionOrder: ["system", "messages", "tool_schema"],
+    });
+
+    expect(evidence.cacheRegions.map((region) => ({
+      source: region.source,
+      includedInStablePrefix: region.includedInStablePrefix,
+    }))).toEqual([
+      { source: "system", includedInStablePrefix: true },
+      { source: "messages", includedInStablePrefix: false },
+      { source: "tool_schema", includedInStablePrefix: false },
+    ]);
+    expect(evidence.stablePrefixRegionCount).toBe(1);
+    expect(evidence.stablePrefixBytes).toBe(evidence.cacheRegions[0]?.bytes);
+    expect(evidence.volatileRegionBytes).toBe(
+      (evidence.cacheRegions[1]?.bytes ?? 0) + (evidence.cacheRegions[2]?.bytes ?? 0),
+    );
+    expect(evidence.stablePrefixHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(evidence.cacheRegions.every((region) => /^sha256:[a-f0-9]{64}$/u.test(region.hash))).toBe(true);
   });
 
   it("returns cached result on second call without executing tool", async () => {
@@ -230,7 +403,7 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     expect(result.queued).toBe(false);
   });
 
-  it("does not emit tool_called event on cache hit", async () => {
+  it("emits correlated tool activity on cache hit", async () => {
     toolCache.set("get_weather", { city: "London" }, "sunny, 20C", 60);
 
     const provider = makeProviderWithToolCall();
@@ -248,8 +421,18 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
 
     await orchestrator.processMessage(makeSession(), textParts("weather in London"));
 
-    // tool_called should NOT be emitted on cache hit (cache check is before emitToolCalled)
     const toolCalledEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_called");
-    expect(toolCalledEvents).toHaveLength(0);
+    expect(toolCalledEvents).toHaveLength(1);
+    const toolCallId = toolCalledEvents[0]?.[0].toolCallId;
+    expect(toolCallId).toEqual(expect.any(String));
+
+    const toolResultEvents = emitSpy.mock.calls.filter((c) => c[0].type === "tool_result");
+    expect(toolResultEvents).toEqual([
+      [expect.objectContaining({
+        toolCallId,
+        toolName: "get_weather",
+        success: true,
+      })],
+    ]);
   });
 });

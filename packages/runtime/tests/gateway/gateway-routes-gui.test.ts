@@ -22,6 +22,56 @@ describe("App Gateway GUI routes", () => {
         entropy: 0,
       },
       continuationInfoByProvider: {},
+      operatorWorkspaceHome: {
+        mode: "read-only",
+        gatewayTargets: [],
+        sessions: [],
+        work: {
+          totalCount: 0,
+          activeCount: 0,
+          blockedCount: 0,
+          missingEvidenceCount: 0,
+          goalCount: 0,
+          activeGoalCount: 0,
+          items: [],
+        },
+        managedAgents: { totalCount: 0, activeCount: 0, attentionCount: 0 },
+        approvals: { pendingCount: 0, resolvedCount: 0, items: [] },
+        configHealth: { status: "unknown", issueCount: 0, items: [] },
+        routeHealth: {
+          totalCount: 0,
+          healthyCount: 0,
+          degradedCount: 0,
+          blockedCount: 0,
+          unknownCount: 0,
+          items: [],
+        },
+        providerReadiness: {
+          totalCount: 0,
+          liveProvenCount: 0,
+          configuredCount: 0,
+          unprovenCount: 0,
+          unknownCount: 0,
+          items: [],
+        },
+        gatewayHealth: {
+          status: "unknown",
+          targetCount: 0,
+          localCount: 0,
+          remoteCount: 0,
+          appTargetCount: 0,
+          tenantTargetCount: 0,
+          items: [],
+        },
+        resources: { totalCount: 0, linkedResourceCount: 0, items: [] },
+        attention: {
+          items: [],
+          totalCount: 0,
+          actionRequiredCount: 0,
+          blockedCount: 0,
+          failedCount: 0,
+        },
+      },
       domainLabel: "app-gateway",
     });
   });
@@ -71,6 +121,98 @@ describe("App Gateway GUI routes", () => {
       activeAppName: "support",
       activeTenantId: "acme",
       domainLabel: "support",
+      operatorWorkspaceHome: {
+        mode: "read-only",
+        gatewayTargets: [
+          {
+            instanceId: "app-gateway:support",
+            label: "support",
+            gatewayTarget: {
+              targetId: "app-gateway:support",
+              kind: "local-app-gateway",
+              trust: "local",
+              appId: "support",
+            },
+            sessionCount: 0,
+            eventCount: 0,
+            managedInvocationCount: 0,
+            toolCallCount: 0,
+            resourceLinkCount: 0,
+            totalCostUsd: 0,
+          },
+          {
+            instanceId: "app-gateway:support:tenant:acme",
+            label: "ACME",
+            gatewayTarget: {
+              targetId: "app-gateway:support:tenant:acme",
+              kind: "local-app-gateway",
+              trust: "local",
+              appId: "support",
+              tenantId: "acme",
+            },
+            sessionCount: 0,
+            eventCount: 0,
+            managedInvocationCount: 0,
+            toolCallCount: 0,
+            resourceLinkCount: 0,
+            totalCostUsd: 0,
+          },
+        ],
+        sessions: [],
+        work: {
+          totalCount: 0,
+          activeCount: 0,
+          blockedCount: 0,
+          missingEvidenceCount: 0,
+          goalCount: 0,
+          activeGoalCount: 0,
+          items: [],
+        },
+        managedAgents: { totalCount: 0, activeCount: 0, attentionCount: 0 },
+        approvals: { pendingCount: 0, resolvedCount: 0, items: [] },
+        configHealth: { status: "unknown", issueCount: 0, items: [] },
+        routeHealth: {
+          totalCount: 0,
+          healthyCount: 0,
+          degradedCount: 0,
+          blockedCount: 0,
+          unknownCount: 0,
+          items: [],
+        },
+        providerReadiness: {
+          totalCount: 0,
+          liveProvenCount: 0,
+          configuredCount: 0,
+          unprovenCount: 0,
+          unknownCount: 0,
+          items: [],
+        },
+        gatewayHealth: {
+          status: "healthy",
+          targetCount: 2,
+          localCount: 2,
+          remoteCount: 0,
+          appTargetCount: 2,
+          tenantTargetCount: 1,
+          items: [{
+            targetId: "app-gateway:support",
+            kind: "local-app-gateway",
+            trust: "local",
+            status: "healthy",
+            sessionCount: 0,
+            appId: "support",
+          }, {
+            targetId: "app-gateway:support:tenant:acme",
+            kind: "local-app-gateway",
+            trust: "local",
+            status: "healthy",
+            sessionCount: 0,
+            appId: "support",
+            tenantId: "acme",
+          }],
+        },
+        resources: { totalCount: 0, linkedResourceCount: 0, items: [] },
+      },
     });
   });
 
@@ -266,6 +408,155 @@ describe("App Gateway GUI routes", () => {
       expect.objectContaining({
         type: "error",
         code: "APP_GATEWAY_CONFLICTING_SESSION_INTENT",
+      }),
+    ]));
+  });
+
+  it("resolves App Gateway GUI messages from explicit tenant gateway target identity", async () => {
+    vi.resetModules();
+    const processAdmittedTurnMock = vi.fn().mockResolvedValue({
+      ok: true,
+      result: {
+        parts: [{ type: "text", text: "mock response" }],
+        inputTokens: 3,
+        outputTokens: 2,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        sessionId: "session-gui",
+        sessionMode: "ai_active",
+        traceId: "trace-gui",
+        effectiveTurnAuthority: {
+          executionMode: "execute",
+          requestedAuthority: "auto",
+          admittedAuthority: "fail_closed",
+          sourcePolicy: "runtime_surface_projection",
+          reason: "test",
+          completeness: "authoritative",
+          toolCount: 0,
+          deniedToolCount: 1,
+        },
+      },
+    });
+    vi.doMock("../../src/gateway/message-pipeline.js", async () => {
+      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>("../../src/gateway/message-pipeline.js");
+      return {
+        ...actual,
+        processAdmittedTurn: processAdmittedTurnMock,
+      };
+    });
+    const { createGatewayApp: createGatewayAppWithMocks } = await import("../../src/gateway/gateway-routes.js");
+    let handlers: {
+      onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
+      onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
+    } | undefined;
+    const app = createGatewayAppWithMocks({
+      port: 3800,
+      apps: [
+        {
+          name: "support",
+          app: {} as never,
+          binding: { channels: [{ type: "api", path: "/api/support" }] },
+          registry: {} as never,
+          tenantRuntime: {
+            appName: "support",
+            orchestrator: {} as never,
+            sessionRegistry: { activeSessions: vi.fn().mockResolvedValue([]) } as never,
+            tenantRegistry: {
+              get: vi.fn().mockReturnValue({
+                tenantId: "acme",
+                appName: "support",
+                name: "ACME",
+                enabled: true,
+              }),
+              list: vi.fn().mockReturnValue([]),
+            } as never,
+          },
+        } as never,
+      ],
+      upgradeWebSocket: ((factory: (c: unknown) => typeof handlers) => {
+        return (c: { text: (value: string) => Response }) => {
+          handlers = factory(c);
+          return c.text("upgraded");
+        };
+      }) as never,
+    });
+
+    const response = await app.request("http://localhost/gui/ws?userId=gui-test");
+    expect(response.status).toBe(200);
+    const send = vi.fn();
+    await handlers?.onOpen?.(new Event("open"), { send });
+    await handlers?.onMessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "hello",
+          gatewayTargetId: "app-gateway:support:tenant:acme",
+        }),
+      }),
+      { send },
+    );
+
+    expect(processAdmittedTurnMock).toHaveBeenCalledTimes(1);
+    expect(processAdmittedTurnMock.mock.calls[0]![0]).toMatchObject({
+      appName: "support",
+      tenantId: "acme",
+    });
+
+    vi.doUnmock("../../src/gateway/message-pipeline.js");
+    vi.resetModules();
+  });
+
+  it("rejects App Gateway GUI messages with conflicting target identity fields", async () => {
+    let handlers: {
+      onOpen?: (event: Event, ws: { send: (value: string) => void }) => void | Promise<void>;
+      onMessage?: (event: MessageEvent, ws: { send: (value: string) => void }) => void | Promise<void>;
+    } | undefined;
+    const app = createGatewayApp({
+      port: 3800,
+      apps: [
+        {
+          name: "support",
+          app: {} as never,
+          binding: { channels: [{ type: "api", path: "/api/support" }] },
+          registry: {} as never,
+          providerAdapterRuntime: {
+            appName: "support",
+            orchestrator: {} as never,
+            sessionRegistry: { activeSessions: vi.fn().mockResolvedValue([]) } as never,
+            systemPrompt: "System prompt",
+          },
+        } as never,
+      ],
+      upgradeWebSocket: ((factory: (c: unknown) => typeof handlers) => {
+        return (c: { text: (value: string) => Response }) => {
+          handlers = factory(c);
+          return c.text("upgraded");
+        };
+      }) as never,
+    });
+
+    const response = await app.request("http://localhost/gui/ws?userId=gui-test");
+    expect(response.status).toBe(200);
+    const send = vi.fn();
+    await handlers?.onOpen?.(new Event("open"), { send });
+    await handlers?.onMessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "hello",
+          gatewayTargetId: "app-gateway:support",
+          appName: "billing",
+        }),
+      }),
+      { send },
+    );
+
+    const sentFrames = send.mock.calls.map((call) => JSON.parse(call[0] as string) as { type: string; code?: string });
+    expect(sentFrames).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "error",
+        code: "APP_GATEWAY_CONFLICTING_TARGET_IDENTITY",
       }),
     ]));
   });

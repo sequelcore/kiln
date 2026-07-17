@@ -37,6 +37,10 @@ or point here, but architectural and coding doctrine belongs in
 - Runtime owns execution policy, session state, event emission, and adapter
   invocation. Operator surfaces project runtime evidence; they do not re-create
   runtime policy.
+- Provider/model catalog discovery is evidence, not authority. Runtime and
+  operator surfaces must consume canonical eligibility decisions instead of
+  deriving local selectability from model arrays, provider availability, stale
+  caches, or static display metadata.
 - Surface parity is implemented through shared contracts. GUI, TUI, CLI,
   widget, SDK, and future surfaces should attach to common runtime ports instead
   of duplicating per-surface executors.
@@ -78,6 +82,14 @@ or point here, but architectural and coding doctrine belongs in
 - Behavior changes need focused tests at the owning boundary.
 - Shared surface behavior needs at least one non-primary surface test so parity
   is protected.
+- CLI package tests must be deterministic and diagnosable in the canonical
+  workspace command. Keep `@kilnai/cli` Vitest runs single-worker, emit a
+  progress reporter under workspace filters, and bound test, hook, and teardown
+  stalls at the package config boundary.
+- CLI tests must stay hermetic by default. Do not depend on live credentials,
+  installed native harnesses, operator-local state, broad skips, or sleep-based
+  stabilization unless the test is explicitly marked live and excluded from
+  default package verification.
 - Before claiming done, run the relevant typecheck and test suites documented in
   `CLAUDE.md`.
 - Documentation changes must preserve the modular architecture hierarchy.

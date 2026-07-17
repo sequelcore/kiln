@@ -17,6 +17,9 @@ import type {
   OperatorWorkspaceFileSnapshot,
   OperatorWorkspaceVcsState,
   OperatorWorkspaceVcsStatus,
+  OperatorResourceReadContent,
+  OperatorResourceReadRequest,
+  OperatorResourceReadResult,
   OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import {
@@ -24,6 +27,9 @@ import {
   KilnConfigSetupSnapshotSchema,
   GuiMemoryLatticeGraphRequestSchema,
   GuiMemoryLatticeGraphResponseSchema,
+  OperatorResourceReadRequestSchema,
+  OperatorResourceReadResultSchema,
+  projectOperatorResourceReadPresentation,
 } from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
 
@@ -38,6 +44,8 @@ export type {
   KilnConfigSetupSnapshot,
   GuiSessionSummary,
   GuiTelemetrySnapshot,
+  OperatorResourceReadRequest,
+  OperatorResourceReadResult,
 };
 
 export class GuiGatewayClient {
@@ -352,32 +360,50 @@ export class GuiGatewayClient {
     );
   }
 
-  async loadResourceDataUrl(uri: string): Promise<string | null> {
-    const normalizedUri = uri.trim();
-    if (!normalizedUri) {
+  async readResource(request: OperatorResourceReadRequest): Promise<OperatorResourceReadResult | null> {
+    const uri = request.uri.trim();
+    if (!uri) {
       return null;
     }
+    const normalizedRequest = OperatorResourceReadRequestSchema.parse({
+      ...request,
+      uri,
+    });
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
     for (const candidateBaseUrl of candidateBaseUrls) {
-      const url = new URL("/gui/api/resources/content", candidateBaseUrl);
-      url.searchParams.set("uri", normalizedUri);
+      const url = new URL("/gui/api/resources/read", candidateBaseUrl);
       try {
         const response = await fetch(url, {
-          headers: { accept: "application/json" },
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(normalizedRequest),
         });
         if (!response.ok) {
           continue;
         }
-        const payload = await response.json() as { dataUrl?: unknown };
-        if (typeof payload.dataUrl === "string" && payload.dataUrl.startsWith("data:")) {
-          this.resolvedBaseUrl = candidateBaseUrl;
-          return payload.dataUrl;
-        }
+        const payload = OperatorResourceReadResultSchema.parse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
       } catch {
         continue;
       }
     }
     return null;
+  }
+
+  async loadResourceDataUrl(uri: string, target?: OperatorResourceReadRequest["target"]): Promise<string | null> {
+    const result = await this.readResource({
+      uri,
+      ...(target ? { target } : {}),
+    });
+    if (result?.summary) {
+      return summarizedResourceDataUrl(result);
+    }
+    const content = result?.contents[0];
+    return content ? resourceContentDataUrl(content) : null;
   }
 
   notifyWindowClosed(): void {
@@ -524,6 +550,7 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
     sessions: snapshot.sessions,
     telemetry: snapshot.telemetry,
     continuationInfoByProvider: snapshot.continuationInfoByProvider as Record<string, GuiContinuationInfo>,
+    ...(isRecord(snapshot.operatorWorkspaceHome) ? { operatorWorkspaceHome: snapshot.operatorWorkspaceHome } : {}),
     ...(apps ? { apps } : {}),
     ...(typeof snapshot.activeAppName === "string" ? { activeAppName: snapshot.activeAppName } : {}),
     ...(typeof snapshot.activeTenantId === "string" ? { activeTenantId: snapshot.activeTenantId } : {}),
@@ -692,6 +719,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
+}
+
+function resourceContentDataUrl(content: OperatorResourceReadContent): string {
+  if (content.kind === "blob") {
+    return `data:${content.mimeType ?? "application/octet-stream"};base64,${content.blob}`;
+  }
+  return `data:${content.mimeType ?? "text/plain"};charset=utf-8;base64,${base64EncodeUtf8(content.text)}`;
+}
+
+function summarizedResourceDataUrl(result: OperatorResourceReadResult): string {
+  return `data:application/json;charset=utf-8;base64,${base64EncodeUtf8(JSON.stringify({
+    ...result,
+    presentation: projectOperatorResourceReadPresentation(result),
+  }, null, 2))}`;
+}
+
+function base64EncodeUtf8(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 function isTelemetrySnapshot(value: unknown): value is GuiTelemetrySnapshot {

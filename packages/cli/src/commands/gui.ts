@@ -2,7 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
-import { readGlobalConfig, resolveGlobalDefaultModel, resolveGlobalDefaultProvider } from "../config/global-config.js";
+import {
+  readGlobalConfig,
+  resolveGlobalDefaultModel,
+  resolveGlobalDefaultProvider,
+} from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
@@ -23,15 +27,20 @@ import {
   readProviderDiscoveryCache,
   writeProviderDiscoveryCache,
 } from "../config/provider-discovery-cache.js";
-import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection,
+} from "../config/builtin-tool-surface-config.js";
 import { resolveProjectMemoryScope } from "../config/web-tools-config.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime } from "../config/operator-voice.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { createStartupProfiler } from "../application/startup-profiler.js";
 import { loadContinuationSidebarInfo } from "../application/continuation-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
+import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import {
@@ -43,7 +52,6 @@ import {
 import { makeMultiProviderSessionFactory } from "./tui.js";
 import {
   getProjectContextArtifactCache,
-  withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
@@ -55,12 +63,24 @@ import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
 import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
 import { loadSessionSummaries, toProviderLabel } from "./gui-session-summaries.js";
+import { createGuiDevServerOutput } from "./gui-dev-server-output.js";
 import {
   persistGuiProviderSelectionPreference,
   resolveGuiProviderSelectionPreference,
 } from "../application/operator-provider-preferences.js";
-import { isGuiProviderModeless, type GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
-import type { OperatorWorkspaceExplorer } from "@kilnai/gateway-contracts";
+import {
+  createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceConfigHealthSummary,
+  createOperatorWorkspaceHomeProjection,
+  isGuiProviderModeless,
+  projectOperatorCockpitReadOnlyView,
+  type GuiProviderDiscoveryResult,
+  type OperatorSessionEvent,
+  type OperatorWorkspaceConfigHealthSummary,
+  type OperatorWorkspaceExplorer,
+} from "@kilnai/gateway-contracts";
+
+const LOCAL_GUI_COCKPIT_INSTANCE_ID = "local-gui";
 
 export interface GuiFlags {
   readonly port?: number;
@@ -75,10 +95,13 @@ export interface GuiFlags {
 }
 
 export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
+  const startupProfiler = createStartupProfiler("gui");
+  startupProfiler.mark("command-entered");
   const cwd = resolveProjectRoot({ explicitPath: flags.cwd }).rootPath;
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  startupProfiler.mark("config-loaded", { projectPath: cwd });
   const runtimeAppConfig = withContextCandidates(
     withWorkGovernanceContext(withGlobalIdentityContext(appConfig, globalConfig), resolvedKilnConfig?.workGovernance),
     resolveInstructionProfileContextCandidates({
@@ -120,6 +143,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     goalRunStore,
   });
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
+  startupProfiler.mark("context-cache-ready");
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
@@ -127,7 +151,8 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
         caller: { kind: "operator_surface", id: "gui" },
       },
     });
-  let builtinToolOptions = createSessionBuiltinToolOptions({
+  startupProfiler.mark("builtin-tool-options-loaded");
+  let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -136,32 +161,46 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       ...createKilnConfigTools(cwd),
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
-  });
+  }, "execute"));
+  startupProfiler.mark("builtin-tool-options-created");
+  let managedRouteGlobalConfig = globalConfig;
+  let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
   const stagedManagedInvocation = appConfig.managedInvocation
     ? undefined
     : await createStagedManagedInvocationRouteCatalog(globalConfig, {
       cwd,
       registry,
       surface: "gui",
-      isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions }),
+      maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
+      ...(runtimeBudgetAdmission ? { orchestrationBudgetAdmission: runtimeBudgetAdmission } : {}),
+      isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({
+        builtinToolOptions: () => builtinToolOptions,
+      }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {
-      reloadConfig: () => readGlobalConfig() ?? globalConfig,
+      reloadConfig: () => {
+        managedRouteGlobalConfig = readGlobalConfig() ?? globalConfig;
+        managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
+        return managedRouteGlobalConfig;
+      },
       onRefreshError: (error) => {
         console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
       },
     });
+  startupProfiler.mark("managed-invocation-staged", {
+    hasManagedInvocation: Boolean(stagedManagedInvocation?.managedInvocation ?? appConfig.managedInvocation),
+  });
   const managedInvocation = appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation;
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
-  builtinToolOptions = withManagedAgentInvocationResourceProvider(
-    builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
-  );
+  const managedInvocationAttachment = managedInvocationWithService
+    ? createKilnRuntimeManagedInvocationAttachment("gui", managedInvocationWithService)
+    : undefined;
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
+  startupProfiler.mark("voice-runtime-ready");
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);
   }
@@ -175,10 +214,11 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     contextArtifactCache,
     builtinToolOptions,
     "gui",
-    managedInvocationWithService,
+    managedInvocationAttachment,
     runtimeBudgetAdmission,
   );
-  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationWithService;
+  startupProfiler.mark("session-manager-ready");
+  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
@@ -188,12 +228,15 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     sessionManager.setModel(startupProviderSelection.model ?? "");
   }
   const bootstrapContext = await resolveGuiBootstrapContext(runtimeAppConfig, cwd, contextArtifactCache);
+  startupProfiler.mark("bootstrap-context-ready");
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
   const initialOperatorDiscovery = readProviderDiscoveryCache(cwd);
   const { startGuiGateway } = await import("@kilnai/runtime");
+  startupProfiler.mark("gateway-start-requested");
   const gateway = await startGuiGateway({
     port,
+    guiAssetMode: mode === "dev" ? "external" : "bundled",
     getProviderAvailability: () => getRuntimeProviderAvailability(registry),
     getSnapshot: async (context) => buildDashboardSnapshot(
       registry,
@@ -245,22 +288,31 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       domainLabel: bootstrapContext.domainLabel,
     },
   });
+  startupProfiler.mark("gateway-started", { port: gateway.port });
   stagedManagedInvocation?.startBackgroundRefresh();
 
   let viteDevChild: ChildProcess | undefined;
   if (mode === "dev") {
+    startupProfiler.mark("gui-vite-start-requested", { port: guiPort });
     viteDevChild = spawnGuiDevServer(cwd, guiPort, gateway.port);
   }
 
   const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
   const devGuiUrl = `http://localhost:${guiPort}/gui/`;
-  const guiUrl = buildGuiUrl(mode === "dev" ? devGuiUrl : gatewayUrl, themePreference);
+  const guiUrl = buildGuiUrl(
+    mode === "dev" ? devGuiUrl : gatewayUrl,
+    themePreference,
+    gateway.operatorTerminalCapability,
+  );
   printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl });
+  startupProfiler.mark("startup-banner-printed", { mode });
 
   let guiWindow: GuiWindowSession | undefined;
   try {
     if (flags.open ?? true) {
+      startupProfiler.mark("browser-launch-requested");
       guiWindow = launchGuiWindow(guiUrl);
+      startupProfiler.mark("browser-launched");
       console.log(`GUI window host: ${guiWindow.browserLabel}`);
     }
   } catch (error) {
@@ -405,15 +457,126 @@ async function buildDashboardSnapshot(
     )),
   );
   const workspaceTree = await workspaceExplorer.listDirectory().catch(() => undefined);
+  const configHealth = await readLocalGuiConfigHealth(workingDirectory);
+  const operatorWorkspaceHome = await buildLocalGuiOperatorWorkspaceHome({
+    projectedAt: new Date().toISOString(),
+    sessions,
+    transcriptStore,
+    configHealth,
+  });
 
   return {
     providers: providerDescriptors,
     sessions,
     telemetry,
     continuationInfoByProvider,
+    operatorWorkspaceHome,
     workingDirectory,
     domainLabel,
     workspaceTree,
+  };
+}
+
+async function buildLocalGuiOperatorWorkspaceHome(input: {
+  readonly projectedAt: string;
+  readonly sessions: GuiDashboardSnapshot["sessions"];
+  readonly transcriptStore: TranscriptStore;
+  readonly configHealth: OperatorWorkspaceConfigHealthSummary;
+}): Promise<NonNullable<GuiDashboardSnapshot["operatorWorkspaceHome"]>> {
+  const eventGroups = await Promise.all(input.sessions.map(async (session) => {
+    const detail = await loadSessionDetail(input.transcriptStore, session.id).catch(() => null);
+    return detail?.events.length
+      ? detail.events.map((event) => localGuiOperatorEvent(event, session.id))
+      : [operatorWorkspaceSessionSummaryEvent({
+        instanceId: LOCAL_GUI_COCKPIT_INSTANCE_ID,
+        sessionId: session.id,
+        sequence: 0,
+        timestamp: session.completedAt,
+        title: session.title ?? session.taskSummary ?? session.id,
+      })];
+  }));
+  const events = eventGroups.flat();
+  const cockpitProjection = projectOperatorCockpitReadOnlyView({
+    projectedAt: input.projectedAt,
+    attachTargets: [{
+      instanceId: LOCAL_GUI_COCKPIT_INSTANCE_ID,
+      label: "Local GUI",
+      kind: "local",
+      gatewayUrl: "http://localhost",
+    }],
+    events,
+  });
+  const cockpitView = createOperatorCockpitReadOnlyViewState({
+    projection: cockpitProjection,
+    viewState: {},
+  });
+  return createOperatorWorkspaceHomeProjection({
+    projectedAt: input.projectedAt,
+    cockpitView,
+    events,
+    configHealth: input.configHealth,
+  });
+}
+
+async function readLocalGuiConfigHealth(projectPath: string): Promise<OperatorWorkspaceConfigHealthSummary> {
+  try {
+    return createOperatorWorkspaceConfigHealthSummary((await readConfigStatusSnapshot({ projectPath })).setup);
+  } catch (error) {
+    return {
+      status: "blocked",
+      issueCount: 1,
+      items: [{
+        id: "config-status",
+        status: "blocked",
+        summary: error instanceof Error ? error.message : String(error),
+        source: projectPath,
+        recommendation: "review-project-context",
+      }],
+    };
+  }
+}
+
+function localGuiOperatorEvent(event: OperatorSessionEvent, sessionId: string): OperatorSessionEvent {
+  const payload = typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
+    ? event.payload as Record<string, unknown>
+    : {};
+  return {
+    ...event,
+    payload: {
+      ...payload,
+      instanceId: LOCAL_GUI_COCKPIT_INSTANCE_ID,
+      sessionId: readNonEmptyString(payload.sessionId) ?? sessionId,
+    },
+  };
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function operatorWorkspaceSessionSummaryEvent(input: {
+  readonly instanceId: string;
+  readonly sessionId: string;
+  readonly sequence: number;
+  readonly timestamp: string;
+  readonly title: string;
+}): OperatorSessionEvent {
+  return {
+    eventId: `${input.sessionId}:operator-workspace-summary`,
+    kilnSessionId: input.sessionId,
+    sequence: input.sequence,
+    timestamp: input.timestamp,
+    kind: "turn_started",
+    source: {
+      actor: "runtime",
+      surface: "gui",
+      component: "operator-workspace-dashboard",
+    },
+    payload: {
+      instanceId: input.instanceId,
+      sessionId: input.sessionId,
+      title: input.title,
+    },
   };
 }
 
@@ -441,31 +604,18 @@ function spawnGuiDevServer(cwd: string, guiPort: number, gatewayPort: number): C
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  child.stdout.on("data", (chunk: Buffer | string) => {
-    writePrefixed("gui-dev", chunk, process.stdout);
+  const devOutput = createGuiDevServerOutput({
+    stdout: process.stdout,
+    stderr: process.stderr,
   });
-  child.stderr.on("data", (chunk: Buffer | string) => {
-    writePrefixed("gui-dev", chunk, process.stderr);
-  });
+
+  child.stdout.on("data", devOutput.writeStdout);
+  child.stderr.on("data", devOutput.writeStderr);
   child.on("error", (error) => {
-    console.error(`[gui-dev] Failed to start: ${error.message}`);
+    console.error(`Dev server: failed to start: ${error.message}`);
   });
 
   return child;
-}
-
-function writePrefixed(prefix: string, chunk: Buffer | string, output: NodeJS.WriteStream): void {
-  const text = chunk.toString();
-  const normalized = text.replace(/\r\n/g, "\n");
-  const lines = normalized.split("\n");
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const isLastEmptyLine = index === lines.length - 1 && line.length === 0;
-    if (isLastEmptyLine) {
-      continue;
-    }
-    output.write(`[${prefix}] ${line}\n`);
-  }
 }
 
 async function stopChildProcess(child: ChildProcess, label: string): Promise<void> {

@@ -12,6 +12,7 @@ describe("run plan permission policy", () => {
     expect(evaluator.evaluateTool("managed_agent.invoke").action).toBe("allow");
     expect(evaluator.evaluateTool("kiln_config.read").action).toBe("allow");
     expect(evaluator.evaluateTool("tool_catalog_search").action).toBe("allow");
+    expect(evaluator.evaluateTool("memory_search").action).toBe("allow");
     expect(evaluator.evaluateTool("read").action).toBe("allow");
     expect(evaluator.evaluateTool("tree").action).toBe("allow");
     expect(evaluator.evaluateTool("grep").action).toBe("allow");

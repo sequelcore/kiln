@@ -56,6 +56,10 @@ export interface MemoryRepository {
   listRelations(sourceRecordId: string, query?: {
     readonly limit?: number;
   }): readonly MemoryRelation[];
+  listIncomingRelations(targetRecordId: string, query?: {
+    readonly limit?: number;
+    readonly sourceScope?: MemoryScope;
+  }): readonly MemoryRelation[];
 
   saveContextAdmission(admission: MemoryContextAdmission): MemoryContextAdmission;
   listContextAdmissions(query?: {

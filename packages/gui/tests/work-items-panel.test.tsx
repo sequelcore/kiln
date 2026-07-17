@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { WorkItemsPanel } from "../src/components/work-items-panel.js";
 import type { WorkItemEntry } from "../src/lib/session-store.js";
+import { useUiStore } from "../src/lib/ui-store.js";
 
 describe("WorkItemsPanel", () => {
+  beforeEach(() => {
+    useUiStore.getState().setTheme("kiln-dark");
+  });
+
   it("renders assigned agent profiles with deterministic avatars", () => {
     const items: WorkItemEntry[] = [
       {
@@ -23,9 +28,15 @@ describe("WorkItemsPanel", () => {
 
     render(<WorkItemsPanel items={items} />);
 
+    const task = screen.getByText("Review managed agent surface parity").closest('[data-slot="ai-task"]');
+    expect(task).toHaveAttribute("data-status", "in_progress");
+    expect(screen.getByRole("button", { name: /Review managed agent surface parity.*In progress.*0 of 1 evidence/u })).toBeInTheDocument();
     expect(screen.getByLabelText("react-ts-reviewer avatar")).toHaveAttribute("data-avatar-state", "running");
     expect(screen.getByText(/react-ts-reviewer/u)).toBeInTheDocument();
     expect(screen.getByText("/workspace/references/cloned")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Review managed agent surface parity/u }));
+    expect(screen.queryByText("/workspace/references/cloned")).not.toBeInTheDocument();
   });
 
   it("renders pause requirements and latest execution attempt state", () => {
@@ -64,5 +75,72 @@ describe("WorkItemsPanel", () => {
     expect(screen.getByText("credentials: Provide test service credentials")).toBeInTheDocument();
     expect(screen.getByText("managed delegation / started")).toBeInTheDocument();
     expect(screen.getByText("invocation-1")).toBeInTheDocument();
+  });
+
+  it("pulses only the most recently updated active work item", () => {
+    const items: WorkItemEntry[] = [
+      {
+        id: "work-older",
+        summary: "Inspect the existing surface",
+        status: "in_progress",
+        workflowProfile: "implementation",
+        expectedEvidence: [],
+        providedEvidence: [],
+        verificationGates: [],
+        updatedAt: "2026-07-14T10:00:00.000Z",
+      },
+      {
+        id: "work-current",
+        summary: "Implement the admitted slice",
+        status: "in_progress",
+        workflowProfile: "implementation",
+        expectedEvidence: ["tests"],
+        providedEvidence: [],
+        verificationGates: [],
+        updatedAt: "2026-07-14T11:00:00.000Z",
+      },
+    ];
+
+    render(<WorkItemsPanel items={items} />);
+
+    const beams = document.querySelectorAll('[data-role="work-item-activity-beam"]');
+    expect(beams).toHaveLength(1);
+    expect(beams[0]).toHaveAttribute("data-work-item-id", "work-current");
+    expect(beams[0]).toHaveAttribute("data-beam-motion", "pulse");
+    expect(beams[0]).toHaveAttribute("data-beam-theme", "dark");
+    expect(beams[0]).toHaveAttribute("data-active");
+  });
+
+  it("renders authority and opens the canonical work item resource", () => {
+    const onOpenResource = vi.fn();
+    const items: WorkItemEntry[] = [
+      {
+        id: "work-inspectable",
+        summary: "Audit work item inspectability",
+        status: "blocked",
+        workflowProfile: "verification-heavy",
+        authorityProfile: "authority:foundation-readonly-plan",
+        expectedEvidence: ["surface-map", "tests"],
+        providedEvidence: ["surface-map"],
+        verificationGates: ["bun run typecheck"],
+        missingEvidence: ["tests"],
+        missingResidualRisk: true,
+        resourceUri: "kiln://session/work-items/work-inspectable",
+        updatedAt: "2026-06-24T10:00:00.000Z",
+      },
+    ];
+
+    render(<WorkItemsPanel items={items} onOpenResource={onOpenResource} />);
+
+    expect(screen.getByText("Audit work item inspectability").closest('[data-slot="ai-task"]')).toHaveAttribute("data-status", "blocked");
+    expect(screen.getByLabelText("Work items")).toHaveTextContent("authority:foundation-readonly-plan");
+    expect(screen.getByLabelText("Work items")).toHaveTextContent("Missing: tests, residual-risk");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open work item work-inspectable resource" }));
+
+    expect(onOpenResource).toHaveBeenCalledWith("kiln://session/work-items/work-inspectable", {
+      resourceUri: "kiln://session/work-items/work-inspectable",
+      workItemId: "work-inspectable",
+    });
   });
 });

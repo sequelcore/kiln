@@ -54,6 +54,16 @@ export type ToolResult = {
   readonly resourcePayload?: ToolResultResourcePayload;
 };
 
+export interface ToolExecutionOutputDelta {
+  readonly stream: "stdout" | "stderr";
+  readonly delta: string;
+}
+
+export interface DevToolExecutionContext {
+  readonly abortSignal?: AbortSignal;
+  readonly onOutput?: (delta: ToolExecutionOutputDelta) => void;
+}
+
 export type ToolResultResourcePayload = {
   readonly text: string;
   readonly mimeType: string;
@@ -122,7 +132,7 @@ export interface DevTool {
   readonly inputSchema: Record<string, unknown>;
   readonly outputSchema?: Record<string, unknown>;
   readonly effectEnvelope?: import("../../engine/domain/action-effect.js").ActionEffectEnvelope;
-  execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult>;
+  execute(input: ToolInput, sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult>;
 }
 
 export type DevToolName =
@@ -157,6 +167,7 @@ export type DevToolName =
   | "computer_close_application"
   | "grep"
   | "glob"
+  | "json_query"
   | "git"
   | "code_intelligence"
   | "monitor_start"
@@ -167,6 +178,7 @@ export type DevToolName =
   | "task_update"
   | "operator_elicit"
   | "tool_catalog_search"
+  | "memory_search"
   | "memory_save"
   | "resource_list"
   | "resource_template_list"
@@ -824,6 +836,11 @@ export const TOOL_SCHEMAS: Record<
           enum: ["content", "files_with_matches", "count"],
           description: "content returns matching lines, files_with_matches returns only file paths, count returns per-file counts.",
         },
+        matchMode: {
+          type: "string",
+          enum: ["auto", "regex", "literal"],
+          description: "auto treats valid patterns as regular expressions and falls back to literal matching for invalid regex syntax; regex is strict; literal searches fixed strings.",
+        },
         maxResults: {
           type: "number",
           description: "Maximum number of returned result lines. Defaults to 200 and is capped at 1000.",
@@ -852,6 +869,35 @@ export const TOOL_SCHEMAS: Record<
         verbosity: OUTPUT_VERBOSITY_PROPERTY,
       },
       required: ["pattern"],
+      additionalProperties: false,
+    },
+  },
+  json_query: {
+    name: "json_query",
+    description: "Query JSON data with jq. Always pass a JSON object with a non-empty filter and exactly one source: inline json or a file path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filter: {
+          type: "string",
+          minLength: 1,
+          description: "jq filter expression to apply.",
+        },
+        json: {
+          type: "string",
+          description: "Inline JSON input. Mutually exclusive with path.",
+        },
+        path: {
+          type: "string",
+          description: "Path to a JSON file. Mutually exclusive with json.",
+        },
+        maxBytes: {
+          type: "number",
+          description: "Maximum output bytes to return. Defaults to 262144 and caps at 1048576.",
+        },
+        verbosity: OUTPUT_VERBOSITY_PROPERTY,
+      },
+      required: ["filter"],
       additionalProperties: false,
     },
   },
@@ -1150,6 +1196,44 @@ export const TOOL_SCHEMAS: Record<
       additionalProperties: false,
     },
   },
+  memory_search: {
+    name: "memory_search",
+    description: "Search governed Memory Lattice records through the native memory read surface. Returns bounded graph evidence and resource URIs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Optional text query for memory graph records.",
+        },
+        scopeKind: {
+          type: "string",
+          enum: ["user", "agent", "team", "project", "org", "app", "tenant", "session"],
+          description: "Optional memory scope kind. Provide with scopeId.",
+        },
+        scopeId: {
+          type: "string",
+          minLength: 1,
+          description: "Optional memory scope identifier. Provide with scopeKind.",
+        },
+        layer: {
+          type: "string",
+          enum: ["working", "episodic", "semantic", "procedural", "coordination", "audit"],
+          description: "Optional memory layer filter.",
+        },
+        depth: {
+          type: "number",
+          description: "Optional graph depth. Defaults to 0.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum memory records to return. Defaults to the memory graph resource limit.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
   memory_save: {
     name: "memory_save",
     description: "Save one governed memory record through the core MemoryMutationService. Requires explicit scope, layer, content, and provenance.",
@@ -1196,6 +1280,32 @@ export const TOOL_SCHEMAS: Record<
           minimum: 0,
           maximum: 1,
           description: "Optional confidence score between 0 and 1.",
+        },
+        durability: {
+          type: "string",
+          enum: ["short_lived", "durable"],
+          description: "Declared persistence intent. Semantic and procedural writes are durable.",
+        },
+        futureTaskValue: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description: "Bounded estimate of future task value used by the candidate write-admission policy.",
+        },
+        contradictionState: {
+          type: "string",
+          enum: ["none", "resolved", "unresolved"],
+          description: "Known contradiction state for this proposed record.",
+        },
+        derivativeTrust: {
+          type: "string",
+          enum: ["original", "verified", "untrusted"],
+          description: "Trust classification for derived content. Untrusted derivatives are rejected.",
+        },
+        canonicalEvidenceUris: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          description: "Canonical evidence URIs supporting durable memory.",
         },
         provenance: {
           type: "object",

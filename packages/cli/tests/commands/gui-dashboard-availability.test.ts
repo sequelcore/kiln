@@ -5,20 +5,49 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const gatewayHarness = vi.hoisted(() => ({
-  snapshot: null as { providers?: Array<{ id: string; available: boolean }> } | null,
+  snapshot: null as {
+    providers?: Array<{ id: string; available: boolean }>;
+    operatorWorkspaceHome?: {
+      sessions?: Array<{ sessionId: string; instanceId: string }>;
+      configHealth?: {
+        status: string;
+        issueCount: number;
+        items: Array<{ id: string; status: string; recommendation?: string }>;
+      };
+    };
+    workingDirectory?: string;
+  } | null,
   operatorModels: {} as Record<string, string[]>,
-  lastOptions: null as { builtinToolOptions?: unknown } | null,
+  lastOptions: null as {
+    builtinToolOptions?: unknown;
+    guiAssetMode?: "bundled" | "external";
+    operatorTransport?: Record<string, unknown>;
+    workingDirectory?: string;
+  } | null,
   shutdown: vi.fn(),
   closeWindow: vi.fn(),
   startGuiGateway: vi.fn(async (options: {
     getSnapshot: (context?: { operatorModels?: Record<string, string[]> }) => Promise<unknown>;
     builtinToolOptions?: unknown;
+    guiAssetMode?: "bundled" | "external";
+    operatorTransport?: Record<string, unknown>;
     workingDirectory?: string;
   }) => {
     gatewayHarness.lastOptions = options;
     gatewayHarness.snapshot = await options.getSnapshot({
       operatorModels: gatewayHarness.operatorModels,
-    }) as { providers?: Array<{ id: string; available: boolean }> };
+    }) as {
+      providers?: Array<{ id: string; available: boolean }>;
+      operatorWorkspaceHome?: {
+        sessions?: Array<{ sessionId: string; instanceId: string }>;
+        configHealth?: {
+          status: string;
+          issueCount: number;
+          items: Array<{ id: string; status: string; recommendation?: string }>;
+        };
+      };
+      workingDirectory?: string;
+    };
     return {
       port: 4810,
       apiUrl: "http://localhost:4810/gui/api/dashboard",
@@ -98,6 +127,7 @@ const configMocks = vi.hoisted(() => ({
     return provider.length > 0 ? provider : undefined;
   }),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
+  resolveGlobalConfigPath: vi.fn(() => "C:/Users/ExampleUser/.kiln/config.yaml"),
   resolveGlobalUiTheme: vi.fn((config: { ui?: { theme?: string } } | null) => config?.ui?.theme),
   resolveEffectiveProvider: vi.fn((provider: string | undefined, globalProvider?: string) => {
     const normalize = (value?: string) => {
@@ -109,10 +139,28 @@ const configMocks = vi.hoisted(() => ({
 }));
 
 const managedProviderModelMocks = vi.hoisted(() => ({
-  discoverManagedAgentProviderModels: vi.fn(async () => ({
-    codex: ["gpt-5.3-codex-spark"],
-    opencode: ["opencode/minimax-m2.5-free"],
-  })),
+  eligibleModels: null as unknown as (models: Record<string, string[]>) => Record<string, unknown>,
+  discoverManagedAgentProviderModels: vi.fn(),
+}));
+
+const guiSessionMocks = vi.hoisted(() => ({
+  summaries: [] as Array<{
+    id: string;
+    completedAt: string;
+    title?: string;
+    taskSummary?: string;
+  }>,
+  detail: null as {
+    events: Array<{
+      eventId: string;
+      kilnSessionId: string;
+      sequence: number;
+      timestamp: string;
+      kind: "turn_started";
+      payload: Record<string, unknown>;
+    }>;
+  } | null,
+  loadSessionDetail: vi.fn(async () => guiSessionMocks.detail),
 }));
 
 vi.mock("@kilnai/runtime", () => ({
@@ -202,6 +250,7 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 vi.mock("../../src/config/global-config.js", () => ({
   defaultGlobalConfig: configMocks.defaultGlobalConfig,
   readGlobalConfig: configMocks.readGlobalConfig,
+  resolveGlobalConfigPath: configMocks.resolveGlobalConfigPath,
   resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
   resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
   resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
@@ -212,10 +261,48 @@ vi.mock("../../src/config/env-config.js", () => ({
   resolveEffectiveProvider: configMocks.resolveEffectiveProvider,
 }));
 
-vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
-  PENDING_MANAGED_AGENT_PROVIDER_MODELS: {},
-  discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
-}));
+vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
+  const core = await vi.importActual<typeof import("@kilnai/core")>("@kilnai/core");
+  const runtime = await vi.importActual<typeof import("@kilnai/runtime")>("@kilnai/runtime");
+  const observedAt = "2026-07-01T12:00:00.000Z";
+  const requirements = {
+    use: "managed-agent",
+    evaluatedAt: observedAt,
+    requiredStates: ["discovered", "configured", "authenticated", "capabilityCompatible", "policyAdmitted", "routeHealthy"],
+    requiredCapabilities: [],
+    minimumCapabilityAuthority: "harness-reported",
+    minimumStateAuthority: "harness-reported",
+    requireProbe: false,
+  } as const;
+  managedProviderModelMocks.eligibleModels = (models) =>
+    Object.fromEntries(Object.entries(models).map(([providerId, providerModels]) => {
+      const catalog = runtime.normalizeRuntimeProviderDiscoveryCatalog({
+        providerId,
+        family: providerId === "codex" ? "codex-harness" : "opencode-harness",
+        discovery: { models: providerModels, status: "available", reason: "fixture catalog", authState: "authenticated" },
+        observedAt,
+        freshness: "fresh",
+        harnessId: providerId,
+        reportedProviderId: providerId,
+      });
+      return [providerId, Object.fromEntries(catalog.routes.map((route) => [
+        route.identity.route.providerModelId,
+        {
+          catalogDiagnosticEvidence: route,
+          catalogDiagnosticDecision: core.deriveProviderModelEligibility(route, requirements, []),
+        },
+      ]))];
+    }));
+  managedProviderModelMocks.discoverManagedAgentProviderModels.mockImplementation(async () =>
+    managedProviderModelMocks.eligibleModels({
+      codex: ["gpt-5.3-codex-spark"],
+      opencode: ["opencode/minimax-m2.5-free"],
+    }));
+  return {
+    PENDING_MANAGED_AGENT_PROVIDER_MODEL_CATALOG_DIAGNOSTICS: {},
+    discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
+  };
+});
 
 vi.mock("../../src/application/continuation-sidebar-info.js", () => ({
   loadContinuationSidebarInfo: vi.fn().mockResolvedValue({}),
@@ -256,8 +343,12 @@ vi.mock("../../src/commands/gui-window.js", () => ({
 }));
 
 vi.mock("../../src/commands/gui-session-summaries.js", () => ({
-  loadSessionSummaries: vi.fn().mockResolvedValue([]),
+  loadSessionSummaries: vi.fn(async () => guiSessionMocks.summaries),
   toProviderLabel: vi.fn((providerId: string) => providerId.toUpperCase()),
+}));
+
+vi.mock("../../src/commands/gui-session-detail.js", () => ({
+  loadSessionDetail: guiSessionMocks.loadSessionDetail,
 }));
 
 vi.mock("../../src/wrapper/session-manager.js", () => ({
@@ -289,10 +380,13 @@ describe("GUI dashboard provider availability", () => {
     gatewayHarness.operatorModels = {};
     gatewayHarness.lastOptions = null;
     configMocks.globalConfig = null;
-    managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue({
+    guiSessionMocks.summaries = [];
+    guiSessionMocks.detail = null;
+    guiSessionMocks.loadSessionDetail.mockClear();
+    managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue(managedProviderModelMocks.eligibleModels({
       codex: ["gpt-5.3-codex-spark"],
       opencode: ["opencode/minimax-m2.5-free"],
-    });
+    }));
     registryMocks.providers = [{
       id: "openai",
       group: "direct-api",
@@ -324,6 +418,10 @@ describe("GUI dashboard provider availability", () => {
     });
 
     expect(gatewayHarness.lastOptions?.builtinToolOptions).toMatchObject({
+      toolProjection: {
+        mode: "deferred",
+        alwaysOnTools: expect.arrayContaining(["read", "write", "work_item.update"]),
+      },
       webFetch: expect.any(Object),
       webSearch: expect.any(Object),
       webExtract: expect.any(Object),
@@ -339,6 +437,7 @@ describe("GUI dashboard provider availability", () => {
         },
       },
     });
+    expect(gatewayHarness.lastOptions?.guiAssetMode).toBe("bundled");
   });
 
   it("resolves nested cwd to the canonical project root before opening GUI state", async () => {
@@ -367,6 +466,95 @@ describe("GUI dashboard provider availability", () => {
     });
     expect(getProjectContextArtifactCache).toHaveBeenCalledWith(tmpDir);
     expect(existsSync(join(packageCliPath, ".kiln", "continuation-targets.json"))).toBe(true);
+  });
+
+  it("publishes setup diagnostics through operator workspace config health", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+
+    await guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+      provider: registryMocks.providers[0].id,
+    });
+
+    expect(gatewayHarness.snapshot?.operatorWorkspaceHome?.configHealth).toMatchObject({
+      status: "degraded",
+      issueCount: 3,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: "project-context",
+          status: "degraded",
+          recommendation: "adopt-project-context",
+        }),
+        expect.objectContaining({
+          id: "repo-shim:agents",
+          status: "degraded",
+          recommendation: "sync-repo-shims",
+        }),
+        expect.objectContaining({
+          id: "repo-shim:claude",
+          status: "degraded",
+          recommendation: "sync-repo-shims",
+        }),
+      ]),
+    });
+  });
+
+  it("does not pass a default tool-round budget into the interactive GUI operator transport", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+
+    await guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+      provider: registryMocks.providers[0].id,
+    });
+
+    expect(gatewayHarness.startGuiGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operatorTransport: expect.not.objectContaining({ maxToolRounds: expect.anything() }),
+      }),
+    );
+  });
+
+  it("scopes local GUI transcript events to the local cockpit target before projection", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
+    guiSessionMocks.summaries = [{
+      id: "kiln-gui:_gui:user:session",
+      completedAt: "2026-06-27T11:23:00.000Z",
+      title: "GUI live test",
+    }];
+    guiSessionMocks.detail = {
+      events: [{
+        eventId: "event-without-instance",
+        kilnSessionId: "kiln-gui:_gui:user:session",
+        sequence: 1,
+        timestamp: "2026-06-27T11:23:00.000Z",
+        kind: "turn_started",
+        payload: {
+          instanceId: "stale-remote-instance",
+          sessionId: "kiln-gui:_gui:user:session",
+          title: "GUI live test",
+        },
+      }],
+    };
+
+    await guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+      provider: registryMocks.providers[0].id,
+    });
+
+    expect(gatewayHarness.snapshot?.operatorWorkspaceHome).toBeTruthy();
+    expect(gatewayHarness.snapshot?.operatorWorkspaceHome?.sessions).toContainEqual(
+      expect.objectContaining({
+        sessionId: "kiln-gui:_gui:user:session",
+        instanceId: "local-gui",
+      }),
+    );
+    expect(guiSessionMocks.loadSessionDetail).toHaveBeenCalledWith(expect.anything(), "kiln-gui:_gui:user:session");
   });
 
   afterEach(() => {
@@ -484,7 +672,7 @@ describe("GUI dashboard provider availability", () => {
       },
     };
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
-    let resolveDiscovery: ((models: { codex: string[]; opencode: string[] }) => void) | undefined;
+    let resolveDiscovery: ((models: ReturnType<typeof managedProviderModelMocks.eligibleModels>) => void) | undefined;
     managedProviderModelMocks.discoverManagedAgentProviderModels.mockImplementationOnce(() =>
       new Promise((resolve) => {
         resolveDiscovery = resolve;
@@ -503,7 +691,7 @@ describe("GUI dashboard provider availability", () => {
       }
       expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
     } finally {
-      resolveDiscovery?.({ codex: ["gpt-5.3-codex-spark"], opencode: [] });
+      resolveDiscovery?.(managedProviderModelMocks.eligibleModels({ codex: ["gpt-5.3-codex-spark"], opencode: [] }));
       await command;
     }
   });

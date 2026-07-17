@@ -15,10 +15,10 @@ import {
   type DefaultBuiltinToolRegistryOptions,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
-import type { CliSessionEvent } from "../execution/cli-subscription-executor.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
-import { SessionRegistry } from "../session/session-registry.js";
+import { SessionRegistry } from "../session/persistence/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
@@ -36,6 +36,7 @@ import {
 import {
   buildWelcomeProviderDescriptors,
   markGuiProviderDiscoveryStale,
+  projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
@@ -53,9 +54,8 @@ import {
 import {
   attachManagedInvocationSessionEventSink,
   withManagedInvocationService,
-  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
-import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
 import { appendManagedInvocationPromptAdmissionSessionEvent } from "../agents/managed-invocation/prompt-admission.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
@@ -64,9 +64,19 @@ import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import { projectMemoryLatticeInvalidationFrame } from "./gui-memory-lattice-events.js";
 import { createGuiMemoryLatticeRoutes } from "./gui-memory-lattice.js";
 import { projectInteractiveUseFrameFromToolResult } from "./interactive-use-frame.js";
+import { BunPtyAdapter } from "../operator-terminal/bun-pty-adapter.js";
+import { handleOperatorTerminalFrame } from "../operator-terminal/operator-terminal-gateway.js";
+import {
+  OperatorTerminalService,
+  type OperatorPtyAdapter,
+} from "../operator-terminal/operator-terminal-service.js";
 import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
+  isGuiExecutableConfigSetupAction,
+  OperatorResourceReadRequestSchema,
+  buildOperatorToolResultPayload,
+  projectOperatorResourceReadResult,
   isGuiProviderModeless,
   isOperatorThemeName,
   type GuiDashboardSnapshot,
@@ -116,6 +126,7 @@ async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
 export interface StartGuiGatewayOptions {
   readonly port?: number;
   readonly guiDistPath?: string;
+  readonly guiAssetMode?: "bundled" | "external";
   readonly getSnapshot: (context?: {
     readonly operatorModels?: Record<string, string[]>;
     readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -137,8 +148,9 @@ export interface StartGuiGatewayOptions {
   readonly onManagedWindowClose?: () => void;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorSessionTransportOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
+  readonly operatorTerminalAdapter?: OperatorPtyAdapter;
 }
 
 export interface OperatorProviderPreference {
@@ -154,12 +166,28 @@ export interface GuiGateway {
   readonly operatorModels?: Record<string, string[]>;
   readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly hasMountedGui: boolean;
+  readonly operatorTerminalCapability?: string;
   shutdown(): void;
 }
 
 const GUI_APP_NAME = "kiln-gui";
 const GUI_TENANT_ID = "_gui";
 type OperatorTurnRequestedAuthority = Extract<GuiOutboundFrame, { type: "message" }>["requestedAuthority"];
+
+interface ActiveGuiTurn {
+  readonly controller: AbortController;
+  readonly settled: Promise<void>;
+  readonly markSettled: () => void;
+}
+
+function createActiveGuiTurn(): ActiveGuiTurn {
+  const controller = new AbortController();
+  let markSettled = (): void => {};
+  const settled = new Promise<void>((resolve) => {
+    markSettled = resolve;
+  });
+  return { controller, settled, markSettled };
+}
 
 interface BrowserSessionUpdateHandlerConsumer {
   setBrowserSessionUpdateHandler(handler: ((state: Omit<GuiBrowserSessionState, "kilnSessionId">) => void) | undefined): void;
@@ -168,6 +196,7 @@ interface BrowserSessionUpdateHandlerConsumer {
 interface BrowserSessionControlConsumer {
   requestBrowserSessionControl(request: {
     readonly action: "takeover" | "release";
+    readonly gatewayTargetId?: string;
     readonly sessionId?: string;
     readonly operatorId?: string;
     readonly reason?: string;
@@ -177,6 +206,7 @@ interface BrowserSessionControlConsumer {
 interface BrowserOperatorInputConsumer {
   requestBrowserOperatorInput(request: {
     readonly requestId: string;
+    readonly gatewayTargetId?: string;
     readonly sessionId: string;
     readonly operatorId?: string;
     readonly input: GuiBrowserOperatorInput;
@@ -393,18 +423,28 @@ export function deriveGuiDoneAuthorityStatus(
 export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<GuiGateway> {
   const port = options.port ?? 4810;
   const managedInvocation = options.managedInvocation
-    ? withManagedInvocationService(options.managedInvocation)
+    ? {
+        ...options.managedInvocation,
+        options: withManagedInvocationService(options.managedInvocation.options),
+      }
     : undefined;
-  const builtinToolOptions = withManagedAgentInvocationResourceProvider(
-    options.builtinToolOptions,
-    managedInvocation ? { service: managedInvocation.invocationService } : undefined,
-  );
+  const builtinToolOptions = options.builtinToolOptions;
   const memoryLatticeResources = createAttachedRuntimeBuiltinToolSurface({ builtinToolOptions });
   const app = new Hono();
-  const guiDistPath = resolveGuiDistPath(options.guiDistPath);
-  mountGuiStaticAssets(app, guiDistPath);
-  const hasMountedGui = true;
+  const hasMountedGui = options.guiAssetMode !== "external";
+  if (hasMountedGui) {
+    mountGuiStaticAssets(app, resolveGuiDistPath(options.guiDistPath));
+  }
   const transportOptions = options.operatorTransport;
+  const operatorTerminalCapability = transportOptions && options.workingDirectory
+    ? crypto.randomUUID()
+    : undefined;
+  const operatorTerminalService = operatorTerminalCapability && options.workingDirectory
+    ? new OperatorTerminalService({
+        workspaceRoot: options.workingDirectory,
+        adapter: options.operatorTerminalAdapter ?? new BunPtyAdapter(),
+      })
+    : undefined;
   let activeConnections = 0;
 
   const { upgradeWebSocket, websocket } = (await loadBunHonoAdapters()).createBunWebSocket();
@@ -484,12 +524,22 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   });
 
   app.post("/gui/api/config/setup/actions", async (c) => {
-    if (!options.executeSetupAction) {
+    if (!options.executeSetupAction || !options.getSetupSnapshot) {
       return c.json({ error: "setup_action_unavailable" }, 404);
     }
     const parsed = KilnConfigSetupActionRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "invalid_setup_action" }, 400);
+    }
+    if (!isGuiExecutableConfigSetupAction(parsed.data.action)) {
+      const result: KilnConfigSetupActionResult = {
+        action: parsed.data.action,
+        status: "blocked",
+        message: "This setup action is review-only in the GUI.",
+        errors: [`GUI setup action '${parsed.data.action}' is not executable.`],
+        setup: await options.getSetupSnapshot(),
+      };
+      return c.json(KilnConfigSetupActionResultSchema.parse(result));
     }
     const result = await options.executeSetupAction(parsed.data.action);
     return c.json(KilnConfigSetupActionResultSchema.parse(result));
@@ -603,6 +653,8 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       managedInvocation,
       resolveProviderPreference: options.resolveProviderPreference,
       updateProviderPreference: options.updateProviderPreference,
+      operatorTerminalCapability,
+      operatorTerminalService,
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -628,6 +680,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
           ws.send(JSON.stringify({
             type: "welcome",
+            providerModelDiscovery: projectGuiProviderModelDiscovery([]),
             models: {},
             providers: [],
             activeProvider: undefined,
@@ -679,7 +732,11 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       return operatorDiscovery;
     },
     hasMountedGui,
-    shutdown: () => server.stop(),
+    operatorTerminalCapability,
+    shutdown: () => {
+      operatorTerminalService?.closeAll();
+      server.stop();
+    },
   };
 }
 
@@ -697,6 +754,7 @@ function resolveOperatorActiveProviderSelection(input: {
   readonly discovery: readonly GuiProviderDiscoveryResult[];
   readonly preference?: OperatorProviderPreference | null;
 }): { readonly provider?: string; readonly model?: string } {
+  const providerModelDiscovery = projectGuiProviderModelDiscovery(input.discovery);
   const currentProvider = input.transport.sessionManager.getProvider().trim();
   const currentModel = input.transport.sessionManager.getModel().trim();
   if (currentProvider.length > 0) {
@@ -704,6 +762,7 @@ function resolveOperatorActiveProviderSelection(input: {
       provider: currentProvider,
       model: currentModel.length > 0 ? currentModel : undefined,
       discovery: input.discovery,
+      providerModelDiscovery,
     });
     if (currentResolution.ok) {
       return {
@@ -720,6 +779,7 @@ function resolveOperatorActiveProviderSelection(input: {
       provider: preferredProvider,
       model: preferredModel.length > 0 ? preferredModel : undefined,
       discovery: input.discovery,
+      providerModelDiscovery,
     });
     if (preferredResolution.ok) {
       input.transport.sessionManager.setProvider(preferredResolution.provider);
@@ -749,12 +809,14 @@ function wireOperatorTransport(
     getDiscoverySnapshot: () => readonly GuiProviderDiscoveryResult[];
     onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
     builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-    managedInvocation?: ManagedInvocationToolOptions;
+    managedInvocation?: ManagedInvocationToolAttachment;
     resolveProviderPreference?: () => OperatorProviderPreference | null | undefined;
     updateProviderPreference?: (selection: OperatorProviderPreference) => Promise<void> | void;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
+    operatorTerminalCapability?: string;
+    operatorTerminalService?: OperatorTerminalService;
   },
 ): void {
   const providerLabel = input.transport.sessionManager.getProvider();
@@ -791,29 +853,25 @@ function wireOperatorTransport(
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
   });
 
-  app.get("/gui/api/resources/content", async (c) => {
-    const uri = c.req.query("uri");
-    if (!uri) {
-      return c.json({ error: "resource_uri_required" }, 400);
+  app.post("/gui/api/resources/read", async (c) => {
+    const request = OperatorResourceReadRequestSchema.safeParse(await c.req.json().catch(() => undefined));
+    if (!request.success) {
+      return c.json({ error: "resource_read_request_invalid" }, 400);
     }
     for (const surface of resourceSurfaces) {
-      const result = await surface.readResource(uri).catch(() => undefined);
-      const content = result?.contents[0];
-      if (!content) {
+      const result = await surface.readResource(request.data.uri, {
+        ...(request.data.target ? { target: request.data.target } : {}),
+        ...(request.data.cursor ? { cursor: request.data.cursor } : {}),
+        ...(request.data.limit ? { limit: request.data.limit } : {}),
+      }).catch(() => undefined);
+      if (!result?.contents[0]) {
         continue;
       }
-      if ("blob" in content) {
-        return c.json({
-          uri: content.uri,
-          mimeType: content.mimeType,
-          dataUrl: `data:${content.mimeType ?? "application/octet-stream"};base64,${content.blob}`,
-        });
-      }
-      return c.json({
-        uri: content.uri,
-        mimeType: content.mimeType,
-        text: content.text,
-      });
+      return c.json(projectOperatorResourceReadResult({
+        uri: request.data.uri,
+        ...(request.data.target ? { target: request.data.target } : {}),
+        readResult: result,
+      }));
     }
     return c.json({ error: "resource_not_found" }, 404);
   });
@@ -822,6 +880,11 @@ function wireOperatorTransport(
     "/gui/ws",
     upgradeWebSocket((c) => {
       const userId = c.req.query("userId") ?? crypto.randomUUID();
+      const terminalOwnerId = crypto.randomUUID();
+      const terminalAuthorized = Boolean(
+        input.operatorTerminalCapability
+        && c.req.query("operatorToken") === input.operatorTerminalCapability,
+      );
       let discovery = [...input.initialDiscovery];
       const applyDiscovery = (nextDiscovery: readonly GuiProviderDiscoveryResult[]): readonly GuiProviderDiscoveryResult[] => {
         discovery = [...nextDiscovery];
@@ -834,6 +897,7 @@ function wireOperatorTransport(
         return applyDiscovery(await input.getDiscovery(options).catch(() => []));
       };
       let operatorSocket: WSContext | null = null;
+      let activeTurn: ActiveGuiTurn | undefined;
       let unsubscribeDiscovery: (() => void) | undefined;
       const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
@@ -851,6 +915,7 @@ function wireOperatorTransport(
             applyDiscovery(currentDiscovery);
             ws.send(JSON.stringify({
               type: "providers_refreshed",
+              providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               models: projectGuiOperatorModels(currentDiscovery),
               providerDiscovery: currentDiscovery,
               providers: buildWelcomeProviderDescriptors(currentDiscovery),
@@ -880,6 +945,7 @@ function wireOperatorTransport(
           );
           ws.send(JSON.stringify({
             type: "welcome",
+            providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
             models: currentModels,
             providerDiscovery: currentDiscovery,
             providers: buildWelcomeProviderDescriptors(currentDiscovery),
@@ -889,6 +955,7 @@ function wireOperatorTransport(
             workingDirectory: input.transport.workingDirectory,
             domainLabel: input.transport.domainLabel,
             authorityStatus: guiAuthorityStatus,
+            operatorTerminalAvailable: Boolean(input.operatorTerminalService && terminalAuthorized),
           } satisfies GuiInboundFrame));
         },
 
@@ -905,12 +972,27 @@ function wireOperatorTransport(
 
             const frame = JSON.parse(raw) as GuiOutboundFrame | Record<string, unknown>;
 
+            if (input.operatorTerminalService && await handleOperatorTerminalFrame({
+              frame,
+              authorized: terminalAuthorized,
+              ownerId: terminalOwnerId,
+              service: input.operatorTerminalService,
+              send: (terminalFrame) => ws.send(JSON.stringify(terminalFrame)),
+            })) {
+              return;
+            }
+
             if (frame.type === "operator_theme_set_result") {
               operatorThemeBridge.resolve(frame as Extract<GuiOutboundFrame, { type: "operator_theme_set_result" }>);
               return;
             }
 
             if (frame.type === "clear") {
+              const turnToClear = activeTurn;
+              if (turnToClear) {
+                turnToClear.controller.abort("Operator cleared the active GUI session.");
+                await turnToClear.settled;
+              }
               await sessionRegistry.detachActive(GUI_APP_NAME, userId, GUI_TENANT_ID);
               try {
                 await input.transport.onClear?.();
@@ -925,6 +1007,7 @@ function wireOperatorTransport(
               const currentDiscovery = await refreshDiscovery({ force: true });
               ws.send(JSON.stringify({
                 type: "providers_refreshed",
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
                 providers: buildWelcomeProviderDescriptors(currentDiscovery),
@@ -999,6 +1082,7 @@ function wireOperatorTransport(
                 type: "provider_auth_completed",
                 provider: auth.provider,
                 requestId: auth.requestId,
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
                 providers: buildWelcomeProviderDescriptors(currentDiscovery),
@@ -1022,6 +1106,7 @@ function wireOperatorTransport(
                 provider: frame.provider,
                 model: frame.model,
                 discovery: currentDiscovery,
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               });
               if (!resolution.ok) {
                 ws.send(JSON.stringify({
@@ -1069,6 +1154,34 @@ function wireOperatorTransport(
               ws.send(JSON.stringify({
                 type: "continuation_selected",
                 sessionId,
+                ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
+              } satisfies GuiInboundFrame));
+              return;
+            }
+
+            if (frame.type === "turn_cancel") {
+              const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
+              if (!requestId) {
+                return;
+              }
+              if (!activeTurn) {
+                ws.send(JSON.stringify({
+                  type: "turn_cancel_result",
+                  requestId,
+                  status: "not_active",
+                  reason: "There is no active GUI turn to cancel.",
+                } satisfies GuiInboundFrame));
+                return;
+              }
+              activeTurn.controller.abort(
+                typeof frame.reason === "string" && frame.reason.trim().length > 0
+                  ? frame.reason.trim()
+                  : "Operator cancelled the active GUI turn.",
+              );
+              ws.send(JSON.stringify({
+                type: "turn_cancel_result",
+                requestId,
+                status: "accepted",
               } satisfies GuiInboundFrame));
               return;
             }
@@ -1140,7 +1253,7 @@ function wireOperatorTransport(
                 fail("Managed agent control requires sessionId and invocationId.");
                 return;
               }
-              const invocationService = input.managedInvocation?.invocationService;
+              const invocationService = input.managedInvocation?.options.invocationService;
               if (!invocationService) {
                 fail("Managed agent control requires a live invocation service.");
                 return;
@@ -1203,7 +1316,7 @@ function wireOperatorTransport(
                     admittedAt: promptEvent.timestamp,
                   });
                   await sessionRegistry.save(session);
-                  await input.managedInvocation?.sessionEventSink?.publish([promptEvent], {
+                  await input.managedInvocation?.options.sessionEventSink?.publish([promptEvent], {
                     session,
                     toolCall: {
                       id: requestId ?? `managed-agent-control:${action}:${invocationId}`,
@@ -1247,7 +1360,7 @@ function wireOperatorTransport(
                   ? events
                   : findManagedInvocationTerminalSessionEvents(session.sessionEvents, invocationId);
                 await sessionRegistry.save(session);
-                await input.managedInvocation?.sessionEventSink?.publish(terminalEvents, {
+                await input.managedInvocation?.options.sessionEventSink?.publish(terminalEvents, {
                   session,
                   toolCall: {
                     id: requestId ?? `managed-agent-control:${action}:${invocationId}`,
@@ -1293,12 +1406,14 @@ function wireOperatorTransport(
               try {
                 const state = await provider.requestBrowserSessionControl({
                   action,
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   ...(typeof frame.sessionId === "string" ? { sessionId: frame.sessionId } : {}),
                   operatorId: userId,
                   ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
                 });
                 activityStreamer.recordBrowserOperatorEvidence({
                   action,
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   browserSessionId: state.sessionId,
                   status: "accepted",
                   ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
@@ -1306,6 +1421,7 @@ function wireOperatorTransport(
               } catch (error) {
                 activityStreamer.recordBrowserOperatorEvidence({
                   action,
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   ...(typeof frame.sessionId === "string" ? { browserSessionId: frame.sessionId } : {}),
                   status: "failed",
                   reason: error instanceof Error ? error.message : "Browser session control failed.",
@@ -1337,12 +1453,14 @@ function wireOperatorTransport(
               try {
                 const ack = await provider.requestBrowserOperatorInput({
                   requestId,
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   sessionId,
                   operatorId: userId,
                   input: operatorInput,
                 });
                 activityStreamer.recordBrowserOperatorEvidence({
                   action: "operator_input",
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   browserSessionId: ack.sessionId ?? sessionId,
                   input: operatorInput,
                   acknowledgement: ack,
@@ -1354,6 +1472,7 @@ function wireOperatorTransport(
               } catch (error) {
                 activityStreamer.recordBrowserOperatorEvidence({
                   action: "operator_input",
+                  ...(typeof frame.gatewayTargetId === "string" ? { gatewayTargetId: frame.gatewayTargetId } : {}),
                   browserSessionId: sessionId,
                   input: operatorInput,
                   acknowledgement: {
@@ -1457,6 +1576,14 @@ function wireOperatorTransport(
 
             if (frame.type !== "message") return;
 
+            if (activeTurn) {
+              ws.send(JSON.stringify({
+                type: "error",
+                message: "A GUI turn is already active. Cancel it before starting another turn.",
+              } satisfies GuiInboundFrame));
+              return;
+            }
+
             const messageFrame = frame as Extract<GuiOutboundFrame, { type: "message" }>;
             const userContent = typeof messageFrame.content === "string"
               ? messageFrame.content
@@ -1468,6 +1595,9 @@ function wireOperatorTransport(
             const freshSessionRequested = messageFrame.sessionIntent === "fresh";
             if (!userContent.trim() && userParts.length === 0) return;
 
+            const currentTurn = createActiveGuiTurn();
+            activeTurn = currentTurn;
+            try {
             if (freshSessionRequested && continuationSessionId) {
               ws.send(JSON.stringify({
                 type: "error",
@@ -1573,6 +1703,7 @@ function wireOperatorTransport(
               );
               const executionMode = resolveExecutionMode(messageFrame.executionMode);
               const requestedAuthority = resolveGuiRequestedAuthority(messageFrame.requestedAuthority);
+              const governedWorkRequirement = resolveGuiGovernedWorkRequirement(messageFrame.governedWorkRequirement);
               turnProvider = activeProvider;
               turnModel = activeModel;
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -1597,7 +1728,13 @@ function wireOperatorTransport(
                 reasoningEffort,
                 executionMode,
                 requestedAuthority,
+                input.transport.workingDirectory,
+                governedWorkRequirement,
               );
+              turnPerCallConfig = {
+                ...turnPerCallConfig,
+                abortSignal: currentTurn.controller.signal,
+              };
               result = await processAdmittedTurn({
                 orchestrator,
                 sessionRegistry,
@@ -1610,6 +1747,12 @@ function wireOperatorTransport(
                 channel: "gui",
                 resumeSessionHydrator: input.transport.resumeSessionHydrator,
                 providerValidation: currentDiscovery,
+                contextUsageWindow: contextUsageWindowEvidence(
+                  activeProvider,
+                  activeModel,
+                  activeModelCapabilities,
+                  currentDiscovery,
+                ),
                 executionMode,
                 contextArtifactCache: input.transport.contextArtifactCache,
                 artifactStore: input.transport.artifactStore,
@@ -1627,8 +1770,15 @@ function wireOperatorTransport(
                     activityStreamer.endTurnCapture(sessionId);
                   },
                 },
+                publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
+                  events.filter((event) => event.kind === "context_usage_observed"
+                    || (event.kind === "turn_completed" && event.outcome === "cancelled")),
+                ),
               });
             } catch (err) {
+              if (currentTurn.controller.signal.aborted) {
+                return;
+              }
               ws.send(JSON.stringify({
                 type: "error",
                 message: err instanceof Error ? err.message : String(err),
@@ -1684,12 +1834,20 @@ function wireOperatorTransport(
               runtimeContinuity,
               authorityStatus: deriveGuiDoneAuthorityStatus(turnPerCallConfig),
             } satisfies GuiInboundFrame));
+            } finally {
+              currentTurn.markSettled();
+              if (activeTurn === currentTurn) {
+                activeTurn = undefined;
+              }
+            }
           } catch {
             // discard malformed frames
           }
         },
 
         onClose(_event: CloseEvent, ws: WSContext) {
+          input.operatorTerminalService?.closeOwner(terminalOwnerId);
+          activeTurn?.controller.abort("GUI operator surface disconnected.");
           if (operatorSocket === ws) {
             operatorSocket = null;
           }
@@ -1724,9 +1882,13 @@ export function buildGuiTurnPerCallConfig(
   reasoningEffort?: ReasoningEffort,
   executionMode: OperatorExecutionMode = "execute",
   requestedAuthority?: OperatorTurnRequestedAuthority,
+  workingDirectory?: string,
+  governedWorkRequirement?: PerCallToolConfig["governedWorkRequirement"],
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
+    workingDirectory,
+    governedWorkRequirement,
     activeProvider,
     activeModel,
     ...(activeModelCapabilities ? { activeModelCapabilities } : {}),
@@ -1734,6 +1896,23 @@ export function buildGuiTurnPerCallConfig(
     builtinToolSurface,
     executionMode,
     requestedAuthority,
+    authorityContext: {
+      executionUse: "operator_interactive",
+      sessionPolicy: {
+        maximumAuthority: "destructive",
+        reason: "The attended operator controls authority for this GUI session.",
+      },
+      tenantPolicy: {
+        subjectId: GUI_TENANT_ID,
+        maximumAuthority: "destructive",
+        reason: "The local GUI tenant permits attended operator execution.",
+      },
+      routePolicy: {
+        subjectId: "gui-runtime",
+        maximumAuthority: "destructive",
+        reason: "The attached Kiln GUI runtime enforces per-turn authority.",
+      },
+    },
   });
 }
 
@@ -1788,6 +1967,51 @@ function findProviderModelRouteHealth(
 ): GuiProviderModelRouteHealth | undefined {
   if (!provider || !model) return undefined;
   return discovery.find((entry) => entry.provider === provider)?.modelRouteHealth?.[model];
+}
+
+export function resolveGuiGovernedWorkRequirement(
+  value: unknown,
+): PerCallToolConfig["governedWorkRequirement"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("governedWorkRequirement must be an object.");
+  }
+  const record = value as Record<string, unknown>;
+  if (record.kind !== "goal_materialization") {
+    throw new Error(`Unknown governed work requirement '${String(record.kind)}'.`);
+  }
+  if (!Number.isSafeInteger(record.requiredWorkItemCount) || Number(record.requiredWorkItemCount) <= 0) {
+    throw new Error("governedWorkRequirement.requiredWorkItemCount must be a positive integer.");
+  }
+  return {
+    kind: "goal_materialization",
+    requiredWorkItemCount: Number(record.requiredWorkItemCount),
+  };
+}
+
+function contextUsageWindowEvidence(
+  providerId: string,
+  modelId: string | undefined,
+  capabilities: GuiProviderModelCapabilities | undefined,
+  discovery: readonly GuiProviderDiscoveryResult[],
+) {
+  const tokens = capabilities?.contextWindow;
+  if (!modelId || !Number.isInteger(tokens) || !tokens || tokens < 1) {
+    return undefined;
+  }
+  const status = discovery.find((entry) => entry.provider === providerId)?.status;
+  return {
+    providerId,
+    modelId,
+    tokens,
+    // Discovery establishes route eligibility, not a provider contract for a
+    // model's context window. Treat it as runtime-observed until an adapter
+    // carries explicit provider-window provenance.
+    authority: "runtime_observed" as const,
+    freshness: status === "stale" ? "stale" as const : "fresh" as const,
+  };
 }
 
 async function applyContinuationSelection(
@@ -1921,9 +2145,11 @@ class GuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated" | "browser_operator_evidence";
+    kind: "assistant_delta" | "provider_routed" | "tool_call_started" | "tool_call_output_delta" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "browser_operator_evidence";
     timestamp: string;
     payload: Record<string, unknown>;
+    parentEventId?: string;
+    executionScope?: ExecutionSessionEvent["executionScope"];
   }): void {
     if (!this.ws || !this.capture) {
       return;
@@ -1932,15 +2158,19 @@ class GuiActivityStreamer {
     if (sequence === null) {
       return;
     }
+    const eventId = `${this.capture.sessionId}:live:${sequence}`;
+    const turnId = `${this.capture.sessionId}:turn:live`;
     this.ws.send(JSON.stringify({
       type: "session_event",
       event: {
-        eventId: `${this.capture.sessionId}:live:${sequence}`,
+        eventId,
         kilnSessionId: this.capture.sessionId,
         sequence,
         timestamp: input.timestamp,
         kind: input.kind,
-        turnId: `${this.capture.sessionId}:turn:live`,
+        turnId,
+        ...(input.parentEventId ? { parentEventId: input.parentEventId } : {}),
+        ...(input.executionScope ? { executionScope: input.executionScope } : {}),
         source: {
           actor: input.kind === "assistant_delta" ? "assistant" : input.kind.startsWith("tool_") ? "tool" : "runtime",
           surface: "gui",
@@ -2133,7 +2363,7 @@ class GuiActivityStreamer {
     this.capture = null;
   }
 
-  forward(event: CliSessionEvent): void {
+  forward(event: ExecutionSessionEvent): void {
     if (!this.ws) return;
 
     if (event.type === "text_delta") {
@@ -2155,6 +2385,7 @@ class GuiActivityStreamer {
           messageId: this.capture?.assistantMessageId ?? "assistant-live",
           delta: sanitizedDelta,
         },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_use") {
       const toolCallId = event.toolCallId ?? (this.capture
@@ -2174,10 +2405,24 @@ class GuiActivityStreamer {
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
           ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
         },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       this.emitActivityPhase({
         phase: "tool_running",
         toolName: event.toolName,
+      });
+    } else if (event.type === "tool_output_delta") {
+      this.emitSessionEvent({
+        kind: "tool_call_output_delta",
+        timestamp: new Date().toISOString(),
+        payload: {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          stream: event.stream,
+          delta: event.delta,
+          chunkIndex: event.chunkIndex,
+        },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_result") {
       const pending = this.capture?.pendingToolCallIds.get(event.toolName);
@@ -2207,17 +2452,17 @@ class GuiActivityStreamer {
       this.emitSessionEvent({
         kind: "tool_call_completed",
         timestamp: new Date().toISOString(),
-        payload: {
+        payload: buildOperatorToolResultPayload({
           toolCallId,
           toolName: event.toolName ?? "unknown",
-          output: event.output ?? "",
-          outputSummary: event.outputSummary ?? event.output ?? "",
-          ...(event.metadata ? { metadata: event.metadata } : {}),
-          ...(event.resourceLinks ? { resourceLinks: event.resourceLinks } : {}),
-          status: {
-            state: event.isError ? "failed" : "succeeded",
-          },
-        },
+          output: event.output,
+          outputSummary: event.outputSummary,
+          isError: event.isError,
+          metadata: event.metadata,
+          resourceLinks: event.resourceLinks,
+          toolUsage: event.toolUsage,
+        }),
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       const interactiveFrame = projectInteractiveUseFrameFromToolResult({
         ...(this.capture?.sessionId ? { kilnSessionId: this.capture.sessionId } : {}),
@@ -2257,28 +2502,6 @@ class GuiActivityStreamer {
           },
         },
       });
-    } else if (event.type === "cost_update") {
-      this.emitSessionEvent({
-        kind: "cost_updated",
-        timestamp: new Date().toISOString(),
-        payload: {
-          provider: {
-            provider: event.provider ?? "unknown",
-            model: event.model ?? event.canonicalModel ?? "unknown",
-            canonicalModel: event.canonicalModel,
-            billingMode: event.billingMode,
-          },
-          usage: {
-            inputTokens: event.inputTokens ?? 0,
-            outputTokens: event.outputTokens ?? 0,
-            cacheReadTokens: event.cacheReadTokens ?? 0,
-          },
-          cost: {
-            deltaUsd: event.usd,
-            currency: "USD",
-          },
-        },
-      });
     }
   }
 
@@ -2296,6 +2519,7 @@ class GuiActivityStreamer {
 
   recordBrowserOperatorEvidence(input: {
     readonly action: "takeover" | "release" | "operator_input";
+    readonly gatewayTargetId?: string;
     readonly browserSessionId?: string;
     readonly input?: GuiBrowserOperatorInput;
     readonly acknowledgement?: Pick<GuiBrowserOperatorInputAckFrame, "status" | "reason" | "handledAt">;
@@ -2322,6 +2546,7 @@ class GuiActivityStreamer {
         },
         payload: {
           action: input.action,
+          ...(input.gatewayTargetId ? { gatewayTargetId: input.gatewayTargetId } : {}),
           ...(input.browserSessionId ? { browserSessionId: input.browserSessionId } : {}),
           ...(input.reason ? { reason: input.reason } : {}),
           ...(input.status ? { status: input.status } : {}),

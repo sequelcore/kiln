@@ -117,13 +117,14 @@ describe("syncNativePermissionProjections", () => {
     expect((metadata.constraintInstructions as string[]).length).toBeGreaterThan(0);
   });
 
-  it("merges Codex TOML and writes kiln.permission_sync metadata section", async () => {
+  it("merges Codex TOML, removes unsupported service tier values, and writes kiln.permission_sync metadata section", async () => {
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
     mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
     writeFileSync(
       codexConfigPath,
       [
         "model = \"gpt-5.4\"",
+        "service_tier = \"default\"",
         "",
         "[projects]",
         "default = \"kiln\"",
@@ -141,9 +142,10 @@ describe("syncNativePermissionProjections", () => {
     const backupDir = join(paths.projectPath, ".kiln", "backups", "codex-config");
     const backupFiles = readdirSync(backupDir);
     expect(backupFiles).toHaveLength(1);
-    expect(readFileSync(join(backupDir, backupFiles[0]!), "utf-8")).toContain("model = \"gpt-5.4\"");
+    expect(readFileSync(join(backupDir, backupFiles[0]!), "utf-8")).toContain("service_tier = \"default\"");
     const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(config.model).toBe("gpt-5.4");
+    expect(config.service_tier).toBeUndefined();
     expect(config.approval_policy).toBe("on-request");
     expect(config.sandbox_mode).toBe("workspace-write");
 
@@ -220,6 +222,134 @@ describe("syncNativePermissionProjections", () => {
       "approval_policy",
       "sandbox_mode",
       "kiln.permission_sync",
+    ]);
+    expect(asRecord(asRecord(targets["codex-config"]).permissionIntegrity)).toMatchObject({
+      harness: "codex",
+      classification: "unsupported-semantic-translation",
+      persistedNative: {
+        source: "native-config",
+        projectionOwnership: "kiln-managed",
+      },
+    });
+    expect(asRecord(asRecord(targets["opencode-config"]).permissionIntegrity)).toMatchObject({
+      harness: "opencode",
+      classification: "unsupported-semantic-translation",
+      enforcement: {
+        filesystemSandbox: "not-enforced",
+        strength: "rules-only",
+      },
+    });
+  });
+
+  it("projects the canonical Codex OAuth default model into Codex native config", async () => {
+    const result = await syncNativePermissionProjections({
+      ...buildKilnYaml(),
+      provider: "codex-oauth",
+      model: { default: "gpt-5.4-mini" },
+    }, paths.projectPath);
+
+    expect(result.errors).toHaveLength(0);
+    const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
+    const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    expect(config.model).toBe("gpt-5.4-mini");
+
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const target = asRecord(asRecord(state.targets)["codex-config"]);
+    expect(target.managedFields).toEqual([
+      "approval_policy",
+      "sandbox_mode",
+      "kiln.permission_sync",
+      "model",
+    ]);
+  });
+
+  it("projects the canonical OpenCode Go default model into OpenCode native config syntax", async () => {
+    const result = await syncNativePermissionProjections({
+      ...buildKilnYaml(),
+      provider: "opencode-go",
+      model: { default: "deepseek-v4-flash" },
+    }, paths.projectPath);
+
+    expect(result.errors).toHaveLength(0);
+    const opencodeConfigPath = join(paths.homePath, ".config", "opencode", "opencode.json");
+    const config = readJson(opencodeConfigPath);
+    expect(config.model).toBe("opencode-go/deepseek-v4-flash");
+  });
+
+  it("removes stale managed Codex defaults when canonical routing targets OpenCode", async () => {
+    const first = await syncNativePermissionProjections({
+      ...buildKilnYaml(),
+      provider: "codex-oauth",
+      model: { default: "gpt-5.4-mini" },
+    }, paths.projectPath);
+    expect(first.errors).toHaveLength(0);
+
+    const second = await syncNativePermissionProjections({
+      ...buildKilnYaml(),
+      provider: "opencode-go",
+      model: { default: "deepseek-v4-flash" },
+    }, paths.projectPath);
+
+    expect(second.errors).toHaveLength(0);
+    const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
+    const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    expect(config.model).toBeUndefined();
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const target = asRecord(asRecord(state.targets)["codex-config"]);
+    expect(target.managedFields).toEqual([
+      "approval_policy",
+      "sandbox_mode",
+      "kiln.permission_sync",
+    ]);
+  });
+
+  it("preserves first-sync unmanaged native defaults when canonical routing targets another harness", async () => {
+    const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
+    mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
+    writeFileSync(codexConfigPath, "model = \"gpt-5.4\"\n", "utf-8");
+
+    const result = await syncNativePermissionProjections({
+      ...buildKilnYaml(),
+      provider: "opencode-go",
+      model: { default: "deepseek-v4-flash" },
+    }, paths.projectPath);
+
+    expect(result.errors).toHaveLength(0);
+    const config = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
+    expect(config.model).toBe("gpt-5.4");
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const target = asRecord(asRecord(state.targets)["codex-config"]);
+    expect(target.managedFields).toEqual([
+      "approval_policy",
+      "sandbox_mode",
+      "kiln.permission_sync",
+    ]);
+  });
+
+  it("reports managed default drift instead of overwriting a native model change", async () => {
+    const first = await syncNativePermissionProjections({
+      ...buildKilnYaml(),
+      provider: "opencode-go",
+      model: { default: "deepseek-v4-flash" },
+    }, paths.projectPath);
+    expect(first.errors).toHaveLength(0);
+
+    const opencodeConfigPath = join(paths.homePath, ".config", "opencode", "opencode.json");
+    const config = readJson(opencodeConfigPath);
+    writeFileSync(opencodeConfigPath, `${JSON.stringify({
+      ...config,
+      model: "opencode-go/deepseek-v4-flash-free",
+    }, null, 2)}\n`, "utf-8");
+
+    const second = await syncNativePermissionProjections({
+      ...buildKilnYaml(),
+      provider: "opencode-go",
+      model: { default: "deepseek-v4-flash" },
+    }, paths.projectPath);
+
+    expect(second.opencode).toBe(false);
+    expect(second.errors).toEqual([
+      "OpenCode: managed field drift detected: model",
     ]);
   });
 

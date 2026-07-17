@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EventBus, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, textParts } from "@kilnai/core";
+import { EventBus, InMemoryContextArtifactCache, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, textParts } from "@kilnai/core";
 import type { MultimodalRoutedEvent, SttAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import type { SkillConfig } from "@kilnai/core";
 import { processAdmittedTurn, projectAdmittedTurnContext, sanitizeAssistantEgressText } from "../../src/gateway/message-pipeline.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
-import type { SessionRegistry } from "../../src/session/session-registry.js";
+import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 import type { BillingConfig } from "../../src/gateway/budget-middleware.js";
@@ -15,6 +15,18 @@ import { buildTenantSystemPrompt } from "../../src/tenant/system-prompt-builder.
 const processInboundMessage = processAdmittedTurn;
 
 const originalFetch = globalThis.fetch;
+
+function memoryCandidates(content: string) {
+  return [{
+    kind: "memory" as const,
+    source: "memory-recall:episodic",
+    content,
+    required: false,
+    score: 0.8,
+    memoryRecordId: "memory-test-record",
+    estimatedTokens: Math.max(1, Math.ceil(content.length / 4)),
+  }];
+}
 
 function makeMockSession(): RuntimeSession {
   let _userContext: Record<string, string> | undefined;
@@ -124,6 +136,56 @@ function makeSkillConfig(overrides: Partial<SkillConfig> = {}): SkillConfig {
   };
 }
 
+function makeGovernedWorkPerCallConfig(): NonNullable<AdmittedTurnContext["perCallConfig"]> {
+  return {
+    toolAllowlist: new Set(["work_governance.assess", "work_item.update", "work_item.execution.start", "work_item.execution.finish", "work_item.complete", "managed_agent.invoke"]),
+    perCallCapabilities: new Map([
+      ["work_governance.assess", {
+        name: "work_governance.assess",
+        description: "Assess governed work.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["work_item.update", {
+        name: "work_item.update",
+        description: "Create or update governed work.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["work_item.execution.start", {
+        name: "work_item.execution.start",
+        description: "Start governed execution.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["work_item.execution.finish", {
+        name: "work_item.execution.finish",
+        description: "Finish governed execution.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["work_item.complete", {
+        name: "work_item.complete",
+        description: "Complete governed work.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+      ["managed_agent.invoke", {
+        name: "managed_agent.invoke",
+        description: "Invoke a managed agent.",
+        schema: {},
+        tags: [],
+        annotations: { idempotent: true },
+      }],
+    ]),
+  };
+}
+
 function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): AdmittedTurnContext {
   return {
     orchestrator: makeMockOrchestrator(),
@@ -214,11 +276,89 @@ describe("processAdmittedTurn", () => {
     ]));
   });
 
+  it("publishes persisted completion context usage through the canonical event stream", async () => {
+    const session = makeMockSession();
+    const sessionRegistry = makeMockSessionRegistry(session);
+    const published: Array<readonly Record<string, unknown>[]> = [];
+
+    const result = await processInboundMessage(makeBaseContext({
+      sessionRegistry,
+      perCallConfig: { turnId: `${session.id}:turn:1` },
+      publishCanonicalSessionEvents: (events) => published.push(events),
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(sessionRegistry.save).toHaveBeenCalledTimes(1);
+    expect(published).toHaveLength(1);
+    expect(published[0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "context_usage_observed",
+        turnId: `${session.id}:turn:1`,
+        contextUsage: expect.objectContaining({
+          state: "unavailable",
+          lifecycle: "completed",
+        }),
+      }),
+    ]));
+  });
+
+  it("attributes context usage to the successful retry or fallback route, not the initial route", async () => {
+    const session = makeMockSession();
+    const orchestrator = {
+      processMessage: vi.fn().mockResolvedValue({
+        parts: textParts("retried response"),
+        inputTokens: 2_400,
+        outputTokens: 120,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        providerRequests: [
+          { providerId: "openai", modelId: "gpt-5", inputTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          {
+            providerId: "anthropic",
+            modelId: "claude-sonnet",
+            inputTokens: 2_000,
+            cacheReadTokens: 300,
+            cacheWriteTokens: 100,
+            contextUsage: { cacheSemantics: "additive_to_input", measurement: "provider_reported" },
+          },
+        ],
+      } as unknown as OrchestrateResult),
+      registerTools: vi.fn(),
+      model: "gpt-5",
+    } as unknown as RuntimeSessionOrchestrator;
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      perCallConfig: { turnId: `${session.id}:turn:1` },
+      contextUsageWindow: {
+        providerId: "anthropic",
+        modelId: "claude-sonnet",
+        tokens: 8_000,
+        authority: "provider_reported",
+        freshness: "fresh",
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    expect(session.sessionEvents).toContainEqual(expect.objectContaining({
+      kind: "context_usage_observed",
+      contextUsage: expect.objectContaining({
+        state: "authoritative",
+        providerId: "anthropic",
+        modelId: "claude-sonnet",
+        usedTokens: 2_400,
+        usedPercentage: 30,
+      }),
+    }));
+  });
+
   it("projects visitor context as a separate governed candidate", () => {
     const projected = projectAdmittedTurnContext({
       userContext: undefined,
       cachedRuntimeSummary: undefined,
-      recalledMemory: undefined,
+      recalledMemoryCandidates: undefined,
       knowledgeContext: undefined,
       contactContext: "contact profile",
       visitorContext: "visitor browser state",
@@ -278,6 +418,425 @@ describe("processAdmittedTurn", () => {
 
     expect(result.ok).toBe(true);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("projects an approved context policy through the existing ContextGovernor owner", () => {
+    const projected = projectAdmittedTurnContext({
+      userContext: undefined,
+      cachedRuntimeSummary: undefined,
+      recalledMemoryCandidates: undefined,
+      knowledgeContext: undefined,
+      contactContext: undefined,
+      groundingMode: undefined,
+      proceduralContextCandidates: [{
+        kind: "procedural",
+        source: "adaptation-fixture",
+        content: "unsplit canonical source",
+        score: 0.5,
+        segments: [
+          { id: "segment-a", content: "selected segment A", score: 0.9 },
+          { id: "segment-b", content: "selected segment B", score: 0.8 },
+        ],
+      }],
+      contextPolicy: {
+        policyId: "context-segmented-v1",
+        configurationHash: `sha256:${"a".repeat(64)}`,
+        contextAllocationMode: "segmented",
+      },
+    });
+
+    expect(projected.content).toContain("selected segment A");
+    expect(projected.content).not.toContain("unsplit canonical source");
+    expect(projected.audit?.allocationMode).toBe("segmented");
+  });
+
+  it("keeps lifecycle attribution out of the provider request and task outcome", async () => {
+    const session = makeMockSession();
+    const observedProviderCalls: unknown[] = [];
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async (...args: unknown[]) => {
+        observedProviderCalls.push(args);
+        expect(session.sessionEvents).toEqual([]);
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          canonicalModel: "gpt-5.5",
+          billingMode: "metered",
+          inputTokens: 400,
+          outputTokens: 8,
+          cacheReadTokens: 4,
+          cacheWriteTokens: 0,
+          totalCostUsd: 0.0042,
+          byRoleModel: {},
+          timestamp: new Date("2026-06-30T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("neutral response"),
+          inputTokens: 400,
+          outputTokens: 8,
+          cacheReadTokens: 4,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      recalledMemoryCandidates: memoryCandidates("Relevant durable memory."),
+      knowledgeContext: "Verified knowledge context.",
+      userParts: textParts("Prove request neutrality."),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.parts).toEqual(textParts("neutral response"));
+      expect(result.result.inputTokens).toBe(400);
+      expect(result.result.outputTokens).toBe(8);
+      expect(result.result.cacheReadTokens).toBe(4);
+      expect(result.result.cacheWriteTokens).toBe(0);
+    }
+    expect(observedProviderCalls).toHaveLength(1);
+    expect(observedProviderCalls[0]).toEqual([
+      session,
+      textParts("Prove request neutrality."),
+      expect.objectContaining({
+        content: expect.stringContaining("Relevant durable memory."),
+      }),
+      undefined,
+      undefined,
+    ]);
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "continuity_decided",
+      "cost_updated",
+      "lifecycle_attribution_recorded",
+      "context_usage_observed",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    expect(session.sessionEvents).toContainEqual(expect.objectContaining({
+      kind: "lifecycle_attribution_recorded",
+      ledger: expect.objectContaining({
+        records: expect.arrayContaining([
+          expect.objectContaining({
+            source: "memory",
+            quality: "estimated",
+          }),
+          expect.objectContaining({
+            source: "knowledge",
+            quality: "estimated",
+          }),
+          expect.objectContaining({
+            source: "unknown",
+            providerTokenClass: "input",
+            quality: "unknown",
+          }),
+        ]),
+      }),
+    }));
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "completed",
+    });
+  });
+
+  it("attributes final output from the runtime completion before gateway egress appends sources", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalCostUsd: 0.001,
+          byRoleModel: {},
+          timestamp: new Date("2026-06-30T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("done"),
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          toolExecutions: [{
+            toolName: "web_search",
+            durationMs: 12,
+            success: true,
+            resultSummary: "Found relevant source pages.",
+            metadata: {
+              sources: [{
+                title: "Kiln docs",
+                url: "https://docs.example.com/kiln",
+              }],
+            },
+          }],
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(extractText(result.result.parts)).toContain("https://docs.example.com/kiln");
+    }
+    const attribution = session.sessionEvents.find((event) => event.kind === "lifecycle_attribution_recorded");
+    expect(attribution).toMatchObject({
+      ledger: {
+        records: expect.arrayContaining([
+          expect.objectContaining({
+            source: "final_output",
+            providerTokenClass: "output",
+            tokens: 1,
+            quality: "estimated",
+          }),
+        ]),
+      },
+    });
+    expect(attribution).not.toMatchObject({
+      ledger: {
+        records: expect.arrayContaining([
+          expect.objectContaining({
+            source: "unknown",
+            providerTokenClass: "output",
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("persists cost and lifecycle attribution when post-provider voice synthesis fails", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalCostUsd: 0.001,
+          byRoleModel: {},
+          timestamp: new Date("2026-06-30T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("done"),
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const ttsAdapter: TtsAdapter = {
+      name: "failing-tts",
+      synthesize: vi.fn().mockRejectedValue(new Error("TTS unavailable")),
+    };
+    const abort = vi.fn();
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      voiceConfig: {
+        tts: { provider: "failing-tts", command: "failing-tts" },
+        policy: {
+          surfaces: {
+            api: {
+              enabled: true,
+              output: { modes: ["audio-response"], failureMode: "fail-closed" },
+            },
+          },
+        },
+      },
+      ttsAdapter,
+      turnCapture: { abort },
+    }))).rejects.toThrow("TTS unavailable");
+
+    expect(abort).toHaveBeenCalledWith(session.id);
+    expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+      "turn_started",
+      "user_message",
+      "continuity_decided",
+      "cost_updated",
+      "lifecycle_attribution_recorded",
+      "error_recorded",
+      "assistant_message",
+      "turn_completed",
+    ]);
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "failed",
+    });
+  });
+
+  it("does not append a second failed canonical turn when saving completed events fails", async () => {
+    const session = makeMockSession();
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "cost_update",
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          totalCostUsd: 0.001,
+          byRoleModel: {},
+          timestamp: new Date("2026-06-30T12:00:01.000Z"),
+          sessionId: session.id,
+        });
+        return {
+          parts: textParts("done"),
+          inputTokens: 10,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+        } satisfies OrchestrateResult;
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const sessionRegistry = makeMockSessionRegistry(session);
+    (sessionRegistry.save as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("store down"));
+    const abort = vi.fn();
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      turnCapture: { abort },
+    }))).rejects.toThrow("store down");
+
+    expect(sessionRegistry.save).toHaveBeenCalledTimes(1);
+    expect(abort).toHaveBeenCalledWith(session.id);
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_started")).toHaveLength(1);
+    expect(session.sessionEvents.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "completed",
+    });
+  });
+
+  it("records an operator-aborted turn as cancelled without an error event", async () => {
+    const session = makeMockSession();
+    const controller = new AbortController();
+    controller.abort("Operator cancelled the turn.");
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "error",
+          code: "EXECUTABLE_SESSION_ERROR",
+          message: "Operation aborted",
+          taskId: null,
+          timestamp: new Date("2026-07-16T01:47:57.582Z"),
+          sessionId: session.id,
+        });
+        throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+    const publishCanonicalSessionEvents = vi.fn();
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      perCallConfig: { abortSignal: controller.signal },
+      publishCanonicalSessionEvents,
+    }))).rejects.toThrow("aborted before completion");
+
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "cancelled",
+    });
+    expect(session.sessionEvents.some((event) => event.kind === "error_recorded")).toBe(false);
+    expect(publishCanonicalSessionEvents).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ kind: "turn_completed", outcome: "cancelled" }),
+    ]));
+  });
+
+  it("preserves non-cancellation failures that occurred before an operator abort", async () => {
+    const session = makeMockSession();
+    const controller = new AbortController();
+    controller.abort("Operator cancelled the turn.");
+    const eventBus = new EventBus();
+    const orchestrator = {
+      processMessage: vi.fn().mockImplementation(async () => {
+        eventBus.emit({
+          type: "error",
+          code: "TOOL_EXECUTION_FAILED",
+          message: "Read failed before cancellation",
+          taskId: null,
+          timestamp: new Date("2026-07-16T01:47:56.000Z"),
+          sessionId: session.id,
+        });
+        eventBus.emit({
+          type: "error",
+          code: "EXECUTABLE_SESSION_ERROR",
+          message: "Operation aborted",
+          taskId: null,
+          timestamp: new Date("2026-07-16T01:47:57.582Z"),
+          sessionId: session.id,
+        });
+        throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
+      }),
+      registerTools: vi.fn(),
+      model: "gpt-5.5",
+      eventBus,
+    } as unknown as RuntimeSessionOrchestrator;
+
+    await expect(processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+      perCallConfig: { abortSignal: controller.signal },
+    }))).rejects.toThrow("aborted before completion");
+
+    expect(session.sessionEvents.filter((event) => event.kind === "error_recorded")).toEqual([
+      expect.objectContaining({
+        kind: "error_recorded",
+        errorCode: "TOOL_EXECUTION_FAILED",
+        message: "Read failed before cancellation",
+      }),
+    ]);
+    expect(session.sessionEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "cancelled",
+    });
   });
 
   it("captures inbound multimodal parts as replayable artifacts before runtime orchestration", async () => {
@@ -989,7 +1548,7 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
-      recalledMemory: "Previous context here.",
+      recalledMemoryCandidates: memoryCandidates("Previous context here."),
     });
 
     await processInboundMessage(ctx);
@@ -1106,7 +1665,7 @@ describe("processAdmittedTurn", () => {
         integrationAuthorityRollup: undefined,
         toolAllowlist,
         rateLimiter,
-        maxToolRounds: undefined,
+        executionEnvelope: undefined,
       },
       activeAgentId: "agent-support",
       activeAgentName: "Support Agent",
@@ -1180,7 +1739,7 @@ describe("processAdmittedTurn", () => {
       orchestrator,
       sessionRegistry,
       userContext: { role: "admin" },
-      recalledMemory: "Previous context here.",
+      recalledMemoryCandidates: memoryCandidates("Previous context here."),
     });
 
     await processInboundMessage(ctx);
@@ -1197,7 +1756,7 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
-      recalledMemory: "Previous context here.",
+      recalledMemoryCandidates: memoryCandidates("Previous context here."),
     });
 
     await processInboundMessage(ctx);
@@ -1227,7 +1786,7 @@ describe("processAdmittedTurn", () => {
       orchestrator,
       sessionRegistry,
       userContext: { role: "admin" },
-      recalledMemory: "recalled memory",
+      recalledMemoryCandidates: memoryCandidates("recalled memory"),
       knowledgeContext: "knowledge context",
       contactContext: "contact context",
       groundingMode: "strict",
@@ -1271,7 +1830,7 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
-      recalledMemory: oversizedMemory,
+      recalledMemoryCandidates: memoryCandidates(oversizedMemory),
       knowledgeContext: "compact knowledge context",
     });
 
@@ -1291,7 +1850,7 @@ describe("processAdmittedTurn", () => {
       });
       expect(result.result.contextAudit?.blocks.some((block) => (
         block.decision === "deferred"
-        && block.source === "runtime-recalled-memory"
+        && block.source === "memory-recall:episodic"
         && block.reason === "budget-cap"
       ))).toBe(true);
     }
@@ -1363,67 +1922,65 @@ describe("processAdmittedTurn", () => {
     expect(governedContextContent).toContain("Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.");
   });
 
-  it("adds governed work closeout guidance for executable turns", async () => {
+  it("adds governed work closeout guidance for executable work requests", async () => {
     const orchestrator = makeMockOrchestrator();
 
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
+      userParts: textParts("Fix the governed runtime closeout behavior."),
       requestedAuthority: "auto",
-      perCallConfig: {
-        toolAllowlist: new Set(["work_governance.assess", "work_item.update", "work_item.execution.start", "work_item.execution.finish", "work_item.complete", "managed_agent.invoke"]),
-        perCallCapabilities: new Map([
-          ["work_governance.assess", {
-            name: "work_governance.assess",
-            description: "Assess governed work.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["work_item.update", {
-            name: "work_item.update",
-            description: "Create or update governed work.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["work_item.execution.start", {
-            name: "work_item.execution.start",
-            description: "Start governed execution.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["work_item.execution.finish", {
-            name: "work_item.execution.finish",
-            description: "Finish governed execution.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["work_item.complete", {
-            name: "work_item.complete",
-            description: "Complete governed work.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-          ["managed_agent.invoke", {
-            name: "managed_agent.invoke",
-            description: "Invoke a managed agent.",
-            schema: {},
-            tags: [],
-            annotations: { idempotent: true },
-          }],
-        ]),
-      },
+      perCallConfig: makeGovernedWorkPerCallConfig(),
     }));
 
     expect(result.ok).toBe(true);
     const governedContextContent = getGovernedContextContent(orchestrator);
     expect(governedContextContent).toContain("Governed work closeout:");
-    expect(governedContextContent).toContain("Do not end an execute-mode governed turn after only research, inspection, planning prose, or a read-only scout.");
+    expect(governedContextContent).toContain("Use shared work tools for operator-requested implementation, refactoring, mutation, commit, or other executable governed work.");
     expect(governedContextContent).toContain("After a successful managed_agent.invoke for an open work item, continue with the same work item until it is started, finished, completed, or explicitly blocked with a pause requirement.");
     expect(governedContextContent).toContain("A pending, in_progress, or blocked work item without terminal closeout projects as failed in CLI, TUI, and GUI.");
+  });
+
+  it("keeps governed work closeout guidance out of research-only executable turns", async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      userParts: textParts("Investigate web best practices and compare other harnesses."),
+      requestedAuthority: "auto",
+      perCallConfig: makeGovernedWorkPerCallConfig(),
+    }));
+
+    expect(result.ok).toBe(true);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).not.toContain("Governed work closeout:");
+    expect(governedContextContent).not.toContain("Materialize governed work with the shared work tools");
+  });
+
+  it("adds web source attribution guidance when web tools are available", async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      perCallConfig: {
+        toolAllowlist: new Set(["web_search"]),
+        perCallCapabilities: new Map([[
+          "web_search",
+          {
+            name: "web_search",
+            description: "Search the web.",
+            schema: {},
+            tags: [],
+            annotations: { idempotent: true },
+          },
+        ]]),
+      },
+    }));
+
+    expect(result.ok).toBe(true);
+    const governedContextContent = getGovernedContextContent(orchestrator);
+    expect(governedContextContent).toContain("Web source attribution:");
+    expect(governedContextContent).toContain("include a final sources section with the exact source URLs used");
+    expect(governedContextContent).toContain("user-facing answers must carry the relevant URLs directly");
   });
 
   it("defers oversized active skills under budget pressure and records the procedural deferral in contextAudit", async () => {
@@ -1634,7 +2191,7 @@ describe("processAdmittedTurn", () => {
       ...makeBaseContext({
         orchestrator,
         sessionRegistry,
-        recalledMemory: "safe recalled memory",
+        recalledMemoryCandidates: memoryCandidates("safe recalled memory"),
       }),
       coordinationContextProvider,
     } as AdmittedTurnContext;
@@ -1672,7 +2229,7 @@ describe("processAdmittedTurn", () => {
       ...makeBaseContext({
         orchestrator,
         sessionRegistry,
-        recalledMemory: "safe recalled memory",
+        recalledMemoryCandidates: memoryCandidates("safe recalled memory"),
       }),
       coordinationContextProvider,
     } as AdmittedTurnContext;
@@ -2356,6 +2913,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_called",
+          toolCallId: "tool-write",
           toolName: "write",
           toolInput: { filePath: "src/demo.txt", content: "hello" },
           timestamp: new Date("2026-04-23T19:00:02.000Z"),
@@ -2363,6 +2921,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-write",
           toolName: "write",
           durationMs: 12,
           success: true,
@@ -2377,6 +2936,7 @@ describe("processAdmittedTurn", () => {
           inputTokens: 10,
           outputTokens: 5,
           cacheReadTokens: 0,
+          cacheWriteTokens: 0,
           totalCostUsd: 0,
           byRoleModel: {},
           timestamp: new Date("2026-04-23T19:00:04.000Z"),
@@ -2397,21 +2957,19 @@ describe("processAdmittedTurn", () => {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           queued: false,
-          toolExecutions: [{
-            toolName: "write",
-            durationMs: 12,
-            success: true,
-            resultSummary: "Wrote src/demo.txt",
-            fileChanges: [{ path: "src/demo.txt", changeType: "modified", linesAdded: 3, linesRemoved: 1 }],
-          }],
         } satisfies OrchestrateResult;
       }),
       model: "gpt-5.4-mini",
       eventBus,
     } as unknown as RuntimeSessionOrchestrator;
     const sessionRegistry = makeMockSessionRegistry(session);
+    const contextArtifactCache = new InMemoryContextArtifactCache();
 
-    const result = await processInboundMessage(makeBaseContext({ orchestrator, sessionRegistry }));
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry,
+      contextArtifactCache,
+    }));
 
     expect(result.ok).toBe(true);
     const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
@@ -2423,12 +2981,13 @@ describe("processAdmittedTurn", () => {
       "tool_call_started",
       "tool_call_completed",
       "cost_updated",
+      "lifecycle_attribution_recorded",
       "error_recorded",
-      "file_changed",
+      "context_usage_observed",
       "assistant_message",
       "turn_completed",
     ]);
-    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(ledger.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(ledger[3]).toMatchObject({
       kind: "provider_routed",
       provider: {
@@ -2441,19 +3000,25 @@ describe("processAdmittedTurn", () => {
       toolName: "write",
       input: { filePath: "src/demo.txt", content: "hello" },
     });
-    expect(ledger[8]).toMatchObject({
-      kind: "file_changed",
-      change: {
-        path: "src/demo.txt",
-        changeType: "updated",
-        linesAdded: 3,
-        linesRemoved: 1,
-      },
+    expect(ledger[7]).toMatchObject({
+      kind: "lifecycle_attribution_recorded",
+      parentEventId: ledger[6]?.eventId,
+      summary: expect.objectContaining({
+        totalTokens: 15,
+      }),
     });
-    expect(ledger[9]).toMatchObject({
+    expect(ledger[10]).toMatchObject({
       kind: "assistant_message",
       content: "done",
     });
+    if (result.ok) {
+      expect(result.result.toolExecutions).toEqual([expect.objectContaining({
+        toolName: "write",
+        resultSummary: "Wrote src/demo.txt",
+      })]);
+    }
+    const continuityOutcome = contextArtifactCache.listByKind("runtime-continuity-outcome")[0];
+    expect(continuityOutcome?.content).toContain("tools=1");
   });
 
   it("marks the canonical turn failed when managed delegation fails before execution starts", async () => {
@@ -2463,6 +3028,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-work-start-failed",
           toolName: "work_item.execution.start",
           durationMs: 120000,
           success: false,
@@ -2539,11 +3105,37 @@ describe("processAdmittedTurn", () => {
     });
   });
 
-  it("marks the canonical turn failed when orchestration is recommended but no governed work is materialized", async () => {
+  it("marks the canonical turn paused when an explicit runtime tool-round budget is exhausted", async () => {
     const session = makeMockSession();
     const orchestrator = makeMockOrchestrator();
     (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
-      parts: textParts("I mapped the surfaces and will create a plan next."),
+      parts: textParts("Implementation remains incomplete after the tool-round limit."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      stopReason: "tool_round_budget_exhausted",
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      outcome: "paused",
+    });
+  });
+
+  it("does not fail the canonical turn only because governance recommended orchestration", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("I mapped the surfaces and reported the architecture recommendation."),
       inputTokens: 10,
       outputTokens: 5,
       cacheReadTokens: 0,
@@ -2588,7 +3180,7 @@ describe("processAdmittedTurn", () => {
     const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
     expect(ledger.at(-1)).toMatchObject({
       kind: "turn_completed",
-      outcome: "failed",
+      outcome: "completed",
     });
   });
 
@@ -2758,6 +3350,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-assess",
           toolName: "work_governance.assess",
           durationMs: 2,
           success: true,
@@ -2769,6 +3362,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-work-item-update",
           toolName: "work_item.update",
           durationMs: 2,
           success: true,
@@ -2794,6 +3388,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-managed-scout",
           toolName: "managed_agent.invoke",
           durationMs: 31000,
           success: true,
@@ -2839,6 +3434,7 @@ describe("processAdmittedTurn", () => {
   it("marks the canonical turn failed when open governed work without closeout is reported through surface capture", async () => {
     const session = makeMockSession();
     const orchestrator = makeMockOrchestrator();
+    const contextArtifactCache = new InMemoryContextArtifactCache();
     (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
       parts: textParts("Created work-1 and completed read-only scouting. Continuing with repository inspection next."),
       inputTokens: 10,
@@ -2851,6 +3447,7 @@ describe("processAdmittedTurn", () => {
     const result = await processInboundMessage(makeBaseContext({
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
+      contextArtifactCache,
       turnCapture: {
         finish: () => ({
           toolCompletions: [
@@ -2897,11 +3494,21 @@ describe("processAdmittedTurn", () => {
     }));
 
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.result.toolExecutions).toHaveLength(3);
+      expect(result.result.toolExecutions?.map((execution) => execution.toolName)).toEqual([
+        "work_governance.assess",
+        "work_item.update",
+        "managed_agent.invoke",
+      ]);
+    }
     const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
     expect(ledger.at(-1)).toMatchObject({
       kind: "turn_completed",
       outcome: "failed",
     });
+    const continuityOutcome = contextArtifactCache.listByKind("runtime-continuity-outcome")[0];
+    expect(continuityOutcome?.content).toContain("tools=3");
   });
 
   it("marks the canonical turn failed when governed work remains blocked by a pending pause requirement", async () => {
@@ -3001,6 +3608,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-work-start-paused",
           toolName: "work_item.execution.start",
           durationMs: 2,
           success: false,
@@ -3017,6 +3625,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallId: "tool-managed-scout",
           toolName: "managed_agent.invoke",
           durationMs: 31000,
           success: true,
@@ -3122,6 +3731,89 @@ describe("processAdmittedTurn", () => {
     const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
     expect(assistantMessage).toMatchObject({
       content: expect.not.stringContaining("to=functions.web_fetch"),
+    });
+  });
+
+  it("appends web source URLs to assistant egress when web tools informed the turn", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Research summary without visible links."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolName: "web_search",
+        durationMs: 12,
+        success: true,
+        resultSummary: "Found relevant source pages.",
+        metadata: {
+          sources: [{
+            title: "Kiln docs",
+            url: "https://docs.example.com/kiln",
+          }],
+        },
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const responseText = extractText(result.result.parts);
+      expect(responseText).toContain("Research summary without visible links.");
+      expect(responseText).toContain("## Fuentes");
+      expect(responseText).toContain("- Kiln docs: https://docs.example.com/kiln");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: expect.stringContaining("https://docs.example.com/kiln"),
+    });
+  });
+
+  it("does not append duplicate web source sections when assistant egress already contains the source URL", async () => {
+    const session = makeMockSession();
+    const orchestrator = makeMockOrchestrator();
+    (orchestrator.processMessage as ReturnType<typeof vi.fn>).mockResolvedValue({
+      parts: textParts("Research summary with https://docs.example.com/kiln included."),
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      toolExecutions: [{
+        toolName: "web_search",
+        durationMs: 12,
+        success: true,
+        resultSummary: "Found relevant source pages.",
+        metadata: {
+          sources: [{
+            title: "Extra source",
+            url: "https://docs.example.com/kiln",
+          }],
+        },
+      }],
+    } satisfies OrchestrateResult);
+
+    const result = await processInboundMessage(makeBaseContext({
+      orchestrator,
+      sessionRegistry: makeMockSessionRegistry(session),
+    }));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const responseText = extractText(result.result.parts);
+      expect(responseText).toContain("https://docs.example.com/kiln");
+      expect(responseText).not.toContain("## Fuentes");
+    }
+    const assistantMessage = session.sessionEvents.find((event) => event.kind === "assistant_message");
+    expect(assistantMessage).toMatchObject({
+      content: expect.not.stringContaining("## Fuentes"),
     });
   });
 
@@ -3238,6 +3930,7 @@ describe("processAdmittedTurn", () => {
         processMessage: vi.fn().mockImplementation(async () => {
           eventBus.emit({
             type: "tool_result",
+            toolCallId: `tool-managed-${status}`,
             toolName: "managed_agent.invoke",
             durationMs: 120000,
             success: false,

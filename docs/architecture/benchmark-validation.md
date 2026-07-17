@@ -62,6 +62,7 @@ measurement surfaces, not operator personalization profiles:
 | --- | --- | --- | --- |
 | `kiln-tool-agent` | `tool-calling` | Structured tool/function-call correctness under Kiln authority. | BFCL, tau-style workflows |
 | `kiln-managed-child-agent` | `managed-child` | Governed child invocation, route selection, handoff quality, and evidence preservation. | tau-style workflows, AgentDojo |
+| `kiln-managed-frontend-team` | `managed-team` | Specialist composition, dependency handoffs, independent route evidence, and the evidence required for a later paired team-versus-individual comparison. | tau-style workflows |
 | `kiln-managed-coding-agent` | `managed-coding` | Bounded coding with approved authority, tests, rollback evidence, and replayable handoff. | Terminal-Bench, SWE-bench-style tracks |
 | `kiln-safety-agent` | `safety` | Prompt-injection resistance, policy preservation, and utility. | AgentDojo |
 
@@ -75,9 +76,11 @@ Each profile declares:
 - reproducibility requirements
 - candidate external benchmark tracks
 
-The runtime may expose operator-specific agents such as `architect`, `coder`,
-or `reviewer`, but benchmark-facing profiles remain separate so public results
-do not depend on a user's personal roster.
+The runtime may expose operator-specific agents such as `frontend-producer`,
+`frontend-implementation-advisor`, or `react-ts-reviewer`, but benchmark-facing
+profiles remain separate. Team promotion requires a paired individual-agent
+baseline under the same fixture, authority, dataset, and scorer set; a team is
+not preferred merely because it contains more models.
 
 ## Internal Baseline Gate
 
@@ -88,19 +91,49 @@ exists for the exact profile id and version and includes:
 - `passAtK` greater than or equal to the profile threshold
 - every required scorer
 - at least one result artifact URI
+- typed evidence artifacts for result, transcript, tool calls, diagnostics,
+  usage, route, and cost
 - a config hash
 - a dataset version
+
+Every current benchmark profile also requires `execution-integrity`. This
+structural scorer fails closed unless the session reached a successful terminal
+state, resolved a provider and model identity, and recorded no policy violation
+or failed route attempt. Expected tool calls made before a provider error, or by
+a fallback route that contaminates a fixed-route comparison, cannot make the
+item pass. Adding this invariant advanced the tool-agent profile to version 3
+and the managed-child, managed-coding, and safety profiles to version 2;
+baselines from earlier profile versions are diagnostic history, not readiness
+evidence.
 
 Missing evidence blocks readiness. This is intentionally stricter than ordinary
 development evals because public benchmark claims must survive replay and audit.
 
 Internal baseline execution uses `BenchmarkBaselineRunner` plus the normal Kiln
-runtime session path. The runner owns pass^k, scorer application, and artifact
-emission; the CLI/runtime adapter owns provider routing, context projection,
-tool metadata capture, and config hashing. Internal baseline scorers are
+runtime session path. The runner owns pass^k, scorer application, and typed
+artifact emission; the CLI/runtime adapter owns provider routing, context
+projection, tool metadata capture, and config hashing. Internal baseline scorers are
 structural evidence checks, not hidden LLM judges: they score only Kiln-observed
 evidence such as tool calls, route identity, handoff output, policy violations,
 latency, and cost.
+
+The baseline artifact set is intentionally typed. `artifactUris` remains the
+flat URI list for report tables, while `evidenceArtifacts` preserves the
+artifact kind for replay and readiness checks:
+
+| Kind | Required evidence |
+| --- | --- |
+| `result` | Full baseline result, pass^k consistency, scorer output, config hash, dataset version, and manifest of supporting artifacts. |
+| `transcript` | Per-run and per-item assistant outputs used by scorers. |
+| `tool-calls` | Kiln-observed tool calls and managed invocation evidence. |
+| `diagnostics` | Policy violations, route failures, and benchmark/session diagnostics. |
+| `usage` | Duration and token usage by run and item. |
+| `route` | Provider/model identity and route evidence when observable. |
+| `cost` | Charged cost and comparable/non-comparable economic evidence. |
+
+A baseline missing any required evidence kind is blocked. A subscription route
+may report zero charged cost, but it is not comparable metered-cost evidence
+unless the cost evidence explicitly classifies it as comparable.
 
 The BFCL adapter is a projection adapter. It converts supported BFCL rows into
 Kiln `DatasetItem` records with `expectedToolCalls` metadata. Unsupported row
@@ -184,6 +217,34 @@ invocation, replay, and evidence.
 `BenchmarkBaselineResult` records, computes readiness, and renders markdown with
 profile, dataset, pass^k, scorer, artifact, external-track, issue, and
 limitation sections.
+
+Internal profile readiness is not publication readiness. Every generated
+benchmark report also carries the `verified-efficiency-publication-manifest-v1`
+gate. Missing or invalid publication evidence blocks public claims even when a
+profile or external adapter is internally ready. The gate resolves and hashes
+repository-contained methodology, fixture, limitation, and report files and
+requires exact runtime identity, paired design, confidence, failed and omitted
+cases, commands, dependencies, quality, verification, and economic
+comparability. Claim-bearing artifacts must match the same bytes in the
+declared Git tree. The strict paired report copies the complete execution
+identity and binds every pair to task-definition, baseline/candidate input, and
+arm-specific execution-envelope hashes. It also binds the complete baseline
+array rendered by `generateBenchmarkPublicReport` using canonical JSON and
+SHA-256. Those fields are cross-checked against the fixture; paired-input
+identity, non-inferiority, category reconciliation, improvement, hard
+invariants, and the supported lower bound are derived from report content. A
+valid manifest beside unrelated baseline data is downgraded to `blocked`, and
+the gated claim text is printed in the report. Structurally malformed or
+syntactically invalid manifest JSON produces a blocked report with explicit
+issues instead of escaping the publication boundary.
+`--publication-manifest` supplies this evidence to `kiln benchmark report`;
+`--repository-root` identifies the root for artifact and Git-tree resolution
+when the command is not run from the repository root.
+
+The reference bundle under `docs/benchmarks/verified-efficiency-v1/` makes no
+performance claim. Its expected result is `internal-evidence-only`, which
+proves the gate and disclosure contract without presenting synthetic values as
+provider, model, or harness performance.
 
 ## Research Inputs
 

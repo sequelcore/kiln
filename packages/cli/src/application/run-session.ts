@@ -1,4 +1,3 @@
-import type { PersistedTranscriptEvent } from "@kilnai/core";
 import type { ReasoningEffort } from "@kilnai/core";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
@@ -8,11 +7,17 @@ import type {
   ApprovalMatchQuery,
   ApprovalMemoryRecord,
 } from "../wrapper/index.js";
+import {
+  resolveExecutionCostEvidence,
+  type ExecutionCostEvidence,
+  type ProviderRequestEvidence,
+} from "@kilnai/core";
 import { createPermissionEvaluator } from "../wrapper/index.js";
 import type {
   ProviderCreateConfig,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
+import type { SessionRunOptions } from "../wrapper/session.js";
 import type { PersistedProviderTokenUsage } from "../wrapper/session-store.js";
 import { isDirectApiProvider } from "../wrapper/session-registry.js";
 import type { CleanupRegistry } from "../wrapper/cleanup-registry.js";
@@ -22,6 +27,13 @@ import { normalizeMcpSelector } from "../wrapper/mcp-selector.js";
 import { SessionHooks } from "./session-hooks.js";
 import { governSessionContext } from "./context-governance.js";
 import type { RunOutputSink } from "./run-output.js";
+import type { OperatorTranscriptEntryEvent } from "./operator-transcript-projection.js";
+
+export interface RunSessionTranscriptEvent {
+  readonly seq: number;
+  readonly ts: string;
+  readonly event: OperatorTranscriptEntryEvent;
+}
 
 export interface RunSessionOptions {
   readonly registry: SessionRegistry;
@@ -39,6 +51,7 @@ export interface RunSessionOptions {
   readonly sessionHooks: SessionHooks;
   readonly abortSignal?: AbortSignal;
   readonly output?: RunOutputSink;
+  readonly requestApproval?: SessionRunOptions["requestApproval"];
 }
 
 export interface RunSessionRouteCandidate {
@@ -61,17 +74,19 @@ export interface ApprovalMemoryLookup {
 
 export interface RunSessionResult {
   readonly finalCostUsd: number;
+  readonly finalCostEvidence: ExecutionCostEvidence;
   readonly sessionSucceeded: boolean;
   readonly lastError: string | null;
   readonly accumulatedText: string;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  readonly providerRequests: readonly ProviderRequestEvidence[];
   readonly toolCallCount: number;
   readonly turnDepth: number;
   readonly successfulProviderId?: ProviderId;
   readonly successfulModelId?: string;
   readonly attempts: readonly RunSessionAttemptResult[];
-  readonly transcript: PersistedTranscriptEvent[];
+  readonly transcript: RunSessionTranscriptEvent[];
   readonly providersUsed: readonly string[];
   readonly providerTokenUsage: readonly PersistedProviderTokenUsage[];
   readonly exactArtifacts: readonly string[];
@@ -95,11 +110,19 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       })()).map((provider) => ({ provider }));
 
   let finalCostUsd = 0;
+  let finalCostEvidence: ExecutionCostEvidence = {
+    kind: "unknown",
+    currency: "unknown",
+    amountUsd: 0,
+    comparable: false,
+    reason: "metered pricing is missing for provider/model",
+  };
   let sessionSucceeded = false;
   let lastError: string | null = null;
   let accumulatedText = "";
   let inputTokens = 0;
   let outputTokens = 0;
+  let providerRequests: readonly ProviderRequestEvidence[] = [];
   let toolCallCount = 0;
   let turnDepth = 0;
   let successfulProviderId: ProviderId | undefined;
@@ -107,14 +130,13 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   const providerTokenUsage = new Map<string, PersistedProviderTokenUsage>();
   const providersUsed = new Set<string>();
   const attempts: RunSessionAttemptResult[] = [];
-  const transcript: PersistedTranscriptEvent[] = [];
+  const transcript: RunSessionTranscriptEvent[] = [];
   const exactArtifacts = new Set<string>();
   let submittedPlan: string | undefined;
   let transcriptSeq = 0;
   let isFirstDeltaOfTurn = false;
   let awaitingTurnStart = true;
   let lastToolName: string | undefined;
-
   for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
     const candidate = candidates[candidateIndex]!;
     const providerId = candidate.provider;
@@ -130,6 +152,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
     let attemptError: string | null = null;
+    const pendingToolEvidence: Array<{
+      readonly toolCallId?: string;
+      readonly toolName: string;
+      readonly command?: string;
+      readonly filePath?: string;
+    }> = [];
     const accumulatedTextBeforeAttempt = accumulatedText.length;
 
     const session = options.registry.createSession(providerId, effectiveSessionConfig);
@@ -144,6 +172,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         abortSignal: options.abortSignal,
         reasoningEffort: candidateReasoningEffort,
         requestedAuthority: options.sessionConfig.requestedAuthority,
+        requestApproval: options.requestApproval,
       })) {
         switch (event.type) {
           case "text_delta": {
@@ -219,9 +248,6 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
             const isBashLikeTool = event.toolName === "Bash" || event.toolName === "bash";
             const command = extractCommandFromToolInput(event.input);
-            if (command !== undefined) {
-              exactArtifacts.add(`Command executed: ${command}`);
-            }
             let matchedCommandApprovalMemory: ApprovalMemoryRecord | null = null;
             if (isBashLikeTool && command !== undefined) {
               const commandDecision = permissionEvaluator.evaluateCommand(command, "bash");
@@ -249,9 +275,6 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
 
             const filePath = extractFilePathFromToolInput(event.input);
-            if (filePath !== undefined) {
-              exactArtifacts.add(`File path touched: ${filePath}`);
-            }
             if (filePath !== undefined) {
               const fileDecision = permissionEvaluator.evaluateFile(filePath);
               if (fileDecision.action === "deny") {
@@ -331,14 +354,43 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
             toolCallCount++;
             lastToolName = event.toolName;
+            pendingToolEvidence.push({
+              ...(event.toolCallId ? { toolCallId: event.toolCallId } : {}),
+              toolName: event.toolName,
+              ...(command ? { command } : {}),
+              ...(filePath ? { filePath } : {}),
+            });
             options.sessionHooks.preToolUse(event.toolName);
             break;
           }
           case "tool_result": {
+            const pendingEvidenceIndex = pendingToolEvidence.findIndex((candidate) =>
+              event.toolCallId
+                ? candidate.toolCallId === event.toolCallId
+                : candidate.toolName.toLowerCase() === event.toolName.toLowerCase());
+            const pendingEvidence = pendingEvidenceIndex >= 0
+              ? pendingToolEvidence.splice(pendingEvidenceIndex, 1)[0]
+              : undefined;
+            if (!event.isError && pendingEvidence) {
+              if (pendingEvidence.command) {
+                exactArtifacts.add(`Command executed: ${pendingEvidence.command}`);
+              }
+              if (pendingEvidence.filePath) {
+                const access = isFileMutationTool(pendingEvidence.toolName) ? "modified" : "inspected";
+                exactArtifacts.add(`File ${access}: ${pendingEvidence.filePath}`);
+              }
+            }
             transcript.push({
               seq: ++transcriptSeq,
               ts: new Date().toISOString(),
-              event: { type: "tool_result" },
+              event: {
+                type: "tool_result",
+                toolName: event.toolName,
+                output: event.output,
+                ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
+                ...(event.toolCallId !== undefined ? { toolCallId: event.toolCallId } : {}),
+                ...(event.isError !== undefined ? { isError: event.isError } : {}),
+              },
             });
             isFirstDeltaOfTurn = true;
             awaitingTurnStart = true;
@@ -347,17 +399,37 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             }
             break;
           }
+          case "tool_output_delta": {
+            if (options.output) {
+              options.output.writeToolOutputDelta(event.delta);
+            } else {
+              process.stderr.write(event.delta);
+            }
+            break;
+          }
           case "cost_update": {
             finalCostUsd = event.usd;
             inputTokens = event.inputTokens ?? inputTokens;
             outputTokens = event.outputTokens ?? outputTokens;
+            providerRequests = event.providerRequests ?? providerRequests;
+            finalCostEvidence = event.costEvidence ?? resolveExecutionCostEvidence({
+              inputTokens: event.inputTokens ?? 0,
+              outputTokens: event.outputTokens ?? 0,
+              cacheReadTokens: event.cacheReadTokens ?? 0,
+              cacheWriteTokens: event.cacheWriteTokens ?? 0,
+            }, {
+              provider: event.provider ?? providerId,
+              model: event.model ?? effectiveSessionConfig.model,
+              canonicalModel: event.canonicalModel,
+              billingMode: event.billingMode,
+            });
             recordProviderTokenUsage(providerTokenUsage, {
               provider: event.provider ?? providerId,
               ...(event.model ? { model: event.model } : {}),
               inputTokens: event.inputTokens ?? 0,
               outputTokens: event.outputTokens ?? 0,
               cacheReadTokens: event.cacheReadTokens ?? 0,
-              cacheWriteTokens: 0,
+              cacheWriteTokens: event.cacheWriteTokens ?? 0,
             });
             options.manager.trackCostUpdate(
               event.inputTokens ?? 0,
@@ -437,11 +509,13 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
   return {
     finalCostUsd,
+    finalCostEvidence,
     sessionSucceeded,
     lastError,
     accumulatedText,
     inputTokens,
     outputTokens,
+    providerRequests,
     toolCallCount,
     turnDepth,
     successfulProviderId,
@@ -482,6 +556,10 @@ function extractFilePathFromToolInput(input: unknown): string | undefined {
   if (typeof withPath.filePath === "string") return withPath.filePath;
   if (typeof withPath.path === "string") return withPath.path;
   return undefined;
+}
+
+function isFileMutationTool(toolName: string): boolean {
+  return /^(write|edit|apply_patch|delete|move|copy)$/i.test(toolName);
 }
 
 function extractPlanFromToolInput(input: unknown): string | undefined {

@@ -16,7 +16,7 @@ import { CredentialPoolObservabilityRegistry } from "../../src/agents/credential
 import { ChannelRegistry } from "../../src/channels/channel-registry.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
-import { SessionRegistry } from "../../src/session/session-registry.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { App, EventBus, ProviderAdapter, RuntimeModeConfig, SttAdapter, TenantConfig, VoiceConfig } from "@kilnai/core";

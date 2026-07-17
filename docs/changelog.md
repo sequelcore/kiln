@@ -6,64 +6,37 @@ baseline. Active and deferred execution tracks live in
 [`docs/architecture/`](architecture/README.md); curated release notes live in
 [`docs/releases/`](releases/README.md).
 
+## Unreleased - 3.0.0-beta.1 candidate
+
+This section describes the current prerelease candidate in the repository. It
+is not a publication record. Kiln `2.1.0` remains the supported public package
+line until the beta tag, package graph, publish workflow, and registry evidence
+have all been verified.
+
+- Extended managed-agent execution with background and parallel lifecycle
+  evidence, bounded result resources, recovery, dependency-aware orchestration,
+  and governed heterogeneous teams.
+- Added provider-neutral route eligibility, trusted-execution evidence, and
+  action-effect governance across direct-provider and native-harness paths.
+- Added an operator workspace projection, target-aware resource inspection, and
+  shared managed-execution evidence for CLI, GUI, and TUI surfaces.
+- Improved GUI execution continuity with canonical activity ownership,
+  structured tool output, long-thread navigation, restored-session
+  deduplication, and reduced-motion behavior.
+- Added deterministic CLI output contracts and provider-neutral benchmark,
+  efficiency, cost, and verification evidence.
+- Added governed native developer-tool resolution for `rg`, `fd`, and `jq`.
+
+Candidate details and unresolved promotion gates are recorded in
+[`docs/releases/3.0.0-beta.1.md`](releases/3.0.0-beta.1.md). The release
+procedure is defined in
+[`docs/operations/release.md`](operations/release.md).
+
 ## v2.1.0
 
-- Replaced internal tool annotation authority with canonical action-effect
-  governance: builtin tools now declare immutable effect envelopes, concrete
-  calls resolve input-sensitive invocation effects before authority, external
-  MCP hints remain untrusted presentation metadata, fallback tools authorize
-  independently, and runtime evidence records resolved effect plus authority.
-- Persisted terminal `agent_invocation_*` events for background
-  `managed_agent.start` children as soon as runtime finalization completes, so
-  GUI/TUI transcripts and replay no longer depend on a later join or cancel
-  control to close naturally completed child work. Terminalized startup
-  failures after runtime-owned lease side effects now record the same canonical
-  requested, started, and failed events.
-- Kept direct-provider managed child result handoffs bounded while preserving
-  long final child output as governed replay resources, projected through
-  managed-agent or artifact resource URIs instead of inline session metadata.
-- Preserved persisted GUI/TUI turn identity through executable runtime
-  per-call config so managed children record the correct parent turn, made
-  `managed_agent.join` return successful terminal observations for cancelled
-  or other non-completed children, exposed terminal handoff/resource evidence
-  in model-visible join output, and added managed-route timeout source
-  diagnostics.
-- Raised synthesized managed-agent route timeouts to five minutes, projected
-  route timeout budgets into the model-facing managed-agent catalog, made
-  CLI-harness timeout handoffs name the admitted timeout and replay resources,
-  clarified `contextMode: "resources"` versus child `resource_read` authority,
-  and made successful `managed_agent.cancel` controls report accepted terminal
-  cancellation evidence instead of a failed tool result.
-- Made paginated `resource_read` continuations model-visible with a trailing
-  JSON control block, and kept GUI/TUI managed invocation lifecycle tools bound
-  to the stable outer Kiln session across recreated provider turns.
-- Made `kiln managed-agent` replay recover GUI/TUI managed-child cockpit state
-  from persisted managed tool-completion evidence and list snapshots when
-  canonical `agent_invocation_*` events were absent or only partially persisted
-  through the shared gateway-contract normalizer, returned managed transcript
-  resources as bounded `text/markdown` bodies, and shared managed child
-  `contextMode: "resources"` context construction across direct-provider and
-  CLI-harness adapters, with terminal list snapshots kept provisional until
-  richer terminal tool evidence arrives and join evidence allowed to complete
-  canonical-start-only streams.
-- Projected adapter-private managed invocation evidence pointers into public
-  managed-agent or artifact resource URIs before they cross GUI, TUI, CLI,
-  replay, or model-facing `resource_read` surfaces, including nonterminal
-  start metadata and TUI per-turn resource reads. Direct-provider and
-  CLI-harness managed children now hydrate admitted resource context from the
-  current session-scoped builtin tool surface instead of the
-  route-construction-time surface.
-- Promoted the background and parallel managed-agent track into stable
-  architecture docs, including runtime-owned child lifecycle, parallel
-  orchestration admission, resource leases, cross-surface cockpit projection,
-  artifact-backed resource pagination, runtime budget admission, and remote
-  harness route constraints.
 - Published `@kilnai/gui` as a public static asset package.
 - Made `@kilnai/cli` the public global install boundary for CLI, GUI, TUI,
   runtime, gateway contracts, and GUI assets.
-- Added deterministic `kiln run --output answer|json` contracts and kept
-  `kiln benchmark run-internal` stdout machine-readable for exact-format eval
-  and benchmark harnesses.
 - Moved runtime-owned GUI serving to the installed `@kilnai/gui` package and
   removed source-tree GUI discovery from production startup.
 - Made `kiln gui` production mode the default from any working directory;

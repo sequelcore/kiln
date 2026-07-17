@@ -40,9 +40,8 @@ Primary controllers include:
 - `IngressGovernor`
 - `ContextGovernor`
 - safety pipeline
-- orchestration and delegation control
-- `DemandAllocator`
-- `ChainGovernor`
+- managed coordination policy
+- managed orchestration lifecycle
 - `ModeGovernor`
 
 These controllers should remain explicit. Control behavior must not be hidden

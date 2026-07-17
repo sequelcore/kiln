@@ -3,6 +3,7 @@ import type {
   OperatorCockpitManagedAgentViewItem,
   OperatorCockpitManagedAgentViewState,
   OperatorCockpitTimelineEntry,
+  OperatorCockpitActionTarget,
 } from "@kilnai/gateway-contracts";
 import { useState } from "react";
 import { AlertTriangle, Bot, ExternalLink, Send, ShieldAlert } from "lucide-react";
@@ -15,11 +16,16 @@ type ManagedAgentPromptDeliveryMode = "steer" | "queue";
 
 interface ManagedAgentCockpitPanelProps {
   readonly viewState: OperatorCockpitManagedAgentViewState;
-  readonly onOpenResource?: (uri: string) => void;
-  readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
+  readonly onCancel?: (input: {
+    readonly sessionId: string;
+    readonly invocationId: string;
+    readonly gatewayTargetId?: string;
+  }) => void;
   readonly onPrompt?: (input: {
     readonly sessionId: string;
     readonly invocationId: string;
+    readonly gatewayTargetId?: string;
     readonly prompt: string;
     readonly deliveryMode: ManagedAgentPromptDeliveryMode;
     readonly wakeRequested: boolean;
@@ -91,8 +97,15 @@ function ManagedAgentTimeline(props: { readonly entries: readonly OperatorCockpi
 
 function ManagedAgentResources(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
-  readonly onOpenResource?: (uri: string) => void;
+  readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
 }) {
+  const resourceTarget = (uri: string): OperatorCockpitActionTarget => ({
+    instanceId: props.item.instanceId,
+    sessionId: props.item.sessionId,
+    managedInvocationId: props.item.managedInvocationId,
+    resourceUri: uri,
+    ...(props.item.gatewayTargetId ? { gatewayTargetId: props.item.gatewayTargetId } : {}),
+  });
   const resources = [
     ...(props.item.transcriptUri ? [{ uri: props.item.transcriptUri, label: "Transcript" }] : []),
     ...props.item.resourceUris
@@ -112,7 +125,7 @@ function ManagedAgentResources(props: {
           size="xs"
           disabled={!props.onOpenResource}
           title={resource.uri}
-          onClick={() => props.onOpenResource?.(resource.uri)}
+          onClick={() => props.onOpenResource?.(resource.uri, resourceTarget(resource.uri))}
         >
           <ExternalLink data-icon="inline-start" aria-hidden="true" />
           {resource.label}
@@ -142,6 +155,7 @@ function ManagedAgentPromptControl(props: {
     props.onPrompt?.({
       sessionId: props.item.sessionId,
       invocationId,
+      ...(props.item.gatewayTargetId ? { gatewayTargetId: props.item.gatewayTargetId } : {}),
       prompt: trimmedPrompt,
       deliveryMode,
       wakeRequested: deliveryMode === "steer",
@@ -195,6 +209,55 @@ function ManagedAgentPromptControl(props: {
   );
 }
 
+function ManagedAgentNextAction(props: { readonly item: OperatorCockpitManagedAgentViewItem }) {
+  const action = props.item.managedInvocationRecovery ?? props.item.managedInvocationPhaseCompletion;
+  if (!action?.nextTool) {
+    return null;
+  }
+  const toolChain = action.thenTool ? `${action.nextTool} -> ${action.thenTool}` : action.nextTool;
+  return (
+    <section className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <p className="font-medium">Next governed action</p>
+      <dl className="mt-2 grid gap-1 font-mono text-[10.5px] text-destructive/80 sm:grid-cols-2">
+        <div className="min-w-0">
+          <dt className="sr-only">Tool chain</dt>
+          <dd className="truncate">{toolChain}</dd>
+        </div>
+        {action.workItemId ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Work item</dt>
+            <dd className="truncate">work {action.workItemId}</dd>
+          </div>
+        ) : null}
+        {action.reason ? (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Reason</dt>
+            <dd className="truncate">{action.reason}</dd>
+          </div>
+        ) : null}
+        {action.evidenceToRecord.length > 0 ? (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Evidence to record</dt>
+            <dd className="truncate">evidence {action.evidenceToRecord.join(", ")}</dd>
+          </div>
+        ) : null}
+        {action.requiredToolNames.length > 0 ? (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Required tools</dt>
+            <dd className="truncate">tools {action.requiredToolNames.join(", ")}</dd>
+          </div>
+        ) : null}
+        {action.sourceResourceUris.map((uri) => (
+          <div key={uri} className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Source resource</dt>
+            <dd className="truncate">source {uri}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 function ManagedAgentWorktreeConflict(props: { readonly item: OperatorCockpitManagedAgentViewItem }) {
   const conflict = props.item.worktreeConflict;
   if (!props.item.worktreeConflictBlocked || !conflict) {
@@ -233,8 +296,8 @@ function ManagedAgentWorktreeConflict(props: { readonly item: OperatorCockpitMan
 
 function ManagedAgentItem(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
-  readonly onOpenResource?: (uri: string) => void;
-  readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly onOpenResource?: ManagedAgentCockpitPanelProps["onOpenResource"];
+  readonly onCancel?: ManagedAgentCockpitPanelProps["onCancel"];
   readonly onPrompt?: ManagedAgentCockpitPanelProps["onPrompt"];
 }) {
   const item = props.item;
@@ -323,10 +386,11 @@ function ManagedAgentItem(props: {
           aria-label={canCancel ? `Cancel managed child ${item.managedInvocationId}` : undefined}
           title={item.cancelControl.reason}
           className="shrink-0"
-          onClick={() => props.onCancel?.({
-            sessionId: item.sessionId,
-            invocationId: item.managedInvocationId,
-          })}
+        onClick={() => props.onCancel?.({
+          sessionId: item.sessionId,
+          invocationId: item.managedInvocationId,
+          ...(item.gatewayTargetId ? { gatewayTargetId: item.gatewayTargetId } : {}),
+        })}
         >
           <AlertTriangle data-icon="inline-start" aria-hidden="true" />
           {canCancel ? "Cancel" : item.cancelControl.status === "requires-control-channel" ? "Cancel requires control channel" : "Cancel unavailable"}
@@ -341,6 +405,7 @@ function ManagedAgentItem(props: {
         </div>
       ) : null}
       <ManagedAgentWorktreeConflict item={item} />
+      <ManagedAgentNextAction item={item} />
       <ManagedAgentResources item={item} onOpenResource={props.onOpenResource} />
       <ManagedAgentPromptControl item={item} onPrompt={props.onPrompt} />
       <ManagedAgentTimeline entries={item.lifecycleTimeline} />

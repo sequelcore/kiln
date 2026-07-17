@@ -252,7 +252,7 @@ managedAgents:
     - id: codex-reviewer
       kind: direct
       provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6-luna
       voiceProfile: english-default
 ```
 

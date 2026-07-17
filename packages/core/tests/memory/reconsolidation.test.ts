@@ -58,7 +58,14 @@ describe("MemoryReconsolidationService", () => {
     expect(result.record.id).toBe(original.id);
     expect(result.record.content).toBe("Memory Lattice belongs in core and is rendered by the GUI.");
     expect(result.revision.reason).toBe("Architecture correction from ADR-008.");
-    expect(repository.listRevisions(original.id).map((revision) => revision.kind)).toEqual(["created", "corrected"]);
+    const revisions = repository.listRevisions(original.id);
+    expect(revisions.map((revision) => revision.kind)).toEqual(["created", "corrected"]);
+    expect(revisions.map((revision) => revision.content)).toEqual([
+      "Memory lattice belongs in the GUI.",
+      "Memory Lattice belongs in core and is rendered by the GUI.",
+    ]);
+    expect(revisions.map((revision) => revision.provenance.sourceId)).toEqual([original.provenance.sourceId, "correction"]);
+    expect(revisions[1]!.parentRevisionId).toBe(revisions[0]!.id);
   });
 
   it("rejects correction without matching scope plus topic or explicit relation", () => {

@@ -131,10 +131,16 @@ file-change evidence reads shared core `file` metadata first, so write and edit
 operations become structured evidence even when provider tool names are aliases.
 
 `grep` and `glob` remain core search tools. `grep` accepts file or directory
-paths while preserving the native `rg` fast path when available. `glob` supports
-brace alternates such as `**/*.{ts,tsx,css}` and normalizes that pattern before
-either the native `fd` fast path or fallback walker runs, so GUI, TUI, CLI, MCP,
-and managed-agent routes do not disagree about file discovery.
+paths and requires a resolved native `rg` runtime; it reports runtime source,
+path, and version metadata instead of silently degrading to a TypeScript scanner.
+Broad `grep` searches are bounded at the native runtime boundary: Kiln passes
+`rg` max-match, max-filesize, and nuisance-directory excludes before execution,
+then still shapes returned output as a second guard. Do not rely on
+post-processing alone to make repository-wide search safe for model-visible
+tool calls.
+`glob` supports brace alternates such as `**/*.{ts,tsx,css}` and normalizes that
+pattern before either the native `fd` fast path or fallback walker runs, so GUI,
+TUI, CLI, MCP, and managed-agent routes do not disagree about file discovery.
 
 ## Patch Tool
 
@@ -185,7 +191,8 @@ verbosity?: "raw" | "structured" | "summary"
 ```
 
 The field is named `verbosity`, not `outputMode`, because `grep.outputMode`
-already controls match semantics.
+already controls match shape. `grep.matchMode` separately controls pattern
+semantics: `auto`, `regex`, or `literal`.
 
 `bash`, `tree`, `grep`, and `glob` preserve raw default output while adding
 structured JSON and bounded summaries. Metadata records the requested

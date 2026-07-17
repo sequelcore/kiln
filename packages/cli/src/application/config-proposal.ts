@@ -1,13 +1,20 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { parseSkillMd } from "@kilnai/core";
+import {
+  assertPolicyAdaptationPromotionEvidence,
+  hashPolicyAdaptationConfiguration,
+  parseSkillMd,
+  type PolicyAdaptationCandidate,
+  type PolicyAdaptationEvaluationReport,
+} from "@kilnai/core";
 import type {
   KilnConfigChangeOperation,
   KilnConfigChangeProposal,
   KilnConfigValidationDiagnostic,
 } from "@kilnai/gateway-contracts";
-import { stringify } from "yaml";
+import { parse, stringify } from "yaml";
+import type { KilnContextGovernanceConfig, KilnYaml } from "../kiln-yaml-types.js";
 import { parseAgentDefinitionContent, type KilnAgentDefinition } from "./agent-loader.js";
 
 export interface CreateConfigChangeProposalInput {
@@ -136,7 +143,110 @@ function normalizeProposal(input: CreateConfigChangeProposalInput): NormalizedPr
       return normalizeAgentUpsert(input.projectPath, input.payload);
     case "agent.attach_skills":
       return normalizeAgentAttachSkills(input.projectPath, input.payload);
+    case "context_governance.adapt":
+      return normalizeContextGovernanceAdaptation(input.projectPath, input.payload);
   }
+}
+
+function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: unknown): NormalizedProposalParts {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const path = join(projectPath, ".kiln", "kiln.yaml");
+  const existingContent = existsSync(path) ? readFileSync(path, "utf-8") : "version: '1'\n";
+  const parsed = parse(existingContent) as KilnYaml | null;
+  const config: KilnYaml = parsed && typeof parsed === "object" ? parsed : { version: "1" };
+  const current = config.contextGovernance ?? {};
+  const currentAdaptation = current.adaptation;
+  const expectedRevision = payload.expectedRevision;
+  const currentRevision = currentAdaptation?.revision ?? 0;
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== currentRevision) {
+    diagnostics.push({ severity: "error", field: "expectedRevision", message: `Expected current adaptation revision ${currentRevision}.` });
+  }
+  const action = payload.action;
+  let next: KilnContextGovernanceConfig = current;
+  try {
+    if (action === "promote") {
+      const candidate = payload.candidate as PolicyAdaptationCandidate;
+      const evaluation = payload.evaluation as PolicyAdaptationEvaluationReport;
+      assertPolicyAdaptationPromotionEvidence(candidate, evaluation);
+      if (currentAdaptation?.frozen) throw new Error("Context adaptation is frozen.");
+      const currentMode = current.allocationMode ?? "whole-block";
+      const currentConfigurationHash = hashPolicyAdaptationConfiguration({ contextAllocationMode: currentMode });
+      const currentPolicyId = currentAdaptation?.activePolicyId ?? candidate.basePolicyId;
+      if (currentAdaptation && currentAdaptation.activeConfigurationHash !== currentConfigurationHash) {
+        throw new Error("Active context policy configuration hash has drifted from canonical config.");
+      }
+      if (candidate.basePolicyId !== currentPolicyId || candidate.baseConfigurationHash !== currentConfigurationHash) {
+        throw new Error("Candidate base does not match the active context policy selection.");
+      }
+      next = {
+        ...current,
+        allocationMode: candidate.candidateConfiguration.contextAllocationMode,
+        adaptation: {
+          version: "policy-adaptation-selection-v1",
+          revision: currentRevision + 1,
+          activePolicyId: candidate.candidatePolicyId,
+          activeConfigurationHash: candidate.candidateConfigurationHash,
+          frozen: false,
+          rollback: {
+            policyId: currentPolicyId,
+            configurationHash: currentConfigurationHash,
+            allocationMode: currentMode,
+          },
+          candidateRecordHash: candidate.candidateRecordHash,
+          evaluationEvidenceHash: evaluation.evidenceHash,
+        },
+      };
+    } else if (action === "freeze") {
+      const reason = requireText(payload.reason, "reason", diagnostics);
+      next = {
+        ...current,
+        adaptation: {
+          version: "policy-adaptation-selection-v1",
+          revision: currentRevision + 1,
+          activePolicyId: currentAdaptation?.activePolicyId ?? `context-${current.allocationMode ?? "whole-block"}-static-v1`,
+          activeConfigurationHash: currentAdaptation?.activeConfigurationHash
+            ?? hashPolicyAdaptationConfiguration({ contextAllocationMode: current.allocationMode ?? "whole-block" }),
+          frozen: true,
+          freezeReason: reason,
+          ...(currentAdaptation?.rollback ? { rollback: currentAdaptation.rollback } : {}),
+          ...(currentAdaptation?.candidateRecordHash ? { candidateRecordHash: currentAdaptation.candidateRecordHash } : {}),
+          ...(currentAdaptation?.evaluationEvidenceHash ? { evaluationEvidenceHash: currentAdaptation.evaluationEvidenceHash } : {}),
+        },
+      };
+    } else if (action === "unfreeze") {
+      if (!currentAdaptation?.frozen) throw new Error("Context adaptation is not frozen.");
+      next = { ...current, adaptation: { ...currentAdaptation, revision: currentRevision + 1, frozen: false, freezeReason: undefined } };
+    } else if (action === "rollback") {
+      if (!currentAdaptation?.rollback) throw new Error("Context adaptation has no exact rollback selection.");
+      next = {
+        ...current,
+        allocationMode: currentAdaptation.rollback.allocationMode,
+        adaptation: {
+          version: "policy-adaptation-selection-v1",
+          revision: currentRevision + 1,
+          activePolicyId: currentAdaptation.rollback.policyId,
+          activeConfigurationHash: currentAdaptation.rollback.configurationHash,
+          frozen: currentAdaptation.frozen,
+          ...(currentAdaptation.freezeReason ? { freezeReason: currentAdaptation.freezeReason } : {}),
+        },
+      };
+    } else {
+      diagnostics.push({ severity: "error", field: "action", message: "Must be promote, rollback, freeze, or unfreeze." });
+    }
+  } catch (error) {
+    diagnostics.push({ severity: "error", field: "adaptation", message: error instanceof Error ? error.message : String(error) });
+  }
+  const nextContent = stringify({ ...config, version: config.version ?? "1", contextGovernance: next });
+  return {
+    payload,
+    path,
+    nextContent,
+    diagnostics,
+    authorityImpact: "none",
+    nativeProjectionEffects: [],
+    rollbackHint: `Restore the previous contextGovernance selection in ${path}`,
+  };
 }
 
 function normalizeSkillUpsert(projectPath: string, rawPayload: unknown): NormalizedProposalParts {
@@ -191,7 +301,13 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
   const tools = validateAgentProfileTools(optionalStringList(payload.tools, "tools", diagnostics), diagnostics);
   const skills = optionalStringList(payload.skills, "skills", diagnostics);
   const taskAffinity = optionalTaskAffinity(payload.taskAffinity, diagnostics);
-  const model = optionalText(payload.model, "model", diagnostics);
+  if (payload.model !== undefined) {
+    diagnostics.push({
+      severity: "error",
+      field: "model",
+      message: "Agent model is not a canonical top-level field. Use providerRoute for strict execution routing.",
+    });
+  }
   const instructions = optionalText(payload.instructions, "instructions", diagnostics);
   const normalized = removeUndefined({
     name,
@@ -203,7 +319,6 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
     tools,
     skills,
     taskAffinity,
-    model,
     instructions,
   });
   const path = join(projectPath, ".kiln", "agents", `${name || "invalid-agent"}.md`);
@@ -289,7 +404,7 @@ function renderExistingAgent(agent: KilnAgentDefinition): string {
     tools: agent.tools,
     skills: agent.skills,
     taskAffinity: agent.taskAffinity,
-    model: agent.model,
+    providerRoute: agent.providerRoute,
     instructions: agent.instructions,
   }));
 }

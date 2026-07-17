@@ -8,7 +8,7 @@ import {
   type CreateMemoryRecordInput,
   type MemoryProvenance,
 } from "@kilnai/core";
-import type { GuiSessionSummary, KilnConfigSetupSnapshot } from "@kilnai/gateway-contracts";
+import type { GuiSessionDetail, GuiSessionSummary, KilnConfigSetupSnapshot } from "@kilnai/gateway-contracts";
 
 function parseGatewayPort(): number {
   const raw = process.env.GUI_GATEWAY_PORT ?? "0";
@@ -82,15 +82,388 @@ const sessionSummaries: GuiSessionSummary[] = [
     cost: 0.0301,
     taskSummary: "Refactor command routing",
   },
+  {
+    id: "context-partial-session",
+    providersUsed: ["claude"],
+    lastProvider: "claude",
+    completedAt: new Date(Date.now() - 240_000).toISOString(),
+    cost: 0.001,
+    taskSummary: "Inspect partial context evidence",
+  },
+  {
+    id: "context-authoritative-session",
+    providersUsed: ["codex"],
+    lastProvider: "codex",
+    completedAt: new Date(Date.now() - 300_000).toISOString(),
+    cost: 0.001,
+    taskSummary: "Inspect authoritative context evidence",
+  },
 ];
 
-const fakeSessionFactory: CliSessionFactory = (_systemPrompt, _cwd) => ({
+const restoredSessionDetail: GuiSessionDetail = {
+  id: "claude-session-1",
+  meta: {
+    kilnSessionId: "claude-session-1",
+    title: "Summarize parity checklist",
+    task: "Summarize parity checklist",
+    startedAt: "2026-07-03T12:00:00.000Z",
+    completedAt: "2026-07-03T12:00:03.000Z",
+    lastProvider: "claude",
+  },
+  events: [
+    {
+      eventId: "parity-user-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 1,
+      timestamp: "2026-07-03T12:00:00.000Z",
+      kind: "user_message",
+      turnId: "parity-turn-1",
+      payload: { content: "Read the persisted parity plan" },
+    },
+    {
+      eventId: "parity-tool-start-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 2,
+      timestamp: "2026-07-03T12:00:01.000Z",
+      kind: "tool_call_started",
+      turnId: "parity-turn-1",
+      payload: {
+        toolCallId: "parity-tool-1",
+        toolName: "read",
+        input: { path: "docs/plan.md" },
+      },
+    },
+    {
+      eventId: "parity-tool-start-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 2,
+      timestamp: "2026-07-03T12:00:01.000Z",
+      kind: "tool_call_started",
+      turnId: "parity-turn-1",
+      payload: {
+        toolCallId: "parity-tool-1",
+        toolName: "read",
+        input: { path: "duplicate-must-not-render.md" },
+      },
+    },
+    {
+      eventId: "parity-tool-complete-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 3,
+      timestamp: "2026-07-03T12:00:02.000Z",
+      kind: "tool_call_completed",
+      turnId: "parity-turn-1",
+      payload: {
+        toolCallId: "parity-tool-1",
+        toolName: "read",
+        output: "Persisted parity plan contents",
+        status: { state: "succeeded" },
+      },
+    },
+    {
+      eventId: "parity-tool-complete-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 3,
+      timestamp: "2026-07-03T12:00:02.000Z",
+      kind: "tool_call_completed",
+      turnId: "parity-turn-1",
+      payload: {
+        toolCallId: "parity-tool-1",
+        toolName: "read",
+        output: "Duplicate terminal payload",
+        status: { state: "succeeded" },
+      },
+    },
+    {
+      eventId: "parity-assistant-1",
+      kilnSessionId: "claude-session-1",
+      sequence: 4,
+      timestamp: "2026-07-03T12:00:03.000Z",
+      kind: "assistant_message",
+      turnId: "parity-turn-1",
+      payload: { content: "The persisted parity plan is ready." },
+    },
+    {
+      eventId: "parity-context-restored",
+      kilnSessionId: "claude-session-1",
+      sequence: 5,
+      timestamp: "2026-07-03T12:00:03.000Z",
+      kind: "context_usage_observed",
+      turnId: "parity-turn-1",
+      payload: {
+        contextUsage: {
+          state: "authoritative",
+          usedTokens: 2_400,
+          contextWindowTokens: 8_000,
+          remainingTokens: 5_600,
+          usedPercentage: 30,
+          providerId: "claude",
+          modelId: "claude-sonnet-4-6",
+          turnId: "parity-turn-1",
+          observedAt: "2026-07-03T12:00:03.000Z",
+          measurement: "provider_reported",
+          lifecycle: "restored",
+          contextWindowAuthority: "provider_reported",
+          freshness: "historical",
+        },
+      },
+    },
+  ],
+};
+
+const contextSessionDetails: Record<string, GuiSessionDetail> = {
+  "context-partial-session": {
+    id: "context-partial-session",
+    meta: { kilnSessionId: "context-partial-session", title: "Inspect partial context evidence", startedAt: "2026-07-03T12:00:00.000Z" },
+    events: [{
+      eventId: "parity-context-partial",
+      kilnSessionId: "context-partial-session",
+      sequence: 1,
+      timestamp: "2026-07-03T12:00:00.000Z",
+      kind: "context_usage_observed",
+      turnId: "context-partial-session:turn:1",
+      payload: {
+        contextUsage: {
+          state: "partial",
+          usedTokens: 2_400,
+          providerId: "claude",
+          modelId: "claude-sonnet-4-6",
+          turnId: "context-partial-session:turn:1",
+          observedAt: "2026-07-03T12:00:00.000Z",
+          measurement: "runtime_estimate",
+          lifecycle: "completed",
+          contextWindowAuthority: "runtime_observed",
+          freshness: "fresh",
+          reason: "No provider-authoritative context window is available.",
+        },
+      },
+    }],
+  },
+  "context-authoritative-session": {
+    id: "context-authoritative-session",
+    meta: { kilnSessionId: "context-authoritative-session", title: "Inspect authoritative context evidence", startedAt: "2026-07-03T12:00:00.000Z" },
+    events: [{
+      eventId: "parity-context-authoritative",
+      kilnSessionId: "context-authoritative-session",
+      sequence: 1,
+      timestamp: "2026-07-03T12:00:00.000Z",
+      kind: "context_usage_observed",
+      turnId: "context-authoritative-session:turn:1",
+      payload: {
+        contextUsage: {
+          state: "authoritative",
+          usedTokens: 2_000,
+          contextWindowTokens: 8_000,
+          remainingTokens: 6_000,
+          usedPercentage: 25,
+          providerId: "codex",
+          modelId: "gpt-5.5",
+          turnId: "context-authoritative-session:turn:1",
+          observedAt: "2026-07-03T12:00:00.000Z",
+          measurement: "provider_reported",
+          lifecycle: "completed",
+          contextWindowAuthority: "provider_reported",
+          freshness: "fresh",
+        },
+      },
+    }],
+  },
+};
+
+const fakeSessionFactory: CliSessionFactory = () => ({
   async *run(options) {
     const userTurns = options.messages
       ?.filter((message) => message.role === "user")
       .length ?? 1;
     const prompt = options.prompt.trim();
     const chunks = responseChunks(prompt, userTurns);
+
+    if (prompt.toLowerCase().includes("tool continuity browser check")) {
+      await delay(800);
+      yield {
+        type: "tool_use",
+        toolName: "read",
+        input: { path: "docs/plan.md" },
+        toolCallId: "parity-live-tool-1",
+      };
+      yield {
+        type: "tool_use",
+        toolName: "read",
+        input: { path: "docs/roadmap/02-public-release-ui-debt.md" },
+        toolCallId: "parity-live-tool-2",
+      };
+      await delay(2_500);
+      yield {
+        type: "tool_result",
+        toolName: "read",
+        output: "Second tool failed",
+        outputSummary: "Second tool failed",
+        toolCallId: "parity-live-tool-2",
+        isError: true,
+      };
+      yield {
+        type: "tool_result",
+        toolName: "read",
+        output: "First tool result",
+        outputSummary: "First tool result",
+        toolCallId: "parity-live-tool-1",
+        isError: false,
+      };
+    }
+
+    if (prompt.toLowerCase().includes("paused work item visual check")) {
+      yield {
+        type: "tool_use",
+        toolName: "work_item.execution.start",
+        input: { workItemId: "inspect-composer-activity-ownership" },
+        toolCallId: "parity-paused-work-item",
+      };
+      await delay(250);
+      yield {
+        type: "tool_result",
+        toolName: "work_item.execution.start",
+        output: JSON.stringify({
+          status: "paused",
+          reason: "managedInvocationId is required before starting managed-delegation execution.",
+          workItemId: "inspect-composer-activity-ownership",
+          routeId: "opencode-go-qwen3-7-max-readonly",
+          nextTool: "managed_agent.invoke",
+          requiredEvidence: ["surface-map", "risk-hypothesis", "tests"],
+        }),
+        outputSummary: "Work item execution paused",
+        toolCallId: "parity-paused-work-item",
+        isError: false,
+      };
+    }
+
+    if (prompt.toLowerCase().includes("structured diagnostic visual check")) {
+      yield {
+        type: "tool_use",
+        toolName: "goal.create",
+        input: { objective: "Review the GUI" },
+        toolCallId: "parity-goal-create-diagnostic",
+      };
+      await delay(250);
+      yield {
+        type: "tool_result",
+        toolName: "goal.create",
+        output: JSON.stringify({
+          error: {
+            code: "invalid_input",
+            message: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+            recoverable: true,
+            suggestedNextTool: "goal.create",
+            requiredInputShape: {
+              objective: "string",
+              workItemIds: ["existing work item id"],
+            },
+          },
+        }),
+        outputSummary: "Goal input is invalid",
+        toolCallId: "parity-goal-create-diagnostic",
+        isError: false,
+      };
+    }
+
+    if (prompt.toLowerCase().includes("governed tool presentation visual check")) {
+      yield {
+        type: "tool_use",
+        toolName: "work_item.update",
+        input: { summary: "Inspect composer activity ownership." },
+        toolCallId: "parity-work-item-update",
+      };
+      yield {
+        type: "tool_result",
+        toolName: "work_item.update",
+        output: JSON.stringify({
+          item: {
+            id: "work-1",
+            summary: "Inspect composer activity ownership.",
+            status: "pending",
+            workflowProfile: "verification-heavy",
+            risk: "medium",
+            surface: "gui",
+            authorityProfile: "foundation-readonly-plan",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+            pauseRequirements: [],
+          },
+          nextRequiredTools: ["goal.create", "work_item.execution.start"],
+        }),
+        outputSummary: "Work item updated",
+        metadata: { kind: "work_item", operation: "update" },
+        toolCallId: "parity-work-item-update",
+        isError: false,
+      };
+      yield {
+        type: "tool_use",
+        toolName: "goal.create",
+        input: { objective: "Perform evidence-backed UX verification." },
+        toolCallId: "parity-goal-create",
+      };
+      yield {
+        type: "tool_result",
+        toolName: "goal.create",
+        output: JSON.stringify({
+          goal: {
+            id: "goal-1",
+            objective: "Perform evidence-backed UX verification.",
+            planId: "interactive-ux-verification",
+            status: "active",
+            workItemIds: ["work-1"],
+            authorityEnvelope: { maximumAuthority: "read_only", escalationPolicy: "deny" },
+            routePolicy: { workflowProfile: "verification-heavy" },
+            evidenceRequirements: [
+              { id: "repo-inspection", description: "Inspect the requested files.", required: true },
+            ],
+            currentPhase: "prepare",
+          },
+        }),
+        outputSummary: "Goal created",
+        metadata: { kind: "goal", operation: "create" },
+        toolCallId: "parity-goal-create",
+        isError: false,
+      };
+      yield {
+        type: "tool_use",
+        toolName: "work_item.execution.start",
+        input: { workItemId: "work-1" },
+        toolCallId: "parity-work-item-start",
+      };
+      yield {
+        type: "tool_result",
+        toolName: "work_item.execution.start",
+        output: JSON.stringify({
+          status: "started",
+          item: {
+            id: "work-1",
+            summary: "Inspect composer activity ownership.",
+            status: "in_progress",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+          },
+        }),
+        outputSummary: "Work item execution started",
+        metadata: { kind: "work_item", operation: "execution_started" },
+        toolCallId: "parity-work-item-start",
+        isError: false,
+      };
+      yield {
+        type: "tool_use",
+        toolName: "read",
+        input: { path: "C:\\repo\\missing.ts" },
+        toolCallId: "parity-read-failed",
+      };
+      yield {
+        type: "tool_result",
+        toolName: "read",
+        output: "ENOENT: no such file or directory, open 'C:\\repo\\missing.ts'",
+        outputSummary: "File not found",
+        metadata: { kind: "file", operation: "read", filePath: "C:\\repo\\missing.ts", code: "ENOENT" },
+        toolCallId: "parity-read-failed",
+        isError: true,
+      };
+    }
 
     for (const chunk of chunks) {
       await delay(70);
@@ -147,7 +520,9 @@ const setupSnapshot: KilnConfigSetupSnapshot = {
       recommendation: "none",
     },
   ],
+  globalInstructionShims: [],
   nativeProjections: [],
+  permissionIntegrity: [],
   recommendedActions: ["none"],
 };
 
@@ -166,11 +541,16 @@ async function main(): Promise<void> {
       ],
       sessions: sessionSummaries.slice(0, 20),
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
-      continuationInfoByProvider: {},
+      continuationInfoByProvider: continuationSessionId
+        ? { [activeProvider]: { strategy: "continue_session", feedbackLabel: continuationSessionId } }
+        : {},
     }),
     getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
     getSetupSnapshot: async () => setupSnapshot,
     listSessions: async () => sessionSummaries.slice(0, 20),
+    getSessionDetail: async (sessionId) => sessionId === restoredSessionDetail.id
+      ? restoredSessionDetail
+      : contextSessionDetails[sessionId] ?? null,
     builtinToolOptions: {
       memoryResources: { repository: memoryRepository },
     },

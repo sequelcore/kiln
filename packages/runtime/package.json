@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/runtime",
-  "version": "2.1.0",
+  "version": "3.0.0-beta.1",
   "description": "Gateway runtime and channel adapters for the Kiln control plane",
   "type": "module",
   "exports": {
@@ -16,13 +16,17 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
     "build:windows-uia": "native\\windows-uia\\build.cmd",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --maxWorkers=1",
-    "test:live": "vitest run tests/managed-agent/*.live.test.ts --maxWorkers=1"
+    "test": "vitest run --maxWorkers=1 --exclude \"tests/managed-agent/*.live.test.ts\" --silent=passed-only",
+    "test:profile": "vitest run --maxWorkers=1 --exclude \"tests/managed-agent/*.live.test.ts\" --reporter=json --outputFile=../../.kiln/runtime-vitest-profile.json",
+    "test:live": "vitest run --dir tests/managed-agent .live.test --maxWorkers=1"
   },
   "license": "Apache-2.0",
+  "engines": {
+    "bun": ">=1.3.14"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/sequelcore/kiln.git",
@@ -42,13 +46,13 @@
     "access": "public"
   },
   "dependencies": {
-    "@kilnai/gateway-contracts": "^2.1.0",
+    "@kilnai/gateway-contracts": "3.0.0-beta.1",
     "hono": "^4.7.0",
     "jose": "^5.0.0",
     "sharp": "^0.34.5",
     "unpdf": "^1.6.2",
-    "@kilnai/core": "^2.1.0",
-    "@kilnai/gui": "^2.1.0"
+    "@kilnai/core": "3.0.0-beta.1",
+    "@kilnai/gui": "3.0.0-beta.1"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

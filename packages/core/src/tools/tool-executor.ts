@@ -16,7 +16,7 @@ import type {
 } from "../engine/domain/tool-execution.js";
 import { KilnError } from "../engine/errors.js";
 import { ActionEffectAuthorizer } from "../security/action-effect-authorizer.js";
-import type { DevTool, ToolResult } from "./domain/tool.js";
+import type { DevTool, DevToolExecutionContext, ToolResult } from "./domain/tool.js";
 import { getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
 import type { ToolResourceLinker } from "./domain/tool-resource-links.js";
 import { DevToolRegistry } from "./domain/tool-registry.js";
@@ -25,8 +25,10 @@ import { buildBuiltinInvocationEffectResolvers } from "./infrastructure/invocati
 const KILN_TIMEOUT_UNIT_SCHEMA_KEY = "x-kiln-timeout-unit";
 
 export interface DevToolExecutionRequest extends ToolExecutionRequest {
+  readonly toolCallId?: string;
   readonly sandbox?: unknown;
   readonly retry?: RetryConfig;
+  readonly executionContext?: DevToolExecutionContext;
 }
 
 export interface DevToolExecutionBridgeOptions {
@@ -96,6 +98,7 @@ export class DevToolExecutionBridge {
         input,
         request.sandbox,
         toolName === request.name ? request.authority : undefined,
+        request.executionContext,
       );
     };
 
@@ -177,6 +180,7 @@ export class DevToolExecutionBridge {
     input: Record<string, unknown>,
     sandbox?: unknown,
     authority?: AuthorityDescriptor,
+    executionContext?: DevToolExecutionContext,
   ): Promise<ToolResult> {
     const tool = this.registry.lookup(toolName);
     if (!tool) {
@@ -187,7 +191,7 @@ export class DevToolExecutionBridge {
     }
 
     this.authorize(tool, input, authority);
-    const result = await tool.execute({ name: toolName, input }, sandbox);
+    const result = await tool.execute({ name: toolName, input }, sandbox, executionContext);
     return this.resourceLinker?.link({ toolName, input, result }) ?? result;
   }
 

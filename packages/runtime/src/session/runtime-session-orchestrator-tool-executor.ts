@@ -2,6 +2,7 @@ import type {
   ToolCall,
   EventBus,
   ToolCalledEvent,
+  ToolOutputEvent,
   ToolAuthorizedEvent,
   ToolResultEvent,
   ToolCacheHitEvent,
@@ -12,10 +13,14 @@ import type {
   FileToolResultMetadata,
   ToolResultPayloadPart,
   ResolvedInvocationEffect,
+  SessionToolUsageSnapshot,
+  ExecutionSessionToolResultResourceLink,
+  WorkItemExecutionScopeTransition,
 } from "@kilnai/core";
 import {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
   buildBuiltinInvocationEffectResolvers,
+  deriveAuthorityFromEffect,
   executeWithRetry,
   getBuiltinEffectEnvelope,
   getInvalidToolInputDetails,
@@ -45,6 +50,9 @@ const COMMAND_TOOL_SHELL_BY_NAME = new Map<string, CommandShell>([
   ["command", "any"],
   ["shell", "any"],
 ]);
+const MAX_STREAMED_TOOL_OUTPUT_CHARS = 64 * 1024;
+const MAX_TOOL_OUTPUT_CHUNK_CHARS = 8 * 1024;
+const TOOL_OUTPUT_TRUNCATION_MARKER = "\n… live output truncated; full terminal result follows …\n";
 
 function parseCommandShell(value: unknown): CommandShell | undefined {
   if (typeof value !== "string") return undefined;
@@ -84,6 +92,30 @@ function formatDangerousCommandBlockMessage(decision: DangerousCommandDecisionLi
     : `Command requires approval: ${decision.reason} (${decision.reasonCode})`;
 }
 
+function authorityFromResolvedInvocationEffect(
+  admittedAuthority: AuthorityDescriptor,
+  resolvedEffect: ResolvedInvocationEffect,
+): AuthorityDescriptor | undefined {
+  if (admittedAuthority.allowed && !admittedAuthority.requiresApproval) {
+    return undefined;
+  }
+  if (!isConservativeStaticAuthority(admittedAuthority)) {
+    return undefined;
+  }
+  const invocationAuthority = deriveAuthorityFromEffect(resolvedEffect);
+  if (!invocationAuthority.allowed || invocationAuthority.requiresApproval) {
+    return undefined;
+  }
+  return invocationAuthority;
+}
+
+function isConservativeStaticAuthority(authority: AuthorityDescriptor): boolean {
+  return authority.requiresApproval && (
+    authority.reason === "Privileged or unknown identity use requires confirmation"
+    || authority.reason === "Unknown effects require confirmation"
+  );
+}
+
 function extractToolResultMetadata(resultValue: unknown): Record<string, unknown> | undefined {
   const resultRecord = resultValue && typeof resultValue === "object" && !Array.isArray(resultValue)
     ? resultValue as { metadata?: unknown }
@@ -91,6 +123,54 @@ function extractToolResultMetadata(resultValue: unknown): Record<string, unknown
   return resultRecord?.metadata && typeof resultRecord.metadata === "object" && !Array.isArray(resultRecord.metadata)
     ? resultRecord.metadata as Record<string, unknown>
     : undefined;
+}
+
+function extractExecutionScopeTransition(
+  metadata: Record<string, unknown> | undefined,
+): WorkItemExecutionScopeTransition | undefined {
+  const value = metadata?.executionScopeTransition;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const transition = value as Record<string, unknown>;
+  if (transition.action !== "enter" && transition.action !== "exit") return undefined;
+  const scopeValue = transition.scope;
+  if (!scopeValue || typeof scopeValue !== "object" || Array.isArray(scopeValue)) return undefined;
+  const scope = scopeValue as Record<string, unknown>;
+  if (scope.kind !== "goal" && scope.kind !== "work_item") return undefined;
+  if (typeof scope.goalRunId !== "string" || scope.goalRunId.trim().length === 0) return undefined;
+  if (scope.kind === "work_item" && (
+    typeof scope.workItemId !== "string" || scope.workItemId.trim().length === 0
+  )) return undefined;
+  if (scope.attemptId !== undefined && typeof scope.attemptId !== "string") return undefined;
+  if (scope.managedInvocationId !== undefined && typeof scope.managedInvocationId !== "string") return undefined;
+  return value as WorkItemExecutionScopeTransition;
+}
+
+function extractToolResultResourceLinks(
+  metadata: Record<string, unknown> | undefined,
+): readonly ExecutionSessionToolResultResourceLink[] | undefined {
+  const links = metadata?.resourceLinks;
+  if (!Array.isArray(links)) {
+    return undefined;
+  }
+  const parsed = links.flatMap((link): ExecutionSessionToolResultResourceLink[] => {
+    if (!link || typeof link !== "object" || Array.isArray(link)) {
+      return [];
+    }
+    const record = link as Record<string, unknown>;
+    if (typeof record.uri !== "string" || record.uri.trim().length === 0) {
+      return [];
+    }
+    return [{
+      uri: record.uri,
+      ...(typeof record.title === "string" ? { title: record.title } : {}),
+      ...(typeof record.label === "string" ? { label: record.label } : {}),
+      ...(typeof record.sequence === "number" ? { sequence: record.sequence } : {}),
+      ...(typeof record.mimeType === "string" ? { mimeType: record.mimeType } : {}),
+      ...(typeof record.size === "number" ? { size: record.size } : {}),
+      ...(typeof record.relation === "string" ? { relation: record.relation } : {}),
+    }];
+  });
+  return parsed.length > 0 ? parsed : undefined;
 }
 
 function extractToolResultIsError(resultValue: unknown): boolean | undefined {
@@ -223,16 +303,6 @@ function normalizeFileChangeType(value: unknown): "created" | "modified" | "dele
   return "modified";
 }
 
-function legacyFileOperationFromToolName(toolName: string): "write" | "edit" | undefined {
-  if (toolName === "write") {
-    return "write";
-  }
-  if (toolName === "edit") {
-    return "edit";
-  }
-  return undefined;
-}
-
 function maybeNumber(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
@@ -291,6 +361,9 @@ export interface RuntimeSessionToolExecutionResult {
 
 export class RuntimeSessionToolExecutor {
   private currentSession: RuntimeSession | undefined;
+  private currentExecutionScope: PerCallToolConfig["executionScope"];
+  private activeExecutionScope: PerCallToolConfig["executionScope"];
+  private readonly turnToolCallCounts = new Map<string, number>();
 
   constructor(
     private readonly deps: OrchestratorDeps,
@@ -309,15 +382,55 @@ export class RuntimeSessionToolExecutor {
     perCallConfig?: PerCallToolConfig,
   ): Promise<RuntimeSessionToolExecutionResult> {
     this.currentSession = session;
+    if (perCallConfig?.executionScope) {
+      this.activeExecutionScope = perCallConfig.executionScope;
+    }
+    this.currentExecutionScope = perCallConfig?.executionScope ?? this.activeExecutionScope;
+    this.turnToolCallCounts.clear();
     try {
     const resultParts: RuntimeSessionToolResultPart[] = [];
     const toolExecutions: ToolExecutionSummary[] = [];
 
     for (const toolCall of toolCalls) {
       const normalizedToolCall = normalizeToolCall(toolCall);
+      let toolCallStarted = false;
+      const emitStarted = (
+        metadata?: Record<string, unknown>,
+        resolvedEffect?: ResolvedInvocationEffect,
+        authority?: AuthorityDescriptor,
+      ) => {
+        if (toolCallStarted) {
+          return;
+        }
+        toolCallStarted = true;
+        this.emitToolCalled(
+          session.id,
+          normalizedToolCall.id,
+          normalizedToolCall.name,
+          normalizedToolCall.input,
+          metadata,
+          resolvedEffect,
+          authority,
+        );
+      };
       const invalidInput = getInvalidToolInputDetails(normalizedToolCall.input);
       if (invalidInput) {
         const content = this.formatInvalidToolInputMessage(normalizedToolCall.name, invalidInput);
+        emitStarted();
+        this.emitToolResult(
+          session.id,
+          normalizedToolCall.id,
+          normalizedToolCall.name,
+          0,
+          false,
+          content.slice(0, 200),
+          true,
+          undefined,
+          content,
+          undefined,
+          undefined,
+          this.recordToolUsage(normalizedToolCall.name),
+        );
         resultParts.push({
           type: "tool_result",
           toolUseId: normalizedToolCall.id,
@@ -339,6 +452,21 @@ export class RuntimeSessionToolExecutor {
 
       if (perCallConfig?.toolAllowlist && !perCallConfig.toolAllowlist.has(normalizedToolCall.name)) {
         const content = `Tool "${normalizedToolCall.name}" is not available for this tenant`;
+        emitStarted();
+        this.emitToolResult(
+          session.id,
+          normalizedToolCall.id,
+          normalizedToolCall.name,
+          0,
+          false,
+          content.slice(0, 200),
+          true,
+          undefined,
+          content,
+          undefined,
+          undefined,
+          this.recordToolUsage(normalizedToolCall.name),
+        );
         resultParts.push({
           type: "tool_result",
           toolUseId: normalizedToolCall.id,
@@ -357,6 +485,7 @@ export class RuntimeSessionToolExecutor {
         continue;
       }
 
+      const metadata = this.resolveToolCallMetadata(session.id, normalizedToolCall.name, normalizedToolCall.input, perCallConfig);
       const capability = this.resolveCapability(normalizedToolCall.name, perCallConfig);
       const resolvedEffect = this.resolveInvocationEffect(
         normalizedToolCall.name,
@@ -368,6 +497,7 @@ export class RuntimeSessionToolExecutor {
         resolvedEffect,
         perCallConfig,
       );
+      let executionAuthority = authResult;
       if (authResult) {
         this.emitToolAuthorized(
           session.id,
@@ -386,6 +516,23 @@ export class RuntimeSessionToolExecutor {
             );
             if (!approval.approved) {
               const content = `Approval denied: ${approval.reason ?? authResult.reason}`;
+              emitStarted(metadata, resolvedEffect, authResult);
+              this.emitToolResult(
+                session.id,
+                normalizedToolCall.id,
+                normalizedToolCall.name,
+                0,
+                false,
+                content.slice(0, 200),
+                true,
+                undefined,
+                content,
+                metadata,
+                undefined,
+                this.recordToolUsage(normalizedToolCall.name),
+                resolvedEffect,
+                authResult,
+              );
               resultParts.push({
                 type: "tool_result",
                 toolUseId: normalizedToolCall.id,
@@ -405,8 +552,31 @@ export class RuntimeSessionToolExecutor {
               });
               continue;
             }
+            executionAuthority = {
+              level: authResult.level,
+              allowed: true,
+              requiresApproval: false,
+              reason: "Approved for this invocation",
+            };
           } else {
             const content = `Authorization denied: ${authResult.reason}`;
+            emitStarted(metadata, resolvedEffect, authResult);
+            this.emitToolResult(
+              session.id,
+              normalizedToolCall.id,
+              normalizedToolCall.name,
+              0,
+              false,
+              content.slice(0, 200),
+              true,
+              undefined,
+              content,
+              metadata,
+              undefined,
+              this.recordToolUsage(normalizedToolCall.name),
+              resolvedEffect,
+              authResult,
+            );
             resultParts.push({
               type: "tool_result",
               toolUseId: normalizedToolCall.id,
@@ -429,18 +599,30 @@ export class RuntimeSessionToolExecutor {
         }
       }
 
+      emitStarted(metadata, resolvedEffect, executionAuthority);
+
       if (await this.handleDangerousCommandBlock(
         session.id,
         normalizedToolCall,
-        authResult,
+        executionAuthority,
         resolvedEffect,
         resultParts,
         toolExecutions,
+        metadata,
       )) {
         continue;
       }
 
-      if (this.handleRateLimitBlock(normalizedToolCall, perCallConfig, resultParts, toolExecutions)) {
+      if (this.handleRateLimitBlock(
+        session.id,
+        normalizedToolCall,
+        perCallConfig,
+        resultParts,
+        toolExecutions,
+        metadata,
+        resolvedEffect,
+        authResult,
+      )) {
         continue;
       }
 
@@ -451,36 +633,46 @@ export class RuntimeSessionToolExecutor {
         cacheTtl,
         resultParts,
         toolExecutions,
+        metadata,
+        resolvedEffect,
+        authResult,
       );
       if (cachedResult.hit) {
         continue;
       }
 
-      const metadata = this.resolveToolCallMetadata(session.id, normalizedToolCall.name, normalizedToolCall.input, perCallConfig);
-      this.emitToolCalled(
-        session.id,
-        normalizedToolCall.name,
-        normalizedToolCall.input,
-        metadata,
-        resolvedEffect,
-        authResult,
-      );
       const startMs = Date.now();
 
       try {
-        const execution = await this.executeToolWithPolicy(normalizedToolCall, capability, perCallConfig);
+        const execution = await this.executeToolWithPolicy(
+          normalizedToolCall,
+          capability,
+          perCallConfig,
+          executionAuthority,
+        );
         const durationMs = Date.now() - startMs;
         const sanitized = await this.sanitizeToolResult(execution.resultValue);
         const metadata = extractToolResultMetadata(execution.resultValueRaw);
+        const resourceLinks = extractToolResultResourceLinks(metadata);
         const resultOutput = extractToolResultOutput(execution.resultValueRaw);
         const contentParts = sanitized.sanitized ? undefined : extractToolResultContentParts(execution.resultValueRaw);
         const envelopeIsError = extractToolResultIsError(execution.resultValueRaw);
         const isError = envelopeIsError === true;
         const success = !isError;
         const resultSummary = (resultOutput ?? sanitized.resultValue).slice(0, 200);
+        const executionScopeTransition = success
+          ? extractExecutionScopeTransition(metadata)
+          : undefined;
+        if (executionScopeTransition) {
+          this.currentExecutionScope = executionScopeTransition.scope;
+          if (executionScopeTransition.action === "enter") {
+            this.activeExecutionScope = executionScopeTransition.scope;
+          }
+        }
 
         this.emitToolResult(
           session.id,
+          normalizedToolCall.id,
           normalizedToolCall.name,
           durationMs,
           success,
@@ -489,12 +681,17 @@ export class RuntimeSessionToolExecutor {
           execution.retryAttempt,
           sanitized.resultValue,
           metadata,
+          resourceLinks,
+          this.recordToolUsage(normalizedToolCall.name),
           resolvedEffect,
-          authResult,
+          executionAuthority,
         );
+        if (executionScopeTransition?.action === "exit") {
+          this.activeExecutionScope = undefined;
+          this.currentExecutionScope = undefined;
+        }
 
         const fileChanges = this.extractFileChangesFromToolResult(
-          normalizedToolCall.name,
           normalizedToolCall.input,
           execution.resultValueRaw,
         );
@@ -504,7 +701,7 @@ export class RuntimeSessionToolExecutor {
           input: normalizedToolCall.input,
           ...(metadata ? { metadata } : {}),
           resolvedEffect,
-          authority: authResult,
+          authority: executionAuthority,
           durationMs,
           success,
           output: sanitized.resultValue,
@@ -544,6 +741,7 @@ export class RuntimeSessionToolExecutor {
         const errMsg = err instanceof Error ? err.message : String(err);
         this.emitToolResult(
           session.id,
+          normalizedToolCall.id,
           normalizedToolCall.name,
           durationMs,
           false,
@@ -552,6 +750,8 @@ export class RuntimeSessionToolExecutor {
           undefined,
           undefined,
           undefined,
+          undefined,
+          this.recordToolUsage(normalizedToolCall.name),
           resolvedEffect,
           authResult,
         );
@@ -580,6 +780,7 @@ export class RuntimeSessionToolExecutor {
     return { resultParts, toolExecutions };
     } finally {
       this.currentSession = undefined;
+      this.currentExecutionScope = undefined;
     }
   }
 
@@ -615,6 +816,10 @@ export class RuntimeSessionToolExecutor {
           requiresApproval: false,
           reason: "Invalid authority descriptor; execution denied",
         };
+      }
+      const narrowedAuthority = authorityFromResolvedInvocationEffect(authority, resolvedEffect);
+      if (narrowedAuthority) {
+        return narrowedAuthority;
       }
       return {
         level: authority.level,
@@ -697,6 +902,7 @@ export class RuntimeSessionToolExecutor {
     resolvedEffect: ResolvedInvocationEffect,
     resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
+    metadata: Record<string, unknown> | undefined,
   ): Promise<boolean> {
     if (!this.deps.dangerousCommandDetector) {
       return false;
@@ -733,17 +939,25 @@ export class RuntimeSessionToolExecutor {
     }
 
     const blockMessage = formatDangerousCommandBlockMessage(decision);
+    const blockedMetadata = metadata ?? {
+      toolName: toolCall.name,
+      operation: "dangerous_command_blocked",
+      reasonCode: decision.reasonCode,
+    };
 
     this.emitToolResult(
       sessionId,
+      toolCall.id,
       toolCall.name,
       0,
       false,
       blockMessage.slice(0, 200),
       true,
       undefined,
+      blockMessage,
+      blockedMetadata,
       undefined,
-      undefined,
+      this.recordToolUsage(toolCall.name),
       resolvedEffect,
       authResult,
     );
@@ -755,6 +969,7 @@ export class RuntimeSessionToolExecutor {
       input: toolCall.input,
       resolvedEffect,
       authority: authResult,
+      metadata: blockedMetadata,
       durationMs: 0,
       success: false,
       output: blockMessage,
@@ -770,10 +985,14 @@ export class RuntimeSessionToolExecutor {
   }
 
   private handleRateLimitBlock(
+    sessionId: string,
     toolCall: ToolCall,
     perCallConfig: PerCallToolConfig | undefined,
     resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
+    metadata: Record<string, unknown> | undefined,
+    resolvedEffect: ResolvedInvocationEffect,
+    authResult: AuthorityDescriptor | undefined,
   ): boolean {
     if (!perCallConfig?.rateLimiter || !perCallConfig.tenantId) {
       return false;
@@ -784,6 +1003,22 @@ export class RuntimeSessionToolExecutor {
     }
     const retryAfterSec = Math.ceil((rateResult.retryAfterMs ?? 60_000) / 1000);
     const content = `Rate limit exceeded for tool "${toolCall.name}". Try again in ${retryAfterSec} seconds.`;
+    this.emitToolResult(
+      sessionId,
+      toolCall.id,
+      toolCall.name,
+      0,
+      false,
+      content.slice(0, 200),
+      true,
+      undefined,
+      content,
+      metadata,
+      undefined,
+      this.recordToolUsage(toolCall.name),
+      resolvedEffect,
+      authResult,
+    );
     resultParts.push({
       type: "tool_result",
       toolUseId: toolCall.id,
@@ -794,6 +1029,9 @@ export class RuntimeSessionToolExecutor {
       toolCallId: toolCall.id,
       toolName: toolCall.name,
       input: toolCall.input,
+      ...(metadata ? { metadata } : {}),
+      resolvedEffect,
+      authority: authResult,
       durationMs: 0,
       success: false,
       output: content,
@@ -808,6 +1046,9 @@ export class RuntimeSessionToolExecutor {
     cacheTtl: number | undefined,
     resultParts: RuntimeSessionToolResultPart[],
     toolExecutions: ToolExecutionSummary[],
+    metadata: Record<string, unknown> | undefined,
+    resolvedEffect: ResolvedInvocationEffect,
+    authResult: AuthorityDescriptor | undefined,
   ): Promise<{ readonly hit: boolean }> {
     if (!cacheTtl || !this.deps.toolCache) {
       return { hit: false };
@@ -831,6 +1072,22 @@ export class RuntimeSessionToolExecutor {
         }
       }
       this.emitToolCacheHit(sessionId, toolCall.name, cacheTtl);
+      this.emitToolResult(
+        sessionId,
+        toolCall.id,
+        toolCall.name,
+        0,
+        true,
+        resultString.slice(0, 200),
+        false,
+        undefined,
+        resultString,
+        metadata,
+        undefined,
+        this.recordToolUsage(toolCall.name),
+        resolvedEffect,
+        authResult,
+      );
       resultParts.push({
         type: "tool_result",
         toolUseId: toolCall.id,
@@ -841,6 +1098,9 @@ export class RuntimeSessionToolExecutor {
         toolCallId: toolCall.id,
         toolName: toolCall.name,
         input: toolCall.input,
+        ...(metadata ? { metadata } : {}),
+        resolvedEffect,
+        authority: authResult,
         durationMs: 0,
         success: true,
         output: resultString,
@@ -856,6 +1116,7 @@ export class RuntimeSessionToolExecutor {
     toolCall: ToolCall,
     capability: Capability | undefined,
     perCallConfig: PerCallToolConfig | undefined,
+    authority: AuthorityDescriptor | undefined,
   ): Promise<{
     readonly resultValueRaw: unknown;
     readonly resultValue: string;
@@ -866,9 +1127,13 @@ export class RuntimeSessionToolExecutor {
 
     if (capability?.retry) {
       const executor = (name: string, input: Record<string, unknown>) =>
-        this.executeTool({ id: toolCall.id, name, input }, perCallConfig);
+        this.executeTool({ id: toolCall.id, name, input }, perCallConfig, authority);
       const fallbackExecutor = capability.retry.fallback
-        ? (name: string, input: Record<string, unknown>) => this.executeTool({ id: toolCall.id, name, input }, perCallConfig)
+        ? (name: string, input: Record<string, unknown>) => this.executeTool(
+            { id: toolCall.id, name, input },
+            perCallConfig,
+            perCallConfig?.toolAuthority?.get(name),
+          )
         : undefined;
 
       const execResult: ToolExecutionResult = await executeWithRetry(
@@ -881,7 +1146,7 @@ export class RuntimeSessionToolExecutor {
       resultValueRaw = execResult.result;
       retryAttempt = execResult.attempts > 1 ? execResult.attempts : undefined;
     } else {
-      resultValueRaw = await this.executeTool(toolCall, perCallConfig);
+      resultValueRaw = await this.executeTool(toolCall, perCallConfig, authority);
     }
 
     return {
@@ -913,7 +1178,6 @@ export class RuntimeSessionToolExecutor {
   }
 
   private extractFileChangesFromToolResult(
-    toolName: string,
     toolInput: Record<string, unknown>,
     resultValue: unknown,
   ): readonly {
@@ -956,8 +1220,7 @@ export class RuntimeSessionToolExecutor {
       });
     }
 
-    const legacyOperation = legacyFileOperationFromToolName(toolName);
-    const operation = sharedFileMetadata?.operation ?? legacyOperation;
+    const operation = sharedFileMetadata?.operation;
 
     if (operation !== "write" && operation !== "edit") {
       return undefined;
@@ -1029,18 +1292,50 @@ export class RuntimeSessionToolExecutor {
     }];
   }
 
-  private async executeTool(toolCall: ToolCall, perCallConfig?: PerCallToolConfig): Promise<unknown> {
+  private async executeTool(
+    toolCall: ToolCall,
+    perCallConfig?: PerCallToolConfig,
+    authority?: AuthorityDescriptor,
+  ): Promise<unknown> {
     const session = this.currentSession;
     const turnId = session
       ? perCallConfig?.turnId ?? `${session.id}:turn:${Math.max(session.userTurnCount, 1)}`
       : undefined;
+    let chunkIndex = 0;
+    let streamedOutputChars = 0;
+    let outputTruncated = false;
     const context = session
       ? {
           session,
           ...(turnId ? { turnId } : {}),
           toolCall,
           ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
+          emitOutput: (output: { readonly stream: "stdout" | "stderr"; readonly delta: string }) => {
+            if (outputTruncated || output.delta.length === 0) return;
+            const remaining = MAX_STREAMED_TOOL_OUTPUT_CHARS - streamedOutputChars;
+            const retained = output.delta.slice(0, Math.max(0, remaining));
+            for (let offset = 0; offset < retained.length; offset += MAX_TOOL_OUTPUT_CHUNK_CHARS) {
+              const delta = retained.slice(offset, offset + MAX_TOOL_OUTPUT_CHUNK_CHARS);
+              this.emitToolOutput(session.id, toolCall.id, toolCall.name, output.stream, delta, chunkIndex++);
+              streamedOutputChars += delta.length;
+            }
+            if (retained.length < output.delta.length || streamedOutputChars >= MAX_STREAMED_TOOL_OUTPUT_CHARS) {
+              outputTruncated = true;
+              this.emitToolOutput(
+                session.id,
+                toolCall.id,
+                toolCall.name,
+                output.stream,
+                TOOL_OUTPUT_TRUNCATION_MARKER,
+                chunkIndex++,
+              );
+            }
+          },
+          ...(perCallConfig?.workingDirectory
+            ? { sandbox: { cwd: perCallConfig.workingDirectory } }
+            : {}),
           ...(perCallConfig?.toolAllowlist ? { allowedToolNames: [...perCallConfig.toolAllowlist] } : {}),
+          ...(authority ? { authority } : {}),
           requestApproval: (description: string) => this.requestApproval(session.id, description),
           ...(perCallConfig?.effectiveTurnAuthority
             ? { effectiveTurnAuthority: perCallConfig.effectiveTurnAuthority }
@@ -1072,6 +1367,7 @@ export class RuntimeSessionToolExecutor {
 
   private emitToolCalled(
     sessionId: string,
+    toolCallId: string,
     toolName: string,
     toolInput?: Record<string, unknown>,
     metadata?: Record<string, unknown>,
@@ -1080,6 +1376,7 @@ export class RuntimeSessionToolExecutor {
   ): void {
     const event: ToolCalledEvent = {
       type: "tool_called",
+      toolCallId,
       toolName,
       timestamp: new Date(),
       sessionId,
@@ -1087,6 +1384,7 @@ export class RuntimeSessionToolExecutor {
       ...(metadata ? { metadata } : {}),
       ...(resolvedEffect ? { resolvedEffect } : {}),
       ...(authority ? { authority, authorizationLevel: authority.level } : {}),
+      ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
     };
     this.eventBus?.emit(event);
   }
@@ -1116,6 +1414,7 @@ export class RuntimeSessionToolExecutor {
 
   private emitToolResult(
     sessionId: string,
+    toolCallId: string,
     toolName: string,
     durationMs: number,
     success: boolean,
@@ -1124,11 +1423,14 @@ export class RuntimeSessionToolExecutor {
     retryAttempt?: number,
     output?: string,
     metadata?: Record<string, unknown>,
+    resourceLinks?: readonly ExecutionSessionToolResultResourceLink[],
+    toolUsage?: SessionToolUsageSnapshot,
     resolvedEffect?: ResolvedInvocationEffect,
     authority?: AuthorityDescriptor,
   ): void {
     const event: ToolResultEvent = {
       type: "tool_result",
+      toolCallId,
       toolName,
       durationMs,
       success,
@@ -1139,10 +1441,46 @@ export class RuntimeSessionToolExecutor {
       ...(isError !== undefined ? { isError } : {}),
       ...(retryAttempt !== undefined ? { retryAttempt } : {}),
       ...(metadata ? { metadata } : {}),
+      ...(resourceLinks ? { resourceLinks } : {}),
+      ...(toolUsage ? { toolUsage } : {}),
       ...(resolvedEffect ? { resolvedEffect } : {}),
       ...(authority ? { authority } : {}),
+      ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
     };
     this.eventBus?.emit(event);
+  }
+
+  private emitToolOutput(
+    sessionId: string,
+    toolCallId: string,
+    toolName: string,
+    stream: "stdout" | "stderr",
+    delta: string,
+    chunkIndex: number,
+  ): void {
+    if (delta.length === 0) return;
+    const event: ToolOutputEvent = {
+      type: "tool_output",
+      toolCallId,
+      toolName,
+      stream,
+      delta,
+      chunkIndex,
+      timestamp: new Date(),
+      sessionId,
+      ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
+    };
+    this.eventBus?.emit(event);
+  }
+
+  private recordToolUsage(toolName: string): SessionToolUsageSnapshot {
+    const calls = (this.turnToolCallCounts.get(toolName) ?? 0) + 1;
+    this.turnToolCallCounts.set(toolName, calls);
+    return {
+      scope: "turn",
+      toolName,
+      calls,
+    };
   }
 
   private emitToolCacheHit(sessionId: string, toolName: string, cacheTtl: number): void {

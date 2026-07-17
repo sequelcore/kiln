@@ -67,7 +67,7 @@ export async function syncNativePermissionProjections(
 
   const codexResult = isNativeProjectionHarnessDisabled(options, "codex")
     ? skippedPermissionTarget()
-    : await syncCodexPermissions(policy, kilnDir, installState, options);
+    : await syncCodexPermissions(kilnYaml, policy, kilnDir, installState, options);
   if (codexResult.snapshot) {
     installState = upsertNativeProjectionTargetState(installState, codexResult.snapshot);
   }
@@ -77,7 +77,7 @@ export async function syncNativePermissionProjections(
 
   const opencodeResult = isNativeProjectionHarnessDisabled(options, "opencode")
     ? skippedPermissionTarget()
-    : await syncOpenCodePermissions(policy, kilnDir, installState, options);
+    : await syncOpenCodePermissions(kilnYaml, policy, kilnDir, installState, options);
   if (opencodeResult.snapshot) {
     installState = upsertNativeProjectionTargetState(installState, opencodeResult.snapshot);
   }
@@ -134,11 +134,13 @@ async function syncClaudePermissions(
       filePath: target,
       document: projection.document,
       managedFields: projection.managedFields,
+      permissionIntegrity: projection.integrity,
     }),
   };
 }
 
 async function syncCodexPermissions(
+  kilnYaml: KilnYaml,
   policy: KilnPermissionPolicy,
   kilnDir: string,
   installState: NativeProjectionInstallState,
@@ -163,7 +165,12 @@ async function syncCodexPermissions(
     };
   }
 
-  const projection = translateCodexPermissionProjection({ policy, existingDocument: doc });
+  const projection = translateCodexPermissionProjection({
+    policy,
+    existingDocument: doc,
+    kilnYaml,
+    ownsManagedDefault: installState.targets[targetId]?.managedFields.includes("model") === true,
+  });
   ensureDir(dirname(target));
   backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
   writeFileSync(target, stringifyToml(projection.document), "utf-8");
@@ -174,11 +181,13 @@ async function syncCodexPermissions(
       filePath: target,
       document: projection.document,
       managedFields: projection.managedFields,
+      permissionIntegrity: projection.integrity,
     }),
   };
 }
 
 async function syncOpenCodePermissions(
+  kilnYaml: KilnYaml,
   policy: KilnPermissionPolicy,
   kilnDir: string,
   installState: NativeProjectionInstallState,
@@ -204,7 +213,12 @@ async function syncOpenCodePermissions(
     };
   }
 
-  const projection = translateOpenCodePermissionProjection({ policy, existingDocument: existing });
+  const projection = translateOpenCodePermissionProjection({
+    policy,
+    existingDocument: existing,
+    kilnYaml,
+    ownsManagedDefault: installState.targets[targetId]?.managedFields.includes("model") === true,
+  });
   ensureDir(dirname(target));
   backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
   writeFileSync(target, JSON.stringify(projection.document, null, 2) + "\n", "utf-8");
@@ -215,6 +229,7 @@ async function syncOpenCodePermissions(
       filePath: target,
       document: projection.document,
       managedFields: projection.managedFields,
+      permissionIntegrity: projection.integrity,
     }),
   };
 }

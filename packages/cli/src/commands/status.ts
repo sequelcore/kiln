@@ -10,6 +10,7 @@ import { createManagedDirectProviderAdapterFactory } from "../config/managed-age
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
 import { readGlobalConfig } from "../config/global-config.js";
+import type { KilnSkillCatalogSnapshot } from "@kilnai/gateway-contracts";
 import {
   EngineRegistry,
   resolveEngineRoute,
@@ -82,7 +83,7 @@ export async function statusCommand(
     registry,
     surface: "operator",
     isProviderAvailable: (provider) => engineAvailability.get(provider),
-    providerModels: managedAgentProviderModels,
+    providerModelEligibility: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
     builtinToolOptions,
   });
@@ -93,6 +94,12 @@ export async function statusCommand(
       console.log(`    - ${route.routeId}: ${route.kind}/${route.provider}${route.model ? ` ${route.model}` : ""} [${route.profiles.join(", ")}] ${status}`);
     }
   }
+  if (managedInvocationResolution.agentHealth?.length) {
+    console.log(`\n  Managed agent profile issues:`);
+    for (const agent of managedInvocationResolution.agentHealth) {
+      console.log(`    - ${agent.agentName}${agent.routeId ? ` (${agent.routeId})` : ""}: ${agent.reason ?? "unavailable"}`);
+    }
+  }
 
   if (snapshot.projections.length > 0) {
     console.log(`\n  Config projections:`);
@@ -100,6 +107,8 @@ export async function statusCommand(
       console.log(`    - ${projection.targetId}: ${projection.status}`);
     }
   }
+
+  printSkillCatalogStatus(snapshot.skills, config.skills?.selection?.mode ?? "advisory");
 
   const setupActions = snapshot.setup.recommendedActions.filter((action) => action !== "none");
   if (setupActions.length > 0) {
@@ -217,4 +226,70 @@ function printEngineStatus(
   }
   console.log(`    Resolved worker: ${resolvedWorker ?? "—"}`);
   console.log(`    Route reason:    ${routeReason}`);
+}
+
+function printSkillCatalogStatus(
+  skills: KilnSkillCatalogSnapshot | undefined,
+  selectionMode: string,
+): void {
+  if (!skills || skills.entries.length === 0) {
+    return;
+  }
+
+  const configured = skills.entries.filter((entry) => entry.configured);
+  const nativeOnly = skills.entries.filter((entry) => entry.origin === "native-harness");
+  const projectionIssues = skills.entries.filter((entry) =>
+    entry.projections.some((projection) => projection.status !== "projected")
+  ).sort(compareSkillCatalogIssuePriority);
+  const byOrigin = countSkillsByOrigin(configured);
+  console.log(`\n  Skill catalog:`);
+  console.log(`    Selection mode: ${selectionMode}`);
+  console.log(`    Configured: ${configured.length} (builtin=${byOrigin.builtin}, user=${byOrigin.user}, project=${byOrigin.project})`);
+  console.log(`    Native-only: ${nativeOnly.length}`);
+  console.log(`    Projection issues: ${projectionIssues.length}`);
+  for (const entry of projectionIssues.slice(0, 8)) {
+    const issueSummary = entry.projections
+      .filter((projection) => projection.status !== "projected")
+      .map((projection) => `${projection.target}:${projection.status}`)
+      .join(", ");
+    console.log(`    - ${entry.name}: ${issueSummary}`);
+  }
+  if (projectionIssues.length > 8) {
+    console.log(`    ... ${projectionIssues.length - 8} more skill projection issues`);
+  }
+}
+
+function compareSkillCatalogIssuePriority(
+  left: KilnSkillCatalogSnapshot["entries"][number],
+  right: KilnSkillCatalogSnapshot["entries"][number],
+): number {
+  const originDelta = skillOriginPriority(left.origin) - skillOriginPriority(right.origin);
+  if (originDelta !== 0) {
+    return originDelta;
+  }
+  return left.name.localeCompare(right.name);
+}
+
+function skillOriginPriority(origin: KilnSkillCatalogSnapshot["entries"][number]["origin"]): number {
+  switch (origin) {
+    case "project":
+      return 0;
+    case "user":
+      return 1;
+    case "builtin":
+      return 2;
+    case "native-harness":
+      return 3;
+  }
+  return 4;
+}
+
+function countSkillsByOrigin(
+  entries: readonly KilnSkillCatalogSnapshot["entries"][number][],
+): { readonly builtin: number; readonly user: number; readonly project: number } {
+  return {
+    builtin: entries.filter((entry) => entry.origin === "builtin").length,
+    user: entries.filter((entry) => entry.origin === "user").length,
+    project: entries.filter((entry) => entry.origin === "project").length,
+  };
 }

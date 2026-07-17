@@ -2,11 +2,6 @@ import { type GuiOutboundFrame, type GuiInboundFrame, type GuiSessionConnectionS
 
 export type { GuiInboundFrame, GuiOutboundFrame, GuiSessionConnectionState };
 
-export { GuiWsClient, type GuiConnectionState } from "../lib/ws-client.js";
-export { waitForGateway, type GatewayTimeoutError } from "../lib/wait-for-gateway.js";
-export { getStableUserId } from "../lib/stable-user-id.js";
-export { useGuiWs } from "../lib/use-gui-ws.js";
-
 export class GuiSessionClient {
   private ws: WebSocket | null = null;
   private connectTimeoutId: number | null = null;
@@ -104,10 +99,17 @@ export class GuiSessionClient {
     });
   }
 
-  selectContinuationSession(sessionId: string): Promise<{ sessionId: string }> {
+  selectContinuationSession(
+    sessionId: string,
+    options: { readonly gatewayTargetId?: string } = {},
+  ): Promise<{ sessionId: string }> {
     if (this.pendingContinuationSelection) throw new Error("Resume selection already in flight");
     if (!sessionId.trim()) throw new Error("Resume selection requires sessionId");
-    this.send({ type: "continue", sessionId });
+    this.send({
+      type: "continue",
+      sessionId,
+      ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
+    });
     return new Promise<{ sessionId: string }>((resolve, reject) => {
       const timerId = window.setTimeout(() => {
         this.pendingContinuationSelection = null;

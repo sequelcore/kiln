@@ -21,16 +21,14 @@ import { buildPromptFromMessages } from "./cli-prompt-serializer.js";
 import { CliResponseAssembler } from "./cli-response-assembler.js";
 import type {
   CliSessionFactory,
-  CliSessionEventCallback,
+  ExecutionSessionEventCallback,
 } from "./cli-session-contract.js";
 import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
 export type {
-  CliSessionRunOptions,
-  CliSessionEvent,
   CliSession,
   CliSessionFactory,
   CliSessionFactoryContext,
-  CliSessionEventCallback,
+  ExecutionSessionEventCallback,
 } from "./cli-session-contract.js";
 
 /**
@@ -48,7 +46,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
   constructor(
     private readonly factory: CliSessionFactory,
     providerLabel: string,
-    private readonly onEvent?: CliSessionEventCallback,
+    private readonly onEvent?: ExecutionSessionEventCallback,
     private readonly getOperatorSurface?: () => OperatorSurfaceController | undefined,
   ) {
     this.name = `cli-subscription:${providerLabel}`;
@@ -56,11 +54,14 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const prompt = buildPromptFromMessages(options.messages);
-    const cwd = process.cwd();
+    const cwd = options.executionContext?.workingDirectory ?? process.cwd();
 
     const operatorSurface = this.getOperatorSurface?.();
     const session = this.factory(options.system, cwd, {
       kilnSessionId: options.sessionId,
+      ...(options.executionContext?.requestedAuthority
+        ? { requestedAuthority: options.executionContext.requestedAuthority }
+        : {}),
       ...(operatorSurface ? { operatorSurface } : {}),
     });
     const assembler = new CliResponseAssembler();
@@ -73,10 +74,14 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
         system: options.system,
         messages: options.messages,
         reasoningEffort: options.reasoningEffort,
+        ...(options.signal ? { abortSignal: options.signal } : {}),
+        ...(options.executionContext?.executionScope ? { executionScope: options.executionContext.executionScope } : {}),
       })) {
-        // Stream event to TUI via callback
-        this.onEvent?.(event);
-        assembler.consume(event);
+        const scopedEvent = options.executionContext?.executionScope && !event.executionScope
+          ? { ...event, executionScope: options.executionContext.executionScope }
+          : event;
+        this.onEvent?.(scopedEvent);
+        assembler.consume(scopedEvent);
       }
     } finally {
       await session.dispose();

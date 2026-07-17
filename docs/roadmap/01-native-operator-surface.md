@@ -1,8 +1,8 @@
 # 01 - Native Operator Surface
 
-## Status
-
-Active. Started on 2026-05-15.
+Status: Active native operator surface benchmark-validation track
+Execution: Queued - Slice 3 workload fixture governance is bounded and ready after higher-priority release work.
+Started: 2026-05-15
 
 This track owns the native operator surface. It continues from the completed
 native projection foundation, which closed with defer/no-promotion status and
@@ -14,7 +14,7 @@ Near-term startup latency doctrine is canonicalized in
 `docs/guides/gui.md`, and `docs/guides/tui.md`.
 
 This roadmap is about the native operator surface only. Rust optimization is a
-separate implementation track owned by `00.0.1`. Benchmark validation is one
+separate implementation track owned by `00`. Benchmark validation is one
 phase of this native surface roadmap, not the whole roadmap.
 
 ## Objective
@@ -22,6 +22,24 @@ phase of this native surface roadmap, not the whole roadmap.
 Build the native operator surface in governed phases. The current phase defines
 the contract evidence required before Kiln may run live browser/native
 rendering benchmarks or promote any native surface behavior.
+
+## Goals
+
+- Prove browser and native benchmark admission through shared contracts before
+  live execution.
+- Preserve fail-closed native surface behavior until measured evidence exists.
+- Keep native UI, dispatch, network attach, and Rust optimization behind their
+  own approved slices or ADRs.
+- Promote only behavior that preserves cross-surface operator semantics.
+
+## Sequel Standards
+
+- No live native or browser benchmark execution before admission contracts and
+  approved workload fixtures exist.
+- No native UI, dispatch, network attach, or gateway attach loop without an
+  approved slice or ADR.
+- No Rust/WASM/sidecar promotion inside the native surface roadmap.
+- No promotion without tests, typecheck, benchmark evidence, and review.
 
 ## Scope
 
@@ -49,7 +67,7 @@ rendering benchmarks or promote any native surface behavior.
 - No startup-latency fixes. See the provider discovery and operator-surface
   guide docs listed above.
 - No Bun/Rust boundary definition, Rust readiness, or Rust kernel promotion.
-  See `00.0.1-rust-module-optimization.md`.
+  See `00-rust-module-optimization.md`.
 - No live Playwright benchmark execution.
 - No live Electron/native rendering benchmark execution.
 - No native operator UI in the current benchmark-validation phase.
@@ -98,7 +116,7 @@ or attach work starts.
 
 ### Slice 3 - Workload Fixture Governance
 
-Status: next.
+Status: Queued after the public-release queue; bounded and ready for explicit reprioritization.
 
 Deliver:
 
@@ -139,8 +157,27 @@ decision outcome.
 Rust/WASM/sidecar optimization is not part of this roadmap. Native operator surface
 benchmark validation may produce workload and projection evidence that a later
 Rust slice can reuse, but Rust implementation and transport selection belong to
-`00.0.1-rust-module-optimization.md` or a dedicated approved Rust optimization
+`00-rust-module-optimization.md` or a dedicated approved Rust optimization
 roadmap/ADR.
+
+## Research Basis
+
+- Native projection foundation evidence is canonical in
+  `docs/architecture/native-operator-surface.md`.
+- Startup and provider readiness evidence is canonical in
+  `docs/architecture/provider-model-discovery.md`,
+  `docs/architecture/managed-agents.md`, `docs/guides/gui.md`, and
+  `docs/guides/tui.md`.
+- Any future native benchmark claim must be backed by equivalent browser and
+  native runner admission, approved workload fixtures, and reproducible
+  benchmark evidence.
+
+## Completion Criteria
+
+This roadmap closes when the native operator surface can be compared,
+validated, and promoted through explicit contracts, measured evidence, and
+cross-surface documentation; or when the remaining active behavior is promoted
+into architecture or a narrower successor roadmap.
 
 ## Verification
 

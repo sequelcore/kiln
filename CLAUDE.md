@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:e72ea8149287c3d6dfc273846219bc073b558f1252f821ecaea476ee2d1baaf0
+contentHash: sha256:20833f2cea45531b92308132426fcbe4a77fa31d28730693f274a84970acf0fa
 -->
 # Claude Project Guidance
 
@@ -16,7 +16,7 @@ contentHash: sha256:e72ea8149287c3d6dfc273846219bc073b558f1252f821ecaea476ee2d1b
 - Name: kiln
 - Domain: default
 - Default provider: codex-oauth
-- Default model: gpt-5.5
+- Default model: gpt-5.6-terra
 - Max depth: 3
 - Parallel workers: 1
 
@@ -70,31 +70,8 @@ Follow the resolved Kiln work-governance policy before choosing direct execution
 - Direct execution: maxFiles=1, maxRisk=low
 - Orchestrate/delegate for: architecture, security, ui, runtime, provider-routing, managed-agents, config, multi-file, cross-surface, long-running, verification-heavy, formal-proof-candidate
 - Evidence before done: surface-map, risk-hypothesis, plan, tests, typecheck, residual-risk
-
-## Agents
-
-| Name | Display | Role | Tools | Model | Skills | Instruction Profiles |
-|------|---------|------|-------|-------|--------|----------------------|
-| adversarial-reviewer (global) | Herkabe | Adversarial reviewer | read, grep, glob | gpt-5.4 | - | - |
-| architect (global) | Piama | Software architect | read, grep, glob, web | gpt-5.4 | - | - |
-| architecture-planner (global) | Lloyd | Architecture planner | read, grep, glob | gpt-5.4 | - | - |
-| backend-coder (global) | DeepSeek | Backend and runtime implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | deepseek-v4-pro | - | - |
-| coder (global) | Reese | Coding implementation specialist; tasks: backend-coding, test-writing | read, grep, glob, write, bash | gpt-5.5 | - | - |
-| ddd-validator (global) | Ida | DDD and Clean Architecture validator | read, grep, glob | gpt-5.4-mini | - | - |
-| fast-coder (global) | Stevie | Fast implementation specialist; tasks: mechanical-edit | read, grep, glob, write, bash | deepseek-v4-flash | - | - |
-| frontend-coder (global) | Kimi | Frontend implementation specialist; tasks: frontend-design | read, grep, glob, write, bash | kimi-k2.6 | - | - |
-| opencode (global) | Craig | OpenCode implementation worker; tasks: mechanical-edit | read, grep, glob, write, bash | minimax-m2.5-free | - | - |
-| planner (global) | Hal | Implementation planner | read, grep, glob | gpt-5.4 | - | - |
-| react-ts-reviewer (global) | Cynthia | React TypeScript reviewer | read, grep, glob | gpt-5.4-mini | - | - |
-| refactoring-specialist (global) | Jamie | Refactoring specialist; tasks: mechanical-edit, backend-coding | read, grep, glob, write, bash | minimax-m2.7 | - | - |
-| research-writer (global) | Qwen | Research documentation implementation specialist; tasks: research | read, grep, glob, write, web | qwen3.6-plus | - | - |
-| researcher (global) | Abe | Technical researcher; tasks: research | read, grep, glob, web | qwen3.6-plus | - | - |
-| reviewer (global) | Lois | Code quality reviewer | read, grep, glob | gpt-5.4-mini | - | - |
-| scout (global) | Dewey | Read-only context scout | read, grep, glob | gpt-5.4-mini | - | - |
-| service-coder (global) | GLM | Service and adapter implementation specialist; tasks: backend-coding | read, grep, glob, write, bash | glm-5.1 | - | - |
-| spring-boot-reviewer (global) | Spangler | Spring Boot reviewer | read, grep, glob | gpt-5.4-mini | - | - |
-| tdd (global) | Malcolm | TDD guide; tasks: test-writing | read, grep, glob, write, bash | gpt-5.5 | - | - |
-| visual-researcher (global) | Qwen | Visual reference research specialist; tasks: frontend-design, research | read, grep, glob, web | qwen3.6-plus | - | - |
+- Projection is not authority: if required delegation, review, approval, or tool capability is unavailable in this harness, do not simulate it or create project memory workarounds.
+- Record missing harness/tool/route capability as a `capability` pause requirement, continue locally only when the required evidence gates can still be satisfied, or ask the operator for explicit authorization.
 
 ## Usage
 

@@ -81,6 +81,7 @@ describe("tool domain types", () => {
       "computer_close_application",
       "grep",
       "glob",
+      "json_query",
       "git",
       "code_intelligence",
       "monitor_start",
@@ -91,6 +92,7 @@ describe("tool domain types", () => {
       "task_update",
       "operator_elicit",
       "tool_catalog_search",
+      "memory_search",
       "memory_save",
       "resource_list",
       "resource_template_list",
@@ -104,6 +106,7 @@ describe("tool domain types", () => {
       "read_many",
       "grep",
       "glob",
+      "json_query",
       "stat",
       "tree",
       "view_image",
@@ -118,6 +121,7 @@ describe("tool domain types", () => {
       "monitor_read",
       "monitor_list",
       "task_list",
+      "memory_search",
       "resource_list",
       "resource_template_list",
       "resource_read",
@@ -202,6 +206,24 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.computer_type.inputSchema.required).toEqual(["text"]);
     expect(TOOL_SCHEMAS.computer_keypress.inputSchema.required).toEqual(["keys"]);
     expect(TOOL_SCHEMAS.git.inputSchema.required).toEqual(["subcommand"]);
+    expect(TOOL_SCHEMAS.json_query.inputSchema.required).toEqual(["filter"]);
+    expect(TOOL_SCHEMAS.json_query.inputSchema.properties).toMatchObject({
+      filter: {
+        type: "string",
+      },
+      json: {
+        type: "string",
+      },
+      path: {
+        type: "string",
+      },
+      maxBytes: {
+        type: "number",
+      },
+      verbosity: {
+        enum: ["raw", "structured", "summary"],
+      },
+    });
     expect(getBuiltinEffectEnvelope("git")?.operation).toBe("observe");
     expect(TOOL_SCHEMAS.monitor_start.inputSchema.required).toEqual(["command"]);
     expect(TOOL_SCHEMAS.monitor_read.inputSchema.required).toEqual(["id"]);
@@ -210,6 +232,24 @@ describe("tool domain types", () => {
     expect(TOOL_SCHEMAS.task_list.inputSchema.required).toEqual([]);
     expect(TOOL_SCHEMAS.task_update.inputSchema.required).toEqual(["title", "status"]);
     expect(TOOL_SCHEMAS.operator_elicit.inputSchema.required).toEqual(["mode", "message"]);
+    expect(TOOL_SCHEMAS.memory_search.inputSchema.required).toEqual([]);
+    expect(TOOL_SCHEMAS.memory_search.inputSchema.properties).toMatchObject({
+      query: {
+        type: "string",
+      },
+      scopeKind: {
+        type: "string",
+      },
+      scopeId: {
+        type: "string",
+      },
+      layer: {
+        type: "string",
+      },
+      limit: {
+        type: "number",
+      },
+    });
     expect(TOOL_SCHEMAS.memory_save.inputSchema.required).toEqual([
       "layer",
       "scopeKind",
@@ -251,6 +291,7 @@ describe("tool domain types", () => {
       "computer_keypress",
       "grep",
       "glob",
+      "json_query",
       "monitor_start",
       "monitor_read",
       "monitor_stop",
@@ -269,6 +310,9 @@ describe("tool domain types", () => {
     }
     expect((TOOL_SCHEMAS.grep.inputSchema.properties as Record<string, unknown>)["outputMode"]).toMatchObject({
       enum: ["content", "files_with_matches", "count"],
+    });
+    expect((TOOL_SCHEMAS.grep.inputSchema.properties as Record<string, unknown>)["matchMode"]).toMatchObject({
+      enum: ["auto", "regex", "literal"],
     });
     expect((TOOL_SCHEMAS.read.inputSchema.properties as Record<string, unknown>)["verbosity"]).toBeUndefined();
   });

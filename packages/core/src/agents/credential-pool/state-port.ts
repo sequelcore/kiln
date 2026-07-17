@@ -44,7 +44,9 @@ export function computePoolMetrics<TAuth>(
   for (const cred of credentials) {
     totalRequests += cred.requestCount;
 
-    if (cred.cooldownUntil === null || now >= cred.cooldownUntil) {
+    if (cred.invalidReason !== null) {
+      exhaustedCount++;
+    } else if (cred.cooldownUntil === null || now >= cred.cooldownUntil) {
       availableCount++;
     } else if (cred.lastExhausted !== null) {
       exhaustedCount++;

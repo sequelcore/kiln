@@ -15,6 +15,7 @@ export * from "./security/index.js";
 export * from "./observability/index.js";
 export * from "./knowledge/index.js";
 export * from "./eval/index.js";
+export * from "./efficiency/index.js";
 export * from "./safety/index.js";
 export * from "./enrichment/index.js";
 export * from "./tools/index.js";
@@ -35,6 +36,29 @@ export * as engine from "./engine/index.js";
 // Re-export streaming types for runtime
 export type { StreamLevel } from "./events/index.js";
 export { EVENT_LEVEL_MAP, LEVEL_HIERARCHY } from "./events/index.js";
+export {
+  projectCostUpdatedEventToLifecycleLedger,
+  projectManagedAgentCoordinationUsageAllocations,
+  reconcileLifecycleAttributionLedger,
+  replayLifecycleAttributionEvidence,
+  summarizeLifecycleAttributionLedger,
+} from "./events/index.js";
+export type {
+  ProjectCostUpdatedEventToLifecycleLedgerOptions,
+  ReplayLifecycleAttributionEvidenceInput,
+  SessionLifecycleAttributedCost,
+  SessionLifecycleAttributionAllocation,
+  SessionLifecycleAttributionLedger,
+  SessionLifecycleAttributionProviderTotals,
+  SessionLifecycleAttributionQuality,
+  SessionLifecycleAttributionReconciliationResult,
+  SessionLifecycleAttributionRecord,
+  SessionLifecycleAttributionSummary,
+  SessionLifecycleExecutionContext,
+  SessionLifecycleSourceKind,
+  SessionLifecycleTokenClass,
+  SessionProviderTokenClass,
+} from "./events/index.js";
 
 // Error hierarchy re-exported for direct access by runtime
 export { KilnError } from "./engine/errors.js";

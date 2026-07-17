@@ -11,6 +11,101 @@ shape, sync, install-state, and drift behavior remain owned by
 
 ## Capability Model
 
+## Cross-Harness Authority Vocabulary
+
+The cross-harness control-plane contract establishes these terms. They are
+deliberately separate so transport and projection cannot become a second
+authority owner.
+
+- **Native harness**: an operator-facing product such as Codex App, Codex CLI,
+  Claude Code, or OpenCode. Its local permission and installation state applies
+  only while that harness executes its own route.
+- **Direct provider**: a Kiln runtime route backed by a provider mechanism that
+  Kiln can govern directly. `codex-oauth`, `opencode-go`, and `opencode-zen`
+  are direct providers, not Codex or OpenCode native-harness routes.
+- **Harness adapter (or bridge)**: a thin transport translation between a
+  native harness and Kiln application ports. It never owns route policy,
+  permissions, credentials, or managed-agent lifecycle.
+- **Kiln tool**: an admitted Kiln operation with a named application owner,
+  declared read/write authority, stable result contract, and evidence.
+- **Managed agent**: a child execution admitted by Kiln's managed-invocation
+  contract. It is not a native collaboration worker and is not exposed by the
+  Slice 2 read-only bridge.
+- **Invocation route**: the requested provider or harness execution path;
+  **resolved route** is the route Kiln admitted after policy and evidence
+  checks.
+- **Authority profile**: the bounded permissions and approval semantics
+  effective for an admitted runtime action. It is never inferred from a model,
+  prompt, plugin, or harness setting.
+- **Work-governance policy**: the resolved Kiln configuration that defines
+  orchestration posture, direct-execution limits, delegation triggers, and
+  required evidence.
+- **Capability availability**: an observed, source-attributed statement that a
+  mechanism is usable for an operation; absence, staleness, or incomplete
+  evidence is unavailable rather than a fallback invitation.
+- **Admission**: Kiln's fail-closed decision that a requested operation has all
+  required authority, route, capability, and evidence. **Delegation** is the
+  later act of starting an admitted managed agent.
+- **Evidence**: immutable, source-attributed observation data used to explain a
+  decision. **Projection** is a harness or UI representation of canonical
+  state; it is never authority.
+
+Classification: Codex App, Codex CLI, Claude Code, and OpenCode are native
+harnesses. `codex-oauth`, `opencode-go`, and `opencode-zen` are Kiln direct
+providers. MCP and plugin integrations are harness adapters; shell CLI
+processes are native-harness process adapters, never Kiln application
+services. Native-harness permissions therefore do not apply to Kiln direct
+provider routes. Direct-provider authority remains in Kiln runtime even when a
+Codex App MCP adapter is the caller.
+
+### Codex App Read-Only MCP Bridge
+
+The first admitted adapter is a project-local, trusted-workspace stdio MCP
+server declared by `.codex/config.toml`. Codex App owns discovery and child
+process lifecycle; `packages/cli/src/native-harness/codex-app-mcp.ts` owns only
+protocol startup, and its server maps three no-argument read-only operations to
+the CLI application's canonical status, resolved-governance, and harness
+capability query owners. It does not start `kiln`, `codex exec`, `opencode run`,
+or any shell command.
+
+The adapter returns source, observation time, harness identity, request
+identity, and the direct-provider/native-harness authority boundary. It removes
+paths, effective configuration, errors, environment values, and credentials
+from model-visible output. Unsupported or mutation requests return stable MCP
+errors. Read acquisition failures return typed unresolved envelopes with one
+operator action, so the three inspections remain diagnostically useful without
+inventing authority. It exposes neither managed-agent invocation nor
+configuration mutation.
+
+Read-only diagnostic acquisition is deliberately not an authority decision. A
+valid canonical status snapshot with stale or drifted harness projections is
+returned as a **degraded** status result with target-scoped setup diagnostics.
+Projection freshness and drift remain unresolved observations; they do not make
+the canonical global/project configuration, resolved policy, or independently
+observed capability disappear. Conversely, governance returns an
+`authority: unresolved` envelope when canonical policy evidence is missing or
+malformed, and capability inspection returns observed fields with
+`availability: unresolved` when bridge or capability proof is incomplete.
+Only authority-dependent decisions fail closed; diagnostics remain available to
+explain how to repair the boundary.
+
+The native-harness status-projection boundary validates the canonical evidence
+version, full status shape, and observation time before projecting it. Missing,
+malformed, future, stale, or unsupported evidence is unresolved; a resolved
+governance policy is additionally validated as a complete policy contract
+before it can be authoritative. The bridge identifies its project root from
+its module location and checkout markers, not `process.cwd()`: the committed
+relative `.codex/config.toml` declaration remains portable across checkouts.
+
+Codex uses project-local MCP configuration only for trusted workspaces. Trust
+is held by Codex, outside Kiln's authority, and must be established by the
+operator when absent. This is the only activation prerequisite; Kiln must not
+write `CODEX_HOME` or global Codex configuration. Codex App's MCP lifecycle and
+tool calls are documented by the [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
+The [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+and [tool error contract](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+govern lifecycle and error mapping.
+
 Each harness integration declares explicit support for:
 
 - runtime config injection
@@ -18,11 +113,18 @@ Each harness integration declares explicit support for:
 - native config import
 - MCP runtime tools
 - hooks
+- cross-harness managed invocation adapters
 
 The CLI source of truth is
 `packages/cli/src/config/harness-integration-capabilities.ts`. Other CLI config
 modules may consume that model, but they must not recreate harness capability
 tables locally.
+
+Cross-harness managed invocation support is a runtime contract owned by
+`@kilnai/core` managed invocation capabilities and consumed by CLI status,
+native projection decisions, and runtime admission. Harness integration code may
+project that shared matrix into operator-facing setup/status views, but it must
+not maintain a second provider-support list.
 
 ## Runtime Config Injection
 
@@ -53,6 +155,14 @@ passes process-scoped startup overrides for model, approval, sandbox, and
 related execution flags. This is not a claim that standalone Codex reads Kiln
 global config directly.
 
+Codex runtime output can include non-fatal native diagnostics that are not turn
+failures. The wrapper must classify those diagnostics at the adapter boundary
+and keep the canonical session stream focused on real failures, completed
+work, cost, file changes, and tool evidence. This is a compatibility boundary
+for the Codex CLI stream, not durable product doctrine; if Codex exposes
+structured diagnostic severities, Kiln should consume that structure instead
+of matching message text.
+
 ## Native Projection
 
 Native projection remains valid, but it is an artifact strategy, not the
@@ -64,6 +174,121 @@ architecture. Kiln uses native projection when:
 
 Native projection must remain governed by install-state, drift detection,
 append-only backups, and explicit uninstall behavior.
+
+Native default route projection is a supported projection surface for Codex and
+OpenCode only when the canonical Kiln provider/model can be encoded in that
+harness's native syntax. It is not a fallback picker and does not import stale
+ambient defaults. Codex and OpenCode config writers compose permissions,
+supported settings, and the route default before one managed write. They
+preserve unmanaged native defaults until install-state proves Kiln owns the
+field. Claude Code default-route projection is unsupported until a stable
+native contract is proven; surfaces must mark that proof unsupported rather
+than assuming parity.
+
+Native agent projection uses the same capability model. A Kiln agent without
+`providerRoute` is portable and projects to native harnesses without a fixed
+model. A Kiln agent with `providerRoute` is a strict route pin: the native
+projection may emit a harness model only when
+`packages/cli/src/config/harness-integration-capabilities.ts` explicitly
+declares the provider/model encoding for that harness.
+
+Native projection and invocation availability are deliberately separate:
+
+- `native-supported` means Kiln can project a valid harness-native agent model.
+- `adapter-supported` means Kiln can invoke the route through an explicit
+  managed-invocation adapter, but must not project it into that harness's native
+  agent files.
+- `unsupported` means neither native encoding nor adapter capability is proven.
+
+If a strict route is adapter-supported but not native-supported, Kiln omits the
+native agent with `adapter-required` and reconciles any previously managed
+native file through install-state, backup, and drift checks. Cross-harness
+adapter support is declared by provider id in the capability table; Kiln must
+not infer support from provider prefixes or model id strings.
+
+Operator-facing behavior follows three distinct paths:
+
+- Native projection writes a standalone harness artifact only when the selected
+  provider/model can be encoded for that harness.
+- Managed invocation runs a governed Kiln child through the runtime service and
+  records route, authority, transcript, resource, and outcome evidence.
+- Cross-harness adapter invocation is a managed invocation whose caller identity
+  is an explicit external harness and whose provider route is admitted by the
+  shared adapter capability matrix.
+
+Current cross-harness managed invocation status:
+
+| Parent harness | Adapter | Supported child provider ids |
+|----------------|---------|------------------------------|
+| Claude Code | `kiln-managed-invocation` | `codex-oauth`, `opencode-go`, `opencode-zen`, `openrouter` |
+| Codex | `kiln-managed-invocation` | `opencode-go`, `opencode-zen`, `openrouter` |
+| OpenCode | `kiln-managed-invocation` | `codex-oauth` |
+
+This status is an invocation capability, not a native projection capability. It
+is applied to managed route admission only when the caller supplies an explicit
+external parent harness identity. Kiln runtime callers such as GUI, TUI, CLI
+run, and benchmark attach `kiln-runtime` identity and are governed by native
+managed invocation admission rather than this cross-harness matrix. Kiln must
+not infer the parent harness from provider prefixes, model ids, config
+filenames, selected provider, or the current UI surface. Execution still has to
+pass managed route admission, provider/model readiness, authority policy, and
+tool policy before a child run starts.
+
+## Permission Capability Semantics
+
+Codex, Claude Code, and OpenCode expose different native permission concepts.
+Kiln must translate those concepts into provider-neutral evidence without
+renaming one harness's mode into another harness's guarantee.
+
+Current permission capability treatment:
+
+| Harness | Native concepts | Kiln treatment |
+| --- | --- | --- |
+| Codex | Approval policy, sandbox mode, permission profiles, desktop Full Access selectors, session overrides, resumed sessions, automations, and subagents. | Codex can express strong approval and filesystem sandbox evidence when runtime proof is available. Desktop Full Access selection is recorded as session evidence, not proof by itself and not persistent canonical policy. |
+| Claude Code | Modes such as `auto`, `dontAsk`, and `bypassPermissions`, plus native tool and subagent configuration. | Claude Code modes are translated as lossy permission evidence until Kiln can prove exact approval, filesystem, and network enforcement for the active run. `bypassPermissions` is a dangerous authority signal, not a provider-neutral sandbox guarantee. |
+| OpenCode | `allow`, `ask`, and `deny` permission resolution. | OpenCode permission rules describe approval behavior but do not prove a Codex-equivalent filesystem sandbox. Kiln records approval evidence separately from filesystem and network enforcement strength. |
+
+Every adapter reports desired, persisted, session, and effective permission
+evidence separately when available. Unsupported or lossy translations remain
+visible in `TrustedExecutionIntegrity.semanticLoss` and classification. A
+harness-specific broadening requires explicit operator-local authorization and
+approval-bound remediation; repository configuration and model output cannot
+authorize trusted/full-access execution.
+
+Child execution never inherits the parent harness permission profile by
+assumption. Managed invocation records requested, projected, and observed child
+authority separately, and background/unattended execution fails closed when the
+required child authority cannot be proven.
+
+## Managed Usage Evidence
+
+Managed invocation adapters must declare usage evidence capability separately
+from route availability. A supported invocation route is not automatically a
+complete lifecycle-attribution route.
+
+Each adapter descriptor declares:
+
+- token classes it can report: input, output, cache read, cache write;
+- semantic source granularity: provider-reported, estimated, or unknown;
+- evidence basis: provider, runtime, adapter, or unknown.
+
+Provider-reported semantic granularity is valid only when the evidence basis is
+provider usage. Runtime and adapter-derived values remain estimates or unknowns
+and must reconcile through the canonical lifecycle ledger instead of being
+presented as provider truth.
+
+Current managed-route usage evidence:
+
+| Route family | Token classes | Semantic granularity | Evidence basis |
+|--------------|---------------|----------------------|----------------|
+| Direct runtime adapter | input, output, cache read, cache write | estimated | runtime |
+| CLI harness adapter | input, output, cache read | unknown | adapter |
+| Remote harness adapter | input, output | unknown | adapter |
+
+Cross-route comparisons must either show equivalent lifecycle attribution
+evidence or surface these explicit gaps. No operator surface may fill a missing
+harness usage class by inference from provider prefixes, transcript text, or
+local cost heuristics.
 
 ## Native Config Import
 
@@ -78,6 +303,80 @@ Current status:
 | Claude Code | Unsupported | Settings shape is broader than Kiln's current canonical import contract |
 | Codex | Supported | Provider, model, approval, and sandbox map cleanly |
 | OpenCode | Supported | Provider, model, and default permission map cleanly |
+
+## Native Route Proof And Diagnostics
+
+Native route proof is evidence, not repair. The smallest supported proof should
+be non-destructive and bounded. When a harness exposes a stable bare-invocation
+or status mechanism that reveals the selected provider/model, Kiln records that
+selected runtime route and compares it with the canonical route and explicit
+probe route. When proof is unsupported, Kiln records `bareProofSupported:
+false` and keeps the static native-config evidence separate from live proof.
+
+Credential-safe probes always use an explicit provider and validated model.
+They record only credential source class, probe status, catalog status, and
+route identity. They must not print, hash into user-visible output, persist, or
+otherwise expose secret material. Probe timeouts, retries, output length, and
+provider spend must be bounded.
+
+Diagnostics distinguish:
+
+- authentication failure
+- authorization failure
+- unknown model
+- unavailable route
+- stale catalog
+- projection drift
+- ambient fallback mismatch
+- missing canonical default
+- unsupported bare proof
+- transient timeout or availability failure
+
+The OpenCode incident on 2026-06-30 is the canonical regression: an explicit
+`opencode-go/deepseek-v4-flash` route probe succeeded while bare `opencode run`
+selected obsolete `opencode-go/deepseek-v4-flash-free` and reported `Invalid
+API key`. Kiln must classify that state as credential-valid with a native
+default or ambient fallback mismatch, never as an invalid credential.
+
+## External Harness Evidence
+
+Local harness repositories were used as supporting evidence for route
+integrity. They inform Kiln capability boundaries but are not architecture to
+copy.
+
+| Repo inspected | Relevant evidence | Stability | Kiln impact |
+| --- | --- | --- | --- |
+| Codex research checkout | App-server config/read and external-agent import APIs, setup/status notifications, account auth state, MCP status, model/provider capabilities, native config defaults and fallback internals. | App-server protocol and CLI config are stronger evidence; fallback internals are version-sensitive implementation detail. | Use stable config/status surfaces when available; fail closed around unsupported fallback behavior. |
+| OpenCode research checkout | JSON/JSONC config, `OPENCODE_CONFIG*`, `provider`, `model`, `small_model`, auth commands, `models --refresh`, provider/model route ids, startup config, plugins, MCP, and permissions. | Public config/docs and CLI behavior are stronger evidence; internal default-to-latest selection is not Kiln doctrine. | Project OpenCode defaults as `provider/model`; do not copy ambient fallback selection into Kiln. |
+| Claude Code research checkout | Doctor/login/logout/status command registry, model priority comments, native subagent/MCP/permission config, model validation classes. | Mostly internal/reference evidence; subscription and app behavior can vary. | Mark native default proof unsupported until a stable public contract is available. |
+
+## Harness Doctor
+
+Harness doctor is the read-only installation health view for local harnesses.
+It reports evidence; it does not repair PATH, install packages, uninstall
+aliases, rewrite native files, or select hidden fallback binaries.
+
+Harness health is a shared product capability, not a wrapper-local fallback.
+Each executable surface has one resolved identity, and admission evidence must
+show the command path, version, auth or discovery state, config projection
+state, and model readiness when the selected provider requires explicit model
+proof. Competing aliases are diagnostics unless they change the resolved
+command.
+
+The canonical report includes:
+
+- resolved executable path and version for Kiln, Codex, and OpenCode;
+- all matching executable entries discovered on PATH;
+- competing executable warnings when command resolution may drift;
+- auth state, discovery status, and model evidence from shared provider model
+  discovery;
+- zero automatic repair actions.
+
+Global `kiln` drift is expected during local development. The global command
+may point at the last installed release while source runs use the working tree.
+Doctor should report that as release/install evidence, not mutate the
+developer environment. The global command updates only when a new release is
+installed.
 
 ## MCP And Hooks
 
@@ -100,3 +399,8 @@ MCP and hooks are complementary integration mechanisms.
   projection strategy with ownership, drift detection, and removal semantics.
 - GUI, TUI, CLI, MCP, and runtime surfaces consume resolved integration
   capabilities; they do not infer harness behavior independently.
+- No wrapper may silently fall back to another executable after admission.
+- Provider and model readiness must come from shared discovery/status
+  contracts, not surface-local readiness logic.
+- Doctor never mutates PATH, installs or uninstalls packages, rewrites native
+  config, or chooses app-vs-CLI preference outside the health contract.

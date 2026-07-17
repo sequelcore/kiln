@@ -8,17 +8,11 @@ import type {
   OperatorExecutionMode,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
+  ToolResultResourceLinkPresentation,
   ToolResultPresentation,
 } from "@kilnai/gateway-contracts";
 
 export type MessageRole = "user" | "assistant" | "tool" | "error";
-
-export interface ChatMessage {
-  id: string;
-  role: MessageRole;
-  content: string;
-  toolName?: string;
-}
 
 export interface TuiConfig {
   provider?: string;
@@ -27,14 +21,15 @@ export interface TuiConfig {
 
 export type SessionEvent =
   | { type: "text_delta"; content: string; isThinking?: boolean; sessionId?: string; turnId?: string }
-  | { type: "tool_use"; toolName: string; input?: unknown; sessionId?: string; turnId?: string }
-  | { type: "tool_result"; toolName: string; output: string; sessionId?: string; turnId?: string }
+  | { type: "tool_use"; toolName: string; toolCallId?: string; input?: unknown; sessionId?: string; turnId?: string }
+  | { type: "tool_output_delta"; toolName: string; toolCallId: string; stream: "stdout" | "stderr"; delta: string; chunkIndex: number; sessionId?: string; turnId?: string }
+  | { type: "tool_result"; toolName: string; toolCallId?: string; output: string; sessionId?: string; turnId?: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionId?: string; turnId?: string }
   | { type: "cost_update"; usd: number; sessionId?: string; turnId?: string }
   | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; details?: string; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent };
+  | { type: "activity"; activity: string; toolName?: string; toolCallId?: string; stream?: "stdout" | "stderr"; chunkIndex?: number; output?: string; usd?: number; input?: unknown; details?: string; metadata?: Record<string, unknown>; resourceLinks?: readonly ToolResultResourceLinkPresentation[]; toolUsage?: unknown; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent };
 
 /**
  * @internal
@@ -42,8 +37,9 @@ export type SessionEvent =
  */
 export type SessionEventInternal =
   | { type: "text_delta"; content: string; isThinking?: boolean; sessionId?: string; turnId?: string }
-  | { type: "tool_use"; toolName: string; input?: unknown; sessionId?: string; turnId?: string }
-  | { type: "tool_result"; toolName: string; output: string; sessionId?: string; turnId?: string }
+  | { type: "tool_use"; toolName: string; toolCallId?: string; input?: unknown; sessionId?: string; turnId?: string }
+  | { type: "tool_output_delta"; toolName: string; toolCallId: string; stream: "stdout" | "stderr"; delta: string; chunkIndex: number; sessionId?: string; turnId?: string }
+  | { type: "tool_result"; toolName: string; toolCallId?: string; output: string; sessionId?: string; turnId?: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionId?: string; turnId?: string }
   | { type: "cost_update"; usd: number; sessionId?: string; turnId?: string }
   | {
@@ -66,7 +62,7 @@ export type SessionEventInternal =
     }
   | { type: "error"; message: string }
   | { type: "thinking" }
-  | { type: "activity"; activity: string; toolName?: string; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
+  | { type: "activity"; activity: string; toolName?: string; toolCallId?: string; stream?: "stdout" | "stderr"; chunkIndex?: number; output?: string; usd?: number; input?: unknown; inputTokens?: number; outputTokens?: number; details?: string; metadata?: Record<string, unknown>; resourceLinks?: readonly ToolResultResourceLinkPresentation[]; toolUsage?: unknown; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent; path?: string; changeType?: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number };
 
 /**
  * @description The only session abstraction the TUI depends on.

@@ -55,6 +55,9 @@ permissions:
     - tool: tool_catalog_search
       action: allow
       reason: Governed Kiln turns may discover available control-plane tools without execution authority.
+    - tool: memory_search
+      action: allow
+      reason: Governed Kiln turns may search governed read-only memory context.
     - tool: read
       action: allow
       reason: Governed Kiln turns may inspect files for planning and review.

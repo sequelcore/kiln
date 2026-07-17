@@ -2,7 +2,15 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parse } from "yaml";
-import type { AgentTier, ModelTaskSuitabilityTask } from "@kilnai/core";
+import {
+  defineWorkClassification,
+  MANAGED_AGENT_ADMISSION_PROFILES,
+  type AgentTier,
+  type ManagedAgentAdmissionProfile,
+  type ModelTaskSuitabilityTask,
+  type WorkClassification,
+  type WorkClassificationInput,
+} from "@kilnai/core";
 import { KILN_FIRST_PARTY_AGENT_DEFAULTS } from "./first-party-agent-defaults.js";
 
 export interface KilnAgentDefinition {
@@ -15,7 +23,6 @@ export interface KilnAgentDefinition {
   readonly backstory?: string;
   readonly tier: AgentTier;
   readonly tools?: readonly string[];
-  readonly model?: string;
   readonly skills?: readonly string[];
   readonly instructionProfiles?: readonly string[];
   readonly taskAffinity?: readonly ModelTaskSuitabilityTask[];
@@ -24,9 +31,10 @@ export interface KilnAgentDefinition {
   readonly count?: number;
   readonly sandbox?: boolean;
   readonly modalities?: readonly string[];
-  readonly authorityProfile?: string;
+  readonly authorityProfile?: ManagedAgentAdmissionProfile;
   readonly routeId?: string;
   readonly providerRoute?: KilnAgentProviderRoute;
+  readonly workClassification?: WorkClassification;
   readonly voiceProfile?: string;
   readonly instructions?: string;
   readonly scope: "builtin" | "global" | "project";
@@ -131,6 +139,21 @@ function asProviderRoute(value: unknown): KilnAgentProviderRoute | undefined {
   };
 }
 
+function asWorkClassification(value: unknown): WorkClassification | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const input: WorkClassificationInput = {
+    ...(asStringArray(record.intents) ? { intents: asStringArray(record.intents) } : {}),
+    ...(asStringArray(record.artifacts) ? { artifacts: asStringArray(record.artifacts) } : {}),
+    ...(asStringArray(record.domains) ? { domains: asStringArray(record.domains) } : {}),
+    ...(asStringArray(record.effects) ? { effects: asStringArray(record.effects) } : {}),
+    ...(asStringArray(record.modes) ? { modes: asStringArray(record.modes) } : {}),
+  };
+  return defineWorkClassification(input);
+}
+
 function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAgentDefinition | undefined {
   const parsed = parseFrontmatter(raw);
   if (!parsed) {
@@ -162,7 +185,6 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const nicknameCandidates = asStringArray(record.nicknameCandidates);
   const backstory = asNonEmptyString(record.backstory);
   const tools = asStringArray(record.tools);
-  const model = asNonEmptyString(record.model);
   const skills = asStringArray(record.skills);
   const instructionProfiles = asStringArray(record.instructionProfiles);
   const taskAffinity = asTaskAffinity(record.taskAffinity);
@@ -171,9 +193,18 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const count = asPositiveInteger(record.count);
   const sandbox = asBoolean(record.sandbox);
   const modalities = asStringArray(record.modalities);
-  const authorityProfile = asNonEmptyString(record.authorityProfile);
+  const authorityProfile = asManagedAgentAdmissionProfile(record.authorityProfile);
+  if (record.authorityProfile !== undefined && !authorityProfile) {
+    return undefined;
+  }
   const routeId = asNonEmptyString(record.routeId);
   const providerRoute = asProviderRoute(record.providerRoute);
+  let workClassification: WorkClassification | undefined;
+  try {
+    workClassification = asWorkClassification(record.workClassification);
+  } catch {
+    return undefined;
+  }
   const voiceProfile = asNonEmptyString(record.voiceProfile);
   const instructions = parsed.body.length > 0 ? parsed.body : undefined;
 
@@ -187,7 +218,6 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(backstory ? { backstory } : {}),
     tier,
     ...(tools ? { tools } : {}),
-    ...(model ? { model } : {}),
     ...(skills ? { skills } : {}),
     ...(instructionProfiles ? { instructionProfiles } : {}),
     ...(taskAffinity ? { taskAffinity } : {}),
@@ -199,10 +229,17 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(authorityProfile ? { authorityProfile } : {}),
     ...(routeId ? { routeId } : {}),
     ...(providerRoute ? { providerRoute } : {}),
+    ...(workClassification ? { workClassification } : {}),
     ...(voiceProfile ? { voiceProfile } : {}),
     ...(instructions ? { instructions } : {}),
     scope,
   };
+}
+
+function asManagedAgentAdmissionProfile(value: unknown): ManagedAgentAdmissionProfile | undefined {
+  return typeof value === "string" && MANAGED_AGENT_ADMISSION_PROFILES.includes(value as ManagedAgentAdmissionProfile)
+    ? value as ManagedAgentAdmissionProfile
+    : undefined;
 }
 
 export function parseAgentDefinitionContent(raw: string, scope: "global" | "project" = "project"): KilnAgentDefinition | undefined {

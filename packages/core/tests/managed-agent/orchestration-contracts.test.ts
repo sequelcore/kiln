@@ -33,6 +33,7 @@ describe("managed agent orchestration contracts", () => {
       task: "Review the current implementation from two independent angles.",
       childCount: 2,
       maxConcurrentChildren: 2,
+      workingDirectoryMode: "isolated-worktree",
     });
 
     expect(request).toMatchObject({
@@ -83,6 +84,7 @@ describe("managed agent orchestration contracts", () => {
       requestedBy: "operator",
       requestSource: "runtime:managed-agent",
       task: "Coordinate managed child work.",
+      workingDirectoryMode: "isolated-worktree" as const,
     };
 
     const decomposition = buildManagedAgentDecompositionOrchestrationRequest({
@@ -178,6 +180,92 @@ describe("managed agent orchestration contracts", () => {
     ]);
   });
 
+  it("preserves governed per-child identity and dependency contracts for sequential teams", () => {
+    const request = buildManagedAgentDecompositionOrchestrationRequest({
+      orchestrationId: "frontend-team-1",
+      parentSessionId: "session-parent",
+      parentTurnId: "turn-parent",
+      requestedBy: "operator",
+      requestSource: "runtime:managed-agent",
+      task: "Implement and verify the frontend change.",
+      workingDirectoryMode: "isolated-worktree",
+      childPlans: [
+        {
+          key: "visual-producer",
+          roleIntent: "frontend-visual-producer",
+          task: "Produce the visual implementation plan.",
+          agentProfile: "frontend-producer",
+          routeId: "opencode-go-kimi-k3-readonly",
+          dependsOn: [],
+        },
+        {
+          key: "repository-integrator",
+          roleIntent: "frontend-repository-integrator",
+          task: "Integrate the approved visual plan.",
+          agentProfile: "frontend-integrator",
+          routeId: "opencode-go-frontend-approved-write",
+          dependsOn: ["visual-producer"],
+        },
+      ],
+      maxConcurrentChildren: 1,
+    });
+
+    expect(request.childRequests).toEqual([
+      expect.objectContaining({
+        key: "visual-producer",
+        agentProfile: "frontend-producer",
+        routeId: "opencode-go-kimi-k3-readonly",
+        dependsOn: [],
+      }),
+      expect.objectContaining({
+        key: "repository-integrator",
+        agentProfile: "frontend-integrator",
+        routeId: "opencode-go-frontend-approved-write",
+        dependsOn: ["visual-producer"],
+      }),
+    ]);
+  });
+
+  it("permits non-mutating review and decomposition in read-only routes", () => {
+    const reviewSwarm = buildManagedAgentReviewSwarmOrchestrationRequest({
+      orchestrationId: "review-swarm-read-only",
+      parentSessionId: "session-parent",
+      parentTurnId: "turn-parent",
+      requestedBy: "operator",
+      requestSource: "runtime:managed-agent",
+      task: "Review the implementation without changing the workspace.",
+      workingDirectoryMode: "read-only",
+      childPlans: [
+        { roleIntent: "code-review", task: "Review correctness." },
+        { roleIntent: "boundary-review", task: "Review architecture boundaries." },
+      ],
+      maxConcurrentChildren: 2,
+    });
+
+    expect(reviewSwarm.isolation).toMatchObject({
+      required: true,
+      workingDirectoryMode: "read-only",
+    });
+    const decomposition = buildManagedAgentDecompositionOrchestrationRequest({
+      orchestrationId: "decomposition-read-only",
+      parentSessionId: "session-parent",
+      parentTurnId: "turn-parent",
+      requestedBy: "operator",
+      requestSource: "runtime:managed-agent",
+      task: "Decompose implementation work.",
+      workingDirectoryMode: "read-only",
+      childPlans: [
+        { roleIntent: "contract-review", task: "Inspect the contract." },
+        { roleIntent: "test-review", task: "Inspect the test surface." },
+      ],
+      maxConcurrentChildren: 2,
+    });
+    expect(decomposition.isolation).toMatchObject({
+      required: true,
+      workingDirectoryMode: "read-only",
+    });
+  });
+
   it("fails closed for malformed orchestration requests", () => {
     const request = buildManagedAgentFanOutOrchestrationRequest({
       orchestrationId: "orchestration-1",
@@ -188,6 +276,7 @@ describe("managed agent orchestration contracts", () => {
       task: "Review the current implementation from two independent angles.",
       childCount: 2,
       maxConcurrentChildren: 2,
+      workingDirectoryMode: "isolated-worktree",
     });
 
     expect(() => defineManagedAgentOrchestrationRequest({
@@ -203,6 +292,7 @@ describe("managed agent orchestration contracts", () => {
       task: "Review the current implementation.",
       childCount: 1,
       maxConcurrentChildren: 1,
+      workingDirectoryMode: "isolated-worktree",
     })).toThrow("Managed fan-out orchestration requires at least two children");
     expect(() => defineManagedAgentOrchestrationRequest({
       ...request,
@@ -233,6 +323,7 @@ describe("managed agent orchestration contracts", () => {
       requestedBy: "operator",
       requestSource: "runtime:managed-agent",
       task: "Coordinate managed child work.",
+      workingDirectoryMode: "isolated-worktree" as const,
     };
     const decomposition = buildManagedAgentDecompositionOrchestrationRequest({
       ...baseInput,
@@ -318,6 +409,7 @@ describe("managed agent orchestration contracts", () => {
         {
           ...backgroundJob.childRequests[0]!,
           childId: "background-job-1:child:2",
+          key: "child-2",
           ordinal: 2,
         },
       ],
@@ -334,6 +426,7 @@ describe("managed agent orchestration contracts", () => {
       task: "Review the current implementation from two independent angles.",
       childCount: 2,
       maxConcurrentChildren: 2,
+      workingDirectoryMode: "isolated-worktree",
     });
 
     expect(admitManagedAgentOrchestrationRequest(request, {
@@ -383,6 +476,35 @@ describe("managed agent orchestration contracts", () => {
     });
   });
 
+  it("admits high-risk orchestration only when execution is serialized", () => {
+    const request = buildManagedAgentDecompositionOrchestrationRequest({
+      orchestrationId: "high-risk-sequential",
+      parentSessionId: "session-parent",
+      parentTurnId: "turn-parent",
+      requestedBy: "operator",
+      requestSource: "runtime:managed-agent",
+      task: "Apply and verify an approved high-risk change.",
+      workingDirectoryMode: "isolated-worktree",
+      childPlans: [
+        { roleIntent: "implementer", task: "Apply the approved change." },
+        { roleIntent: "verifier", task: "Verify the applied change." },
+      ],
+      maxConcurrentChildren: 1,
+    });
+
+    expect(admitManagedAgentOrchestrationRequest(request, {
+      maxChildren: 2,
+      routeHealth: "available",
+      budget: "available",
+      workspace: "available",
+      taskRisk: "high",
+    })).toMatchObject({
+      status: "admitted",
+      orchestrationId: "high-risk-sequential",
+      maxConcurrentChildren: 1,
+    });
+  });
+
   it("builds terminal orchestration result evidence without hiding partial failure", () => {
     const request = buildManagedAgentFanOutOrchestrationRequest({
       orchestrationId: "orchestration-1",
@@ -393,6 +515,7 @@ describe("managed agent orchestration contracts", () => {
       task: "Review the current implementation from two independent angles.",
       childCount: 2,
       maxConcurrentChildren: 2,
+      workingDirectoryMode: "isolated-worktree",
     });
 
     const evidence = buildManagedAgentOrchestrationResultEvidence(request, [
@@ -427,6 +550,7 @@ describe("managed agent orchestration contracts", () => {
           success: true,
           resourceUris: [],
           diagnosticUris: [],
+          replayEvidenceUris: [],
         },
         {
           childId: "orchestration-1:child:2",
@@ -436,6 +560,7 @@ describe("managed agent orchestration contracts", () => {
           error: "child route failed",
           resourceUris: [],
           diagnosticUris: [],
+          replayEvidenceUris: [],
         },
       ],
     });
@@ -451,6 +576,7 @@ describe("managed agent orchestration contracts", () => {
       task: "Review the current implementation from two independent angles.",
       childCount: 2,
       maxConcurrentChildren: 2,
+      workingDirectoryMode: "isolated-worktree",
     });
 
     expect(() => defineManagedAgentOrchestrationRequest({

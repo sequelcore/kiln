@@ -1,6 +1,6 @@
 # Eval Benchmarking
 
-Kiln's eval framework implements 23 scorers aligned with leading AI agent benchmarks and academic research. This document maps each scorer to its research basis, explains the metrics that predict real-world agent quality, and catalogs the industry standards Kiln's eval aligns with.
+Kiln's eval framework implements 23 reusable eval scorers aligned with leading AI agent benchmarks and academic research, plus profile-specific structural benchmark scorers. This document maps each scorer to its research basis, explains the metrics that predict real-world agent quality, and catalogs the industry standards Kiln's eval aligns with.
 
 Source: `packages/core/src/eval/`.
 
@@ -14,6 +14,12 @@ Source: `packages/core/src/eval/`.
 | `policy-adherence` | LLM-judge | tau-bench | Business rule compliance beyond task completion. |
 | `effort` | Rule-based | CES research | Customer Effort Score -- most predictive metric for customer loyalty. |
 | `resolution` | Rule-based | Industry FCR | First Contact Resolution quality (resolved/partial/ambiguous/unresolved). |
+
+### Benchmark Integrity Scorers
+
+| Scorer | Type | Research Basis | What It Validates |
+|--------|------|----------------|-------------------|
+| `execution-integrity` | Rule-based | Reproducible agent evaluation | The scored route terminated successfully, retained provider/model identity, and had no policy or route failure. Partial tool activity before a terminal error cannot pass. |
 
 ### Tool & Function Calling Scorers
 
@@ -36,6 +42,7 @@ Source: `packages/core/src/eval/`.
 |--------|------|----------------|-------------------|
 | `routing-accuracy` | Rule-based | MultiAgentBench/MARBLE | Did the correct agent handle the message? |
 | `handoff-quality` | LLM-judge | MultiAgentBench/MARBLE | Context preservation across agent switches. |
+| `team-composition` | Rule-based | MultiAgentBench/MARBLE | The observed orchestration graph uses the expected admitted profiles and dependency contracts. |
 | `milestone` | Rule-based | MultiAgentBench/MARBLE | Intermediate checkpoint achievement in multi-step workflows. |
 
 ### Safety & Adversarial Scorers
@@ -169,6 +176,38 @@ kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmark
 baseline artifact to the output path. Its per-item sessions run through the
 normal Kiln session path with non-human stream routing, so assistant deltas and
 tool notices do not contaminate stdout or exact-format scoring.
+
+## Publication Readiness
+
+An internally ready baseline is not permission to publish a performance claim.
+Generate a claim-bearing report only with a verified publication manifest:
+
+```bash
+kiln benchmark report \
+  --baseline ./baseline.json \
+  --publication-manifest ./docs/benchmarks/verified-efficiency-v1/manifest.json \
+  --repository-root . \
+  --output ./report.md
+```
+
+The report states both baseline readiness and publication readiness. If the
+manifest is absent, an artifact hash or declared-Git-tree lookup fails, a
+paired report or its complete execution identity differs from the fixture and
+manifest, its canonical baseline-array digest differs from the supplied
+`--baseline` data, baseline/candidate input hashes differ, `k < 5`, the
+observation-backed lower bound is not positive, quality or verification
+regresses, or a cost claim uses subscription/unknown economics, publication is
+blocked. Do not reinterpret
+`external-ready` from the baseline evaluator as a public harness-comparison
+result.
+
+Invalid manifest JSON is also rendered as a blocked publication decision; it
+does not abort report generation or authorize a claim.
+
+The repository reference bundle deliberately declares `claim.kind=none` and
+therefore produces `internal-evidence-only` with `publicClaimAllowed=false`.
+It verifies the evidence pipeline; its synthetic token values are not
+production savings.
 
 ## Safety Adversarial Dataset
 

@@ -8,6 +8,7 @@ import type {
   GuiInboundFrame,
   GuiOutboundFrame,
 } from "@kilnai/gateway-contracts";
+import { ContextUsageProjectionSchema } from "@kilnai/gateway-contracts";
 
 // --- Zod Schemas for frame validation ---
 
@@ -22,6 +23,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     continuationSessionId: z.string().optional(),
     sessionIntent: z.literal("fresh").optional(),
     reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+    gatewayTargetId: z.string().optional(),
     appName: z.string().optional(),
     tenantId: z.string().optional(),
   }),
@@ -30,8 +32,35 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     requestId: z.string().trim().min(1),
     sourceMessageId: z.string().trim().min(1),
   }),
+  z.object({
+    type: z.literal("turn_cancel"),
+    requestId: z.string().trim().min(1),
+    reason: z.string().trim().min(1).optional(),
+  }),
   z.object({ type: z.literal("clear") }),
   z.object({ type: z.literal("refresh_providers") }),
+  z.object({
+    type: z.literal("operator_terminal_open"),
+    requestId: z.string().trim().min(1),
+    cols: z.number().int().min(2).max(500),
+    rows: z.number().int().min(1).max(200),
+    cwd: z.string().trim().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_write"),
+    terminalId: z.string().trim().min(1),
+    data: z.string().max(65_536),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_resize"),
+    terminalId: z.string().trim().min(1),
+    cols: z.number().int().min(2).max(500),
+    rows: z.number().int().min(1).max(200),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_close"),
+    terminalId: z.string().trim().min(1),
+  }),
   z.object({
     type: z.literal("provider_auth"),
     provider: z.string(),
@@ -52,10 +81,15 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     appliedTheme: z.string().optional(),
     error: z.string().optional(),
   }),
-  z.object({ type: z.literal("continue"), sessionId: z.string() }),
+  z.object({
+    type: z.literal("continue"),
+    sessionId: z.string().trim().min(1),
+    gatewayTargetId: z.string().trim().min(1).optional(),
+  }),
   z.object({
     type: z.literal("browser_session_control"),
     action: z.enum(["takeover", "release"]),
+    gatewayTargetId: z.string().trim().min(1).optional(),
     sessionId: z.string().trim().min(1).optional(),
     reason: z.string().optional(),
     requestId: z.string().trim().min(1).optional(),
@@ -63,6 +97,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("managed_agent_control"),
     action: z.enum(["cancel", "join", "prompt"]),
+    gatewayTargetId: z.string().trim().min(1).optional(),
     sessionId: z.string().trim().min(1),
     invocationId: z.string().trim().min(1),
     prompt: z.string().trim().min(1).optional(),
@@ -74,6 +109,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("browser_operator_input"),
     requestId: z.string().trim().min(1),
+    gatewayTargetId: z.string().trim().min(1).optional(),
     sessionId: z.string().trim().min(1),
     input: z.discriminatedUnion("kind", [
       z.object({
@@ -107,14 +143,24 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
       }),
     ]),
   }),
-  z.object({ type: z.literal("approve"), approvalId: z.string().trim().min(1) }),
-  z.object({ type: z.literal("reject"), reason: z.string(), approvalId: z.string().trim().min(1) }),
+  z.object({
+    type: z.literal("approve"),
+    approvalId: z.string().trim().min(1),
+    gatewayTargetId: z.string().trim().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal("reject"),
+    reason: z.string(),
+    approvalId: z.string().trim().min(1),
+    gatewayTargetId: z.string().trim().min(1).optional(),
+  }),
   z.object({
     type: z.literal("execution_mode_transition"),
     toMode: z.enum(["execute", "plan"]),
     planId: z.string().trim().min(1).optional(),
     residualRiskAcknowledged: z.boolean().optional(),
     residualRiskAcknowledgement: z.string().optional(),
+    gatewayTargetId: z.string().trim().min(1).optional(),
   }),
 ]);
 
@@ -184,6 +230,72 @@ const GuiProviderDiscoveryResultSchema = z.object({
   reason: z.string(),
   authState: z.enum(["authenticated", "missing", "expired", "not_required", "unknown"]),
   lastCheckedAt: z.string(),
+});
+
+const GuiProviderModelDiscoveryProjectionSchema = z.object({
+  catalogEvidence: z.object({
+    status: z.enum(["complete", "partial", "failed"]),
+    source: z.object({
+      kind: z.string(),
+      id: z.string(),
+      version: z.string().optional(),
+    }),
+    observedAt: z.string(),
+    counts: z.object({
+      total: z.number().int().min(0),
+      returned: z.number().int().min(0),
+      omitted: z.number().int().min(0),
+    }),
+    failure: z.object({
+      classification: z.string(),
+      summary: z.string(),
+    }).optional(),
+  }),
+  entries: z.array(z.object({
+    normalizedModel: z.object({
+      family: z.string(),
+      version: z.string().optional(),
+    }),
+    providerRoute: z.object({
+      providerId: z.string(),
+      providerModelId: z.string(),
+      scope: z.string(),
+    }),
+    harnessRoute: z.object({
+      harnessId: z.string(),
+      reportedProviderId: z.string(),
+      reportedModelId: z.string(),
+    }).optional(),
+    rawEvidence: z.object({
+      rawId: z.string(),
+      provenance: z.string(),
+    }),
+    credentialEvidence: z.object({
+      state: z.enum(["authenticated", "missing", "expired", "not-required", "unknown"]),
+      source: z.string(),
+    }),
+    entitlementEvidence: z.object({
+      state: z.enum(["confirmed", "denied", "not-required", "unknown"]),
+      source: z.string(),
+    }),
+    freshness: z.object({
+      status: z.enum(["fresh", "stale", "unknown"]),
+      observedAt: z.string(),
+      expiresAt: z.string().optional(),
+    }),
+    routeHealth: z.object({
+      status: z.enum(["healthy", "unhealthy", "unknown"]),
+      reason: z.string().optional(),
+    }),
+    policyAdmission: z.object({
+      use: z.enum(["interactive", "managed-agent", "background"]),
+      status: z.enum(["admitted", "denied", "unknown"]),
+    }),
+    eligibility: z.object({
+      eligible: z.boolean(),
+      reasonCodes: z.array(z.string()),
+    }),
+  })),
 });
 
 const GuiAuthorityStatusSchema = z.object({
@@ -257,6 +369,7 @@ const GuiInteractiveUseSnapshotSchema = z.object({
   toolCallId: z.string().optional(),
   toolName: z.string().optional(),
   provider: z.string().optional(),
+  gatewayTargetId: z.string().trim().min(1).optional(),
   sessionId: z.string().optional(),
   operation: z.string().optional(),
   url: z.string().optional(),
@@ -279,6 +392,7 @@ const GuiBrowserSessionStateSchema = z.object({
   toolCallId: z.string().optional(),
   toolName: z.string().optional(),
   provider: z.string().optional(),
+  gatewayTargetId: z.string().trim().min(1).optional(),
   sessionId: z.string().optional(),
   operation: z.string().optional(),
   url: z.string().optional(),
@@ -328,6 +442,7 @@ const GuiSessionEventSchema = z.object({
     "provider_routed",
     "multimodal_routed",
     "tool_call_started",
+    "tool_call_output_delta",
     "tool_call_completed",
     "approval_requested",
     "approval_resolved",
@@ -337,6 +452,8 @@ const GuiSessionEventSchema = z.object({
     "config_change_failed",
     "file_changed",
     "cost_updated",
+    "context_usage_observed",
+    "lifecycle_attribution_recorded",
     "work_item_updated",
     "work_item_execution_started",
     "work_item_execution_finished",
@@ -354,17 +471,43 @@ const GuiSessionEventSchema = z.object({
   ]),
   turnId: z.string().optional(),
   parentEventId: z.string().optional(),
+  executionScope: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("goal"),
+      goalRunId: z.string().min(1),
+      managedInvocationId: z.string().min(1).optional(),
+    }),
+    z.object({
+      kind: z.literal("work_item"),
+      goalRunId: z.string().min(1),
+      workItemId: z.string().min(1),
+      attemptId: z.string().min(1).optional(),
+      managedInvocationId: z.string().min(1).optional(),
+    }),
+  ]).optional(),
   source: z.object({
     actor: z.enum(["user", "assistant", "system", "tool", "runtime"]),
     surface: z.enum(["cli", "tui", "gui", "native", "ide", "sdk", "widget", "gateway", "runtime"]),
     component: z.string().optional(),
   }).optional(),
   payload: z.record(z.string(), z.unknown()),
+}).superRefine((event, ctx) => {
+  if (event.kind !== "context_usage_observed") return;
+  if (!ContextUsageProjectionSchema.safeParse(event.payload.contextUsage).success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "context_usage_observed requires a valid contextUsage projection" });
+  }
 });
 
 /** Schema for GuiInboundFrame validation. */
 const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thinking") }),
+  z.object({
+    type: z.literal("turn_cancel_result"),
+    requestId: z.string().trim().min(1),
+    status: z.enum(["accepted", "not_active", "failed"]),
+    reason: z.string().optional(),
+    kilnSessionId: z.string().optional(),
+  }),
   z.object({
     type: z.literal("operator_theme_set"),
     requestId: z.string().trim().min(1),
@@ -412,6 +555,30 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     status: z.enum(["accepted", "blocked", "failed", "stale-session"]),
     reason: z.string().optional(),
     handledAt: z.string(),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_opened"),
+    requestId: z.string().trim().min(1),
+    terminalId: z.string().trim().min(1),
+    cwd: z.string().trim().min(1),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_output"),
+    terminalId: z.string().trim().min(1),
+    data: z.string().max(65_536),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_exited"),
+    terminalId: z.string().trim().min(1),
+    exitCode: z.number().int(),
+    signal: z.number().int().optional(),
+  }),
+  z.object({
+    type: z.literal("operator_terminal_error"),
+    code: z.string().trim().min(1),
+    message: z.string(),
+    requestId: z.string().trim().min(1).optional(),
+    terminalId: z.string().trim().min(1).optional(),
   }),
   z.object({
     type: z.literal("managed_agent_control_result"),
@@ -465,6 +632,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
   z.object({
     type: z.literal("welcome"),
+    providerModelDiscovery: GuiProviderModelDiscoveryProjectionSchema,
     greeting: z.string().optional(),
     models: z.record(z.array(z.string())).optional(),
     providerDiscovery: z.array(GuiProviderDiscoveryResultSchema).optional(),
@@ -473,6 +641,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     activeModel: z.string().optional(),
     executionMode: z.enum(["execute", "plan"]).optional(),
     authorityStatus: GuiAuthorityStatusSchema.optional(),
+    operatorTerminalAvailable: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("execution_mode_transitioned"),
@@ -495,6 +664,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("provider_auth_completed"),
     provider: z.string(),
     requestId: z.string().trim().min(1),
+    providerModelDiscovery: GuiProviderModelDiscoveryProjectionSchema,
     models: z.record(z.array(z.string())),
     providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
     providers: z.array(GuiProviderDescriptorSchema).optional(),
@@ -507,9 +677,10 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("providers_refreshed"),
-    models: z.record(z.array(z.string())),
-    providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
-    providers: z.array(GuiProviderDescriptorSchema),
+    providerModelDiscovery: GuiProviderModelDiscoveryProjectionSchema,
+    models: z.record(z.array(z.string())).optional(),
+    providerDiscovery: z.array(GuiProviderDiscoveryResultSchema).optional(),
+    providers: z.array(GuiProviderDescriptorSchema).optional(),
   }),
   z.object({
     type: z.literal("provider_changed"),
@@ -517,7 +688,11 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     model: z.string().trim().min(1).optional(),
     requestId: z.string().trim().min(1),
   }),
-  z.object({ type: z.literal("continuation_selected"), sessionId: z.string() }),
+  z.object({
+    type: z.literal("continuation_selected"),
+    sessionId: z.string().trim().min(1),
+    gatewayTargetId: z.string().trim().min(1).optional(),
+  }),
 ]);
 
 /** Connection lifecycle states for the GUI WebSocket client. */
@@ -588,8 +763,9 @@ export class GuiWsClient {
 
     this.setState("connecting");
 
-    const wsUrl = `${this.options.baseUrl}?userId=${encodeURIComponent(this.options.userId)}`;
-    this.ws = new WebSocket(wsUrl);
+    const wsUrl = new URL(this.options.baseUrl);
+    wsUrl.searchParams.set("userId", this.options.userId);
+    this.ws = new WebSocket(wsUrl.toString());
 
     this.ws.onopen = () => this.handleOpen();
     this.ws.onmessage = (event) => this.handleMessage(event);

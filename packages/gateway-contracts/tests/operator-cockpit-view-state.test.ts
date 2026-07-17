@@ -271,6 +271,7 @@ describe("operator cockpit read-only view state", () => {
                 memoryWriteProposalUris: [],
               },
               lifecycle: {
+                sourceResourceUris: ["kiln://session/work-items/managed-view-work"],
                 resourceLease: {
                   leaseId: "managed-view:child:review:lease",
                   createdAt: "2026-05-23T12:00:00.000Z",
@@ -301,6 +302,28 @@ describe("operator cockpit read-only view state", () => {
 
     expect(view.managedAgents.activeCount).toBe(1);
     expect(view.managedAgents.attentionCount).toBe(2);
+    expect(view.attention).toMatchObject({
+      totalCount: 2,
+      actionRequiredCount: 1,
+      blockedCount: 0,
+      failedCount: 0,
+      items: [
+        {
+          reason: "managed-agent-review-required",
+          severity: "action_required",
+          target: {
+            gatewayTargetId: "managed-view:instance:1",
+            instanceId: "managed-view:instance:1",
+            sessionId: "managed-view:session:1",
+            managedInvocationId: "managed-view:child:review",
+          },
+        },
+        {
+          reason: "managed-agent-active",
+          severity: "info",
+        },
+      ],
+    });
     expect(view.managedAgents.items).toEqual([
       expect.objectContaining({
         managedInvocationId: "managed-view:child:review",
@@ -314,6 +337,7 @@ describe("operator cockpit read-only view state", () => {
           "kiln://managed-invocations/managed-view-child-review/review-diagnostic",
           "kiln://managed-invocations/managed-view-child-review/transcript",
           "kiln://managed-invocations/managed-view-child-review/worktree",
+          "kiln://session/work-items/managed-view-work",
         ],
         lifecycleTimeline: [
           expect.objectContaining({

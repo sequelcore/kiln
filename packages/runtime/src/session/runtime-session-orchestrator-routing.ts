@@ -137,6 +137,7 @@ export async function resolveRuntimeSessionRouting(
   let routingDecision: RoutingDecision | undefined;
   let routedProviderIdentity: string | undefined;
   let routedModelIdentity: string | undefined;
+  const phaseAwareSignals = resolvePhaseAwareRoutingSignals(perCallConfig?.modelRoutingPolicy);
 
   if (perCallConfig?.modelOverride) {
     const override = perCallConfig.modelOverride;
@@ -166,6 +167,7 @@ export async function resolveRuntimeSessionRouting(
         requiresStreaming: false,
         ...(perCallConfig?.reasoningEffort ? { requestedReasoningEffort: perCallConfig.reasoningEffort } : {}),
         ...(perCallConfig?.modelRoutingPolicy?.task ? { task: perCallConfig.modelRoutingPolicy.task } : {}),
+        ...phaseAwareSignals,
         ...(perCallConfig?.modelRoutingPolicy?.rankingEvidence
           ? { rankingEvidence: perCallConfig.modelRoutingPolicy.rankingEvidence }
           : {}),
@@ -457,10 +459,18 @@ async function invokeManagedMultimodalDelegation(input: {
   readonly requirements: RuntimeMultimodalRequirements;
   readonly decision: ReturnType<typeof planMultimodalRoute>;
 }): Promise<RuntimeMultimodalDelegationExecutionResult> {
+  const observedRuntimeAuthority = input.route.observedRuntimeAuthority;
   const service = new RuntimeManagedAgentInvocationService({
     credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
       allowedRouteIds: runtimeMultimodalCredentialRouteIds(input.route),
     }),
+    ...(observedRuntimeAuthority
+      ? {
+          authorityObserver: {
+            observe: async () => observedRuntimeAuthority,
+          },
+        }
+      : {}),
   });
   const resourceUris = input.requirements.artifacts.map((artifact) => artifact.uri);
   const invocationId = createRuntimeMultimodalDelegationInvocationId(
@@ -476,6 +486,10 @@ async function invokeManagedMultimodalDelegation(input: {
     profile: input.route.profile,
     requestedBy: "runtime",
     requestSource: "runtime-multimodal-delegation",
+    executionIntent: {
+      attendance: "unattended",
+      lifecycle: "automation",
+    },
     requestedAuthority: input.route.requestedAuthority ?? "read_only",
     providerRoute: input.route.providerRoute,
     adapterKind: input.route.adapter.descriptor.adapterKind,
@@ -851,6 +865,7 @@ function buildModelRoutingRationale(
       requiresStreaming: false,
       ...(perCallConfig?.reasoningEffort ? { requestedReasoningEffort: perCallConfig.reasoningEffort } : {}),
       ...(perCallConfig?.modelRoutingPolicy?.task ? { task: perCallConfig.modelRoutingPolicy.task } : {}),
+      ...resolvePhaseAwareRoutingSignals(perCallConfig?.modelRoutingPolicy),
     },
     rankingEvidence: ranking.current,
     diagnostics: [
@@ -860,6 +875,40 @@ function buildModelRoutingRationale(
     ...(decision.selectionMode === "manual_override"
       ? { overrideSource: perCallConfig?.modelOverride?.source ?? "operator" }
       : {}),
+  };
+}
+
+function resolvePhaseAwareRoutingSignals(
+  policy: ModelRoutingPolicyConfig | undefined,
+): Pick<ModelRoutingPolicyConfig,
+  "phase" | "uncertainty" | "verificationNeed" | "retryRisk" | "cacheInvalidationCostUsd" | "verifierCostUsd"> {
+  if (!policy) return {};
+  for (const [name, value] of [
+    ["uncertainty", policy.uncertainty],
+    ["verificationNeed", policy.verificationNeed],
+    ["retryRisk", policy.retryRisk],
+  ] as const) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0 || value > 1)) {
+      throw new Error(`Model routing ${name} must be between 0 and 1.`);
+    }
+  }
+  for (const [name, value] of [
+    ["cacheInvalidationCostUsd", policy.cacheInvalidationCostUsd],
+    ["verifierCostUsd", policy.verifierCostUsd],
+  ] as const) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+      throw new Error(`Model routing ${name} must be a non-negative finite number.`);
+    }
+  }
+  return {
+    ...(policy.phase ? { phase: policy.phase } : {}),
+    ...(policy.uncertainty !== undefined ? { uncertainty: policy.uncertainty } : {}),
+    ...(policy.verificationNeed !== undefined ? { verificationNeed: policy.verificationNeed } : {}),
+    ...(policy.retryRisk !== undefined ? { retryRisk: policy.retryRisk } : {}),
+    ...(policy.cacheInvalidationCostUsd !== undefined
+      ? { cacheInvalidationCostUsd: policy.cacheInvalidationCostUsd }
+      : {}),
+    ...(policy.verifierCostUsd !== undefined ? { verifierCostUsd: policy.verifierCostUsd } : {}),
   };
 }
 

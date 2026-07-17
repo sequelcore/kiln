@@ -5,7 +5,7 @@ import type { ModelCapabilityRegistry } from "@kilnai/core";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
-import type { SessionRegistry } from "../../src/session/session-registry.js";
+import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 
@@ -84,7 +84,7 @@ function makeMockEventEmitter(): ConversationEventEmitter {
 
 function makeMockModelRegistry(provider = "openai"): ModelCapabilityRegistry {
   return {
-    eligible: vi.fn().mockReturnValue([{
+    all: vi.fn().mockReturnValue([{
       provider,
       model: "gpt-4o-mini",
       supportsStructuredOutput: true,
@@ -98,7 +98,6 @@ function makeMockModelRegistry(provider = "openai"): ModelCapabilityRegistry {
       qualityTier: "standard",
     }]),
     get: vi.fn(),
-    all: vi.fn(),
   } as unknown as ModelCapabilityRegistry;
 }
 
@@ -409,9 +408,10 @@ describe("processAdmittedTurn - grounding", () => {
       ["anthropic", expensiveProvider as never],
     ]);
 
-    // Registry returns two models; the cheaper one (openai) should be picked
+    // Registry returns two capability profiles; the cheaper one (openai) should be picked.
+    // These profiles are advisory grounding candidates, not execution eligibility authority.
     const modelRegistry = {
-      eligible: vi.fn().mockReturnValue([
+      all: vi.fn().mockReturnValue([
         {
           provider: "anthropic", model: "claude-haiku-3-5", supportsStructuredOutput: true,
           inputPer1M: 0.8, outputPer1M: 4.0, supportsTools: true, supportsStreaming: true,
@@ -424,7 +424,6 @@ describe("processAdmittedTurn - grounding", () => {
         },
       ]),
       get: vi.fn(),
-      all: vi.fn(),
     } as unknown as ModelCapabilityRegistry;
 
     const ctx = makeBaseContext({
@@ -441,13 +440,13 @@ describe("processAdmittedTurn - grounding", () => {
     expect(usedModel).toBe("gpt-4o-mini");
   });
 
-  it("skips grounding when no eligible model with structured output exists", async () => {
+  it("skips grounding when no registry profile with structured output exists", async () => {
     const mockRail = new GroundingRail();
     vi.spyOn(mockRail, "evaluate");
 
     const providerPool = new Map<string, never>();
     const modelRegistry = {
-      eligible: vi.fn().mockReturnValue([
+      all: vi.fn().mockReturnValue([
         {
           provider: "openai", model: "gpt-3.5-turbo", supportsStructuredOutput: false,
           inputPer1M: 0.5, outputPer1M: 1.5, supportsTools: true, supportsStreaming: true,
@@ -455,7 +454,6 @@ describe("processAdmittedTurn - grounding", () => {
         },
       ]),
       get: vi.fn(),
-      all: vi.fn(),
     } as unknown as ModelCapabilityRegistry;
 
     const ctx = makeBaseContext({

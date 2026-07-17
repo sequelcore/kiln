@@ -51,7 +51,7 @@ describe("work-governance store restore", () => {
       id: "goal-restored",
       objective: "Resume the governed repair goal.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: ["work-restored"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -86,7 +86,7 @@ describe("work-governance store restore", () => {
       id: "goal-next",
       objective: "Continue with a new goal.",
       ownerSessionId: "session-1",
-      planId: "plan-2",
+      source: { kind: "approved_plan", planId: "plan-2" },
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "read_only",

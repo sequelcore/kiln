@@ -33,10 +33,12 @@ import {
   createCliTranscriptBudgetUsageReader,
   createRuntimeBudgetAdmissionFromGlobalConfig,
 } from "../application/runtime-budget-admission.js";
+import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime, type OperatorVoiceRuntime } from "../config/operator-voice.js";
+import { createStartupProfiler, type StartupProfiler } from "../application/startup-profiler.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -46,7 +48,10 @@ import {
   readProviderDiscoveryCache,
   writeProviderDiscoveryCache,
 } from "../config/provider-discovery-cache.js";
-import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection,
+} from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   createDefaultRegistry,
@@ -61,11 +66,14 @@ import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
 import {
   GUI_PROVIDER_DISPLAY_ORDER,
+  buildOperatorToolResultPayload,
   formatPresentationIntentAsText,
   getGuiProviderMetadata,
   isGuiProviderModeless,
+  parseOperatorToolResultEnvelope,
   presentOperatorEventPayload,
   type GuiProviderDiscoveryResult,
+  type GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import {
   GoalRunStore,
@@ -77,29 +85,33 @@ import {
   type CanonicalSessionEventKind,
   type ContextArtifactCache,
   type DefaultBuiltinToolRegistryOptions,
+  type ExecutionSessionRunOptions,
   type SessionEventSource,
 } from "@kilnai/core";
 import {
   attachManagedInvocationSessionEventSink,
   getProjectContextArtifactCache,
-  withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
 } from "@kilnai/runtime";
 import {
   createProviderCatalogService,
   deriveGovernedTurnOutcomeFromToolRecords,
   markGuiProviderDiscoveryStale,
-  projectGuiOperatorModels,
+  projectGuiProviderModelDiscovery,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "@kilnai/runtime";
-import { toManagedInvocationPersistedTranscriptEventDraft } from "../application/managed-invocation-transcript-persistence.js";
+import {
+  managedInvocationPersistedTranscriptEventDrafts,
+  operatorTranscriptKindForType,
+  operatorTranscriptSourceForType,
+  projectGovernanceTranscriptEventDrafts,
+} from "../application/operator-transcript-projection.js";
 import type {
   CliSessionFactoryContext,
-  CliSessionRunOptions,
   GovernedTurnOutcomeToolRecord,
-  ManagedInvocationToolOptions,
+  ManagedInvocationToolAttachment,
   RuntimeBudgetAdmissionPort,
   RuntimeSessionHydrator,
 } from "@kilnai/runtime";
@@ -124,18 +136,20 @@ interface TuiBootstrapOptions {
   readonly contextArtifactCache: ContextArtifactCache;
   readonly systemPrompt: string;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly operatorVoice?: OperatorVoiceRuntime;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
+  readonly startupProfiler?: StartupProfiler;
 }
 
 interface TuiBootstrapResult {
   readonly createSession: () => Promise<SessionLike>;
   readonly providerModelsRef: { current: Record<string, string[]> };
   readonly providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] };
+  readonly providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null };
   shutdown(): void;
 }
 type TuiControlSession = SessionLike & {
@@ -258,6 +272,39 @@ function assertTuiProviderAvailableInStartupCatalog(
   );
 }
 
+function projectEligibleTuiProviderModels(
+  projection: GuiProviderModelDiscoveryProjection | null,
+  discovery: readonly GuiProviderDiscoveryResult[],
+  gatewayModelessProviderIds: readonly string[] = [],
+): Record<string, string[]> {
+  const modelsByProvider: Record<string, string[]> = {};
+  for (const entry of projection?.entries ?? []) {
+    if (!entry.eligibility.eligible) {
+      continue;
+    }
+    const provider = entry.providerRoute.providerId;
+    const model = entry.providerRoute.providerModelId;
+    const models = modelsByProvider[provider] ?? [];
+    if (!models.includes(model)) {
+      models.push(model);
+    }
+    modelsByProvider[provider] = models;
+  }
+  for (const entry of discovery) {
+    if (entry.available
+      && entry.status === "model_selection_not_required"
+      && isGuiProviderModeless(entry.provider)) {
+      modelsByProvider[entry.provider] = [];
+    }
+  }
+  for (const provider of gatewayModelessProviderIds) {
+    if (isGuiProviderModeless(provider)) {
+      modelsByProvider[provider] = [];
+    }
+  }
+  return modelsByProvider;
+}
+
 function isOnlyStaleProviderDiscovery(discovery: readonly GuiProviderDiscoveryResult[]): boolean {
   return discovery.length > 0 && discovery.every((entry) => entry.status === "stale");
 }
@@ -291,44 +338,6 @@ function parseProvider(
   throw new Error(`Unknown provider: ${requestedProvider}`);
 }
 
-function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
-  switch (type) {
-    case "user":
-      return "user_message";
-    case "text_delta":
-      return "assistant_delta";
-    case "tool_use":
-      return "tool_call_started";
-    case "tool_result":
-      return "tool_call_completed";
-    case "cost_update":
-      return "cost_updated";
-    case "error":
-      return "error_recorded";
-    default:
-      return "assistant_message";
-  }
-}
-
-function mapTranscriptTypeToSource(type: string, surface: OperatorTranscriptSurface): SessionEventSource {
-  const component = surface === "gui" ? "gui-command" : "tui-command";
-  switch (type) {
-    case "user":
-      return { actor: "user", surface, component };
-    case "text_delta":
-      return { actor: "assistant", surface, component };
-    case "tool_use":
-    case "tool_result":
-      return { actor: "tool", surface, component };
-    case "cost_update":
-      return { actor: "runtime", surface, component };
-    case "error":
-      return { actor: "runtime", surface, component };
-    default:
-      return { actor: "system", surface, component };
-  }
-}
-
 function toPersistedTranscriptEvent(
   sessionId: string,
   sequence: number,
@@ -336,15 +345,17 @@ function toPersistedTranscriptEvent(
   payload: Record<string, unknown>,
   surface: OperatorTranscriptSurface,
   turnId?: string,
+  executionScope?: ExecutionSessionRunOptions["executionScope"],
 ): PersistedTranscriptEvent {
   return {
     eventId: randomUUID(),
     kilnSessionId: sessionId,
     sequence,
     timestamp: new Date().toISOString(),
-    kind: mapTranscriptTypeToKind(type),
-    source: mapTranscriptTypeToSource(type, surface),
+    kind: operatorTranscriptKindForType(type),
+    source: operatorTranscriptSourceForType(type, surface, surface === "gui" ? "gui-command" : "tui-command"),
     ...(turnId ? { turnId } : {}),
+    ...(executionScope ? { executionScope } : {}),
     payload,
   };
 }
@@ -366,64 +377,6 @@ function persistedEvent(
     source,
     ...(turnId ? { turnId } : {}),
     payload,
-  };
-}
-
-function managedInvocationEventDrafts(
-  events: readonly CanonicalSessionEvent[],
-): readonly PersistedTranscriptEventDraft[] {
-  return events.flatMap((event) => {
-    const draft = toManagedInvocationPersistedTranscriptEventDraft(event);
-    return draft ? [draft] : [];
-  });
-}
-
-function parseToolResultEnvelope(value: string | undefined): {
-  readonly output: string;
-  readonly isError?: boolean;
-  readonly metadata?: Record<string, unknown>;
-} {
-  if (!value) return { output: "" };
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { output: value };
-    }
-    const record = parsed as Record<string, unknown>;
-    const output = typeof record.output === "string" ? record.output : value;
-    const metadata = record.metadata && typeof record.metadata === "object" && !Array.isArray(record.metadata)
-      ? record.metadata as Record<string, unknown>
-      : undefined;
-    return {
-      output,
-      ...(typeof record.isError === "boolean" ? { isError: record.isError } : {}),
-      ...(metadata ? { metadata } : {}),
-    };
-  } catch {
-    return { output: value };
-  }
-}
-
-function buildToolResultPayload(input: {
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly output: string;
-  readonly outputSummary?: string;
-  readonly isError?: boolean;
-}): Record<string, unknown> {
-  const full = parseToolResultEnvelope(input.output);
-  const summary = parseToolResultEnvelope(input.outputSummary);
-  const outputSummary = summary.output || full.output.slice(0, 200);
-  const isError = full.isError ?? input.isError ?? false;
-  return {
-    toolCallId: input.toolCallId,
-    toolName: input.toolName,
-    output: full.output,
-    outputSummary,
-    ...(full.metadata ? { metadata: full.metadata } : {}),
-    status: {
-      state: isError ? "failed" : "succeeded",
-    },
   };
 }
 
@@ -478,7 +431,7 @@ export async function makeMultiProviderSessionFactory(
   contextArtifactCache: ContextArtifactCache,
   builtinToolOptions?: DefaultBuiltinToolRegistryOptions,
   transcriptSurface: OperatorTranscriptSurface = "tui",
-  managedInvocation?: ManagedInvocationToolOptions,
+  managedInvocation?: ManagedInvocationToolAttachment,
   budgetAdmission?: RuntimeBudgetAdmissionPort,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
@@ -501,16 +454,16 @@ export async function makeMultiProviderSessionFactory(
         await writer.appendManagedInvocationEvents(events);
         return;
       }
-      await transcriptStore.appendManyNext(sessionId, managedInvocationEventDrafts(events));
+      await transcriptStore.appendManyNext(sessionId, managedInvocationPersistedTranscriptEventDrafts(events));
     },
   });
   const managedInvocationWithService = managedInvocationWithTranscriptSink
-    ? withManagedInvocationService(managedInvocationWithTranscriptSink)
+    ? {
+        ...managedInvocationWithTranscriptSink,
+        options: withManagedInvocationService(managedInvocationWithTranscriptSink.options),
+      }
     : undefined;
-  const sessionBuiltinToolOptions = withManagedAgentInvocationResourceProvider(
-    builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
-  );
+  const sessionBuiltinToolOptions = createSessionBuiltinToolOptions(builtinToolOptions);
 
   let currentProvider: ProviderId | null = initialProvider;
 
@@ -541,7 +494,7 @@ export async function makeMultiProviderSessionFactory(
       get providerSessionId() {
         return activeSession?.providerSessionId;
       },
-      run: async function* (options: CliSessionRunOptions) {
+      run: async function* (options: ExecutionSessionRunOptions) {
         const providerForTurn = currentProvider;
         if (!providerForTurn) {
           throw new Error("No provider selected for this turn.");
@@ -581,6 +534,7 @@ export async function makeMultiProviderSessionFactory(
           sessionLedgerOwner: "host",
           model: modelForTurn,
           reasoningEffort: options.reasoningEffort,
+          ...(context?.requestedAuthority ? { requestedAuthority: context.requestedAuthority } : {}),
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,
           ...(managedInvocationWithService ? { managedInvocation: managedInvocationWithService } : {}),
@@ -636,6 +590,7 @@ export async function makeMultiProviderSessionFactory(
         let turnInputTokens = 0;
         let turnOutputTokens = 0;
         let turnCacheReadTokens = 0;
+        let turnCacheWriteTokens = 0;
         let turnProviderTokenUsage: PersistedProviderTokenUsage | undefined;
         let assistantContent = "";
         let assistantDeltaIndex = 0;
@@ -650,7 +605,7 @@ export async function makeMultiProviderSessionFactory(
           appendManagedInvocationEvents: async (events) => {
             await transcriptStore.appendManyNext(
               capturedId,
-              managedInvocationEventDrafts(events),
+              managedInvocationPersistedTranscriptEventDrafts(events),
             );
           },
         });
@@ -707,7 +662,7 @@ export async function makeMultiProviderSessionFactory(
                   toolCallId,
                   toolName: event.toolName,
                   input: event.input,
-                }, transcriptSurface, turnId),
+                }, transcriptSurface, turnId, options.executionScope),
               );
             } else if (event.type === "tool_result") {
               const pending = pendingToolCallIds.get(event.toolName);
@@ -730,10 +685,10 @@ export async function makeMultiProviderSessionFactory(
                   toPersistedTranscriptEvent(capturedId, 0, "tool_use", {
                     toolCallId,
                     toolName: event.toolName,
-                  }, transcriptSurface, turnId),
+                  }, transcriptSurface, turnId, options.executionScope),
                 );
               }
-              const toolResultPayload = buildToolResultPayload({
+              const toolResultPayload = buildOperatorToolResultPayload({
                   toolCallId,
                   toolName: event.toolName,
                   output: event.output,
@@ -741,8 +696,21 @@ export async function makeMultiProviderSessionFactory(
                   ...(event.isError !== undefined ? { isError: event.isError } : {}),
               });
               toolCompletions.push(toolCompletionFromPayload(toolResultPayload));
-              await appendTranscriptEvent(
-                toPersistedTranscriptEvent(capturedId, 0, "tool_result", toolResultPayload, transcriptSurface, turnId),
+              const persistedToolResult = toPersistedTranscriptEvent(
+                capturedId,
+                0,
+                "tool_result",
+                toolResultPayload,
+                transcriptSurface,
+                turnId,
+                options.executionScope,
+              );
+              await transcriptStore.appendManyNext(
+                capturedId,
+                [
+                  persistedToolResult,
+                  ...projectGovernanceTranscriptEventDrafts(persistedToolResult),
+                ],
               );
             } else if (event.type === "error") {
               turnIsError = true;
@@ -760,13 +728,14 @@ export async function makeMultiProviderSessionFactory(
               turnInputTokens = event.inputTokens ?? turnInputTokens;
               turnOutputTokens = event.outputTokens ?? turnOutputTokens;
               turnCacheReadTokens = event.cacheReadTokens ?? turnCacheReadTokens;
+              turnCacheWriteTokens = event.cacheWriteTokens ?? turnCacheWriteTokens;
               turnProviderTokenUsage = {
                 provider: usageProvider,
                 ...(usageModel ? { model: usageModel } : {}),
                 inputTokens: turnInputTokens,
                 outputTokens: turnOutputTokens,
                 cacheReadTokens: turnCacheReadTokens,
-                cacheWriteTokens: 0,
+                cacheWriteTokens: turnCacheWriteTokens,
               };
               await appendTranscriptEvent(
                 toPersistedTranscriptEvent(capturedId, 0, "cost_update", {
@@ -780,6 +749,7 @@ export async function makeMultiProviderSessionFactory(
                     inputTokens: turnInputTokens,
                     outputTokens: turnOutputTokens,
                     cacheReadTokens: turnCacheReadTokens,
+                    cacheWriteTokens: turnCacheWriteTokens,
                   },
                   cost: {
                     deltaUsd: event.usd,
@@ -792,7 +762,9 @@ export async function makeMultiProviderSessionFactory(
               turnCostUsd = event.totalUsd;
               turnIsError = event.isError;
             }
-            yield event;
+            yield options.executionScope && !event.executionScope
+              ? { ...event, executionScope: options.executionScope }
+              : event;
           }
         } finally {
           if (assistantContent.trim().length > 0) {
@@ -807,9 +779,11 @@ export async function makeMultiProviderSessionFactory(
               }, turnId),
             );
           }
-          const lastTurnOutcome = turnIsError || deriveGovernedTurnOutcomeFromToolRecords(toolCompletions) === "failed"
-            ? "failed"
-            : "completed";
+          const lastTurnOutcome = options.abortSignal?.aborted
+            ? "cancelled"
+            : turnIsError || deriveGovernedTurnOutcomeFromToolRecords(toolCompletions) === "failed"
+              ? "failed"
+              : "completed";
           await appendTranscriptEvent(
             persistedEvent(capturedId, 0, "turn_completed", source("runtime"), {
               turnId,
@@ -850,6 +824,7 @@ export async function makeMultiProviderSessionFactory(
               inputTokens: turnInputTokens,
               outputTokens: turnOutputTokens,
               cacheReadTokens: turnCacheReadTokens,
+              cacheWriteTokens: turnCacheWriteTokens,
               ...(turnProviderTokenUsage ? { providerTokenUsage: [turnProviderTokenUsage] } : {}),
               providerThread: resumedSession.providerSessionId
                 ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
@@ -935,7 +910,7 @@ export async function makeMultiProviderSessionFactory(
 
 export interface MultiProviderSessionManager {
   readonly factory: CliSessionFactory;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   getProvider: () => string;
   setProvider: (provider: string) => void;
   getModel: () => string;
@@ -951,6 +926,7 @@ async function bootstrapGatewaySession(
   const { flags, sessionManager, contextArtifactCache, systemPrompt } = options;
 
   writeTuiBootstrapStatus("Starting Kiln TUI runtime...");
+  options.startupProfiler?.mark("gateway-start-requested");
   const gateway = await startTuiGateway({
     sessionManager,
     port: flags.port,
@@ -970,16 +946,25 @@ async function bootstrapGatewaySession(
     initialProviderDiscovery: options.initialProviderDiscovery,
     onProviderDiscoveryResolved: options.onProviderDiscoveryResolved,
   });
+  options.startupProfiler?.mark("gateway-started", { port: gateway.port });
 
   writeTuiBootstrapStatus("Connecting to local gateway...");
   await waitForGateway(`http://localhost:${gateway.port}/health`);
+  options.startupProfiler?.mark("gateway-health-ready", { port: gateway.port });
   writeTuiBootstrapStatus("Loading provider and model discovery...");
 
   const providerModelsRef: { current: Record<string, string[]> } = {
-    current: gateway.models,
+    current: projectEligibleTuiProviderModels(
+      gateway.providerModelDiscovery,
+      gateway.providerDiscovery ?? [],
+      Object.keys(gateway.models),
+    ),
   };
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = {
     current: gateway.providerDiscovery ?? [],
+  };
+  const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = {
+    current: gateway.providerModelDiscovery,
   };
 
   let session: GatewaySession | null = null;
@@ -987,9 +972,19 @@ async function bootstrapGatewaySession(
     if (!session) {
       session = new GatewaySession(
         gateway.url,
-        (models: Record<string, string[]>, discovery?: readonly GuiProviderDiscoveryResult[]) => {
+        (
+          models: Record<string, string[]>,
+          discovery?: readonly GuiProviderDiscoveryResult[],
+          providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
+        ) => {
           providerModelsRef.current = models;
           providerDiscoveryRef.current = discovery ?? [];
+          providerModelDiscoveryRef.current = providerModelDiscovery ?? null;
+          providerModelsRef.current = projectEligibleTuiProviderModels(
+            providerModelDiscoveryRef.current,
+            providerDiscoveryRef.current,
+            Object.keys(models),
+          );
         },
       );
     }
@@ -1000,6 +995,7 @@ async function bootstrapGatewaySession(
     createSession,
     providerModelsRef,
     providerDiscoveryRef,
+    providerModelDiscoveryRef,
     shutdown: () => {
       void session?.dispose();
       gateway.shutdown();
@@ -1067,7 +1063,7 @@ function mapSessionEventToTui(
     case "tool_result": {
       const toolName = typeof candidate.toolName === "string" ? candidate.toolName : undefined;
       const presentation = toolName && typeof candidate.output === "string"
-        ? presentOperatorEventPayload("tool_call_completed", buildToolResultPayload({
+        ? presentOperatorEventPayload("tool_call_completed", buildOperatorToolResultPayload({
           toolCallId: typeof candidate.toolCallId === "string" ? candidate.toolCallId : "tool-result",
           toolName,
           output: candidate.output,
@@ -1078,7 +1074,7 @@ function mapSessionEventToTui(
       const output = presentation?.toolPresentation?.presentationIntent
         ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
         : typeof candidate.output === "string"
-          ? parseToolResultEnvelope(candidate.output).output
+          ? parseOperatorToolResultEnvelope(candidate.output)?.output ?? candidate.output
           : undefined;
       return {
         type: "activity",
@@ -1104,6 +1100,7 @@ async function bootstrapDirectSession(
   let session: TuiControlSession | null = null;
   const providerModelsRef: { current: Record<string, string[]> } = { current: {} };
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = { current: [] };
+  const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = { current: null };
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
     () => resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(options.registry)),
     [],
@@ -1116,7 +1113,11 @@ async function bootstrapDirectSession(
   );
   const applyProviderDiscovery = (discovery: readonly GuiProviderDiscoveryResult[]): Record<string, string[]> => {
     providerDiscoveryRef.current = discovery;
-    providerModelsRef.current = projectGuiOperatorModels(providerDiscoveryRef.current);
+    providerModelDiscoveryRef.current = projectGuiProviderModelDiscovery(providerDiscoveryRef.current);
+    providerModelsRef.current = projectEligibleTuiProviderModels(
+      providerModelDiscoveryRef.current,
+      providerDiscoveryRef.current,
+    );
     return providerModelsRef.current;
   };
   applyProviderDiscovery(providerCatalog.snapshot().discovery);
@@ -1132,6 +1133,7 @@ async function bootstrapDirectSession(
     applyProviderDiscovery(snapshot.discovery);
   });
   writeTuiBootstrapStatus("Loading provider and model discovery...");
+  options.startupProfiler?.mark("direct-provider-catalog-refresh-started");
   providerCatalog.startBackgroundRefresh({ force: true });
   const directRuntimeSessionId = `kiln-tui:direct:${randomUUID()}`;
 
@@ -1201,10 +1203,14 @@ async function bootstrapDirectSession(
       async switchProvider(providerName: string, modelName?: string) {
         const provider = providerName.trim() as ProviderId;
         const requestedModel = typeof modelName === "string" ? modelName.trim() : "";
+        await ensureProviderModels();
         const resolution = resolveGuiProviderSwitch({
           provider,
           model: requestedModel,
-          models: await ensureProviderModels(),
+          discovery: providerDiscoveryRef.current,
+          ...(providerModelDiscoveryRef.current
+            ? { providerModelDiscovery: providerModelDiscoveryRef.current }
+            : {}),
         });
         if (!resolution.ok) {
           throw new Error(resolution.error);
@@ -1221,6 +1227,7 @@ async function bootstrapDirectSession(
     createSession,
     providerModelsRef,
     providerDiscoveryRef,
+    providerModelDiscoveryRef,
     shutdown: () => {},
   };
 }
@@ -1237,6 +1244,8 @@ async function bootstrapTuiSession(
 
 export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {}): Promise<void> {
   const { startTui } = await import("@kilnai/tui");
+  const startupProfiler = createStartupProfiler("tui");
+  startupProfiler.mark("command-entered");
   const { registry } = createDefaultRegistry();
   const providerDisplayInfo = getProviderDisplayInfo(registry);
   const providerIds = providerDisplayInfo.map((entry) => entry.id);
@@ -1245,6 +1254,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  startupProfiler.mark("config-loaded", { projectPath: cwd });
   const runtimeAppConfig = withContextCandidates(
     withWorkGovernanceContext(withGlobalIdentityContext(appConfig, globalConfig), resolvedKilnConfig?.workGovernance),
     resolveInstructionProfileContextCandidates({
@@ -1258,8 +1268,20 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const sessionStore = new SessionStore(cwd);
+  const transcriptStore = new TranscriptStore(cwd);
+  await recoverStaleOpenTranscriptSessions({
+    transcriptStore,
+    sessionStore,
+    projectPath: cwd,
+  });
+  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
+    globalConfig,
+    createCliTranscriptBudgetUsageReader(transcriptStore),
+  );
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
+  startupProfiler.mark("context-cache-ready");
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
@@ -1267,7 +1289,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
         caller: { kind: "operator_surface", id: "tui" },
       },
     });
-  let builtinToolOptions = createSessionBuiltinToolOptions({
+  startupProfiler.mark("builtin-tool-options-loaded");
+  let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -1276,35 +1299,49 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       ...createKilnConfigTools(cwd),
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
     ],
-  });
+  }, "execute"));
+  startupProfiler.mark("builtin-tool-options-created");
+  let managedRouteGlobalConfig = globalConfig;
+  let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
   const stagedManagedInvocation = appConfig.managedInvocation
     ? undefined
     : await createStagedManagedInvocationRouteCatalog(globalConfig, {
       cwd,
       registry,
       surface: "tui",
-      isProviderAvailable: (providerId) => resolveEngineAvailabilityMap(readGlobalConfig() ?? globalConfig).get(providerId),
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions }),
+      maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
+      ...(runtimeBudgetAdmission ? { orchestrationBudgetAdmission: runtimeBudgetAdmission } : {}),
+      isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
+      directAdapterFactory: createManagedDirectProviderAdapterFactory({
+        builtinToolOptions: () => builtinToolOptions,
+      }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
     }, {
-      reloadConfig: () => readGlobalConfig() ?? globalConfig,
+      reloadConfig: () => {
+        managedRouteGlobalConfig = readGlobalConfig() ?? globalConfig;
+        managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
+        return managedRouteGlobalConfig;
+      },
       onRefreshError: (error) => {
         console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
       },
     });
+  startupProfiler.mark("managed-invocation-staged", {
+    hasManagedInvocation: Boolean(appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation),
+  });
   const managedInvocation = appConfig.managedInvocation ?? stagedManagedInvocation?.managedInvocation;
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
-  builtinToolOptions = withManagedAgentInvocationResourceProvider(
-    builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
-  );
+  const managedInvocationAttachment = managedInvocationWithService
+    ? createKilnRuntimeManagedInvocationAttachment("tui", managedInvocationWithService)
+    : undefined;
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
   for (const warning of operatorVoice.warnings) {
     console.warn(warning);
   }
+  startupProfiler.mark("voice-runtime-ready");
 
   // Resolve domain display name from app config if available
   let domain = "kiln";
@@ -1321,17 +1358,6 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   }
 
   // Inject CLI session factory into the gateway (dependency inversion)
-  const sessionStore = new SessionStore(cwd);
-  const transcriptStore = new TranscriptStore(cwd);
-  await recoverStaleOpenTranscriptSessions({
-    transcriptStore,
-    sessionStore,
-    projectPath: cwd,
-  });
-  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
-    globalConfig,
-    createCliTranscriptBudgetUsageReader(transcriptStore),
-  );
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({
     transcriptStore,
     workItemStore,
@@ -1352,13 +1378,14 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     contextArtifactCache,
     builtinToolOptions,
     "tui",
-    managedInvocationWithService,
+    managedInvocationAttachment,
     runtimeBudgetAdmission,
   );
+  startupProfiler.mark("session-manager-ready");
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
-  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationWithService;
+  const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
 
   const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
   const bootstrap = await bootstrapTuiSession({
@@ -1375,7 +1402,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     operatorVoice,
     initialProviderDiscovery,
     onProviderDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
+    startupProfiler,
   });
+  startupProfiler.mark("bootstrap-context-ready", { transport: startupTransport });
   stagedManagedInvocation?.startBackgroundRefresh();
 
   const shutdown = (code = 0, error?: unknown) => {
@@ -1451,6 +1480,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     ).refreshProviders?.()),
     (themeName) => persistTuiThemePreference(themeName, globalConfig),
     async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
+    () => startupProfiler.mark("tui-first-frame-rendered"),
+    bootstrap.providerModelDiscoveryRef,
   );
 
   bootstrap.shutdown();

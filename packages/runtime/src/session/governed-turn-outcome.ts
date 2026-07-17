@@ -23,9 +23,6 @@ export function deriveGovernedTurnOutcomeFromToolRecords(
   if (hasUnrecordedManagedInvocationPhaseCompletion(toolExecutions)) {
     return "failed";
   }
-  if (hasUnmaterializedOrchestrationRecommendation(toolExecutions)) {
-    return "failed";
-  }
   if (hasCurrentPendingPauseRequirement(toolExecutions)) {
     return "failed";
   }
@@ -149,19 +146,6 @@ function isManagedInvocationFailureRecovered(
   });
 }
 
-function hasUnmaterializedOrchestrationRecommendation(
-  toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
-): boolean {
-  const executions = toolExecutions ?? [];
-  const assessmentIndex = executions.findLastIndex(isSuccessfulOrchestrationAssessment);
-  if (assessmentIndex < 0) {
-    return false;
-  }
-  return !executions
-    .slice(assessmentIndex + 1)
-    .some(isSuccessfulGovernedWorkMaterialization);
-}
-
 function isSuccessfulOrchestrationAssessment(execution: GovernedTurnOutcomeToolRecord): boolean {
   if (execution.toolName !== "work_governance.assess" || !execution.success) {
     return false;
@@ -180,18 +164,6 @@ function readGovernanceRecommendation(execution: GovernedTurnOutcomeToolRecord):
   const text = `${execution.output ?? ""}\n${execution.resultSummary ?? ""}`;
   const match = /^\s*recommendation:\s*([a-z_-]+)/im.exec(text);
   return match?.[1]?.trim().toLowerCase();
-}
-
-function isSuccessfulGovernedWorkMaterialization(execution: GovernedTurnOutcomeToolRecord): boolean {
-  if (!execution.success) {
-    return false;
-  }
-  return execution.toolName === "submit_specification"
-    || execution.toolName === "submit_plan"
-    || execution.toolName === "goal.create"
-    || execution.toolName === "work_item.update"
-    || execution.toolName === "work_item.execution.start"
-    || execution.toolName === "managed_agent.invoke";
 }
 
 function hasCurrentPendingPauseRequirement(

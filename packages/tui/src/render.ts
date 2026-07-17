@@ -4,7 +4,7 @@
  */
 
 import { t, fg } from "@opentui/core";
-import { operatorIdentityInitials, projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
+import { formatContextUsageProjection, operatorIdentityInitials, projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
 import type { ReactiveState, Message, SessionListItem, PendingApproval, WorkItem } from "./state.js";
 import { formatManagedAgentCockpitLines } from "./managed-agent-cockpit.js";
 import type { KilnTheme } from "./theme.js";
@@ -82,7 +82,7 @@ export function renderSidebarTurns(
   const inTok = fmtTokens(state.inputTokens);
   const outTok = fmtTokens(state.outputTokens);
   ui.sidebarTurnsText.content = t`${fg(theme.textMuted)(
-    `turns: ${state.turns}  tok: ${inTok}/${outTok}`
+    `turns: ${state.turns}  tok: ${inTok}/${outTok}  ${state.contextUsage ? formatContextUsageProjection(state.contextUsage) : "Context usage unavailable"}`
   )}`;
 
 }
@@ -268,7 +268,21 @@ function fmtWorkItem(item: WorkItem, index: number): string {
   const paused = item.pendingPauseRequirementCount && item.pendingPauseRequirementCount > 0
     ? ` pause:${item.pendingPauseRequirementCount}`
     : "";
-  return `${prefix}${agent}${item.status} ${evidence}${attempt}${paused} ${summary}`;
+  const missing = [
+    ...(item.missingEvidence ?? []),
+    ...(item.missingResidualRisk ? ["residual-risk"] : []),
+  ];
+  const lines = [`${prefix}${agent}${item.status} ${evidence}${attempt}${paused} ${summary}`];
+  if (item.authorityProfile) {
+    lines.push(`  auth:${item.authorityProfile}`);
+  }
+  if (missing.length > 0) {
+    lines.push(`  missing:${missing.join(",")}`);
+  }
+  if (item.resourceUri) {
+    lines.push(`  res:${item.resourceUri}`);
+  }
+  return lines.join("\n");
 }
 
 /**

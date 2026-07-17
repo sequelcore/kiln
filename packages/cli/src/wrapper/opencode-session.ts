@@ -1,10 +1,9 @@
-import { spawn, execSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { appendExecutionIdentity, resolveExecutionIdentity } from "@kilnai/core";
+import { appendExecutionIdentity, resolveExecutionIdentity, type ExecutionSessionEvent } from "@kilnai/core";
 import type {
-  SessionEvent,
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
@@ -16,6 +15,7 @@ import { normalizeMcpSelector } from "./mcp-selector.js";
 import { debug } from "./debug.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
+import { resolveNativeCliExecutable } from "./native-cli-executable.js";
 
 interface OpencodeClientShape {
   session: {
@@ -521,7 +521,7 @@ export class OpenCodeSession implements IKilnSession {
     return this._remoteSessionId ?? undefined;
   }
 
-  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this._disposed) return;
     const startTime = Date.now();
     const abortController = new AbortController();
@@ -959,7 +959,6 @@ export class OpenCodeSession implements IKilnSession {
           for (const diff of props.diff ?? []) {
             if (typeof diff.file !== "string" || diff.file.trim().length === 0) continue;
             const path = normalizeOpenCodeDiffPath(cwd, diff.file);
-            if (isKilnRuntimeMemoryPath(path)) continue;
             sawProviderEvidence = true;
             const additions = diff.additions;
             const deletions = diff.deletions;
@@ -1192,24 +1191,10 @@ export class OpenCodeSession implements IKilnSession {
 
   private _findOpencodePath(): string {
     const homedir = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    const fallbackPaths = [
-      `${homedir}\\.bun\\bin\\opencode.exe`,
-      `${homedir}\\AppData\\Roaming\\npm\\opencode.cmd`,
-    ];
-    const candidates = ["opencode", "opencode.exe", ...fallbackPaths];
-
-    for (const candidate of candidates) {
-      try {
-        execSync(`"${candidate}" --version`, { stdio: "ignore" });
-        return candidate;
-      } catch {
-        // try next
-      }
-    }
-
-    throw new Error(
-      "opencode binary not found in PATH. Ensure opencode is installed and accessible.",
-    );
+    return resolveNativeCliExecutable({
+      command: "opencode",
+      fallbackPaths: [`${homedir}\\.bun\\bin\\opencode.exe`],
+    });
   }
 
   private _killServeProcess(): void {
@@ -1217,7 +1202,7 @@ export class OpenCodeSession implements IKilnSession {
       const pid = this.serveProcess.pid;
       if (process.platform === "win32" && typeof pid === "number") {
         try {
-          execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+          execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
           return;
         } catch {
           // Fall back to Node's kill below.
@@ -1262,21 +1247,6 @@ function formatOpenCodeError(error: unknown): string {
 function normalizeOpenCodeDiffPath(cwd: string, file: string): string {
   const trimmed = file.trim();
   return isAbsolute(trimmed) ? trimmed : resolve(cwd, trimmed);
-}
-
-function isKilnRuntimeMemoryPath(path: string): boolean {
-  const normalized = path.replace(/\\/g, "/").toLowerCase();
-  const marker = "/.kiln/";
-  const markerIndex = normalized.lastIndexOf(marker);
-  const relativeToKiln = markerIndex >= 0
-    ? normalized.slice(markerIndex + marker.length)
-    : normalized.startsWith(".kiln/")
-      ? normalized.slice(".kiln/".length)
-      : undefined;
-
-  return relativeToKiln === "memory.db" ||
-    relativeToKiln === "memory.db-shm" ||
-    relativeToKiln === "memory.db-wal";
 }
 
 function mapOpenCodeDiffStatus(status: "added" | "deleted" | "modified" | undefined): "created" | "modified" | "deleted" {

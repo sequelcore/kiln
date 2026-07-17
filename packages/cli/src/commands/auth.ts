@@ -98,6 +98,9 @@ async function runCodexStatus(): Promise<void> {
     console.log(`  ${entry.id}`);
     console.log(`    Token expiry: ${entry.expiresAt}`);
     console.log(`    Status: ${entry.status}`);
+    if (entry.invalidReason) {
+      console.log(`    Reason: ${entry.invalidReason}`);
+    }
     if (entry.health) {
       console.log(`    Requests: ${entry.health.requestCount}`);
       console.log(`    Cooldown: ${entry.health.cooldownUntil ?? "none"}`);

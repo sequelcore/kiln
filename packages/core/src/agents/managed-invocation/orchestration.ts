@@ -1,4 +1,10 @@
-import type { ManagedAgentLifecycleState, ManagedAgentWorkingDirectory } from "./index.js";
+import {
+  defineManagedAgentCoordinationUsageReport,
+  type ManagedAgentCoordinationUsageReport,
+  type ManagedAgentInvocationContextMode,
+  type ManagedAgentLifecycleState,
+  type ManagedAgentWorkingDirectory,
+} from "./index.js";
 
 export const MANAGED_AGENT_ORCHESTRATION_MODES = [
   "fan-out",
@@ -35,15 +41,23 @@ export interface ManagedAgentOrchestrationExpectedEvidence {
 
 export interface ManagedAgentOrchestrationChildRequest {
   readonly childId: string;
+  readonly key: string;
   readonly ordinal: number;
   readonly roleIntent: string;
   readonly task: string;
+  readonly agentProfile?: string;
+  readonly routeId?: string;
+  readonly dependsOn: readonly string[];
   readonly expectedEvidence: readonly ManagedAgentOrchestrationExpectedEvidence[];
 }
 
 export interface ManagedAgentOrchestrationChildPlan {
+  readonly key?: string;
   readonly roleIntent: string;
   readonly task: string;
+  readonly agentProfile?: string;
+  readonly routeId?: string;
+  readonly dependsOn?: readonly string[];
   readonly expectedEvidence?: readonly ManagedAgentOrchestrationExpectedEvidence[];
 }
 
@@ -54,6 +68,7 @@ export interface ManagedAgentOrchestrationRequestBuilderBaseInput {
   readonly requestedBy: string;
   readonly requestSource: string;
   readonly task: string;
+  readonly workingDirectoryMode: ManagedAgentWorkingDirectory["mode"];
 }
 
 export interface ManagedAgentParallelOrchestrationRequestBuilderInput
@@ -127,6 +142,14 @@ export interface ManagedAgentOrchestrationChildResult {
   readonly error?: string;
   readonly resourceUris?: readonly string[];
   readonly diagnosticUris?: readonly string[];
+  readonly invocationId?: string;
+  readonly routeId?: string;
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly authorityProfileId?: string;
+  readonly contextMode?: ManagedAgentInvocationContextMode;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
+  readonly replayEvidenceUris?: readonly string[];
 }
 
 export interface ManagedAgentOrchestrationNormalizedChildResult {
@@ -137,6 +160,14 @@ export interface ManagedAgentOrchestrationNormalizedChildResult {
   readonly error?: string;
   readonly resourceUris: readonly string[];
   readonly diagnosticUris: readonly string[];
+  readonly invocationId?: string;
+  readonly routeId?: string;
+  readonly providerId?: string;
+  readonly model?: string;
+  readonly authorityProfileId?: string;
+  readonly contextMode?: ManagedAgentInvocationContextMode;
+  readonly coordinationUsage?: ManagedAgentCoordinationUsageReport;
+  readonly replayEvidenceUris: readonly string[];
 }
 
 export interface ManagedAgentOrchestrationResultEvidence {
@@ -159,6 +190,7 @@ export function buildManagedAgentFanOutOrchestrationRequest(input: {
   readonly task: string;
   readonly childCount: number;
   readonly maxConcurrentChildren: number;
+  readonly workingDirectoryMode: ManagedAgentWorkingDirectory["mode"];
 }): ManagedAgentOrchestrationRequest {
   if (!Number.isInteger(input.childCount) || input.childCount < 2) {
     throw new Error("Managed fan-out orchestration requires at least two children");
@@ -185,16 +217,18 @@ export function buildManagedAgentFanOutOrchestrationRequest(input: {
     task: input.task,
     childRequests: Array.from({ length: input.childCount }, (_, index) => ({
       childId: `${input.orchestrationId}:child:${index + 1}`,
+      key: `candidate-${index + 1}`,
       ordinal: index + 1,
       roleIntent: "duplicate-candidate",
       task: input.task,
+      dependsOn: [],
       expectedEvidence,
     })),
     maxConcurrentChildren: input.maxConcurrentChildren,
     isolation: {
       required: true,
       reason: "fan-out children require isolated workspaces so duplicate candidates cannot mutate one checkout",
-      workingDirectoryMode: "isolated-worktree",
+      workingDirectoryMode: input.workingDirectoryMode,
     },
     expectedEvidence,
     mergePolicy: {
@@ -219,7 +253,6 @@ export function buildManagedAgentDecompositionOrchestrationRequest(
       adoptionRequired: true,
       adoptionReadinessRequired: true,
     },
-    isolationReason: "decomposition children require isolated workspaces so subtasks cannot mutate one checkout",
   });
 }
 
@@ -237,7 +270,6 @@ export function buildManagedAgentReviewSwarmOrchestrationRequest(
       adoptionRequired: false,
       adoptionReadinessRequired: false,
     },
-    isolationReason: "review swarm children require isolated workspaces so independent reviews cannot mutate one checkout",
   });
 }
 
@@ -255,13 +287,15 @@ export function buildManagedAgentRouteComparisonOrchestrationRequest(
       adoptionRequired: false,
       adoptionReadinessRequired: false,
     },
-    isolationReason: "route comparison children require isolated workspaces so candidate routes cannot mutate one checkout",
   });
 }
 
 export function buildManagedAgentBackgroundJobOrchestrationRequest(
   input: ManagedAgentOrchestrationRequestBuilderBaseInput & {
     readonly roleIntent: string;
+    readonly key?: string;
+    readonly agentProfile?: string;
+    readonly routeId?: string;
   },
 ): ManagedAgentOrchestrationRequest {
   const expectedEvidence = buildModeExpectedEvidence("background-job");
@@ -269,8 +303,11 @@ export function buildManagedAgentBackgroundJobOrchestrationRequest(
     mode: "background-job",
     childPlans: [
       {
+        ...(input.key !== undefined ? { key: input.key } : {}),
         roleIntent: input.roleIntent,
         task: input.task,
+        ...(input.agentProfile !== undefined ? { agentProfile: input.agentProfile } : {}),
+        ...(input.routeId !== undefined ? { routeId: input.routeId } : {}),
         expectedEvidence,
       },
     ],
@@ -281,7 +318,6 @@ export function buildManagedAgentBackgroundJobOrchestrationRequest(
       adoptionRequired: false,
       adoptionReadinessRequired: false,
     },
-    isolationReason: "background jobs require isolated workspaces so long-running children cannot mutate the parent checkout",
   });
 }
 
@@ -293,7 +329,6 @@ function buildManagedAgentModeOrchestrationRequest(
     readonly maxConcurrentChildren: number;
     readonly expectedEvidence: readonly ManagedAgentOrchestrationExpectedEvidence[];
     readonly mergePolicy: ManagedAgentOrchestrationMergePolicy;
-    readonly isolationReason: string;
   },
 ): ManagedAgentOrchestrationRequest {
   return defineManagedAgentOrchestrationRequest({
@@ -308,8 +343,8 @@ function buildManagedAgentModeOrchestrationRequest(
     maxConcurrentChildren: config.maxConcurrentChildren,
     isolation: {
       required: true,
-      reason: config.isolationReason,
-      workingDirectoryMode: "isolated-worktree",
+      reason: `managed ${config.mode} children require an explicit isolated execution boundary`,
+      workingDirectoryMode: input.workingDirectoryMode,
     },
     expectedEvidence: config.expectedEvidence,
     mergePolicy: config.mergePolicy,
@@ -337,6 +372,7 @@ export function defineManagedAgentOrchestrationRequest(
     throw new Error("Managed fan-out orchestration requires at least two children");
   }
   requireUniqueChildRequests(childRequests);
+  requireValidChildDependencies(childRequests);
   const isolation = requireIsolationPolicy(mode, input.isolation);
   const mergePolicy = {
     mode: requireMergePolicyMode(input.mergePolicy.mode),
@@ -380,7 +416,7 @@ export function admitManagedAgentOrchestrationRequest(
   if (normalizedLimits.workspace !== "available") {
     missingCapabilities.push("orchestration.workspace.available");
   }
-  if (normalizedLimits.taskRisk === "high") {
+  if (normalizedLimits.taskRisk === "high" && request.maxConcurrentChildren > 1) {
     missingCapabilities.push("orchestration.taskRisk.parallelAdmissible");
   }
 
@@ -436,6 +472,7 @@ export function buildManagedAgentOrchestrationResultEvidence(
       ...result,
       resourceUris: result.resourceUris ?? [],
       diagnosticUris: result.diagnosticUris ?? [],
+      replayEvidenceUris: result.replayEvidenceUris ?? [],
     })),
   };
 }
@@ -443,9 +480,19 @@ export function buildManagedAgentOrchestrationResultEvidence(
 function requireChildRequest(input: ManagedAgentOrchestrationChildRequest): ManagedAgentOrchestrationChildRequest {
   return {
     childId: requireText(input.childId, "Managed orchestration child id is required"),
+    key: requireText(input.key, "Managed orchestration child key is required"),
     ordinal: requirePositiveInteger(input.ordinal, "Managed orchestration child ordinal must be greater than zero"),
     roleIntent: requireText(input.roleIntent, "Managed orchestration child role intent is required"),
     task: requireText(input.task, "Managed orchestration child task is required"),
+    ...(input.agentProfile !== undefined
+      ? { agentProfile: requireText(input.agentProfile, "Managed orchestration child agent profile is required") }
+      : {}),
+    ...(input.routeId !== undefined
+      ? { routeId: requireText(input.routeId, "Managed orchestration child route id is required") }
+      : {}),
+    dependsOn: input.dependsOn.map((dependency) =>
+      requireText(dependency, "Managed orchestration child dependency key is required")
+    ),
     expectedEvidence: requireNonEmptyArray(
       input.expectedEvidence,
       "Managed orchestration child expected evidence is required",
@@ -534,11 +581,37 @@ function buildChildRequests(
   return requireNonEmptyArray(childPlans, "Managed orchestration child plans are required")
     .map((plan, index) => ({
       childId: `${orchestrationId}:child:${index + 1}`,
+      key: plan.key ?? `child-${index + 1}`,
       ordinal: index + 1,
       roleIntent: plan.roleIntent,
       task: plan.task,
+      ...(plan.agentProfile !== undefined ? { agentProfile: plan.agentProfile } : {}),
+      ...(plan.routeId !== undefined ? { routeId: plan.routeId } : {}),
+      dependsOn: plan.dependsOn ?? [],
       expectedEvidence: plan.expectedEvidence ?? expectedEvidence,
     }));
+}
+
+function requireValidChildDependencies(
+  children: readonly ManagedAgentOrchestrationChildRequest[],
+): void {
+  const keys = new Set<string>();
+  for (const child of children) {
+    if (keys.has(child.key)) {
+      throw new Error(`Managed orchestration child key must be unique: ${child.key}`);
+    }
+    keys.add(child.key);
+  }
+  for (const child of children) {
+    for (const dependency of child.dependsOn) {
+      if (dependency === child.key) {
+        throw new Error(`Managed orchestration child cannot depend on itself: ${child.key}`);
+      }
+      if (!keys.has(dependency)) {
+        throw new Error(`Managed orchestration child dependency is unknown: ${dependency}`);
+      }
+    }
+  }
 }
 
 function requireChildResult(input: ManagedAgentOrchestrationChildResult): ManagedAgentOrchestrationChildResult {
@@ -557,11 +630,25 @@ function requireChildResult(input: ManagedAgentOrchestrationChildResult): Manage
     ...(input.diagnosticUris !== undefined
       ? { diagnosticUris: input.diagnosticUris.map((uri) => requireText(uri, "Managed orchestration child result diagnostic uri is required")) }
       : {}),
+    ...(input.invocationId !== undefined ? { invocationId: requireText(input.invocationId, "Managed orchestration invocation id is required") } : {}),
+    ...(input.routeId !== undefined ? { routeId: requireText(input.routeId, "Managed orchestration route id is required") } : {}),
+    ...(input.providerId !== undefined ? { providerId: requireText(input.providerId, "Managed orchestration provider id is required") } : {}),
+    ...(input.model !== undefined ? { model: requireText(input.model, "Managed orchestration model is required") } : {}),
+    ...(input.authorityProfileId !== undefined
+      ? { authorityProfileId: requireText(input.authorityProfileId, "Managed orchestration authority profile id is required") }
+      : {}),
+    ...(input.contextMode !== undefined ? { contextMode: input.contextMode } : {}),
+    ...(input.coordinationUsage !== undefined
+      ? { coordinationUsage: defineManagedAgentCoordinationUsageReport(input.coordinationUsage) }
+      : {}),
+    ...(input.replayEvidenceUris !== undefined
+      ? { replayEvidenceUris: input.replayEvidenceUris.map((uri) => requireText(uri, "Managed orchestration replay evidence uri is required")) }
+      : {}),
   };
 }
 
 function requireModePolicy(request: ManagedAgentOrchestrationRequest): void {
-  requireIsolatedWorktreePolicy(request);
+  requireIsolatedExecutionPolicy(request);
   if (request.mode === "fan-out") {
     requireMinimumChildren(request, 2, "Managed fan-out orchestration requires at least two children");
     requireEvidenceKinds(request, ["result-handoff", "comparison-summary"]);
@@ -593,11 +680,14 @@ function requireModePolicy(request: ManagedAgentOrchestrationRequest): void {
   requireMergePolicy(request, "none", false, false, "Managed background-job orchestration requires no merge policy");
 }
 
-function requireIsolatedWorktreePolicy(request: ManagedAgentOrchestrationRequest): void {
+function requireIsolatedExecutionPolicy(request: ManagedAgentOrchestrationRequest): void {
   if (!request.isolation.required) {
     throw new Error(`Managed ${request.mode} orchestration requires isolated child workspaces`);
   }
-  if (request.isolation.workingDirectoryMode !== "isolated-worktree") {
+  if (request.isolation.workingDirectoryMode === "workspace-write" || request.isolation.workingDirectoryMode === undefined) {
+    throw new Error(`Managed ${request.mode} orchestration requires read-only, sandbox, or isolated-worktree execution`);
+  }
+  if (request.mode === "fan-out" && request.isolation.workingDirectoryMode !== "isolated-worktree") {
     throw new Error(`Managed ${request.mode} orchestration requires isolated-worktree working directory mode`);
   }
 }

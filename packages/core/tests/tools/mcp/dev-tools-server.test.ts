@@ -53,13 +53,13 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
 }
 
 describe("DevToolsMcpServer", () => {
-  it("lists the 45 native tool schemas", () => {
+  it("lists the 47 native tool schemas", () => {
     const server = createServer();
 
     const tools = server.listTools();
     const names = tools.map((tool) => tool.name);
 
-    expect(tools).toHaveLength(45);
+    expect(tools).toHaveLength(47);
     expect(names).toEqual([
       "bash",
       "read",
@@ -92,6 +92,7 @@ describe("DevToolsMcpServer", () => {
       "computer_close_application",
       "grep",
       "glob",
+      "json_query",
       "git",
       "code_intelligence",
       "monitor_start",
@@ -102,6 +103,7 @@ describe("DevToolsMcpServer", () => {
       "task_update",
       "operator_elicit",
       "tool_catalog_search",
+      "memory_search",
       "memory_save",
       "resource_list",
       "resource_template_list",
@@ -438,6 +440,7 @@ describe("DevToolsMcpServer", () => {
     expect(server.listTools().map((tool) => tool.name)).toEqual([
       "read",
       "tool_catalog_search",
+      "memory_search",
       "resource_list",
       "resource_template_list",
       "resource_read",
@@ -452,7 +455,28 @@ describe("DevToolsMcpServer", () => {
           toolName: "tool_catalog_search",
           kind: "catalog",
           resultCount: 1,
-          totalIndexed: 45,
+          totalIndexed: 47,
+        },
+      },
+    });
+  });
+
+  it("exposes json_query as a structured-data MCP tool", async () => {
+    const server = createServer();
+
+    const schema = server.listTools().find((tool) => tool.name === "json_query");
+
+    expect(schema).toMatchObject({
+      name: "json_query",
+      inputSchema: {
+        type: "object",
+        required: ["filter"],
+        properties: {
+          filter: expect.objectContaining({ type: "string" }),
+          json: expect.objectContaining({ type: "string" }),
+          path: expect.objectContaining({ type: "string" }),
+          maxBytes: expect.objectContaining({ type: "number" }),
+          verbosity: expect.objectContaining({ enum: ["raw", "structured", "summary"] }),
         },
       },
     });

@@ -60,14 +60,18 @@ function normalizeBuiltinToolInput(toolName: string, input: ToolInputRecord): To
   return normalized;
 }
 
-export function normalizeToolInput(toolName: string, rawInput: unknown): ToolInputRecord {
+export function normalizeToolInput(
+  toolName: string,
+  rawInput: unknown,
+  inputSchema?: Record<string, unknown>,
+): ToolInputRecord {
   if (typeof rawInput === "string") {
     try {
       const parsed = JSON.parse(rawInput) as unknown;
       if (!isPlainObject(parsed)) {
         return buildInvalidToolInput("Tool arguments must decode to an object.", rawInput);
       }
-      return normalizeBuiltinToolInput(toolName, parsed);
+      return normalizeBuiltinToolInput(toolName, restoreOptionalStrictFields(parsed, inputSchema));
     } catch {
       return buildInvalidToolInput("Failed to parse tool arguments as JSON.", rawInput);
     }
@@ -77,7 +81,59 @@ export function normalizeToolInput(toolName: string, rawInput: unknown): ToolInp
     return buildInvalidToolInput("Tool arguments must be an object.", rawInput);
   }
 
-  return normalizeBuiltinToolInput(toolName, rawInput);
+  return normalizeBuiltinToolInput(toolName, restoreOptionalStrictFields(rawInput, inputSchema));
+}
+
+function restoreOptionalStrictFields(
+  input: ToolInputRecord,
+  schema: Record<string, unknown> | undefined,
+): ToolInputRecord {
+  if (schema?.type !== "object") return input;
+  const properties = isPlainObject(schema.properties) ? schema.properties : {};
+  const required = new Set(
+    Array.isArray(schema.required)
+      ? schema.required.filter((entry): entry is string => typeof entry === "string")
+      : [],
+  );
+  const restored: ToolInputRecord = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (value === null && !required.has(key)) continue;
+    const propertySchema = isPlainObject(properties[key]) ? properties[key] : undefined;
+    restored[key] = restoreNestedOptionalStrictFields(value, propertySchema);
+  }
+  return restored;
+}
+
+function restoreNestedOptionalStrictFields(
+  value: unknown,
+  schema: Record<string, unknown> | undefined,
+): unknown {
+  if (isPlainObject(value)) {
+    return restoreOptionalStrictFields(value, selectSchemaBranch(schema, value));
+  }
+  if (Array.isArray(value)) {
+    const itemSchema = isPlainObject(schema?.items) ? schema.items : undefined;
+    return value.map((entry) => restoreNestedOptionalStrictFields(entry, itemSchema));
+  }
+  return value;
+}
+
+function selectSchemaBranch(
+  schema: Record<string, unknown> | undefined,
+  value: unknown,
+): Record<string, unknown> | undefined {
+  if (!schema) return undefined;
+  if (schema.type === "object" || schema.type === "array") return schema;
+  for (const keyword of ["anyOf", "oneOf"] as const) {
+    const branches = schema[keyword];
+    if (!Array.isArray(branches)) continue;
+    const matching = branches.find((branch) => (
+      isPlainObject(branch)
+      && ((isPlainObject(value) && branch.type === "object") || (Array.isArray(value) && branch.type === "array"))
+    ));
+    if (isPlainObject(matching)) return matching;
+  }
+  return schema;
 }
 
 export function getInvalidToolInputDetails(

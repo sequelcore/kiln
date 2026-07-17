@@ -48,6 +48,7 @@ export type ConversationProjectionItem<TPhase extends string = string> =
 export interface ConversationTurnProjectionOptions<TPhase extends string = string> {
   readonly activity?: ConversationProjectionActivityInput<TPhase>;
   readonly collapseCompletedToolStarts?: boolean;
+  readonly anchorToolEventsToAssistant?: boolean;
 }
 
 type MutableProjectedMessageItem = {
@@ -67,6 +68,7 @@ export function projectConversationTurnItems<TPhase extends string = string>(
 ): readonly ConversationProjectionItem<TPhase>[] {
   const items: ConversationProjectionItem<TPhase>[] = [];
   const pendingToolEvents: ConversationProjectionEventInput[] = [];
+  const anchorToolEventsToAssistant = options.anchorToolEventsToAssistant !== false;
   let lastAssistantItem: MutableProjectedMessageItem | null = null;
   const visibleEntries = options.collapseCompletedToolStarts === false
     ? [...entries]
@@ -93,6 +95,12 @@ export function projectConversationTurnItems<TPhase extends string = string>(
 
   for (const entry of visibleEntries) {
     if (entry.kind === "event" && operatorEventAnchorsAssistantTurn(entry.eventKind)) {
+      if (!anchorToolEventsToAssistant) {
+        flushPendingToolEvents();
+        items.push({ kind: "event", entryId: entry.id });
+        lastAssistantItem = null;
+        continue;
+      }
       if (
         lastAssistantItem
         && pendingToolEvents.length === 0

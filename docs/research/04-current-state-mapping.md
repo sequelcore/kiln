@@ -75,19 +75,17 @@ Main gap:
 
 Current Kiln already has:
 
-- threshold-based allocation
-- task registry behavior
-- chain control
-- shared coordination state
-- governed `coordination` memory records for swarm and cross-agent state
+- deterministic topology selection from governed signals
+- canonical goal and work-item dependency state
+- runtime-owned bounded managed orchestration
+- governed managed-invocation lifecycle and replay evidence
 
 Main gap:
 
-- quorum behavior and shared-medium design are still incomplete or
-  under-specified
-- managed-agent invocation now has a canonical lifecycle and replay model in
-  `docs/architecture/managed-agents.md`; future coordination work should use
-  that boundary rather than redefining child execution semantics
+- trajectory-aware escalation and empirically promoted adaptive routing remain
+  research candidates
+- all future coordination work must use the managed-agent lifecycle rather
+  than redefining child execution semantics
 
 ## Tool Execution
 

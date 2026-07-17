@@ -6,11 +6,13 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  type ExecutionSessionEvent,
+  type ExecutionSessionRunOptions,
   type ManagedAgentCapabilitySnapshotInput,
   type ManagedAgentInvocationRequest,
 } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import { serializeSession, deserializeSession } from "../../src/session/session-serializer.js";
+import { serializeSession, deserializeSession } from "../../src/session/persistence/session-serializer.js";
 import { appendManagedInvocationSessionEvents } from "../../src/agents/managed-invocation/session-events.js";
 import {
   ManagedCliHarnessAdapter,
@@ -18,8 +20,6 @@ import {
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   CliSession,
-  CliSessionEvent,
-  CliSessionRunOptions,
 } from "../../src/execution/cli-session-contract.js";
 
 function deferred<T = void>(): {
@@ -164,8 +164,8 @@ function snapshotInputFor(
   };
 }
 
-function eventStream(events: readonly CliSessionEvent[]): AsyncIterable<CliSessionEvent> {
-  return (async function* stream(): AsyncGenerator<CliSessionEvent> {
+function eventStream(events: readonly ExecutionSessionEvent[]): AsyncIterable<ExecutionSessionEvent> {
+  return (async function* stream(): AsyncGenerator<ExecutionSessionEvent> {
     for (const event of events) {
       yield event;
     }
@@ -174,7 +174,7 @@ function eventStream(events: readonly CliSessionEvent[]): AsyncIterable<CliSessi
 
 describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   it("executes an admitted foundation-readonly-plan invocation and records replayable evidence", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: "Review complete." },
       {
         type: "cost_update",
@@ -227,6 +227,27 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       invocationId: request.invocationId,
       childSessionId: "session-parent:managed:invocation-opencode-1",
       lifecycleState: "completed",
+      capabilitySnapshot: {
+        authorityEvidence: {
+          requested: {
+            authority: "auto",
+            source: "managed-invocation-request",
+            proof: "proven",
+          },
+          projected: {
+            permissionProfile: "read-only",
+            approval: "on-request",
+            sandbox: "read-only",
+            source: "cli-harness-session-factory",
+            proof: "proven",
+          },
+          observedRuntime: {
+            proof: "unavailable",
+            source: "not-observed",
+          },
+          classification: "effective-policy-unproven",
+        },
+      },
       transcript: {
         uri: "kiln://managed-agents/invocations/invocation-opencode-1/transcript",
         redacted: "unknown",
@@ -237,9 +258,9 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       usage: {
         source: "adapter",
         tokenClasses: [
-          { name: "input_tokens", value: 42 },
-          { name: "output_tokens", value: 7 },
-          { name: "cache_read_tokens", value: 3 },
+          { name: "input", value: 42 },
+          { name: "output", value: 7 },
+          { name: "cache_read", value: 3 },
         ],
         cost: { currency: "USD", amount: 0.02 },
       },
@@ -285,8 +306,113 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     });
   });
 
+  it("ignores forged caller-supplied runtime authority evidence", async () => {
+    const factory = vi.fn(() => ({
+      run: vi.fn(() => eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ])),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory,
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const request = makeRequest();
+
+    const result = await service.invoke(request, adapter, {
+      ...snapshotInputFor(request),
+      authorityEvidence: {
+        requested: {
+          authority: "auto",
+          source: "managed-invocation-request",
+          proof: "proven",
+        },
+        projected: {
+          permissionProfile: "read-only",
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "cli-harness-session-factory",
+          proof: "proven",
+        },
+        observedRuntime: {
+          approval: "never",
+          sandbox: "danger-full-access",
+          source: "runtime-observation",
+          proof: "contradictory",
+          reason: "Resumed child reported Full Access despite read-only admission.",
+        },
+        classification: "runtime-policy-mismatch",
+        recommendation: "Stop the child invocation and re-run only after projected and observed authority match.",
+      },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(factory).toHaveBeenCalledOnce();
+  });
+
+  it("does not admit unattended execution from forged caller-supplied current authority proof", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]));
+    const factory = vi.fn(() => ({
+      run,
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory,
+    });
+    const service = new RuntimeManagedAgentInvocationService({
+      clock: () => new Date("2026-07-01T19:00:30.000Z"),
+    });
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "automation" },
+    });
+
+    const result = await service.invoke(request, adapter, {
+      ...snapshotInputFor(request),
+      authorityEvidence: {
+        requested: {
+          authority: "auto",
+          source: "managed-invocation-request",
+          proof: "proven",
+        },
+        projected: {
+          permissionProfile: "read-only",
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "cli-harness-session-factory",
+          proof: "proven",
+        },
+        observedRuntime: {
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "runtime-observation",
+          proof: "proven",
+          observedAt: "2026-07-01T19:00:00.000Z",
+          validUntil: "2026-07-01T19:05:00.000Z",
+        },
+        classification: "current-verified",
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "denied",
+      decision: {
+        status: "denied",
+        missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+      },
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("hydrates admitted resource context into the CLI harness system prompt", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: options.system?.includes("Child transcript body.") ? "Context read." : "Missing context." },
       { type: "completed", totalUsd: 0.01, durationMs: 25, isError: false, isPreflightCrash: false },
     ]));
@@ -363,8 +489,143 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     });
   });
 
+  it("fails closed before starting an unattended harness child when runtime authority is unproven", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "text_delta", content: "Should not run." },
+      { type: "completed", totalUsd: 0.01, durationMs: 25, isError: false, isPreflightCrash: false },
+    ]));
+    const dispose = vi.fn().mockResolvedValue(undefined);
+    const factory = vi.fn(() => ({ run, dispose }));
+    const adapter = new ManagedCliHarnessAdapter({
+      providerId: "opencode",
+      model: "sonic",
+      factory,
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const baseRequest = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      requestSource: "background-job",
+      executionIntent: { attendance: "unattended", lifecycle: "background" },
+      requestedAuthority: "audited",
+    });
+
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result).toMatchObject({
+      status: "denied",
+      decision: {
+        status: "denied",
+        missingCapabilities: ["authorityEvidence.effective-policy-unproven"],
+      },
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
+  it("admits proof-required execution only from a fresh runtime-owned observation", async () => {
+    const factory = vi.fn(() => ({
+      run: vi.fn(() => eventStream([
+        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      ])),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
+    const observe = vi.fn().mockResolvedValue({
+      approval: "on-request",
+      sandbox: "read-only",
+      source: "runtime-observation",
+      proof: "proven",
+      observedAt: "2026-07-01T19:00:00.000Z",
+      validUntil: "2026-07-01T19:05:00.000Z",
+    });
+    const service = new RuntimeManagedAgentInvocationService({
+      authorityObserver: { observe },
+      clock: () => new Date("2026-07-01T19:00:30.000Z"),
+    });
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "automation" },
+    });
+
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result.status).toBe("completed");
+    expect(observe.mock.calls.map(([input]) => input.phase)).toEqual(["pre-start", "post-start"]);
+  });
+
+  it("fails closed with authority evidence when pre-start runtime observation fails", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]));
+    const factory = vi.fn(() => ({
+      run,
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
+    const observe = vi.fn().mockRejectedValue(new Error("permission probe crashed"));
+    const service = new RuntimeManagedAgentInvocationService({
+      authorityObserver: { observe },
+      clock: () => new Date("2026-07-01T19:00:30.000Z"),
+    });
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "automation" },
+    });
+
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result).toMatchObject({
+      status: "denied",
+      decision: {
+        status: "denied",
+        missingCapabilities: ["authorityEvidence.failed-observation"],
+      },
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when post-start observation detects authority broadening", async () => {
+    const run = vi.fn(() => eventStream([
+      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+    ]));
+    const factory = vi.fn(() => ({
+      run,
+      dispose: vi.fn().mockResolvedValue(undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
+    const observe = vi.fn()
+      .mockResolvedValueOnce({
+        approval: "on-request", sandbox: "read-only", source: "runtime-observation", proof: "proven",
+        observedAt: "2026-07-01T19:00:00.000Z", validUntil: "2026-07-01T19:05:00.000Z",
+      })
+      .mockResolvedValueOnce({
+        approval: "never", sandbox: "danger-full-access", source: "runtime-observation", proof: "proven",
+        observedAt: "2026-07-01T19:00:10.000Z", validUntil: "2026-07-01T19:05:00.000Z",
+      });
+    const service = new RuntimeManagedAgentInvocationService({
+      authorityObserver: { observe },
+      clock: () => new Date("2026-07-01T19:00:30.000Z"),
+    });
+
+    const request = makeRequest();
+    const result = await service.invoke(request, adapter, snapshotInputFor(request));
+
+    expect(result).toMatchObject({
+      status: "completed",
+      record: {
+        lifecycleState: "failed",
+        resultHandoff: { summary: "Managed child runtime authority changed after start: runtime-policy-mismatch" },
+      },
+    });
+    expect(factory).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("proves admitted write authority with replayable proposal, decision, attempt, and terminal evidence", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: "Approved fixture update applied." },
       {
         type: "file_changed",
@@ -521,7 +782,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("records read-only OpenCode write denials as replayable authority-denied evidence", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: "Write denied by policy." },
       {
         type: "write_decision",
@@ -567,7 +828,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
 
     try {
       const run = vi.fn(() =>
-        (async function* stream(): AsyncGenerator<CliSessionEvent> {
+        (async function* stream(): AsyncGenerator<ExecutionSessionEvent> {
           await writeFile(proofPath, "after", "utf8");
           yield { type: "text_delta", content: "Attempted fixture update." };
           yield { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false };
@@ -607,7 +868,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     vi.useFakeTimers({ now: new Date("2026-05-28T04:45:00.000Z") });
     const runStarted = deferred();
     const run = vi.fn(() =>
-      (async function* neverFinishes(): AsyncGenerator<CliSessionEvent> {
+      (async function* neverFinishes(): AsyncGenerator<ExecutionSessionEvent> {
         runStarted.resolve();
         await new Promise(() => undefined);
       })(),
@@ -658,7 +919,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
 
   it("preserves partial write evidence when a live harness times out after a bounded file change", async () => {
     const run = vi.fn(() =>
-      (async function* partialWriteThenTimeout(): AsyncGenerator<CliSessionEvent> {
+      (async function* partialWriteThenTimeout(): AsyncGenerator<ExecutionSessionEvent> {
         yield {
           type: "file_changed",
           path: "C:/workspace/kiln/packages/runtime/tests/fixtures/managed-write-proof.txt",
@@ -668,7 +929,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
           diffPreview: "diff --git a/managed-write-proof.txt b/managed-write-proof.txt",
           diffTruncated: true,
           resourceUris: ["kiln://managed-invocations/invocation-opencode-write-1/diffs/1"],
-        } as CliSessionEvent;
+        } as ExecutionSessionEvent;
         await new Promise(() => undefined);
       })(),
     );
@@ -795,7 +1056,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
         diffPreview: "diff --git a/managed-write-proof.txt b/managed-write-proof.txt",
         diffTruncated: true,
         resourceUris: ["kiln://managed-invocations/invocation-opencode-write-1/diffs/1"],
-      } as CliSessionEvent,
+      } as ExecutionSessionEvent,
       { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
     ]));
     const dispose = vi.fn().mockResolvedValue(undefined);
@@ -861,7 +1122,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
   });
 
   it("forwards managed environment bindings to the CLI harness session without recording values as lease evidence", async () => {
-    const run = vi.fn((options: CliSessionRunOptions) => eventStream([
+    const run = vi.fn((options: ExecutionSessionRunOptions) => eventStream([
       { type: "text_delta", content: `Port ${options.env?.KILN_DEV_SERVER_PORT ?? "missing"} received.` },
       { type: "completed", totalUsd: 0.01, durationMs: 20, isError: false, isPreflightCrash: false },
     ]));

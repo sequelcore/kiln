@@ -31,6 +31,7 @@ import {
   ManagedAgentWorktreeReviewRequiredError,
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
+  createManagedAgentInvocationResourceProvider,
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   ManagedAgentRuntimeAdapter,
@@ -119,6 +120,9 @@ function makeDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}):
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,
@@ -370,7 +374,7 @@ function makeRecord(
     },
     usage: {
       source: "adapter",
-      tokenClasses: [{ name: "input_tokens", value: "unknown" }],
+      tokenClasses: [{ name: "input", value: "unknown" }],
       cost: { currency: "unknown", amount: "unknown" },
     },
     resultHandoff: {
@@ -573,12 +577,135 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const result = await service.invoke(makeRequest(), adapter, makeSnapshotInput());
 
     expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("expected completed invocation");
+    expect(result.record.coordinationUsage).toMatchObject({
+      version: "managed-agent-coordination-usage-v1",
+      workerId: "child-session-1",
+      coverage: "partial",
+      reconciliation: "mutually-exclusive",
+    });
+    expect(result.record.coordinationUsage?.components.map((component) => component.stage)).toEqual([
+      "parent_prompt",
+      "child_bootstrap",
+      "duplicated_reads",
+      "handoff",
+      "review",
+      "synthesis",
+    ]);
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke.mock.calls[0]![0].admission).toMatchObject({
       status: "admitted",
       adapterDescriptorId: "adapter:opencode:harness",
       authorityProfileId: "foundation-readonly",
     });
+  });
+
+  it("canonicalizes strict structured child JSON before enforcing required handoff fields", async () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      input: {
+        summary: "Inspect the contract",
+        handoff: {
+          requiredResultFields: ["summary", "evidence", "checks", "uncertainty", "limitations"],
+          residualRiskRequired: true,
+          outputVerbosity: "concise",
+        },
+      },
+    });
+    const structuredResult = {
+      version: "structured-execution-result-v1",
+      status: "completed",
+      summary: "Inspection completed with deterministic evidence.",
+      uncertainty: 0.2,
+      limitations: ["No live provider call was required."],
+      operatorDecisions: [],
+      evidence: [{ uri: "kiln://artifacts/invocation-1/result", kind: "verification" }],
+      citations: [],
+      warnings: [],
+      failures: [],
+      approvalRequirements: [],
+      residualRisks: ["No live provider call was required."],
+      verificationResults: [{
+        requirementId: "contract",
+        method: "deterministic",
+        status: "passed",
+        summary: "The contract is valid.",
+        evidenceUris: ["kiln://artifacts/invocation-1/result"],
+      }],
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => {
+        const baseRecord = makeReadonlyRecordForRequest(request, admission.capabilitySnapshot);
+        return defineManagedAgentInvocationRecord({
+          ...baseRecord,
+          usage: {
+            source: "adapter",
+            tokenClasses: [
+              { name: "input", value: 20 },
+              { name: "output", value: 150 },
+              { name: "cache_read", value: 0 },
+            ],
+            cost: { currency: "USD", amount: 0.012 },
+          },
+          resultHandoff: {
+            ...baseRecord.resultHandoff!,
+            summary: "H".repeat(400),
+          },
+          replayResources: [{
+            uri: "kiln://artifacts/invocation-1/result",
+            mimeType: "application/json",
+            text: JSON.stringify(structuredResult),
+          }],
+        });
+      }),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const result = await service.invoke(request, adapter, makeSnapshotInput());
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("expected completed invocation");
+    expect(result.record.resultHandoff?.structuredResult).toMatchObject({
+      status: "completed",
+      uncertainty: 0.2,
+      residualRisks: ["No live provider call was required."],
+      verificationResults: [{ requirementId: "contract", status: "passed" }],
+    });
+    expect(result.record.resultHandoff?.verificationUsage).toMatchObject({
+      version: "verification-usage-v1",
+      attempts: [{
+        requirementId: "contract",
+        method: "deterministic",
+        status: "passed",
+        tokens: { value: 0, source: "estimated" },
+        costUsd: { value: 0, source: "estimated" },
+        latencyMs: { value: "unknown", source: "unknown" },
+      }],
+      totals: { tokens: 0, costUsd: 0, latencyMs: "unknown" },
+    });
+    const resources = createManagedAgentInvocationResourceProvider({
+      service,
+      parentSessionId: request.parentSessionId,
+    });
+    const detail = await resources.read(`kiln://managed-agents/invocations/${request.invocationId}`);
+    const invocation = JSON.parse(detail!.contents[0]!.text).invocation;
+    expect(invocation.lifecycleAttribution.ledger.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "coordination", workerId: "child-session-1" }),
+    ]));
+    expect(invocation.efficiencyEvidence.totals.providerTotalTokens).toBe(170);
+    expect(invocation.lifecycleAttribution.ledger.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: "coordination",
+        providerTokenClass: "output",
+        tokens: 100,
+      }),
+      expect.objectContaining({
+        source: "final_output",
+        providerTokenClass: "output",
+        tokens: 50,
+      }),
+    ]));
   });
 
   it("starts an admitted invocation without waiting for the adapter terminal record", async () => {
@@ -4591,6 +4718,67 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(restartedWorktreeLeaseManager.release).toHaveBeenCalledTimes(1);
     expect(recoveryStore.entries.has("write-1")).toBe(false);
     expect(secondRecovery.recovered).toEqual([]);
+  });
+
+  it("re-evaluates managed child authority freshness during persisted replay", async () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeIsolatedWorktreeRequest(),
+      executionIntent: { attendance: "unattended", lifecycle: "resume" },
+    });
+    const recoveryStore = makeRecoveryStore();
+    const terminal = deferred<ManagedAgentInvocationRecord>();
+    const leaseManager = {
+      acquire: vi.fn(async ({ lease }) => lease),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const firstService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: leaseManager,
+      clock: () => new Date("2026-05-07T08:00:30.000Z"),
+      authorityObserver: {
+        observe: vi.fn().mockResolvedValue({
+          approval: "on-request",
+          sandbox: "workspace-write",
+          source: "runtime-observation",
+          proof: "proven",
+          observedAt: "2026-05-07T08:00:00.000Z",
+          validUntil: "2026-05-07T08:01:00.000Z",
+        }),
+      },
+    });
+    await firstService.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke: vi.fn(async ({ request, admission }) => {
+        await terminal.promise;
+        return makeRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    }, {
+      capturedAt: "2026-05-07T08:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
+    });
+
+    const restartedService = new RuntimeManagedAgentInvocationService({
+      recoveryStore,
+      worktreeLeaseManager: leaseManager,
+    });
+    const recovered = await restartedService.recoverPersistedInvocations({
+      now: new Date("2026-05-07T08:10:00.000Z"),
+    });
+    const joined = await restartedService.join(request.invocationId);
+
+    expect(recovered.recovered[0]).toMatchObject({ lifecycleState: "failed" });
+    expect(joined).toMatchObject({
+      status: "completed",
+      record: {
+        lifecycleState: "failed",
+        resultHandoff: { summary: expect.stringContaining("stale-evidence") },
+      },
+    });
   });
 
   it("daemon startup recovers persisted checkpoints through the runtime service and filesystem store", async () => {

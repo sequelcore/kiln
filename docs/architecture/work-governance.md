@@ -20,6 +20,43 @@ Kiln treats non-trivial work as a governed lifecycle:
 Direct execution is an actuator inside that lifecycle, not the default identity
 of the system.
 
+## Execution Identity And Surface Projection
+
+The canonical session ledger remains append-only. User surfaces must not render
+that ledger as one visual row per lifecycle event. They derive a live workflow
+projection keyed by `goalRunId`, `workItemId`, execution `attemptId`, and tool
+`toolCallId` so repeated snapshots update one semantic container.
+
+Tool lifecycle events may carry a discriminated `executionScope`. A goal scope
+contains `goalRunId`; a work-item scope also contains `workItemId` and may carry
+`attemptId` and `managedInvocationId`. Runtime propagates this identity through
+direct provider calls, managed invocations, canonical events, persistence, and
+gateway frames. Surfaces may associate a tool with governed work only from this
+explicit scope or an explicit managed-invocation/attempt relation. Temporal
+proximity is not attribution evidence.
+
+Execution tools own scope transitions. A ready or explicitly paused
+`work_item.execution.start` result emits a typed `enter` transition; a started
+attempt enriches that scope with its attempt and managed-invocation identity.
+Runtime applies the transition before publishing the tool result and preserves
+the active scope across subsequent provider tool rounds. A successful
+`work_item.execution.finish` emits `exit` after its own result is attributed.
+`work_item.complete` is reserved for standalone items and rejects goal-owned
+work. Failed validation does not change scope.
+This control metadata is canonical runtime input, not a rendering hint.
+
+GUI, TUI, CLI, replay, and future surfaces consume the shared workflow
+projection contract. A surface may choose a card, sidebar tree, or textual
+layout, but the semantics are invariant:
+
+- a goal and each work item have one stable identity;
+- lifecycle updates replace the latest projected snapshot rather than append a
+  duplicate presentation;
+- explicitly scoped tools appear under their owning work;
+- unscoped tools remain independent and auditable;
+- the raw append-only event ledger remains available outside the conversation
+  projection.
+
 ## Doctrine
 
 Kiln's default posture is orchestration. Parent agents are conductors,
@@ -105,6 +142,43 @@ TUI, and benchmark sessions. Repo shims also include the resolved policy so
 standalone native harness usage sees the same posture. Projection is not the
 authority boundary; managed invocations, tools, approvals, and verification
 gates still enforce the actual authority.
+Because repo shims are generated from resolved global and project Kiln config,
+this projection rule is not local to one repository. Any project that enables
+work governance receives the same cross-harness authority posture after it
+syncs repo shims with a Kiln version that includes this contract.
+
+## Cross-Harness Authority Degradation
+
+Repo shims and native harness instructions may require orchestration, delegated
+review, or subagent execution. Those requirements are valid workflow policy,
+but they are not proof that the active harness can actually perform the
+required action in the current turn.
+
+Kiln therefore treats harness capability as an admitted runtime fact. When a
+required delegation, approval, write, review, memory, or tool route is not
+available, the parent must not simulate compliance with prose, create transient
+project memory files, or pretend a native subagent ran. It must choose one of
+these governed outcomes:
+
+- use an admitted Kiln managed invocation route that satisfies the required
+  profile, authority, tools, and evidence contract;
+- continue locally only when the work item can still satisfy the configured
+  evidence gates through available local verification;
+- record an explicit pause requirement that names the missing capability,
+  required authority, and operator action needed to proceed.
+
+This rule applies equally when Kiln is the active surface and when Kiln policy
+is projected into Claude Code, Codex, OpenCode, or another native harness.
+Native harness agents, slash commands, hooks, permission modes, and config
+files are projection or adapter mechanisms. They do not replace the canonical
+work item, managed invocation, approval, authority, or closeout contracts.
+
+If a projected instruction requires a delegated review but no admitted route is
+available, the correct closeout is a blocked work item or residual-risk note,
+not an invented review. If the operator explicitly authorizes a native harness
+subagent outside Kiln's managed invocation service, the result is external
+evidence until it is attached to the session through the same work-item evidence
+plane as any other artifact.
 
 The same resolved policy is exposed through CLI-owned builtin tools in runtime
 surfaces:
@@ -117,6 +191,10 @@ surfaces:
   verification gates.
 - `work_item.update`
   Creates or updates a governed work item in the current session.
+  The manual tool boundary requires a stable caller-owned `id` on the first
+  call and every later update. That same identity owns classification
+  provenance, execution attempts, evidence, and closeout; temporary ids such as
+  `pending` are invalid.
   It cannot set `status=in_progress`; active execution is owned only by
   `work_item.execution.start` so attempts, route evidence, and pause reasons
   stay replayable.
@@ -160,7 +238,8 @@ in-progress, or blocked item must be followed in the same turn by an explicit
 plan, execution finish, completion, or formal pause evidence. Execution start
 is materialization, not closeout: if it leaves the work item `in_progress`, the
 turn remains blocked and is projected as `failed` until a later
-`work_item.execution.finish` or `work_item.complete` records terminal evidence.
+`work_item.execution.finish` records terminal evidence for goal-bound work;
+`work_item.complete` records terminal evidence only for standalone work.
 Read-only scouting and managed-child research can satisfy evidence requirements
 only after they are attached to that governed closeout path; they do not make an
 open work item a completed turn by themselves. This projection is derived from
@@ -207,12 +286,12 @@ Operator surfaces may request turn authority, but runtime validates and admits
 the effective authority. Invalid requested-authority values fail before
 admission. In execute mode, `read_only` and `audited` requests narrow the
 provider tool surface before invocation; `auto` preserves the current admitted
-surface. `destructive` is not an operator-requestable turn authority until the
-authority elevation approval flow exists, though effective authority displays
-may still report destructive when an admitted tool surface contains
-approval-required destructive tools. Done-frame authority status is projected
-from the same per-call config used for the turn, not from a freshly derived
-default.
+surface. An explicit `destructive` request on a supported direct-provider
+surface admits destructive capabilities without per-action approval; it is a
+high-authority operator decision and must never be inferred from prompt prose or
+used as an unattended substitute for `audited`. Done-frame authority status is
+projected from the same per-call config used for the turn, not from a freshly
+derived default.
 
 Authority modes are not natural-language approval prompts. A surface may render
 an approval action only after runtime emits `approval_requested` with an
@@ -248,9 +327,11 @@ same work contract without each surface inventing its own planning model.
 
 Work item state is part of the session evidence plane:
 
-- `work_item.update` and `work_item.complete` return typed tool metadata.
+- `work_item.update` and standalone `work_item.complete` return typed tool metadata.
 - `work_item.execution.start` and `work_item.execution.finish` record
   execution attempts instead of relying on transient model memory.
+- Goal-bound execution metadata carries the latest goal snapshot so terminal
+  transitions project consistently across direct and orchestrated surfaces.
 - The runtime ledger projects that metadata into canonical
   `work_item_updated`, `work_item_execution_started`, and
   `work_item_execution_finished` session events.
@@ -270,11 +351,18 @@ session events, but they must not replace them.
 
 ## Goal Runs and Evidence Closeout
 
-Goal runs are the execution container for an approved plan. A goal run records
-the approved plan id, approved plan hash, authority envelope, route policy,
-required evidence, and materialized work item ids. That binding makes the run
-reconstructable from session evidence instead of relying on assistant text or a
-surface-local UI state.
+Goal runs are the governed execution container. Their source is explicit and
+discriminated:
+
+- `approved_plan` records the canonical plan id and optional approved content
+  hash; these goals are created only through plan approval and materialization.
+- `operator_direct` records the canonical operator turn id; attached runtime
+  surfaces supply it and `goal.create` does not accept model-declared plan
+  provenance.
+
+Every goal also records its authority envelope, route policy, required evidence,
+and linked work item ids. That binding makes the run reconstructable from session
+evidence instead of relying on assistant text or surface-local UI state.
 
 Goal route policy has one owner at a time. `managedAgentProfile` means the
 agent profile owns child route selection through its configured route hints.
@@ -376,6 +464,19 @@ checks child count, route health, budget availability, workspace isolation, and
 task risk before any child starts. CLI fan-out commands are adapters over this
 contract; they do not own a separate worker lifecycle.
 
+The cross-surface execution entrypoint is `managed_agent.orchestrate`. It
+accepts the bounded work graph produced by governance, not prose instructions
+to spawn agents. Every work item names a stable id, bounded role intent, task,
+dependencies, and either an admitted `agentProfile` or explicit `routeId`.
+Core selects the topology and preserves those contracts. Runtime validates each
+profile and route, schedules dependency-ready work, passes successful bounded
+handoffs and resource URIs downstream, and records terminal evidence. A failed
+dependency blocks its dependents. The current coordination policy serializes
+dependency-bearing and high-risk graphs; it does not claim a distributed DAG
+scheduler. Parallel high-risk admission fails closed. Independent review also
+fails closed unless at least two distinct provider/model identities are
+admitted.
+
 For broad work items, `work_item.execution.start` scopes each generated
 managed invocation to the next missing evidence phase instead of asking one
 child to produce the entire work item in a single timeout window. Intermediate
@@ -426,14 +527,18 @@ recording evidence.
 Managed-delegation work items do not start until the execution attempt is linked
 to a recorded managed invocation id. If that id is missing,
 `work_item.execution.start` pauses with an actionable `managed_agent.invoke`
-request; after the child returns, the parent resumes the same work item with
-the recorded invocation id.
-For intermediate phases, that pause is expected and should project as a
-successful handoff rather than a tool failure. Parent agents must invoke the
-exact returned `managedInvocationRequest`; if the request omits `agentProfile`,
-the parent must not add a guessed profile. Runtime surfaces may attach a
+request internally. Attached runtime surfaces hydrate and execute that request
+before returning to the parent. For a final phase, the runtime resumes the same
+work item with the recorded invocation id. For an intermediate phase, it returns
+the invocation id and child handoff with `nextTool=work_item.update`; the parent
+records that evidence before requesting the next phase. The parent must not
+spawn a second child or add a guessed profile. Runtime surfaces may attach a
 profile only when a single configured agent profile explicitly owns the same
 route id.
+Each generated phase carries `taskAffinity` in addition to required tools.
+Route selection uses configured `taskSuitability` only after capability
+filtering and only when it produces one unique winner. Ambiguous ties fail
+closed instead of becoming provider-order fallback.
 The generated managed invocation request treats the work item route and
 authority profile as governed state, not as model-owned hints. Caller-supplied
 `managedProfile` or `requestedAuthority` values may narrow a route only when

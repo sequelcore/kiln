@@ -239,6 +239,7 @@ describe("OperatorSurfaceTabs", () => {
           status: "running",
           updatedAt: "2026-05-08T12:00:00.000Z",
           provider: "playwright",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "qa-browser",
           ownership: "agent",
           viewMode: "live",
@@ -263,6 +264,7 @@ describe("OperatorSurfaceTabs", () => {
 
     expect(onBrowserSessionControl).toHaveBeenCalledWith("takeover", {
       sessionId: "qa-browser",
+      gatewayTargetId: "gateway:browser-app",
       reason: "Operator took browser control.",
     });
 
@@ -276,6 +278,7 @@ describe("OperatorSurfaceTabs", () => {
           status: "running",
           updatedAt: "2026-05-08T12:00:00.000Z",
           provider: "playwright",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "qa-browser",
           ownership: "operator",
           viewMode: "live",
@@ -300,6 +303,7 @@ describe("OperatorSurfaceTabs", () => {
 
     expect(onBrowserSessionControl).toHaveBeenLastCalledWith("release", {
       sessionId: "qa-browser",
+      gatewayTargetId: "gateway:browser-app",
       reason: "Operator released browser control.",
     });
   });
@@ -412,6 +416,7 @@ describe("OperatorSurfaceTabs", () => {
           status: "running",
           updatedAt: "2026-05-13T12:00:00.000Z",
           provider: "playwright",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "qa-browser",
           title: "QA Browser",
           ownership: "operator",
@@ -472,6 +477,7 @@ describe("OperatorSurfaceTabs", () => {
 
     expect(onBrowserOperatorInput).toHaveBeenCalledWith({
       sessionId: "qa-browser",
+      gatewayTargetId: "gateway:browser-app",
       input: {
         kind: "pointer",
         phase: "click",
@@ -483,6 +489,7 @@ describe("OperatorSurfaceTabs", () => {
     });
     expect(onBrowserOperatorInput).toHaveBeenCalledWith({
       sessionId: "qa-browser",
+      gatewayTargetId: "gateway:browser-app",
       input: {
         kind: "wheel",
         x: 640,
@@ -493,6 +500,7 @@ describe("OperatorSurfaceTabs", () => {
     });
     expect(onBrowserOperatorInput).toHaveBeenCalledWith({
       sessionId: "qa-browser",
+      gatewayTargetId: "gateway:browser-app",
       input: {
         kind: "text",
         text: "a",
@@ -500,6 +508,7 @@ describe("OperatorSurfaceTabs", () => {
     });
     expect(onBrowserOperatorInput).toHaveBeenCalledWith({
       sessionId: "qa-browser",
+      gatewayTargetId: "gateway:browser-app",
       input: {
         kind: "key",
         phase: "press",

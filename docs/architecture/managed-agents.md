@@ -49,12 +49,11 @@ profile pairs fail closed before child execution starts.
 
 ## Non-Boundaries
 
-Managed invocation does not itself define conductor planning, fan-out/fan-in
-scheduling, durable workflow execution, team topology mutation, or autonomous
-multi-agent strategy. Work-governance policy may require the parent to use
-managed invocation for non-trivial work, but that policy remains a caller-side
-control decision. Managed invocation owns the child execution boundary once a
-bounded child request is admitted.
+Managed invocation does not define goal decomposition, mutate team topology at
+runtime, or learn provider/model rankings. Core selects a deterministic
+coordination topology from governed signals; Runtime executes the resulting
+bounded graph through managed invocation. Goal and work-item stores remain the
+durable workflow authority.
 
 Managed invocation also does not make provider-native permission behavior
 authoritative. Provider sandbox and approval claims are telemetry until Kiln
@@ -98,6 +97,124 @@ re-evaluates admission immediately before execution using the admitted
 capability snapshot, checks the adapter descriptor, and validates the returned
 record against the admitted request and snapshot.
 
+## Persistent Managed Jobs
+
+Runtime owns the persistent managed-job application boundary in
+`packages/runtime/src/managed-jobs`. It owns admitted submission, opaque job
+identity, idempotency, status and result reads, canonical result persistence,
+and honest restart recovery. All presentation surfaces are consumers; none may
+create private background-job state or reconstruct a result from a transcript.
+
+The request permits only bounded objective text, a configured agent-profile
+identity (`configuredAgentProfileId`), an idempotency identity, and optional
+parent invocation/turn lineage. A configured agent is an operator-owned child
+identity with an explicit canonical route hint; it is not an admission or
+authority profile. Admission profiles, such as `foundation-readonly-plan`, are
+route-owned authority classifications.
+It cannot choose provider, model, paths, environment, credentials, raw config,
+authority, governance evidence, or timeout. A trusted composition boundary
+supplies project identity; CLI resolves configured profiles/routes through
+adapters injected into Runtime, never through a Runtime-to-CLI dependency.
+
+The owner validates fresh, versioned authoritative governance, resolves the
+requested configured agent through the canonical catalog, requires its explicit
+route hint, resolves exactly that current eligible route, and obtains the
+route-owned `admissionProfileId` before project, read, tool, network, and write
+scope validation, governance admission,
+persistence, or provider dispatch. Missing, unavailable, contradictory, or
+unsupported or stale eligibility hints fail closed before job creation. Multiple routes may support the same admission
+profile because the configured agent's hint, not the admission profile, selects
+the route. It stores only safe evidence: project and trusted caller ownership,
+configured-agent profile, admission profile, route/provider, governance source,
+timeout source, parent lineage, timestamps, lifecycle, fingerprints, and the
+validated Runtime result handoff. It does not
+persist objectives, credentials, environment values, paths, raw configuration,
+provider payloads, exception details, stack traces, or hidden reasoning.
+
+The same idempotency identity and normalized-request fingerprint returns one
+job; changing the configured-agent identity under that same key yields a stable
+conflict. Valid states are `queued`,
+`running`, `succeeded`, `failed`, `timed_out`, and `interrupted`. Terminal
+states are immutable. A job cannot become `succeeded` until the validated
+canonical handoff is durably persisted in the same owner write. Result
+availability is independent of lifecycle: nonterminal jobs are `pending`; a
+persisted validated handoff is `available`; terminal jobs with no recoverable
+handoff are `unavailable`; failed, timed-out, interrupted, or cancelled jobs
+are `failed` and expose only a safe terminal diagnostic; corrupt, mismatched,
+unsupported, or unauthorized evidence is `unresolved` and fails closed.
+Because this slice does not resume provider work,
+nonterminal work recovered after restart becomes `interrupted`, never remains
+shown as running. Provider dispatch is a Runtime port; configured direct route
+identity remains `opencode-go`, with no shell or native-CLI subprocess path.
+
+The persisted result reuses Runtime's `ManagedAgentInvocationRecord.resultHandoff`;
+it is not a second handoff format. Its summary is bounded untrusted child
+output, never governance or instruction authority. Only admitted safe resource
+references are retained; transcript, replay, diagnostic, filesystem, and
+provider references are not projected through this result boundary. Explicit
+truncation evidence is retained when bounded content cannot be represented in
+full. Result records validate version, job and invocation identity, route,
+configured agent, admission profile, terminal state, and timestamps before
+they are observable. Terminal results are immutable.
+
+Records written before result persistence remain valid historical job records:
+their terminal status is preserved and result reads return stable
+`result_unavailable`; the owner never mines transcripts or provider logs to
+backfill them. This bounded historical rule may be removed only after all
+supported persisted managed-job records have been migrated or expired under an
+explicit retention decision.
+
+### Codex App MCP projection
+
+The project-local Codex App MCP adapter exposes exactly
+`kiln_managed_agent_invoke`, `kiln_managed_agent_status`,
+`kiln_managed_agent_result`, `kiln_managed_agent_cancel`, and
+`kiln_managed_agent_replay`, alongside its three inspection tools. Invoke
+accepts only `objective`,
+`configuredAgentProfileId`, and
+`idempotencyKey`; status, result, cancel, and replay each accept only `jobId`.
+The adapter derives the caller
+and harness from trusted composition and the project from its source checkout. It
+does not accept parent lineage, route, provider, model, paths, authority,
+configuration, environment, credentials, or timeout inputs.
+
+Production composition creates the Runtime `ManagedJobApplicationService`,
+uses the persistent `.kiln/managed-jobs` owner, canonical governance status,
+configured-agent catalog and route resolution, Runtime invocation service, and
+existing direct-provider adapter. The application boundary refreshes canonical
+eligibility for every submission, uses the selected configured agent's exact
+route hint, then validates the route-owned admission profile and scope before
+persisting the job. Slice 3's explicit application admission requirement is
+`foundation-readonly-plan`; a route must supply that profile. The MCP adapter
+never makes either decision. Capability inspection
+projects safe configured-agent identity, optional role/display name, availability,
+provider family, admission profile, and stable action; it does not expose route
+configuration. Status, result, cancellation, and replay operations are
+authorized by the application owner
+against the trusted project, trusted Codex App caller/harness identity, and
+canonical job ownership; knowing a job identifier is insufficient. Responses
+project only opaque job/lifecycle, configured-agent, admission-profile and
+route/provider evidence, completion timestamp, untrusted-result provenance,
+bounded normalized handoff or admitted safe resource references,
+caller/request evidence, and stable diagnostics. They never return objectives,
+prompts, transcripts, hidden reasoning, raw provider data, storage paths,
+configuration, secrets, exceptions, or stacks. Redaction is applied before
+persistence and again at projection. New jobs persist a monotonic canonical
+lifecycle beginning with `queued`; replay returns only those stored lifecycle
+entries and never reconstructs missing history from transcripts or provider
+logs. Historical jobs without lifecycle entries return explicit
+`replay_unavailable` evidence.
+
+Idempotency remains entirely in the persistent owner: the same trusted caller,
+key, and normalized request returns the original job and its immutable result,
+while a changed request returns the canonical conflict. There is no MCP retry
+cache. Cancellation passes through the Runtime invocation owner, records a
+terminal `cancelled` lifecycle entry, and cannot be overwritten by late
+provider completion. This surface does not expose listing, configuration
+mutation, bulk invocation, native CLI execution, or provider/model selection.
+This slice does not implement quota-aware or automatic multi-route routing;
+that remains a Slice 4 concern.
+
 ## Lifecycle And Parallel Execution
 
 Managed invocations have a runtime-owned lifecycle. A parent may request a
@@ -113,6 +230,38 @@ transcript pointer, diagnostics, usage when available, result handoff, write
 evidence, and resource leases. A child that cannot provide substantive handoff
 evidence fails closed even when the provider process exits successfully.
 
+Managed invocation tool results expose admitted authority as structured runtime
+evidence. `managed_agent.start`, `managed_agent.status`, `managed_agent.list`,
+`managed_agent.join`, and `managed_agent.cancel` project an `authoritySnapshot`
+derived from the admitted request, not from route names or provider prose. The
+snapshot includes the authority profile id, permission profile, allowed tool
+names, explicit write and network flags, working-directory mode, timeout
+evidence, credential route, and memory scope. Operator surfaces and parent
+agents must use this snapshot as the inspectable authority evidence for a child
+invocation.
+
+Running and terminal snapshots may also carry `progressEvents`. These are
+runtime-observed child events such as tool authorization, tool call, tool
+result, tool cache hit, and runtime error. Direct-provider children emit these
+events through the child `RuntimeSessionOrchestrator` event bus; the managed
+invocation service retains a bounded recent event list for status, list, join,
+cancel, and replay consumers. Progress events are evidence of observed
+execution, not authority grants, and surfaces must not infer missing authority
+from them.
+
+Managed children also carry runtime authority evidence for the permission plane
+when the selected route requires trusted or full-access execution. The request
+records requested authority, projection records what Kiln attempted to provide
+to the child harness, and observation records what the runtime actually proved.
+Caller-supplied authority evidence is advisory input only; runtime-owned
+observers decide whether evidence is proven, inferred, unavailable,
+contradictory, stale, partial, or failed. Unattended, background, resumed, or
+replayed children that require trusted authority fail closed when observation
+is unproven, stale, partial, failed, downgraded, broadened without approval, or
+mismatched with the admitted profile. The diagnostic must name the missing
+proof or mismatch instead of falling through as a generic invalid-key,
+provider, or permission failure.
+
 Parallel execution is expressed as managed orchestration over the same child
 lifecycle. Core owns typed orchestration requests for fan-out, decomposition,
 review swarm, route comparison, and background job modes. Each request carries
@@ -120,8 +269,8 @@ parent lineage, child requests, expected evidence, isolation policy, merge or
 adoption policy, and child-count limits. Runtime and CLI adapters may launch
 children only after the shared admission contract accepts the request.
 
-`kiln run --workers` is a compatibility command over this lifecycle, not an
-independent worker implementation. It builds a typed fan-out request, admits it,
+`kiln run --workers` is a CLI adapter over this lifecycle, not an independent
+worker implementation. It builds a typed fan-out request, admits it,
 starts children through `RuntimeManagedAgentInvocationService`, observes and
 joins terminal records, and reports normalized orchestration evidence. It must
 not recursively invoke the CLI or maintain a separate worker registry.
@@ -149,6 +298,24 @@ project `routing.budget` into a `BudgetAdmissionPolicy`, but the admission
 decision is evaluated by the runtime budget admission service. There is no
 CLI-local, managed-orchestration-local, or gateway-billing shim for child
 budget admission.
+
+`managed_agent.orchestrate` is the canonical cross-surface entrypoint for an
+explicit work graph. It rejects duplicate ids, unknown dependencies, cycles,
+unknown agent profiles, route/profile contradictions, and authority-profile
+mismatches. Core preserves per-child identity, route, and dependency contracts;
+Runtime executes dependency-ready waves through the common lifecycle, passes
+completed bounded handoffs into downstream requests, and blocks dependents of
+failed children. Independent review requires distinct provider/model
+identities. The runtime-owned parallel-worker limit bounds concurrency.
+Terminal metadata carries a timeline presentation intent for GUI, TUI, CLI,
+transcript, and replay parity.
+
+Route admission binds the request to one explicit safe working-directory mode.
+Non-mutating review and decomposition may use `read-only` or policy-backed
+`sandbox`. An `isolated-worktree` route must provide a worktree lease and is the
+required boundary for duplicate-candidate fan-out and write-capable child work.
+Shared `workspace-write` orchestration is denied rather than serialized inside
+the parent checkout.
 
 ## Isolation, Leases, And Cleanup
 
@@ -192,6 +359,36 @@ current global config instead of holding the process-start route objects
 forever. This refresh may update future route availability, network/tool
 authority, model selection, and agent route hints, but it never mutates an
 already admitted capability snapshot.
+
+Managed-agent route admission consumes the same canonical provider-model
+eligibility plane as interactive provider selection. Catalog membership,
+runtime provider availability, or a flattened provider/model string is not
+enough to admit a child route. A managed route becomes selectable only when the
+configured route, credential/auth evidence, entitlement evidence when known,
+required capabilities, catalog freshness, route health, policy admission, and
+authority profile are all admitted for managed-agent use. Stale or partial
+provider-model discovery remains diagnostic; it may be shown in staged
+catalogs, but it does not authorize a managed child invocation.
+
+Caller identity is admitted from the runtime attachment, not from the route
+catalog. `ManagedInvocationToolOptions` is a caller-neutral catalog of routes,
+unavailable diagnostics, agents, skills, context resolver, artifact store, and
+shared invocation service. `ManagedInvocationToolAttachment` pairs that catalog
+with explicit `callerIdentity` evidence at the surface that exposes
+`managed_agent.*`. Kiln-owned surfaces attach `kiln-runtime` identity; external
+harness adapters attach `external-harness` identity only when that harness is
+proven. Provider id, model id, UI profile controls, and config filenames must
+not be used to infer the parent caller.
+
+For external harness callers, cross-harness provider admission is a shared core
+capability contract. The runtime records `invocationCapabilityEvidence` in the
+admitted snapshot with the adapter id, adapter descriptor id, decision, and
+reason. Unsupported caller/provider pairs fail before adapter invocation, while
+supported read-only pairs continue through the same authority profile, tool
+policy, transcript, resource, and terminal-result evidence as any other managed
+child. The first supported cross-harness slice is read-only managed invocation;
+write authority, fan-out, and remote adapter expansion require separate
+capability proof.
 
 The snapshot is intentionally normalized rather than provider-native. It records:
 
@@ -296,6 +493,12 @@ identifier or a credentialless declaration. Secret values are not stored in
 invocation records, session events, transcripts, diagnostics, or handoff
 summaries.
 
+Credential expiry is not proof of provider acceptance. A provider-reported
+authentication failure invalidates that credential across discovery, status,
+and pool selection until the operator relinks it. Managed-route admission must
+use fresh provider/model discovery and must not fall back to a native harness
+catalog when the configured direct-provider credential is rejected.
+
 ## Runtime Adapters
 
 Managed invocation is an adapter-neutral contract. Runtime routes may execute
@@ -327,6 +530,9 @@ Parent turns that contain terminal managed-child failures are recorded as failed
 from either runtime ledger events or canonical tool-execution summaries, so GUI,
 TUI, CLI, and replay consumers cannot report a blocked delegation as a completed
 turn just because the failure was captured through a different surface.
+Direct-provider children that exhaust their tool-round budget or fail their
+bounded no-tool finalization are terminal failures, not successful empty
+handoffs. Their transcript and child-execution resources remain replayable.
 An explicit `managed_agent.cancel` call is different from a failed child
 handoff: when cancellation reaches the canonical `cancelled` lifecycle and
 terminal evidence is recorded, the cancel control result is accepted even
@@ -481,10 +687,11 @@ CLI refreshes provider model evidence in the background and updates the same
 managed invocation options object. This preserves cross-surface route identity
 without introducing a surface-local managed-agent registry or compatibility
 fallback.
-The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, so
-GUI, TUI, operator gateway, and CLI direct-provider executable sessions use the
-same tool definition, authority projection, executor, and route contract instead
-of surface-specific implementations.
+The shared attachment point is `createAttachedRuntimeBuiltinToolSurface`, which
+requires a managed invocation attachment rather than a bare route catalog. GUI,
+TUI, operator gateway, CLI run, and benchmark executable sessions use the same
+tool definition, authority projection, executor, route contract, and explicit
+caller identity boundary instead of surface-specific implementations.
 GUI and TUI recreate direct-provider executable sessions for each turn, but the
 runtime session id used by managed invocation tools is the stable outer Kiln
 session id. This keeps `managed_agent.status`, `managed_agent.list`,
@@ -543,18 +750,26 @@ skills are configured. Parent assistants may choose a configured child profile
 without the operator naming one, but they must not invent profiles or skills.
 If no configured profile matches a one-off read-only task, the parent omits
 `agentProfile` and invokes a generic governed child.
-Paused work-governance requests are authoritative tool input, not examples for
-the parent to rewrite. A parent must call `managed_agent.invoke` with the exact
-`managedInvocationRequest` returned by `work_item.execution.start`; if
-`agentProfile` is absent, it stays absent. Attached runtime surfaces may add an
-agent profile only when exactly one configured profile has an explicit route
-hint matching the request route. That preserves fail-closed profile admission
-while avoiding model-side guessing for route-owned intermediate phases.
-The resolved agent catalog may include a route hint inferred from explicit
-agent config or from route suitability and agent tier. Fast profiles such as
-`scout` should bind to bounded read-only routes, for example a Mini or free
-route, instead of a heavyweight synthesis route reserved for architecture or
-research synthesis.
+Paused work-governance requests are authoritative runtime input, not examples
+for the parent to rewrite. Attached runtime surfaces hydrate and execute the
+exact `managedInvocationRequest` returned by `work_item.execution.start` before
+control returns to the parent. If `agentProfile` is absent, it stays absent.
+The runtime may attach an agent profile only when exactly one configured
+profile has an explicit route hint matching the request route. This preserves
+fail-closed profile admission while removing model-side sequencing from the
+managed child lifecycle.
+When a request has no exact route, runtime route selection first filters by the
+requested authority profile and `requiredToolNames`. A single compatible route
+is admissible. When several routes remain, the runtime may select only a unique
+highest-scoring route from the phase `taskAffinity` and configured
+`taskSuitability` evidence. Missing suitability, a tie, or an incapable route
+remains ambiguous and fails closed; model names and provider rankings are never
+hardcoded into this boundary.
+The resolved agent catalog may include a route hint from explicit agent config
+or configured task suitability. Agent tier and model-name substrings are not
+routing evidence. Fast profiles such as `scout` should bind explicitly, or via
+`mechanical-edit`/research suitability, to a bounded read-only route instead of
+a heavyweight synthesis route.
 
 `agentProfile`, `skills`, and `contextMode: "fork"` fail closed when the active
 surface has not configured a context resolver. `contextMode: "isolated"` is the
@@ -627,6 +842,14 @@ If canonical start evidence exists but the canonical terminal event is missing,
 terminal managed-tool evidence still closes the invocation instead of being
 suppressed by the earlier canonical event.
 
+Surfaces should render `authoritySnapshot` and `progressEvents` as structured
+evidence when present. `authoritySnapshot` is the cross-surface source of truth
+for the admitted child authority, including explicit `writeAllowed` and
+`networkAllowed` booleans. `progressEvents` is the cross-surface source of truth
+for child tool activity observed before or after terminal join. A surface may
+summarize or paginate these fields for usability, but it must preserve the
+underlying runtime metadata for replay and operator inspection.
+
 The shared cockpit projection carries active and terminal children, attention
 state, stale heartbeat state, lifecycle timeline, route identity, dirty-worktree
 review markers, cancellation availability, join replay state, adoption-gate
@@ -643,9 +866,10 @@ Managed invocation resources are read-only pointers under
 handoff, diagnostic, lease, conflict, adoption, and governed worktree-review
 resources without becoming transcript storage. Transcript and large content
 payloads are owned by the artifact resource store and read through
-`resource_read`. GUI, TUI, and CLI executable sessions normalize managed
-invocation options to one runtime-owned invocation service before attaching the
-managed invocation resource provider; surfaces do not maintain private resource
+`resource_read`. GUI, TUI, CLI run, and benchmark executable sessions normalize
+managed invocation options to one runtime-owned invocation service before
+creating their managed invocation attachment and attaching the managed
+invocation resource provider; surfaces do not maintain private resource
 registries for child lifecycle state.
 
 Adapter-native `kiln://managed-invocations/...` pointers are private adapter
@@ -734,7 +958,7 @@ live proof uses
 `KILN_LIVE_OPENAI_DIRECT_MODEL` when set and otherwise defaults to
 `gpt-4o-mini`; Codex OAuth subscription direct live proof uses
 `KILN_LIVE_CODEX_OAUTH_DIRECT_MODEL` when set and otherwise defaults to
-`gpt-5.5`. Live tests must use isolated fixture workspaces, bounded tracked
+`gpt-5.6-terra`. Live tests must use isolated fixture workspaces, bounded tracked
 paths, read-only denial cases, approved-write positive cases, cleanup, and
 replay assertions.
 
@@ -755,7 +979,7 @@ request source when known. `providerRoute.model` is the effective child model
 after configured route defaults and runtime execution-profile resolution, not
 only a model override supplied by the parent assistant. Operator surfaces must
 render that identity as structured evidence, for example
-`foundation-readonly-plan via codex-oauth/gpt-5.4-mini`, rather than only
+`foundation-readonly-plan via codex-oauth/gpt-5.6-luna`, rather than only
 showing the tool name.
 
 Terminal events additionally carry managed invocation evidence: child lineage,
@@ -775,6 +999,12 @@ runtime-owned side effect, such as a lease acquisition that must be cleaned up,
 same canonical path instead of leaving the failure as an unpersisted thrown
 startup error.
 
+`managed_agent.orchestrate` uses the same observer boundary for every child.
+Admission publishes requested/started or denied events immediately, and terminal
+finalization publishes the completed, failed, or cancelled event before the
+orchestration result returns. Orchestration therefore cannot bypass canonical
+parent-session replay merely because it starts and joins children internally.
+
 When a managed invocation is used to satisfy a governed work item, the parent
 work item records the child handoff through `work_item.execution.start` by
 storing the `managedInvocationId` on the execution attempt. The same attempt is
@@ -782,14 +1012,13 @@ projected through `work_item_execution_started` and
 `work_item_execution_finished` events and through
 `kiln://session/work-items`, so replay and operator surfaces can connect child
 evidence to the parent work item without parsing prose. A started attempt is
-still open work: until `work_item.execution.finish` or `work_item.complete`
-records terminal evidence, the parent turn is projected as failed/blocked
-rather than completed.
+still open work: until `work_item.execution.finish` records terminal evidence,
+the parent turn is projected as failed/blocked rather than completed.
 Similarly, a successful read-only `managed_agent.invoke` scout does not close
 the parent work item by itself. Execute-mode parent turns receive runtime
 closeout guidance that requires them to continue on the same work item after the
-child handoff, either by starting/finishing/completing the item or by recording a
-concrete pause requirement.
+child handoff, either by starting/finishing the goal-owned item or by recording
+a concrete pause requirement.
 If the managed child fails before the work-item attempt can start, or the
 managed invocation request cannot be hydrated to a configured route/provider,
 the runtime returns the work item to an explicit paused result. The result
@@ -799,17 +1028,21 @@ invocation metadata so downstream surfaces can show that the child was
 attempted and no parent attempt was started. The parent session turn is also
 recorded with failed outcome, which prevents GUI, TUI, CLI, and replay surfaces
 from treating a delegation timeout or route failure as a completed assistant
-turn. Intermediate evidence phases are not auto-started by
-`work_item.execution.start`; the pause envelope keeps the hydrated
-`managed_agent.invoke` request visible so the parent explicitly starts the child
-and owns any timeout or local recovery decision. This expected pause is a
-successful actionable handoff, not a tool error; true route, provider, child, or
-recovery failures still return failed metadata. Before exposing the paused
-request, attached runtime surfaces verify that the selected route can provide
-the phase `requiredToolNames`. If the requested phase route lacks required
-tools and exactly one compatible read-only route exists, the request is repaired
-with structured `managedInvocationRouteRepair` metadata; otherwise the runtime
-fails closed rather than handing the parent an impossible child request. If a
+turn. Intermediate evidence phases are runtime-started by
+`work_item.execution.start`. The runtime resolves route identity, provider,
+model, authority, required tools, context, and child profile before invoking the
+adapter. A successful child returns one parent-facing envelope with
+`operation=managed_intermediate_phase_completed`, the canonical
+`managedInvocationId`, the bounded child handoff, and
+`nextTool=work_item.update`. The parent owns interpretation and evidence
+recording, but it does not own child creation or lifecycle sequencing. True
+route, provider, child, or recovery failures still return failed metadata.
+Before starting the child, attached runtime surfaces verify that the selected
+route can provide the phase `requiredToolNames`. If the requested phase route
+lacks required tools and one uniquely compatible route exists, including a
+unique winner from configured task suitability, the request is repaired with
+structured `managedInvocationRouteRepair` metadata; otherwise the runtime fails
+closed rather than starting an impossible child. If a
 managed child failure later returns recovery guidance, the envelope includes a complete
 `workItemUpdateInputTemplate`, including the required work item summary,
 evidence-to-record, and phase-specific verification gate placeholders. Parent
@@ -821,6 +1054,12 @@ The same fail-closed rule applies to successful intermediate children. A
 records every required evidence label on the same work item. Printing the
 template, `providedEvidence`, or `verificationGateResults` as assistant text is
 not a tool call and must not be treated as phase completion.
+
+Agent catalog projection is also semantic admission. An agent with an explicit
+`routeId` is omitted when the route is unavailable, its declared provider or
+model contradicts the route, or its declared tools are not admitted by any
+profile on that route. `kiln status` exposes these as managed agent profile
+issues instead of silently rewriting the profile to match the route.
 
 Assistant egress text must not expose provider-internal tool-call markup. If a
 direct provider returns raw assistant tool syntax such as `<assistant to=...>`
@@ -868,6 +1107,21 @@ parent model to repeat them in the tool call. This is still admission, not
 ambient context: only configured skills can be loaded, explicitly requested
 missing skills fail closed, and the invocation context records admitted skills.
 
+Managed invocation also accepts an explicit `workClassification` with
+cross-domain intent, artifact, domain, effect, and interaction-mode facets.
+This classification is diagnostic and advisory: it can contribute configured
+skill recommendations, but it cannot select a route, grant a tool, widen
+filesystem or network authority, or bypass profile admission. Unknown explicit
+facet values fail closed before the context resolver or child adapter runs.
+The canonical invocation context preserves the requested classification, the
+resolved classification, work-recommended skill ids, and per-skill diagnostic
+state so every operator surface can explain the admission decision without
+reclassifying prompt text. A diagnostic state of `admitted` means the skill was
+loaded as governed context; `advisory` means the recommendation was recorded
+without loading because auto selection is disabled; `unavailable` means the
+skill is absent from the governed registry and must not be silently imported
+from native harness-local directories.
+
 Replay must reconstruct terminal state, authority, result handoff, and write
 evidence after session serialization. Transcript and result handoff URIs emitted
 by managed invocation records must be readable through the shared `resource_read`
@@ -876,6 +1130,26 @@ announce resource links that the active resource plane cannot resolve.
 Artifact-linked diff evidence must survive reload through resource URIs. Raw
 provider diffs, full transcripts, and provider-native event payloads are not
 session-event state.
+
+## Coordination Efficiency Evidence
+
+Every Runtime-managed terminal record carries
+`managed-agent-coordination-usage-v1`. It reports parent prompt, child
+bootstrap, duplicated reads, handoff, review, and synthesis as separate stages.
+Each stage records token, cost, latency, and turn values with
+`provider_reported`, `estimated`, or `unknown` quality and resource evidence
+URIs. Unknown values remain unknown and the report declares whether components
+may overlap; it never stores raw prompt or credential content.
+
+Known coordination tokens can be projected into the lifecycle attribution
+ledger with source `coordination` and the managed worker id. The ledger's
+provider-total reconciliation remains authoritative and rejects overflow, so
+partial estimates cannot silently double-count billed usage.
+
+Fan-out orchestration result evidence retains child invocation and route
+identity, provider/model, authority profile, context mode, replay URIs, and the
+coordination report. Partial, failed, or recovered children therefore keep the
+evidence needed for deterministic operator review.
 
 ## Result Handoff
 
@@ -897,6 +1171,13 @@ review. Write-capable profiles may complete without text only when canonical
 write evidence provides the substantive handoff. This keeps parent agents,
 operators, replay, and future SDK surfaces from treating an empty child run as
 usable work.
+
+When an invocation declares a structured handoff contract, Runtime appends that
+contract to the child prompt for both direct providers and native harness
+adapters. The child must return one exact `structured-execution-result-v1` JSON
+object containing the required summary, evidence, checks, verification results,
+and residual risks. Runtime parses and validates that object against the
+contract; it does not synthesize missing success evidence from prose.
 
 ## Verification
 

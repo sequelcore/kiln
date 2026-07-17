@@ -149,6 +149,65 @@ function startManaged(
 }
 
 describe("ManagedDirectProviderRuntimeAdapter", () => {
+  it("projects the managed handoff contract into the child prompt and accepts its structured result", async () => {
+    const structuredResult = {
+      version: "structured-execution-result-v1",
+      status: "completed",
+      summary: "README heading verified.",
+      limitations: [],
+      operatorDecisions: [],
+      evidence: [{ uri: "kiln://managed-invocations/inv-direct-1/readme", kind: "artifact" }],
+      citations: [],
+      warnings: [],
+      failures: [],
+      approvalRequirements: [],
+      residualRisks: ["Only the requested heading was verified."],
+      verificationResults: [{
+        requirementId: "readme-heading",
+        method: "deterministic",
+        status: "passed",
+        summary: "The heading was read from README.md.",
+        evidenceUris: ["kiln://managed-invocations/inv-direct-1/readme"],
+      }],
+    } as const;
+    const provider = providerWithResponses([response(JSON.stringify(structuredResult))]);
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", vi.fn(async () => "# Kiln")]]),
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
+      input: {
+        summary: "Verify the README heading.",
+        prompt: "Read README.md and report its first heading.",
+        handoff: {
+          roleIntent: "verifier",
+          expectedEvidence: ["result-handoff"],
+          requiredResultFields: ["summary", "evidence", "checks"],
+          doneCriteria: ["Return the verified heading."],
+          residualRiskRequired: true,
+        },
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("expected completed");
+    expect(result.record.resultHandoff?.structuredResult).toMatchObject({
+      version: "structured-execution-result-v1",
+      status: "completed",
+      summary: "README heading verified.",
+      residualRisks: ["Only the requested heading was verified."],
+      verificationResults: [expect.objectContaining({ requirementId: "readme-heading", status: "passed" })],
+    });
+    const firstProviderCall = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(JSON.stringify(firstProviderCall)).toContain("Managed Result Handoff Contract");
+    expect(JSON.stringify(firstProviderCall)).toContain("structured-execution-result-v1");
+    expect(JSON.stringify(firstProviderCall)).toContain("residualRisks");
+  });
+
   it("runs a child RuntimeSessionOrchestrator and returns the shared managed invocation record shape", async () => {
     const provider = providerWithResponses([
       response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),
@@ -213,6 +272,40 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 1");
     expect(result.record.replayResources?.[0]?.text).toContain("## Tool 1: read");
     expect(result.record.replayResources?.[0]?.text).toContain("doc contents");
+  });
+
+  it("reports child runtime tool events through managed invocation progress", async () => {
+    const provider = providerWithResponses([
+      response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),
+      response("Direct child completed."),
+    ]);
+    const readTool = vi.fn(async () => "doc contents");
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", readTool]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await invokeManaged(service, request(), adapter);
+    const snapshot = service.status("inv-direct-1");
+
+    expect(result.status).toBe("completed");
+    expect(snapshot?.progressEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "tool_called",
+        summary: "read called",
+        toolName: "read",
+      }),
+      expect.objectContaining({
+        kind: "tool_result",
+        summary: "read succeeded",
+        toolName: "read",
+        success: true,
+      }),
+    ]));
   });
 
   it("admits explicit read-only reference roots into the direct child sandbox", async () => {
@@ -369,7 +462,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       provider,
       tools: [READ_TOOL],
       builtinTools: new Map([["read", readTool]]),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request(), adapter);
@@ -378,11 +471,11 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     if (result.status !== "completed") {
       throw new Error("expected completed");
     }
-    expect(result.record.lifecycleState).toBe("completed");
+    expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.resultHandoff?.summary).toContain("finished without final handoff text");
     expect(result.record.resultHandoff?.summary).toContain("Tool round budget exhausted after 1 tool round.");
     expect(result.record.diagnostics).toBeUndefined();
-    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: tool_rounds_exhausted");
+    expect(result.record.replayResources?.[0]?.text).toContain("Stop reason: tool_round_budget_exhausted");
     expect(result.record.replayResources?.[0]?.text).toContain("Tool executions: 1");
     expect(readTool).toHaveBeenCalledTimes(1);
   });
@@ -814,6 +907,13 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       "kiln://managed-agents/invocations/inv-direct-1/transcript",
       "kiln://managed-agents/invocations/inv-direct-1/resources/timeout",
     ]);
+    expect(result.record.replayResources).toEqual([expect.objectContaining({
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/timeout",
+      title: "Managed invocation timeout evidence",
+      mimeType: "text/markdown",
+    })]);
+    expect(result.record.replayResources?.[0]?.text).toContain("Progress events: 0");
+    expect(result.record.replayResources?.[0]?.text).toContain("No child runtime progress events were observed before timeout.");
     expect(result.record.resultHandoff?.summary).toContain("timed out after 1ms");
     expect(result.record.resultHandoff?.summary).toContain(result.record.childSessionId);
     expect(result.record.resultHandoff?.summary).toContain("No completed child handoff was produced before timeout");
@@ -821,6 +921,46 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(observedSignal).toBeDefined();
     expect(observedSignal?.aborted).toBe(true);
     expect(abortObserved).toBe(true);
+  });
+
+  it("preserves partial child progress evidence when a direct child times out mid-tool", async () => {
+    const provider = providerWithResponses([
+      response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),
+    ]);
+    const readTool = vi.fn(async () => new Promise<string>(() => undefined));
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", readTool]]),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const result = await invokeManaged(service, request({
+      authority: {
+        ...request().authority,
+        timeoutMs: 25,
+      },
+    }), adapter);
+    const snapshot = service.status("inv-direct-1");
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("timed_out");
+    expect(snapshot?.progressEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "tool_called",
+        summary: "read called",
+        toolName: "read",
+      }),
+    ]));
+    expect(result.record.replayResources?.[0]?.text).toContain("Progress events:");
+    expect(result.record.replayResources?.[0]?.text).toContain("## Progress");
+    expect(result.record.replayResources?.[0]?.text).toContain("Summary: read called");
+    expect(result.record.replayResources?.[0]?.text).not.toContain("No child runtime progress events were observed before timeout.");
   });
 
   it("records external cancellation as a cancelled direct-provider invocation with evidence", async () => {

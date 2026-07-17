@@ -94,6 +94,58 @@ describe("projectEffectiveTurnAuthorityPerCallConfig", () => {
     ]));
   });
 
+  it("admits attended operator destructive authority without managed-work envelopes", () => {
+    const config = projectEffectiveTurnAuthorityPerCallConfig({
+      config: toolConfig(),
+      executionMode: "execute",
+      requestedAuthority: "destructive",
+      reason: "test attended operator admission",
+      authorityContext: {
+        executionUse: "operator_interactive",
+        sessionPolicy: {
+          maximumAuthority: "destructive",
+          reason: "The operator explicitly selected Full Access for this session.",
+        },
+        tenantPolicy: {
+          subjectId: "tenant-1",
+          maximumAuthority: "destructive",
+          reason: "Tenant policy permits attended local mutation.",
+        },
+        routePolicy: {
+          subjectId: "gui-runtime",
+          maximumAuthority: "destructive",
+          reason: "The GUI runtime enforces the selected turn authority.",
+        },
+      },
+    });
+
+    expect(Array.from(config?.toolAllowlist ?? [])).toEqual(["read_file", "write_file", "shell_command"]);
+    expect(config?.effectiveTurnAuthority).toMatchObject({
+      requestedAuthority: "destructive",
+      admittedAuthority: "destructive",
+      completeness: "authoritative",
+      toolCount: 3,
+      deniedToolCount: 0,
+    });
+  });
+
+  it("fails closed when attended operator authority lacks runtime policy bounds", () => {
+    const config = projectEffectiveTurnAuthorityPerCallConfig({
+      config: toolConfig(),
+      executionMode: "execute",
+      requestedAuthority: "destructive",
+      reason: "test incomplete attended operator admission",
+      authorityContext: { executionUse: "operator_interactive" },
+    });
+
+    expect(config?.toolAllowlist?.size).toBe(0);
+    expect(config?.effectiveTurnAuthority).toMatchObject({
+      requestedAuthority: "destructive",
+      admittedAuthority: "fail_closed",
+      completeness: "authoritative",
+    });
+  });
+
   it("admits destructive operator authority only when policy and governed envelopes allow it", () => {
     const config = projectEffectiveTurnAuthorityPerCallConfig({
       config: toolConfig(),

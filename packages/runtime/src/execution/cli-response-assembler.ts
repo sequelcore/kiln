@@ -1,41 +1,5 @@
-import type { ExecutionBillingMode } from "@kilnai/core";
-import type { AgentResponse } from "@kilnai/core";
+import type { AgentResponse, ExecutionSessionEvent } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
-
-type CliResponseAssemblerEvent =
-  | { type: "text_delta"; content: string; isThinking?: boolean }
-  | { type: "tool_use"; toolName: string; input: unknown }
-  | { type: "tool_result"; toolName: string; output: string; outputSummary?: string }
-  | {
-      type: "file_changed";
-      path: string;
-      changeType: "created" | "modified" | "deleted";
-      linesAdded?: number;
-      linesRemoved?: number;
-      diffPreview?: string;
-      diffTruncated?: boolean;
-    }
-  | {
-      type: "write_decision";
-      status: "approved" | "denied";
-      providerRequestId?: string;
-      actor?: string;
-      reason: string;
-      resourceUris?: readonly string[];
-    }
-  | {
-      type: "cost_update";
-      usd: number;
-      provider?: string;
-      model?: string;
-      canonicalModel?: string;
-      billingMode?: ExecutionBillingMode;
-      inputTokens?: number;
-      outputTokens?: number;
-      cacheReadTokens?: number;
-    }
-  | { type: "completed"; totalUsd: number; durationMs: number; isError: boolean; isPreflightCrash: boolean }
-  | { type: "error"; code: string; message: string; isRetryable: boolean };
 
 export class CliResponseAssembler {
   private content = "";
@@ -44,7 +8,7 @@ export class CliResponseAssembler {
   private cacheReadTokens = 0;
   private isError = false;
 
-  consume(event: CliResponseAssemblerEvent): void {
+  consume(event: ExecutionSessionEvent): void {
     if (event.type === "text_delta" && !event.isThinking) {
       this.content += event.content;
     } else if (event.type === "cost_update") {

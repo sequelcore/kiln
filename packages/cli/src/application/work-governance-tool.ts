@@ -2,6 +2,7 @@ import type {
   ActionEffectEnvelope,
   DevTool,
   ManagedAgentResultHandoff,
+  ModelTaskSuitabilityTask,
   ToolInput,
   ToolResult,
   WorkItem,
@@ -10,14 +11,21 @@ import type {
   WorkItemPauseRequirementKind,
   WorkItemPauseRequirementStatus,
   WorkItemStatus,
+  WorkClassificationInput,
+  WorkClassificationProvenanceInput,
   VerificationGateResult,
+  StructuredExecutionResult,
+  VerificationUsageReport,
 } from "@kilnai/core";
 import {
   containsFrontendReferenceEvidence,
+  defineStructuredExecutionResult,
+  defineVerificationUsageReport,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   goalToolMetadata,
   GoalRunStore,
+  isCanonicalArtifactContentUri,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
@@ -111,6 +119,7 @@ const WORK_ITEM_PAUSE_REQUIREMENT_KINDS: readonly WorkItemPauseRequirementKind[]
   "credentials",
   "approval",
   "authority_elevation",
+  "capability",
 ];
 const WORK_ITEM_PAUSE_REQUIREMENT_STATUSES: readonly WorkItemPauseRequirementStatus[] = ["pending", "resolved"];
 const MANAGED_INVOCATION_PROFILES = [
@@ -152,6 +161,7 @@ interface ManagedInvocationPhase {
   readonly id: ManagedInvocationPhaseId;
   readonly expectedEvidence: readonly KilnWorkGovernanceEvidence[];
   readonly requiredToolNames: readonly string[];
+  readonly taskAffinity: readonly ModelTaskSuitabilityTask[];
   readonly remainingEvidenceAfterPhase: readonly KilnWorkGovernanceEvidence[];
   readonly finalPhase: boolean;
   readonly completionTool: "work_item.update" | "work_item.execution.finish";
@@ -328,7 +338,11 @@ export class WorkItemUpdateTool implements DevTool {
   readonly inputSchema = {
     type: "object",
     properties: {
-      id: { type: "string", description: "Optional stable work item id. Omit to create a new id." },
+      id: {
+        type: "string",
+        minLength: 1,
+        description: "Stable caller-owned work item id.",
+      },
       summary: { type: "string", minLength: 1, description: "Bounded work item summary." },
       status: {
         type: "string",
@@ -389,6 +403,28 @@ export class WorkItemUpdateTool implements DevTool {
         description: "Optional work item ids that must complete first.",
       },
       residualRisk: { type: "string", description: "Known residual risk, if already available." },
+      workClassification: {
+        type: "object",
+        properties: {
+          intents: { type: "array", items: { type: "string" } },
+          artifacts: { type: "array", items: { type: "string" } },
+          domains: { type: "array", items: { type: "string" } },
+          effects: { type: "array", items: { type: "string" } },
+          modes: { type: "array", items: { type: "string" } },
+        },
+        additionalProperties: false,
+        description: "Optional explicit cross-domain work classification. Unknown facet values fail closed in core.",
+      },
+      workClassificationProvenance: {
+        type: "object",
+        properties: {
+          sourceKind: { type: "string", enum: ["plan-work-item"] },
+          sourceId: { type: "string", minLength: 1 },
+        },
+        required: ["sourceKind", "sourceId"],
+        additionalProperties: false,
+        description: "Required with workClassification. For manual work_item.update, sourceId must match the work item id.",
+      },
       pauseRequirements: {
         type: "array",
         items: {
@@ -408,7 +444,7 @@ export class WorkItemUpdateTool implements DevTool {
         description: "Optional unresolved or resolved requirements that must be cleared before execution can start.",
       },
     },
-    required: ["summary"],
+    required: ["id", "summary"],
     additionalProperties: false,
   };
 
@@ -421,6 +457,18 @@ export class WorkItemUpdateTool implements DevTool {
     const summary = readText(input.input.summary);
     if (!summary) {
       return { output: 'Invalid input: "summary" must be a non-empty string', isError: true };
+    }
+    const id = readText(input.input.id);
+    if (!id) {
+      return {
+        output: 'Invalid input: "id" must be a non-empty stable work item id.',
+        metadata: workItemToolMetadata("work_item.update", {
+          operation: "update",
+          status: "blocked",
+          errorCode: "invalid_input",
+        }),
+        isError: true,
+      };
     }
     if (input.input.status === "in_progress") {
       return {
@@ -451,7 +499,6 @@ export class WorkItemUpdateTool implements DevTool {
       ...verificationGatesForWorkflowProfile(workflowProfile),
       ...readTextArray(input.input.verificationGates),
     ]);
-    const id = readText(input.input.id);
     const existing = id ? this.store.get(id) : undefined;
     const routeId = readText(input.input.routeId);
     const authorityProfile = readText(input.input.authorityProfile) ?? workflowProfile.defaultAuthorityProfile;
@@ -506,28 +553,46 @@ export class WorkItemUpdateTool implements DevTool {
     if (!pauseRequirements.ok) {
       return { output: `Invalid input: ${pauseRequirements.message}`, isError: true };
     }
-
-    const item = this.store.upsert({
-      id,
-      summary,
-      status: readStatus(input.input.status),
-      workflowProfile: workflowProfile.id,
-      risk,
-      triggers,
-      surface: readText(input.input.surface),
-      assignedAgentProfile: readText(input.input.assignedAgentProfile),
-      routeId,
-      phaseRoutes,
-      referenceRoots,
-      authorityProfile,
-      expectedEvidence,
-      providedEvidence,
-      verificationGates,
-      verificationGateResults,
-      dependencies: readTextArray(input.input.dependencies),
-      residualRisk: readText(input.input.residualRisk),
-      pauseRequirements: pauseRequirements.requirements,
-    });
+    let item: WorkItem;
+    try {
+      const workClassification = readWorkClassificationInput(input.input.workClassification);
+      const workClassificationProvenance = readWorkClassificationProvenanceInput(
+        input.input.workClassificationProvenance,
+      );
+      item = this.store.upsert({
+        id,
+        summary,
+        status: readStatus(input.input.status),
+        workflowProfile: workflowProfile.id,
+        risk,
+        triggers,
+        surface: readText(input.input.surface),
+        assignedAgentProfile: readText(input.input.assignedAgentProfile),
+        routeId,
+        phaseRoutes,
+        referenceRoots,
+        authorityProfile,
+        expectedEvidence,
+        providedEvidence,
+        verificationGates,
+        verificationGateResults,
+        dependencies: readTextArray(input.input.dependencies),
+        residualRisk: readText(input.input.residualRisk),
+        pauseRequirements: pauseRequirements.requirements,
+        ...(workClassification ? { workClassification } : {}),
+        ...(workClassificationProvenance ? { workClassificationProvenance } : {}),
+      });
+    } catch (error) {
+      return {
+        output: `Invalid input: ${error instanceof Error ? error.message : String(error)}`,
+        metadata: workItemToolMetadata("work_item.update", {
+          operation: "update",
+          status: "blocked",
+          errorCode: "invalid_input",
+        }),
+        isError: true,
+      };
+    }
 
     const nextExecution = nextGovernedExecutionStep(item);
 
@@ -697,6 +762,31 @@ export class WorkItemCompleteTool implements DevTool {
     if (!id) {
       return { output: 'Invalid input: "id" must be a non-empty string', isError: true };
     }
+    const existing = this.store.get(id);
+    if (!existing) {
+      return { output: `Work item not found: ${id}`, isError: true };
+    }
+    if (existing.goalRunId) {
+      return {
+        output: JSON.stringify({
+          error: {
+            code: "goal_bound_work_item",
+            message: `Work item ${id} belongs to goal ${existing.goalRunId} and must close through its execution lifecycle.`,
+            recoverable: true,
+            suggestedNextTool: "work_item.execution.finish",
+          },
+        }, null, 2),
+        metadata: workItemToolMetadata("work_item.complete", {
+          operation: "complete",
+          id,
+          status: existing.status,
+          item: existing,
+          suggestedNextTool: "work_item.execution.finish",
+          errorCode: "invalid_input",
+        }),
+        isError: true,
+      };
+    }
 
     const providedEvidence = readEvidence(input.input.providedEvidence);
     const verificationGateResults = readVerificationGateResults(input.input.verificationGateResults);
@@ -718,9 +808,7 @@ export class WorkItemCompleteTool implements DevTool {
       verificationGateResults,
       residualRisk: readText(input.input.residualRisk),
     });
-    if (!completion) {
-      return { output: `Work item not found: ${id}`, isError: true };
-    }
+    if (!completion) throw new Error(`Work item ${id} disappeared during completion.`);
 
     const missing = [
       ...completion.missingEvidence,
@@ -766,6 +854,18 @@ export class WorkItemCompleteTool implements DevTool {
         failedVerificationGates: completion.failedVerificationGates,
         missingResidualRisk: completion.missingResidualRisk,
         sequence: completion.item.sequence,
+        ...(completion.item.goalRunId
+          ? {
+            executionScopeTransition: {
+              action: "exit" as const,
+              scope: {
+                kind: "work_item" as const,
+                goalRunId: completion.item.goalRunId,
+                workItemId: completion.item.id,
+              },
+            },
+          }
+          : {}),
       }),
       isError: false,
     };
@@ -791,8 +891,11 @@ export class GoalCreateTool implements DevTool {
         type: "string",
         description: "Owning session id. Omit only when the runtime supplied the current session id.",
       },
-      planId: { type: "string", minLength: 1, description: "Approved plan id that owns this goal." },
-      planHash: { type: "string", description: "Optional approved plan content hash." },
+      operatorTurnId: {
+        type: "string",
+        minLength: 1,
+        description: "Operator turn that directly requested this goal. The runtime supplies it from canonical turn context.",
+      },
       workItemIds: {
         type: "array",
         minItems: 1,
@@ -835,7 +938,6 @@ export class GoalCreateTool implements DevTool {
     },
     required: [
       "objective",
-      "planId",
       "workItemIds",
       "maximumAuthority",
       "escalationPolicy",
@@ -853,7 +955,7 @@ export class GoalCreateTool implements DevTool {
 
   async execute(input: ToolInput): Promise<ToolResult> {
     const objective = readText(input.input.objective);
-    const planId = readText(input.input.planId);
+    const operatorTurnId = readText(input.input.operatorTurnId);
     const workItemIds = readTextArray(input.input.workItemIds);
     const maximumAuthority = readGoalAuthorityLevel(input.input.maximumAuthority);
     const escalationPolicy = readGoalEscalationPolicy(input.input.escalationPolicy);
@@ -864,7 +966,7 @@ export class GoalCreateTool implements DevTool {
     const missingFields = [
       ...(!objective ? ["objective"] : []),
       ...(!ownerSessionId ? ["ownerSessionId"] : []),
-      ...(!planId ? ["planId"] : []),
+      ...(!operatorTurnId ? ["operatorTurnId"] : []),
       ...(workItemIds.length === 0 ? ["workItemIds"] : []),
       ...(!maximumAuthority ? ["maximumAuthority"] : []),
       ...(!escalationPolicy ? ["escalationPolicy"] : []),
@@ -874,13 +976,12 @@ export class GoalCreateTool implements DevTool {
     if (missingFields.length > 0) {
       return goalCreateContractError({
         code: "invalid_input",
-        message: "goal.create requires objective, ownerSessionId, planId, at least one workItemId, authority envelope, and workflowProfile.",
+        message: "goal.create requires objective, canonical operator-turn provenance, ownerSessionId, at least one workItemId, authority envelope, and workflowProfile.",
         missingFields,
       });
     }
 
     const goalObjective = objective!;
-    const goalPlanId = planId!;
     const goalMaximumAuthority = maximumAuthority!;
     const goalEscalationPolicy = escalationPolicy!;
     const goalAuthorityReason = authorityReason!;
@@ -924,8 +1025,27 @@ export class GoalCreateTool implements DevTool {
       };
     }
 
+    const requestedWorkItems = workItemIds.map((id) => this.workItemStore.get(id)!);
+    const ownedWorkItem = requestedWorkItems.find((item) => item.goalRunId);
+    if (ownedWorkItem?.goalRunId) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: `Work item ${ownedWorkItem.id} already belongs to goal ${ownedWorkItem.goalRunId}.`,
+        missingFields: ["workItemIds"],
+      });
+    }
+    const terminalWorkItem = requestedWorkItems.find(
+      (item) => item.status === "completed" || item.status === "cancelled",
+    );
+    if (terminalWorkItem) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: `Cannot create an active goal from terminal work item ${terminalWorkItem.id}.`,
+        missingFields: ["workItemIds"],
+      });
+    }
+
     try {
-      const planHash = readText(input.input.planHash);
       const preferredRouteId = readText(input.input.preferredRouteId);
       const managedAgentProfile = readText(input.input.managedAgentProfile);
       const routePolicy = normalizeGoalRoutePolicy({
@@ -945,8 +1065,10 @@ export class GoalCreateTool implements DevTool {
         id: readText(input.input.id),
         objective: goalObjective,
         ownerSessionId: ownerSessionId!,
-        planId: goalPlanId,
-        ...(planHash ? { planHash } : {}),
+        source: {
+          kind: "operator_direct",
+          turnId: operatorTurnId!,
+        },
         workItemIds,
         authorityEnvelope: {
           maximumAuthority: goalMaximumAuthority,
@@ -1018,6 +1140,11 @@ export class WorkItemExecutionStartTool implements DevTool {
         type: "string",
         description: "Optional reasoning effort to include in the suggested managed_agent.invoke request.",
       },
+      managedResourceUris: {
+        type: "array",
+        items: { type: "string", minLength: 1 },
+        description: "Canonical artifact content URIs to share with the managed child. Omit for fresh isolated context.",
+      },
       managedProfile: {
         type: "string",
         enum: MANAGED_INVOCATION_PROFILES,
@@ -1074,7 +1201,7 @@ export class WorkItemExecutionStartTool implements DevTool {
             requiredInputShape: {
               objective: "string",
               ownerSessionId: "current runtime session id",
-              planId: "approved plan id",
+              operatorTurnId: "current operator turn id",
               workItemIds: ["existing work item id"],
               maximumAuthority: GOAL_AUTHORITY_LEVELS,
               escalationPolicy: GOAL_ESCALATION_POLICIES,
@@ -1128,6 +1255,13 @@ export class WorkItemExecutionStartTool implements DevTool {
     }
     const managedInvocationId = readText(input.input.managedInvocationId);
     if (step.executionMode === "managed_delegation" && !managedInvocationId) {
+      const managedResourceUris = readTextArray(input.input.managedResourceUris) ?? [];
+      if (managedResourceUris.some((uri) => !isCanonicalArtifactContentUri(uri))) {
+        return {
+          output: "managedResourceUris must contain only canonical kiln://artifacts/<namespace>/<id>/content URIs.",
+          isError: true,
+        };
+      }
       const managedInvocation = buildManagedInvocationRequest(goal, step, input.input);
       return {
         output: JSON.stringify({
@@ -1143,6 +1277,21 @@ export class WorkItemExecutionStartTool implements DevTool {
             ? { missingManagedInvocationFields: managedInvocation.missingFields }
             : {}),
         }, null, 2),
+        metadata: workItemToolMetadata("work_item.execution.start", {
+          operation: "execution_started",
+          id: step.workItemId,
+          status: step.workItem.status,
+          item: step.workItem,
+          sequence: step.workItem.sequence,
+          executionScopeTransition: {
+            action: "enter",
+            scope: {
+              kind: "work_item",
+              goalRunId: goal.id,
+              workItemId: step.workItemId,
+            },
+          },
+        }),
         isError: true,
       };
     }
@@ -1168,9 +1317,22 @@ export class WorkItemExecutionStartTool implements DevTool {
           operation: "execution_started",
           id: started.item.id,
           status: started.item.status,
+          goal: started.goal,
           item: started.item,
           attempt: started.attempt,
           sequence: started.item.sequence,
+          executionScopeTransition: {
+            action: "enter",
+            scope: {
+              kind: "work_item",
+              goalRunId: started.goal.id,
+              workItemId: started.item.id,
+              attemptId: started.attempt.id,
+              ...(started.attempt.managedInvocationId
+                ? { managedInvocationId: started.attempt.managedInvocationId }
+                : {}),
+            },
+          },
         }),
         isError: false,
       };
@@ -1220,6 +1382,14 @@ export class WorkItemExecutionFinishTool implements DevTool {
           memoryWriteProposalUris: {
             type: "array",
             items: { type: "string", minLength: 1 },
+          },
+          structuredResult: {
+            type: "object",
+            description: "Canonical structured execution result. Core validation rejects malformed control state.",
+          },
+          verificationUsage: {
+            type: "object",
+            description: "Independent verifier token, cost, latency, and evidence attribution.",
           },
         },
         required: ["summary", "resourceUris"],
@@ -1312,6 +1482,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
           operation: "execution_finished",
           id: finished.item.id,
           status: finished.item.status,
+          goal: finished.goal,
           item: finished.item,
           attempt: finished.attempt,
           missingEvidence: finished.missingEvidence,
@@ -1320,6 +1491,22 @@ export class WorkItemExecutionFinishTool implements DevTool {
           failedVerificationGates: finished.failedVerificationGates,
           missingResidualRisk: finished.missingResidualRisk,
           sequence: finished.item.sequence,
+          ...(missing.length === 0
+            ? {
+              executionScopeTransition: {
+                action: "exit" as const,
+                scope: {
+                  kind: "work_item" as const,
+                  goalRunId: finished.goal.id,
+                  workItemId: finished.item.id,
+                  attemptId: finished.attempt.id,
+                  ...(finished.attempt.managedInvocationId
+                    ? { managedInvocationId: finished.attempt.managedInvocationId }
+                    : {}),
+                },
+              },
+            }
+            : {}),
           ...(missing.length > 0 ? { errorCode: "missing_evidence" } : {}),
         }),
         isError: missing.length > 0,
@@ -1410,6 +1597,7 @@ export class WorkItemExecutionFailTool implements DevTool {
           operation: "execution_finished",
           id: failed.item.id,
           status: failed.item.status,
+          goal: failed.goal,
           item: failed.item,
           attempt: failed.attempt,
           missingEvidence: failed.missingEvidence,
@@ -1443,7 +1631,7 @@ function goalCreateContractError(input: {
         requiredInputShape: {
           objective: "string",
           ownerSessionId: "current runtime session id",
-          planId: "approved plan id",
+          operatorTurnId: "current operator turn id",
           workItemIds: ["existing work item id"],
           maximumAuthority: GOAL_AUTHORITY_LEVELS,
           escalationPolicy: GOAL_ESCALATION_POLICIES,
@@ -1478,7 +1666,7 @@ function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput 
     verificationGateResults: item.verificationGateResults,
     dependencies: item.dependencies,
     pauseRequirements: item.pauseRequirements,
-    planId: goal.planId,
+    ...(goal.source.kind === "approved_plan" ? { planId: goal.source.planId } : {}),
     goalRunId: goal.id,
     executionAttempts: item.executionAttempts,
     ...(item.risk ? { risk: item.risk } : {}),
@@ -1488,7 +1676,7 @@ function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput 
     ...(item.referenceRoots ? { referenceRoots: item.referenceRoots } : {}),
     ...(item.authorityProfile ? { authorityProfile: item.authorityProfile } : {}),
     ...(item.residualRisk ? { residualRisk: item.residualRisk } : {}),
-    ...(goal.planHash ? { planHash: goal.planHash } : {}),
+    ...(goal.source.kind === "approved_plan" && goal.source.planHash ? { planHash: goal.source.planHash } : {}),
     ...(item.sourceWorkItemId ? { sourceWorkItemId: item.sourceWorkItemId } : {}),
     ...(item.routingRecommendation ? { routingRecommendation: item.routingRecommendation } : {}),
   };
@@ -1561,6 +1749,10 @@ function buildManagedInvocationRequest(
     : readText(input.managedModel);
   const reasoningEffort = readText(input.managedReasoningEffort)
     ?? step.workItem.routingRecommendation?.reasoningEffort;
+  const resourceUris = readTextArray(input.managedResourceUris) ?? [];
+  if (resourceUris.some((uri) => !isCanonicalArtifactContentUri(uri))) {
+    throw new Error("managedResourceUris must contain only canonical kiln://artifacts/<namespace>/<id>/content URIs.");
+  }
   const expectedEvidence = phase.expectedEvidence;
   const residualRiskRequired = expectedEvidence.includes("residual-risk");
   const attemptId = `${goal.id}:${step.workItemId}:attempt:${step.workItem.executionAttempts.length + 1}`;
@@ -1585,15 +1777,19 @@ function buildManagedInvocationRequest(
     requestedAuthority: resolveManagedInvocationAuthority(profile, input, goal),
     task: formatManagedInvocationTask(goal, step, phase),
     summary: step.workItem.summary,
+    contextMode: resourceUris.length > 0 ? "resources" : "isolated",
+    ...(resourceUris.length > 0 ? { resourceUris } : {}),
     goalRunId: goal.id,
     workItemId: step.workItemId,
     attemptId,
+    ...(step.workItem.workClassification ? { workClassification: step.workItem.workClassification } : {}),
     ...(agentProfile ? { agentProfile } : {}),
     roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
     executionPhase: {
       id: phase.id,
       expectedEvidence: phase.expectedEvidence,
       requiredToolNames: phase.requiredToolNames,
+      taskAffinity: phase.taskAffinity,
       remainingEvidenceAfterPhase: phase.remainingEvidenceAfterPhase,
       finalPhase: phase.finalPhase,
       completionTool: phase.completionTool,
@@ -1608,6 +1804,7 @@ function buildManagedInvocationRequest(
     requiredResultFields: managedInvocationResultFields(expectedEvidence),
     doneCriteria: managedInvocationDoneCriteria(step, phase),
     residualRiskRequired,
+    outputVerbosity: "concise",
   };
 
   return {
@@ -1652,6 +1849,7 @@ function resolveManagedInvocationPhase(step: ReadyGoalExecutionStep): ManagedInv
     id: phaseId,
     expectedEvidence: targetEvidence,
     requiredToolNames: requiredToolNamesForPhaseEvidence(targetEvidence),
+    taskAffinity: taskAffinityForPhase(phaseId),
     remainingEvidenceAfterPhase,
     finalPhase,
     completionTool: finalPhase ? "work_item.execution.finish" : "work_item.update",
@@ -1705,6 +1903,18 @@ function phaseIdForEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): Ma
 
 function requiredToolNamesForPhaseEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): readonly string[] {
   return uniqueText([
+    ...(evidence.some((candidate) =>
+      candidate === "surface-map"
+      || candidate === "risk-hypothesis"
+      || candidate === "spec"
+      || candidate === "plan"
+      || candidate === "formal-proof"
+    )
+      ? ["read", "tree", "grep", "glob"]
+      : []),
+    ...(evidence.some((candidate) => candidate === "tests" || candidate === "typecheck")
+      ? ["bash"]
+      : []),
     ...(evidence.includes("visual-reference-research")
       ? ["read", "glob", "grep"]
       : []),
@@ -1745,7 +1955,7 @@ function formatManagedInvocationTask(
     lines.push(`Work item verification gates for final closeout: ${step.workItem.verificationGates.join("; ")}.`);
   }
   lines.push(phase.completionInstruction);
-  lines.push("Return a concise handoff with summary, evidence, checks, and residual risk when required. Do not include scratch notes, private planning text, or tool-output housekeeping in the user-facing handoff.");
+  lines.push("Return exactly one structured-execution-result-v1 JSON object with status, summary, limitations, operatorDecisions, evidence, citations, warnings, failures, approvalRequirements, residualRisks, and verificationResults. Include uncertainty when requested. Do not infer verification success from prose or include scratch notes, private planning text, or tool-output housekeeping.");
   return lines.join("\n");
 }
 
@@ -2014,10 +2224,7 @@ function requireManagedInvocationResultHandoff(
   if (value === undefined) {
     return undefined;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Invalid input: managedInvocationResultHandoff must be an object.");
-  }
-  const record = value as Record<string, unknown>;
+  const record = requireInputRecord(value, "managedInvocationResultHandoff");
   const summary = readText(record.summary);
   const resourceUris = requireNonEmptyTextArray(
     record.resourceUris,
@@ -2029,21 +2236,50 @@ function requireManagedInvocationResultHandoff(
   const memoryWriteProposalUris = record.memoryWriteProposalUris === undefined
     ? []
     : requireTextArray(record.memoryWriteProposalUris, "managedInvocationResultHandoff.memoryWriteProposalUris");
+  const structuredResult = record.structuredResult === undefined
+    ? undefined
+    : defineStructuredExecutionResult(
+        requireInputRecord(
+          record.structuredResult,
+          "managedInvocationResultHandoff.structuredResult",
+        ) as unknown as StructuredExecutionResult,
+      );
+  const verificationUsage = record.verificationUsage === undefined
+    ? undefined
+    : defineVerificationUsageReport(
+        requireInputRecord(
+          record.verificationUsage,
+          "managedInvocationResultHandoff.verificationUsage",
+        ) as Omit<VerificationUsageReport, "totals">,
+      );
   return {
     summary,
     resourceUris,
     memoryWriteProposalUris,
+    ...(structuredResult ? { structuredResult } : {}),
+    ...(verificationUsage ? { verificationUsage } : {}),
   };
+}
+
+function taskAffinityForPhase(phase: ManagedInvocationPhaseId): readonly ModelTaskSuitabilityTask[] {
+  switch (phase) {
+    case "visual-reference-research":
+      return ["research", "frontend-design"];
+    case "surface-diagnosis":
+      return ["architecture-review", "research"];
+    case "planning":
+    case "managed-review-closeout":
+      return ["architecture-review"];
+    case "implementation-verification":
+      return ["test-writing"];
+  }
 }
 
 function readManagedOrchestrationAdoption(value: unknown): WorkItem["managedOrchestrationAdoption"] | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Invalid input: managedOrchestrationAdoption must be an object.");
-  }
-  const record = value as Record<string, unknown>;
+  const record = requireInputRecord(value, "managedOrchestrationAdoption");
   const target = readText(record.target);
   const adoptedBy = readText(record.adoptedBy);
   const adoptedAt = readText(record.adoptedAt);
@@ -2114,6 +2350,51 @@ function readTextRecord(value: unknown): Readonly<Record<string, string>> | unde
     .map(([key, recordValue]) => [key.trim(), readText(recordValue)] as const)
     .filter((entry): entry is readonly [string, string] => entry[0].length > 0 && typeof entry[1] === "string");
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function requireInputRecord(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid input: ${field} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function readWorkClassificationInput(value: unknown): WorkClassificationInput | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const supportedFields = new Set(["intents", "artifacts", "domains", "effects", "modes"]);
+  for (const key of Object.keys(record)) {
+    if (!supportedFields.has(key)) {
+      throw new Error(`Unsupported work classification field: ${key}`);
+    }
+    if (!Array.isArray(record[key])) {
+      throw new Error(`workClassification.${key} must be an array of strings`);
+    }
+  }
+  return {
+    ...(Array.isArray(record.intents) ? { intents: readTextArray(record.intents) } : {}),
+    ...(Array.isArray(record.artifacts) ? { artifacts: readTextArray(record.artifacts) } : {}),
+    ...(Array.isArray(record.domains) ? { domains: readTextArray(record.domains) } : {}),
+    ...(Array.isArray(record.effects) ? { effects: readTextArray(record.effects) } : {}),
+    ...(Array.isArray(record.modes) ? { modes: readTextArray(record.modes) } : {}),
+  };
+}
+
+function readWorkClassificationProvenanceInput(
+  value: unknown,
+): WorkClassificationProvenanceInput | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const sourceKind = readText(record.sourceKind);
+  const sourceId = readText(record.sourceId);
+  if (!sourceKind || !sourceId) {
+    return undefined;
+  }
+  return { sourceKind, sourceId };
 }
 
 function readText(value: unknown): string | undefined {

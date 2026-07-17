@@ -52,6 +52,168 @@ describe("GuiGatewayClient", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  it("reads resources through the canonical resource endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      uri: "kiln://session/work-items/work-1",
+      target: {
+        gatewayTargetId: "gateway:local-app",
+        instanceId: "local-app:instance",
+        sessionId: "session-1",
+        resourceUri: "kiln://session/work-items/work-1",
+      },
+      contents: [
+        {
+          kind: "text",
+          uri: "kiln://session/work-items/work-1",
+          mimeType: "text/markdown",
+          text: "# Work item",
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+    const result = await client.readResource({
+      uri: " kiln://session/work-items/work-1 ",
+      target: {
+        gatewayTargetId: "gateway:local-app",
+        instanceId: "local-app:instance",
+        sessionId: "session-1",
+        resourceUri: "kiln://session/work-items/work-1",
+      },
+      cursor: "line:100",
+      limit: 25,
+    });
+
+    expect(result?.target).toMatchObject({
+      gatewayTargetId: "gateway:local-app",
+      instanceId: "local-app:instance",
+      sessionId: "session-1",
+      resourceUri: "kiln://session/work-items/work-1",
+    });
+    expect(result?.contents[0]).toMatchObject({
+      kind: "text",
+      mimeType: "text/markdown",
+      text: "# Work item",
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/gui/api/resources/read");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        uri: "kiln://session/work-items/work-1",
+        target: {
+          gatewayTargetId: "gateway:local-app",
+          instanceId: "local-app:instance",
+          sessionId: "session-1",
+          resourceUri: "kiln://session/work-items/work-1",
+        },
+        cursor: "line:100",
+        limit: 25,
+      }),
+    });
+  });
+
+  it("keeps data URL conversion as GUI presentation behavior", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      uri: "kiln://artifacts/capture",
+      contents: [
+        {
+          kind: "blob",
+          uri: "kiln://artifacts/capture",
+          mimeType: "image/png",
+          blob: "iVBORw0KGgo=",
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+
+    await expect(client.loadResourceDataUrl("kiln://artifacts/capture")).resolves.toBe(
+      "data:image/png;base64,iVBORw0KGgo=",
+    );
+  });
+
+  it("preserves summarized text resources as shared operator resource JSON", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      uri: "kiln://external-engagement/artifacts",
+      summary: {
+        kind: "external-engagement",
+        totalCount: 2,
+        counts: {
+          artifact: 2,
+          candidate: 3,
+        },
+        facets: {
+          artifactKinds: ["candidate-report", "evidence-report"],
+        },
+      },
+      contents: [
+        {
+          kind: "text",
+          uri: "kiln://external-engagement/artifacts",
+          mimeType: "application/json",
+          text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
+        },
+      ],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+
+    const dataUrl = await client.loadResourceDataUrl("kiln://external-engagement/artifacts");
+    expect(dataUrl).toMatch(/^data:application\/json;charset=utf-8;base64,/u);
+    const payload = JSON.parse(atob(dataUrl!.slice(dataUrl!.indexOf(",") + 1)));
+    expect(payload).toEqual({
+      uri: "kiln://external-engagement/artifacts",
+      summary: {
+        kind: "external-engagement",
+        totalCount: 2,
+        counts: {
+          artifact: 2,
+          candidate: 3,
+        },
+        facets: {
+          artifactKinds: ["candidate-report", "evidence-report"],
+        },
+      },
+      presentation: {
+        uri: "kiln://external-engagement/artifacts",
+        title: "external-engagement",
+        total: { label: "total", value: 2 },
+        counts: [
+          { label: "artifact", value: 2 },
+          { label: "candidate", value: 3 },
+        ],
+        facets: [
+          { label: "artifactKinds", values: ["candidate-report", "evidence-report"] },
+        ],
+        meta: [],
+        contentCount: 1,
+        hasMore: false,
+      },
+      contents: [{
+        kind: "text",
+        uri: "kiln://external-engagement/artifacts",
+        mimeType: "application/json",
+        text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
+      }],
+    });
+  });
+
   it("loads app and tenant descriptors from the dashboard", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       providers: [],
@@ -63,6 +225,83 @@ describe("GuiGatewayClient", () => {
         entropy: 0,
       },
       continuationInfoByProvider: {},
+      operatorWorkspaceHome: {
+        mode: "read-only",
+        projectedAt: "2026-06-25T12:00:00.000Z",
+        gatewayTargets: [
+          {
+            instanceId: "app-gateway:support",
+            label: "support",
+            gatewayTarget: {
+              targetId: "app-gateway:support",
+              kind: "local-app-gateway",
+              trust: "local",
+              label: "support",
+              appId: "support",
+            },
+            sessionCount: 0,
+            eventCount: 0,
+            managedInvocationCount: 0,
+            toolCallCount: 0,
+            resourceLinkCount: 0,
+            totalCostUsd: 0,
+          },
+        ],
+        sessions: [],
+        work: {
+          totalCount: 0,
+          activeCount: 0,
+          blockedCount: 0,
+          missingEvidenceCount: 0,
+          goalCount: 0,
+          activeGoalCount: 0,
+          items: [],
+        },
+        managedAgents: { totalCount: 0, activeCount: 0, attentionCount: 0 },
+        approvals: { pendingCount: 0, resolvedCount: 0, items: [] },
+        configHealth: { status: "unknown", issueCount: 0, items: [] },
+        routeHealth: {
+          totalCount: 0,
+          healthyCount: 0,
+          degradedCount: 0,
+          blockedCount: 0,
+          unknownCount: 0,
+          items: [],
+        },
+        providerReadiness: {
+          totalCount: 0,
+          liveProvenCount: 0,
+          configuredCount: 0,
+          unprovenCount: 0,
+          unknownCount: 0,
+          items: [],
+        },
+        gatewayHealth: {
+          status: "healthy",
+          targetCount: 1,
+          localCount: 1,
+          remoteCount: 0,
+          appTargetCount: 1,
+          tenantTargetCount: 0,
+          items: [{
+            targetId: "app-gateway:support",
+            kind: "local-app-gateway",
+            trust: "local",
+            status: "healthy",
+            sessionCount: 0,
+            label: "support",
+            appId: "support",
+          }],
+        },
+        resources: { totalCount: 0, linkedResourceCount: 0, items: [] },
+        attention: {
+          items: [],
+          totalCount: 0,
+          actionRequiredCount: 0,
+          blockedCount: 0,
+          failedCount: 0,
+        },
+      },
       apps: [
         {
           name: "support",
@@ -92,6 +331,15 @@ describe("GuiGatewayClient", () => {
       runtime: "tenant",
       runtimeCapable: true,
       tenants: [{ tenantId: "acme", label: "ACME", enabled: true }],
+    });
+    expect(snapshot.operatorWorkspaceHome?.gatewayTargets[0]).toMatchObject({
+      instanceId: "app-gateway:support",
+      gatewayTarget: {
+        targetId: "app-gateway:support",
+        kind: "local-app-gateway",
+        trust: "local",
+        appId: "support",
+      },
     });
   });
 
@@ -261,7 +509,9 @@ describe("GuiGatewayClient", () => {
         status: "current",
         recommendation: "none",
       }],
+      globalInstructionShims: [],
       nativeProjections: [],
+      permissionIntegrity: [],
       recommendedActions: ["none"],
     }), {
       status: 200,
@@ -297,7 +547,9 @@ describe("GuiGatewayClient", () => {
           status: "current",
           recommendation: "none",
         }],
+        globalInstructionShims: [],
         nativeProjections: [],
+        permissionIntegrity: [],
         recommendedActions: ["none"],
       },
     }), {

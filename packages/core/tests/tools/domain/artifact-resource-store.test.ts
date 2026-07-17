@@ -1,10 +1,99 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ArtifactResourceProvider,
+  FileArtifactResourceStore,
   MemoryArtifactResourceStore,
   projectMultimodalArtifactResource,
 } from "../../../src/tools/infrastructure/artifact-resource-store.js";
+
+describe("FileArtifactResourceStore", () => {
+  it("reopens persisted artifacts with stable ids and sequence", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "kiln-artifacts-"));
+    try {
+      const first = new FileArtifactResourceStore({
+        rootDir,
+        now: () => "2026-07-02T20:00:00.000Z",
+      });
+      const artifact = first.put({
+        namespace: "benchmark-baselines",
+        title: "Usage evidence",
+        mimeType: "application/json",
+        content: { type: "json", value: { providerRequests: [{ requestIndex: 0 }] } },
+        producer: { kind: "eval", name: "benchmark-baseline-runner" },
+        retention: { scope: "session" },
+      });
+
+      const reopened = new FileArtifactResourceStore({ rootDir });
+      expect(reopened.get("benchmark-baselines", artifact.id)).toMatchObject({
+        id: "artifact_1",
+        sequence: 1,
+        content: { type: "json", value: { providerRequests: [{ requestIndex: 0 }] } },
+      });
+      expect(reopened.listNamespaces()).toEqual([{
+        namespace: "benchmark-baselines",
+        artifactCount: 1,
+        updatedAt: "2026-07-02T20:00:00.000Z",
+        sequence: 1,
+      }]);
+
+      const next = reopened.put({
+        namespace: "benchmark-baselines",
+        title: "Route evidence",
+        mimeType: "application/json",
+        content: { type: "json", value: { provider: "codex-oauth" } },
+        producer: { kind: "eval", name: "benchmark-baseline-runner" },
+        retention: { scope: "session" },
+      });
+      expect(next.id).toBe("artifact_2");
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("persists verification retention across reopen and protects evidence from later churn", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "kiln-artifacts-verification-"));
+    try {
+      const first = new FileArtifactResourceStore({ rootDir, maxArtifactsPerNamespace: 2 });
+      const evidence = first.put({
+        namespace: "context-evidence",
+        title: "Protected evidence",
+        mimeType: "application/json",
+        content: { type: "json", value: { exact: "evidence" } },
+        producer: { kind: "context", name: "reversible-context-projection" },
+        retention: { scope: "verification" },
+      });
+
+      const reopened = new FileArtifactResourceStore({ rootDir, maxArtifactsPerNamespace: 2 });
+      reopened.put({
+        namespace: "context-evidence",
+        title: "Transient one",
+        mimeType: "text/plain",
+        content: { type: "text", text: "one" },
+        producer: { kind: "test", name: "unit" },
+        retention: { scope: "session", maxArtifacts: 1 },
+      });
+      reopened.put({
+        namespace: "context-evidence",
+        title: "Transient two",
+        mimeType: "text/plain",
+        content: { type: "text", text: "two" },
+        producer: { kind: "test", name: "unit" },
+        retention: { scope: "session", maxArtifacts: 1 },
+      });
+
+      expect(reopened.get("context-evidence", evidence.id)).toMatchObject({
+        retention: { scope: "verification" },
+        content: { type: "json", value: { exact: "evidence" } },
+      });
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("MemoryArtifactResourceStore", () => {
   it("stores artifacts with explicit retention, provenance, metadata, and sequence", () => {
@@ -77,6 +166,61 @@ describe("MemoryArtifactResourceStore", () => {
 
     expect(store.get("plans", "artifact_1")).toBeUndefined();
     expect(store.list("plans").map((entry) => entry.id)).toEqual([retained.id]);
+  });
+
+  it("never evicts active verification evidence and fails closed when protected capacity is exhausted", () => {
+    const store = new MemoryArtifactResourceStore({
+      maxArtifactsPerNamespace: 2,
+      now: () => "2026-07-14T09:00:00.000Z",
+    });
+    const evidence = store.put({
+      namespace: "context-evidence",
+      title: "Canonical verification evidence",
+      mimeType: "application/json",
+      content: { type: "json", value: { critical: "must survive" } },
+      producer: { kind: "context", name: "reversible-context-projection" },
+      retention: { scope: "verification" },
+    });
+    store.put({
+      namespace: "context-evidence",
+      title: "Transient one",
+      mimeType: "text/plain",
+      content: { type: "text", text: "one" },
+      producer: { kind: "test", name: "unit" },
+      retention: { scope: "session", maxArtifacts: 1 },
+    });
+    const latest = store.put({
+      namespace: "context-evidence",
+      title: "Transient two",
+      mimeType: "text/plain",
+      content: { type: "text", text: "two" },
+      producer: { kind: "test", name: "unit" },
+      retention: { scope: "session", maxArtifacts: 1 },
+    });
+
+    expect(store.get("context-evidence", evidence.id)?.content).toEqual({
+      type: "json",
+      value: { critical: "must survive" },
+    });
+    expect(store.list("context-evidence").map((artifact) => artifact.id)).toEqual([evidence.id, latest.id]);
+
+    const exhausted = new MemoryArtifactResourceStore({ maxArtifactsPerNamespace: 1 });
+    exhausted.put({
+      namespace: "context-evidence",
+      title: "Protected",
+      mimeType: "application/json",
+      content: { type: "json", value: {} },
+      producer: { kind: "context", name: "reversible-context-projection" },
+      retention: { scope: "verification" },
+    });
+    expect(() => exhausted.put({
+      namespace: "context-evidence",
+      title: "Would evict evidence",
+      mimeType: "text/plain",
+      content: { type: "text", text: "blocked" },
+      producer: { kind: "test", name: "unit" },
+      retention: { scope: "session" },
+    })).toThrow("Artifact namespace capacity is protected by verification evidence");
   });
 
   it("rejects invalid namespaces and oversized artifact content", () => {
@@ -188,6 +332,21 @@ describe("ArtifactResourceProvider", () => {
     const metadata = await provider.read(`kiln://artifacts/plans/${artifact.id}`);
     const content = await provider.read(`kiln://artifacts/plans/${artifact.id}/content`);
 
+    expect(namespace!.summary).toEqual({
+      kind: "artifacts",
+      totalCount: 1,
+      counts: {
+        artifact: 1,
+        json: 0,
+        text: 1,
+        blob: 0,
+      },
+      facets: {
+        namespaces: ["plans"],
+        producerKinds: ["tool"],
+        modalities: [],
+      },
+    });
     expect(JSON.parse(namespace!.contents[0]!.text)).toMatchObject({
       namespace: "plans",
       artifactCount: 1,

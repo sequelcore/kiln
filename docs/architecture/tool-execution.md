@@ -371,6 +371,47 @@ Authority behavior differs by surface:
 - dangerous command detection
 - command and path safety checks
 
+## Tool-Round Budget
+
+Interactive operator sessions do not have a default or implicit tool-round
+cap. GUI, TUI, and interactive CLI turns continue until semantic final
+response, cancellation,
+approval pause, safety block, provider unrecoverable error, or runtime
+guardrails such as context, cost, timeout, or no-progress circuit breakers.
+
+Bounded workflows use an explicit runtime execution envelope:
+`executionEnvelope.toolRounds.max`. Runtime validates this boundary as a
+positive integer. Benchmark execution, unattended tenant tool sessions, and
+managed direct-provider children may opt into bounded envelopes when that
+workflow needs a finite replayable budget. Surfaces configure intent; runtime
+owns the execution policy.
+
+Exhaustion triggers one no-tool finalization request so the transcript retains
+an actionable explanation, but it does not convert unfinished work into
+success. `tool_round_budget_exhausted` records a paused canonical turn so an
+operator can continue from the transcript and tool evidence. Failed finalization
+(`no_tool_finalization_failed`) and required managed state transitions
+(`managed_invocation_state_transition_required`) remain failed outcomes.
+Direct-provider children that exhaust their bounded envelope still terminate as
+`failed` because they cannot produce a successful governed handoff; their
+transcript, tool execution, and write evidence remain replayable.
+
+Per-tool usage snapshots are count-only execution evidence. They report how
+many times a tool ran during the current turn and are projected unchanged to
+operator surfaces. They are not an enforcement policy, and GUI, TUI, and CLI
+must not attach surface-owned thresholds or named budget presets to interactive
+turns. Any future per-tool limit must be an explicit runtime policy with scope,
+exhaustion behavior, and provenance defined by canonical configuration; surfaces
+may display that resolved policy but do not own it.
+
+## Invocation Authority
+
+Tool authority is resolved at the invocation boundary. Static capability
+metadata describes the maximum effect a tool can produce; it must not override a
+narrower input-sensitive effect. Shell tools use deterministic command analysis
+to admit read-only commands without confirmation while preserving confirmation
+or denial for ambiguous, networked, privileged, or destructive commands.
+
 ## Timeout Contract
 
 Tool-specific timeout inputs stay owned by the tool that executes the work. The
@@ -430,16 +471,18 @@ Every builtin metadata object includes:
 
 Existing metadata keys such as `cwd`, `command`, `filePath`, `bytesWritten`,
 `replacements`, `path`, `type`, `size`, `modifiedTime`, `mimeType`, `strategy`,
-`timedOut`, and `truncated` are preserved. High-volume tools may also include
-`verbosity` to record whether the public `output` was raw, structured, or
-summarized. The normalized fields are additive and come from
+`runtimeSource`, `runtimePath`, `runtimeVersion`, `timedOut`, and `truncated`
+are preserved. High-volume tools may also include `verbosity` to record whether
+the public `output` was raw, structured, or summarized. The normalized fields
+are additive and come from
 `packages/core/src/tools/domain/tool-result-metadata.ts`; consumers must not
 create private metadata contracts for builtin tools.
 
 The shared result-shaping input is `verbosity`, not `outputMode`. `grep` already
-uses `outputMode` for match semantics (`content`, `files_with_matches`, or
-`count`), so reusing that field for output shape would make the contract
-ambiguous. `verbosity` is currently supported by `bash`, `tree`, `web_search`,
+uses `outputMode` for match shape (`content`, `files_with_matches`, or
+`count`) and `matchMode` for pattern semantics (`auto`, `regex`, or `literal`),
+so reusing that field for output shape would make the contract ambiguous.
+`verbosity` is currently supported by `bash`, `tree`, `web_search`,
 `web_fetch`, `web_extract`, `grep`, `glob`, the monitor lifecycle tools,
 task-state tools, and `operator_elicit`; it changes only `ToolResult.output`,
 not the metadata family.

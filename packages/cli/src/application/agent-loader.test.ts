@@ -105,7 +105,6 @@ describe("agent-loader", () => {
           "tools:",
           "  - read",
           "  - write",
-          "model: claude-sonnet-4-6",
           "skills:",
           "  - sequel-spring",
           "  - refactor",
@@ -122,6 +121,17 @@ describe("agent-loader", () => {
           "providerRoute:",
           "  providerId: codex-oauth",
           "  model: gpt-5.4-mini",
+          "workClassification:",
+          "  intents:",
+          "    - review",
+          "  artifacts:",
+          "    - document",
+          "  domains:",
+          "    - business",
+          "  effects:",
+          "    - read-only",
+          "  modes:",
+          "    - critique",
         ].join("\n"),
       ),
     });
@@ -139,7 +149,6 @@ describe("agent-loader", () => {
         backstory: "Staff engineer perspective",
         tier: "reasoning",
         tools: ["read", "write"],
-        model: "claude-sonnet-4-6",
         skills: ["sequel-spring", "refactor"],
         instructionProfiles: ["sequel-engineering"],
         mode: "managed-child",
@@ -152,6 +161,13 @@ describe("agent-loader", () => {
         providerRoute: {
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
+        },
+        workClassification: {
+          intents: ["review"],
+          artifacts: ["document"],
+          domains: ["business"],
+          effects: ["read-only"],
+          modes: ["critique"],
         },
         scope: "global",
       },
@@ -170,6 +186,23 @@ describe("agent-loader", () => {
     const [definition] = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
 
     expect(definition?.instructions).toBe("# Plan\n\nCreate a concrete implementation plan.");
+  });
+
+  it("rejects agent definitions with unknown authority profiles", async () => {
+    configureDirectories(["invalid.md"], []);
+    configureFiles({
+      [join(GLOBAL_AGENTS_DIR, "invalid.md")]: markdownWithFrontmatter(
+        [
+          "name: Invalid",
+          "role: Invalid authority fixture",
+          "goal: Must not load",
+          "tier: reasoning",
+          "authorityProfile: unrestricted",
+        ].join("\n"),
+      ),
+    });
+
+    await expect(loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false })).resolves.toEqual([]);
   });
 
   it("project agents override global agents with same name", async () => {

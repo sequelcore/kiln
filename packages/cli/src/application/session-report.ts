@@ -1,4 +1,8 @@
 import type { SessionReport, ContextGovernanceSummary } from "../wrapper/index.js";
+import {
+  formatContextUsageProjection,
+  formatVerifiedEfficiencyEvidence,
+} from "@kilnai/gateway-contracts";
 import type { ProjectedContext, ProjectedContextBlockKind } from "./context-types.js";
 
 type EvalScoreLabel = "excellent" | "good" | "fair" | "poor";
@@ -242,6 +246,12 @@ export function formatReport(report: SessionReport, appName: string): string[] {
     if (report.contextGovernance.deferredReasons.length > 0) {
       lines.push(`Context?: ${report.contextGovernance.deferredReasons.join(", ")}`);
     }
+  }
+  if (report.contextUsage) {
+    lines.push(`Context usage: ${formatContextUsageProjection(report.contextUsage)}`);
+  }
+  if (report.efficiencyEvidence) {
+    lines.push(formatVerifiedEfficiencyEvidence(report.efficiencyEvidence));
   }
   if (report.verificationResult) {
     const v = report.verificationResult;

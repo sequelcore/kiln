@@ -19,9 +19,10 @@ const AMBIGUOUS_CHAINING_PATTERN = /&&|\|\||\||;|\n/;
 
 const SAFE_READ_ONLY_PATTERNS: readonly RegExp[] = [
   /^\s*(?:ls|dir|pwd|whoami)\b[^\n|&;`$()]*$/i,
-  /^\s*git\s+(?:status|diff|log)\b[^\n|&;`$()]*$/i,
+  /^\s*git\s+(?:status|diff|log|show|rev-parse|ls-files)\b[^\n|&;`$()]*$/i,
   /^\s*(?:cat|type)\s+[^|&;`$()<>]+$/i,
-  /^\s*(?:rg|fd|findstr)\b[^\n|&;`$()]*$/i,
+  /^\s*(?:rg|grep|fd|findstr)\b[^\n|&;`$()<>]*$/i,
+  /^\s*(?:head|tail|wc)\b[^\n|&;`$()<>]*$/i,
 ];
 
 function ask(reasonCode: DangerousCommandDecision["reasonCode"], reason: string): DangerousCommandDecision {

@@ -87,6 +87,7 @@ export interface PlaywrightBrowserSessionState {
 
 export interface PlaywrightBrowserSessionControlRequest {
   readonly action: "takeover" | "release";
+  readonly gatewayTargetId?: string;
   readonly sessionId?: string;
   readonly operatorId?: string;
   readonly reason?: string;
@@ -121,6 +122,7 @@ export type PlaywrightBrowserOperatorInput =
 
 export interface PlaywrightBrowserOperatorInputRequest {
   readonly requestId: string;
+  readonly gatewayTargetId?: string;
   readonly sessionId: string;
   readonly operatorId?: string;
   readonly input: PlaywrightBrowserOperatorInput;

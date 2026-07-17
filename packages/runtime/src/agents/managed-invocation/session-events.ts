@@ -424,7 +424,7 @@ function managedInvocationIdentity(
   source: ManagedAgentInvocationRequest | ManagedAgentInvocationRecord,
   request?: ManagedAgentInvocationRequest,
   capabilitySnapshot?: ManagedAgentCapabilitySnapshot,
-): Pick<CanonicalAgentInvocationStartedEvent, "parentTurnId" | "routeId" | "routeSource" | "profile" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract"> {
+): Pick<CanonicalAgentInvocationStartedEvent, "parentTurnId" | "routeId" | "routeSource" | "profile" | "providerRoute" | "adapterKind" | "executionMode" | "requestedAuthority" | "authorityProfileId" | "capabilitySnapshot" | "invocationContext" | "handoffContract" | "executionScope"> {
   const invocationContext = "input" in source
     ? source.input.context
     : request?.input.context;
@@ -434,6 +434,9 @@ function managedInvocationIdentity(
   const snapshot = "capabilitySnapshot" in source
     ? source.capabilitySnapshot
     : capabilitySnapshot;
+  const executionScope = "executionScope" in source
+    ? source.executionScope
+    : request?.executionScope;
   return {
     parentTurnId: source.parentTurnId,
     ...(snapshot ? { routeId: snapshot.routeId, routeSource: snapshot.routeSource } : {}),
@@ -447,6 +450,7 @@ function managedInvocationIdentity(
         ? { requestedAuthority: request.requestedAuthority }
         : {}),
     authorityProfileId: source.authority.authorityProfileId,
+    ...(executionScope ? { executionScope } : {}),
     ...(snapshot ? { capabilitySnapshot: snapshot } : {}),
     ...(invocationContext ? { invocationContext } : {}),
     ...(handoffContract ? { handoffContract } : {}),
@@ -472,11 +476,16 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
     transcript?: SessionAgentInvocationEvidence["transcript"];
     diagnostics?: SessionAgentInvocationEvidence["diagnostics"];
     usage?: SessionAgentInvocationEvidence["usage"];
+    coordinationUsage?: SessionAgentInvocationEvidence["coordinationUsage"];
     resultHandoff?: SessionAgentInvocationEvidence["resultHandoff"];
     writeAuthority?: SessionAgentInvocationEvidence["writeAuthority"];
     writeEvidence?: SessionAgentInvocationEvidence["writeEvidence"];
   } = {};
   evidence.lifecycle = buildManagedAgentLifecycleEvidence(record);
+  evidence.lifecycle = {
+    ...evidence.lifecycle,
+    sourceResourceUris: record.capabilitySnapshot.resourcePlane.resourceUris,
+  };
   if (record.childSessionId) {
     evidence.childSessionId = record.childSessionId;
   }
@@ -491,6 +500,9 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
   }
   if (record.usage) {
     evidence.usage = record.usage;
+  }
+  if (record.coordinationUsage) {
+    evidence.coordinationUsage = record.coordinationUsage;
   }
   if (record.resultHandoff) {
     evidence.resultHandoff = record.resultHandoff;
@@ -532,6 +544,7 @@ function collectDeniedEvidence(
       contextMode: request.input.context?.mode ?? "isolated",
       authorityProfileId: request.authority.authorityProfileId,
       resourceLease,
+      sourceResourceUris: request.input.resourceUris ?? [],
       diagnosticUris: resourceLease.diagnosticUris,
       handoffResourceUris: [],
     };

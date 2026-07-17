@@ -6,6 +6,7 @@ import {
   appendExecutionIdentity,
   type ContentPart,
   getDirectProviderExecutionProfile,
+  isRetryable as isCredentialOutcomeRetryable,
   resolveExecutionIdentity,
   textPart,
   type AgentMessage,
@@ -13,7 +14,10 @@ import {
   type Capability,
   type DirectProviderExecutionMode,
   type DirectProviderId,
+  type ExecutionSessionEvent,
+  type ApprovalRequestedEvent,
   type ToolCalledEvent,
+  type ToolOutputEvent,
   type ResolvedDirectProviderExecutionProfile,
   type ToolDefinition,
   type ToolResultEvent,
@@ -29,18 +33,18 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
-  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
   type OperatorSurfaceController,
   type OrchestrateResult,
   type PerCallToolConfig,
   type RuntimeBudgetAdmissionPort,
+  type RuntimeExecutionEnvelope,
 } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type {
   IKilnSession,
   KilnPermissionPolicy,
   SessionCapabilities,
-  SessionEvent,
   SessionRunOptions,
 } from "./session.js";
 import { buildProviderSystemPrompt } from "./preamble-builder.js";
@@ -65,8 +69,9 @@ export interface ProviderSessionConfig {
   readonly executionProfile?: ResolvedDirectProviderExecutionProfile;
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly executionEnvelope?: RuntimeExecutionEnvelope;
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -118,7 +123,7 @@ function authorityDescriptorFromCapability(
 
 function isReadOnlyCapability(toolName: string, capability: Capability | undefined): boolean {
   const effect = capability?.effectEnvelope ?? getBuiltinEffectEnvelope(toolName) ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
-  return effect.operation === "observe" && effect.dataEgress === "none";
+  return effect.operation !== "mutate";
 }
 
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
@@ -126,7 +131,7 @@ function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExec
   return profile?.executionMode ?? "text-only";
 }
 
-function toSessionToolUseEvent(content: string): Extract<SessionEvent, { type: "tool_use" }> {
+function toSessionToolUseEvent(content: string): Extract<ExecutionSessionEvent, { type: "tool_use" }> {
   try {
     const parsed = JSON.parse(content) as { name?: unknown; input?: unknown };
     return {
@@ -153,32 +158,55 @@ function resolveProfile(
   });
 }
 
-function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<SessionEvent, { type: "tool_use" }> {
+function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<ExecutionSessionEvent, { type: "tool_use" }> {
   return {
     type: "tool_use",
     toolName: event.toolName,
     input: event.toolInput ?? {},
+    toolCallId: event.toolCallId,
   };
 }
 
-function toolResultToSessionEvent(event: ToolResultEvent): Extract<SessionEvent, { type: "tool_result" }> {
+function toolOutputToSessionEvent(event: ToolOutputEvent): Extract<ExecutionSessionEvent, { type: "tool_output_delta" }> {
+  return {
+    type: "tool_output_delta",
+    toolCallId: event.toolCallId,
+    toolName: event.toolName,
+    stream: event.stream,
+    delta: event.delta,
+    chunkIndex: event.chunkIndex,
+  };
+}
+
+function toolResultToSessionEvent(event: ToolResultEvent): Extract<ExecutionSessionEvent, { type: "tool_result" }> {
   const output = event.output ?? event.resultSummary ?? "";
   return {
     type: "tool_result",
+    toolCallId: event.toolCallId,
     toolName: event.toolName,
     output,
     ...(event.resultSummary !== undefined && event.resultSummary !== output ? { outputSummary: event.resultSummary } : {}),
     ...(event.isError ? { isError: true } : {}),
+    ...(event.metadata ? { metadata: event.metadata } : {}),
+    ...(event.resourceLinks ? { resourceLinks: event.resourceLinks } : {}),
+    ...(event.toolUsage ? { toolUsage: event.toolUsage } : {}),
   };
 }
 
 function deriveCapabilities(
   config: ProviderSessionConfig,
-  builtinToolNames: readonly string[],
+  toolDefinitions: readonly ToolDefinition[],
+  materializableTools: ReadonlyMap<string, ToolDefinition>,
 ): SessionCapabilities {
   const executionMode = resolveExecutionMode(config);
   const supportedTools = executionMode === "kiln-executable"
-    ? [...builtinToolNames]
+    ? (() => {
+      const names = new Set(toolDefinitions.map((tool) => tool.name));
+      for (const name of materializableTools.keys()) {
+        names.add(name);
+      }
+      return [...names];
+    })()
     : [];
   return {
     mcp: false,
@@ -204,6 +232,7 @@ export class ProviderSession implements IKilnSession {
   private readonly contextTracker: ProviderContextTracker;
   private readonly builtinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
   private readonly toolDefinitions: readonly ToolDefinition[];
+  private readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
   private readonly capabilityMap: ReadonlyMap<string, Capability>;
   private readonly eventBus: EventBus;
 
@@ -226,11 +255,16 @@ export class ProviderSession implements IKilnSession {
     });
     this.builtinTools = builtinToolSurface.callBuiltinTools;
     this.toolDefinitions = builtinToolSurface.toolDefinitions;
-    this.capabilityMap = builtinToolSurface.capabilities;
+    this.materializableTools = builtinToolSurface.materializableTools;
+    this.capabilityMap = new Map([
+      ...builtinToolSurface.materializableCapabilities,
+      ...builtinToolSurface.capabilities,
+    ]);
     this.eventBus = new EventBus(100);
     this._capabilities = deriveCapabilities(
       config,
-      builtinToolSurface.toolDefinitions.map((tool) => tool.name),
+      builtinToolSurface.toolDefinitions,
+      this.materializableTools,
     );
   }
 
@@ -242,7 +276,7 @@ export class ProviderSession implements IKilnSession {
     return undefined;
   }
 
-  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     const startedAt = Date.now();
 
     if (options.abortSignal?.aborted) {
@@ -292,7 +326,7 @@ export class ProviderSession implements IKilnSession {
       const message = this.executionMode === "kiln-executable"
         ? formatExecutableSessionError(err)
         : formatProviderSessionError(err);
-      yield { type: "error", code, message, isRetryable: false };
+      yield { type: "error", code, message, isRetryable: isProviderSessionErrorRetryable(err) };
       yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError: true, isPreflightCrash: false };
     }
   }
@@ -398,7 +432,7 @@ export class ProviderSession implements IKilnSession {
     }
   }
 
-  private async *runTextOnly(options: SessionRunOptions, startedAt: number): AsyncIterable<SessionEvent> {
+  private async *runTextOnly(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
     let isError = false;
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
@@ -413,6 +447,7 @@ export class ProviderSession implements IKilnSession {
       system: systemPrompt,
       messages,
       reasoningEffort: options.reasoningEffort ?? this.config.reasoningEffort,
+      ...(options.abortSignal ? { signal: options.abortSignal } : {}),
     })) {
       if (options.abortSignal?.aborted) {
         isError = true;
@@ -482,12 +517,18 @@ export class ProviderSession implements IKilnSession {
     requestedAuthority: OperatorTurnRequestedAuthority | undefined,
     abortSignal: AbortSignal | undefined,
     turnId: string | undefined,
+    workingDirectory: string | undefined,
   ): PerCallToolConfig {
     if (!requestedAuthority || requestedAuthority === "auto") {
+      const admittedToolNames = new Set(this.materializableTools.keys());
       return {
         ...(turnId ? { turnId } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(abortSignal ? { abortSignal } : {}),
+        ...(workingDirectory ? { workingDirectory } : {}),
+        toolAllowlist: admittedToolNames,
+        additionalTools: this.toolDefinitions,
+        perCallCapabilities: filterCapabilityMap(this.capabilityMap, admittedToolNames),
         ...(requestedAuthority ? {
           effectiveTurnAuthority: {
             executionMode: "execute",
@@ -496,7 +537,7 @@ export class ProviderSession implements IKilnSession {
             sourcePolicy: "runtime_surface_projection",
             reason: "cli direct-provider requested turn authority",
             completeness: "partial",
-            toolCount: this.toolDefinitions.length,
+            toolCount: admittedToolNames.size,
             deniedToolCount: 0,
             policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
               executionMode: "execute",
@@ -509,22 +550,39 @@ export class ProviderSession implements IKilnSession {
       };
     }
 
+    const candidateTools = new Map(this.materializableTools);
+    for (const tool of this.toolDefinitions) {
+      candidateTools.set(tool.name, tool);
+    }
     const admittedToolNames = new Set<string>();
     const toolAuthority = new Map<string, AuthorityDescriptor>();
-    for (const tool of this.toolDefinitions) {
+    for (const tool of candidateTools.values()) {
       const capability = this.capabilityMap.get(tool.name);
       const authority = authorityDescriptorFromCapability(tool.name, capability);
-      if (!authority || !authority.allowed || authority.requiresApproval) {
+      if (!authority) {
         continue;
       }
       if (requestedAuthority === "read_only") {
-        if (isReadOnlyCapability(tool.name, capability) && authority.level <= 1) {
+        if (authority.allowed && !authority.requiresApproval && isReadOnlyCapability(tool.name, capability) && authority.level <= 1) {
           admittedToolNames.add(tool.name);
           toolAuthority.set(tool.name, authority);
         }
         continue;
       }
-      if (authority.level <= 2) {
+      if (requestedAuthority === "destructive" && capability) {
+        admittedToolNames.add(tool.name);
+        toolAuthority.set(tool.name, {
+          level: authority.level,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Destructive authority was admitted by the parent runtime turn.",
+        });
+        continue;
+      }
+      if (authority.allowed && !authority.requiresApproval && authority.level <= 2) {
+        admittedToolNames.add(tool.name);
+        toolAuthority.set(tool.name, authority);
+      } else if (authority.requiresApproval) {
         admittedToolNames.add(tool.name);
         toolAuthority.set(tool.name, authority);
       }
@@ -535,6 +593,7 @@ export class ProviderSession implements IKilnSession {
       ...(turnId ? { turnId } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(abortSignal ? { abortSignal } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
       toolAllowlist: admittedToolNames,
       toolAuthority,
       additionalTools: this.toolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
@@ -547,7 +606,7 @@ export class ProviderSession implements IKilnSession {
         reason: "cli direct-provider requested turn authority",
         completeness: "authoritative",
         toolCount: admittedToolNames.size,
-        deniedToolCount: Math.max(0, this.toolDefinitions.length - admittedToolNames.size),
+        deniedToolCount: Math.max(0, candidateTools.size - admittedToolNames.size),
         policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
           executionMode: "execute",
           requestedAuthority,
@@ -558,7 +617,7 @@ export class ProviderSession implements IKilnSession {
     };
   }
 
-  private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<SessionEvent> {
+  private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
     const { RuntimeSessionOrchestrator, RuntimeSession } = await import("@kilnai/runtime");
 
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
@@ -567,6 +626,7 @@ export class ProviderSession implements IKilnSession {
       requestedAuthority,
       options.abortSignal,
       options.turnId,
+      options.cwd ?? this.config.cwd,
     );
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options, perCallConfig.effectiveTurnAuthority);
     const adapter = await createDirectProviderAdapter({
@@ -590,12 +650,14 @@ export class ProviderSession implements IKilnSession {
       provider: adapter,
       model: this.resolvedModel,
       tools: this.toolDefinitions,
+      materializableTools: this.materializableTools,
       builtinTools: this.builtinTools,
       eventBus: this.eventBus,
       toolAuthorizer: authorizer,
       capabilityMap: this.capabilityMap,
       dangerousCommandDetector: undefined,
       ...(this.config.budgetAdmission ? { budgetAdmission: this.config.budgetAdmission } : {}),
+      ...(this.config.executionEnvelope ? { executionEnvelope: this.config.executionEnvelope } : {}),
     });
 
     if (options.messages && options.messages.length > 0) {
@@ -603,10 +665,10 @@ export class ProviderSession implements IKilnSession {
     }
 
     const promptParts: ContentPart[] = [textPart(userPrompt)];
-    const liveToolEvents: SessionEvent[] = [];
+    const liveToolEvents: ExecutionSessionEvent[] = [];
     let hasLiveToolEvents = false;
     let wakeLiveToolDrain: (() => void) | undefined;
-    const enqueueLiveToolEvent = (event: SessionEvent) => {
+    const enqueueLiveToolEvent = (event: ExecutionSessionEvent) => {
       hasLiveToolEvents = true;
       liveToolEvents.push(event);
       wakeLiveToolDrain?.();
@@ -620,9 +682,35 @@ export class ProviderSession implements IKilnSession {
       if (event.sessionId !== cliSession.id) return;
       enqueueLiveToolEvent(toolResultToSessionEvent(event));
     };
+    const onToolOutput = (event: ToolOutputEvent) => {
+      if (event.sessionId !== cliSession.id) return;
+      enqueueLiveToolEvent(toolOutputToSessionEvent(event));
+    };
+    const onApprovalRequested = (event: ApprovalRequestedEvent) => {
+      if (event.sessionId !== cliSession.id) return;
+      void (async () => {
+        let decision: { readonly approved: boolean; readonly reason?: string };
+        try {
+          decision = options.requestApproval
+            ? await options.requestApproval(event.description)
+            : {
+                approved: false,
+                reason: "This operator surface does not provide an approval handler",
+              };
+        } catch (error) {
+          decision = {
+            approved: false,
+            reason: error instanceof Error ? error.message : "The operator approval handler failed",
+          };
+        }
+        orchestrator.emitApprovalReceived(decision.approved, decision.reason, event.approvalId);
+      })();
+    };
 
     this.eventBus.on("tool_called", onToolCalled);
+    this.eventBus.on("tool_output", onToolOutput);
     this.eventBus.on("tool_result", onToolResult);
+    this.eventBus.on("approval_requested", onApprovalRequested);
 
     let result: OrchestrateResult | undefined;
     let processError: unknown;
@@ -657,7 +745,9 @@ export class ProviderSession implements IKilnSession {
       await processPromise;
     } finally {
       this.eventBus.off("tool_called", onToolCalled);
+      this.eventBus.off("tool_output", onToolOutput);
       this.eventBus.off("tool_result", onToolResult);
+      this.eventBus.off("approval_requested", onApprovalRequested);
     }
 
     if (processError) {
@@ -669,6 +759,9 @@ export class ProviderSession implements IKilnSession {
 
     let isError = false;
     for (const toolExec of result.toolExecutions ?? []) {
+      if (!toolExec.success) {
+        isError = true;
+      }
       if (!hasLiveToolEvents) {
         const output = toolExec.output ?? toolExec.resultSummary;
         if (toolExec.toolCallId || toolExec.input) {
@@ -733,6 +826,8 @@ export class ProviderSession implements IKilnSession {
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       cacheReadTokens: result.cacheReadTokens,
+      cacheWriteTokens: result.cacheWriteTokens,
+      providerRequests: result.providerRequests,
     };
     yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError, isPreflightCrash: false };
   }
@@ -767,6 +862,16 @@ function formatExecutableSessionError(error: unknown): string {
     return `${error.message} (${suffixParts.join(": ")})`;
   }
   return formatProviderSessionError(error);
+}
+
+function isProviderSessionErrorRetryable(error: unknown): boolean {
+  if (error instanceof AllCredentialsExhaustedError) {
+    if (error.lastOutcome) {
+      return isCredentialOutcomeRetryable(error.lastOutcome);
+    }
+    return isProviderSessionErrorRetryable(error.cause);
+  }
+  return error instanceof KilnError && error.retryable;
 }
 
 function formatProviderSessionError(error: unknown): string {

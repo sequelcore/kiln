@@ -1,4 +1,9 @@
 import type { VerificationResult } from "@kilnai/core";
+import {
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  type ContextUsageProjection,
+  type VerifiedEfficiencyEvidenceProjection,
+} from "@kilnai/gateway-contracts";
 import type { ContextGovernanceSummary, SessionReport } from "../wrapper/index.js";
 import type { RunSessionAttemptResult } from "./run-session.js";
 
@@ -11,6 +16,7 @@ export interface RunOutputSink {
   writeAssistantDelta(content: string): void;
   resetAssistantAnswer(answer: string): void;
   writeToolUse(toolName: string): void;
+  writeToolOutputDelta(content: string): void;
   writeProviderFallback(providerId: string): void;
 }
 
@@ -43,6 +49,8 @@ export interface RunJsonOutputEnvelope {
     readonly durationMs: number;
     readonly verificationPassed?: boolean;
     readonly contextGovernance?: ContextGovernanceSummary;
+    readonly contextUsage?: ContextUsageProjection;
+    readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
   };
   readonly diagnostics: {
     readonly lastError: string | null;
@@ -90,6 +98,9 @@ export function createRunOutputController(mode: RunOutputMode): RunOutputControl
         writeNonHumanTelemetry(line);
       }
     },
+    writeToolOutputDelta(content: string): void {
+      process.stderr.write(content);
+    },
     writeProviderFallback(providerId: string): void {
       const line = `[kiln] Provider ${providerId} failed, trying next...`;
       if (mode === "human") {
@@ -133,6 +144,9 @@ export function createNonHumanRunOutputSink(mode: Exclude<RunOutputMode, "human"
     writeToolUse(toolName: string): void {
       writeNonHumanTelemetry(`[tool] ${toolName}`);
     },
+    writeToolOutputDelta(content: string): void {
+      process.stderr.write(content);
+    },
     writeProviderFallback(providerId: string): void {
       writeNonHumanTelemetry(`[kiln] Provider ${providerId} failed, trying next...`);
     },
@@ -157,6 +171,8 @@ export function buildRunJsonOutputEnvelope(input: {
   readonly durationMs: number;
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ContextGovernanceSummary;
+  readonly contextUsage?: ContextUsageProjection;
+  readonly efficiencyEvidence?: VerifiedEfficiencyEvidenceProjection;
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -184,6 +200,10 @@ export function buildRunJsonOutputEnvelope(input: {
       durationMs: input.durationMs,
       ...(input.verificationPassed !== undefined ? { verificationPassed: input.verificationPassed } : {}),
       ...(input.contextGovernance ? { contextGovernance: input.contextGovernance } : {}),
+      ...(input.contextUsage ? { contextUsage: input.contextUsage } : {}),
+      ...(input.efficiencyEvidence
+        ? { efficiencyEvidence: VerifiedEfficiencyEvidenceProjectionSchema.parse(input.efficiencyEvidence) }
+        : {}),
     },
     diagnostics: {
       lastError: input.lastError,

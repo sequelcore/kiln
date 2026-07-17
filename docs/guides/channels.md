@@ -165,9 +165,11 @@ Field types: `text`, `email`, `phone`. Maximum 10 fields per form. Field keys mu
 
 **Embeddable Widget.** The `@kilnai/widget` package provides a ready-made chat UI for embedding on any website. It connects to the gateway WebSocket, manages reconnection, and renders inside a Shadow DOM for style isolation.
 
+Pin the exact published widget version used by the deployment.
+
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@kilnai/widget@latest/dist/widget.js"
+  src="https://cdn.jsdelivr.net/npm/@kilnai/widget@<published-version>/dist/widget.iife.js"
   data-gateway="https://gw.example.com"
   data-app="my-app"
   data-widget-id="550e8400-e29b-41d4-a716-446655440000"

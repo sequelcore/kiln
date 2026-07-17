@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { CodexSession } from "../../src/wrapper/codex-session.js";
 import type { CodexSessionConfig } from "../../src/wrapper/codex-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
-import type { SessionEvent } from "../../src/wrapper/session.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
 
 vi.mock("@kilnai/core", () => ({
   CODEX_DEFAULT_MODEL: "gpt-5.4",
@@ -43,11 +43,14 @@ vi.mock("@kilnai/core", () => ({
 }));
 
 const mockSpawn = vi.hoisted(() => vi.fn<(...args: unknown[]) => unknown>());
-const mockExecSync = vi.hoisted(() => vi.fn<(...args: unknown[]) => unknown>());
+const mockResolveNativeCliExecutable = vi.hoisted(() => vi.fn(() => "C:\\Program Files\\Codex\\codex.exe"));
 
 vi.mock("node:child_process", () => ({
   spawn: mockSpawn,
-  execSync: mockExecSync,
+}));
+
+vi.mock("../../src/wrapper/native-cli-executable.js", () => ({
+  resolveNativeCliExecutable: mockResolveNativeCliExecutable,
 }));
 
 interface MockProc {
@@ -119,8 +122,8 @@ function makeMockProc(): ProcController {
   };
 }
 
-async function collectEvents(iter: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
-  const events: SessionEvent[] = [];
+async function collectEvents(iter: AsyncIterable<ExecutionSessionEvent>): Promise<ExecutionSessionEvent[]> {
+  const events: ExecutionSessionEvent[] = [];
   for await (const e of iter) events.push(e);
   return events;
 }
@@ -200,18 +203,35 @@ describe("CodexSession implements IKilnSession", () => {
     await session.dispose();
     await expect(session.dispose()).resolves.toBeUndefined();
   });
+
+  it("launches the resolved native Codex executable", async () => {
+    const { proc, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+
+    const session = new CodexSession(baseConfig());
+    const run = session.run({ prompt: "test" });
+    const next = run.next();
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "C:\\Program Files\\Codex\\codex.exe",
+      expect.arrayContaining(["exec"]),
+      expect.objectContaining({ cwd: baseConfig().cwd }),
+    );
+
+    resolveExit(0);
+    await next.catch(() => undefined);
+    await session.dispose();
+  });
 });
 
 describe("CodexSession.run() JSONL parsing", () => {
   beforeEach(() => {
     mockSpawn.mockReset();
-    mockExecSync.mockReset();
   });
 
   it("run() deterministically appends constraintInstructions to the prompt sent to codex", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       constraintInstructions: [
@@ -243,7 +263,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() appends prepared system context after the governed turn prompt", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({
@@ -272,7 +291,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() passes reasoning effort as a Codex config override", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({ reasoningEffort: "high" }));
     const collectPromise = collectEvents(session.run({ prompt: "Implement feature X" }));
@@ -291,7 +309,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() passes explicit approval config and sandbox args instead of relying on full-auto", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       approvalMode: "untrusted",
@@ -321,7 +338,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() passes configured model to codex CLI via -m", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       model: "gpt-5.3-codex",
@@ -346,7 +362,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() uses CODEX_MODEL env override for identity without forcing -m", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({
@@ -378,7 +393,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() appends --ephemeral when configured", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       ephemeral: true,
@@ -401,7 +415,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() appends --profile with the configured profile name", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       profile: "fast-lane",
@@ -426,7 +439,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() appends --skip-git-repo-check when configured", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       skipGitRepoCheck: true,
@@ -449,7 +461,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() appends --output-schema with configured file path", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       outputSchema: ".kiln/schemas/result.json",
@@ -474,7 +485,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() appends --add-dir with configured path", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       addDir: "C:/workspace/shared",
@@ -499,7 +509,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() appends --local-provider with configured provider name", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({
       localProvider: "ollama",
@@ -524,7 +533,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() yields text_delta for agent_message item", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -542,7 +550,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() yields tool_use + tool_result for command_execution item", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -561,7 +568,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() maps completed Codex file_change items to provider-neutral file_changed events", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.128.0"));
 
     const session = new CodexSession(baseConfig({ cwd: "C:\\tmp\\kiln-codex-live" }));
     const collectPromise = collectEvents(session.run({ prompt: "test", cwd: "C:\\tmp\\kiln-codex-live" }));
@@ -609,7 +615,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() maps failed Codex file_change items to provider-neutral write denials without accepted file changes", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.128.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -643,7 +648,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() yields tool_use for mcp_tool_call item", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -667,7 +671,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() emits reasoning items as text_delta with isThinking flag", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -685,7 +688,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() emits tool_use for item.started events", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -705,7 +707,6 @@ describe("CodexSession.run() JSONL parsing", () => {
   it("run() yields error event for item.type error", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -724,18 +725,69 @@ describe("CodexSession.run() JSONL parsing", () => {
       isRetryable: false,
     });
   });
+
+  it("run() yields a model-version error code for Codex model version gates", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+
+    const session = new CodexSession(baseConfig({ model: "gpt-5.5" }));
+    const collectPromise = collectEvents(session.run({ prompt: "test" }));
+    const message = "The 'gpt-5.5' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.";
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({
+      type: "error",
+      status: 400,
+      error: {
+        type: "invalid_request_error",
+        message,
+      },
+    });
+    resolveExit(1);
+
+    const events = await collectPromise;
+    expect(events).toContainEqual({
+      type: "error",
+      code: "CODEX_MODEL_VERSION_UNSUPPORTED",
+      message,
+      isRetryable: false,
+    });
+  });
+
+  it("ignores the skills context budget notice from Codex", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({ prompt: "test" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({
+      type: "item.completed",
+      item: {
+        id: "i8",
+        type: "error",
+        message: "Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter.",
+      },
+    });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 20 } });
+    resolveExit(0);
+
+    const events = await collectPromise;
+    expect(events.some((event) => event.type === "error")).toBe(false);
+  });
 });
 
 describe("CodexSession.run() cost", () => {
   beforeEach(() => {
     mockSpawn.mockReset();
-    mockExecSync.mockReset();
   });
 
   it("run() yields cost_update with mode computed after turn.completed", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -754,7 +806,6 @@ describe("CodexSession.run() cost", () => {
   it("cost_update usd defaults to 0 without static catalog pricing", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({ model: "unknown-model-xyz" }));
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -775,7 +826,6 @@ describe("CodexSession.run() cost", () => {
   it("cost_update is yielded before completed event", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -795,13 +845,11 @@ describe("CodexSession.run() cost", () => {
 describe("CodexSession.run() completion", () => {
   beforeEach(() => {
     mockSpawn.mockReset();
-    mockExecSync.mockReset();
   });
 
   it("completed.isError is false when no error items received", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -819,7 +867,6 @@ describe("CodexSession.run() completion", () => {
   it("completed.isError is true when error item received", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -838,7 +885,6 @@ describe("CodexSession.run() completion", () => {
   it("completed.isPreflightCrash is true when turn.failed before turn.started", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -855,7 +901,6 @@ describe("CodexSession.run() completion", () => {
   it("completed.isPreflightCrash is false for normal completion", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -874,13 +919,11 @@ describe("CodexSession.run() completion", () => {
 describe("CodexSession.run() error handling", () => {
   beforeEach(() => {
     mockSpawn.mockReset();
-    mockExecSync.mockReset();
   });
 
   it("run() yields error event for top-level error type event", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -901,7 +944,6 @@ describe("CodexSession.run() error handling", () => {
   it("run() yields error event for turn.failed event", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -922,7 +964,6 @@ describe("CodexSession.run() error handling", () => {
   it("run() yields error + completed when process exits nonzero without turn.completed", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -940,7 +981,6 @@ describe("CodexSession.run() error handling", () => {
   it("run() does not emit UNKNOWN_MODEL error for unknown model", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig({ model: "unknown-model-xyz" }));
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -964,7 +1004,6 @@ describe("CodexSession.run() error handling", () => {
   it("run() respects abortSignal and kills subprocess", async () => {
     const { proc, emitLine, flushExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const abortController = new AbortController();
@@ -987,13 +1026,11 @@ describe("CodexSession.run() error handling", () => {
 describe("CodexSession lifecycle", () => {
   beforeEach(() => {
     mockSpawn.mockReset();
-    mockExecSync.mockReset();
   });
 
   it("run() waits for process close before completing", async () => {
     const { proc, emitLine, emitExit, resolveClose } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     let settled = false;
@@ -1018,7 +1055,6 @@ describe("CodexSession lifecycle", () => {
   it("run() drains stderr from the Codex subprocess", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const collectPromise = collectEvents(session.run({ prompt: "test" }));
@@ -1037,7 +1073,6 @@ describe("CodexSession lifecycle", () => {
   it("dispose() calls kill() on a running subprocess", async () => {
     const { proc, emitLine, flushExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     const runPromise = (async () => {
@@ -1060,7 +1095,6 @@ describe("CodexSession lifecycle", () => {
   it("run() does not yield any events after dispose", async () => {
     const { proc, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
-    vi.mocked(mockExecSync).mockReturnValueOnce(Buffer.from("codex-cli 0.117.0"));
 
     const session = new CodexSession(baseConfig());
     await session.dispose();

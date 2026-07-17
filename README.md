@@ -33,7 +33,9 @@ provider routing, and operator-facing control surfaces.
 
 Kiln `2.1.0` is the current supported public package line for the control-plane
 architecture. The `2.0.0` release remains the first supported public baseline.
-The repository is public and buildable from source.
+The repository is public and buildable from source. The
+[`3.0.0-beta.1` note](docs/releases/3.0.0-beta.1.md) describes an unpublished
+candidate; it is not package or installation evidence.
 
 Use this repo today if you want to:
 
@@ -94,10 +96,9 @@ Core subsystems:
 
 - **IngressGovernor** admits or rejects work and routes it into the proper control path
 - **ContextGovernor** decides what context is sufficient, affordable, and safe to expose
-- **DemandAllocator** decides whether work stays local, parallelizes, defers, or escalates
-- **ChainGovernor** regulates multi-step execution and prevents unstable chains
-- **TaskRegistry** tracks execution state, ownership, lifecycle, and recovery
-- **CoordinationStore** provides the shared substrate for handoff, signals, claims, and state
+- **Managed coordination policy** selects direct, sequential, centralized, or independent-review execution from governed signals
+- **GoalRunStore and WorkItemStore** own durable goal, dependency, execution, evidence, and recovery state
+- **Managed orchestration lifecycle** resolves each admitted specialist and route, executes dependency-ready children, propagates bounded handoffs, and records terminal evidence
 - **SafetyKernel** enforces hard boundaries with fail-closed defaults
 - **ModeController** manages operating modes such as `NORMAL`, `DEGRADED`, and `LOCKED`
 - **TelemetryLoop** closes feedback loops through measurement, anomaly detection, and tuning
@@ -118,7 +119,9 @@ Core subsystems:
 | Studio | Internal/private | Development inspection and topology views |
 
 See [Operator Surfaces](docs/guides/operator-surfaces.md) for when to use GUI,
-native, TUI, CLI, IDE, or gateway integrations.
+native, TUI, CLI, IDE, or gateway integrations. See
+[Gateway App Runtime](docs/guides/gateway-app-runtime.md) when Kiln should power
+AI behavior inside an app.
 
 ## Documentation
 
@@ -131,6 +134,7 @@ Start here:
 - [Research Index](docs/research/README.md)
 - [Roadmap](docs/roadmap/README.md)
 - [Changelog](docs/changelog.md)
+- [Release Runbook](docs/operations/release.md)
 
 Most important architecture documents:
 

@@ -12,6 +12,23 @@ import type {
   MultimodalTransportModality,
 } from "../engine/domain/multimodal-routing.js";
 import type { TraceSpan } from "./trace.js";
+import type { ExecutionCostEvidence } from "../cost/index.js";
+export type {
+  ExecutionSessionCostTrackingMode,
+  ExecutionSessionEvent,
+  ExecutionSessionRunOptions,
+  ExecutionSessionToolResultResourceLink,
+  ProviderRequestCachePartitionDimensionEvidence,
+  ProviderRequestCachePartitionDimensionSource,
+  ProviderRequestCachePartitionEvidence,
+  ProviderRequestCacheRegionEvidence,
+  ProviderRequestCacheRegionSource,
+  ProviderRequestEvidence,
+  ProviderRequestToolMaterializationDecision,
+  ProviderRequestToolMaterializationDecisionEvidence,
+  ProviderRequestToolProjectionEvidence,
+  ProviderRequestToolProjectionSetEvidence,
+} from "./execution-session-event.js";
 
 /** Streaming granularity levels, from coarsest to finest */
 export type StreamLevel = "state" | "phase" | "tool" | "token";
@@ -24,6 +41,7 @@ export const EVENT_LEVEL_MAP: Record<EventType, StreamLevel> = {
   task_started: "phase",
   task_completed: "phase",
   tool_called: "tool",
+  tool_output: "tool",
   tool_authorized: "tool",
   tool_result: "tool",
   tool_cache_hit: "tool",
@@ -94,6 +112,7 @@ export type EventType =
   | "task_started"
   | "task_completed"
   | "tool_called"
+  | "tool_output"
   | "tool_authorized"
   | "tool_result"
   | "tool_cache_hit"
@@ -177,7 +196,9 @@ export interface CostUpdateEvent extends KilnEvent {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
   readonly totalCostUsd: number;
+  readonly costEvidence?: ExecutionCostEvidence;
   readonly byRoleModel: Record<string, {
     model: string;
     provider?: string;
@@ -185,6 +206,7 @@ export interface CostUpdateEvent extends KilnEvent {
     billingMode?: ExecutionBillingMode;
     calls: number;
     costUsd: number;
+    costEvidence?: ExecutionCostEvidence;
   }>;
   readonly agentId?: string;
 }
@@ -192,6 +214,7 @@ export interface CostUpdateEvent extends KilnEvent {
 /** Tool called event */
 export interface ToolCalledEvent extends KilnEvent {
   readonly type: "tool_called";
+  readonly toolCallId: string;
   readonly toolName: string;
   readonly taskId?: string;
   readonly workerIndex?: number;
@@ -200,6 +223,18 @@ export interface ToolCalledEvent extends KilnEvent {
   readonly authorizationLevel?: number;
   readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
   readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
+  readonly executionScope?: import("./session-execution-scope.js").SessionExecutionScope;
+}
+
+/** Incremental operator-facing output from a running tool. */
+export interface ToolOutputEvent extends KilnEvent {
+  readonly type: "tool_output";
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly stream: "stdout" | "stderr";
+  readonly delta: string;
+  readonly chunkIndex: number;
+  readonly executionScope?: import("./session-execution-scope.js").SessionExecutionScope;
 }
 
 /** Tool authorized event */
@@ -232,6 +267,7 @@ export interface TaskCompletedEvent extends KilnEvent {
 /** Tool result event */
 export interface ToolResultEvent extends KilnEvent {
   readonly type: "tool_result";
+  readonly toolCallId: string;
   readonly toolName: string;
   readonly taskId?: string;
   readonly durationMs: number;
@@ -241,8 +277,11 @@ export interface ToolResultEvent extends KilnEvent {
   readonly isError?: boolean;
   readonly retryAttempt?: number;
   readonly metadata?: Record<string, unknown>;
+  readonly resourceLinks?: readonly import("./execution-session-event.js").ExecutionSessionToolResultResourceLink[];
+  readonly toolUsage?: import("./session-event.js").SessionToolUsageSnapshot;
   readonly resolvedEffect?: import("../engine/domain/action-effect.js").ResolvedInvocationEffect;
   readonly authority?: import("../engine/domain/tool-execution.js").AuthorityDescriptor;
+  readonly executionScope?: import("./session-execution-scope.js").SessionExecutionScope;
 }
 
 /** Tool cache hit event -- cached result used instead of executing tool */
@@ -649,6 +688,7 @@ export interface EventMap {
   task_started: TaskStartedEvent;
   task_completed: TaskCompletedEvent;
   tool_called: ToolCalledEvent;
+  tool_output: ToolOutputEvent;
   tool_authorized: ToolAuthorizedEvent;
   tool_result: ToolResultEvent;
   tool_cache_hit: ToolCacheHitEvent;
@@ -713,6 +753,41 @@ export { createTraceContext, startSpan, endSpan, addSpanEvent } from "./trace.js
 export type { TraceSpan, SpanEvent, TraceContext } from "./trace.js";
 export { createSessionEvent, compareSessionEvents } from "./session-event.js";
 export type {
+  ContextUsageCaveat,
+  ContextUsageCacheSemantics,
+  ContextUsageFreshness,
+  ContextUsageLifecycle,
+  ContextUsageMeasurement,
+  ContextUsageProjection,
+  ContextUsageRawEvidence,
+  ContextUsageState,
+  ContextWindowAuthority,
+} from "./context-usage-projection.js";
+export {
+  projectCostUpdatedEventToLifecycleLedger,
+  projectManagedAgentCoordinationUsageAllocations,
+  projectVerificationUsageAllocations,
+  reconcileLifecycleAttributionLedger,
+  replayLifecycleAttributionEvidence,
+  summarizeLifecycleAttributionLedger,
+} from "./session-lifecycle-attribution.js";
+export type {
+  ProjectCostUpdatedEventToLifecycleLedgerOptions,
+  ReplayLifecycleAttributionEvidenceInput,
+  SessionLifecycleAttributedCost,
+  SessionLifecycleAttributionAllocation,
+  SessionLifecycleAttributionLedger,
+  SessionLifecycleAttributionProviderTotals,
+  SessionLifecycleAttributionQuality,
+  SessionLifecycleAttributionReconciliationResult,
+  SessionLifecycleAttributionRecord,
+  SessionLifecycleAttributionSummary,
+  SessionLifecycleExecutionContext,
+  SessionLifecycleSourceKind,
+  SessionLifecycleTokenClass,
+  SessionProviderTokenClass,
+} from "./session-lifecycle-attribution.js";
+export type {
   CanonicalSessionEventKind,
   CanonicalSessionEvent,
   CanonicalSessionEventMap,
@@ -729,6 +804,7 @@ export type {
   SessionApprovalResolution,
   SessionToolTerminalState,
   SessionToolStatus,
+  SessionToolUsageSnapshot,
   SessionContinuityDecision,
   SessionTurnOutcome,
   CanonicalTurnStartedEvent,
@@ -756,6 +832,7 @@ export type {
   CanonicalApprovalResolvedEvent,
   CanonicalFileChangedEvent,
   CanonicalCostUpdatedEvent,
+  CanonicalLifecycleAttributionRecordedEvent,
   SessionAgentInvocationIdentity,
   SessionAgentInvocationTranscriptPointer,
   SessionAgentInvocationDiagnosticPointer,
@@ -779,3 +856,4 @@ export type {
   SessionEventInput,
   CreateSessionEventOptions,
 } from "./session-event.js";
+export type { SessionExecutionScope } from "./session-execution-scope.js";

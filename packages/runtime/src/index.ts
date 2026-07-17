@@ -6,6 +6,18 @@ export type { StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startDevServer } from "./gateway/gateway-server.js";
 export type { DevServerOptions } from "./gateway/gateway-server.js";
 export { startGuiGateway } from "./gateway/gui-gateway.js";
+export { BunPtyAdapter } from "./operator-terminal/bun-pty-adapter.js";
+export {
+  OperatorTerminalError,
+  OperatorTerminalService,
+} from "./operator-terminal/operator-terminal-service.js";
+export type {
+  OperatorPtyAdapter,
+  OperatorPtyProcess,
+  OperatorPtySpawnInput,
+  OperatorTerminalEvent,
+  OperatorTerminalServiceOptions,
+} from "./operator-terminal/operator-terminal-service.js";
 export {
   buildGuiOperatorDiscoveryResults,
   buildWelcomeProviderDescriptors,
@@ -14,6 +26,8 @@ export {
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
   markGuiProviderDiscoveryStale,
+  probeCodexCliModelReadiness,
+  projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
@@ -74,8 +88,11 @@ export {
   attachManagedInvocationSessionEventSink,
   createManagedAgentInvocationResourceProvider,
   createManagedAgentStartToolDefinition,
+  createManagedInvocationToolAttachment,
   createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,
+  createManagedAgentOrchestrateToolDefinition,
+  buildManagedAgentCoordinationUsage,
   resolveManagedInvocationService,
   withManagedInvocationService,
   isManagedAgentInvocationResourceProvider,
@@ -90,6 +107,9 @@ export {
   MANAGED_AGENT_LIST_CAPABILITY,
   MANAGED_AGENT_LIST_TOOL,
   MANAGED_AGENT_LIST_TOOL_NAME,
+  MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
+  MANAGED_AGENT_ORCHESTRATE_TOOL,
+  MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
   MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -113,7 +133,7 @@ export {
   ManagedRuntimeSandboxLeaseManager,
   ManagedAgentRuntimeAdmissionError,
   RuntimeManagedAgentInvocationService,
-  runManagedAgentFanOutLifecycle,
+  runManagedAgentOrchestrationLifecycle,
 } from "./agents/managed-invocation/index.js";
 export type {
   ManagedAgentArtifactDirectoryLeaseManager,
@@ -153,6 +173,7 @@ export type {
   ManagedAgentWorktreeLeaseReleaseInput,
   ManagedGitWorktreeLeaseManagerConfig,
   ManagedAgentRuntimeAdapter,
+  ManagedAgentRuntimeAuthorityObserver,
   ManagedAgentRuntimeInvocationInput,
   ManagedAgentRuntimeInvocationResult,
   ManagedAgentRuntimeInvocationSnapshot,
@@ -166,22 +187,81 @@ export type {
   ManagedAgentRuntimeRecoveryStore,
   ManagedAgentStaleRecoveryInput,
   ManagedAgentStaleRecoveryResult,
-  ManagedAgentFanOutBudgetAdmissionInput,
-  ManagedAgentFanOutLifecycleChildRecord,
-  ManagedAgentFanOutLifecycleInput,
-  ManagedAgentFanOutLifecycleResult,
-  ManagedAgentFanOutLifecycleRouteSelector,
+  ManagedAgentOrchestrationBudgetAdmissionInput,
+  ManagedAgentOrchestrationLifecycleChildRecord,
+  ManagedAgentOrchestrationLifecycleInput,
+  ManagedAgentOrchestrationLifecycleResult,
+  ManagedAgentOrchestrationLifecycleRouteSelector,
   ManagedInvocationContextResolution,
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolverInput,
   ManagedInvocationSessionEventSink,
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationRouteProfile,
+  ManagedInvocationToolAttachment,
   ManagedInvocationToolOptions,
   ManagedInvocationToolRoute,
 } from "./agents/managed-invocation/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
-export type { ProviderCatalogService, ProviderCatalogSnapshot } from "./gateway/provider-catalog-service.js";
+export {
+  FilesystemManagedJobStore,
+  InMemoryManagedJobStore,
+  ManagedJobApplicationError,
+  ManagedJobApplicationService,
+  createRuntimeManagedJobInvocationPort,
+} from "./managed-jobs/index.js";
+export type {
+  ManagedJobDiagnosticCode,
+  ManagedJobGovernanceEvidence,
+  ManagedJobGovernancePort,
+  ManagedJobProfile,
+  ManagedJobProfilePort,
+  ManagedJobProjectPort,
+  ManagedJobLifecycleEntry,
+  ManagedJobRecord,
+  ManagedJobReplayQuery,
+  ManagedJobRoute,
+  ManagedJobRoutePort,
+  ManagedJobRuntimeInvocationPort,
+  ManagedJobRuntimeInvocationResolver,
+  ManagedJobRuntimeResult,
+  ManagedJobResult,
+  ManagedJobResultAvailability,
+  ManagedJobResultQuery,
+  ManagedJobState,
+  ManagedJobStore,
+  ManagedJobSubmission,
+  TrustedManagedJobQueryContext,
+  TrustedManagedJobProject,
+} from "./managed-jobs/index.js";
+export type {
+  ProviderCatalogClassification,
+  ProviderCatalogEvidence,
+  ProviderCatalogFreshness,
+  ProviderCatalogService,
+  ProviderCatalogSnapshot,
+} from "./gateway/provider-catalog-service.js";
+export {
+  normalizeProviderCatalogObservation,
+} from "./gateway/provider-model-adapters/catalog-normalization.js";
+export type {
+  NormalizedProviderCatalogObservation,
+  NormalizedProviderCatalogRawEntry,
+  ProviderCatalogFailureInput,
+  ProviderCatalogObservationClassification,
+  ProviderCatalogObservationInput,
+  ProviderCatalogObservationStatus,
+  ProviderCatalogRawEntryInput,
+  ProviderCatalogStateEvidenceInput,
+} from "./gateway/provider-model-adapters/catalog-normalization.js";
+export {
+  normalizeRuntimeProviderDiscoveryCatalog,
+} from "./gateway/provider-model-adapters/runtime-discovery-catalogs.js";
+export type {
+  RuntimeProviderAdapterFamily,
+  RuntimeProviderCatalogInput,
+  RuntimeProviderModelDiscoverySnapshot,
+} from "./gateway/provider-model-adapters/runtime-discovery-catalogs.js";
 export {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,
@@ -189,6 +269,7 @@ export {
 export type {
   AttachedRuntimeBuiltinToolSurface,
   AttachedRuntimeBuiltinToolSurfaceOptions,
+  AttachedRuntimeManagedInvocationConfig,
 } from "./gateway/attached-runtime-tool-surface.js";
 export {
   PLAYWRIGHT_BROWSER_USE_MISSING_DEPENDENCY_MESSAGE,
@@ -395,6 +476,7 @@ export {
   buildEffectiveTurnAuthorityPolicyInputs,
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
+  projectRuntimeLifecycleAttributionAllocations,
   SessionRegistry,
   InMemorySessionStore,
   RedisSessionStore,
@@ -418,6 +500,8 @@ export type {
   RuntimeBudgetUsageReaderInput,
   GovernedTurnOutcomeToolRecord,
   RuntimeFeedbackEvidenceCollectorInput,
+  ProjectRuntimeLifecycleAttributionAllocationsInput,
+  RuntimeLifecycleFinalOutputBoundary,
   SerializedSessionData,
   AgentTurnEntry,
   EffectiveTurnAuthorityPolicyInput,
@@ -427,6 +511,8 @@ export type {
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
+  RuntimeExecutionEnvelope,
+  RuntimeToolRoundBudget,
   ToolExecutionSummary,
   SessionStore,
   RedisLike,
@@ -545,5 +631,20 @@ export { verifyHmacSha256 } from "./utils/hmac.js";
 
 // Execution Backends
 export { CliSubscriptionExecutor } from "./execution/cli-subscription-executor.js";
-export type { CliSessionFactory, CliSessionFactoryContext, CliSession, CliSessionEvent, CliSessionRunOptions } from "./execution/cli-subscription-executor.js";
+export type { CliSessionFactory, CliSessionFactoryContext, CliSession } from "./execution/cli-subscription-executor.js";
+
+// Context-usage projection (runtime normalization boundary)
+export {
+  normalizeContextUsageProjection,
+  restoreContextUsageProjection,
+} from "./session/context-usage-projection.js";
+export {
+  restoreGatewayContextUsageProjection,
+  toGatewayContextUsageProjection,
+} from "./gateway/context-usage-projection-mapper.js";
+export type {
+  ContextUsageRawUsage,
+  ContextUsageWindowEvidence,
+  NormalizeContextUsageProjectionInput,
+} from "./session/context-usage-projection.js";
 

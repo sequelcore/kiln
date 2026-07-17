@@ -41,7 +41,10 @@ By default, the command:
 4. Shuts down the gateway when that window closes
 
 Use `--dev` only when developing this repository's GUI source. Dev mode expects
-the `packages/gui` workspace to exist in the current Kiln source checkout.
+the `packages/gui` workspace to exist in the current Kiln source checkout. Vite
+owns GUI assets in this mode, while the local gateway exposes only the operator
+API and WebSocket contract; a prebuilt `packages/gui/dist` bundle is not a dev
+startup prerequisite.
 
 ### App Gateway Attach Mode
 
@@ -64,9 +67,32 @@ shut down the App Gateway when the GUI window closes.
 Implementation status: attach mode opens the App Gateway GUI URL, the App
 Gateway exposes the GUI dashboard/session-list contract, and `/gui/ws` routes
 messages to the selected runtime-capable YAML app. The dashboard publishes
-runtime-capable apps plus enabled tenants; the GUI renders compact app/tenant
-selectors and includes `appName` and `tenantId` in message frames. Provider
-switching and full operator controls remain future operator-contract work.
+runtime-capable apps, enabled tenants, active app/tenant selection, and
+`operatorWorkspaceHome`; the GUI renders compact app/tenant selectors, sends
+target-bound operator actions with `gatewayTargetId`, and prefers the
+gateway-published Operator Workspace home projection for workspace
+summary/attention state before falling back to local reconstruction. Global
+control-plane frames such as provider switching, clear, provider auth, theme
+results, and voice synthesis remain targetless because they operate on the
+connected operator surface, provider catalog, UI preference, or source message.
+
+## Operator terminal
+
+Local launch mode exposes an attended, interactive terminal panel backed by a
+real platform PTY (ConPTY on supported Windows hosts). The workbench header and
+`Ctrl+\`` toggle the same panel across Chat, Work, Agents, Activity, Memory, and
+Setup. On desktop it is a bottom panel with pointer and keyboard resizing; on
+narrow layouts it becomes the active full workbench surface instead of
+competing with the composer. Collapsing preserves the running PTY, while Close
+terminates it. The preferred desktop height is persisted per workspace, but the
+panel never restores open or starts a shell implicitly after reload.
+
+The operator terminal is separate from agent tool output: keystrokes are direct
+operator input, terminal output does not enter the conversation, and closing
+the GUI connection terminates the PTY. The launcher grants access with an
+ephemeral URL-fragment capability; attach mode does not receive that local
+capability and therefore does not expose a host shell. Agent `bash` and monitor
+tools continue through canonical tool authority and do not share this PTY.
 
 ## Flags
 
@@ -137,9 +163,20 @@ imports use the `@/` alias rooted at `packages/gui/src`.
 
 Kiln's visual tokens remain canonical. shadcn contract tokens such as
 `--background`, `--card`, `--secondary`, `--border`, `--ring`, and sidebar
-tokens are mapped onto the existing Kiln theme variables in
-`packages/gui/src/styles.css`. Do not introduce a parallel palette or raw
-provider colors for normal UI state.
+tokens are aliases over the semantic operator-theme projection. The canonical
+OKLCH palette lives in `@kilnai/gateway-contracts`; GUI startup and live theme
+changes project it through `packages/gui/src/lib/operator-theme-projection.ts`.
+`packages/gui/src/styles.css` owns stable component aliases and layout effects,
+not palette literals. Do not introduce a parallel palette or raw provider/state
+colors for normal UI state.
+
+Use the narrowest semantic role that describes the UI responsibility:
+surface roles for elevation and selection, border roles for separation and
+focus, action roles for controls, and the complete status triplet for success,
+warning, danger, or information surfaces. Terminal, canvas, and WebGL widgets
+must use the renderer-safe hex projection instead of parsing CSS `oklch()` or
+carrying fallback colors. This keeps Graphite, Obsidian, Paper, and
+`system-follow` coherent across native DOM and non-DOM renderers.
 
 Workspace document previews use the same token discipline. Viewer-specific
 surfaces are exposed as `--workspace-viewer`, `--workspace-viewer-panel`, and
@@ -177,10 +214,29 @@ move to their canonical modes. Regression coverage locks this behavior:
 turns/tokens/cost and field telemetry are not rendered as always-visible chrome,
 and theme selection is available through Setup.
 
+## Composer Context Usage
+
+The composer rail renders the shared per-turn context projection. A percentage
+appears only when Runtime supplied a compatible numerator and denominator; `P`
+marks partial evidence, an em dash is unavailable, and `H` marks restored
+historical evidence. The focusable control has a matching accessible name and
+tooltip. It is not transcript length or a current provider probe. GUI validates
+the Gateway DTO but does not change state, freshness, or authority locally.
+
+Selecting a provider/model affects the next turn only. A completed or restored
+context observation remains bound to the route that produced it; incompatible
+new route evidence is rejected by Runtime rather than displayed as a retained
+percentage.
+
 Activity details must be projections of the canonical session timeline. Do not
 maintain separate GUI-only caches for changed files, continuity, approval
 state, cost, or routing when the same facts already exist in `session_event`
 history.
+
+Operator Workspace summary follows the same rule. When the dashboard publishes
+`operatorWorkspaceHome`, the GUI must consume that shared projection before
+deriving local summaries from raw session events. Local reconstruction is only
+an availability fallback for older or unavailable gateway projections.
 
 Live runtime progress follows the same rule. The GUI accepts `session_event`
 frames for durable operational evidence and `activity_phase` frames for
@@ -200,6 +256,36 @@ Current mode status:
   shared governed workspace explorer contract
 - `Approvals` remains gated until a dedicated event-backed panel is built on
   top of canonical approval events
+
+### Sidebar Navigation
+
+The desktop sidebar is one continuous operator-navigation surface. It combines
+primary surface navigation and canonical session history without placing a
+secondary panel inside the sidebar.
+
+The sidebar shell owns collapse behavior, mobile drawer handoff, and surface
+selection. Session history owns search, temporal grouping, keyboard traversal,
+selection state, and compact row presentation. Do not introduce another
+responsive sidebar abstraction unless it replaces the existing shell owner
+rather than duplicating its state.
+
+Session rows are dense navigation items, not cards. Each row reserves stable
+space for the conversation title, relative age, selected state, and exceptional
+runtime state. Provider summaries, tags, count footers, and descriptive
+metadata belong in session detail or activity surfaces, not in the navigation
+list. Secondary actions should appear only when they are useful for the current
+interaction.
+
+Search is progressive from the history heading. An empty search state should
+explain the result and provide a clear recovery path without changing session
+selection. The same radius, spacing, hover, focus, and selected-state language
+must be shared by primary surface navigation and session history so the sidebar
+reads as one system.
+
+The sidebar uses installed shadcn/Base UI primitives such as `Button`, `Input`,
+`Popover`, `Separator`, and `Tooltip` for focus behavior and interaction
+semantics. Visual styling remains Kiln-owned through the theme tokens defined
+in `packages/gui/src/styles.css`.
 
 ## Workspace Explorer
 
@@ -264,6 +350,79 @@ Document tabs are local presentation state. They do not mutate the runtime
 session, provider route, approval state, changed-file events, or working tree.
 Editing, save semantics, structured diff viewing, and provider tool invocation
 remain outside this read-only workspace slice.
+
+## Transcript Navigation
+
+The GUI transcript composes the official shadcn `MessageScroller` primitives
+over Kiln's shared conversation-turn projection. Kiln owns message, event, and
+tool evidence; the scroller owns viewport behavior only.
+
+User messages are stable turn anchors. Opening saved history restores the last
+anchored turn instead of dropping the reader at the absolute bottom, and a new
+turn keeps a small part of the previous row visible for context. Streaming
+follows only while the reader remains at the live edge. Wheel, touch, keyboard,
+or explicit message navigation releases that follow state, allowing new output
+to arrive offscreen without moving the current reading position.
+
+Every projected transcript row has a stable message identity so prepended
+history and late layout changes preserve the visible row. The jump-to-latest
+control appears only when more content exists below; using it returns to the
+live edge and resumes following. The control is icon-only so it remains usable
+when inspector or browser docks narrow the transcript, while its accessible
+name distinguishes normal history from live activity arriving below.
+
+The viewport is keyboard-focusable and the transcript content is a polite log.
+Rows use content visibility and intrinsic sizing hints to keep long histories
+responsive. Do not reintroduce direct `scrollTop` mutation, unconditional
+bottom pinning, or a second GUI-owned scroll state machine.
+
+Markdown tables in assistant output are transcript content, not shared table
+primitive behavior. The transcript renderer owns the horizontal scroll
+container for Markdown tables so long evidence tables remain inspectable in
+narrow chat layouts without changing the global shadcn `Table` component used
+by product UI.
+
+Tool execution is operational evidence, not assistant prose. GUI renders each
+execution as a standalone row correlated by canonical `toolCallId`; interleaved
+calls remain distinct, and terminal evidence replaces progress for that
+execution without hiding unrelated calls. Active rows use text, icon, and state
+attributes. The decorative border beam is supplemental and all descendant
+animation is disabled under `prefers-reduced-motion: reduce`.
+
+Structured tool results select bounded renderers from the shared presentation
+contract. JSON, source, Markdown, diffs, tables, images, trees, and resource
+bundles remain inside the transcript width and expose readable fallback text
+when intent validation fails. Raw payloads remain inspector evidence rather
+than normal conversation content.
+
+The semantic navigation rail indexes projected user turns, assistant replies,
+tool executions, and failures. Keyboard or pointer activation scrolls to the
+selected canonical anchor; return-to-latest targets the final anchor. The rail
+is hidden on compact viewports where it would compete with conversation width.
+Saved-session batches and live reconnect delivery deduplicate by `eventId`, so
+restore cannot duplicate rows or revive terminal executions.
+
+## Resource Reads
+
+GUI resource previews read through the shared `OperatorResourceReadResult`
+contract. GUI sends `OperatorResourceReadRequest` to
+`/gui/api/resources/read` with the selected `gatewayTargetId`, app, tenant,
+session, and resource identity when those fields are known. The runtime passes
+that target through the shared resource-read options before projecting the
+result back to the GUI, so providers resolve target-specific resources without
+labels, selected ports, or local instance strings.
+
+When a resource result includes `summary`, the GUI preserves the whole read
+result as JSON in the preview data URL and includes the shared
+`projectOperatorResourceReadPresentation` projection so browser presentation
+can render provider-owned counts, facets, metadata, and content state without
+reparsing payload text.
+
+Current summarized aggregate reads include the tool catalog, session work
+items, session goals, workspace trees, artifact namespaces, memory graph
+snapshots, managed-agent invocation indexes, and external-engagement artifact
+indexes. GUI-specific inspector layouts consume the shared presentation
+projection; provider summaries remain the source of truth.
 
 ## Commands and Composer
 
@@ -386,3 +545,60 @@ See `docs/architecture/session-model.md` for the canonical rules.
 - Closing the managed GUI window is the expected Phase 1 shutdown path for the GUI surface.
 - GUI parity status lives in `docs/guides/gui-parity.md`; the manual validation
   script lives in `docs/guides/gui-parity-walkthrough.md`.
+
+## Startup Profiling
+
+Use the repo-level startup profiler before changing GUI or operator-gateway
+startup behavior:
+
+```bash
+bun run profile:startup -- --mode dev --cwd . --no-open
+```
+
+For a cold Vite dependency cache run, clear only the GUI Vite optimizer cache:
+
+```bash
+bun run profile:startup -- --mode dev --cwd . --clear-vite-cache --no-open
+```
+
+The profiler emits JSON with the commit SHA, OS, Bun/Node/Vite/React versions,
+cache state, command line, and measured milestones for gateway health,
+dashboard readiness, Vite readiness when dev mode reports it, and GUI URL
+readiness. Browser launch and first usable paint are separate evidence points;
+do not infer them from Vite's `ready in` line or from gateway health alone.
+
+To measure the first usable GUI interaction, enable browser automation:
+
+```bash
+bun run profile:startup -- --mode dev --cwd . --measure-first-paint --no-open
+```
+
+This launches a headless browser in an isolated Node subprocess and waits until
+the composer accepts input and the send control is visible. The probe does not
+send a message. It also records a redacted `browserResourceSummary` with the
+slowest initial browser resource requests so Vite dependency optimization and
+lazy-loading decisions can be tied to module evidence. Normal `kiln gui`
+startup does not load Playwright or pay this measurement cost.
+
+Current measured dev-mode optimizations:
+
+- `@tanstack/router-devtools` is lazy-loaded from the root route so devtools do
+  not compete with first usable GUI interaction.
+- `@kilnai/gateway-contracts` is included in Vite `optimizeDeps` because warm
+  profiling showed many linked-workspace `/@fs/` contract modules on the
+  initial resource path. The targeted pre-bundle collapses that graph into a
+  single optimized dependency request.
+- Production builds keep Vite's 560 kB chunk warning gate active. Large,
+  stable dependency families are split by ownership in `packages/gui/vite.config.ts`:
+  React/router/UI runtime, query runtime, shared Kiln contracts, validators,
+  markdown/syntax rendering, inspectors, icons, state, and pure style utilities.
+  Do not raise the warning limit to hide bundle regressions; either preserve
+  these stable chunk boundaries or add a measured lazy boundary for optional GUI
+  surfaces.
+
+Reference profile on Windows 11, Bun `1.3.8`, Node `24.3.0`, with the working
+tree based on commit `38dd7c9a`: warm dev startup after the optimization
+reported Vite ready in `1241 ms`, GUI URL ready at `3782 ms`, first usable
+interaction at `5305 ms`, and `1523 ms` from GUI URL readiness to first usable
+interaction. Treat these as machine-local evidence, not a public performance
+guarantee.

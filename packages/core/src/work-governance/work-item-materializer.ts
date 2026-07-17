@@ -199,10 +199,10 @@ function assertPlanApproved(plan: SessionPlan): void {
 }
 
 function assertGoalMatchesPlan(goalRun: GoalRun, plan: SessionPlan): void {
-  if (goalRun.planId !== plan.id) {
+  if (goalRun.source.kind !== "approved_plan" || goalRun.source.planId !== plan.id) {
     throw new Error(`Goal ${goalRun.id} is not bound to approved plan ${plan.id}.`);
   }
-  if (goalRun.planHash !== plan.contentHash) {
+  if (goalRun.source.planHash !== plan.contentHash) {
     throw new Error(`Goal ${goalRun.id} is not bound to approved plan hash ${plan.contentHash}.`);
   }
 }
@@ -233,6 +233,8 @@ function toWorkItemInput(input: {
     goalRunId: input.goalRun.id,
     sourceWorkItemId: input.draft.id,
     routingRecommendation: routingRecommendation(input.draft, input.plan, input.goalRun),
+    workClassification: input.draft.workClassification,
+    workClassificationProvenance: input.draft.workClassificationProvenance,
   };
 }
 
@@ -372,6 +374,10 @@ function assertExistingMatches(existing: WorkItem, input: WorkItemUpsertInput): 
     !sameStrings(existing.dependencies, input.dependencies ?? []) ? "dependencies" : undefined,
     !sameRoutingRecommendation(existing.routingRecommendation, input.routingRecommendation)
       ? "routingRecommendation"
+      : undefined,
+    !sameJson(existing.workClassification, input.workClassification) ? "workClassification" : undefined,
+    !sameJson(existing.workClassificationProvenance, input.workClassificationProvenance)
+      ? "workClassificationProvenance"
       : undefined,
   ].filter((value): value is string => Boolean(value));
   if (mismatches.length > 0) {

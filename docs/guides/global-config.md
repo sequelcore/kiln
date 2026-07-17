@@ -66,7 +66,7 @@ kiln config set --global skills.selection.mode auto
 | `web.extractProvider` | `KilnYamlWebExtractProvider` | Global default web extraction provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `skills.builtin` | `{ enabled?: boolean, include?: string[], exclude?: string[] }` | First-party built-in skill activation policy. Built-in skill content lives in Kiln core; config only admits or narrows it. |
-| `skills.selection.mode` | `advisory \| auto` | Controls whether task/model recommended skills are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
+| `skills.selection.mode` | `advisory \| auto` | Controls whether route/task and explicit work-classification recommendations are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
 When `routing.budgetAware` is true, budget ceilings are projected into the
@@ -179,9 +179,21 @@ default without turning generated harness files into a second source of truth.
 Skill selection defaults to `advisory`: task/model recommendations are visible
 to parent agents, but only explicit agent/profile skills are loaded. Set
 `skills.selection.mode: auto` when the operator wants Kiln to admit available
-recommended skills for the selected task and route. Auto-selection never grants
-tools or authority, skips unavailable recommended skills, and still fails
-closed for explicitly requested missing skills.
+recommended skills for the selected task, route, and explicit work
+classification. Auto-selection never grants tools or authority, skips
+unavailable recommended skills, and still fails closed for explicitly
+requested missing skills. Work classification is invocation/session metadata,
+not global policy: config selects the admission mode but does not define a
+universal task label for every prompt.
+
+General writing quality belongs in the `clear-writing` built-in skill, not in
+global config. Global config may choose whether built-ins are enabled and may
+record stable operator preferences such as locale, identity, or active
+instruction profiles. A brand voice, organization tone, or project-specific
+terminology belongs in an instruction profile or scoped project skill. This
+keeps "write clearly" available to every kind of Kiln user without making
+Sequel's voice, GOV.UK conventions, or any other local style a universal
+default.
 
 ```yaml
 skills:
@@ -256,7 +268,7 @@ runtime session loop.
 routing:
   routes:
     - provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6-terra
     - provider: openrouter
       model: openrouter/free
     - provider: codex
@@ -282,7 +294,7 @@ engines:
 routing:
   routes:
     - provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6-terra
     - provider: openrouter
       model: openrouter/free
     - provider: codex
@@ -298,7 +310,7 @@ reasoningPolicy:
     mechanical-edit: low
 modelTaskSuitability:
   - provider: codex-oauth
-    model: gpt-5.4-mini
+    model: gpt-5.6-terra
     task: frontend-design
     level: limited
     reason: Prefer a visual-design-specialized route when available.
@@ -380,7 +392,11 @@ engines:
 routing:
   routes:
     - provider: codex-oauth
-      model: gpt-5.5
+      model: gpt-5.6-terra
+    - provider: codex-oauth
+      model: gpt-5.6
+    - provider: codex-oauth
+      model: gpt-5.6-luna
     - provider: opencode-go
       model: kimi-k2.6
     - provider: opencode-go
@@ -562,7 +578,7 @@ instructionProfiles:
   - sequel-engineering
 providerRoute:
   providerId: codex-oauth
-  model: gpt-5.4-mini
+  model: gpt-5.6-terra
 ---
 
 Evaluate the assigned scope against Kiln architecture doctrine. Report risks,
@@ -600,7 +616,7 @@ managedAgents:
     - id: codex-oauth-readonly-timeout-proof
       kind: direct
       provider: codex-oauth
-      model: gpt-5.4-mini
+      model: gpt-5.6-luna
       profiles:
         - foundation-readonly-plan
       workingDirectory: read-only
@@ -640,7 +656,7 @@ managedAgents:
     - id: codex-oauth-critical-approved-write
       kind: direct
       provider: codex-oauth
-      model: gpt-5.5
+      model: gpt-5.6
       profiles:
         - foundation-apply-approved-writes
       workingDirectory: isolated-worktree
@@ -798,7 +814,7 @@ managedAgents:
     - id: codex-cloud-readonly
       kind: harness
       provider: codex-cloud
-      model: gpt-5.5
+      model: gpt-5.6
       profiles:
         - foundation-readonly-plan
       remoteHarness:
@@ -898,7 +914,7 @@ global config must write a backup first, then write canonical config.
 Kiln agent profiles are canonical executable roles. A valid `.kiln/agents/*.md`
 or `~/.kiln/agents/*.md` file must declare `name`, `role`, `goal`, and `tier`.
 Optional fields include `displayName`, `nicknameCandidates`, `description`,
-`backstory`, `model`, `tools`, `skills`, `mode`, `authorityProfile`, `routeId`,
+`backstory`, `tools`, `skills`, `mode`, `authorityProfile`, `routeId`,
 `providerRoute`, and `taskAffinity`. `name` is the stable profile id used in
 configuration and events. `displayName` and `nicknameCandidates` are
 operator-facing identity hints that native harness projections may expose
@@ -908,6 +924,17 @@ using task ids such as `architecture-review`, `backend-coding`,
 parent sessions select a configured child but does not grant authority.
 Incomplete agent files are ignored instead of being projected as legacy partial
 agents.
+
+Agent profiles do not have a top-level `model` field. Use `providerRoute` only
+when the role requires a strict execution route. Profiles without
+`providerRoute` are portable and project to native harnesses without a fixed
+model so the harness can use its own current default. Profiles with
+`providerRoute` project a native model only when the target harness capability
+explicitly supports that provider/model encoding. Unsupported strict routes are
+omitted for that harness, and previously managed now-incompatible native agent
+files are backed up and removed unless drift blocks the cleanup. Kiln does not
+guess support from provider id prefixes; cross-harness provider adapters must
+be represented as explicit capabilities before projection may use them.
 
 Kiln also provides first-party built-in agent profiles for common roles:
 `scout`, `planner`, `architect`, `tdd`, `coder`, `fast-coder`, `reviewer`,
@@ -933,8 +960,9 @@ unless `--force` is confirmed.
 
 Native projection is independent from routing eligibility. Setting
 `engines.<id>.enabled: false` removes that engine from Kiln's runtime routing,
-but Kiln may still project canonical agents, skills, permissions, and shims into
-the native harness so direct use of that harness sees the same doctrine.
+but Kiln may still project compatible canonical agents, skills, permissions, and
+shims into the native harness so direct use of that harness sees the same
+doctrine.
 
 Repo-level shims are separate from global native harness projection. Generated
 `AGENTS.md` and generated `CLAUDE.md` belong to a resolved project root; they
@@ -1001,11 +1029,14 @@ kiln config read skills
 sync, merges global and project config through the canonical loaders, reports
 adopted project-context status, classifies generated repo shims, reports
 workflow snapshot manifest health, summarizes native projection install-state,
-and exposes harness capability diagnostics.
+reports skill catalog origin/projection/admission diagnostics, and exposes
+harness capability diagnostics.
 The `setup` view is the operator-facing setup read model: project-context
-status, repo-shim status, native projection status, and recommended actions such
-as `adopt-project-context`, `sync-repo-shims`, `sync-native-projections`, or
-`adopt-or-back-up-native-guidance`.
+status, repo-shim status, native projection status, skill projection/admission
+status, and recommended actions such as `adopt-project-context`,
+`sync-repo-shims`, `sync-native-projections`,
+`sync-global-instruction-shims`, `adopt-or-back-up-global-instructions`, or
+`review-global-instruction-drift`.
 The model-callable `kiln_config.read` tool exposes the same views to admitted
 runtime tool surfaces. Setup surfaces should consume the same contract rather
 than parsing YAML or native files directly.
@@ -1017,15 +1048,24 @@ Operator surfaces expose the same setup read model:
 - GUI: the Setup sidebar mode reads the gateway endpoint
   `/gui/api/config/setup` and can execute safe setup actions through
   `POST /gui/api/config/setup/actions`.
-- TUI: `/setup` renders the same project-context, repo-shim, native projection,
-  and action summary in the terminal session.
+- TUI: `/setup` renders the same project-context, repo-shim, global instruction
+  shim, native projection, and action summary in the terminal session.
 
 The GUI action endpoint is intentionally narrower than the CLI. It delegates to
-CLI-owned setup services and permits only non-force project-context adoption,
-repo-shim sync, and native projection sync. Review-only or drift-sensitive
-actions return blocked results so the operator can use the explicit CLI review,
+CLI-owned setup services and permits non-force project-context adoption,
+repo-shim sync, native projection sync, and safe global-instruction-shim sync.
+The gateway, not the button state, enforces that executable set. Valid but
+disallowed requests return a blocked setup result and never reach the CLI
+mutation service.
+Global shim sync writes only missing or stale Kiln-managed targets; unmanaged
+files and drifted managed files are blocked by the CLI-owned projection service.
+Adoption or backup of native or global guidance, force sync, and drift review
+remain review-only in the GUI so the operator can use the explicit CLI review,
 force-sync, import, or config proposal flow. Model-callable mutation still goes
 through the config proposal lifecycle below.
+
+Global instruction shim status includes canonical shared `harness` identity
+(`codex`, `claude-code`, or `opencode`), which GUI and TUI display directly.
 
 ## Governed Config Mutation
 
@@ -1070,13 +1110,23 @@ successful canonical write, and runs the existing native projection pipeline.
 Native Claude Code, Codex, and OpenCode files remain generated projections.
 
 When managed invocation is enabled, Kiln exposes a compact admitted agent
-catalog to the `managed_agent.invoke` tool description. Parent assistants should
+catalog to both `managed_agent.invoke` and `managed_agent.orchestrate`. Parent assistants should
 select a configured `agentProfile` when the child task clearly matches a
 profile, such as scout/context discovery, TDD, implementation, research, review,
 or DDD validation. If no configured profile matches a one-off read-only task,
 the parent may omit `agentProfile` and invoke a generic governed child. Parents
 must not invent profile names; unknown profiles fail closed during context
 resolution.
+
+For orchestration, profile and route selection belong to each work item rather
+than one global worker route. `managed_agent.orchestrate` validates that an
+explicit `routeId` agrees with the selected profile's route hint and that the
+profile's authority profile matches the request. Dependencies are executable
+contracts: Runtime starts a dependent only after its producers succeed, then
+passes their bounded summaries and resource URIs into the dependent request.
+Failed producers block downstream work. Independent review requires at least
+two distinct provider/model identities; two aliases for the same model do not
+count as independent evidence.
 
 The model-facing tool also projects configured route ids, provider/model task
 suitability, agent-profile task affinity, the configured skill catalog, and
@@ -1126,6 +1176,25 @@ directories from `~/.kiln/skills/` and `.kiln/skills/` to enabled native CLIs.
 Project skills override global skills with the same name. Only top-level files
 within each skill directory are copied. Sync is one-way (Kiln -> CLIs). Drift in
 a projected skill file aborts that target unless `--force` is confirmed.
+
+Native skill directories owned directly by a harness are not canonical Kiln
+config. If `kiln config read skills` reports a skill as `origin:
+native-harness`, `configured: false`, and projection status `unmanaged-native`,
+that skill exists for standalone harness use but is not admitted into Kiln
+managed invocation yet. Use the setup action
+`adopt-or-back-up-native-guidance` to adopt parseable, non-conflicting native
+skills into `~/.kiln/skills` and project the governed copy back to Claude Code,
+Codex, and OpenCode. If the same skill name differs across harnesses, Kiln
+blocks adoption and reports the conflict instead of picking a source
+implicitly. Project-specific skills can still be installed or proposed into
+`.kiln/skills` when the behavior should stay local to one repository.
+
+Agent profiles may declare a default `workClassification` when the role is
+intentionally cross-domain, such as report writing, support, education, or
+business document review. Managed invocation uses that profile classification
+only when the request and durable work item do not already provide one. The
+classification can recommend skills such as `clear-writing`, but admission
+still follows the governed skill registry and `skills.selection.mode`.
 
 ## Drift, Backups, And Disabled Engines
 

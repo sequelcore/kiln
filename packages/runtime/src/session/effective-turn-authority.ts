@@ -207,8 +207,16 @@ export function buildEffectiveTurnAuthorityPolicyInputs(input: {
         ? "Plan mode applies the plan approval workflow read-only authority envelope."
         : "Execute-mode turns are not governed by plan-mode approval policy.",
     },
-    goalEnvelopePolicyInput(input.requestedAuthority, input.authorityContext?.goalEnvelope),
-    workItemAuthorityPolicyInput(input.requestedAuthority, input.authorityContext?.workItemAuthority),
+    goalEnvelopePolicyInput(
+      input.requestedAuthority,
+      input.authorityContext?.goalEnvelope,
+      input.authorityContext?.executionUse,
+    ),
+    workItemAuthorityPolicyInput(
+      input.requestedAuthority,
+      input.authorityContext?.workItemAuthority,
+      input.authorityContext?.executionUse,
+    ),
   ];
 }
 
@@ -260,8 +268,14 @@ function resolveMaximumAuthority(input: {
   if (context?.goalEnvelope) bounds.push(context.goalEnvelope.maximumAuthority);
   if (context?.workItemAuthority) bounds.push(context.workItemAuthority.maximumAuthority);
 
-  if (input.requestedAuthority === "destructive" && (!context?.goalEnvelope || !context.workItemAuthority)) {
-    return "fail_closed";
+  if (input.requestedAuthority === "destructive") {
+    if (context?.executionUse === "operator_interactive") {
+      if (!context.sessionPolicy || !context.tenantPolicy || !context.routePolicy) {
+        return "fail_closed";
+      }
+    } else if (!context?.goalEnvelope || !context.workItemAuthority) {
+      return "fail_closed";
+    }
   }
   return bounds.reduce((left, right) => minAuthority(left, right));
 }
@@ -297,6 +311,7 @@ function policyInput(
 function goalEnvelopePolicyInput(
   requestedAuthority: EffectiveTurnAuthoritySnapshot["requestedAuthority"],
   bound: GoalAuthorityEnvelopePolicyBound | undefined,
+  executionUse: EffectiveTurnAuthorityAdmissionContext["executionUse"],
 ): EffectiveTurnAuthorityPolicyInput {
   if (bound) {
     return {
@@ -309,16 +324,19 @@ function goalEnvelopePolicyInput(
   }
   return {
     source: "goal_envelope",
-    status: requestedAuthority === "destructive" ? "unresolved" : "not_applicable",
-    reason: requestedAuthority === "destructive"
+    status: requestedAuthority === "destructive" && executionUse !== "operator_interactive" ? "unresolved" : "not_applicable",
+    reason: requestedAuthority === "destructive" && executionUse !== "operator_interactive"
       ? "Destructive operator authority requires a bound goal authority envelope."
-      : "No goal authority envelope is bound to this turn.",
+      : executionUse === "operator_interactive"
+        ? "Attended operator turns do not inherit managed goal authority."
+        : "No goal authority envelope is bound to this turn.",
   };
 }
 
 function workItemAuthorityPolicyInput(
   requestedAuthority: EffectiveTurnAuthoritySnapshot["requestedAuthority"],
   bound: WorkItemAuthorityPolicyBound | undefined,
+  executionUse: EffectiveTurnAuthorityAdmissionContext["executionUse"],
 ): EffectiveTurnAuthorityPolicyInput {
   if (bound) {
     return {
@@ -331,10 +349,12 @@ function workItemAuthorityPolicyInput(
   }
   return {
     source: "work_item_authority",
-    status: requestedAuthority === "destructive" ? "unresolved" : "not_applicable",
-    reason: requestedAuthority === "destructive"
+    status: requestedAuthority === "destructive" && executionUse !== "operator_interactive" ? "unresolved" : "not_applicable",
+    reason: requestedAuthority === "destructive" && executionUse !== "operator_interactive"
       ? "Destructive operator authority requires a bound materialized work-item authority envelope."
-      : "No work-item authority envelope is bound to this turn.",
+      : executionUse === "operator_interactive"
+        ? "Attended operator turns do not inherit managed work-item authority."
+        : "No work-item authority envelope is bound to this turn.",
   };
 }
 

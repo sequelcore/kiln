@@ -1,9 +1,12 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KILN_BENCHMARK_PROFILES } from "@kilnai/core";
 import { benchmarkCommand } from "../../src/commands/benchmark.js";
+
+const REPOSITORY_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
 const MOCK_APP_CONFIG = {
   appName: "kiln",
@@ -15,6 +18,72 @@ const MOCK_APP_CONFIG = {
   },
   mcpServerName: "kiln",
 };
+
+const REQUIRED_EVIDENCE_ARTIFACTS = [
+  "transcript",
+  "tool-calls",
+  "diagnostics",
+  "usage",
+  "route",
+  "cost",
+  "cache-topology",
+  "result",
+] as const;
+
+const CACHE_TOPOLOGY_METADATA = {
+  providerRequests: [{
+    stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    stablePrefixBytes: 120,
+    stablePrefixRegionCount: 2,
+    volatileRegionBytes: 40,
+    cacheRegions: [
+      { source: "tool_schema", stability: "stable", hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", bytes: 80, includedInStablePrefix: true },
+      { source: "system", stability: "stable", hash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", bytes: 40, includedInStablePrefix: true },
+      { source: "messages", stability: "volatile", hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", bytes: 40, includedInStablePrefix: false },
+    ],
+    cachePartition: {
+      hash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      dimensions: [
+        { source: "tenant", hash: "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+        { source: "route", hash: "sha256:2222222222222222222222222222222222222222222222222222222222222222" },
+        { source: "policy", hash: "sha256:3333333333333333333333333333333333333333333333333333333333333333" },
+        { source: "authority", hash: "sha256:4444444444444444444444444444444444444444444444444444444444444444" },
+      ],
+    },
+  }],
+  cacheInvalidReuseProbes: [{
+    stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    leftPartitionHash: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    rightPartitionHash: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    changedDimension: "tenant",
+  }],
+  cacheGainComparisons: [{
+    stablePrefixHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    baselineInputTokens: 2000,
+    candidateInputTokens: 2000,
+    baselineCachedInputTokens: 0,
+    candidateCachedInputTokens: 1200,
+    baselineLatencyMs: 1500,
+    candidateLatencyMs: 900,
+    baselineCostUsd: 0.02,
+    candidateCostUsd: 0.012,
+  }],
+} as const;
+
+function evidenceArtifacts(): readonly { readonly kind: string; readonly uri: string }[] {
+  return REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => ({
+    kind,
+    uri: `kiln://artifacts/benchmark-baselines/${kind}/content`,
+  }));
+}
+
+function artifactIdFromUri(uri: string): string {
+  const match = uri.match(/^kiln:\/\/artifacts\/benchmark-baselines\/(artifact_\d+)\/content$/u);
+  if (!match) {
+    throw new Error(`Unexpected benchmark artifact URI: ${uri}`);
+  }
+  return match[1]!;
+}
 
 describe("benchmarkCommand", () => {
   let root: string;
@@ -37,7 +106,7 @@ describe("benchmarkCommand", () => {
     expect(printed).toHaveLength(KILN_BENCHMARK_PROFILES.length);
     expect(printed[0]).toMatchObject({
       id: "kiln-tool-agent",
-      version: "1",
+      version: "3",
     });
   });
 
@@ -55,7 +124,8 @@ describe("benchmarkCommand", () => {
           k: profile.minimumK,
           passAtK: profile.minimumPassAtK,
           scorers: profile.requiredScorers,
-          artifactUris: ["kiln://artifacts/eval/tool-internal/result"],
+          artifactUris: evidenceArtifacts().map((artifact) => artifact.uri),
+          evidenceArtifacts: evidenceArtifacts(),
           configHash: "sha256:test",
         }],
       }),
@@ -88,7 +158,8 @@ describe("benchmarkCommand", () => {
           k: profile.minimumK,
           passAtK: 1,
           scorers: profile.requiredScorers,
-          artifactUris: ["kiln://artifacts/benchmark-baselines/artifact_1/content"],
+          artifactUris: evidenceArtifacts().map((artifact) => artifact.uri),
+          evidenceArtifacts: evidenceArtifacts(),
           configHash: "sha256:test",
         }],
       }),
@@ -98,6 +169,30 @@ describe("benchmarkCommand", () => {
     await benchmarkCommand(MOCK_APP_CONFIG, "report", ["--baseline", baselinePath, "--output", outputPath]);
 
     expect(readFileSync(outputPath, "utf-8")).toContain("# Kiln Benchmark Report");
+    expect(readFileSync(outputPath, "utf-8")).toContain("Publication status: blocked");
+
+    const verifiedOutputPath = join(root, "verified-report.md");
+    await benchmarkCommand(MOCK_APP_CONFIG, "report", [
+      "--baseline", baselinePath,
+      "--output", verifiedOutputPath,
+      "--publication-manifest", join(REPOSITORY_ROOT, "docs/benchmarks/verified-efficiency-v1/manifest.json"),
+      "--repository-root", REPOSITORY_ROOT,
+    ]);
+    expect(readFileSync(verifiedOutputPath, "utf-8")).toContain("Publication status: internal-evidence-only");
+    expect(readFileSync(verifiedOutputPath, "utf-8")).toContain("Public claim allowed: no");
+
+    const malformedManifestPath = join(root, "malformed-publication-manifest.json");
+    const malformedOutputPath = join(root, "malformed-publication-report.md");
+    writeFileSync(malformedManifestPath, "{", "utf-8");
+    await benchmarkCommand(MOCK_APP_CONFIG, "report", [
+      "--baseline", baselinePath,
+      "--output", malformedOutputPath,
+      "--publication-manifest", malformedManifestPath,
+      "--repository-root", REPOSITORY_ROOT,
+    ]);
+    expect(readFileSync(malformedOutputPath, "utf-8")).toContain("Publication status: blocked");
+    expect(readFileSync(malformedOutputPath, "utf-8")).toContain("publication manifest must contain valid JSON");
+    expect(readFileSync(malformedOutputPath, "utf-8")).toContain("publication manifest shape is invalid");
   });
 
   it("fails closed when readiness has no baseline file", async () => {
@@ -139,7 +234,11 @@ describe("benchmarkCommand", () => {
           outputTokens: 3,
           metadata: {
             activeAgentId: context.profile.id,
+            providerId: "codex-oauth",
+            modelId: "gpt-5.6-terra",
+            sessionSucceeded: true,
             toolCalls: [{ name: "status" }],
+            ...CACHE_TOPOLOGY_METADATA,
           },
         }),
       },
@@ -147,13 +246,98 @@ describe("benchmarkCommand", () => {
 
     expect(existsSync(outputPath)).toBe(true);
     const written = JSON.parse(readFileSync(outputPath, "utf-8")) as {
-      readonly baseline: { readonly profileId: string; readonly k: number; readonly passAtK: number };
+      readonly artifactRoot: string;
+      readonly baseline: {
+        readonly profileId: string;
+        readonly k: number;
+        readonly passAtK: number;
+        readonly evidenceArtifacts: readonly { readonly kind: string; readonly uri: string }[];
+      };
+      readonly consistency: {
+        readonly runs: readonly {
+          readonly results: readonly {
+            readonly costUsd: number;
+            readonly metadata?: {
+              readonly activeAgentId?: string;
+              readonly toolCalls?: readonly { readonly name: string }[];
+            };
+          }[];
+        }[];
+      };
     };
+    expect(written.artifactRoot).toBe(`${outputPath}.artifacts`);
+    const resultArtifact = written.baseline.evidenceArtifacts.find((artifact) => artifact.kind === "result")!;
+    expect(existsSync(join(written.artifactRoot, "benchmark-baselines", `${artifactIdFromUri(resultArtifact.uri)}.json`))).toBe(true);
     expect(written.baseline).toMatchObject({
       profileId: "kiln-tool-agent",
       k: 1,
       passAtK: 1,
     });
+    expect(written.baseline.evidenceArtifacts.map((artifact) => artifact.kind)).toEqual(REQUIRED_EVIDENCE_ARTIFACTS);
+    expect(written.consistency.runs[0]?.results[0]).toMatchObject({
+      costUsd: 0.01,
+      metadata: {
+        activeAgentId: "kiln-tool-agent",
+        toolCalls: [{ name: "status" }],
+      },
+    });
+  });
+
+  it("includes dataset content in the internal benchmark config hash", async () => {
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    const firstOutputPath = join(root, "first-baseline.json");
+    const secondOutputPath = join(root, "second-baseline.json");
+    const executeItem = async () => ({
+      output: "completed",
+      durationMs: 10,
+      costUsd: 0.01,
+      inputTokens: 5,
+      outputTokens: 3,
+      metadata: {
+        activeAgentId: "kiln-tool-agent",
+        toolCalls: [{ name: "status" }],
+        ...CACHE_TOPOLOGY_METADATA,
+      },
+    });
+    writeFileSync(
+      datasetPath,
+      JSON.stringify({
+        id: "tool-call",
+        input: "Call status.",
+        expected: "status",
+        metadata: { expectedToolCalls: [{ name: "status" }] },
+      }) + "\n",
+      "utf-8",
+    );
+    await benchmarkCommand(
+      MOCK_APP_CONFIG,
+      "run-internal",
+      ["--profile", "kiln-tool-agent", "--dataset", datasetPath, "--k", "1", "--output", firstOutputPath],
+      { executeItem },
+    );
+
+    writeFileSync(
+      datasetPath,
+      JSON.stringify({
+        id: "tool-call",
+        input: "Call status and explain the result.",
+        expected: "status",
+        metadata: { expectedToolCalls: [{ name: "status" }] },
+      }) + "\n",
+      "utf-8",
+    );
+    await benchmarkCommand(
+      MOCK_APP_CONFIG,
+      "run-internal",
+      ["--profile", "kiln-tool-agent", "--dataset", datasetPath, "--k", "1", "--output", secondOutputPath],
+      { executeItem },
+    );
+
+    const first = JSON.parse(readFileSync(firstOutputPath, "utf-8")) as { readonly baseline: { readonly configHash: string } };
+    const second = JSON.parse(readFileSync(secondOutputPath, "utf-8")) as { readonly baseline: { readonly configHash: string } };
+    expect(first.baseline.configHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(second.baseline.configHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(second.baseline.configHash).not.toBe(first.baseline.configHash);
   });
 
   it("keeps run-internal stdout as one benchmark JSON document for exact-format harnesses", async () => {
@@ -188,6 +372,7 @@ describe("benchmarkCommand", () => {
           metadata: {
             activeAgentId: context.profile.id,
             toolCalls: [{ name: "status" }],
+            ...CACHE_TOPOLOGY_METADATA,
           },
         }),
       },
@@ -200,6 +385,93 @@ describe("benchmarkCommand", () => {
     expect(parsed.baseline.profileId).toBe("kiln-tool-agent");
     expect(printed).not.toContain("Only one sentence.");
     expect(printed).not.toContain("Session Complete");
+  });
+
+  it("runs fixed-route reasoning-effort sweeps with distinct reproducible baselines", async () => {
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    const outputPath = join(root, "effort-sweep.json");
+    writeFileSync(datasetPath, JSON.stringify({
+      id: "effort-sweep",
+      input: "Call status.",
+      expected: "status",
+      metadata: { expectedToolCalls: [{ name: "status" }] },
+    }) + "\n", "utf-8");
+    const observedEfforts: Array<string | undefined> = [];
+
+    await benchmarkCommand(
+      MOCK_APP_CONFIG,
+      "run-internal",
+      [
+        "--profile", "kiln-tool-agent",
+        "--dataset", datasetPath,
+        "--k", "1",
+        "--output", outputPath,
+        "--provider", "codex",
+        "--model", "benchmark-model",
+        "--reasoning-effort-sweep", "low,high",
+      ],
+      {
+        createExecuteItem: (flags) => {
+          observedEfforts.push(flags.reasoningEffort);
+          return async () => ({
+            output: "status",
+            durationMs: 10,
+            costUsd: 0.01,
+            inputTokens: 5,
+            outputTokens: 3,
+            metadata: {
+              activeAgentId: "kiln-tool-agent",
+              toolCalls: [{ name: "status" }],
+              reasoningEffortResolution: {
+                status: "resolved",
+                requested: flags.reasoningEffort,
+                resolved: flags.reasoningEffort,
+                source: "explicit",
+              },
+              ...CACHE_TOPOLOGY_METADATA,
+            },
+          });
+        },
+      },
+    );
+
+    const written = JSON.parse(readFileSync(outputPath, "utf-8")) as {
+      readonly baseline?: unknown;
+      readonly baselines: readonly { readonly configHash: string }[];
+      readonly runs: readonly { readonly reasoningEffort: string }[];
+    };
+    expect(observedEfforts).toEqual(["low", "high"]);
+    expect(written.baseline).toBeUndefined();
+    expect(written.runs.map((run) => run.reasoningEffort)).toEqual(["low", "high"]);
+    expect(written.baselines).toHaveLength(2);
+    expect(written.baselines[0]?.configHash).not.toBe(written.baselines[1]?.configHash);
+  });
+
+  it("fails closed on ambiguous, unbound, and unbudgeted reasoning-effort benchmarks", async () => {
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    writeFileSync(datasetPath, JSON.stringify({
+      id: "effort-policy",
+      input: "Call status.",
+      expected: "status",
+    }) + "\n", "utf-8");
+    const base = ["--profile", "kiln-tool-agent", "--dataset", datasetPath, "--k", "1"];
+
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      ...base,
+      "--reasoning-effort", "low",
+      "--reasoning-effort-sweep", "low,high",
+    ])).rejects.toThrow("either --reasoning-effort or --reasoning-effort-sweep");
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      ...base,
+      "--reasoning-effort", "high",
+    ])).rejects.toThrow("require explicit --provider and --model");
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      ...base,
+      "--provider", "codex",
+      "--model", "benchmark-model",
+      "--reasoning-effort", "xhigh",
+      "--allow-experimental-xhigh",
+    ])).rejects.toThrow("requires --effort-budget-usd and --estimated-effort-cost-usd");
   });
 
   it("projects BFCL input rows into Kiln JSONL datasets", async () => {

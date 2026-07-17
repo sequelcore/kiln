@@ -8,13 +8,21 @@ import type {
   ManagedAgentMemoryScope,
   ManagedAgentAuthorityProfile,
   ManagedAgentRouteSource,
+  ProviderModelEvidence,
+  ProviderModelEvidenceObservation,
+  ProviderModelEvidenceState,
+  ProviderModelEvidenceValue,
+  ProviderModelEligibilityDecision,
+  ProviderModelEligibilityRequirements,
   ModelTaskSuitabilityEvidence,
   ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
 import {
+  createProviderModelEvidence,
   defineManagedAgentReadAuthority,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  deriveProviderModelEligibility,
   isDirectProviderId,
 } from "@kilnai/core";
 import {
@@ -26,11 +34,17 @@ import {
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
   type ManagedAgentRuntimeAdapter,
+  type ManagedAgentRuntimeAuthorityObserver,
   type ManagedInvocationAgentCatalogEntry,
   type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
+  type RuntimeBudgetAdmissionPort,
 } from "@kilnai/runtime";
+import type {
+  ManagedAgentProviderModelCatalogDiagnostic,
+  ManagedAgentProviderModelCatalogDiagnostics,
+} from "./managed-agent-provider-models.js";
 import type { CliSessionFactory } from "@kilnai/runtime";
 import type {
   KilnManagedAgentsConfig,
@@ -46,8 +60,10 @@ import type {
 } from "../wrapper/session-registry.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "../application/agent-loader.js";
-import { createConfiguredSkillRegistry } from "./skill-registry.js";
+import { readSkillCatalogStatus } from "./skill-catalog-status.js";
 import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
+
+type ManagedSkillCatalogEntry = NonNullable<ManagedInvocationToolOptions["skillCatalog"]>[number];
 
 export type ManagedAgentOperatorSurface = "gui" | "tui" | "run" | "operator";
 
@@ -62,9 +78,17 @@ export interface ManagedAgentRouteHealth {
   readonly reason?: string;
 }
 
+export interface ManagedAgentProfileHealth {
+  readonly agentName: string;
+  readonly available: boolean;
+  readonly routeId?: string;
+  readonly reason?: string;
+}
+
 export interface ManagedInvocationRouteResolution {
   readonly managedInvocation?: ManagedInvocationToolOptions;
   readonly routeHealth: readonly ManagedAgentRouteHealth[];
+  readonly agentHealth?: readonly ManagedAgentProfileHealth[];
 }
 
 export interface ManagedInvocationToolOptionsCatalog {
@@ -77,7 +101,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly registry: SessionRegistry;
   readonly surface: ManagedAgentOperatorSurface;
   readonly isProviderAvailable?: (provider: string) => boolean | undefined;
-  readonly providerModels?: Readonly<Record<string, readonly string[] | undefined>>;
+  readonly providerModelEligibility?: ManagedAgentProviderModelCatalogDiagnostics;
   readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly builtinToolOptions?: BuiltinToolOptionsSource;
@@ -85,6 +109,8 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly invocationService?: RuntimeManagedAgentInvocationService;
   readonly invocationServiceKey?: string;
   readonly userHome?: string;
+  readonly maxParallelChildren?: number;
+  readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
 }
 
 type BuiltinToolOptionsSource = DefaultBuiltinToolRegistryOptions | (() => DefaultBuiltinToolRegistryOptions | undefined);
@@ -145,11 +171,14 @@ export async function resolveManagedInvocationToolOptions(
   config: ManagedAgentRouteConfigSource | null | undefined,
   context: ResolveManagedInvocationToolOptionsContext,
 ): Promise<ManagedInvocationRouteResolution> {
+  const mark = createManagedRouteResolutionStartupMarker();
+  mark("managed-route-resolution-entered");
   if (!config || config.managedAgents?.enabled === false) {
     return { routeHealth: [] };
   }
 
   const routeConfigs = resolveRouteConfigs(config);
+  mark("managed-route-configs-resolved", { count: routeConfigs.length });
   if (routeConfigs.length === 0) {
     return { routeHealth: [] };
   }
@@ -157,17 +186,25 @@ export async function resolveManagedInvocationToolOptions(
   const routes: ManagedInvocationToolRoute[] = [];
   const routeHealth: ManagedAgentRouteHealth[] = [];
   const agentDefinitions = await loadAgentDefinitions(context.cwd);
+  mark("managed-route-agents-loaded", { count: agentDefinitions.length });
   const userHome = context.userHome ?? homedir();
   const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome, config.skills);
+  mark("managed-route-skills-loaded", { count: skillCatalog.length });
 
+  let routeIndex = 0;
   for (const routeConfig of routeConfigs) {
+    routeIndex += 1;
+    mark("managed-route-resolve-started", { routeIndex, routeId: routeConfig.routeConfig.id });
     const resolved = await resolveRouteConfig(routeConfig, context, config);
+    mark("managed-route-resolve-finished", { routeIndex, routeId: routeConfig.routeConfig.id });
     routeHealth.push(resolved.health);
     if (resolved.route) {
       routes.push(resolved.route);
     }
   }
-  const agentCatalog = agentDefinitions.map((agent) => projectManagedAgentCatalogEntry(agent, routes));
+  const agentProjections = agentDefinitions.map((agent) => projectManagedAgentCatalogEntry(agent, routes));
+  const agentCatalog = agentProjections.flatMap((projection) => projection.entry ? [projection.entry] : []);
+  const agentHealth = agentProjections.flatMap((projection) => projection.health ? [projection.health] : []);
 
   const unavailableRoutes = routeHealth
     .filter((route) => !route.available)
@@ -191,9 +228,14 @@ export async function resolveManagedInvocationToolOptions(
 
   return {
     routeHealth,
+    ...(agentHealth.length > 0 ? { agentHealth } : {}),
     ...(shouldExposeManagedInvocation ? {
       managedInvocation: {
         routes,
+        maxParallelChildren: context.maxParallelChildren ?? 1,
+        ...(context.orchestrationBudgetAdmission
+          ? { orchestrationBudgetAdmission: context.orchestrationBudgetAdmission }
+          : {}),
         ...(agentCatalog.length > 0 ? { agentCatalog } : {}),
         ...(skillCatalog.length > 0 ? { skillCatalog } : {}),
         ...(unavailableRoutes.length > 0 ? { unavailableRoutes } : {}),
@@ -211,24 +253,103 @@ export async function resolveManagedInvocationToolOptions(
   };
 }
 
+function createManagedRouteResolutionStartupMarker(): (phase: string, detail?: Record<string, unknown>) => void {
+  const startedAt = performance.now();
+  return (phase, detail) => {
+    if (process.env.KILN_STARTUP_PROFILE !== "1") {
+      return;
+    }
+    process.stderr.write(`KILN_STARTUP_PROFILE ${JSON.stringify({
+      type: "kiln_startup_profile",
+      surface: "managed-agent-route-resolution",
+      phase,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      ...(detail ? { detail } : {}),
+    })}\n`);
+  };
+}
+
 function projectManagedAgentCatalogEntry(
   agent: KilnAgentDefinition,
   routes: readonly ManagedInvocationToolRoute[],
-): ManagedInvocationAgentCatalogEntry {
+): { readonly entry?: ManagedInvocationAgentCatalogEntry; readonly health?: ManagedAgentProfileHealth } {
+  const explicitRouteHealth = validateExplicitAgentRoute(agent, routes);
+  if (explicitRouteHealth) {
+    return { health: explicitRouteHealth };
+  }
   const routeHint = resolveAgentRouteHint(agent, routes);
   return {
-    name: agent.name,
-    ...(agent.displayName ? { displayName: agent.displayName } : {}),
-    ...(agent.nicknameCandidates ? { nicknameCandidates: agent.nicknameCandidates } : {}),
-    role: agent.role,
-    goal: agent.goal,
-    tier: agent.tier,
-    ...(agent.skills ? { skills: agent.skills } : {}),
-    ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
-    ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
-    ...(routeHint?.providerRoute ? { providerRoute: routeHint.providerRoute } : {}),
-    ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
+    entry: {
+      name: agent.name,
+      ...(agent.displayName ? { displayName: agent.displayName } : {}),
+      ...(agent.nicknameCandidates ? { nicknameCandidates: agent.nicknameCandidates } : {}),
+      role: agent.role,
+      goal: agent.goal,
+      tier: agent.tier,
+      ...(agent.authorityProfile ? { authorityProfile: agent.authorityProfile } : {}),
+      ...(agent.skills ? { skills: agent.skills } : {}),
+      ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
+      ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
+      ...(routeHint?.providerRoute ? { providerRoute: routeHint.providerRoute } : {}),
+      ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
+    },
   };
+}
+
+function validateExplicitAgentRoute(
+  agent: KilnAgentDefinition,
+  routes: readonly ManagedInvocationToolRoute[],
+): ManagedAgentProfileHealth | undefined {
+  if (!agent.routeId && !agent.providerRoute) {
+    return undefined;
+  }
+  const route = routeFromExplicitAgentHint(agent, routes);
+  if (!route) {
+    const routeDescription = agent.routeId
+      ? `route '${agent.routeId}'`
+      : `provider '${agent.providerRoute?.providerId}'${agent.providerRoute?.model ? ` model '${agent.providerRoute.model}'` : ""}`;
+    return {
+      agentName: agent.name,
+      available: false,
+      ...(agent.routeId ? { routeId: agent.routeId } : {}),
+      reason: `Agent references unavailable managed ${routeDescription}.`,
+    };
+  }
+  if (agent.providerRoute?.providerId && agent.providerRoute.providerId !== route.providerId) {
+    return {
+      agentName: agent.name,
+      available: false,
+      routeId: route.routeId,
+      reason: `Agent provider '${agent.providerRoute.providerId}' does not match route provider '${route.providerId}'.`,
+    };
+  }
+  if (agent.providerRoute?.model && agent.providerRoute.model !== route.model) {
+    return {
+      agentName: agent.name,
+      available: false,
+      routeId: route.routeId,
+      reason: `Agent model '${agent.providerRoute.model}' does not match route model '${route.model ?? "unspecified"}'.`,
+    };
+  }
+  if (agent.authorityProfile && !route.profiles[agent.authorityProfile]) {
+    return {
+      agentName: agent.name,
+      available: false,
+      routeId: route.routeId,
+      reason: `Agent authority profile '${agent.authorityProfile}' is not admitted by route '${route.routeId}'.`,
+    };
+  }
+  const routeTools = new Set(Object.values(route.profiles).flatMap((profile) => profile?.allowedToolNames ?? []));
+  const missingTools = (agent.tools ?? []).filter((tool) => !routeTools.has(tool));
+  if (missingTools.length > 0) {
+    return {
+      agentName: agent.name,
+      available: false,
+      routeId: route.routeId,
+      reason: `Agent tools are not admitted by route '${route.routeId}': ${missingTools.join(", ")}.`,
+    };
+  }
+  return undefined;
 }
 
 function resolveAgentRouteHint(
@@ -306,32 +427,7 @@ function scoreAgentRoute(agent: KilnAgentDefinition, route: ManagedInvocationToo
       score += 5;
     }
   }
-  if (agent.tier === "fast") {
-    score += fastRouteScore(route);
-  } else if (agent.tier === "reasoning") {
-    score += reasoningRouteScore(route);
-  }
   return score;
-}
-
-function fastRouteScore(route: ManagedInvocationToolRoute): number {
-  const model = route.model?.toLowerCase() ?? "";
-  let score = 0;
-  if (model.includes("mini") || model.includes("spark") || model.includes("free")) {
-    score += 40;
-  }
-  if (model.includes("5.5") || model.includes("pro") || model.includes("opus")) {
-    score -= 40;
-  }
-  return score;
-}
-
-function reasoningRouteScore(route: ManagedInvocationToolRoute): number {
-  const model = route.model?.toLowerCase() ?? "";
-  if (model.includes("5.5") || model.includes("pro") || model.includes("opus")) {
-    return 20;
-  }
-  return 0;
 }
 
 export function createManagedInvocationToolOptionsCatalog(
@@ -373,6 +469,12 @@ export function createManagedInvocationToolOptionsCatalog(
       get contextResolver() {
         return current.contextResolver;
       },
+      get maxParallelChildren() {
+        return current.maxParallelChildren;
+      },
+      get orchestrationBudgetAdmission() {
+        return current.orchestrationBudgetAdmission;
+      },
     },
     update(next: ManagedInvocationToolOptions) {
       current = next;
@@ -384,17 +486,24 @@ function loadManagedInvocationSkillCatalog(
   projectPath: string,
   userHome: string,
   skillConfig: KilnYamlSkillsConfig | undefined,
-): readonly {
-  readonly name: string;
-  readonly description: string;
-  readonly tags?: readonly string[];
-}[] {
-  const registry = createConfiguredSkillRegistry({ projectPath, userHome, skillConfig });
-  return registry.all()
-    .map((skill) => ({
+): readonly ManagedSkillCatalogEntry[] {
+  const catalog = readSkillCatalogStatus({ projectPath, userHome, skillConfig });
+  return catalog.entries
+    .map((skill): ManagedSkillCatalogEntry => ({
       name: skill.name,
       description: skill.description,
-      ...(skill.tags.length > 0 ? { tags: skill.tags } : {}),
+      origin: skill.origin,
+      configured: skill.configured,
+      builtIn: skill.builtIn,
+      sourcePath: skill.sourcePath,
+      admission: skill.admission,
+      projections: skill.projections.map((projection) => ({
+        target: projection.target,
+        status: projection.status,
+        path: projection.path,
+      })),
+      ...(skill.omissionReason ? { omissionReason: skill.omissionReason } : {}),
+      ...(skill.tags && skill.tags.length > 0 ? { tags: skill.tags } : {}),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -646,24 +755,22 @@ async function resolveRouteConfig(
   if (!model) {
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
-  const advertisedModels = context.providerModels?.[routeConfig.provider];
-  if (
-    context.providerModels
-    && !Object.prototype.hasOwnProperty.call(context.providerModels, routeConfig.provider)
-  ) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' model evidence is pending.`);
+  const catalogEntry = resolveManagedProviderModelCatalogEntry(context, routeConfig.provider, model);
+  if (catalogEntry.status === "pending") {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' model eligibility evidence is pending.`);
   }
-  if (advertisedModels && advertisedModels.length === 0) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' did not advertise any models.`);
-  }
-  if (advertisedModels && !advertisedModels.includes(model)) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not advertise model '${model}'.`);
+  if (catalogEntry.status === "ineligible") {
+    return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, undefined));
   }
   if (!supportsReadonlyResultHandoff(routeConfig.provider, model)) {
     return unhealthy(
       baseHealth,
       `Provider '${routeConfig.provider}' model '${model}' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.`,
     );
+  }
+  const canonicalAdmission = deriveCanonicalManagedRouteAdmission(catalogEntry.entry, routeConfig, model);
+  if (!canonicalAdmission.eligible) {
+    return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, canonicalAdmission));
   }
 
   const profileResolution = buildRouteProfiles(routeConfig, context.cwd, profiles, config.managedAgents?.worktreeLease);
@@ -1065,6 +1172,13 @@ async function resolveDirectRouteConfig(
   if (!model) {
     return unhealthy(baseHealth, `Direct managed invocation route '${routeConfig.id}' requires a model.`);
   }
+  const catalogEntry = resolveManagedProviderModelCatalogEntry(context, routeConfig.provider, model);
+  if (catalogEntry.status === "pending") {
+    return unhealthy(baseHealth, `Provider/model eligibility evidence is pending for direct managed invocation route '${routeConfig.id}'.`);
+  }
+  if (catalogEntry.status === "ineligible") {
+    return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, undefined));
+  }
   let adapter: ManagedAgentRuntimeAdapter | undefined;
   try {
     adapter = await context.directAdapterFactory?.(routeConfig);
@@ -1079,6 +1193,10 @@ async function resolveDirectRouteConfig(
     if (!writeSupport.ok) {
       return unhealthy(baseHealth, writeSupport.reason);
     }
+  }
+  const canonicalAdmission = deriveCanonicalManagedRouteAdmission(catalogEntry.entry, routeConfig, model);
+  if (!canonicalAdmission.eligible) {
+    return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, canonicalAdmission));
   }
   const profileResolution = buildRouteProfiles(routeConfig, context.cwd, normalizeProfiles(routeConfig.profiles), config.managedAgents?.worktreeLease);
   if (!profileResolution.ok) {
@@ -1200,6 +1318,135 @@ function unhealthy(
   };
 }
 
+function resolveManagedProviderModelCatalogEntry(
+  context: ResolveManagedInvocationToolOptionsContext,
+  providerId: string,
+  model: string,
+): {
+  readonly status: "available";
+  readonly entry: ManagedAgentProviderModelCatalogDiagnostic;
+} | {
+  readonly status: "ineligible";
+} | {
+  readonly status: "pending";
+} {
+  if (!context.providerModelEligibility) {
+    return { status: "pending" };
+  }
+  const providerEligibility = context.providerModelEligibility?.[providerId];
+  if (providerEligibility === undefined) {
+    return { status: "pending" };
+  }
+  const entry = providerEligibility?.[model];
+  if (!entry) {
+    return { status: "ineligible" };
+  }
+  return { status: "available", entry };
+}
+
+function deriveCanonicalManagedRouteAdmission(
+  entry: ManagedAgentProviderModelCatalogDiagnostic,
+  routeConfig: KilnManagedAgentRouteConfig,
+  model: string,
+): ProviderModelEligibilityDecision {
+  return deriveProviderModelEligibility(
+    managedRouteEvidence(entry.catalogDiagnosticEvidence, routeConfig, model),
+    managedRouteEligibilityRequirements(new Date().toISOString()),
+    [],
+  );
+}
+
+function managedEligibilityUnavailableReason(
+  providerId: string,
+  model: string,
+  decision: ProviderModelEligibilityDecision | undefined,
+): string {
+  if (!decision) {
+    return `Provider '${providerId}' has no eligible managed-agent decision for model '${model}'.`;
+  }
+  const reasons = decision.reasons.length > 0 ? decision.reasons.join(", ") : "unknown";
+  return `Provider '${providerId}' model '${model}' is not eligible for managed invocation: ${reasons}.`;
+}
+
+function managedRouteEligibilityRequirements(evaluatedAt: string): ProviderModelEligibilityRequirements {
+  return {
+    use: "managed-agent",
+    evaluatedAt,
+    requiredStates: [
+      "discovered",
+      "configured",
+      "authenticated",
+      "capabilityCompatible",
+      "policyAdmitted",
+      "routeHealthy",
+    ],
+    requiredCapabilities: [],
+    minimumCapabilityAuthority: "harness-reported",
+    minimumStateAuthority: "harness-reported",
+    requireProbe: false,
+  };
+}
+
+function managedRouteEvidence(
+  catalogDiagnosticEvidence: ProviderModelEvidence,
+  routeConfig: KilnManagedAgentRouteConfig,
+  model: string,
+): ProviderModelEvidence {
+  const observedAt = new Date().toISOString();
+  const routeObservations = [
+    managedRouteObservation("configured", "confirmed", "operator-declared", routeConfig.id, observedAt),
+    managedRouteObservation("authenticated", "confirmed", "runtime-observed", routeConfig.provider, observedAt),
+    managedRouteObservation("capabilityCompatible", "confirmed", "runtime-observed", routeConfig.id, observedAt),
+    managedRouteObservation("policyAdmitted", "confirmed", "operator-declared", routeConfig.id, observedAt),
+    managedRouteObservation("routeHealthy", "confirmed", "runtime-observed", routeConfig.id, observedAt),
+  ];
+  return createProviderModelEvidence({
+    identity: {
+      ...catalogDiagnosticEvidence.identity,
+      route: {
+        providerId: routeConfig.provider,
+        providerModelId: model,
+        scope: catalogDiagnosticEvidence.identity.route.scope,
+      },
+    },
+    aliases: catalogDiagnosticEvidence.aliases,
+    states: {
+      ...catalogDiagnosticEvidence.states,
+      configured: "confirmed",
+      authenticated: "confirmed",
+      capabilityCompatible: "confirmed",
+      policyAdmitted: "confirmed",
+      routeHealthy: "confirmed",
+    },
+    observations: [
+      ...catalogDiagnosticEvidence.observations,
+      ...routeObservations,
+    ],
+    failures: catalogDiagnosticEvidence.failures,
+  });
+}
+
+function managedRouteObservation(
+  state: ProviderModelEvidenceState,
+  value: ProviderModelEvidenceValue,
+  authority: ProviderModelEvidenceObservation["authority"],
+  id: string,
+  observedAt: string,
+): ProviderModelEvidenceObservation {
+  return {
+    state,
+    value,
+    provenance: `managed-agent-route:${state}`,
+    authority,
+    source: {
+      kind: "managed-agent-route",
+      id,
+    },
+    observedAt,
+    freshness: "fresh",
+  };
+}
+
 function isProviderAvailable(
   context: ResolveManagedInvocationToolOptionsContext,
   provider: string,
@@ -1260,6 +1507,7 @@ function createManagedInvocationService(
   const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
 
   return new RuntimeManagedAgentInvocationService({
+    authorityObserver: createCliManagedRuntimeAuthorityObserver(),
     ...(needsWorktreeLease && leaseConfig ? {
       worktreeLeaseManager: new ManagedGitWorktreeLeaseManager({
         repositoryPath: cwd,
@@ -1277,6 +1525,43 @@ function createManagedInvocationService(
       }),
     } : {}),
   });
+}
+
+function createCliManagedRuntimeAuthorityObserver(): ManagedAgentRuntimeAuthorityObserver {
+  return {
+    observe: async ({ request }) => {
+      const observedAt = new Date();
+      const validUntil = new Date(observedAt.getTime() + 60000);
+      return {
+        approval: observedApprovalForManagedAuthority(request.authority),
+        sandbox: observedSandboxForManagedAuthority(request.authority),
+        source: "runtime-observation",
+        proof: "proven",
+        observedAt: observedAt.toISOString(),
+        validUntil: validUntil.toISOString(),
+        reason: "CLI managed route was admitted by Kiln route resolution with live-proven managed invocation capability.",
+      };
+    },
+  };
+}
+
+function observedApprovalForManagedAuthority(
+  authority: ManagedAgentAuthorityProfile,
+): "never" | "on-request" {
+  const profile = authority.permissionProfile.toLowerCase();
+  return profile.includes("trusted")
+    || profile.includes("full-access")
+    || profile.includes("danger-full-access")
+    ? "never"
+    : "on-request";
+}
+
+function observedSandboxForManagedAuthority(
+  authority: ManagedAgentAuthorityProfile,
+): "read-only" | "workspace-write" {
+  return authority.toolAuthority.writeAllowed === true && authority.workingDirectory.mode !== "read-only"
+    ? "workspace-write"
+    : "read-only";
 }
 
 function managedInvocationServiceKey(
@@ -1417,11 +1702,11 @@ function defaultManagedWorkspaceDeniedPaths(cwd: string, allowedPaths: readonly 
 }
 
 function joinManagedRoutePath(rootPath: string, childPath: string): string {
-  if (win32.isAbsolute(rootPath)) {
-    return win32.join(rootPath, childPath);
-  }
   if (posix.isAbsolute(rootPath)) {
     return posix.join(rootPath, childPath);
+  }
+  if (win32.isAbsolute(rootPath)) {
+    return win32.join(rootPath, childPath);
   }
   return resolve(rootPath, childPath);
 }
@@ -1431,17 +1716,17 @@ function uniqueStrings(values: readonly string[]): readonly string[] {
 }
 
 function normalizeManagedRoutePath(path: string, cwd: string): string {
-  if (win32.isAbsolute(path)) {
-    return win32.normalize(path);
-  }
   if (posix.isAbsolute(path)) {
     return posix.normalize(path);
   }
-  if (win32.isAbsolute(cwd)) {
-    return win32.resolve(cwd, path);
+  if (win32.isAbsolute(path)) {
+    return win32.normalize(path);
   }
   if (posix.isAbsolute(cwd)) {
     return posix.resolve(cwd, path);
+  }
+  if (win32.isAbsolute(cwd)) {
+    return win32.resolve(cwd, path);
   }
   return resolve(cwd, path);
 }

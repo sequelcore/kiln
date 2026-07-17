@@ -7,14 +7,30 @@ import type {
   ToolDefinition,
   AuthorityDescriptor,
   ApprovalRequestedEvent,
-  type ActionEffectEnvelope,
+  ActionEffectEnvelope,
 } from "@kilnai/core";
 import { textParts, EventBus, normalizeToolInput } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
+import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { ToolResultSanitizer, SanitizationResult } from "@kilnai/core";
 import type { AuditLog } from "@kilnai/core";
+
+async function waitForAssertion(assertion: () => void, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+  throw lastError;
+}
 
 function makeProvider(toolCallsOnRound?: number): ProviderAdapter {
   let callCount = 0;
@@ -377,7 +393,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 6,
+      executionEnvelope: { toolRounds: { max: 6 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -496,7 +512,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 5,
+      executionEnvelope: { toolRounds: { max: 5 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -562,7 +578,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       ],
       builtinTools: new Map([["managed_agent.invoke", managedInvoke]]),
       eventBus: new EventBus(100),
-      maxToolRounds: 2,
+      executionEnvelope: { toolRounds: { max: 2 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -714,7 +730,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus,
-      maxToolRounds: 3,
+      executionEnvelope: { toolRounds: { max: 3 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -835,7 +851,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -956,7 +972,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1083,7 +1099,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1130,7 +1146,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       ],
       builtinTools: new Map([["managed_agent.invoke", managedInvoke]]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1229,7 +1245,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1346,7 +1362,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 2,
+      executionEnvelope: { toolRounds: { max: 2 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve two GUI areas"));
@@ -1477,7 +1493,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         ["work_item.update", workItemUpdate],
       ]),
       eventBus: new EventBus(100),
-      maxToolRounds: 6,
+      executionEnvelope: { toolRounds: { max: 6 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
@@ -1519,7 +1535,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
       builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
@@ -1564,17 +1580,63 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
       builtinTools: new Map([["get_data", readTool]]),
       eventBus: new EventBus(100),
-      maxToolRounds: 1,
+      executionEnvelope: { toolRounds: { max: 1 } },
     });
 
     const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
 
     expect(provider.createMessage).toHaveBeenCalledTimes(2);
     expect(readTool).toHaveBeenCalledTimes(1);
-    expect(result.stopReason).toBe("tool_rounds_exhausted");
+    expect(result.stopReason).toBe("tool_round_budget_exhausted");
     expect(result.parts).toEqual(textParts(
       "Tool round budget exhausted after 1 tool round. The bounded finalization pass did not produce a final answer without tools. Inspect the transcript and child execution evidence before recording governed evidence.",
     ));
+  });
+
+  it("does not impose a default low tool-round budget on interactive sessions", async () => {
+    const productiveToolRounds = 35;
+    let providerCallCount = 0;
+    const provider: ProviderAdapter = {
+      name: "mock",
+      createMessage: vi.fn().mockImplementation(() => {
+        providerCallCount += 1;
+        if (providerCallCount <= productiveToolRounds) {
+          return {
+            parts: textParts(`round ${providerCallCount}`),
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{ id: `tc-${providerCallCount}`, name: "get_data", input: { round: providerCallCount } }],
+            stopReason: "tool_use",
+          };
+        }
+        return {
+          parts: textParts("completed after many productive tool rounds"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [],
+          stopReason: "end_turn",
+        };
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const getData = vi.fn().mockResolvedValue("round result");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+      builtinTools: new Map([["get_data", getData]]),
+      eventBus: new EventBus(100),
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("keep working"));
+
+    expect(result.stopReason).toBe("end_turn");
+    expect(result.parts).toEqual(textParts("completed after many productive tool rounds"));
+    expect(provider.createMessage).toHaveBeenCalledTimes(productiveToolRounds + 1);
+    expect(getData).toHaveBeenCalledTimes(productiveToolRounds);
   });
 
   describe("authorization", () => {
@@ -1680,6 +1742,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
     it("skips tool execution when authorization denied", async () => {
       const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
       const toolFn = vi.fn().mockResolvedValue("should not run");
 
       const authorizer: ToolAuthorizer = {
@@ -1695,6 +1759,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
         capabilityMap: makeCapabilityMap({ effectEnvelope: MUTATION_EFFECT }),
         toolAuthorizer: authorizer,
       });
@@ -1702,6 +1767,62 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("delete stuff"));
 
       expect(toolFn).not.toHaveBeenCalled();
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            success: false,
+            isError: true,
+            resultSummary: "Authorization denied: Authorization denied",
+          }),
+        ]);
+    });
+
+    it("correlates ordered tool output chunks between tool start and completion", async () => {
+      const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", async (_input, context) => {
+          context?.emitOutput?.({ stream: "stdout", delta: "first\n" });
+          context?.emitOutput?.({ stream: "stderr", delta: "second\n" });
+          return { output: "first\nsecond", isError: false };
+        }]]),
+        eventBus,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+
+      expect(eventBus.history()
+        .filter((event) => event.type === "tool_called" || event.type === "tool_output" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({ type: "tool_called", toolCallId: "tc-1", toolName: "get_data" }),
+          expect.objectContaining({
+            type: "tool_output",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            stream: "stdout",
+            delta: "first\n",
+            chunkIndex: 0,
+          }),
+          expect.objectContaining({
+            type: "tool_output",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            stream: "stderr",
+            delta: "second\n",
+            chunkIndex: 1,
+          }),
+          expect.objectContaining({ type: "tool_result", toolCallId: "tc-1", toolName: "get_data" }),
+        ]);
     });
 
     it("waits for approval and executes tool after continue()", async () => {
@@ -1733,7 +1854,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const session = makeSession();
       const pending = orchestrator.processMessage(session, textParts("delete stuff"));
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(approvalRequested).toHaveBeenCalledTimes(1);
       });
 
@@ -1742,6 +1863,17 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await pending;
 
       expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(toolFn).toHaveBeenCalledWith(
+        { query: "test" },
+        expect.objectContaining({
+          authority: {
+            level: 4,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Approved for this invocation",
+          },
+        }),
+      );
     });
 
     it("passes the approval callback into builtin tool execution context", async () => {
@@ -1764,7 +1896,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       const pending = orchestrator.processMessage(makeSession(), textParts("delegate destructive work"));
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(approvalRequested).toHaveBeenCalledTimes(1);
       });
 
@@ -1805,7 +1937,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const session = makeSession();
       const pending = orchestrator.processMessage(session, textParts("delete stuff"));
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(approvalRequested).toHaveBeenCalledTimes(1);
       });
 
@@ -1822,6 +1954,22 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         output: "Approval denied: rejected by user",
         resultSummary: "Approval denied: rejected by user",
       });
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            success: false,
+            isError: true,
+            resultSummary: "Approval denied: rejected by user",
+          }),
+        ]);
     });
 
     it("uses per-call authority descriptor before toolAuthorizer fallback", async () => {
@@ -1865,17 +2013,94 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       );
 
       expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(toolFn).toHaveBeenCalledWith(
+        { query: "test" },
+        expect.objectContaining({
+          authority: {
+            level: 1,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Tenant authority allows this tool",
+          },
+        }),
+      );
       expect(authorizer.authorize).not.toHaveBeenCalled();
+    });
+
+    it("executes governed destructive write authority without runtime approval prompt", async () => {
+      const provider = makeToolCallProvider({
+        id: "tc-write-1",
+        name: "write",
+        input: { filePath: "packages/core/tests/context/stable-prefix.test.ts", content: "test" },
+      });
+      const eventBus = new EventBus();
+      const approvalRequested = vi.fn();
+      eventBus.on("approval_requested", approvalRequested);
+      const toolFn = vi.fn().mockResolvedValue({ output: "Wrote file", isError: false });
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({
+          level: 4,
+          allowed: false,
+          requiresApproval: true,
+          reason: "Irreversible workspace mutation requires confirmation",
+        }),
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes a file", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["write", toolFn]]),
+        toolAuthorizer: authorizer,
+        eventBus,
+      });
+
+      const perCallConfig: PerCallToolConfig = {
+        toolAuthority: new Map<string, AuthorityDescriptor>([[
+          "write",
+          {
+            level: 4,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Governed destructive execution admitted by effective turn authority.",
+          },
+        ]]),
+      };
+
+      await orchestrator.processMessage(
+        makeSession(),
+        textParts("write the test"),
+        undefined,
+        undefined,
+        perCallConfig,
+      );
+
+      expect(approvalRequested).not.toHaveBeenCalled();
+      expect(toolFn).toHaveBeenCalledTimes(1);
+      expect(authorizer.authorize).not.toHaveBeenCalled();
+      expect(toolFn).toHaveBeenCalledWith(
+        { filePath: "packages/core/tests/context/stable-prefix.test.ts", content: "test" },
+        expect.objectContaining({
+          authority: {
+            level: 4,
+            allowed: true,
+            requiresApproval: false,
+            reason: "Governed destructive execution admitted by effective turn authority.",
+          },
+        }),
+      );
     });
 
     it("fails closed for malformed per-call authority descriptor", async () => {
       const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
       const toolFn = vi.fn().mockResolvedValue("should not run");
 
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
       });
 
       const perCallConfig: PerCallToolConfig = {
@@ -1898,6 +2123,22 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       );
 
       expect(toolFn).not.toHaveBeenCalled();
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            success: false,
+            isError: true,
+            resultSummary: "Authorization denied: Invalid authority descriptor; execution denied",
+          }),
+        ]);
     });
 
     it("allowed execution audit append includes authority metadata", async () => {
@@ -1982,6 +2223,8 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   describe("dangerous command enforcement", () => {
     it("deny decision blocks dangerous command before tool execution", async () => {
       const provider = makeCommandProvider("rm -rf /tmp/cache");
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
       const toolFn = vi.fn().mockResolvedValue("should not run");
       const detector = {
         evaluate: vi.fn().mockReturnValue({
@@ -1996,6 +2239,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["bash", toolFn]]),
         dangerousCommandDetector: detector,
+        eventBus,
       });
 
       const result = await orchestrator.processMessage(makeSession(), textParts("cleanup"));
@@ -2007,6 +2251,18 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         success: false,
         resultSummary: "Dangerous command blocked: Detected destructive Unix command pattern. (destructive_unix)",
       });
+      expect(emitSpy.mock.calls.filter((call) => call[0].type === "tool_result")).toEqual([
+        [expect.objectContaining({
+          toolCallId: "tc-cmd-1",
+          toolName: "bash",
+          success: false,
+          isError: true,
+          output: "Dangerous command blocked: Detected destructive Unix command pattern. (destructive_unix)",
+          metadata: expect.objectContaining({
+            toolName: "bash",
+          }),
+        })],
+      ]);
     });
 
     it("ask decision blocks ambiguous command before tool execution", async () => {
@@ -2104,6 +2360,49 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("status"));
 
       expect(detector.evaluate).toHaveBeenCalledWith({ command: "git status --short", shell: "bash" });
+      expect(toolFn).toHaveBeenCalledWith(
+        { command: "git status --short" },
+        expect.objectContaining({
+          toolCall: expect.objectContaining({ name: "bash" }),
+        }),
+      );
+    });
+
+    it("narrows conservative static bash authority when the concrete command is read-only", async () => {
+      const provider = makeCommandProvider("git status --short");
+      const toolFn = vi.fn().mockResolvedValue("ok");
+      const detector = {
+        evaluate: vi.fn().mockReturnValue({
+          action: "allow",
+          reasonCode: "safe_read_only",
+          reason: "Command matches deterministic read-only allowlist.",
+        }),
+      };
+      const eventBus = new EventBus();
+      const approvalRequested = vi.fn();
+      eventBus.on("approval_requested", approvalRequested);
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "bash", description: "Runs shell commands", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["bash", toolFn]]),
+        dangerousCommandDetector: detector,
+        eventBus,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("status"), {
+        toolAuthority: new Map<string, AuthorityDescriptor>([[
+          "bash",
+          {
+            level: 4,
+            allowed: false,
+            requiresApproval: true,
+            reason: "Privileged or unknown identity use requires confirmation",
+          },
+        ]]),
+      });
+
+      expect(approvalRequested).not.toHaveBeenCalled();
       expect(toolFn).toHaveBeenCalledWith(
         { command: "git status --short" },
         expect.objectContaining({
@@ -2529,6 +2828,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(toolCalledEvents).toHaveLength(1);
       expect(toolCalledEvents[0]![0]).toMatchObject({
         type: "tool_called",
+        toolCallId: "tc-1",
         toolName: "get_data",
         toolInput: { query: "test" },
       });
@@ -2578,6 +2878,38 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       });
     });
 
+    it("propagates governed execution scope to tool lifecycle events", async () => {
+      const eventBus = new EventBus(100);
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider: makeProvider(1),
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        eventBus,
+        capabilityMap: makeCapabilityMap(),
+      });
+      const executionScope = {
+        kind: "work_item" as const,
+        goalRunId: "goal-1",
+        workItemId: "work-1",
+        attemptId: "attempt-1",
+        managedInvocationId: "invocation-1",
+      };
+
+      await orchestrator.processMessage(
+        makeSession(),
+        textParts("fetch"),
+        undefined,
+        undefined,
+        { executionScope },
+      );
+
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({ type: "tool_called", executionScope }),
+          expect.objectContaining({ type: "tool_result", executionScope }),
+        ]);
+    });
+
     it("emits tool_result with resultSummary", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);
@@ -2596,6 +2928,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(resultEvents).toHaveLength(1);
       expect(resultEvents[0]![0]).toMatchObject({
         type: "tool_result",
+        toolCallId: "tc-1",
         toolName: "get_data",
         success: true,
         output: "some result data",
@@ -2608,42 +2941,33 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       });
     });
 
-    it.each(["write", "edit"] as const)(
-      "captures structured file changes from %s tool metadata",
-      async (toolName) => {
-        const provider = makeToolCallProvider(
-          {
-            id: "tc-write-1",
-            name: toolName,
-            input: { filePath: "src/demo.txt", content: "updated" },
-          },
-          "writing file...",
-        );
+    it("requires shared file operation metadata before recording file-change evidence", async () => {
+      const provider = makeToolCallProvider(
+        {
+          id: "tc-write-1",
+          name: "write",
+          input: { filePath: "src/demo.txt", content: "updated" },
+        },
+        "writing file...",
+      );
 
-        const orchestrator = new RuntimeSessionOrchestrator({
-          provider,
-          tools: [{ name: toolName, description: "Writes files", inputSchema: {}, tags: new Set() }],
-          builtinTools: new Map([[
-            toolName,
-            vi.fn().mockResolvedValue({
-              output: "Wrote 7 characters",
-              isError: false,
-              metadata: { filePath: "C:/workspace/src/demo.txt" },
-            }),
-          ]]),
-        });
-
-        const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
-
-        expect(result.toolExecutions?.[0]?.fileChanges).toEqual([
-          expect.objectContaining({
-            path: "C:/workspace/src/demo.txt",
-            changeType: "modified",
-            linesAdded: 1,
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([[
+          "write",
+          vi.fn().mockResolvedValue({
+            output: "Wrote 7 characters",
+            isError: false,
+            metadata: { filePath: "C:/workspace/src/demo.txt" },
           }),
-        ]);
-      },
-    );
+        ]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
+
+      expect(result.toolExecutions?.[0]?.fileChanges).toBeUndefined();
+    });
 
     it("uses shared file metadata as the source of truth for file-change evidence", async () => {
       const provider = makeToolCallProvider(
@@ -2823,10 +3147,12 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
       };
 
+      const eventBus = new EventBus(100);
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["write", toolFn]]),
+        eventBus,
       });
 
       await orchestrator.processMessage(makeSession(), textParts("write file"));
@@ -2844,6 +3170,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
     it("turns malformed tool arguments into a tool error instead of crashing execution", async () => {
       let callCount = 0;
+      const eventBus = new EventBus(100);
       const toolFn = vi.fn().mockResolvedValue("should not run");
       const provider: ProviderAdapter = {
         name: "mock",
@@ -2881,16 +3208,33 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "write", description: "Writes files", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["write", toolFn]]),
+        eventBus,
       });
 
       const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
 
       expect(toolFn).not.toHaveBeenCalled();
       expect(result.toolExecutions?.[0]).toMatchObject({
+        toolCallId: "tc-write-invalid-1",
         toolName: "write",
         success: false,
       });
       expect(getReinjectedToolResultFromSecondCall(provider)).toContain("Invalid input for tool \"write\"");
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-write-invalid-1",
+            toolName: "write",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-write-invalid-1",
+            toolName: "write",
+            success: false,
+            isError: true,
+          }),
+        ]);
     });
 
     it("stops retrying the same malformed tool call and falls back to a final text response", async () => {
@@ -2949,6 +3293,68 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         resultSummary: expect.stringContaining("Repeated invalid input for tool \"write\""),
       });
       expect(getReinjectedToolResultFromCall(provider, 2)).toContain("Repeated invalid input for tool \"write\"");
+    });
+
+    it("stops retrying the same deterministic tool execution failure", async () => {
+      let callCount = 0;
+      const toolFn = vi.fn().mockResolvedValue({
+        output: "Invalid input: structuredResult must be an object.",
+        isError: true,
+      });
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(({ tools }: { tools?: readonly ToolDefinition[] }) => {
+          callCount++;
+          if (tools && callCount <= 4) {
+            return {
+              parts: textParts("retrying finish..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: `tc-finish-failed-${callCount}`,
+                name: "work_item.execution.finish",
+                input: { workItemId: "work-1" },
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("The work item could not be closed because the tool input remained invalid."),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{
+          name: "work_item.execution.finish",
+          description: "Finishes governed work",
+          inputSchema: {},
+          tags: new Set(),
+        }],
+        builtinTools: new Map([["work_item.execution.finish", toolFn]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("finish work"));
+
+      expect(toolFn).toHaveBeenCalledTimes(2);
+      expect(provider.createMessage).toHaveBeenCalledTimes(3);
+      expect(result.parts).toEqual(textParts(
+        "The work item could not be closed because the tool input remained invalid.",
+      ));
+      expect(result.toolExecutions).toHaveLength(2);
+      expect(getReinjectedToolResultFromCall(provider, 2)).toContain(
+        "Repeated deterministic failure for tool \"work_item.execution.finish\"",
+      );
     });
 
     it("does not execute tool calls returned by repeated-malformed fallback finalization", async () => {
@@ -3111,14 +3517,541 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   });
 
   describe("per-call tool config", () => {
+    it("materializes an authorized exact catalog result for the next provider round", async () => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const deferredTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser"]),
+      };
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding the browser tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "catalog-search-1",
+              name: "tool_catalog_search",
+              input: { exact: "browser_session_start", includeSchemas: true },
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("browser tool is available"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [deferredTool.name] }),
+        isError: false,
+        metadata: {
+          toolName: "tool_catalog_search",
+          kind: "catalog",
+          operation: "search",
+          exact: deferredTool.name,
+          resultCount: 1,
+          totalIndexed: 2,
+          includedSchemas: true,
+          stale: false,
+          materializableToolName: deferredTool.name,
+        },
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [catalogTool],
+        materializableTools: new Map([[deferredTool.name, deferredTool]]),
+        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
+        toolAllowlist: new Set([catalogTool.name, deferredTool.name]),
+      });
+
+      expect(catalogSearch).toHaveBeenCalledWith(
+        { exact: deferredTool.name, includeSchemas: true },
+        expect.any(Object),
+      );
+      const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls as Array<[
+        { readonly tools?: readonly ToolDefinition[] },
+      ]>;
+      const firstRoundToolNames = calls[0]?.[0].tools?.map((tool) => tool.name) ?? [];
+      const secondRoundToolNames = calls[1]?.[0].tools?.map((tool) => tool.name) ?? [];
+
+      expect(firstRoundToolNames).toEqual([catalogTool.name]);
+      expect(secondRoundToolNames).toContain(catalogTool.name);
+      expect(secondRoundToolNames).toContain(deferredTool.name);
+      expect(secondRoundToolNames.filter((name) => name === deferredTool.name)).toHaveLength(1);
+
+      const providerRequests = result.providerRequests as Array<{
+        readonly toolProjection?: {
+          readonly projected?: {
+            readonly names?: readonly string[];
+            readonly count?: number;
+            readonly hash?: string;
+          };
+          readonly materializable?: {
+            readonly names?: readonly string[];
+            readonly count?: number;
+            readonly hash?: string;
+          };
+          readonly materializedAdditions?: readonly string[];
+          readonly materializationDecisions?: readonly {
+            readonly decision?: string;
+            readonly toolName?: string;
+            readonly sourceToolCallId?: string;
+            readonly sourceToolName?: string;
+            readonly catalog?: {
+              readonly exact?: string;
+              readonly resultCount?: number;
+              readonly totalIndexed?: number;
+              readonly includedSchemas?: boolean;
+              readonly stale?: boolean;
+            };
+          }[];
+        };
+      }> | undefined;
+      expect(providerRequests).toHaveLength(2);
+      expect(providerRequests?.[0]?.toolProjection).toEqual({
+        projected: {
+          names: [catalogTool.name],
+          count: 1,
+          hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+        materializable: {
+          names: [deferredTool.name],
+          count: 1,
+          hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+        materializedAdditions: [],
+        materializationDecisions: [],
+      });
+      expect(providerRequests?.[1]?.toolProjection).toEqual({
+        projected: {
+          names: [catalogTool.name, deferredTool.name],
+          count: 2,
+          hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+        materializable: {
+          names: [deferredTool.name],
+          count: 1,
+          hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        },
+        materializedAdditions: [deferredTool.name],
+        materializationDecisions: [{
+          decision: "materialized",
+          toolName: deferredTool.name,
+          sourceToolCallId: "catalog-search-1",
+          sourceToolName: catalogTool.name,
+          catalog: {
+            exact: deferredTool.name,
+            resultCount: 1,
+            totalIndexed: 2,
+            includedSchemas: true,
+            stale: false,
+          },
+        }],
+      });
+      const serializedProviderRequests = JSON.stringify(providerRequests);
+      expect(serializedProviderRequests).not.toContain("inputSchema");
+      expect(serializedProviderRequests).not.toContain("Starts a browser session");
+      expect(serializedProviderRequests).not.toContain("Searches the tool catalog");
+    });
+
+    it("scopes provider request materializable tool projection to the per-call allowlist", async () => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const browserSnapshotTool: ToolDefinition = {
+        name: "browser_snapshot",
+        description: "Reads the current browser snapshot",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser", "readonly"]),
+      };
+      const browserSessionStartTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser", "mutation"]),
+      };
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding the browser snapshot tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "catalog-search-snapshot",
+              name: catalogTool.name,
+              input: { exact: browserSnapshotTool.name, includeSchemas: true },
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("browser snapshot is available"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [browserSnapshotTool.name] }),
+        isError: false,
+        metadata: {
+          toolName: catalogTool.name,
+          kind: "catalog",
+          operation: "search",
+          exact: browserSnapshotTool.name,
+          resultCount: 1,
+          totalIndexed: 2,
+          includedSchemas: true,
+          stale: false,
+          materializableToolName: browserSnapshotTool.name,
+        },
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [catalogTool],
+        materializableTools: new Map([
+          [browserSnapshotTool.name, browserSnapshotTool],
+          [browserSessionStartTool.name, browserSessionStartTool],
+        ]),
+        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("inspect browser"), undefined, undefined, {
+        toolAllowlist: new Set([catalogTool.name, browserSnapshotTool.name]),
+      });
+
+      expect(catalogSearch).toHaveBeenCalledWith(
+        { exact: browserSnapshotTool.name, includeSchemas: true },
+        expect.any(Object),
+      );
+      const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls as Array<[
+        { readonly tools?: readonly ToolDefinition[] },
+      ]>;
+      expect(calls[0]?.[0].tools?.map((tool) => tool.name)).toEqual([catalogTool.name]);
+      expect(calls[1]?.[0].tools?.map((tool) => tool.name)).toEqual([
+        catalogTool.name,
+        browserSnapshotTool.name,
+      ]);
+
+      const providerRequests = result.providerRequests as Array<{
+        readonly toolProjection?: {
+          readonly materializable?: {
+            readonly names?: readonly string[];
+            readonly count?: number;
+            readonly hash?: string;
+          };
+        };
+      }> | undefined;
+      const materializableProjection = providerRequests?.[0]?.toolProjection?.materializable;
+      expect(materializableProjection).toEqual({
+        names: [browserSnapshotTool.name],
+        count: 1,
+        hash: "sha256:d830717a1f5349854b858b3f979270e267557dcfcad347be2ce9ce231c8337c8",
+      });
+      expect(materializableProjection?.names).not.toContain(browserSessionStartTool.name);
+      expect(JSON.stringify(providerRequests)).not.toContain(browserSessionStartTool.name);
+    });
+
+    it("does not leak outside-authority materialization target names through provider request decisions", async () => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const browserSessionStartTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser", "mutation"]),
+      };
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding disallowed browser session tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "catalog-search-disallowed",
+              name: catalogTool.name,
+              input: { exact: browserSessionStartTool.name, includeSchemas: true },
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("disallowed tool was not exposed"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [browserSessionStartTool.name] }),
+        isError: false,
+        metadata: {
+          toolName: catalogTool.name,
+          kind: "catalog",
+          operation: "search",
+          exact: browserSessionStartTool.name,
+          resultCount: 1,
+          totalIndexed: 2,
+          includedSchemas: true,
+          stale: false,
+          materializableToolName: browserSessionStartTool.name,
+        },
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [catalogTool],
+        materializableTools: new Map([[browserSessionStartTool.name, browserSessionStartTool]]),
+        builtinTools: new Map([[catalogTool.name, catalogSearch]]),
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
+        toolAllowlist: new Set([catalogTool.name]),
+      });
+
+      const providerRequests = result.providerRequests as Array<{
+        readonly toolProjection?: {
+          readonly materializable?: {
+            readonly names?: readonly string[];
+          };
+          readonly materializationDecisions?: readonly {
+            readonly decision?: string;
+            readonly toolName?: string;
+            readonly catalog?: {
+              readonly exact?: string;
+            };
+          }[];
+        };
+      }> | undefined;
+      expect(providerRequests?.[0]?.toolProjection?.materializable?.names).toEqual([]);
+      expect(providerRequests?.[1]?.toolProjection?.materializationDecisions).toEqual([{
+        decision: "outside_authority",
+        toolName: "<redacted>",
+        sourceToolCallId: "catalog-search-disallowed",
+        sourceToolName: catalogTool.name,
+        catalog: {},
+      }]);
+      expect(JSON.stringify(providerRequests)).not.toContain(browserSessionStartTool.name);
+    });
+
+    it("does not execute a newly materialized tool until the next provider round", async () => {
+      const catalogTool: ToolDefinition = {
+        name: "tool_catalog_search",
+        description: "Searches the tool catalog",
+        inputSchema: {},
+        tags: new Set(),
+      };
+      const browserTool: ToolDefinition = {
+        name: "browser_session_start",
+        description: "Starts a browser session",
+        inputSchema: { type: "object" },
+        tags: new Set(["browser"]),
+      };
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn()
+          .mockResolvedValueOnce({
+            parts: textParts("finding and starting the browser tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [
+              {
+                id: "catalog-search-1",
+                name: catalogTool.name,
+                input: { exact: browserTool.name, includeSchemas: true },
+              },
+              {
+                id: "browser-start-premature",
+                name: browserTool.name,
+                input: {},
+              },
+            ],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("starting the now-materialized browser tool"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{
+              id: "browser-start-next-round",
+              name: browserTool.name,
+              input: {},
+            }],
+            stopReason: "tool_use",
+          })
+          .mockResolvedValueOnce({
+            parts: textParts("browser started"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const catalogSearch = vi.fn().mockResolvedValue({
+        output: JSON.stringify({ tools: [browserTool.name] }),
+        isError: false,
+        metadata: {
+          toolName: catalogTool.name,
+          kind: "catalog",
+          operation: "search",
+          exact: browserTool.name,
+          resultCount: 1,
+          totalIndexed: 2,
+          includedSchemas: true,
+          stale: false,
+          materializableToolName: browserTool.name,
+        },
+      });
+      const browserSessionStart = vi.fn().mockResolvedValue({
+        output: "browser-session-1",
+        isError: false,
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [catalogTool],
+        materializableTools: new Map([[browserTool.name, browserTool]]),
+        builtinTools: new Map([
+          [catalogTool.name, catalogSearch],
+          [browserTool.name, browserSessionStart],
+        ]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("start a browser"), undefined, undefined, {
+        toolAllowlist: new Set([catalogTool.name, browserTool.name]),
+      });
+
+      expect(catalogSearch).toHaveBeenCalledTimes(1);
+      expect(browserSessionStart).toHaveBeenCalledTimes(1);
+      const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls as Array<[
+        { readonly tools?: readonly ToolDefinition[] },
+      ]>;
+      expect(calls[0]?.[0].tools?.map((tool) => tool.name)).toEqual([catalogTool.name]);
+      expect(calls[1]?.[0].tools?.map((tool) => tool.name)).toContain(browserTool.name);
+      const firstRoundResults = getLastToolResultPartsFromCall(provider, 1);
+      expect(firstRoundResults).toEqual([
+        expect.objectContaining({ toolUseId: "catalog-search-1" }),
+        expect.objectContaining({
+          toolUseId: "browser-start-premature",
+          content: expect.stringContaining("next provider round"),
+        }),
+      ]);
+    });
+
+    it("maintains tool execution scope across model rounds until governed work exits", async () => {
+      const eventBus = new EventBus(100);
+      const executionScope = {
+        kind: "work_item" as const,
+        goalRunId: "goal-1",
+        workItemId: "work-1",
+        attemptId: "attempt-1",
+      };
+      const builtinTools = new Map([
+        ["work_item.execution.start", vi.fn().mockResolvedValue({
+          output: "started",
+          isError: false,
+          metadata: {
+            executionScopeTransition: { action: "enter", scope: executionScope },
+          },
+        })],
+        ["read", vi.fn().mockResolvedValue("file contents")],
+        ["work_item.execution.finish", vi.fn().mockResolvedValue({
+          output: "finished",
+          isError: false,
+          metadata: {
+            executionScopeTransition: { action: "exit", scope: executionScope },
+          },
+        })],
+      ]);
+      const executor = new RuntimeSessionToolExecutor(
+        { provider: makeProvider() },
+        eventBus,
+        async () => ({ approved: true }),
+        vi.fn(),
+        builtinTools,
+      );
+      const session = makeSession();
+
+      await executor.executeToolCalls(session, [
+        { id: "start-1", name: "work_item.execution.start", input: {} },
+      ]);
+      await executor.executeToolCalls(session, [
+        { id: "read-1", name: "read", input: { path: "README.md" } },
+      ]);
+      await executor.executeToolCalls(session, [
+        { id: "finish-1", name: "work_item.execution.finish", input: {} },
+      ]);
+      await executor.executeToolCalls(session, [
+        { id: "read-2", name: "read", input: { path: "README.md" } },
+      ]);
+
+      const lifecycleEvents = eventBus.history()
+        .filter((event) => event.type === "tool_called" || event.type === "tool_result");
+      expect(lifecycleEvents).toEqual([
+        expect.objectContaining({ type: "tool_called", toolCallId: "start-1" }),
+        expect.objectContaining({ type: "tool_result", toolCallId: "start-1", executionScope }),
+        expect.objectContaining({ type: "tool_called", toolCallId: "read-1", executionScope }),
+        expect.objectContaining({ type: "tool_result", toolCallId: "read-1", executionScope }),
+        expect.objectContaining({ type: "tool_called", toolCallId: "finish-1", executionScope }),
+        expect.objectContaining({ type: "tool_result", toolCallId: "finish-1", executionScope }),
+        expect.not.objectContaining({ type: "tool_called", toolCallId: "read-2", executionScope }),
+        expect.not.objectContaining({ type: "tool_result", toolCallId: "read-2", executionScope }),
+      ]);
+    });
+
     it("blocks tool not in allowlist", async () => {
       const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
       const toolFn = vi.fn().mockResolvedValue("should not run");
 
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
       });
 
       const perCallConfig: PerCallToolConfig = {
@@ -3128,6 +4061,46 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, perCallConfig);
 
       expect(toolFn).not.toHaveBeenCalled();
+    });
+
+    it("emits correlated tool activity when executor allowlist blocks a tool call", async () => {
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
+      const emitError = vi.fn();
+      const executor = new RuntimeSessionToolExecutor(
+        { provider: makeProvider() },
+        eventBus,
+        async () => ({ approved: true }),
+        emitError,
+      );
+
+      const result = await executor.executeToolCalls(
+        makeSession(),
+        [{ id: "tc-1", name: "get_data", input: { query: "test" } }],
+        { toolAllowlist: new Set(["other_tool"]) },
+      );
+
+      expect(result.resultParts).toEqual([
+        expect.objectContaining({
+          toolUseId: "tc-1",
+          isError: true,
+        }),
+      ]);
+      expect(emitSpy.mock.calls.filter((call) => call[0].type === "tool_called")).toEqual([
+        [expect.objectContaining({
+          toolCallId: "tc-1",
+          toolName: "get_data",
+        })],
+      ]);
+      expect(emitSpy.mock.calls.filter((call) => call[0].type === "tool_result")).toEqual([
+        [expect.objectContaining({
+          toolCallId: "tc-1",
+          toolName: "get_data",
+          success: false,
+          isError: true,
+        })],
+      ]);
+      expect(emitError).not.toHaveBeenCalled();
     });
 
     it("allows tool in allowlist", async () => {
@@ -3168,6 +4141,25 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       } | undefined;
 
       expect(context?.allowedToolNames).toEqual(["get_data"]);
+    });
+
+    it("passes the admitted workspace into builtin tool execution context", async () => {
+      const provider = makeProvider(1);
+      const toolFn = vi.fn().mockResolvedValue("result");
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, {
+        workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+      });
+
+      const context = toolFn.mock.calls[0]?.[1] as {
+        readonly sandbox?: { readonly cwd?: string };
+      } | undefined;
+      expect(context?.sandbox?.cwd).toBe("C:\\Proyectos\\Sequel\\kiln");
     });
 
     it("allows all tools when no allowlist", async () => {
@@ -3217,6 +4209,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
     it("blocks tool when rate limited", async () => {
       const provider = makeProvider(1);
+      const eventBus = new EventBus(100);
       const toolFn = vi.fn().mockResolvedValue("should not run");
 
       const rateLimiter: RateLimiter = {
@@ -3229,6 +4222,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", toolFn]]),
+        eventBus,
       });
 
       const perCallConfig: PerCallToolConfig = {
@@ -3240,6 +4234,22 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       expect(toolFn).not.toHaveBeenCalled();
       expect(rateLimiter.check).toHaveBeenCalledWith("tenant-1", "get_data");
+      expect(eventBus.history().filter((event) => event.type === "tool_called" || event.type === "tool_result"))
+        .toEqual([
+          expect.objectContaining({
+            type: "tool_called",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+          }),
+          expect.objectContaining({
+            type: "tool_result",
+            toolCallId: "tc-1",
+            toolName: "get_data",
+            success: false,
+            isError: true,
+            resultSummary: "Rate limit exceeded for tool \"get_data\". Try again in 30 seconds.",
+          }),
+        ]);
     });
 
     it("records rate limit after successful execution", async () => {
@@ -3267,6 +4277,67 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       expect(toolFn).toHaveBeenCalled();
       expect(rateLimiter.record).toHaveBeenCalledWith("tenant-1", "get_data");
+    });
+
+    it("emits per-turn tool usage snapshots from the tool execution layer", async () => {
+      let callCount = 0;
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              parts: textParts("searching..."),
+              inputTokens: 100,
+              outputTokens: 50,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [
+                { id: "search-1", name: "web_search", input: { query: "kiln docs" } },
+                { id: "search-2", name: "web_search", input: { query: "kiln tools" } },
+              ],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("done"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const eventBus = new EventBus(100);
+      const webSearch = vi.fn().mockResolvedValue({
+        output: "sources",
+        isError: false,
+      });
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "web_search", description: "Search web", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["web_search", webSearch]]),
+        eventBus,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("research"));
+
+      const toolResults = eventBus.history().filter((event) => event.type === "tool_result");
+      expect(toolResults).toHaveLength(2);
+      expect(toolResults.map((event) => event.toolCallId)).toEqual(["search-1", "search-2"]);
+      expect(toolResults[0]?.toolUsage).toEqual({
+        scope: "turn",
+        toolName: "web_search",
+        calls: 1,
+      });
+      expect(toolResults[1]?.toolUsage).toEqual({
+        scope: "turn",
+        toolName: "web_search",
+        calls: 2,
+      });
     });
 
     it("merges additional tools for single invocation", async () => {
@@ -3417,5 +4488,172 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       // Dep-level should win
       expect(authorizer.authorize).toHaveBeenCalledWith("get_data", READ_ONLY_EFFECT);
     });
+  });
+});
+
+describe("RuntimeSessionOrchestrator - governed work materialization", () => {
+  const tool = (name: string): ToolDefinition => ({
+    name,
+    description: name,
+    inputSchema: {},
+    tags: new Set(),
+  });
+
+  it("blocks inspection until the exact work-item set and operator-direct goal are materialized", async () => {
+    let round = 0;
+    const provider: ProviderAdapter = {
+      name: "mock",
+      createMessage: vi.fn().mockImplementation(() => {
+        round += 1;
+        if (round === 1) {
+          return {
+            parts: textParts("materializing work"),
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [
+              { id: "tree-early", name: "tree", input: {} },
+              { id: "work-1", name: "work_item.update", input: { id: "work-1" } },
+              { id: "work-2", name: "work_item.update", input: { id: "work-2" } },
+              { id: "work-3", name: "work_item.update", input: { id: "work-3" } },
+            ],
+            stopReason: "tool_use",
+          };
+        }
+        if (round === 2) {
+          return {
+            parts: textParts("creating goal"),
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [
+              {
+                id: "goal-1",
+                name: "goal.create",
+                input: {
+                  workItemIds: ["work-1", "work-2", "work-3"],
+                },
+              },
+              { id: "tree-same-round", name: "tree", input: {} },
+            ],
+            stopReason: "tool_use",
+          };
+        }
+        if (round === 3) {
+          return {
+            parts: textParts("inspecting"),
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{ id: "tree-after-goal", name: "tree", input: {} }],
+            stopReason: "tool_use",
+          };
+        }
+        return {
+          parts: textParts("done"),
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [],
+          stopReason: "end_turn",
+        };
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const update = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({
+      output: "updated",
+      isError: false,
+      metadata: { kind: "work_item", item: { id: input.id } },
+    }));
+    const createGoal = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({
+      output: "created",
+      isError: false,
+      metadata: {
+        kind: "goal",
+        goal: {
+          id: "goal-1",
+          source: { kind: "operator_direct", turnId: "turn-1" },
+          workItemIds: input.workItemIds,
+        },
+      },
+    }));
+    const inspectTree = vi.fn().mockResolvedValue("tree output");
+    const tools = [
+      tool("work_governance.assess"),
+      tool("work_profile.list"),
+      tool("work_item.list"),
+      tool("work_item.update"),
+      tool("goal.create"),
+      tool("tree"),
+    ];
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools,
+      builtinTools: new Map([
+        ["work_item.update", update],
+        ["goal.create", createGoal],
+        ["tree", inspectTree],
+      ]),
+      executionEnvelope: { toolRounds: { max: 5 } },
+    });
+
+    const result = await orchestrator.processMessage(
+      makeSession(),
+      textParts("create a governed goal before inspection"),
+      undefined,
+      undefined,
+      {
+        turnId: "turn-1",
+        governedWorkRequirement: { kind: "goal_materialization", requiredWorkItemCount: 3 },
+      },
+    );
+
+    expect(update).toHaveBeenCalledTimes(3);
+    expect(createGoal).toHaveBeenCalledTimes(1);
+    expect(createGoal).toHaveBeenCalledWith(
+      expect.objectContaining({ workItemIds: ["work-1", "work-2", "work-3"] }),
+      expect.anything(),
+    );
+    expect(inspectTree).toHaveBeenCalledTimes(1);
+    expect(result.toolExecutions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ toolCallId: "tree-early", success: false }),
+      expect.objectContaining({ toolCallId: "tree-same-round", success: false }),
+      expect.objectContaining({ toolCallId: "tree-after-goal", success: true }),
+    ]));
+    expect(result.parts).toEqual(textParts("done"));
+    const calls = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls;
+    expect((calls[0]?.[0].tools as ToolDefinition[]).map((entry) => entry.name)).not.toContain("tree");
+    expect((calls[1]?.[0].tools as ToolDefinition[]).map((entry) => entry.name)).toContain("goal.create");
+    expect((calls[2]?.[0].tools as ToolDefinition[]).map((entry) => entry.name)).toContain("tree");
+  });
+
+  it("returns a specific stop reason when materialization exhausts its tool-round budget", async () => {
+    const provider = makeProvider();
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [tool("work_item.update"), tool("goal.create"), tool("tree")],
+      builtinTools: new Map(),
+      executionEnvelope: { toolRounds: { max: 1 } },
+    });
+
+    const result = await orchestrator.processMessage(
+      makeSession(),
+      textParts("create the goal first"),
+      undefined,
+      undefined,
+      {
+        turnId: "turn-1",
+        governedWorkRequirement: { kind: "goal_materialization", requiredWorkItemCount: 3 },
+      },
+    );
+
+    expect(result.stopReason).toBe("governed_work_materialization_required");
+    expect(result.parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: expect.stringContaining("Create 3 more distinct work items") }),
+    ]));
   });
 });

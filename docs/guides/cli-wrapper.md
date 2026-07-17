@@ -83,6 +83,36 @@ role is to expose what Kiln is regulating:
 
 They should not present Kiln as if the backend itself were the product.
 
+## Context Usage
+
+When CLI already prints a session report, it includes the shared context-usage
+projection. Structured JSON exposes the field only as an optional extension;
+exact-answer and benchmark contracts remain unchanged. CLI does not derive a
+ratio from transcript, cost, selected provider, or a configured default model.
+Persisted transcript evidence is restored as historical with its original
+observation and source. See [Context Usage Projection](../architecture/context-usage-projection.md).
+
+## CLI Package Test Harness
+
+The `@kilnai/cli` package participates in the canonical workspace test command,
+so its harness must fail loudly and exit cleanly. The package test script uses
+single-worker Vitest execution with a verbose reporter so filtered workspace
+runs show progress instead of appearing to hang silently.
+
+CLI Vitest config owns the lifecycle bounds for default tests:
+
+- test timeout: `10_000ms`
+- hook timeout: `10_000ms`
+- teardown timeout: `10_000ms`
+
+These bounds are package-level diagnostics, not a substitute for cleanup. Tests
+that create child processes, servers, watchers, timers, temporary directories,
+or process-level mocks must own teardown in the same test or hook that creates
+the resource. Default CLI tests must not require live credentials, installed
+native harnesses, or operator-local state. If a live harness check is needed, it
+belongs in an explicitly named live test path outside default package
+verification.
+
 ## Transitional Note
 
 Older documentation may describe this layer mainly as a wrapper architecture or

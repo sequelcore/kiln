@@ -26,6 +26,8 @@ export type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigStatusSnapshot,
+  InspectableWorkItemResource,
+  InspectableWorkItemSnapshotResource,
   OperatorManagedAgentCapabilitySnapshot,
   OperatorManagedAgentInvocationEventPayload,
   OperatorTurnRequestedAuthority,
@@ -37,6 +39,17 @@ export type {
 
 export {
   KilnConfigSetupSnapshotSchema,
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  formatVerifiedEfficiencyEvidence,
+} from "@kilnai/gateway-contracts";
+
+export type {
+  OperatorResourceReadRequest,
+  OperatorResourceReadResult,
+  OperatorResourceReadContent,
+  OperatorResourceReadSummary,
+  OperatorResourceReadPresentation,
+  VerifiedEfficiencyEvidenceProjection,
 } from "@kilnai/gateway-contracts";
 
 export type {

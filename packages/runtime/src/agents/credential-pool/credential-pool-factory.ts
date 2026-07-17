@@ -43,6 +43,7 @@ export class CredentialPoolFactory<TAuth> {
         lastSuccess: healthRecord?.lastSuccess ?? null,
         lastExhausted: healthRecord?.lastExhausted ?? null,
         cooldownUntil: healthRecord?.cooldownUntil ?? null,
+        invalidReason: healthRecord?.lastOutcome?.type === "auth-failed" ? "auth-failed" : null,
         softLeaseCount: 0,
       };
     });

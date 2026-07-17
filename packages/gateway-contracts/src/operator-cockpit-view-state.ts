@@ -10,6 +10,11 @@ import type {
 import type {
   OperatorSessionEvent,
 } from "./frames.js";
+import {
+  createOperatorAttentionSummary,
+  type OperatorAttentionItem,
+  type OperatorAttentionSummary,
+} from "./operator-attention.js";
 
 export interface OperatorCockpitFocusTarget {
   readonly instanceId: string;
@@ -53,6 +58,7 @@ export interface OperatorCockpitReadOnlyViewState {
   readonly mode: "read-only";
   readonly dispatch: "not-dispatched";
   readonly mutationDispatch: "disabled";
+  readonly projection: OperatorCockpitReadOnlyProjection;
   readonly focus: {
     readonly resolved: boolean;
     readonly target?: OperatorCockpitFocusTarget;
@@ -68,6 +74,7 @@ export interface OperatorCockpitReadOnlyViewState {
     readonly nextEventId?: string;
   };
   readonly managedAgents: OperatorCockpitManagedAgentViewState;
+  readonly attention: OperatorAttentionSummary;
 }
 
 export type OperatorCockpitManagedAgentAttentionState =
@@ -87,6 +94,7 @@ export interface OperatorCockpitManagedAgentCancelControl {
 
 export interface OperatorCockpitManagedAgentViewItem {
   readonly managedInvocationId: string;
+  readonly gatewayTargetId?: string;
   readonly instanceId: string;
   readonly sessionId: string;
   readonly status: OperatorCockpitInvocationProjection["status"];
@@ -150,20 +158,25 @@ export function createOperatorCockpitReadOnlyViewState(
     focusResolved,
     filteredTimeline: timeline,
   });
+  const managedAgents = createManagedAgentViewState(
+    input.projection,
+    input.viewState.managedAgentDrilldownTarget,
+  );
 
   return {
     mode: "read-only",
     dispatch: "not-dispatched",
     mutationDispatch: "disabled",
+    projection: input.projection,
     focus: {
       resolved: focusResolved !== null,
       ...(focusResolved ? { target: focusResolved } : {}),
     },
     timeline,
     replay,
-    managedAgents: createManagedAgentViewState(
-      input.projection,
-      input.viewState.managedAgentDrilldownTarget,
+    managedAgents,
+    attention: createOperatorAttentionSummary(
+      managedAgents.items.flatMap(managedAgentAttentionItem),
     ),
   };
 }
@@ -191,6 +204,7 @@ function projectManagedAgentItem(
   const attentionState = managedAgentAttentionState(invocation);
   return {
     managedInvocationId: invocation.managedInvocationId,
+    ...(invocation.target.gatewayTargetId !== undefined ? { gatewayTargetId: invocation.target.gatewayTargetId } : {}),
     instanceId: invocation.instanceId,
     sessionId: invocation.sessionId,
     status: invocation.status,
@@ -226,6 +240,73 @@ function projectManagedAgentItem(
     )),
     cancelControl: managedAgentCancelControl(invocation),
   };
+}
+
+function managedAgentAttentionItem(
+  item: OperatorCockpitManagedAgentViewItem,
+): readonly OperatorAttentionItem[] {
+  if (item.attentionState === "clear" || item.attentionState === "unknown") {
+    return [];
+  }
+
+  const target = {
+    ...(item.gatewayTargetId !== undefined ? { gatewayTargetId: item.gatewayTargetId } : {}),
+    instanceId: item.instanceId,
+    sessionId: item.sessionId,
+    managedInvocationId: item.managedInvocationId,
+  };
+  const base = {
+    attentionId: `managed-agent:${item.instanceId}:${item.sessionId}:${item.managedInvocationId}`,
+    target,
+    resourceUris: item.resourceUris,
+  };
+
+  if (item.attentionState === "active") {
+    return [{
+      ...base,
+      reason: "managed-agent-active",
+      severity: "info",
+      title: "Managed agent is running",
+    }];
+  }
+  if (item.attentionState === "needs_review") {
+    return [{
+      ...base,
+      reason: "managed-agent-review-required",
+      severity: "action_required",
+      title: "Managed agent needs review",
+    }];
+  }
+  if (item.attentionState === "timed_out") {
+    return [{
+      ...base,
+      reason: "managed-agent-timed-out",
+      severity: "blocked",
+      title: "Managed agent timed out",
+    }];
+  }
+  if (item.attentionState === "stale") {
+    return [{
+      ...base,
+      reason: "managed-agent-stale",
+      severity: "blocked",
+      title: "Managed agent heartbeat is stale",
+    }];
+  }
+  if (item.attentionState === "failed") {
+    return [{
+      ...base,
+      reason: "managed-agent-failed",
+      severity: "failed",
+      title: "Managed agent failed",
+    }];
+  }
+  return [{
+    ...base,
+    reason: "managed-agent-cancelled",
+    severity: "info",
+    title: "Managed agent was cancelled",
+  }];
 }
 
 function managedAgentAttentionState(

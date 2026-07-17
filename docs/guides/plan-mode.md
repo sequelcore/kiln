@@ -185,11 +185,11 @@ and operator surfaces summarize that same admitted authority.
 
 Requested authority cannot widen plan mode. Plan turns are recorded as
 `planning` and admit only the narrowed read-only/planning tool surface.
-`destructive` is not an operator-requestable turn authority until the authority
-elevation approval flow exists. Execute turns may request `read_only` or
-`audited` authority; those requests narrow the provider tool surface before
-invocation, and malformed authority values fail instead of falling back to full
-authority.
+Execute turns on supported direct-provider surfaces may request `read_only`,
+`audited`, or the explicit high-authority `destructive` mode. The first two
+narrow the provider tool surface; `destructive` removes per-action approval and
+must be a deliberate operator choice. Malformed authority values fail instead
+of falling back to full authority.
 
 Approval UI appears only for runtime approval events. If an assistant reports
 that it is blocked by read-only or fail-closed authority, switch to an admitted
@@ -217,8 +217,8 @@ traceable. If the managed child fails before a parent attempt starts, the work
 item remains paused with `operation=managed_invocation_failed`, and the
 canonical turn is failed rather than completed. A successful start that leaves
 the item `in_progress` is also not closeout; the turn remains failed/blocked
-until `work_item.execution.finish` or `work_item.complete` records terminal
-evidence. `work_item.execution.finish` records evidence, verification-gate
+until `work_item.execution.finish` records terminal evidence. Goal-owned work
+rejects `work_item.complete`. `work_item.execution.finish` records evidence, verification-gate
 results, skipped checks, and residual risk.
 
 Closeout is evidence-gated. Missing required goal evidence, failed verification

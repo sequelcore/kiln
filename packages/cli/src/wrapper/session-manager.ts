@@ -31,6 +31,7 @@ function resolveContextGovernancePolicy(appConfig: KilnAppConfig): {
   useCache: boolean;
   preferredSources?: readonly KilnContextGovernanceSource[];
   summaryAggressiveness?: KilnContextGovernanceAggressiveness;
+  contextAllocationMode?: "whole-block" | "segmented" | "retrieval-on-demand";
 } {
   const config = appConfig.kilnYaml?.contextGovernance;
   return {
@@ -38,6 +39,7 @@ function resolveContextGovernancePolicy(appConfig: KilnAppConfig): {
     useCache: config?.cachePolicy !== "off",
     preferredSources: config?.preferredSources,
     summaryAggressiveness: config?.summaryAggressiveness ?? "medium",
+    contextAllocationMode: config?.allocationMode,
   };
 }
 
@@ -293,6 +295,7 @@ export class SessionManager {
       preferredSources: governancePolicy.preferredSources,
       summaryAggressiveness: governancePolicy.summaryAggressiveness,
       aggressivenessPolicy: CLI_CONTEXT_AGGRESSIVENESS_POLICY,
+      contextAllocationMode: governancePolicy.contextAllocationMode,
     });
 
     const systemPrompt = (this.appConfig.buildSystemPrompt ?? defaultBuildSystemPrompt)({

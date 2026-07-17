@@ -443,6 +443,8 @@ const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   'config_change_failed',
   'file_changed',
   'cost_updated',
+  'context_usage_observed',
+  'lifecycle_attribution_recorded',
   'agent_invocation_requested',
   'agent_invocation_started',
   'agent_invocation_completed',

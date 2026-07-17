@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { test as base } from "@playwright/test";
+import { expect, test as base, type Page } from "@playwright/test";
 
 const READY_TIMEOUT_MS = 30_000;
 const RUNNER_RELATIVE_PATH = "packages/gui/tests/parity/fixtures/gateway-runner.ts";
@@ -91,7 +91,8 @@ async function stopRunner(child: ChildProcessWithoutNullStreams): Promise<void> 
 }
 
 export const test = base.extend<Record<string, never>, GatewayFixture>({
-  gatewayPort: [async ({}, use) => {
+  gatewayPort: [async ({ browserName }, use) => {
+    void browserName;
     const repoRoot = resolveRepoRoot();
     // Use GUI_GATEWAY_PORT from the environment (set by playwright.config.ts via
     // reserveGatewayPort). This is the same port the Vite dev-server proxy
@@ -125,4 +126,9 @@ export const test = base.extend<Record<string, never>, GatewayFixture>({
   }, { scope: "worker", auto: true }],
 });
 
-export { expect } from "@playwright/test";
+export async function waitForGuiReady(page: Page): Promise<void> {
+  await expect(page.getByRole("status", { name: "Runtime bootstrap" })).toBeHidden({ timeout: 15_000 });
+  await expect(page.locator("#composer-input")).toBeAttached({ timeout: 15_000 });
+}
+
+export { expect };

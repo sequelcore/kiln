@@ -2,6 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 import { Transcript } from "../src/components/transcript.js";
 import type { Message, TimelineEntry } from "../src/lib/session-store.js";
+import {
+  projectWorkflowActivity,
+  type OperatorSessionEvent,
+  type WorkflowActivityProjection,
+} from "@kilnai/gateway-contracts";
 
 function message(id: string, role: Message["role"], content: string, streaming = false): Message {
   return {
@@ -23,7 +28,383 @@ function messageEntry(id: string, role: Message["role"], content: string, stream
   };
 }
 
+function workflowEvent(
+  sequence: number,
+  kind: OperatorSessionEvent["kind"],
+  payload: Record<string, unknown>,
+  executionScope?: OperatorSessionEvent["executionScope"],
+): OperatorSessionEvent {
+  return {
+    eventId: `workflow-${sequence}`,
+    kilnSessionId: "session-1",
+    sequence,
+    timestamp: `2026-07-15T18:00:0${sequence}.000Z`,
+    kind,
+    turnId: "turn-1",
+    source: { actor: "tool", surface: "gui" },
+    payload,
+    ...(executionScope ? { executionScope } : {}),
+  };
+}
+
 describe("Transcript", () => {
+  it("renders one identity-stable workflow container instead of repeated lifecycle rows", () => {
+    const workItem = (status: "pending" | "completed", providedEvidence: readonly string[]) => ({
+      id: "work-1",
+      summary: "Inspect transcript ownership",
+      status,
+      workflowProfile: "verification-heavy",
+      risk: "low",
+      surface: "gui",
+      expectedEvidence: ["surface-map", "tests"],
+      providedEvidence,
+      pauseRequirements: [],
+      executionAttempts: [],
+    });
+    const scope = { kind: "work_item", goalRunId: "goal-1", workItemId: "work-1" } as const;
+    const workflowActivity = projectWorkflowActivity([
+      workflowEvent(1, "tool_call_completed", {
+        toolCallId: "work-update-1",
+        toolName: "work_item.update",
+        metadata: { kind: "work_item", operation: "update", item: workItem("pending", []) },
+        status: { state: "succeeded" },
+      }),
+      workflowEvent(2, "tool_call_completed", {
+        toolCallId: "goal-create-1",
+        toolName: "goal.create",
+        metadata: {
+          kind: "goal",
+          operation: "create",
+          goal: {
+            id: "goal-1",
+            objective: "Inspect the GUI",
+            status: "active",
+            workItemIds: ["work-1"],
+            evidenceRequirements: [],
+          },
+        },
+        status: { state: "succeeded" },
+      }),
+      workflowEvent(3, "tool_call_started", { toolCallId: "read-1", toolName: "read" }, scope),
+      workflowEvent(4, "tool_call_completed", {
+        toolCallId: "read-1",
+        toolName: "read",
+        outputSummary: "Read transcript.tsx",
+        status: { state: "succeeded" },
+      }, scope),
+      workflowEvent(5, "tool_call_completed", {
+        toolCallId: "work-update-2",
+        toolName: "work_item.update",
+        metadata: {
+          kind: "work_item",
+          operation: "update",
+          item: workItem("completed", ["surface-map", "tests"]),
+        },
+        status: { state: "succeeded" },
+      }),
+    ]);
+    const lifecycleEntries: TimelineEntry[] = workflowActivity.consumedEventIds.map((eventId, index) => ({
+      id: `timeline:${eventId}`,
+      type: "event",
+      eventKind: "tool_call_completed",
+      createdAt: "2026-07-15T18:00:00.000Z",
+      sequence: index + 1,
+      title: "Completed work_item.update",
+      summary: "Lifecycle event",
+      tone: "success",
+    }));
+
+    render(<Transcript entries={lifecycleEntries} workflowActivity={workflowActivity} />);
+
+    expect(document.querySelectorAll('[data-role="workflow-activity"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-role="tool-event"]')).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /Inspect the GUI\. Blocked\. 1 of 1 work items completed\. Goal closeout is missing/u })).toBeVisible();
+    expect(document.querySelector('[data-role="workflow-activity"] [class*="animate-spin"]')).not.toBeInTheDocument();
+    expect(screen.getByText("Inspect transcript ownership")).toBeVisible();
+    expect(screen.getByText("2 / 2")).toBeVisible();
+    const scopedActions = screen.getByRole("button", { name: "1 action. Show actions" });
+    expect(scopedActions).toBeVisible();
+    expect(screen.queryByText(/Read transcript\.tsx/u)).not.toBeInTheDocument();
+    fireEvent.click(scopedActions);
+    expect(screen.getByText(/Read transcript\.tsx/u)).toBeVisible();
+    expect(document.querySelector('[data-role="workflow-activity"]')?.closest('[data-slot="transcript-operational-content"]'))
+      .toHaveClass("min-w-0", "max-w-[min(42rem,94%)]", "flex-1", "pl-5", "sm:pl-8");
+  });
+
+  it("keeps an optimistic user message before the workflow events it triggered", () => {
+    const workflowActivity: WorkflowActivityProjection = {
+      goals: [],
+      standaloneWorkItems: [{
+        item: {
+          id: "work-1",
+          summary: "Inspect transcript ownership",
+          status: "pending",
+          evidence: [],
+          nextTools: [],
+          pauseRequirements: [],
+        },
+        attempts: [],
+        toolCalls: [],
+        firstSequence: 7,
+        lastSequence: 8,
+      }],
+      unscopedToolCalls: [],
+      consumedEventIds: ["work-start", "work-complete"],
+    };
+    const { container } = render(
+      <Transcript
+        entries={[
+          messageEntry("optimistic-user", "user", "Create governed work"),
+          {
+            id: "timeline:work-start",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: "2026-07-15T18:00:07.000Z",
+            sequence: 7,
+            title: "Using work_item.update",
+            tone: "running",
+          },
+          {
+            id: "timeline:work-complete",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: "2026-07-15T18:00:08.000Z",
+            sequence: 8,
+            title: "Completed work_item.update",
+            tone: "success",
+          },
+        ]}
+        workflowActivity={workflowActivity}
+      />,
+    );
+
+    const rows = container.querySelectorAll('[data-slot="message-scroller-item"]');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Create governed work");
+    expect(rows[1]).toHaveAttribute("data-message-id", "workflow:work-item:work-1");
+    expect(rows[0]?.querySelector('[data-slot="transcript-surface"]')).toHaveAttribute("data-surface-kind", "message");
+    expect(rows[1]?.querySelector('[data-slot="transcript-surface"]')).toHaveAttribute("data-surface-kind", "workflow");
+  });
+
+  it("does not repeat a standalone work item summary inside its own container", () => {
+    const workflowActivity: WorkflowActivityProjection = {
+      goals: [],
+      standaloneWorkItems: [{
+        item: {
+          id: "work-1",
+          summary: "Inspect transcript ownership",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          risk: "medium",
+          surface: "runtime/transcript",
+          evidence: [{ label: "surface-map", status: "pending" }],
+          nextTools: [],
+          pauseRequirements: [],
+        },
+        attempts: [],
+        toolCalls: [],
+        firstSequence: 1,
+        lastSequence: 2,
+      }],
+      unscopedToolCalls: [],
+      consumedEventIds: [],
+    };
+
+    render(<Transcript entries={[]} workflowActivity={workflowActivity} />);
+
+    expect(screen.getAllByText("Inspect transcript ownership")).toHaveLength(1);
+    expect(screen.getByText("verification-heavy")).toBeVisible();
+    expect(screen.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
+  });
+
+  it("groups consecutive routine tool calls into one progressive disclosure", () => {
+    const createdAt = "2026-07-15T08:21:00.000Z";
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "Inspect the repository"),
+          ...["read", "list", "search"].map((tool, index): TimelineEntry => ({
+            id: `timeline:event:${tool}`,
+            type: "event",
+            eventKind: index === 2 ? "tool_call_started" : "tool_call_completed",
+            createdAt,
+            title: `Completed ${tool}`,
+            summary: `${tool} result ${index + 1}`,
+            tone: index === 2 ? "running" : "success",
+            presentationDetails: [{ label: "Tool", value: tool }],
+          })),
+        ]}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Working · 3 actions. Hide actions" })).toBeVisible();
+    expect(within(screen.getByRole("list", { name: "Tool activity" })).getAllByRole("listitem")).toHaveLength(3);
+    expect(document.querySelectorAll('[data-slot="ai-tool"]')).toHaveLength(3);
+    expect(screen.queryByLabelText("JSON output")).not.toBeInTheDocument();
+  });
+
+  it("keeps a completed trailing tool group collapsed even while the turn remains active", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "Inspect the repository"),
+          ...["read", "grep"].map((tool, index): TimelineEntry => ({
+            id: `timeline:event:completed:${tool}`,
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: `2026-07-15T08:21:0${index}.000Z`,
+            title: `Completed ${tool}`,
+            summary: `${tool} result`,
+            tone: "success",
+            presentationDetails: [{ label: "Tool", value: tool }],
+          })),
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "2 actions. Show actions" })).toBeVisible();
+    expect(screen.queryByText(/Working/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Tool activity" })).not.toBeInTheDocument();
+  });
+
+  it("groups consecutive non-governance failures into one compact disclosure", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "Read missing files"),
+          ...["one.ts", "two.ts"].map((file, index): TimelineEntry => ({
+            id: `timeline:event:failed-read:${index}`,
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: `2026-07-15T08:22:0${index}.000Z`,
+            title: "Failed read",
+            summary: `ENOENT: ${file}`,
+            tone: "error",
+            presentationDetails: [{ label: "Tool", value: "read" }],
+          })),
+        ]}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "2 actions. Show actions" })).toHaveTextContent("2 failed");
+    expect(document.querySelectorAll('[data-role="tool"]')).toHaveLength(0);
+  });
+
+  it("uses one Tool anatomy for running, completed, paused, and failed presentations", () => {
+    const createdAt = "2026-07-14T20:59:04.000Z";
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:running-tool",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt,
+            title: "Using read",
+            summary: "Execution in progress",
+            tone: "running",
+            presentationDetails: [{ label: "Tool", value: "read" }],
+          },
+          {
+            id: "timeline:event:completed-tool",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt,
+            title: "Completed read",
+            summary: "README.md",
+            tone: "success",
+            presentationDetails: [{ label: "Tool", value: "read" }],
+          },
+          {
+            id: "timeline:event:paused-tool",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt,
+            title: "Execution paused",
+            summary: "Managed invocation is required.",
+            tone: "warning",
+            presentationDetails: [{ label: "Tool", value: "work_item.execution.start" }],
+          },
+          {
+            id: "timeline:event:failed-tool",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt,
+            title: "Failed goal.create",
+            summary: "Route ownership is invalid.",
+            tone: "error",
+            presentationDetails: [{ label: "Tool", value: "goal.create" }],
+          },
+        ]}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
+    const tools = document.querySelectorAll('[data-slot="ai-tool"]');
+    expect(tools).toHaveLength(4);
+    expect(document.querySelectorAll('[data-slot="ai-tool-header"]')).toHaveLength(4);
+    expect(document.querySelectorAll('[data-slot="ai-tool-status"]')).toHaveLength(4);
+    expect(screen.getByRole("button", { name: /read\. Running\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /read\. Completed\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /work_item\.execution\.start\. Paused\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /goal\.create\. Failed\. Hide details/u })).toBeVisible();
+  });
+
+  it("renders structured tool diagnostics without a JSON dump", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:goal-create-diagnostic",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: "2026-07-14T20:59:04.000Z",
+            title: "Failed goal.create",
+            summary: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+            tone: "error",
+            presentationDetails: [
+              { label: "Tool", value: "goal.create" },
+              { label: "Status", value: "failed" },
+            ],
+            toolPresentation: {
+              outputKind: "diagnostic",
+              classification: {
+                source: "content-heuristic",
+                reason: "structured error envelope",
+                confidence: "high",
+              },
+              title: "Invalid input",
+              summary: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+              fields: [],
+              diagnostic: {
+                code: "invalid_input",
+                message: "goal.create cannot combine preferredRouteId and managedAgentProfile.",
+                recoverable: true,
+                suggestedNextTool: "goal.create",
+                requiredInput: [
+                  { name: "objective", expected: "string" },
+                  { name: "workItemIds", expected: "existing work item id[]" },
+                ],
+              },
+              raw: { available: false, reason: "Structured diagnostic is rendered inline" },
+            },
+          },
+        ]}
+      />,
+    );
+
+    const tool = document.querySelector('[data-slot="ai-tool"]')!;
+    expect(tool).toHaveAttribute("data-state", "failed");
+    expect(within(tool as HTMLElement).getByText("Invalid input")).toBeVisible();
+    expect(within(tool as HTMLElement).getAllByText("goal.create cannot combine preferredRouteId and managedAgentProfile.")).not.toHaveLength(0);
+    expect(within(tool as HTMLElement).getByText("objective")).toBeVisible();
+    expect(within(tool as HTMLElement).getByText("existing work item id[]")).toBeVisible();
+    expect(within(tool as HTMLElement).queryByLabelText("JSON output")).not.toBeInTheDocument();
+    expect(within(tool as HTMLElement).queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
+  });
+
   it("renders a minimal empty state without an instructional card", () => {
     vi.spyOn(Date, "now").mockReturnValue(0);
 
@@ -103,7 +484,7 @@ describe("Transcript", () => {
     expect(screen.getByLabelText("Audio artifact preview")).toHaveAttribute("src", "data:audio/wav;base64,BAUG");
   });
 
-  it("groups tool activity into the following assistant message bubble", () => {
+  it("renders tool activity as a stable row before the following assistant message", () => {
     render(
       <Transcript
         entries={[
@@ -134,17 +515,66 @@ describe("Transcript", () => {
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveAttribute("data-role", "user");
-    expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(rows[1]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveAttribute("data-role", "assistant");
     expect(rows[1]).not.toHaveTextContent("Using read");
     expect(rows[1]).not.toHaveTextContent("Execution in progress");
     expect(rows[1]).toHaveTextContent("Completed read");
-    expect(rows[1]).toHaveTextContent("Here is the summary.");
+    expect(rows[1]!.querySelector('[data-slot="ai-tool"]')).toHaveAttribute("data-state", "completed");
+    expect(rows[1]).toHaveTextContent("# Session Model");
+    expect(rows[2]).toHaveTextContent("Here is the summary.");
+    expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
   });
 
-  it("renders trailing same-turn tool activity before the previous assistant content", () => {
+  it("summarizes multiple assistant tool events until details are requested", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "inspect and patch"),
+          {
+            id: "timeline:event:tool-read",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed read",
+            summary: "# Session Model",
+            tone: "success",
+            details: { toolCallId: "call_read_1", status: "succeeded" },
+          },
+          {
+            id: "timeline:event:tool-patch",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed patch",
+            summary: "1 file changed",
+            tone: "success",
+            details: { toolCallId: "call_patch_1", status: "succeeded" },
+          },
+          messageEntry("2", "assistant", "Patched."),
+        ]}
+      />,
+    );
+
+    const rows = screen.getAllByRole("article");
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toHaveAttribute("data-role", "tool-group");
+    expect(rows[2]).toHaveAttribute("data-role", "assistant");
+    expect(rows[1]!.querySelector('[data-slot="transcript-operational-content"]'))
+      .toHaveClass("min-w-0", "max-w-[min(42rem,94%)]", "flex-1", "pl-5", "sm:pl-8");
+    expect(within(rows[2]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
+
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: "2 actions. Show actions" }));
+    expect(rows[1]).toHaveTextContent("read");
+    expect(rows[1]).toHaveTextContent("patch");
+    fireEvent.click(within(rows[1]!).getByRole("button", { name: /read\. Completed\. Show details/u }));
+    expect(within(rows[1]!).getByText("# Session Model")).toBeInTheDocument();
+    expect(rows[1]).toHaveTextContent("1 file changed");
+  });
+
+  it("renders trailing same-turn tool activity as a standalone operational row", () => {
     render(
       <Transcript
         entries={[
@@ -165,14 +595,37 @@ describe("Transcript", () => {
     );
 
     const rows = screen.getAllByRole("article");
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
-    expect(rows[1]).toHaveTextContent("Completed write");
     expect(rows[1]).toHaveTextContent("Created im_alive.txt with:");
-    const assistantText = rows[1]!.textContent ?? "";
-    expect(assistantText.indexOf("Completed write")).toBeLessThan(assistantText.indexOf("Created im_alive.txt with:"));
-    expect(rows[2]).toHaveAttribute("data-role", "user");
+    expect(within(rows[1]!).queryByTestId("assistant-tool-events")).not.toBeInTheDocument();
+    expect(rows[2]).toHaveAttribute("data-role", "tool");
+    expect(rows[2]).toHaveTextContent("Completed write");
+    expect(rows[3]).toHaveAttribute("data-role", "user");
+  });
+
+  it("marks interrupted tool rows distinctly from completed rows", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-interrupted",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Interrupted shell",
+            summary: "Operator stopped execution",
+            tone: "warning",
+            details: { toolCallId: "call_shell_1", status: "interrupted" },
+          },
+        ]}
+      />,
+    );
+
+    const tool = screen.getByRole("article").querySelector('[data-slot="ai-tool"]');
+    const toolEvent = screen.getByRole("article").querySelector('[data-slot="ai-tool-status"]');
+    expect(tool).toHaveAttribute("data-state", "paused");
+    expect(toolEvent).toHaveClass("text-warning");
   });
 
   it("keeps JSON-shaped tool output compact in inline rows and details", () => {
@@ -207,7 +660,7 @@ describe("Transcript", () => {
     expect(screen.getByText("# Session Model")).toBeInTheDocument();
     expect(screen.queryByText(/"output"/)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     expect(screen.getAllByText("# Session Model")).toHaveLength(2);
     expect(screen.queryByText(/metadata/)).not.toBeInTheDocument();
@@ -253,8 +706,11 @@ describe("Transcript", () => {
       />,
     );
 
-    expect(screen.getByText("Diff preview")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide details" })).toBeInTheDocument();
+    expect(screen.queryByText("Diff")).not.toBeInTheDocument();
+    const detailsButton = screen.getByRole("button", { name: /Show details$/u });
+    fireEvent.click(detailsButton);
+
+    expect(screen.getByText("Diff")).toBeInTheDocument();
     expect(screen.getByText("packages/gui/src/components/transcript.tsx")).toBeInTheDocument();
     expect(screen.getByText("Additions")).toBeInTheDocument();
     expect(screen.getByText("18")).toBeInTheDocument();
@@ -312,14 +768,124 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "Evidence" })).toBeInTheDocument();
     expect(within(table).getByText("codex-oauth-readonly")).toBeInTheDocument();
     expect(within(table).getByText("yes")).toBeInTheDocument();
+    expect(screen.queryByText("Table preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("| Route | Provider |")).not.toBeInTheDocument();
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
+  });
+
+  it("renders comparison-table cell semantics instead of plain scalar text", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:semantic-table",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed managed_agent.invoke",
+            summary: "2 routes compared",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "table",
+              title: "Managed child comparison",
+              summary: "2 routes compared",
+              fields: [{ label: "Intent", value: "comparison_table" }],
+              presentationIntent: {
+                kind: "comparison_table",
+                title: "Managed child comparison",
+                columns: [
+                  { key: "routeId", label: "Route" },
+                  { key: "status", label: "Status", valueKind: "status" },
+                  { key: "substantiveEvidence", label: "Evidence", valueKind: "boolean", align: "center" },
+                  { key: "durationMs", label: "Duration", valueKind: "number", align: "right" },
+                ],
+                rows: [
+                  {
+                    routeId: "codex-oauth-readonly",
+                    status: "completed",
+                    substantiveEvidence: true,
+                    durationMs: 4200,
+                  },
+                  {
+                    routeId: "opencode-readonly",
+                    status: "failed",
+                    substantiveEvidence: false,
+                    durationMs: 120,
+                  },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
+
+    expect(screen.getByText("completed")).toHaveAttribute("data-cell-kind", "status");
+    expect(screen.getByText("failed")).toHaveAttribute("data-cell-kind", "status");
+    expect(screen.getByLabelText("Evidence: yes")).toHaveAttribute("data-cell-kind", "boolean");
+    expect(screen.getByLabelText("Evidence: no")).toHaveAttribute("data-cell-kind", "boolean");
+    expect(screen.getByText("4,200")).toHaveAttribute("data-cell-kind", "number");
+  });
+
+  it("keeps structured visualizers bounded inside the transcript column", () => {
+    const longValue = "very-long-unbroken-value-".repeat(16);
+
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:bounded-table",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed managed_agent.invoke",
+            summary: "2 routes compared",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "table",
+              classification: {
+                source: "presentation-intent",
+                reason: "validated presentation intent selected renderer",
+              },
+              title: "Managed child comparison",
+              summary: "2 routes compared",
+              fields: [{ label: "Intent", value: "comparison_table" }],
+              presentationIntent: {
+                kind: "comparison_table",
+                title: "Managed child comparison",
+                columns: [
+                  { key: "routeId", label: "Route" },
+                  { key: "evidence", label: "Evidence" },
+                ],
+                rows: [
+                  { routeId: "codex-oauth-readonly", evidence: longValue },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
+
+    const details = screen.getByTestId("tool-output-details");
+    expect(details).toHaveClass("max-w-full", "overflow-hidden");
+    const tableRegion = screen.getByTestId("tool-output-table");
+    expect(tableRegion).toHaveAttribute("data-output-kind", "table");
+    expect(tableRegion).toHaveClass("max-w-full", "overflow-x-auto");
+    expect(within(tableRegion).getByText(longValue)).toHaveClass("break-words");
   });
 
   it("renders route-unavailable managed invocation intents without raw envelopes", () => {
@@ -374,7 +940,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByRole("button", { name: /Hide details$/u })).toBeInTheDocument();
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -383,6 +949,8 @@ describe("Transcript", () => {
     expect(within(table).getByText("unavailable")).toBeInTheDocument();
     expect(within(table).getByText("no")).toBeInTheDocument();
     expect(within(table).getByText("Direct provider route is not eligible.")).toBeInTheDocument();
+    expect(screen.queryByText("Table preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("| Route | Provider |")).not.toBeInTheDocument();
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
   });
@@ -459,7 +1027,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    expect(screen.getByRole("button", { name: /Hide details$/u })).toBeInTheDocument();
 
     const table = screen.getByRole("table");
     expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
@@ -468,6 +1036,8 @@ describe("Transcript", () => {
     expect(within(table).getByText("denied")).toBeInTheDocument();
     expect(within(table).getByText("no")).toBeInTheDocument();
     expect(within(table).getByText("Managed invocation denied skill(s): workspace-write")).toBeInTheDocument();
+    expect(screen.queryByText("Table preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("| Route | Provider |")).not.toBeInTheDocument();
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
     expect(screen.queryByText(/"presentationIntent"/)).not.toBeInTheDocument();
   });
@@ -531,7 +1101,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const editor = screen.getByRole("region", { name: "Recorder timeline editor" });
     const zoom = within(editor).getByRole("slider", { name: "Zoom depth for auto_zoom click target" });
@@ -598,7 +1168,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const editor = screen.getByRole("region", { name: "Recorder timeline editor" });
     const firstCaption = within(editor).getByRole("textbox", { name: "Caption text for caption: Open settings" });
@@ -646,7 +1216,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     expect(screen.getByText("caption copy review")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Recorder timeline editor" })).not.toBeInTheDocument();
@@ -696,14 +1266,67 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
-    expect(screen.getByText("Resource link")).toBeInTheDocument();
+    expect(screen.getByText("Resource")).toBeInTheDocument();
     expect(screen.getAllByText("read_many full output").length).toBeGreaterThan(0);
     expect(screen.getByText("kiln://artifacts/tool-results/artifact_1/content")).toBeInTheDocument();
     expect(screen.queryByText("Open inspector")).not.toBeInTheDocument();
     expect(screen.queryByText("Raw available")).not.toBeInTheDocument();
     expect(screen.queryByText("--- C:\\workspace\\kiln\\docs\\architecture.md")).not.toBeInTheDocument();
+  });
+
+  it("renders resource bundle presentation intents as inspectable resources", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:resource-bundle",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed artifacts",
+            summary: "2 resources",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "resource_links",
+              title: "Generated artifacts",
+              summary: "2 resources",
+              fields: [{ label: "Intent", value: "resource_bundle" }],
+              presentationIntent: {
+                kind: "resource_bundle",
+                title: "Generated artifacts",
+                resources: [
+                  {
+                    uri: "kiln://artifacts/report/content",
+                    title: "Research report",
+                    mimeType: "text/markdown",
+                    size: 2048,
+                    relation: "primary",
+                  },
+                  {
+                    uri: "kiln://artifacts/evidence/content",
+                    title: "Evidence bundle",
+                    mimeType: "application/json",
+                    relation: "supporting",
+                  },
+                ],
+              },
+              raw: { available: false },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
+
+    const resources = screen.getByRole("list", { name: "Generated artifacts resources" });
+    expect(within(resources).getByText("Research report")).toBeInTheDocument();
+    expect(within(resources).getByText("text/markdown")).toBeInTheDocument();
+    expect(within(resources).getByText("primary")).toBeInTheDocument();
+    expect(within(resources).getByText("2 KB")).toBeInTheDocument();
+    expect(within(resources).getByText("kiln://artifacts/evidence/content")).toBeInTheDocument();
   });
 
   it("renders browser screenshot tool presentations as a numbered capture gallery", () => {
@@ -767,7 +1390,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const gallery = screen.getByRole("list", { name: "Browser screenshot captures" });
     expect(within(gallery).getByText("Capture 1")).toBeInTheDocument();
@@ -835,7 +1458,7 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
 
     const preview = await screen.findByRole("img", { name: "Browser screenshot Capture 1" });
     expect(preview).toHaveAttribute("src", screenshotDataUrl);
@@ -888,7 +1511,11 @@ describe("Transcript", () => {
               outputKind: "tree",
               title: "C:\\workspace\\kiln",
               summary: "55 entries under C:\\workspace\\kiln",
-              fields: [{ label: "Entries", value: "55" }],
+              fields: [
+                { label: "Path", value: "C:\\workspace\\kiln" },
+                { label: "Entries", value: "55" },
+                { label: "Depth", value: "3" },
+              ],
               preview: {
                 text: ".\npackages/\n  gui/",
               },
@@ -908,19 +1535,175 @@ describe("Transcript", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "2 actions. Show actions" }));
     expect(screen.getByText("# Session Model")).toBeInTheDocument();
     expect(screen.getAllByText("55 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
 
-    const detailButtons = screen.getAllByRole("button", { name: "Show details" });
+    let detailButtons = screen.getAllByRole("button", { name: /Show details$/u });
     fireEvent.click(detailButtons[0]!);
 
-    expect(screen.getByText("Markdown preview")).toBeInTheDocument();
-    expect(screen.getAllByText("Tree preview").length).toBeGreaterThan(0);
+    expect(screen.getByText("Document")).toBeInTheDocument();
+    expect(screen.queryByText("Status")).not.toBeInTheDocument();
+    expect(screen.queryByText("succeeded")).not.toBeInTheDocument();
+    detailButtons = screen.getAllByRole("button", { name: /Show details$/u });
+    fireEvent.click(detailButtons[0]!);
+
+    expect(screen.getAllByText("Directory tree").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("C:\\workspace\\kiln")).toHaveLength(1);
+    expect(screen.getAllByText("55 entries under C:\\workspace\\kiln")).toHaveLength(1);
     expect(screen.getByText("Kiln session identity is provider-agnostic.")).toBeInTheDocument();
-    expect(screen.getByText("packages/")).toBeInTheDocument();
+    const treeOutput = screen.getByRole("list", { name: "Directory tree output" });
+    const treeLine = within(treeOutput).getByText("packages");
+    expect(treeLine).toBeInTheDocument();
+    expect(treeLine.closest("li")).toHaveAttribute("data-tree-entry-kind", "directory");
+    expect(treeLine.closest("pre")).not.toBeInTheDocument();
     expect(screen.getByText("tree full output")).toBeInTheDocument();
     expect(screen.queryByText(/"output"/)).not.toBeInTheDocument();
     expect(screen.queryByText(/"metadata"/)).not.toBeInTheDocument();
+  });
+
+  it("renders web search output as structured search results instead of raw text", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:web-search",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed web_search",
+            summary: "5 sources for FIFA World Cup 2026 fixtures",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "search_results",
+              classification: {
+                source: "tool-metadata",
+                reason: "web/search metadata identifies search result output",
+                confidence: "high",
+              },
+              title: "FIFA World Cup 2026 fixtures July 3 2026 matches",
+              summary: "5 sources for FIFA World Cup 2026 fixtures",
+              fields: [],
+              searchResults: [
+                {
+                  title: "Matches | FIFA World Cup 2026",
+                  url: "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures",
+                  source: "fifa.com",
+                },
+                {
+                  title: "FIFA World Cup 2026 | Fixtures, groups, teams & more",
+                  url: "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fixtures",
+                  source: "fifa.com",
+                },
+              ],
+              preview: {
+                text: [
+                  "5 sources for FIFA World Cup 2026 fixtures July 3 2026 matches",
+                  "",
+                  "1. Matches | FIFA World Cup 2026",
+                  "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures",
+                  "2. FIFA World Cup 2026 | Fixtures, groups, teams & more",
+                  "[Fixtures](https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/fixtures)",
+                ].join("\n"),
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
+
+    const searchResultsOutput = screen.getByRole("region", { name: "Search results" });
+    expect(within(searchResultsOutput).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(searchResultsOutput).getByRole("link", { name: "Matches | FIFA World Cup 2026" })).toHaveAttribute(
+      "href",
+      "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/scores-fixtures",
+    );
+    expect(screen.queryByRole("region", { name: "Document" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
+  });
+
+  it("labels unknown JSON fallback as structured data instead of text output", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:custom-structured-data",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed custom.inspect",
+            summary: "3 fields",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "data",
+              classification: {
+                source: "content",
+                reason: "structured JSON output classified from content",
+                confidence: "medium",
+              },
+              title: "custom.inspect",
+              summary: "3 fields",
+              fields: [],
+              preview: {
+                text: '{"status":"ready","count":2,"items":["one","two"]}',
+                language: "json",
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
+
+    expect(screen.getByRole("region", { name: "Structured data" })).toBeVisible();
+    expect(screen.getByLabelText("JSON output")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
+  });
+
+  it("renders indented file tree output as a bounded hierarchical list", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-tree-hierarchy",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed tree",
+            summary: "4 entries under C:\\workspace\\kiln",
+            tone: "success",
+            toolPresentation: {
+              outputKind: "tree",
+              title: "C:\\workspace\\kiln",
+              summary: "4 entries under C:\\workspace\\kiln",
+              fields: [
+                { label: "Path", value: "C:\\workspace\\kiln" },
+                { label: "Entries", value: "4" },
+              ],
+              preview: {
+                text: ".\npackages/\n  gui/\n    package.json\nREADME.md",
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
+
+    const treeOutput = screen.getByRole("list", { name: "Directory tree output" });
+    expect(treeOutput).toHaveAttribute("data-output-kind", "tree");
+    expect(within(treeOutput).getByText("packages")).toBeInTheDocument();
+    expect(within(treeOutput).getByText("gui")).toBeInTheDocument();
+    expect(within(treeOutput).getByText("package.json").closest("li")).toHaveAttribute("data-tree-entry-kind", "file");
+    expect(within(treeOutput).getByText("package.json").closest("li")).toHaveAttribute("data-tree-depth", "2");
+    expect(within(treeOutput).getByText("README.md").closest("li")).toHaveAttribute("data-tree-depth", "0");
   });
 
   it("renders stat metadata as fields instead of JSON text preview", () => {
@@ -956,7 +1739,7 @@ describe("Transcript", () => {
     );
 
     expect(screen.getByText("file · 25 bytes")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
     expect(screen.getByText("C:\\workspace\\kiln\\im_alive.txt")).toBeInTheDocument();
     expect(screen.getByText("Type")).toBeInTheDocument();
     expect(screen.getByText("25 bytes")).toBeInTheDocument();
@@ -992,12 +1775,58 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
     expect(screen.getAllByText("20 entries under C:\\workspace\\kiln").length).toBeGreaterThan(0);
     expect(screen.queryByText("Tree preview")).not.toBeInTheDocument();
   });
 
-  it("shows streaming cursor indicator for streaming assistant message", () => {
+  it("renders source file tool output as source instead of generic text preview", () => {
+    render(
+      <Transcript
+        entries={[
+          {
+            id: "timeline:event:tool-read-package",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Completed read",
+            summary: "3 lines · 22 bytes",
+            tone: "success",
+            details: {
+              result: "{",
+              status: "succeeded",
+            },
+            toolPresentation: {
+              outputKind: "code",
+              title: "package.json",
+              summary: "3 lines · 22 bytes",
+              fields: [
+                { label: "Path", value: "package.json" },
+                { label: "Lines", value: "3" },
+              ],
+              preview: {
+                text: "{\n  \"name\": \"kiln\"\n}",
+                language: "json",
+              },
+              raw: { available: true },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show details$/u }));
+    expect(screen.getByText("Source")).toBeInTheDocument();
+    expect(screen.getByText("json")).toBeInTheDocument();
+    expect(screen.getAllByText("3 lines · 22 bytes").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("JSON output")).toBeInTheDocument();
+    expect(screen.getByText('"name":')).toHaveClass("kiln-json-view__label");
+    expect(screen.getByText('"kiln"')).toHaveClass("kiln-json-view__string");
+    expect(screen.queryByText("Text preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Code preview")).not.toBeInTheDocument();
+  });
+
+  it("uses incremental content and avatar state without a cursor decoration", () => {
     render(
       <Transcript
         entries={[
@@ -1005,12 +1834,12 @@ describe("Transcript", () => {
         ]}
       />,
     );
-    expect(screen.getByLabelText("Streaming")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Streaming")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-state", "running");
     expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-motion", "subtle");
   });
 
-  it("renders assistant messages in a lightweight chat bubble", () => {
+  it("renders assistant messages in the official lightweight bubble primitive", () => {
     render(
       <Transcript
         entries={[messageEntry("1", "assistant", "Here is the update.")]}
@@ -1019,37 +1848,12 @@ describe("Transcript", () => {
 
     const assistantRow = screen.getByRole("article");
     expect(assistantRow).toHaveAttribute("data-role", "assistant");
-    const bubble = assistantRow.querySelector(".rounded-2xl.rounded-tl-md");
-    expect(bubble).toHaveClass("rounded-2xl", "rounded-tl-md", "bg-muted/35");
+    const bubble = assistantRow.querySelector('[data-slot="bubble"]');
+    expect(bubble).toHaveAttribute("data-variant", "ghost");
     expect(bubble).not.toHaveClass("border", "bg-card");
   });
 
-  it("shows assistant thinking state in the transcript instead of the composer", () => {
-    render(
-      <Transcript
-        entries={[messageEntry("1", "user", "build this")]}
-        activityPhase="thinking"
-      />,
-    );
-
-    expect(screen.getByRole("status", { name: "Activity phase: Thinking" })).toBeInTheDocument();
-    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("article").at(-1)).toHaveAttribute("data-role", "assistant");
-  });
-
-  it("names the active tool in the live transcript activity row", () => {
-    render(
-      <Transcript
-        entries={[messageEntry("1", "user", "read docs")]}
-        activityPhase="tool_running"
-        activityToolName="read_many"
-      />,
-    );
-
-    expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
-  });
-
-  it("keeps live tool events inside the active assistant bubble before final text arrives", () => {
+  it("keeps live tool events visible as rows before final text arrives", () => {
     render(
       <Transcript
         entries={[
@@ -1075,38 +1879,60 @@ describe("Transcript", () => {
             details: { toolCallId: "call_patch_1", status: "succeeded" },
           },
         ]}
-        activityPhase="streaming"
       />,
     );
 
     const rows = screen.getAllByRole("article");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveAttribute("data-role", "user");
-    expect(rows[1]).toHaveAttribute("data-role", "assistant");
+    expect(rows[1]).toHaveAttribute("data-role", "tool");
     expect(screen.queryByText("Using patch")).not.toBeInTheDocument();
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
     expect(rows[1]).toHaveTextContent("Completed patch");
-    expect(rows[1]).toHaveTextContent("Responding");
+    expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
+  });
+
+  it("renders streamed command output inside the existing running tool card", () => {
+    render(
+      <Transcript
+        entries={[{
+          id: "timeline:event:command-started",
+          type: "event",
+          eventKind: "tool_call_started",
+          createdAt: new Date().toISOString(),
+          title: "Using bash",
+          summary: "Execution in progress",
+          tone: "running",
+          details: {
+            toolCallId: "command-1",
+            toolName: "bash",
+            input: { command: "bun test" },
+            liveOutput: "RUN tests\n✓ passed\n",
+          },
+        }]}
+      />,
+    );
+
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByRole("log", { name: "Command output" })).toHaveTextContent("RUN tests");
+    expect(screen.getByRole("button", { name: "Copy output" })).toBeInTheDocument();
   });
 
   it("does not duplicate the responding state when an assistant message is already streaming", () => {
     render(
       <Transcript
         entries={[messageEntry("1", "assistant", "working", true)]}
-        activityPhase="streaming"
       />,
     );
 
-    expect(screen.getByLabelText("Streaming")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Streaming")).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Activity phase: Responding" })).not.toBeInTheDocument();
   });
 
-  it("does not render a separate activity row once an assistant shell anchors live tools", () => {
+  it("keeps live tool rows durable without synthesizing assistant activity", () => {
     render(
       <Transcript
         entries={[
           messageEntry("1", "user", "patch the file"),
-          messageEntry("2", "assistant", "", true),
           {
             id: "timeline:event:tool-started",
             type: "event",
@@ -1118,19 +1944,48 @@ describe("Transcript", () => {
             details: { toolCallId: "call_patch_1" },
           },
         ]}
-        activityPhase="tool_running"
-        activityToolName="patch"
       />,
     );
 
     const rows = screen.getAllByRole("article");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveAttribute("data-role", "user");
-    expect(rows[1]).toHaveAttribute("data-role", "assistant");
-    expect(within(rows[1]!).getByTestId("assistant-tool-events")).toBeInTheDocument();
+    expect(rows[1]).toHaveAttribute("data-role", "tool");
     expect(rows[1]).toHaveTextContent("Using patch");
-    expect(within(rows[1]!).queryByLabelText("Streaming")).not.toBeInTheDocument();
-    expect(screen.queryByRole("status", { name: "Activity phase: Using patch" })).not.toBeInTheDocument();
+    expect(rows[1]!.querySelector('[data-slot="ai-tool"]')).toHaveAttribute("data-state", "running");
+    expect(rows[1]!.querySelector('[data-slot="ai-tool-header"]')).toBeInTheDocument();
+    expect(rows[1]!.querySelector('[data-slot="ai-tool-status"]')).toHaveTextContent("Running");
+    expect(rows[1]!.querySelector('[data-role="active-tool-beam"]')).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /Activity phase:/ })).not.toBeInTheDocument();
+  });
+
+  it("renders active tool rows as compact inline trace entries", () => {
+    render(
+      <Transcript
+        entries={[
+          messageEntry("1", "user", "patch the file"),
+          {
+            id: "timeline:event:tool-started",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Using patch",
+            summary: "Execution in progress",
+            tone: "running",
+            details: { toolCallId: "call_patch_1" },
+          },
+        ]}
+      />,
+    );
+
+    const toolRow = screen.getAllByRole("article")[1]!;
+    const toolEvent = toolRow.querySelector('[data-role="tool-event"]');
+    expect(toolRow.querySelector('[data-slot="ai-tool"]')).toHaveAttribute("data-state", "running");
+    expect(toolEvent).toHaveTextContent("Execution in progress");
+    expect(toolEvent).toHaveAttribute("data-slot", "ai-tool-header");
+    expect(toolRow.querySelector('[data-slot="ai-tool-status"]')).toHaveTextContent("Running");
+    expect(toolRow.querySelector('[data-slot="ai-tool-status"] svg')).toHaveClass("motion-safe:animate-spin");
+    expect(toolRow.querySelector('[data-role="active-tool-beam"]')).not.toBeInTheDocument();
   });
 
   it("renders canonical tool presentation details in transcript instead of raw structured input", () => {
@@ -1177,7 +2032,7 @@ describe("Transcript", () => {
     const row = screen.getAllByRole("article")[1]!;
     expect(row).toHaveTextContent("gpt-5.5");
     expect(row).toHaveTextContent("direct-provider");
-    fireEvent.click(within(row).getByRole("button", { name: "Show details" }));
+    fireEvent.click(within(row).getByRole("button", { name: /Show details$/u }));
     expect(row).toHaveTextContent("architecture-reviewer");
     expect(row).toHaveTextContent("ddd-review");
     expect(row).not.toHaveTextContent("Structured value");
@@ -1187,41 +2042,96 @@ describe("Transcript", () => {
     expect(row).not.toHaveTextContent("child-session-1");
   });
 
-  it("sticks to bottom unless user scrolled up", () => {
-    const firstMessages = [
-      messageEntry("1", "assistant", "first"),
-      messageEntry("2", "assistant", "second"),
-    ];
+  it("composes the transcript with the official scroll viewport and live region", () => {
+    render(<Transcript entries={[messageEntry("1", "assistant", "first")]} />);
 
-    const { rerender } = render(<Transcript entries={firstMessages} />);
-    const container = screen.getByLabelText("Transcript");
+    const viewport = screen.getByRole("region", { name: "Transcript" });
+    expect(viewport).toHaveAttribute("data-slot", "message-scroller-viewport");
+    expect(within(viewport).getByRole("log")).toHaveAttribute("data-slot", "message-scroller-content");
+    expect(screen.getByRole("button", { name: "Jump to latest" })).toHaveAttribute("data-direction", "end");
+  });
 
-    Object.defineProperty(container, "clientHeight", { configurable: true, value: 100 });
-    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 200, writable: true });
-    Object.defineProperty(container, "scrollTop", { configurable: true, value: 100, writable: true });
-
-    fireEvent.scroll(container);
-
-    rerender(
+  it("exposes stable message rows and anchors each user turn", () => {
+    render(
       <Transcript
-        entries={[...firstMessages, messageEntry("3", "assistant", "third")]}
+        entries={[
+          messageEntry("user-turn", "user", "Inspect the execution trace"),
+          messageEntry("assistant-reply", "assistant", "I found the boundary"),
+        ]}
       />,
     );
 
-    expect((container as HTMLDivElement).scrollTop).toBe(200);
+    const transcript = screen.getByLabelText("Transcript");
+    expect(transcript.querySelector('[data-message-id="timeline:user-turn"]')).toHaveAttribute("data-scroll-anchor", "true");
+    expect(transcript.querySelector('[data-message-id="timeline:assistant-reply"]')).toHaveAttribute("data-scroll-anchor", "false");
+  });
 
-    (container as HTMLDivElement).scrollTop = 0;
-    fireEvent.scroll(container);
-
-    Object.defineProperty(container, "scrollHeight", { configurable: true, value: 300, writable: true });
-
-    rerender(
+  it("renders a compact semantic navigation rail for long transcripts", () => {
+    render(
       <Transcript
-        entries={[...firstMessages, messageEntry("3", "assistant", "third"), messageEntry("4", "assistant", "fourth")]}
+        entries={[
+          messageEntry("user-1", "user", "Investigate the trace"),
+          {
+            id: "timeline:event:tool-started",
+            type: "event",
+            eventKind: "tool_call_started",
+            createdAt: new Date().toISOString(),
+            title: "Using read",
+            summary: "Execution in progress",
+            tone: "running",
+            details: { toolCallId: "call_read_1" },
+          },
+          {
+            id: "timeline:event:tool-failed",
+            type: "event",
+            eventKind: "tool_call_completed",
+            createdAt: new Date().toISOString(),
+            title: "Failed shell",
+            summary: "Command failed",
+            tone: "error",
+            details: { toolCallId: "call_shell_1", status: "failed" },
+          },
+          messageEntry("assistant-1", "assistant", "The shell command failed."),
+        ]}
       />,
     );
 
-    expect((container as HTMLDivElement).scrollTop).toBe(0);
+    const rail = screen.getByRole("navigation", { name: "Thread navigation" });
+    expect(rail).toHaveAttribute("data-role", "thread-navigation-trail");
+    const userAnchor = within(rail).getByRole("button", { name: "Jump to user turn 1" });
+    const toolAnchor = within(rail).getByRole("button", { name: "Jump to tool execution 2" });
+    const failureAnchor = within(rail).getByRole("button", { name: "Jump to tool failure 3" });
+    const assistantAnchor = within(rail).getByRole("button", { name: "Jump to assistant reply 4" });
+    expect(userAnchor).toHaveAttribute("data-thread-anchor-kind", "user");
+    expect(toolAnchor).toHaveAttribute("data-thread-anchor-kind", "tool");
+    expect(within(rail).getByRole("button", { name: "Jump to tool failure 3" })).toHaveAttribute("data-thread-anchor-kind", "failure");
+    expect(within(rail).queryByRole("button", { name: "Return to latest thread anchor" })).not.toBeInTheDocument();
+    expect(within(rail).getByText("Investigate the trace").closest('[data-role="thread-anchor-preview"]')).toBeInTheDocument();
+    expect(within(rail).getAllByRole("button").filter((button) => button.getAttribute("aria-current") === "location")).toHaveLength(1);
+    expect(assistantAnchor).toHaveAttribute("aria-current", "location");
+
+    fireEvent.mouseEnter(toolAnchor);
+    expect(rail).toHaveAttribute("data-expanded", "true");
+    expect(toolAnchor).toHaveAttribute("data-selected", "true");
+    expect(toolAnchor).toHaveAttribute("data-proximity", "0");
+    expect(userAnchor).toHaveAttribute("data-proximity", "1");
+    expect(failureAnchor).toHaveAttribute("data-proximity", "1");
+    expect(assistantAnchor).toHaveAttribute("data-proximity", "2");
+
+    fireEvent.mouseLeave(failureAnchor);
+    expect(rail).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.click(failureAnchor);
+  });
+
+  it("labels the scroll control when live activity may be arriving out of view", () => {
+    render(
+      <Transcript
+        entries={[messageEntry("1", "assistant", "streaming offscreen", true)]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Live response below" })).toHaveAttribute("data-direction", "end");
   });
 
   it("renders typed event metadata and approval actions inline", () => {
@@ -1266,13 +2176,13 @@ describe("Transcript", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Show details" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /Show details$/u })[0]!);
     expect(screen.getByText("path")).toBeInTheDocument();
     expect(screen.getByText("demo.txt")).toBeInTheDocument();
     expect(screen.queryByText(/"input"/)).not.toBeInTheDocument();
     expect(screen.queryByText("{")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Show details" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: /Show details$/u })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 

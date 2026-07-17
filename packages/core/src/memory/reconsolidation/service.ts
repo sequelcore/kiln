@@ -228,6 +228,7 @@ export class MemoryReconsolidationService {
       sequence: 1,
       kind: "created",
       content: record.content,
+      provenance: record.provenance,
       createdAt: record.createdAt,
     });
   }
@@ -242,6 +243,7 @@ export class MemoryReconsolidationService {
       sequence: (previous?.sequence ?? 0) + 1,
       kind,
       content: record.content,
+      provenance: record.provenance,
       reason,
       createdAt: this.clock(),
     });

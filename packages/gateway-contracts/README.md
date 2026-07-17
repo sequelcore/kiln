@@ -28,6 +28,22 @@ operator events to display-safe presentation:
 GUI and TUI may render those projections differently, but they should consume
 this shared presenter instead of duplicating event-specific display logic.
 
+### Tool Result Payloads
+
+`src/operator-tool-result.ts` owns tool-result envelope parsing and the
+operator-facing `tool_call_completed` payload. Runtime gateways, CLI transcript
+persistence, and operator presentation consume:
+
+- `parseOperatorToolResultEnvelope(value)` to unwrap bounded nested provider and
+  tool envelopes while preserving metadata, presentation intent, and resource
+  links.
+- `buildOperatorToolResultPayload(input)` to produce one payload shape with
+  stable output, summary, metadata, resources, usage, and status fields.
+
+Error evidence is fail-closed: a typed runtime failure or an error reported by
+the serialized envelope produces a failed result. Surfaces must not reparse or
+rebuild this payload independently.
+
 ## Operator Surface Capabilities
 
 `src/operator-surface-capability.ts` defines the shared surface vocabulary and
@@ -180,6 +196,14 @@ The shared operator theme catalog lives in `src/operator-themes.ts`.
 the GUI, TUI, CLI config parsing, and runtime operator-surface tools. Add or
 remove operator themes here first, then update each renderer to consume the
 same contract instead of maintaining a private list.
+
+Palette values are authored once as in-gamut OKLCH coordinates and organized
+by semantic responsibility: surfaces, borders, text, brand, actions, and
+status foreground/background/border sets. The contract owns perceptual color;
+renderers own only representation. Browser surfaces project the values to CSS
+`oklch()`, while terminal, canvas, and WebGL adapters project the same values to
+sRGB hex. Contract tests enforce gamut and WCAG contrast invariants so a theme
+cannot be added as an unchecked collection of literals.
 
 The catalog is intentionally curated as Kiln identity, not a generic collection
 of popular editor themes:

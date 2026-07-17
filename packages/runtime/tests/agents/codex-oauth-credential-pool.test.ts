@@ -289,6 +289,34 @@ describe("CodexOAuthCredentialPoolService", () => {
 
     await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("ok"));
     expect(calls).toEqual(["access-invalidated", "access-fresh"]);
+    await expect(service.listStatus()).resolves.toEqual([
+      expect.objectContaining({
+        id: "first",
+        status: "invalid",
+        invalidReason: "Provider rejected this credential. Sign in again.",
+      }),
+      expect.objectContaining({ id: "second", status: "valid" }),
+    ]);
+    await expect(service.listValidAccessTokenCandidates()).resolves.toEqual([
+      { credentialId: "second", accessToken: "access-fresh" },
+    ]);
+  });
+
+  it("resets persisted authentication failure when the operator relinks the same credential", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "work", tokenFile: token({ access_token: "access-revoked" }) });
+    await service.recordAuthenticationFailure("work");
+
+    await expect(service.listStatus()).resolves.toEqual([
+      expect.objectContaining({ id: "work", status: "invalid" }),
+    ]);
+
+    await service.linkCredential({ id: "work", tokenFile: token({ access_token: "access-new" }) });
+
+    await expect(service.listStatus()).resolves.toEqual([
+      expect.objectContaining({ id: "work", status: "valid", health: undefined }),
+    ]);
+    await expect(service.getValidAccessToken()).resolves.toBe("access-new");
   });
 
   it("throws AllCredentialsExhaustedError when all Codex OAuth entries are exhausted", async () => {

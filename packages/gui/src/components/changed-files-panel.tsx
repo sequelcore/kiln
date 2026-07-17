@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangedFileEntry } from "../lib/session-store.js";
 import { cn } from "@/lib/utils";
-import { SidebarPanelShell } from "./sidebar-panel-shell.js";
+import { InspectorDetailRow, InspectorEmptyState, InspectorPanelShell } from "./inspector-panel-shell.js";
 
 interface ChangedFilesPanelProps {
   readonly files: readonly ChangedFileEntry[];
@@ -53,15 +53,6 @@ function lineDelta(entry: ChangedFileEntry): string | null {
   return delta.length > 0 ? delta : null;
 }
 
-function DetailRow(props: { readonly label: string; readonly value: string }) {
-  return (
-    <div className="rounded-md border border-border/60 bg-background px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{props.label}</p>
-      <p className="mt-1 text-sm leading-5 text-foreground">{props.value}</p>
-    </div>
-  );
-}
-
 export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const selectedFile = useMemo(
@@ -83,20 +74,16 @@ export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
   }, [props.files, selectedKey]);
 
   return (
-    <SidebarPanelShell title="Changed Files" meta={`${props.files.length} tracked`}>
+    <InspectorPanelShell title="Changed Files" meta={`${props.files.length} tracked`}>
       <div className="grid min-h-0 flex-1 lg:grid-rows-[minmax(0,1.1fr)_minmax(14rem,0.9fr)]">
         <div className="min-h-0 overflow-y-auto border-b border-border/60">
           {props.files.length === 0 ? (
-            <div className="grid h-full place-items-center px-6 py-16 text-center">
-              <div>
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">no file changes yet</p>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  File-change events from the canonical timeline will appear here for the active Kiln session.
-                </p>
-              </div>
-            </div>
+            <InspectorEmptyState
+              label="No file changes yet"
+              description="File-change events from the canonical timeline will appear here for the active Kiln session."
+            />
           ) : (
-            <ul aria-label="Changed files" className="divide-y divide-border/60">
+            <ul aria-label="Changed files" className="flex min-w-0 flex-col gap-1 px-2 py-2">
               {props.files.map((entry) => {
                 const active = selectedFile ? fileKey(entry) === fileKey(selectedFile) : false;
                 const delta = lineDelta(entry);
@@ -107,8 +94,8 @@ export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
                       onClick={() => setSelectedKey(fileKey(entry))}
                       aria-pressed={active}
                       className={cn(
-                        "grid w-full grid-cols-[1.5rem_1fr] gap-3 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-                        active ? "bg-secondary/60" : "hover:bg-secondary/35",
+                        "grid w-full grid-cols-[1.5rem_minmax(0,1fr)] gap-3 rounded-md px-2 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                        active ? "bg-secondary/75" : "hover:bg-secondary/35",
                       )}
                     >
                       <span className="mt-0.5 inline-flex size-5 items-center justify-center rounded border border-border/80 font-mono text-[11px] text-muted-foreground">
@@ -150,9 +137,9 @@ export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
               </div>
 
               <div className="grid gap-2">
-                <DetailRow label="Change" value={changeLabel(selectedFile.changeType)} />
-                <DetailRow label="Recorded" value={formatRecordedAt(selectedFile.recordedAt)} />
-                <DetailRow label="Line delta" value={lineDelta(selectedFile) ?? "No line counts recorded"} />
+                <InspectorDetailRow label="Change" value={changeLabel(selectedFile.changeType)} />
+                <InspectorDetailRow label="Recorded" value={formatRecordedAt(selectedFile.recordedAt)} />
+                <InspectorDetailRow label="Line delta" value={lineDelta(selectedFile) ?? "No line counts recorded"} />
               </div>
 
               <div className="rounded-md border border-dashed border-border/70 bg-background px-3 py-3">
@@ -189,6 +176,6 @@ export function ChangedFilesPanel(props: ChangedFilesPanelProps) {
           )}
         </div>
       </div>
-    </SidebarPanelShell>
+    </InspectorPanelShell>
   );
 }

@@ -181,6 +181,7 @@ export class OpenCodeCredentialPoolService {
         lastSuccess: null,
         lastExhausted: null,
         cooldownUntil: null,
+        invalidReason: null,
         softLeaseCount: 0,
       }));
   }

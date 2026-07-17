@@ -4,6 +4,7 @@ import {
   recordSuccess,
   recordExhaustion,
   recordFailure,
+  recordInvalid,
   clearExpiredCooldown,
   acquireSoftLease,
   releaseSoftLease,
@@ -31,7 +32,7 @@ export interface CredentialPoolEntrySnapshot {
   readonly source: string;
   readonly priority: number;
   readonly tier?: string;
-  readonly health: "ok" | "cooling" | "exhausted";
+  readonly health: "ok" | "cooling" | "exhausted" | "invalid";
   readonly requestCount: number;
   readonly lastSuccess: number | null;
   readonly lastExhausted: number | null;
@@ -157,6 +158,8 @@ export class CredentialPool<TAuth> {
       updated = recordSuccess(credential, now);
     } else if (cooldownUntil !== null) {
       updated = recordExhaustion(credential, cooldownUntil, now);
+    } else if (outcome.type === "auth-failed") {
+      updated = recordInvalid(credential, "auth-failed");
     } else {
       updated = recordFailure(credential);
     }

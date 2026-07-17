@@ -3,12 +3,17 @@ import { access, mkdir, rmdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
 import { createHash } from "node:crypto";
-import { win32 as pathWin32 } from "node:path";
+import { join as joinPath, win32 as pathWin32 } from "node:path";
 import { promisify } from "node:util";
 import {
+  buildManagedAgentAuthorityEvidence,
+  assertManagedAgentResultHandoffContract,
+  classifyManagedAgentAuthorityEvidence,
   defineManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
+  defineStructuredExecutionResult,
+  defineVerificationUsageReport,
   evaluateManagedAgentAdmission,
   isManagedAgentWriteAuthorityProfile,
 } from "@kilnai/core";
@@ -19,10 +24,12 @@ import type {
   ManagedAgentCapabilitySnapshotInput,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentLifecycleState,
   ManagedAgentResourceLeaseEvidence,
   ManagedAgentWorktreeConflictEvidence,
   ManagedAgentWorktreeReviewEvidence,
+  StructuredExecutionResult,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 import {
@@ -36,6 +43,8 @@ import type {
   ManagedFilesystemRuntimeRecoveryStoreConfig,
 } from "./recovery-store.js";
 import { projectManagedInvocationRecordResources } from "./resource-projection.js";
+import { buildManagedAgentCoordinationUsage } from "./coordination-usage.js";
+export { buildManagedAgentCoordinationUsage } from "./coordination-usage.js";
 export {
   admitManagedChildContextAndCredentials,
 } from "./context-credential-admission.js";
@@ -48,6 +57,59 @@ export type {
   ManagedChildGovernedContext,
   ManagedChildParentAuthoritySnapshot,
 } from "./context-credential-admission.js";
+
+function attachStructuredManagedResult(record: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
+  if (!record.resultHandoff) return record;
+  const structuredResult = record.resultHandoff.structuredResult ?? [
+    ...(record.replayResources ?? []).map((resource) => resource.text),
+    record.resultHandoff.summary,
+  ].map(parseStructuredManagedResult).find((candidate) => candidate !== undefined);
+  if (!structuredResult) return record;
+  const verificationUsage = record.resultHandoff.verificationUsage
+    ?? deriveStructuredVerificationUsage(structuredResult);
+  return {
+    ...record,
+    resultHandoff: {
+      ...record.resultHandoff,
+      structuredResult,
+      ...(verificationUsage ? { verificationUsage } : {}),
+    },
+  };
+}
+
+function deriveStructuredVerificationUsage(structuredResult: StructuredExecutionResult) {
+  if (structuredResult.verificationResults.length === 0) return undefined;
+  return defineVerificationUsageReport({
+    version: "verification-usage-v1",
+    attempts: structuredResult.verificationResults.map((result) => {
+      const providerFree = result.method === "deterministic" || result.method === "human-review";
+      return {
+        requirementId: result.requirementId,
+        method: result.method,
+        status: result.status,
+        providerTokenClass: "input" as const,
+        tokens: providerFree
+          ? { value: 0 as const, source: "estimated" as const }
+          : { value: "unknown" as const, source: "unknown" as const },
+        costUsd: result.method === "deterministic"
+          ? { value: 0 as const, source: "estimated" as const }
+          : { value: "unknown" as const, source: "unknown" as const },
+        latencyMs: { value: "unknown" as const, source: "unknown" as const },
+        evidenceUris: result.evidenceUris,
+      };
+    }),
+  });
+}
+
+function parseStructuredManagedResult(text: string): StructuredExecutionResult | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+  try {
+    return defineStructuredExecutionResult(JSON.parse(trimmed) as StructuredExecutionResult);
+  } catch {
+    return undefined;
+  }
+}
 export {
   appendManagedInvocationSessionEvents,
 } from "./session-events.js";
@@ -66,15 +128,15 @@ export type {
   ManagedInvocationPromptDeliveryMode,
 } from "./prompt-admission.js";
 export {
-  runManagedAgentFanOutLifecycle,
-} from "./fan-out.js";
+  runManagedAgentOrchestrationLifecycle,
+} from "./orchestration-lifecycle.js";
 export type {
-  ManagedAgentFanOutBudgetAdmissionInput,
-  ManagedAgentFanOutLifecycleChildRecord,
-  ManagedAgentFanOutLifecycleInput,
-  ManagedAgentFanOutLifecycleResult,
-  ManagedAgentFanOutLifecycleRouteSelector,
-} from "./fan-out.js";
+  ManagedAgentOrchestrationBudgetAdmissionInput,
+  ManagedAgentOrchestrationLifecycleChildRecord,
+  ManagedAgentOrchestrationLifecycleInput,
+  ManagedAgentOrchestrationLifecycleResult,
+  ManagedAgentOrchestrationLifecycleRouteSelector,
+} from "./orchestration-lifecycle.js";
 export {
   createManagedAgentInvocationResourceProvider,
   isManagedAgentInvocationResourceProvider,
@@ -150,7 +212,9 @@ export type {
 } from "./remote-harness-adapter.js";
 export {
   attachManagedInvocationSessionEventSink,
+  createManagedAgentOrchestrateToolDefinition,
   createManagedAgentStartToolDefinition,
+  createManagedInvocationToolAttachment,
   createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,
   resolveManagedInvocationService,
@@ -164,6 +228,9 @@ export {
   MANAGED_AGENT_LIST_CAPABILITY,
   MANAGED_AGENT_LIST_TOOL,
   MANAGED_AGENT_LIST_TOOL_NAME,
+  MANAGED_AGENT_ORCHESTRATE_CAPABILITY,
+  MANAGED_AGENT_ORCHESTRATE_TOOL,
+  MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
   MANAGED_AGENT_INVOKE_CAPABILITY,
   MANAGED_AGENT_INVOKE_TOOL,
   MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -181,10 +248,13 @@ export type {
   ManagedInvocationSessionEventSink,
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationRouteProfile,
+  ManagedInvocationToolAttachment,
   ManagedInvocationToolOptions,
   ManagedInvocationToolOptionsWithService,
   ManagedInvocationToolRoute,
 } from "./runtime-tool.js";
+export { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
+export type { ManagedInvocationCallerCapabilityInput } from "./caller-capability-policy.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
 export interface ManagedAgentRuntimeInvocationInput {
@@ -192,6 +262,7 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly abortSignal: AbortSignal;
   readonly promptDelivery: ManagedAgentRuntimePromptDeliveryCoordinator;
+  readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
   readonly environment?: ManagedAgentEnvironmentVariables;
 }
 
@@ -209,6 +280,23 @@ export interface ManagedAgentRuntimeInvocationTerminalNotification {
   readonly durationMs?: number;
 }
 
+export interface ManagedAgentRuntimeInvocationProgressEvent {
+  readonly eventId: string;
+  readonly kind: "tool_authorized" | "tool_called" | "tool_result" | "tool_cache_hit" | "error";
+  readonly recordedAt: string;
+  readonly summary: string;
+  readonly toolName?: string;
+  readonly success?: boolean;
+  readonly isError?: boolean;
+  readonly durationMs?: number;
+  readonly resultSummary?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+export type ManagedAgentRuntimeInvocationProgressObserver = (
+  event: ManagedAgentRuntimeInvocationProgressEvent,
+) => void | Promise<void>;
+
 export type ManagedAgentRuntimeInvocationTerminalObserver = (
   notification: ManagedAgentRuntimeInvocationTerminalNotification,
 ) => void | Promise<void>;
@@ -223,6 +311,18 @@ export interface ManagedAgentRuntimeAdapter {
   invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord>;
   cancel?(input: ManagedAgentRuntimeCancellationInput): Promise<void>;
 }
+
+export interface ManagedAgentRuntimeAuthorityObservationInput {
+  readonly phase: "pre-start" | "post-start" | "recovery";
+  readonly request: ManagedAgentInvocationRequest;
+  readonly adapterDescriptor: ManagedAgentAdapterDescriptor;
+}
+
+export interface ManagedAgentRuntimeAuthorityObserver {
+  observe(input: ManagedAgentRuntimeAuthorityObservationInput): Promise<ManagedAgentObservedRuntimeAuthorityEvidence>;
+}
+
+class ManagedAgentRuntimeAuthorityObservationError extends ManagedAgentRuntimeAdmissionError {}
 
 export interface ManagedAgentWorktreeLeaseManagerInput {
   readonly request: ManagedAgentInvocationRequest;
@@ -299,6 +399,8 @@ export interface RuntimeManagedAgentInvocationServiceOptions {
   readonly environmentLeaseManager?: ManagedAgentEnvironmentLeaseManager;
   readonly credentialRouteLeaseManager?: ManagedAgentCredentialRouteLeaseManager;
   readonly recoveryStore?: ManagedAgentRuntimeRecoveryStore;
+  readonly authorityObserver?: ManagedAgentRuntimeAuthorityObserver;
+  readonly clock?: () => Date;
 }
 
 export interface ManagedGitWorktreeLeaseManagerConfig {
@@ -505,7 +607,7 @@ export class ManagedFilesystemArtifactDirectoryLeaseManager implements ManagedAg
   }
 
   private artifactDirectoryPath(invocationId: string): string {
-    return pathWin32.join(this.artifactRootPath, invocationId);
+    return joinPath(this.artifactRootPath, invocationId);
   }
 
   private assertArtifactDirectoryPath(path: string): void {
@@ -759,6 +861,7 @@ export interface ManagedAgentRuntimeInvocationSnapshot {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly record?: ManagedAgentInvocationRecord;
+  readonly progressEvents?: readonly ManagedAgentRuntimeInvocationProgressEvent[];
   readonly promptInbox?: readonly ManagedAgentRuntimePromptAdmissionRecord[];
   readonly error?: {
     readonly message: string;
@@ -898,6 +1001,7 @@ interface ManagedAgentRuntimeInvocationEntry {
   acquiredLeaseStages: ManagedAgentRuntimeLeaseStage[];
   releasedLeaseStages: ManagedAgentRuntimeLeaseStage[];
   promptInbox: ManagedAgentRuntimePromptAdmissionRecord[];
+  progressEvents: ManagedAgentRuntimeInvocationProgressEvent[];
   adapterStarted: boolean;
   parentAbortCleanup?: () => void;
   leaseFinalization?: Promise<ManagedAgentInvocationRecord>;
@@ -942,7 +1046,12 @@ export class RuntimeManagedAgentInvocationService {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is already registered");
     }
 
-    const decision = evaluateManagedAgentAdmission(request, adapter.descriptor, capabilitySnapshotInput);
+    const admittedSnapshotInput = this.options.authorityObserver === undefined
+      ? capabilitySnapshotInputWithRuntimeAuthorityProjection(request, adapter, capabilitySnapshotInput, this.now())
+      : await this.capabilitySnapshotInputWithObservedRuntimeAuthority(request, adapter, capabilitySnapshotInput);
+    const decision = evaluateManagedAgentAdmission(request, adapter.descriptor, admittedSnapshotInput, {
+      evaluatedAt: this.now().toISOString(),
+    });
     if (decision.status === "denied") {
       return {
         status: "denied",
@@ -971,6 +1080,7 @@ export class RuntimeManagedAgentInvocationService {
       acquiredLeaseStages: [],
       releasedLeaseStages: [],
       promptInbox: [],
+      progressEvents: [],
       adapterStarted: false,
       terminal,
       ...(lifecycleOptions.terminalObserver !== undefined
@@ -1021,15 +1131,20 @@ export class RuntimeManagedAgentInvocationService {
     if (entry.lifecycleState === "stale" && entry.record) {
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
-    entry.adapterStarted = true;
-    const adapterTerminal: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>> = this.invokeAdmitted({
-      request: cloneJson(registeredRequest),
-      adapter,
-      admission: cloneJson(registeredDecision),
-      abortSignal: abortController.signal,
-      promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
-      ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
-    }).then(async (record) => {
+    const authorityCheckedInvocation = this.assertPostStartAuthority(request, adapter, registeredDecision, abortController)
+      .then(() => {
+        entry.adapterStarted = true;
+        return this.invokeAdmitted({
+          request: cloneJson(registeredRequest),
+          adapter,
+          admission: cloneJson(registeredDecision),
+          abortSignal: abortController.signal,
+          promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
+          progressObserver: (event) => this.recordProgress(entry, event),
+          ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
+        });
+      });
+    const adapterTerminal: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>> = authorityCheckedInvocation.then(async (record) => {
       if (entry.lifecycleState === "failed" && entry.record) {
         const failedRecord = await this.currentTerminalRecord(entry);
         return {
@@ -1106,6 +1221,13 @@ export class RuntimeManagedAgentInvocationService {
         entry,
         createFailedRecord(entry.request, entry.decision, runtimeError.message),
       );
+      if (runtimeError instanceof ManagedAgentRuntimeAuthorityObservationError) {
+        return {
+          status: "completed",
+          decision: registeredDecision,
+          record: entry.record,
+        } as const;
+      }
       throw runtimeError;
     });
     adapterTerminal.then(
@@ -1125,6 +1247,13 @@ export class RuntimeManagedAgentInvocationService {
       decision: cloneJson(registeredDecision),
       snapshot: snapshotInvocation(entry),
     };
+  }
+
+  private recordProgress(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    event: ManagedAgentRuntimeInvocationProgressEvent,
+  ): void {
+    entry.progressEvents = [...entry.progressEvents, cloneJson(event)].slice(-100);
   }
 
   status(invocationId: string): ManagedAgentRuntimeInvocationSnapshot | undefined {
@@ -1410,6 +1539,24 @@ export class RuntimeManagedAgentInvocationService {
         continue;
       }
       const entry = invocationEntryFromRecoveryCheckpoint(checkpoint);
+      const recoveryAuthority = classifyManagedAgentAuthorityEvidence(
+        entry.decision.capabilitySnapshot.authorityEvidence,
+        now.toISOString(),
+      );
+      if (requiresRuntimeAuthorityProof(entry.request) && recoveryAuthority.classification !== "current-verified") {
+        entry.finishedAt = now;
+        entry.lifecycleState = "failed";
+        entry.record = createFailedRecord(
+          entry.request,
+          entry.decision,
+          `Managed child authority evidence is ${recoveryAuthority.classification}; observe authority again before replay.`,
+        );
+        this.invocations.set(entry.request.invocationId, entry);
+        entry.record = await this.finalizeTerminalLeaseStages(entry, entry.record);
+        entry.terminal?.resolve({ status: "completed", decision: entry.decision, record: entry.record });
+        recovered.push(snapshotInvocation(entry));
+        continue;
+      }
       entry.abortController.abort(reason);
       entry.finishedAt = now;
       entry.lifecycleState = "recovered";
@@ -1436,6 +1583,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly admission: ManagedAgentAdmissionDecision;
     readonly abortSignal?: AbortSignal;
     readonly promptDelivery?: ManagedAgentRuntimePromptDeliveryCoordinator;
+    readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
     readonly environment?: ManagedAgentEnvironmentVariables;
   }): Promise<ManagedAgentInvocationRecord> {
     const admission = this.requireRuntimeAdmission(input);
@@ -1445,10 +1593,104 @@ export class RuntimeManagedAgentInvocationService {
       admission,
       abortSignal: input.abortSignal ?? new AbortController().signal,
       promptDelivery: input.promptDelivery ?? this.promptDeliveryCoordinator(input.request.invocationId),
+      ...(input.progressObserver !== undefined ? { progressObserver: input.progressObserver } : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
     });
-    this.assertRecordWithinAdmission(record, input.request, admission);
-    return record;
+    const canonicalRecord = attachStructuredManagedResult(record);
+    const attributedRecord = defineManagedAgentInvocationRecord({
+      ...canonicalRecord,
+      coordinationUsage: buildManagedAgentCoordinationUsage({
+        invocationId: input.request.invocationId,
+        ...(canonicalRecord.childSessionId ? { childSessionId: canonicalRecord.childSessionId } : {}),
+        parentPrompt: input.request.input.prompt ?? input.request.input.summary,
+        sourceResourceUris: admission.capabilitySnapshot.resourcePlane.resourceUris,
+        ...(canonicalRecord.resultHandoff ? { resultHandoff: canonicalRecord.resultHandoff } : {}),
+      }),
+    });
+    assertManagedAgentResultHandoffContract(input.request.input.handoff, attributedRecord.resultHandoff);
+    this.assertRecordWithinAdmission(attributedRecord, input.request, admission);
+    return attributedRecord;
+  }
+
+  private async capabilitySnapshotInputWithObservedRuntimeAuthority(
+    request: ManagedAgentInvocationRequest,
+    adapter: ManagedAgentRuntimeAdapter,
+    input: ManagedAgentCapabilitySnapshotInput,
+  ): Promise<ManagedAgentCapabilitySnapshotInput> {
+    const observedRuntime = await this.observeRuntimeAuthority({
+      phase: "pre-start",
+      request,
+      adapter,
+    });
+    return {
+      ...input,
+      authorityEvidence: buildManagedAgentAuthorityEvidence({
+        request,
+        projectedSource: projectedAuthoritySourceForAdapter(adapter),
+        ...(observedRuntime !== undefined ? { observedRuntime } : {}),
+        evaluatedAt: this.now().toISOString(),
+      }),
+    };
+  }
+
+  private async assertPostStartAuthority(
+    request: ManagedAgentInvocationRequest,
+    adapter: ManagedAgentRuntimeAdapter,
+    admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>,
+    abortController: AbortController,
+  ): Promise<void> {
+    if (this.options.authorityObserver === undefined) return;
+    const observedRuntime = await this.observeRuntimeAuthority({
+      phase: "post-start",
+      request,
+      adapter,
+    });
+    const evidence = buildManagedAgentAuthorityEvidence({
+      request,
+      projectedSource: admission.capabilitySnapshot.authorityEvidence.projected.source,
+      observedRuntime,
+      evaluatedAt: this.now().toISOString(),
+    });
+    if (evidence.classification !== "current-verified") {
+      const reason = `Managed child runtime authority changed after start: ${evidence.classification}`;
+      abortController.abort(reason);
+      await adapter.cancel?.({
+        request: cloneJson(request),
+        admission: cloneJson(admission),
+        reason,
+        abortSignal: abortController.signal,
+      });
+      throw new ManagedAgentRuntimeAuthorityObservationError(
+        reason,
+      );
+    }
+  }
+
+  private async observeRuntimeAuthority(input: {
+    readonly phase: ManagedAgentRuntimeAuthorityObservationInput["phase"];
+    readonly request: ManagedAgentInvocationRequest;
+    readonly adapter: ManagedAgentRuntimeAdapter;
+  }): Promise<ManagedAgentObservedRuntimeAuthorityEvidence | undefined> {
+    try {
+      return await this.options.authorityObserver?.observe({
+        phase: input.phase,
+        request: cloneJson(input.request),
+        adapterDescriptor: cloneJson(input.adapter.descriptor),
+      });
+    } catch (error) {
+      const runtimeError = toError(error);
+      return {
+        source: "runtime-observation",
+        proof: "failed",
+        reason: `Managed child runtime authority observation failed during ${input.phase}: ${runtimeError.message}`,
+      };
+    }
+  }
+
+  private now(): Date {
+    const now = this.options.clock?.() ?? new Date();
+    assertValidRuntimeDate(now, "Managed authority observation clock is invalid");
+    return now;
   }
 
   private promptDeliveryCoordinator(invocationId: string): ManagedAgentRuntimePromptDeliveryCoordinator {
@@ -1519,6 +1761,7 @@ export class RuntimeManagedAgentInvocationService {
       input.request,
       input.adapter.descriptor,
       snapshotInputFromAdmission(input.admission.capabilitySnapshot),
+      { evaluatedAt: this.now().toISOString() },
     );
     if (runtimeDecision.status !== "admitted") {
       throw new ManagedAgentRuntimeAdmissionError(`Managed agent runtime admission no longer satisfies adapter policy: ${runtimeDecision.reason}`);
@@ -2088,6 +2331,7 @@ function invocationEntryFromRecoveryCheckpoint(
     acquiredLeaseStages: [...validated.acquiredLeaseStages],
     releasedLeaseStages: [...validated.releasedLeaseStages],
     promptInbox: [],
+    progressEvents: [],
     adapterStarted: validated.adapterStarted,
     ...(validated.finishedAt !== undefined ? { finishedAt: new Date(validated.finishedAt) } : {}),
     ...(validated.record !== undefined ? { record: cloneJson(validated.record) } : {}),
@@ -2137,6 +2381,7 @@ function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): ManagedA
     request: cloneJson(entry.request),
     decision: cloneJson(entry.decision),
     ...(snapshotRecord(entry) !== undefined ? { record: cloneJson(snapshotRecord(entry)) } : {}),
+    ...(entry.progressEvents.length > 0 ? { progressEvents: cloneJson(entry.progressEvents) } : {}),
     ...(entry.promptInbox.length > 0 ? { promptInbox: cloneJson(entry.promptInbox) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
   };
@@ -2916,10 +3161,47 @@ function snapshotInputFromAdmission(snapshot: ManagedAgentCapabilitySnapshot): M
     capturedAt: snapshot.capturedAt,
     routeId: snapshot.routeId,
     routeSource: snapshot.routeSource,
+    ...(snapshot.callerIdentity ? { callerIdentity: snapshot.callerIdentity } : {}),
+    ...(snapshot.invocationCapabilityEvidence
+      ? { invocationCapabilityEvidence: snapshot.invocationCapabilityEvidence }
+      : {}),
     routeHealth: snapshot.routeHealth,
     providerModelProof: snapshot.providerModelProof,
+    authorityEvidence: snapshot.authorityEvidence,
     resourcePlane: snapshot.resourcePlane,
     resourceLease: snapshot.resourceLease,
     childIdentity: snapshot.childIdentity,
   };
+}
+
+function projectedAuthoritySourceForAdapter(
+  adapter: ManagedAgentRuntimeAdapter,
+): Parameters<typeof buildManagedAgentAuthorityEvidence>[0]["projectedSource"] {
+  if (adapter.descriptor.adapterKind === "harness" && adapter.descriptor.supportedExecutionModes.includes("cli-harness")) {
+    return "cli-harness-session-factory";
+  }
+  if (adapter.descriptor.supportedExecutionModes.includes("remote-harness")) {
+    return "remote-harness-adapter";
+  }
+  return "direct-provider-adapter";
+}
+
+function capabilitySnapshotInputWithRuntimeAuthorityProjection(
+  request: ManagedAgentInvocationRequest,
+  adapter: ManagedAgentRuntimeAdapter,
+  input: ManagedAgentCapabilitySnapshotInput,
+  evaluatedAt: Date,
+): ManagedAgentCapabilitySnapshotInput {
+  return {
+    ...input,
+    authorityEvidence: buildManagedAgentAuthorityEvidence({
+      request,
+      projectedSource: projectedAuthoritySourceForAdapter(adapter),
+      evaluatedAt: evaluatedAt.toISOString(),
+    }),
+  };
+}
+
+function requiresRuntimeAuthorityProof(request: ManagedAgentInvocationRequest): boolean {
+  return request.executionIntent?.attendance === "unattended" || request.executionIntent?.lifecycle !== "foreground";
 }

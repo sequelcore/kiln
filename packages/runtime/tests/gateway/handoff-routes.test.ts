@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createHandoffRoutes } from "../../src/gateway/handoff-routes.js";
 import type { HandoffRoutesConfig } from "../../src/gateway/handoff-routes.js";
-import { SessionRegistry } from "../../src/session/session-registry.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { WebChannel } from "../../src/channels/web-channel.js";

@@ -64,7 +64,10 @@ describe("shared output verbosity", () => {
       await writeFile(join(tempDir, "src", "match.ts"), "const x = 1;\n", "utf8");
       await writeFile(join(tempDir, "src", "skip.js"), "const y = 2;\n", "utf8");
 
-      const tool = new GlobTool({ environmentProvider: async () => ({}) });
+      const tool = new GlobTool({
+        environmentProvider: async () => ({}),
+        vendoredToolResolver: () => undefined,
+      });
       const raw = await tool.execute(
         { name: "glob", input: { pattern: "**/*.ts", path: tempDir } },
         makeSandbox(tempDir),
@@ -96,11 +99,16 @@ describe("shared output verbosity", () => {
     const tempDir = await makeTempDir();
     try {
       await mkdir(join(tempDir, "src"), { recursive: true });
-      for (let index = 0; index < 205; index += 1) {
-        await writeFile(join(tempDir, "src", `match-${String(index).padStart(3, "0")}.ts`), "export {};\n", "utf8");
-      }
+      const fixturePaths = Array.from(
+        { length: 205 },
+        (_, index) => join(tempDir, "src", `match-${String(index).padStart(3, "0")}.ts`),
+      );
+      await Promise.all(fixturePaths.map((path) => writeFile(path, "export {};\n", "utf8")));
 
-      const tool = new GlobTool({ environmentProvider: async () => ({}) });
+      const tool = new GlobTool({
+        environmentProvider: async () => ({}),
+        vendoredToolResolver: () => undefined,
+      });
       const result = await tool.execute(
         { name: "glob", input: { pattern: "**/*.ts", path: tempDir, verbosity: "raw" } },
         makeSandbox(tempDir),
@@ -131,7 +139,17 @@ describe("shared output verbosity", () => {
     try {
       await writeFile(join(tempDir, "a.txt"), "one\nneedle line\nthree", "utf8");
 
-      const tool = new GrepTool({ environmentProvider: async () => ({}) });
+      const tool = new GrepTool({
+        commandRunner: async () => ({
+          stdout: "a.txt:2:needle line\n",
+          stderr: "",
+        }),
+        searchRuntimeProvider: async () => ({
+          path: "rg-bin",
+          version: "ripgrep 15.0.0",
+          source: "system",
+        }),
+      });
       const result = await tool.execute(
         {
           name: "grep",

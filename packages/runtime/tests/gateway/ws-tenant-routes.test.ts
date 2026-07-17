@@ -5,7 +5,7 @@ import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
-import type { SessionRegistry } from "../../src/session/session-registry.js";
+import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { Capability, TenantConfig, ToolDefinition } from "@kilnai/core";
 import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
@@ -138,7 +138,7 @@ describe("createWsTenantRoutes", () => {
         toolAuthority: mockedToolAuthority,
         toolAllowlist: undefined,
         rateLimiter: undefined,
-        maxToolRounds: undefined,
+        executionEnvelope: undefined,
       },
       isHandoff: false,
     });
@@ -574,7 +574,7 @@ describe("createWsTenantRoutes", () => {
           toolAuthority: new Map(),
           toolAllowlist: new Set(["read_tool", "write_tool"]),
           rateLimiter: undefined,
-          maxToolRounds: undefined,
+          executionEnvelope: undefined,
         },
         isHandoff: false,
         pingPongBlocked: false,
@@ -662,7 +662,7 @@ describe("createWsTenantRoutes", () => {
           toolAuthority: new Map(),
           toolAllowlist: new Set(["unknown_tool"]),
           rateLimiter: undefined,
-          maxToolRounds: undefined,
+          executionEnvelope: undefined,
         },
         isHandoff: false,
         pingPongBlocked: false,
@@ -735,7 +735,7 @@ describe("createWsTenantRoutes", () => {
           toolAuthority: mockedToolAuthority,
           toolAllowlist: undefined,
           rateLimiter: undefined,
-          maxToolRounds: undefined,
+          executionEnvelope: undefined,
         },
         isHandoff: false,
       });

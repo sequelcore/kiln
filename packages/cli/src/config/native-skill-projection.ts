@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
-import { renderSkillMarkdown, resolveKilnCoreBuiltinSkills } from "@kilnai/core";
+import { loadSkillMdIndex, renderSkillMarkdown, resolveKilnCoreBuiltinSkills } from "@kilnai/core";
 import {
   createNativeProjectionFileSnapshot,
   detectNativeProjectionFileDrift,
@@ -17,6 +17,7 @@ import {
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
+import { NATIVE_SKILL_TARGETS } from "./native-skill-targets.js";
 
 export interface NativeSkillProjectionResult {
   claude: boolean;
@@ -28,17 +29,19 @@ export interface NativeSkillProjectionResult {
 
 export interface NativeSkillProjectionOptions extends NativeProjectionSyncOptions {
   readonly skillConfig?: KilnYamlSkillsConfig | null;
+  readonly userHome?: string;
 }
 
-export function discoverSkillDirs(projectPath: string): Map<string, string> {
+export function discoverSkillDirs(projectPath: string, userHome = os.homedir()): Map<string, string> {
   const discovered = new Map<string, string>();
-  const globalSkillsDir = join(os.homedir(), ".kiln", "skills");
+  const globalSkillsDir = join(userHome, ".kiln", "skills");
   const projectSkillsDir = join(projectPath, ".kiln", "skills");
 
   try {
     for (const entry of readdirSync(globalSkillsDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        discovered.set(entry.name, join(globalSkillsDir, entry.name));
+      const sourceDir = join(globalSkillsDir, entry.name);
+      if (entry.isDirectory() && isCanonicalSkillDirectory(sourceDir, entry.name)) {
+        discovered.set(entry.name, sourceDir);
       }
     }
   } catch {
@@ -47,8 +50,9 @@ export function discoverSkillDirs(projectPath: string): Map<string, string> {
 
   try {
     for (const entry of readdirSync(projectSkillsDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        discovered.set(entry.name, join(projectSkillsDir, entry.name));
+      const sourceDir = join(projectSkillsDir, entry.name);
+      if (entry.isDirectory() && isCanonicalSkillDirectory(sourceDir, entry.name)) {
+        discovered.set(entry.name, sourceDir);
       }
     }
   } catch {
@@ -56,6 +60,19 @@ export function discoverSkillDirs(projectPath: string): Map<string, string> {
   }
 
   return discovered;
+}
+
+function isCanonicalSkillDirectory(skillDir: string, directoryName: string): boolean {
+  try {
+    const skillFile = readdirSync(skillDir, { withFileTypes: true })
+      .find((entry) => entry.isFile() && entry.name.toLowerCase() === "skill.md");
+    if (!skillFile) {
+      return false;
+    }
+    return loadSkillMdIndex(join(skillDir, skillFile.name)).name === directoryName;
+  } catch {
+    return false;
+  }
 }
 
 interface SkillProjectionSource {
@@ -69,11 +86,14 @@ interface SkillProjectionSource {
 export function discoverSkillProjectionSources(
   projectPath: string,
   skillConfig?: KilnYamlSkillsConfig | null,
+  userHome = os.homedir(),
 ): Map<string, SkillProjectionSource> {
   const discovered = new Map<string, SkillProjectionSource>();
-  for (const [skillName, sourceDir] of discoverSkillDirs(projectPath)) {
+  for (const [skillName, sourceDir] of discoverSkillDirs(projectPath, userHome)) {
     discovered.set(skillName, { sourceDir });
   }
+  addFlatSkillProjectionSources(discovered, join(userHome, ".kiln", "skills"), false);
+  addFlatSkillProjectionSources(discovered, join(projectPath, ".kiln", "skills"), true);
   for (const skill of resolveKilnCoreBuiltinSkills(skillConfig?.builtin)) {
     if (!discovered.has(skill.name)) {
       discovered.set(skill.name, {
@@ -84,10 +104,29 @@ export function discoverSkillProjectionSources(
   return discovered;
 }
 
-interface SkillTarget {
-  key: "claude" | "codex" | "opencode";
-  name: "Claude Code" | "Codex" | "OpenCode";
-  dir: string;
+function addFlatSkillProjectionSources(
+  discovered: Map<string, SkillProjectionSource>,
+  root: string,
+  override: boolean,
+): void {
+  try {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
+      const filePath = join(root, entry.name);
+      try {
+        const index = loadSkillMdIndex(filePath);
+        if (override || !discovered.has(index.name)) {
+          discovered.set(index.name, {
+            files: [{ fileName: entry.name, content: readFileSync(filePath, "utf-8") }],
+          });
+        }
+      } catch {
+        // Invalid flat skill files are not projection sources.
+      }
+    }
+  } catch {
+    // Missing or unreadable registries contribute no flat skill sources.
+  }
 }
 
 interface SkillFileSyncResult {
@@ -104,23 +143,24 @@ export async function syncNativeSkillProjections(
   let synced = 0;
   const kilnDir = join(projectPath, ".kiln");
   let installState = readNativeProjectionInstallState(kilnDir);
-  const skillSources = discoverSkillProjectionSources(projectPath, options.skillConfig);
+  const userHome = options.userHome ?? os.homedir();
+  const skillSources = discoverSkillProjectionSources(projectPath, options.skillConfig, userHome);
 
   if (skillSources.size === 0) {
     return { claude: true, codex: true, opencode: true, synced: 0, errors: [] };
   }
 
-  const targets: SkillTarget[] = [
-    { key: "claude", name: "Claude Code", dir: join(os.homedir(), ".claude", "skills") },
-    { key: "codex", name: "Codex", dir: join(os.homedir(), ".codex", "skills") },
-    { key: "opencode", name: "OpenCode", dir: join(os.homedir(), ".config", "opencode", "skills") },
-  ];
+  const targets = NATIVE_SKILL_TARGETS.map((target) => ({
+    key: target.target,
+    name: target.displayName,
+    dir: target.dir(userHome),
+  }));
 
   let claude = true;
   let codex = true;
   let opencode = true;
 
-  const setTargetFailed = (targetKey: SkillTarget["key"]): void => {
+  const setTargetFailed = (targetKey: typeof targets[number]["key"]): void => {
     if (targetKey === "claude") {
       claude = false;
       return;
@@ -204,7 +244,10 @@ function readSkillSourceFiles(sourceDir: string | undefined): readonly {
 }
 
 function syncSkillFile(input: {
-  readonly target: SkillTarget;
+  readonly target: {
+    readonly key: "claude" | "codex" | "opencode";
+    readonly name: string;
+  };
   readonly skillName: string;
   readonly fileName: string;
   readonly content: string;

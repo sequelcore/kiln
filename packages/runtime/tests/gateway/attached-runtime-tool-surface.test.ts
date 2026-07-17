@@ -18,6 +18,7 @@ import {
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  SandboxPolicy,
   textParts,
 } from "@kilnai/core";
 import {
@@ -28,7 +29,7 @@ import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invoca
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
-const ALWAYS_ON_RESOURCE_TOOLS = ["resource_list", "resource_template_list", "resource_read"];
+const ALWAYS_ON_CONTEXT_TOOLS = ["memory_search", "resource_list", "resource_template_list", "resource_read"];
 
 const RUNTIME_LOCAL_MUTATION_EFFECT: ActionEffectEnvelope = {
   operation: "mutate",
@@ -145,6 +146,9 @@ function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,
@@ -158,7 +162,7 @@ function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
   });
 }
 
-function makeManagedAdapter(): ManagedAgentRuntimeAdapter {
+function makeManagedAdapter(summary = "Managed child completed governed work."): ManagedAgentRuntimeAdapter {
   return {
     descriptor: makeManagedDescriptor(),
     invoke: vi.fn(async ({ request, admission }: {
@@ -182,9 +186,33 @@ function makeManagedAdapter(): ManagedAgentRuntimeAdapter {
         childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
         childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
         resultHandoff: {
-          summary: "Managed child completed governed work.",
-          resourceUris: [],
+          summary,
+          resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
           memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary,
+            uncertainty: 0,
+            limitations: [],
+            operatorDecisions: [],
+            evidence: [{
+              uri: `kiln://managed-invocations/${request.invocationId}/handoff`,
+              kind: "artifact",
+            }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: [],
+            verificationResults: [{
+              requirementId: "governed-work-handoff",
+              method: "deterministic",
+              status: "passed",
+              summary: "The governed work handoff is present.",
+              evidenceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
+            }],
+          },
         },
       })),
   };
@@ -253,14 +281,24 @@ function makeManagedExecutionStartTool(
         ? input.input.managedInvocationId
         : undefined;
       if (!managedInvocationId) {
+        const goalRunId = typeof input.input.goalRunId === "string" ? input.input.goalRunId : "goal-managed";
         return {
           output: JSON.stringify({
             status: "paused",
             reason: "managedInvocationId is required before starting managed-delegation execution.",
             workItemId: "work-managed",
             nextTool: "managed_agent.invoke",
-            managedInvocationRequest,
+            managedInvocationRequest: { ...managedInvocationRequest, goalRunId },
           }, null, 2),
+          metadata: {
+            kind: "work_item",
+            toolName: "work_item.execution.start",
+            operation: "execution_started",
+            executionScopeTransition: {
+              action: "enter",
+              scope: { kind: "work_item", goalRunId, workItemId: "work-managed" },
+            },
+          },
           isError: true,
         };
       }
@@ -607,6 +645,63 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       sandboxProjection: "workspace_write",
     });
     expect(config.effectiveTurnAuthority?.completeness).toBe("authoritative");
+  });
+
+  it("admits workspace mutation tools for governed destructive execute authority", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface();
+    const config = buildAttachedRuntimePerCallToolConfig({
+      tenantId: "tenant-1",
+      activeProvider: "codex-oauth",
+      activeModel: "gpt-5.4-mini",
+      activeModelCapabilities: { supportsFunctionTools: true },
+      builtinToolSurface: runtimeSurface,
+      executionMode: "execute",
+      requestedAuthority: "destructive",
+      authorityContext: {
+        sessionPolicy: {
+          maximumAuthority: "destructive",
+          reason: "Session permits governed destructive execution.",
+        },
+        tenantPolicy: {
+          subjectId: "tenant-1",
+          maximumAuthority: "destructive",
+          reason: "Tenant permits governed destructive execution.",
+        },
+        routePolicy: {
+          subjectId: "gui-runtime",
+          maximumAuthority: "destructive",
+          reason: "GUI runtime route permits governed destructive execution.",
+        },
+        goalEnvelope: {
+          goalRunId: "goal-1",
+          maximumAuthority: "destructive",
+          reason: "Operator goal permits workspace mutation.",
+        },
+        workItemAuthority: {
+          workItemId: "work-1",
+          maximumAuthority: "destructive",
+          reason: "Materialized work item permits workspace mutation.",
+        },
+      },
+    });
+
+    expect(config.effectiveTurnAuthority).toMatchObject({
+      executionMode: "execute",
+      requestedAuthority: "destructive",
+      admittedAuthority: "destructive",
+      sourcePolicy: "runtime_surface_projection",
+      completeness: "authoritative",
+      sandboxProjection: "workspace_write",
+    });
+    expect(config.toolAllowlist?.has("write")).toBe(true);
+    expect(config.toolAllowlist?.has("edit")).toBe(true);
+    expect(config.toolAllowlist?.has("patch")).toBe(true);
+    expect(config.toolAuthority?.get("write")).toMatchObject({
+      level: 4,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Governed destructive execution admitted by effective turn authority.",
+    });
   });
 
   it("keeps effectiveTurnAuthority in lockstep with returned allowlist and authority map", () => {
@@ -1432,7 +1527,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       readonly metadata?: Record<string, unknown>;
     };
 
-    expect(result.isError).toBe(false);
+    expect(result, result.output).toMatchObject({ isError: false });
     expect(startTool.calls).toHaveLength(2);
     expect(startTool.calls[1]?.input).toMatchObject({
       goalRunId: "goal-managed",
@@ -1469,7 +1564,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     });
   });
 
-  it("keeps intermediate evidence phases paused as successful explicit parent handoffs", async () => {
+  it("runs intermediate evidence phases in the governed child before handing control back to the parent", async () => {
     const startTool = makeManagedExecutionStartTool({
       profile: "foundation-readonly-plan",
       routeId: "opencode-readonly",
@@ -1489,7 +1584,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         instruction: "Record only this phase evidence before requesting the next phase.",
       },
     });
-    const adapter = makeFailedManagedAdapter();
+    const adapter = makeManagedAdapter(
+      "Inspected the running product UI screenshot at https://example.test/reference.png and mapped reusable patterns to packages/gui/src.",
+    );
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: createSessionBuiltinToolOptions({
         additionalTools: [startTool],
@@ -1506,6 +1603,248 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               authorityProfileId: "authority:opencode:readonly",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
+              networkAllowed: true,
+              workingDirectory: {
+                path: "C:/workspace/kiln",
+                mode: "read-only",
+              },
+              timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
+            },
+          },
+        }],
+        agentCatalog: [{
+          name: "visual-researcher",
+          displayName: "Kimi",
+          role: "Visual research specialist",
+          goal: "Collect real visual reference evidence before frontend implementation.",
+          tier: "reasoning",
+          routeId: "opencode-readonly",
+          providerRoute: {
+            providerId: "opencode",
+            model: "opencode-default-model",
+          },
+        }],
+        contextResolver: async () => ({ admittedAgentProfile: "visual-researcher" }),
+      },
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start",
+        name: "work_item.execution.start",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata?: Record<string, unknown>;
+    };
+    const output = JSON.parse(result.output) as Record<string, unknown>;
+
+    expect(result, result.output).toMatchObject({ isError: false });
+    expect(output).toMatchObject({
+      status: "paused",
+      nextTool: "work_item.update",
+      managedInvocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
+      managedInvocation: expect.objectContaining({
+        status: "completed",
+        resultHandoff: expect.objectContaining({
+          summary: expect.stringContaining("Inspected the running product UI screenshot"),
+        }),
+      }),
+      managedInvocationRequest: {
+        routeId: "opencode-readonly",
+        agentProfile: "visual-researcher",
+        providerRoute: {
+          providerId: "opencode",
+          model: "opencode-default-model",
+        },
+        executionPhase: {
+          id: "visual-reference-research",
+          completionTool: "work_item.update",
+        },
+        workItemId: "work-managed",
+      },
+    });
+    expect(startTool.calls).toHaveLength(1);
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect(result.metadata).toMatchObject({
+      operation: "managed_intermediate_phase_completed",
+      managedInvocationAutoStarted: true,
+      executionScopeTransition: {
+        action: "enter",
+        scope: {
+          kind: "work_item",
+          goalRunId: "goal-managed",
+          workItemId: "work-managed",
+        },
+      },
+    });
+  });
+
+  it("hydrates an unowned intermediate phase from the uniquely preferred compatible route", async () => {
+    const startTool = makeManagedExecutionStartTool({
+      profile: "foundation-readonly-plan",
+      requestedAuthority: "read_only",
+      task: "Run repository verification.",
+      summary: "Run repository verification.",
+      workItemId: "work-managed",
+      requiredToolNames: ["bash"],
+      expectedEvidence: ["tests", "typecheck"],
+      requiredResultFields: ["summary", "evidence", "checks"],
+      doneCriteria: ["Return command evidence."],
+      residualRiskRequired: false,
+      executionPhase: {
+        id: "implementation-verification",
+        taskAffinity: ["test-writing"],
+        expectedEvidence: ["tests", "typecheck"],
+        requiredToolNames: ["bash"],
+        completionTool: "work_item.update",
+        autoStartAllowed: false,
+      },
+    });
+    const adapter = makeManagedAdapter();
+    const profile = (allowedToolNames: readonly string[]) => ({
+      authorityProfileId: `authority:opencode:${allowedToolNames.join("-")}`,
+      permissionProfile: "read-only",
+      allowedToolNames,
+      workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" as const },
+      timeoutMs: 120000,
+      credentialRoute: {
+        mode: "runtime-selected" as const,
+        routeId: "credential-route:opencode:primary",
+      },
+      memoryScope: {
+        scope: { kind: "project" as const, id: "kiln" },
+        access: "read-only" as const,
+      },
+    });
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({ additionalTools: [startTool] }),
+      managedInvocation: {
+        routes: [
+          {
+            routeId: "opencode-analysis-readonly",
+            routeSource: "explicit-managed-route",
+            providerId: "opencode",
+            model: "analysis-model",
+            adapter,
+            profiles: { "foundation-readonly-plan": profile(["read", "grep", "glob"]) },
+          },
+          {
+            routeId: "opencode-general-readonly",
+            routeSource: "explicit-managed-route",
+            providerId: "opencode",
+            model: "general-model",
+            adapter,
+            taskSuitability: [{
+              task: "test-writing",
+              level: "capable",
+              source: "configured-route",
+              reason: "General verification capability.",
+            }],
+            profiles: { "foundation-readonly-plan": profile(["read", "grep", "glob", "bash"]) },
+          },
+          {
+            routeId: "opencode-verification-readonly",
+            routeSource: "explicit-managed-route",
+            providerId: "opencode",
+            model: "verification-model",
+            adapter,
+            taskSuitability: [{
+              task: "test-writing",
+              level: "preferred",
+              source: "configured-route",
+              reason: "Preferred verification route.",
+            }],
+            profiles: { "foundation-readonly-plan": profile(["read", "grep", "glob", "bash"]) },
+          },
+        ],
+      },
+    });
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "tool-call-start", name: "work_item.execution.start", input: {} },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as { readonly output: string; readonly isError: boolean };
+    const output = JSON.parse(result.output) as {
+      readonly managedInvocationRequest?: {
+        readonly routeId?: string;
+        readonly providerRoute?: { readonly providerId?: string; readonly model?: string };
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(output.managedInvocationRequest).toMatchObject({
+      routeId: "opencode-verification-readonly",
+      providerRoute: { providerId: "opencode", model: "verification-model" },
+    });
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not attach an agent profile when a paused route-owned request forbids it", async () => {
+    const startTool = makeManagedExecutionStartTool({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: {
+        providerId: "opencode",
+        model: "stale-write-route-model",
+      },
+      forbiddenInputFields: ["agentProfile"],
+      requestedAuthority: "read_only",
+      task: "Collect visual reference research before UI implementation.",
+      summary: "Collect visual reference research before UI implementation.",
+      workItemId: "work-managed",
+      expectedEvidence: ["visual-reference-research"],
+      requiredToolNames: ["read", "glob", "grep"],
+      requiredResultFields: ["summary", "evidence", "checks"],
+      doneCriteria: ["Return a bounded handoff."],
+      residualRiskRequired: false,
+      executionPhase: {
+        id: "visual-reference-research",
+        expectedEvidence: ["visual-reference-research"],
+        requiredToolNames: ["read", "glob", "grep"],
+        completionTool: "work_item.update",
+        autoStartAllowed: false,
+      },
+    });
+    const adapter = makeManagedAdapter(
+      "Inspected the running product UI screenshot at https://example.test/reference.png and mapped reusable patterns to packages/gui/src.",
+    );
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [startTool],
+      }),
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-readonly",
+          routeSource: "explicit-managed-route",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:opencode:readonly",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
                 path: "C:/workspace/kiln",
                 mode: "read-only",
@@ -1552,121 +1891,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     }, context) as {
       readonly output: string;
       readonly isError: boolean;
-      readonly metadata?: Record<string, unknown>;
-    };
-    const output = JSON.parse(result.output) as Record<string, unknown>;
-
-    expect(result.isError).toBe(false);
-    expect(output).toMatchObject({
-      status: "paused",
-      nextTool: "managed_agent.invoke",
-      managedInvocationRequest: {
-        routeId: "opencode-readonly",
-        agentProfile: "visual-researcher",
-        providerRoute: {
-          providerId: "opencode",
-          model: "opencode-default-model",
-        },
-        executionPhase: {
-          id: "visual-reference-research",
-          completionTool: "work_item.update",
-        },
-        workItemId: "work-managed",
-      },
-    });
-    expect(startTool.calls).toHaveLength(1);
-    expect(adapter.invoke).not.toHaveBeenCalled();
-    expect(result.metadata).toMatchObject({
-      operation: "managed_invocation_paused",
-      managedInvocationAutoStarted: false,
-      managedInvocationAutoStart: {
-        decision: "skipped",
-        reason: "intermediate_phase_requires_explicit_parent_invocation",
-      },
-    });
-  });
-
-  it("does not attach an agent profile when a paused route-owned request forbids it", async () => {
-    const startTool = makeManagedExecutionStartTool({
-      profile: "foundation-readonly-plan",
-      routeId: "opencode-readonly",
-      providerRoute: {
-        providerId: "opencode",
-        model: "stale-write-route-model",
-      },
-      forbiddenInputFields: ["agentProfile"],
-      requestedAuthority: "read_only",
-      task: "Collect visual reference research before UI implementation.",
-      summary: "Collect visual reference research before UI implementation.",
-      workItemId: "work-managed",
-      expectedEvidence: ["visual-reference-research"],
-      requiredToolNames: ["read", "glob", "grep"],
-      requiredResultFields: ["summary", "evidence", "checks"],
-      doneCriteria: ["Return a bounded handoff."],
-      residualRiskRequired: false,
-      executionPhase: {
-        id: "visual-reference-research",
-        expectedEvidence: ["visual-reference-research"],
-        requiredToolNames: ["read", "glob", "grep"],
-        completionTool: "work_item.update",
-        autoStartAllowed: false,
-      },
-    });
-    const adapter = makeFailedManagedAdapter();
-    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
-      builtinToolOptions: createSessionBuiltinToolOptions({
-        additionalTools: [startTool],
-      }),
-      managedInvocation: {
-        routes: [{
-          routeId: "opencode-readonly",
-          routeSource: "explicit-managed-route",
-          providerId: "opencode",
-          model: "opencode-default-model",
-          adapter,
-          profiles: {
-            "foundation-readonly-plan": {
-              authorityProfileId: "authority:opencode:readonly",
-              permissionProfile: "read-only",
-              allowedToolNames: ["read", "grep", "glob"],
-              workingDirectory: {
-                path: "C:/workspace/kiln",
-                mode: "read-only",
-              },
-              timeoutMs: 120000,
-            },
-          },
-        }],
-        agentCatalog: [{
-          name: "visual-researcher",
-          displayName: "Kimi",
-          role: "Visual research specialist",
-          goal: "Collect real visual reference evidence before frontend implementation.",
-          tier: "reasoning",
-          routeId: "opencode-readonly",
-          providerRoute: {
-            providerId: "opencode",
-            model: "opencode-default-model",
-          },
-        }],
-      },
-    });
-    const session = makeRuntimeSession();
-    const context: RuntimeBuiltinToolExecutionContext = {
-      session,
-      toolCall: {
-        id: "tool-call-start",
-        name: "work_item.execution.start",
-        input: {},
-      },
-    };
-
-    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
-      goalRunId: "goal-managed",
-      governanceRecommendation: "orchestrate",
-    }, context) as {
-      readonly output: string;
-      readonly isError: boolean;
     };
     const output = JSON.parse(result.output) as {
       readonly managedInvocationRequest?: {
@@ -1678,7 +1902,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(result.isError).toBe(false);
     expect(output.managedInvocationRequest?.agentProfile).toBeUndefined();
     expect(output.managedInvocationRequest?.providerRoute?.model).toBe("opencode-default-model");
-    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
   it("drops stale provider models for route-owned paused requests when the selected route has no model", async () => {
@@ -1707,7 +1931,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         autoStartAllowed: false,
       },
     });
-    const adapter = makeFailedManagedAdapter();
+    const adapter = makeManagedAdapter(
+      "Inspected the running product UI screenshot at https://example.test/reference.png and mapped reusable patterns to packages/gui/src.",
+    );
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: createSessionBuiltinToolOptions({
         additionalTools: [startTool],
@@ -1728,6 +1954,14 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 mode: "read-only",
               },
               timeoutMs: 120000,
+              credentialRoute: {
+                mode: "runtime-selected",
+                routeId: "credential-route:opencode:primary",
+              },
+              memoryScope: {
+                scope: { kind: "project", id: "kiln" },
+                access: "read-only",
+              },
             },
           },
         }],
@@ -1758,7 +1992,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
     expect(result.isError).toBe(false);
     expect(output.managedInvocationRequest?.providerRoute?.model).toBeUndefined();
-    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
   it("repairs intermediate phase routes to a compatible read-only route before pausing", async () => {
@@ -1781,7 +2015,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         completionTool: "work_item.update",
       },
     });
-    const adapter = makeFailedManagedAdapter();
+    const adapter = makeManagedAdapter(
+      "Inspected the running product UI screenshot at https://example.test/reference.png and mapped reusable patterns to packages/gui/src.",
+    );
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: createSessionBuiltinToolOptions({
         additionalTools: [startTool],
@@ -1804,6 +2040,14 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                   mode: "read-only",
                 },
                 timeoutMs: 120000,
+                credentialRoute: {
+                  mode: "runtime-selected",
+                  routeId: "credential-route:opencode:primary",
+                },
+                memoryScope: {
+                  scope: { kind: "project", id: "kiln" },
+                  access: "read-only",
+                },
               },
             },
           },
@@ -1818,11 +2062,20 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 authorityProfileId: "authority:opencode:readonly-browser",
                 permissionProfile: "read-only",
                 allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
+                networkAllowed: true,
                 workingDirectory: {
                   path: "C:/workspace/kiln",
                   mode: "read-only",
                 },
                 timeoutMs: 120000,
+                credentialRoute: {
+                  mode: "runtime-selected",
+                  routeId: "credential-route:opencode:primary",
+                },
+                memoryScope: {
+                  scope: { kind: "project", id: "kiln" },
+                  access: "read-only",
+                },
               },
             },
           },
@@ -1838,6 +2091,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             model: "model-with-browser",
           },
         }],
+        contextResolver: async () => ({ admittedAgentProfile: "visual-researcher" }),
       },
     });
     const session = makeRuntimeSession();
@@ -1873,14 +2127,14 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
     expect(result.metadata).toMatchObject({
-      operation: "managed_invocation_paused",
+      operation: "managed_intermediate_phase_completed",
       managedInvocationRouteRepair: {
         fromRouteId: "opencode-visual-without-browser",
         toRouteId: "opencode-visual-browser-readonly",
         reason: "required_tools_missing",
       },
     });
-    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
   it("keeps managed-delegation work item execution paused when the managed route cannot be hydrated", async () => {
@@ -2146,7 +2400,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     });
   });
 
-  it("injects the runtime session id into goal.create when the model omits ownerSessionId", async () => {
+  it("injects canonical session and operator-turn provenance into goal.create", async () => {
     const goalInputs: ToolInput[] = [];
     const goalTool: DevTool = {
       name: "goal.create",
@@ -2173,6 +2427,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const session = makeRuntimeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
       session,
+      turnId: "turn-goal",
       toolCall: {
         id: "tool-call-goal",
         name: "goal.create",
@@ -2188,6 +2443,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(result?.isError).toBe(false);
     expect(goalInputs[0]?.input).toMatchObject({
       ownerSessionId: session.id,
+      operatorTurnId: "turn-goal",
     });
   });
 
@@ -2201,9 +2457,59 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
-    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
-    expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_RESOURCE_TOOLS]);
+    expect(runtimeSurface.callBuiltinTools.has("browser_session_start")).toBe(true);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_CONTEXT_TOOLS]);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).not.toContain("browser_session_start");
+    expect(Array.from(runtimeSurface.capabilities.keys())).toEqual(["read", "tool_catalog_search", ...ALWAYS_ON_CONTEXT_TOOLS]);
+  });
+
+  it("separates the initial deferred projection from the canonical materializable catalog", () => {
+    const canonicalSurface = createDefaultBuiltinToolSurface();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read"],
+        },
+      },
+    });
+    const canonicalBrowserSessionStart = canonicalSurface.toolDefinitions.find(
+      (tool) => tool.name === "browser_session_start",
+    );
+    const canonicalBrowserSessionStartCapability = canonicalSurface.capabilities.get("browser_session_start");
+    const canonicalCatalogSearchCapability = canonicalSurface.capabilities.get("tool_catalog_search");
+
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toContain("tool_catalog_search");
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).not.toContain("browser_session_start");
+    expect(runtimeSurface.materializableTools).toBeInstanceOf(Map);
+    expect(runtimeSurface.materializableTools.get("browser_session_start")).toEqual(canonicalBrowserSessionStart);
+    expect(runtimeSurface.materializableCapabilities).toBeInstanceOf(Map);
+    expect(runtimeSurface.materializableCapabilities.get("browser_session_start")).toEqual(
+      canonicalBrowserSessionStartCapability,
+    );
+    expect(runtimeSurface.materializableCapabilities.get("tool_catalog_search")).toEqual(
+      canonicalCatalogSearchCapability,
+    );
+  });
+
+  it("does not admit runtime-attached tools into the materializable catalog", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      operatorSurface: {
+        theme: {
+          setTheme: vi.fn(),
+        },
+      },
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "deferred",
+          alwaysOnTools: ["read"],
+        },
+      },
+    });
+
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toContain("operator_set_theme");
+    expect(runtimeSurface.materializableTools.has("operator_set_theme")).toBe(false);
+    expect(runtimeSurface.materializableCapabilities.has("operator_set_theme")).toBe(false);
   });
 
   it("can explicitly expose code intelligence in deferred runtime projection", () => {
@@ -2216,17 +2522,17 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "code_intelligence",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
-    ]);
+      ...ALWAYS_ON_CONTEXT_TOOLS,
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "code_intelligence",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2240,17 +2546,17 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "read_many",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
-    ]);
+      ...ALWAYS_ON_CONTEXT_TOOLS,
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "read_many",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2264,15 +2570,15 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "monitor_start",
       "monitor_read",
       "monitor_stop",
       "monitor_list",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
-    ]);
+      ...ALWAYS_ON_CONTEXT_TOOLS,
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "monitor_start",
@@ -2280,7 +2586,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       "monitor_stop",
       "monitor_list",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2294,19 +2600,19 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "task_list",
       "task_update",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
-    ]);
+      ...ALWAYS_ON_CONTEXT_TOOLS,
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "task_list",
       "task_update",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2320,17 +2626,17 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       },
     });
 
-    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual([
+    expect(Array.from(runtimeSurface.callBuiltinTools.keys())).toEqual(expect.arrayContaining([
       "read",
       "operator_elicit",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
-    ]);
+      ...ALWAYS_ON_CONTEXT_TOOLS,
+    ]));
     expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual([
       "read",
       "operator_elicit",
       "tool_catalog_search",
-      ...ALWAYS_ON_RESOURCE_TOOLS,
+      ...ALWAYS_ON_CONTEXT_TOOLS,
     ]);
   });
 
@@ -2471,6 +2777,53 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     }
   });
 
+  it("keeps web source URLs visible when large web output is linked as an artifact", async () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        webSearch: {
+          searchProvider: async () => ({
+            provider: "test-search",
+            sources: [{
+              url: "https://docs.example.com/kiln",
+              title: "Kiln docs",
+              snippet: "large web snippet\n".repeat(1_000),
+            }],
+          }),
+        },
+      },
+    });
+
+    const result = await runtimeSurface.callBuiltinTools.get("web_search")?.({
+      query: "kiln docs",
+    }, {
+      sandbox: {
+        cwd: "C:/workspace",
+        policy: new SandboxPolicy({
+          projectPath: "C:/workspace",
+          config: {
+            fsPolicy: "read-write",
+            netPolicy: "documentation",
+            allowedPaths: ["C:/workspace"],
+            deniedPaths: [],
+            allowedDomains: ["docs.example.com"],
+          },
+        }),
+      },
+    }) as {
+      output: string;
+      resourceLinks?: readonly { uri: string; title?: string }[];
+    };
+
+    expect(result.output).toContain("Source summary:");
+    expect(result.output).toContain("https://docs.example.com/kiln");
+    expect(result.output).toContain("Full tool output is available as resource links");
+    expect(result.output).not.toContain("large web snippet");
+    expect(result.resourceLinks).toEqual([expect.objectContaining({
+      uri: expect.stringMatching(/^kiln:\/\/artifacts\/tool-results\/artifact_\d+\/content$/),
+      title: "web_search full output",
+    })]);
+  });
+
   it("surfaces large bash output through resource links without inline stream metadata", async () => {
     const largeOutput = "runtime bash link\n".repeat(1_000);
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -2501,5 +2854,26 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(result.metadata?.["stdoutBytes"]).toBe(Buffer.byteLength(largeOutput));
     expect(result.metadata?.["stdoutTruncated"]).toBe(true);
     expect(Buffer.byteLength(String(result.metadata?.["stdout"] ?? ""), "utf8")).toBeLessThanOrEqual(8 * 1024);
+  });
+
+  it("hands admitted invocation authority to the core tool bridge", async () => {
+    const commandRunner = vi.fn(async () => ({ stdout: "ok\n", stderr: "" }));
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { bash: { commandRunner } },
+    });
+
+    const result = await runtimeSurface.callBuiltinTools.get("bash")?.({
+      command: "bunx vitest run",
+    }, {
+      authority: {
+        level: 4,
+        allowed: true,
+        requiresApproval: false,
+        reason: "Destructive authority admitted by the runtime turn",
+      },
+    }) as { isError: boolean; output: string };
+
+    expect(result).toMatchObject({ isError: false, output: "ok" });
+    expect(commandRunner).toHaveBeenCalledTimes(1);
   });
 });

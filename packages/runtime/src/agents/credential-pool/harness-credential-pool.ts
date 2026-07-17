@@ -90,6 +90,7 @@ export class HarnessCredentialPoolService {
       lastSuccess: null,
       lastExhausted: null,
       cooldownUntil: null,
+      invalidReason: null,
       softLeaseCount: 0,
     }));
   }

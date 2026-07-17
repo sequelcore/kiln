@@ -80,6 +80,11 @@ must be rendered by both surfaces. `system-follow` is accepted for config parity
 with the GUI; the terminal renderer maps it to `kiln-dark` because terminal
 processes do not expose a dependable OS color-scheme signal.
 
+The shared contract is authored as semantic OKLCH roles. `theme.ts` is a TUI
+renderer adapter: it converts those roles to terminal-safe sRGB hex and maps
+them onto the compact `KilnTheme` interface below. It must not define a second
+palette or tune colors independently from the operator-theme contract.
+
 Executable providers connected through the TUI gateway can call
 `operator_set_theme` to request a live theme change. The gateway sends an
 `operator_theme_set` frame to the TUI, the TUI applies the theme, and it returns
@@ -116,6 +121,12 @@ persisted changes by writing the shared operator theme default.
 ## Layout and Key Bindings
 
 The main screen is a two-column layout: a `chatArea` on the left and a `sidebar` on the right, separated by a divider. The sidebar renders provider status, cost, current working directory, turns and token counts, field status, approvals, file changes, resume hints, and session history. When the terminal width drops below `100` columns, the sidebar auto-collapses.
+
+The existing turns/tokens line also renders shared context evidence: exact
+values and percentage when available, `partial` when qualified, and `Context
+usage unavailable` otherwise. Restored canonical events keep their historical
+source and observation rather than appearing live. TUI does not calculate its
+own ratio or infer authority from selected-provider state.
 
 Key bindings and input behavior come from `packages/tui/src/app.tsx`:
 
@@ -179,7 +190,7 @@ That means the header shown above an assistant message reflects the provider/mod
 
 The TUI consumes the same provider discovery result as the GUI. When the active
 provider/model advertises `supportedReasoningEfforts`, the sidebar appends the
-current effort next to the model label, for example `gpt-5.4 · medium`.
+current effort next to the model label, for example `gpt-5.6-terra · medium`.
 
 At startup, the TUI may display cached provider discovery as `stale`
 diagnostics. Stale entries are unavailable until background runtime discovery
@@ -311,6 +322,20 @@ runtime-owned tool execution; the runtime remains the authority for approval,
 execution, telemetry, and file-change evidence.
 
 This path keeps the same safety, session, runtime-summary, and cost-tracking machinery in place instead of adding a second terminal-only orchestration loop.
+
+## Startup Profiling
+
+Use the repo-level startup profiler before changing TUI startup behavior:
+
+```bash
+bun run profile:startup -- --surface tui --cwd . --provider claude --port 4974
+```
+
+The profiler emits structured JSON with commit SHA, OS, Bun/Node versions,
+cache state, CLI/gateway phase markers, and `firstUsableFrameMs`. The TUI
+reports the first frame through an explicit renderer lifecycle callback; normal
+`kiln tui` startup does not print profiling logs unless `KILN_STARTUP_PROFILE`
+is enabled by the profiler.
 
 ## Session Model Reference
 

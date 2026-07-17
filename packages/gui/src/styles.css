@@ -2,172 +2,79 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@xterm/xterm/css/xterm.css";
 /*
  ---break---
  */
 @custom-variant dark (&:is(.dark *, [data-theme="dark"] *));
 
 /*
- * Kiln GUI — semantic token system
- * 20 tokens matching KilnTheme from @kilnai/tui
- * Theme values are sourced from @kilnai/gateway-contracts operator palettes.
- * The default dark palette is Kiln Obsidian: near-black control surface,
- * graphite layers, restrained ember brand accent, and cyan action color.
+ * Kiln GUI semantic token aliases.
+ * Perceptual palette values are projected from @kilnai/gateway-contracts
+ * before render; this file owns component aliases and presentation effects.
  */
 
 /* ── Dark theme (default / data-theme="dark") ─────────────────────── */
-:root,
+:root {
+  color-scheme: dark;
+  --color-user-fg: var(--color-text);
+  --color-user-bg: var(--color-surface-selected);
+  --color-user-border: var(--color-border);
+  --color-assistant-bg: var(--color-background-panel);
+  --color-tool-fg: var(--color-success);
+  --color-thinking-fg: var(--color-text-muted);
+  --workspace-viewer: var(--color-surface-sunken);
+  --workspace-viewer-panel: var(--color-background-panel);
+  --workspace-viewer-gutter: var(--color-surface-raised);
+  --color-foreground: var(--color-text);
+  --color-muted-foreground: var(--color-text-muted);
+  --background: var(--color-background);
+  --foreground: var(--color-text);
+  --card: var(--color-background-panel);
+  --card-foreground: var(--color-text);
+  --popover: var(--color-surface-raised);
+  --popover-foreground: var(--color-text);
+  --primary: var(--color-primary);
+  --primary-foreground: var(--color-primary-foreground);
+  --secondary: var(--color-background-element);
+  --secondary-foreground: var(--color-text);
+  --muted: var(--color-surface-raised);
+  --muted-foreground: var(--color-text-muted);
+  --accent: var(--color-surface-hover);
+  --accent-foreground: var(--color-text);
+  --destructive: var(--color-error);
+  --border: var(--color-border);
+  --input: var(--color-border-control);
+  --ring: var(--color-border-active);
+  --chart-1: var(--color-primary);
+  --chart-2: var(--color-accent);
+  --chart-3: var(--color-success);
+  --chart-4: var(--color-warning);
+  --chart-5: var(--color-info);
+  --sidebar: var(--color-background-panel);
+  --sidebar-foreground: var(--color-text);
+  --sidebar-primary: var(--color-primary);
+  --sidebar-primary-foreground: var(--color-primary-foreground);
+  --sidebar-accent: var(--color-surface-hover);
+  --sidebar-accent-foreground: var(--color-text);
+  --sidebar-border: var(--color-border-subtle);
+  --sidebar-ring: var(--color-border-active);
+  --radius: 0.5rem;
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
-
-  --color-background:         #07080a;
-  --color-background-panel:   #0d0f13;
-  --color-background-element: #151922;
-
-  --color-border:             #303743;
-  --color-border-active:      #646b78;
-
-  --color-text:               #e8eaed;
-  --color-text-muted:         #9ca3ad;
-
-  --color-accent:             #f2a65a;
-  --color-primary:            #76c7e8;
-  --color-success:            #73c991;
-  --color-error:              #f87171;
-  --color-warning:            #e0b557;
-  --color-info:               #8ab4f8;
-
-  /* chat-role tokens (derived from createTheme() in tui/src/theme.ts) */
-  --color-user-fg:            var(--color-text);
-  --color-user-bg:            color-mix(in srgb, var(--color-primary) 12%, var(--color-background-element));
-  --color-user-border:        var(--color-border);
-  --color-assistant-bg:       var(--color-background-panel);
-  --color-tool-fg:            var(--color-success);
-  --color-thinking-fg:        var(--color-text-muted);
-  --color-cursor-fg:          var(--color-success);
-
-  /* workspace/document viewer surfaces */
-  --workspace-viewer:          color-mix(in srgb, var(--color-background) 88%, var(--color-background-panel));
-  --workspace-viewer-panel:    color-mix(in srgb, var(--color-background-panel) 72%, var(--color-background-element));
-  --workspace-viewer-gutter:   color-mix(in srgb, var(--color-background-panel) 84%, var(--color-background));
-
-  /* Tailwind compat aliases used by existing components */
-  --color-foreground:         var(--color-text);
-  --color-muted-foreground:   var(--color-text-muted);
-
-  /* shadcn/Base UI contract tokens mapped to Kiln's visual system */
-  --background:               var(--color-background);
-  --foreground:               var(--color-text);
-  --card:                     var(--color-background-panel);
-  --card-foreground:          var(--color-text);
-  --popover:                  var(--color-background-panel);
-  --popover-foreground:       var(--color-text);
-  --primary:                  var(--color-primary);
-  --primary-foreground:       var(--color-background);
-  --secondary:                var(--color-background-element);
-  --secondary-foreground:     var(--color-text);
-  --muted:                    color-mix(in srgb, var(--color-background-element) 82%, transparent);
-  --muted-foreground:         var(--color-text-muted);
-  --accent:                   color-mix(in srgb, var(--color-accent) 16%, var(--color-background-element));
-  --accent-foreground:        var(--color-text);
-  --destructive:              var(--color-error);
-  --border:                   var(--color-border);
-  --input:                    var(--color-border);
-  --ring:                     var(--color-border-active);
-  --chart-1:                  var(--color-primary);
-  --chart-2:                  var(--color-accent);
-  --chart-3:                  var(--color-success);
-  --chart-4:                  var(--color-warning);
-  --chart-5:                  var(--color-info);
-  --sidebar:                  var(--color-background-panel);
-  --sidebar-foreground:       var(--color-text);
-  --sidebar-primary:          var(--color-primary);
-  --sidebar-primary-foreground: var(--color-background);
-  --sidebar-accent:           var(--color-background-element);
-  --sidebar-accent-foreground: var(--color-text);
-  --sidebar-border:           var(--color-border);
-  --sidebar-ring:             var(--color-border-active);
-
-  --shadow-elevated:          0 18px 54px color-mix(in srgb, black 46%, transparent),
-                              0 0 0 1px color-mix(in srgb, var(--color-border-active) 18%, transparent),
-                              inset 0 1px 0 color-mix(in srgb, var(--color-text) 5%, transparent);
-
-  --radius: 0.5rem;
+  --shadow-elevated: 0 18px 54px color-mix(in oklch, black 46%, transparent),
+                     0 0 0 1px color-mix(in oklch, var(--color-border-active) 18%, transparent),
+                     inset 0 1px 0 color-mix(in oklch, var(--color-text) 5%, transparent);
 }
 
 /* ── Light theme (data-theme="light") ─────────────────────────────── */
 :root[data-theme="light"] {
   color-scheme: light;
-
-  --color-background:         #f7f7f4;
-  --color-background-panel:   #efefeb;
-  --color-background-element: #e4e5df;
-
-  --color-border:             #c8c9c0;
-  --color-border-active:      #6f766d;
-
-  --color-text:               #1d1f1b;
-  --color-text-muted:         #5f665e;
-
-  --color-accent:             #9a4d16;
-  --color-primary:            #0b6785;
-  --color-success:            #246b3d;
-  --color-error:              #b42318;
-  --color-warning:            #73530f;
-  --color-info:               #355f9f;
-
-  --color-user-fg:            var(--color-text);
-  --color-user-bg:            color-mix(in srgb, var(--color-primary) 10%, var(--color-background-element));
-  --color-user-border:        var(--color-border);
-  --color-assistant-bg:       var(--color-background-panel);
-  --color-tool-fg:            var(--color-success);
-  --color-thinking-fg:        var(--color-text-muted);
-  --color-cursor-fg:          var(--color-success);
-
-  --workspace-viewer:          color-mix(in srgb, var(--color-background) 70%, var(--color-background-panel));
-  --workspace-viewer-panel:    color-mix(in srgb, var(--color-background-panel) 74%, var(--color-background-element));
-  --workspace-viewer-gutter:   color-mix(in srgb, var(--color-background-panel) 86%, var(--color-background));
-
-  --color-foreground:         var(--color-text);
-  --color-muted-foreground:   var(--color-text-muted);
-
-  --background:               var(--color-background);
-  --foreground:               var(--color-text);
-  --card:                     var(--color-background-panel);
-  --card-foreground:          var(--color-text);
-  --popover:                  var(--color-background-panel);
-  --popover-foreground:       var(--color-text);
-  --primary:                  var(--color-primary);
-  --primary-foreground:       var(--color-background);
-  --secondary:                var(--color-background-element);
-  --secondary-foreground:     var(--color-text);
-  --muted:                    color-mix(in srgb, var(--color-background-element) 86%, transparent);
-  --muted-foreground:         var(--color-text-muted);
-  --accent:                   color-mix(in srgb, var(--color-accent) 12%, var(--color-background-element));
-  --accent-foreground:        var(--color-text);
-  --destructive:              var(--color-error);
-  --border:                   var(--color-border);
-  --input:                    var(--color-border);
-  --ring:                     var(--color-border-active);
-  --chart-1:                  var(--color-primary);
-  --chart-2:                  var(--color-accent);
-  --chart-3:                  var(--color-success);
-  --chart-4:                  var(--color-warning);
-  --chart-5:                  var(--color-info);
-  --sidebar:                  var(--color-background-panel);
-  --sidebar-foreground:       var(--color-text);
-  --sidebar-primary:          var(--color-primary);
-  --sidebar-primary-foreground: var(--color-background);
-  --sidebar-accent:           var(--color-background-element);
-  --sidebar-accent-foreground: var(--color-text);
-  --sidebar-border:           var(--color-border);
-  --sidebar-ring:             var(--color-border-active);
-
-  --shadow-elevated:          0 18px 48px color-mix(in srgb, black 14%, transparent),
-                              0 0 0 1px color-mix(in srgb, white 64%, transparent),
-                              inset 0 1px 0 color-mix(in srgb, white 76%, transparent);
-
-  --radius: 0.5rem;
+  --shadow-elevated: 0 18px 48px color-mix(in oklch, black 14%, transparent),
+                     0 0 0 1px color-mix(in oklch, white 64%, transparent),
+                     inset 0 1px 0 color-mix(in oklch, white 76%, transparent);
 }
 
 /* ── @theme inline — registers custom properties with Tailwind v4 ──── */
@@ -175,23 +82,40 @@
   --color-background: var(--color-background);
   --color-background-panel: var(--color-background-panel);
   --color-background-element: var(--color-background-element);
+  --color-surface-raised: var(--color-surface-raised);
+  --color-surface-sunken: var(--color-surface-sunken);
+  --color-surface-hover: var(--color-surface-hover);
+  --color-surface-selected: var(--color-surface-selected);
+  --color-border-subtle: var(--color-border-subtle);
   --color-border: var(--color-border);
+  --color-border-control: var(--color-border-control);
   --color-border-active: var(--color-border-active);
   --color-text: var(--color-text);
   --color-text-muted: var(--color-text-muted);
+  --color-text-subtle: var(--color-text-subtle);
+  --color-text-inverse: var(--color-text-inverse);
   --color-accent: var(--color-accent);
+  --color-accent-muted: var(--color-accent-muted);
   --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
   --color-success: var(--color-success);
   --color-error: var(--color-error);
   --color-warning: var(--color-warning);
   --color-info: var(--color-info);
+  --color-status-success-background: var(--status-success-background);
+  --color-status-success-border: var(--status-success-border);
+  --color-status-warning-background: var(--status-warning-background);
+  --color-status-warning-border: var(--status-warning-border);
+  --color-status-danger-background: var(--status-danger-background);
+  --color-status-danger-border: var(--status-danger-border);
+  --color-status-info-background: var(--status-info-background);
+  --color-status-info-border: var(--status-info-border);
   --color-user-fg: var(--color-user-fg);
   --color-user-bg: var(--color-user-bg);
   --color-user-border: var(--color-user-border);
   --color-assistant-bg: var(--color-assistant-bg);
   --color-tool-fg: var(--color-tool-fg);
   --color-thinking-fg: var(--color-thinking-fg);
-  --color-cursor-fg: var(--color-cursor-fg);
   --color-workspace-viewer: var(--workspace-viewer);
   --color-workspace-viewer-panel: var(--workspace-viewer-panel);
   --color-workspace-viewer-gutter: var(--workspace-viewer-gutter);
@@ -243,7 +167,7 @@ body {
 
 * {
   scrollbar-color:
-    color-mix(in srgb, var(--color-border-active) 45%, transparent)
+    color-mix(in oklch, var(--color-border-active) 45%, transparent)
     transparent;
   scrollbar-width: thin;
 }
@@ -262,18 +186,89 @@ body {
   border: 0.1875rem solid transparent;
   border-radius: 999px;
   background:
-    color-mix(in srgb, var(--color-border-active) 45%, transparent)
+    color-mix(in oklch, var(--color-border-active) 45%, transparent)
     padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
   background:
-    color-mix(in srgb, var(--color-border-active) 68%, transparent)
+    color-mix(in oklch, var(--color-border-active) 68%, transparent)
     padding-box;
 }
 
 *::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+@keyframes kiln-tool-row-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.session-title-fade {
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 1.25rem), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 1.25rem), transparent 100%);
+}
+
+.thread-navigation-mark {
+  width: 2rem;
+  height: 1px;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  opacity: 0.28;
+  transform: scaleX(0.25) scaleY(1);
+  transform-origin: left center;
+  transition:
+    opacity 180ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease;
+}
+
+[data-thread-anchor-kind="failure"] .thread-navigation-mark {
+  background: var(--destructive);
+}
+
+[data-proximity="2"] .thread-navigation-mark {
+  opacity: 0.5;
+  transform: scaleX(0.5) scaleY(1);
+}
+
+[data-proximity="1"] .thread-navigation-mark {
+  opacity: 0.72;
+  transform: scaleX(0.75) scaleY(1.2);
+}
+
+[data-current="true"] .thread-navigation-mark {
+  background: var(--primary);
+  opacity: 1;
+  transform: scaleX(0.625) scaleY(1.25);
+}
+
+[data-selected="true"] .thread-navigation-mark {
+  background: var(--foreground);
+  opacity: 1;
+  transform: scaleX(1) scaleY(1.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role="tool-event"]::after,
+  [data-role="tool-event"] .shimmer,
+  [data-role="tool-event"] .animate-spin,
+  [data-role="composer-activity-beam"],
+  [data-role="composer-activity-beam"] *,
+  [data-role="work-item-activity-beam"],
+  [data-role="work-item-activity-beam"] * {
+    animation: none !important;
+  }
+
+  .thread-navigation-mark {
+    transition: none;
+  }
 }
 
 .markdown-body {
@@ -302,7 +297,7 @@ body {
 .markdown-body code {
   border: 1px solid var(--color-border);
   border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--color-background-element) 85%, transparent);
+  background: color-mix(in oklch, var(--color-background-element) 85%, transparent);
   color: var(--color-accent);
   padding: 0.08rem 0.3rem;
   overflow-wrap: anywhere;
@@ -329,6 +324,72 @@ body {
 .markdown-body a {
   color: var(--color-primary);
   text-decoration: underline;
+}
+
+.kiln-json-view {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.kiln-json-view__children {
+  margin: 0;
+  padding: 0 0 0 0.9rem;
+}
+
+.kiln-json-view__row {
+  min-width: 0;
+}
+
+.kiln-json-view__label,
+.kiln-json-view__clickable-label {
+  margin-right: 0.35rem;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.kiln-json-view__clickable-label {
+  cursor: pointer;
+}
+
+.kiln-json-view__string {
+  color: var(--color-success);
+}
+
+.kiln-json-view__number,
+.kiln-json-view__boolean,
+.kiln-json-view__null,
+.kiln-json-view__undefined {
+  color: var(--color-warning);
+}
+
+.kiln-json-view__other,
+.kiln-json-view__punctuation {
+  color: var(--color-text-muted);
+}
+
+.kiln-json-view__expand,
+.kiln-json-view__collapse {
+  display: inline-flex;
+  width: 0.8rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.kiln-json-view__expand::after {
+  content: "▸";
+}
+
+.kiln-json-view__collapse::after {
+  content: "▾";
+}
+
+.kiln-json-view__collapsed {
+  color: var(--color-text-muted);
+}
+
+.kiln-json-view__collapsed::after {
+  content: "...";
 }
 
 /*

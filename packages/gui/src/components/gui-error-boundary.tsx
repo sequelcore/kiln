@@ -39,14 +39,14 @@ export class GuiErrorBoundary extends Component<GuiErrorBoundaryProps, GuiErrorB
     }
 
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--color-background)] px-6 text-[var(--color-text)]">
+      <main className="flex min-h-dvh items-center justify-center bg-[var(--color-background)] px-6 text-[var(--color-text)]">
         <section
           role="alert"
           aria-label="Kiln GUI failed to render"
-          className="w-full max-w-xl rounded-lg border border-[var(--color-error)]/45 bg-[var(--color-background-panel)] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)]"
+          className="w-full max-w-xl rounded-lg border border-status-danger-border bg-status-danger-background p-5 shadow-[var(--shadow-elevated)]"
         >
           <div className="flex items-start gap-4">
-            <div className="grid size-9 shrink-0 place-items-center rounded-md border border-[var(--color-error)]/30 bg-[var(--color-error)]/10 text-[var(--color-error)]">
+            <div className="grid size-9 shrink-0 place-items-center rounded-md border border-status-danger-border bg-background-panel text-error">
               <AlertTriangle className="size-5" aria-hidden="true" />
             </div>
             <div className="min-w-0 flex-1">

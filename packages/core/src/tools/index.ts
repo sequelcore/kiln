@@ -75,10 +75,16 @@ export type {
   SearchToolName,
   SearchToolResultMetadata,
   SearchToolStrategy,
+  StructuredDataSource,
+  StructuredDataToolName,
+  StructuredDataToolOperation,
+  StructuredDataToolResultMetadata,
+  StructuredDataToolStrategy,
   TaskStateToolName,
   TaskStateToolOperation,
   TaskStateToolResultMetadata,
   WorkItemToolName,
+  WorkItemExecutionScopeTransition,
   WorkItemToolOperation,
   WorkItemToolResultMetadata,
   ToolOutputVerbosity,
@@ -109,6 +115,7 @@ export {
   monitorToolMetadata,
   resourceToolMetadata,
   searchToolMetadata,
+  structuredDataToolMetadata,
   taskStateToolMetadata,
   workItemToolMetadata,
   interactiveToolMetadata,
@@ -159,6 +166,8 @@ export type {
   ToolResourceReadRange,
   ToolResourceReadRangeUnit,
   ToolResourceReadResult,
+  ToolResourceReadSummary,
+  ToolResourceReadTarget,
   ToolResourceRegistryOptions,
   ToolResourceTemplateDescriptor,
 } from "./domain/tool-resource-registry.js";
@@ -198,10 +207,12 @@ export type {
   ArtifactResourcePutInput,
   ArtifactResourceStore,
   ArtifactRetentionPolicy,
+  FileArtifactResourceStoreOptions,
   MemoryArtifactResourceStoreOptions,
 } from "./infrastructure/artifact-resource-store.js";
 export {
   ArtifactResourceProvider,
+  FileArtifactResourceStore,
   MemoryArtifactResourceStore,
   projectMultimodalArtifactResource,
 } from "./infrastructure/artifact-resource-store.js";
@@ -325,6 +336,8 @@ export { ReadManyTool } from "./infrastructure/read-many-tool.js";
 export { ResourceListTool, ResourceReadTool, ResourceTemplateListTool } from "./infrastructure/resource-tools.js";
 export type { MemorySaveToolOptions } from "./infrastructure/memory-save-tool.js";
 export { MemorySaveTool } from "./infrastructure/memory-save-tool.js";
+export type { MemorySearchToolOptions } from "./infrastructure/memory-search-tool.js";
+export { MemorySearchTool } from "./infrastructure/memory-search-tool.js";
 export { WriteTool } from "./infrastructure/write-tool.js";
 export { EditTool } from "./infrastructure/edit-tool.js";
 export { PatchTool } from "./infrastructure/patch-tool.js";
@@ -343,6 +356,8 @@ export type { GrepToolOptions } from "./infrastructure/grep-tool.js";
 export { GrepTool } from "./infrastructure/grep-tool.js";
 export type { GlobToolOptions } from "./infrastructure/glob-tool.js";
 export { GlobTool } from "./infrastructure/glob-tool.js";
+export type { JsonQueryToolOptions } from "./infrastructure/json-query-tool.js";
+export { JsonQueryTool } from "./infrastructure/json-query-tool.js";
 export type {
   WebExtractPage,
   WebExtractProvider,

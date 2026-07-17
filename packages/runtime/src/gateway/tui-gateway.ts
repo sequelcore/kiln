@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
+  buildOperatorToolResultPayload,
   isGuiProviderModeless,
   type GuiAuthorityStatus,
   type GuiInboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
+  type GuiProviderModelDiscoveryProjection,
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
   type OperatorExecutionMode,
@@ -14,7 +16,7 @@ import {
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeBudgetAdmissionPort } from "../session/runtime-budget-admission.js";
-import { SessionRegistry } from "../session/session-registry.js";
+import { SessionRegistry } from "../session/persistence/session-registry.js";
 import {
   textParts,
   extractText,
@@ -34,7 +36,8 @@ import {
   type VoiceConfig,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
-import type { CliSessionFactory, CliSessionEvent } from "../execution/cli-subscription-executor.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
+import type { CliSessionFactory } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
 import type { RuntimeSessionHydrator } from "./message-pipeline.js";
@@ -48,14 +51,14 @@ import {
 import {
   attachManagedInvocationSessionEventSink,
   withManagedInvocationService,
-  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
-import { withManagedAgentInvocationResourceProvider } from "../agents/managed-invocation/resource-provider.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";
 import {
   markGuiProviderDiscoveryStale,
+  projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
@@ -117,7 +120,7 @@ export interface TuiGatewayOptions {
   /** Initial shared execution mode for operator work. */
   readonly executionMode?: OperatorExecutionMode;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-  readonly managedInvocation?: ManagedInvocationToolOptions;
+  readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
@@ -131,6 +134,7 @@ export interface TuiGateway {
   readonly port: number;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   /** Gracefully stop the gateway server. */
   shutdown(): void;
 }
@@ -217,12 +221,14 @@ export function deriveTuiDoneAuthorityStatus(
 }
 
 export function buildTuiWelcomeFramePayload(input: {
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly executionMode: OperatorExecutionMode;
   readonly authorityStatus: TuiAuthorityStatus;
 }): {
   readonly type: "welcome";
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly executionMode: OperatorExecutionMode;
@@ -230,6 +236,7 @@ export function buildTuiWelcomeFramePayload(input: {
 } {
   return {
     type: "welcome",
+    providerModelDiscovery: input.providerModelDiscovery,
     models: input.models,
     ...(input.providerDiscovery ? { providerDiscovery: input.providerDiscovery } : {}),
     executionMode: input.executionMode,
@@ -300,6 +307,26 @@ function findProviderModelCapabilities(
 ): GuiProviderModelCapabilities | undefined {
   if (!provider || !model) return undefined;
   return discovery.find((entry) => entry.provider === provider)?.modelCapabilities?.[model];
+}
+
+function buildTuiContextUsageWindowEvidence(
+  providerId: string,
+  modelId: string | undefined,
+  capabilities: GuiProviderModelCapabilities | undefined,
+  discovery: readonly GuiProviderDiscoveryResult[],
+) {
+  const tokens = capabilities?.contextWindow;
+  if (!modelId || !Number.isInteger(tokens) || !tokens || tokens < 1) {
+    return undefined;
+  }
+  const status = discovery.find((entry) => entry.provider === providerId)?.status;
+  return {
+    providerId,
+    modelId,
+    tokens,
+    authority: "runtime_observed" as const,
+    freshness: status === "stale" ? "stale" as const : "fresh" as const,
+  };
 }
 
 function findProviderModelRouteHealth(
@@ -374,12 +401,12 @@ export function buildTuiDoneFramePayload(input: {
 export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGateway> {
   const port = options.port ?? 4801;
   const managedInvocation = options.managedInvocation
-    ? withManagedInvocationService(options.managedInvocation)
+    ? {
+        ...options.managedInvocation,
+        options: withManagedInvocationService(options.managedInvocation.options),
+      }
     : undefined;
-  const builtinToolOptions = withManagedAgentInvocationResourceProvider(
-    options.builtinToolOptions,
-    managedInvocation ? { service: managedInvocation.invocationService } : undefined,
-  );
+  const builtinToolOptions = options.builtinToolOptions;
   const providerLabel = options.sessionManager.getProvider();
   const systemPrompt = options.systemPrompt ?? "You are a helpful assistant.";
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
@@ -473,6 +500,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             const currentDiscovery = applyDiscovery(snapshot.discovery);
             ws.send(JSON.stringify({
               type: "providers_refreshed",
+              providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               models: projectGuiOperatorModels(currentDiscovery),
               providerDiscovery: currentDiscovery,
             }));
@@ -503,6 +531,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             ),
           );
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
+            providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
             models: currentModels,
             providerDiscovery: currentDiscovery,
             executionMode: options.executionMode ?? "execute",
@@ -543,6 +572,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               const currentDiscovery = await refreshDiscovery({ force: true });
               ws.send(JSON.stringify({
                 type: "providers_refreshed",
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
               }));
@@ -616,6 +646,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 type: "provider_auth_completed",
                 provider: auth.provider,
                 requestId: auth.requestId,
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
               }));
@@ -635,6 +666,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 provider: frame.provider,
                 model: frame.model,
                 discovery: currentDiscovery,
+                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               });
               if (!resolution.ok) {
                 ws.send(JSON.stringify({ type: "error", message: resolution.error }));
@@ -875,6 +907,15 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 channel: "tui",
                 resumeSessionHydrator: options.resumeSessionHydrator,
                 providerValidation: currentDiscovery,
+                contextUsageWindow: buildTuiContextUsageWindowEvidence(
+                  activeProvider,
+                  activeModel,
+                  activeModelCapabilities,
+                  currentDiscovery,
+                ),
+                publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
+                  events.filter((event) => event.kind === "context_usage_observed"),
+                ),
                 executionMode,
                 contextArtifactCache: options.contextArtifactCache,
                 artifactStore: options.artifactStore,
@@ -985,6 +1026,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       readDiscovery();
       return providerDiscovery;
     },
+    get providerModelDiscovery() {
+      readDiscovery();
+      return projectGuiProviderModelDiscovery(providerDiscovery);
+    },
     shutdown: () => server.stop(),
   };
 }
@@ -1076,9 +1121,11 @@ class TuiActivityStreamer {
   }
 
   private emitSessionEvent(input: {
-    kind: "assistant_delta" | "tool_call_started" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed" | "cost_updated";
+    kind: "assistant_delta" | "tool_call_started" | "tool_call_output_delta" | "tool_call_completed" | "approval_requested" | "approval_resolved" | "file_changed";
     timestamp: string;
     payload: Record<string, unknown>;
+    parentEventId?: string;
+    executionScope?: ExecutionSessionEvent["executionScope"];
   }): void {
     if (!this.ws || !this.capture) {
       return;
@@ -1087,15 +1134,19 @@ class TuiActivityStreamer {
     if (sequence === null) {
       return;
     }
+    const eventId = `${this.capture.sessionId}:live:${sequence}`;
+    const turnId = `${this.capture.sessionId}:turn:live`;
     this.ws.send(JSON.stringify({
       type: "session_event",
       event: {
-        eventId: `${this.capture.sessionId}:live:${sequence}`,
+        eventId,
         kilnSessionId: this.capture.sessionId,
         sequence,
         timestamp: input.timestamp,
         kind: input.kind,
-        turnId: `${this.capture.sessionId}:turn:live`,
+        turnId,
+        ...(input.parentEventId ? { parentEventId: input.parentEventId } : {}),
+        ...(input.executionScope ? { executionScope: input.executionScope } : {}),
         source: {
           actor: input.kind === "assistant_delta" ? "assistant" : input.kind.startsWith("tool_") ? "tool" : "runtime",
           surface: "tui",
@@ -1262,7 +1313,7 @@ class TuiActivityStreamer {
     this.capture = null;
   }
 
-  forward(event: CliSessionEvent): void {
+  forward(event: ExecutionSessionEvent): void {
     if (!this.ws) return;
 
     if (event.type === "text_delta") {
@@ -1284,6 +1335,7 @@ class TuiActivityStreamer {
           messageId: this.capture ? `${this.capture.sessionId}:live:assistant` : "assistant-live",
           delta: sanitizedDelta,
         },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_use") {
       const toolCallId = event.toolCallId ?? (this.capture
@@ -1303,10 +1355,24 @@ class TuiActivityStreamer {
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
           ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
         },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       this.emitActivityPhase({
         phase: "tool_running",
         toolName: event.toolName,
+      });
+    } else if (event.type === "tool_output_delta") {
+      this.emitSessionEvent({
+        kind: "tool_call_output_delta",
+        timestamp: new Date().toISOString(),
+        payload: {
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          stream: event.stream,
+          delta: event.delta,
+          chunkIndex: event.chunkIndex,
+        },
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_result") {
       const pending = this.capture?.pendingToolCallIds.get(event.toolName);
@@ -1336,16 +1402,17 @@ class TuiActivityStreamer {
       this.emitSessionEvent({
         kind: "tool_call_completed",
         timestamp: new Date().toISOString(),
-        payload: {
+        payload: buildOperatorToolResultPayload({
           toolCallId,
           toolName: event.toolName ?? "unknown",
-          output: event.output ?? "",
-          outputSummary: event.outputSummary ?? event.output ?? "",
-          ...(event.metadata ? { metadata: event.metadata } : {}),
-          status: {
-            state: event.isError ? "failed" : "succeeded",
-          },
-        },
+          output: event.output,
+          outputSummary: event.outputSummary,
+          isError: event.isError,
+          metadata: event.metadata,
+          resourceLinks: event.resourceLinks,
+          toolUsage: event.toolUsage,
+        }),
+        ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       this.emitActivityPhase({ phase: "idle" });
     } else if (event.type === "file_changed") {
@@ -1373,31 +1440,9 @@ class TuiActivityStreamer {
           },
         },
       });
-    } else if (event.type === "cost_update") {
-      this.emitSessionEvent({
-        kind: "cost_updated",
-        timestamp: new Date().toISOString(),
-        payload: {
-          provider: {
-            provider: event.provider ?? "unknown",
-            model: event.model ?? event.canonicalModel ?? "unknown",
-            canonicalModel: event.canonicalModel,
-            billingMode: event.billingMode,
-          },
-          usage: {
-            inputTokens: event.inputTokens ?? 0,
-            outputTokens: event.outputTokens ?? 0,
-            cacheReadTokens: event.cacheReadTokens ?? 0,
-          },
-          cost: {
-            deltaUsd: event.usd,
-            currency: "USD",
-          },
-        },
-      });
     }
     // completed/error are handled by the gateway's done/error frames.
-    // approval_requested/approval_received come via eventBus, not CliSessionEvent.
+    // approval_requested/approval_received come via eventBus, not execution session events.
   }
 }
 
@@ -1415,6 +1460,7 @@ export function resolveTuiProviderSwitch(input: {
   readonly model: unknown;
   readonly models?: Record<string, string[]>;
   readonly discovery?: readonly GuiProviderDiscoveryResult[];
+  readonly providerModelDiscovery?: GuiProviderModelDiscoveryProjection;
 }):
   | { readonly ok: true; readonly provider: string; readonly model: string }
   | { readonly ok: false; readonly error: string } {
@@ -1427,9 +1473,13 @@ export function resolveTuiProviderSwitch(input: {
   if (discoveryResult && !discoveryResult.available) {
     return { ok: false, error: discoveryResult.reason };
   }
-  const discoveredProviderModels = discoveryResult
-    ? [...discoveryResult.models]
-    : input.models?.[provider];
+  const discoveredProviderModels = input.providerModelDiscovery
+    ? input.providerModelDiscovery.entries
+        .filter((entry) => entry.providerRoute.providerId === provider)
+        .map((entry) => entry.providerRoute.providerModelId)
+    : discoveryResult
+      ? [...discoveryResult.models]
+      : input.models?.[provider];
   if (!discoveredProviderModels) {
     return { ok: false, error: `Provider '${provider}' is unavailable` };
   }
@@ -1449,11 +1499,25 @@ export function resolveTuiProviderSwitch(input: {
   if (!model) {
     return { ok: false, error: providerRequiresSelectedModelMessage(provider) };
   }
-  if (!providerModels.includes(model)) {
+  const canonicalRoute = input.providerModelDiscovery?.entries.find((entry) =>
+    entry.providerRoute.providerId === provider
+    && entry.providerRoute.providerModelId === model
+  );
+  if (input.providerModelDiscovery && !canonicalRoute) {
+    return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` };
+  }
+  if (canonicalRoute && !canonicalRoute.eligibility.eligible) {
+    return {
+      ok: false,
+      error: canonicalRoute.routeHealth.reason
+        ?? `Provider '${provider}' model '${model}' is not eligible (${canonicalRoute.eligibility.reasonCodes.join(", ")})`,
+    };
+  }
+  if (!input.providerModelDiscovery && !providerModels.includes(model)) {
     return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` };
   }
   const routeHealth = discoveryResult?.modelRouteHealth?.[model];
-  if (routeHealth && !routeHealth.healthy) {
+  if (!input.providerModelDiscovery && routeHealth && !routeHealth.healthy) {
     return {
       ok: false,
       error: routeHealth.reason ?? `Provider '${provider}' model '${model}' is cooling down`,

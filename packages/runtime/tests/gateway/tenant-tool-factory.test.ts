@@ -61,7 +61,7 @@ describe("buildTenantToolContext", () => {
     expect(ctx.integrationAuthorityRollup.size).toBe(0);
     expect(ctx.toolAllowlist).toBeUndefined();
     expect(ctx.rateLimiter).toBeUndefined();
-    expect(ctx.maxToolRounds).toBeUndefined();
+    expect(ctx.executionEnvelope).toBeUndefined();
   });
 
   it("creates webhook tool executors from tenant.webhookTools", () => {
@@ -241,24 +241,24 @@ describe("buildTenantToolContext", () => {
     expect(ctx.rateLimiter).toBeUndefined();
   });
 
-  it("maxToolRounds is set from maxIterationsPerSession", () => {
+  it("execution envelope is set from maxIterationsPerSession", () => {
     const tenant = makeTenant({
       toolConfig: { maxIterationsPerSession: 8 },
     });
 
     const ctx = buildTenantToolContext(tenant);
 
-    expect(ctx.maxToolRounds).toBe(8);
+    expect(ctx.executionEnvelope).toEqual({ toolRounds: { max: 8 } });
   });
 
-  it("maxToolRounds is undefined when maxIterationsPerSession not set", () => {
+  it("execution envelope is undefined when maxIterationsPerSession not set", () => {
     const tenant = makeTenant({
       toolConfig: { rateLimits: { defaultPerMinute: 60 } },
     });
 
     const ctx = buildTenantToolContext(tenant);
 
-    expect(ctx.maxToolRounds).toBeUndefined();
+    expect(ctx.executionEnvelope).toBeUndefined();
   });
 
   it("merges existing builtins without webhook tools", () => {

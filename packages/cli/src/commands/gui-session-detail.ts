@@ -1,4 +1,8 @@
-import type { GuiSessionDetail, GuiSessionEvent } from "@kilnai/runtime";
+import {
+  restoreGatewayContextUsageProjection,
+  type GuiSessionDetail,
+  type GuiSessionEvent,
+} from "@kilnai/runtime";
 import type { TranscriptStore } from "../wrapper/session-store.js";
 
 export async function loadSessionDetail(
@@ -35,6 +39,13 @@ function mapPersistedTranscriptEventToGuiEvent(
     turnId: event.turnId,
     parentEventId: event.parentEventId,
     source: event.source,
-    payload: event.payload,
+    payload: event.kind === "context_usage_observed"
+      ? restoredContextUsagePayload(event.payload)
+      : event.payload,
   };
+}
+
+function restoredContextUsagePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const contextUsage = restoreGatewayContextUsageProjection(payload.contextUsage);
+  return contextUsage ? { ...payload, contextUsage } : payload;
 }

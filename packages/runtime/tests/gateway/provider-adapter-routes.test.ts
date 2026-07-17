@@ -4,7 +4,7 @@ import { textParts } from "@kilnai/core";
 import { createProviderAdapterRoutes } from "../../src/gateway/provider-adapter-routes.js";
 import type { ProviderAdapterAppRuntime } from "../../src/gateway/provider-adapter-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
-import { SessionRegistry } from "../../src/session/session-registry.js";
+import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 
 const originalFetch = globalThis.fetch;
 

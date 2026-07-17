@@ -1,6 +1,14 @@
+import { createHash } from "node:crypto";
+import {
+  defineWorkClassification,
+  defineWorkClassificationProvenance,
+  type WorkClassification,
+  type WorkClassificationInput,
+  type WorkClassificationProvenance,
+  type WorkClassificationProvenanceInput,
+} from "../../agents/work-classification.js";
 import type { ToolResourceChangeNotifier } from "../domain/tool-resource-notifications.js";
 import type { ConstitutionSnapshot } from "./specification-state-store.js";
-import { createHash } from "node:crypto";
 
 export type WorkflowProfile =
   | "small-fix"
@@ -48,6 +56,20 @@ export interface SessionPlanWorkItemDraft {
   readonly expectedEvidence: readonly string[];
   readonly verificationGates: readonly string[];
   readonly dependencies: readonly string[];
+  readonly workClassification?: WorkClassification;
+  readonly workClassificationProvenance?: WorkClassificationProvenance;
+}
+
+export interface SessionPlanWorkItemDraftInput {
+  readonly id: string;
+  readonly summary: string;
+  readonly workflowProfile: WorkflowProfile;
+  readonly risk: PlanRiskClassification;
+  readonly expectedEvidence: readonly string[];
+  readonly verificationGates: readonly string[];
+  readonly dependencies: readonly string[];
+  readonly workClassification?: WorkClassificationInput;
+  readonly workClassificationProvenance?: WorkClassificationProvenanceInput;
 }
 
 export interface WorkGovernanceRecommendation {
@@ -727,7 +749,7 @@ function uniqueText(values: readonly string[]): readonly string[] {
   );
 }
 
-function uniqueWorkItems(values: readonly SessionPlanWorkItemDraft[]): readonly SessionPlanWorkItemDraft[] {
+function uniqueWorkItems(values: readonly SessionPlanWorkItemDraftInput[]): readonly SessionPlanWorkItemDraft[] {
   const seen = new Set<string>();
   const normalized: SessionPlanWorkItemDraft[] = [];
   for (const candidate of values) {
@@ -736,6 +758,7 @@ function uniqueWorkItems(values: readonly SessionPlanWorkItemDraft[]): readonly 
       continue;
     }
     seen.add(id);
+    const classification = normalizeWorkItemClassification(candidate, id);
     normalized.push({
       id,
       summary: candidate.summary.trim(),
@@ -744,7 +767,40 @@ function uniqueWorkItems(values: readonly SessionPlanWorkItemDraft[]): readonly 
       expectedEvidence: uniqueText(candidate.expectedEvidence),
       verificationGates: uniqueText(candidate.verificationGates),
       dependencies: uniqueText(candidate.dependencies),
+      ...classification,
     });
   }
   return normalized;
+}
+
+function normalizeWorkItemClassification(
+  candidate: SessionPlanWorkItemDraftInput,
+  workItemId: string,
+): {
+  readonly workClassification?: WorkClassification;
+  readonly workClassificationProvenance?: WorkClassificationProvenance;
+} {
+  const hasClassification = candidate.workClassification !== undefined;
+  const hasProvenance = candidate.workClassificationProvenance !== undefined;
+  if (hasClassification !== hasProvenance) {
+    throw new Error(
+      `Work item '${workItemId}' must define workClassification and workClassificationProvenance together`,
+    );
+  }
+  if (!candidate.workClassification || !candidate.workClassificationProvenance) {
+    return {};
+  }
+  const workClassification = defineWorkClassification(candidate.workClassification);
+  const workClassificationProvenance = defineWorkClassificationProvenance(
+    candidate.workClassificationProvenance,
+  );
+  if (workClassificationProvenance.sourceId !== workItemId) {
+    throw new Error(
+      `Work classification provenance sourceId '${workClassificationProvenance.sourceId}' must match plan work-item id '${workItemId}'`,
+    );
+  }
+  return {
+    workClassification,
+    workClassificationProvenance,
+  };
 }

@@ -24,12 +24,22 @@ export interface GoalRunEvidenceRequirement {
   readonly required: boolean;
 }
 
+export type GoalRunSource =
+  | {
+      readonly kind: "approved_plan";
+      readonly planId: string;
+      readonly planHash?: string;
+    }
+  | {
+      readonly kind: "operator_direct";
+      readonly turnId: string;
+    };
+
 export interface GoalRunCreateInput {
   readonly id?: string;
   readonly objective: string;
   readonly ownerSessionId: string;
-  readonly planId: string;
-  readonly planHash?: string;
+  readonly source: GoalRunSource;
   readonly workItemIds: readonly string[];
   readonly authorityEnvelope: GoalRunAuthorityEnvelope;
   readonly routePolicy: GoalRunRoutePolicy;
@@ -61,8 +71,7 @@ export interface GoalRun {
   readonly id: string;
   readonly objective: string;
   readonly ownerSessionId: string;
-  readonly planId: string;
-  readonly planHash?: string;
+  readonly source: GoalRunSource;
   readonly status: GoalRunStatus;
   readonly workItemIds: readonly string[];
   readonly authorityEnvelope: GoalRunAuthorityEnvelope;
@@ -116,8 +125,7 @@ export class GoalRunStore {
       id,
       objective: requireText(input.objective, "objective"),
       ownerSessionId: requireText(input.ownerSessionId, "ownerSessionId"),
-      planId: requireText(input.planId, "planId"),
-      ...(normalizeText(input.planHash) ? { planHash: normalizeText(input.planHash)! } : {}),
+      source: normalizeGoalRunSource(input.source),
       status: "active",
       workItemIds: uniqueRequired(input.workItemIds, "workItemIds"),
       authorityEnvelope: normalizeAuthorityEnvelope(input.authorityEnvelope),
@@ -232,6 +240,21 @@ export class GoalRunStore {
     this.resourceNotifications?.notifyResourceUpdated("kiln://session/goals");
     this.resourceNotifications?.notifyResourceUpdated(`kiln://session/goals/${encodeURIComponent(id)}`);
   }
+}
+
+function normalizeGoalRunSource(source: GoalRunSource): GoalRunSource {
+  if (source.kind === "approved_plan") {
+    const planHash = normalizeText(source.planHash);
+    return {
+      kind: "approved_plan",
+      planId: requireText(source.planId, "source.planId"),
+      ...(planHash ? { planHash } : {}),
+    };
+  }
+  return {
+    kind: "operator_direct",
+    turnId: requireText(source.turnId, "source.turnId"),
+  };
 }
 
 export function reconstructGoalRunsFromSessionEvents(

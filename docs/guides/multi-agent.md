@@ -52,6 +52,10 @@ Multi-role routing belongs under the broader coordination and admission model:
 - role routing chooses the active handling path
 - task and coordination state track ownership and handoff
 
+The only cross-surface execution entrypoint for a governed work graph is
+`managed_agent.orchestrate`. GUI, TUI, CLI, SDK, transcript, and replay consume
+the same lifecycle evidence; none owns a surface-local worker scheduler.
+
 ## When Multiple Roles Are Justified
 
 Use multiple roles when they create clear operational benefit, such as:
@@ -64,9 +68,43 @@ Use multiple roles when they create clear operational benefit, such as:
 
 Do not add multiple roles just to mirror an old "swarm" narrative.
 
-## Transitional Note
+## Governed Team Contract
 
-Older versions of this guide described detailed tenant agent-routing pipelines,
-handoff heuristics, and role-switch mechanics in isolation. Those details should
-be reintroduced only when they are expressed in the canonical vocabulary of
-governed routing, coordination state, and bounded execution.
+Each team member is a work item with:
+
+- a stable `id`;
+- a bounded `roleIntent` and child-local `task`;
+- an admitted `agentProfile` or explicit `routeId`;
+- dependency ids;
+- one request-level authority profile and evidence contract.
+
+Runtime resolves and validates every member independently. Successful producer
+handoffs and resource URIs become governed inputs to their dependents. Failed
+dependencies block downstream members instead of inviting a model to improvise
+missing evidence. Independent review requires distinct provider/model
+identities.
+
+The parent remains the coordinator and final integrator. Child completion does
+not adopt a recommendation, merge an isolated worktree, or close a governed
+work item by itself.
+
+## Frontend Team Example
+
+The current operator profile uses three read-only specialist roles before any
+write-capable implementation is admitted:
+
+1. `frontend-producer` on Kimi K3 produces visual hierarchy, interaction
+   states, accessibility expectations, and acceptance criteria.
+2. `frontend-implementation-advisor` on Kimi K2.7 verifies that handoff against
+   repository evidence and produces component, state, test, and integration
+   guidance.
+3. `react-ts-reviewer` on Codex Terra provides an independently routed React and
+   TypeScript review when review is requested.
+
+Writing remains a separate governed task through `frontend-coder` and its
+approved-write route. The read-only team does not acquire write authority by
+composition.
+
+See [Coordination Guide](coordination-intelligence.md) for the exact work-graph
+shape and [Operator Routing Profile](../examples/operator-routing-profile.md)
+for the workstation-specific route example.

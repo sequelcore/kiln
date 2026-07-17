@@ -2,16 +2,18 @@
 
 ## Purpose
 
-Provider model discovery is the runtime-owned contract that tells operator
-surfaces which providers can execute, which concrete model IDs are selectable,
-and why a provider is unavailable.
+Provider model discovery is the runtime-owned evidence plane that tells
+operator surfaces which provider/model routes were observed, which concrete
+model IDs are eligible for a specific use, and why a provider or model route is
+unavailable.
 
 Discovery is not a fallback mechanism. Kiln must not invent static models or
 silently choose a provider when runtime discovery cannot prove availability.
 Credential availability comes from provider credential pools, but it is only
-one input into discovery. Execution also needs provider-specific readiness such
-as CLI availability, model endpoint reachability, local daemon health, and a
-concrete selected model where the provider requires one.
+one input into eligibility. Execution also needs canonical config evidence,
+authentication evidence, entitlement evidence when available, required
+capabilities, catalog freshness, route health, policy admission, and a concrete
+selected model where the provider requires one.
 
 ## Discovery Result
 
@@ -36,13 +38,57 @@ Common statuses include:
 - `endpoint_timeout`
 - `endpoint_error`
 - `empty_model_list`
+- `model_version_unsupported`
 - `daemon_unreachable`
 - `model_selection_not_required`
 - `stale`
 
-The same discovery result gates execution and drives operator diagnostics.
-Surfaces may abbreviate the human-facing reason, but they must not derive
-availability from a different source.
+The discovery result drives operator diagnostics and contributes catalog
+observations to provider/model evidence. It is not, by itself, execution
+authority. Surfaces may abbreviate the human-facing reason, but they must not
+derive selectability from a different source.
+
+`model_version_unsupported` means the harness or provider is installed and
+authenticated enough to answer, but the selected or requested model requires a
+newer provider binary, app channel, or compatible model surface. Surfaces must
+present this as a model readiness/version action, not as a generic endpoint
+failure or missing auth state.
+
+## Eligibility Plane
+
+Catalog observation is diagnostic evidence only. A provider, harness, service,
+or local daemon may advertise hundreds of model IDs; Kiln preserves those raw
+observations at the adapter boundary, normalizes them into provider-neutral
+provider-model evidence, and still fails closed unless the canonical
+eligibility derivation admits a concrete route for the requested use.
+
+Canonical provider-model evidence keeps these concepts separate:
+
+- provider identity: the provider family or service that owns the account,
+  endpoint, or catalog
+- harness identity: the local or remote harness that reported a route
+- normalized model identity: provider-neutral family/version metadata
+- provider route identity: the concrete provider/model/scope that execution
+  would use
+- credential/authentication evidence
+- entitlement evidence when the provider can expose it
+- freshness evidence for catalog observations
+- route-health evidence for cooldown, quota, and transient failures
+- policy admission for the use, such as interactive operation or managed-agent
+  invocation
+- final eligibility decision with reason codes
+
+`@kilnai/core` owns the pure eligibility derivation. Runtime adapters supply
+evidence and projections; CLI, GUI, TUI, SDK, widget, native, and studio
+surfaces render the canonical projection. Operator surfaces may filter a
+projection to show eligible routes first, but they must not invent local
+eligibility rules, promote stale catalogs, or treat provider availability as a
+model authorization shortcut.
+
+Unknown, stale, partial, or failed evidence is visible diagnostic evidence and
+fails closed. Authentication does not imply entitlement, entitlement does not
+imply capability compatibility, capability compatibility does not imply route
+health, and route health does not override policy admission.
 
 ## Runtime Caching
 
@@ -89,12 +135,37 @@ managed invocation route admission, and prompt execution must wait for or
 require fresh runtime discovery. Static provider display metadata and stale
 cache entries are diagnostics, not permission.
 
-`kiln run --provider <direct-provider>` performs the same fail-closed model
-admission before creating a provider session. The selected model must be present
-in live runtime discovery for that provider; stale static IDs and typos are
-rejected before the chat/completions request. Command-line `--api-key` values
-participate in discovery for that process only, the same way they participate
-in execution.
+`kiln run --provider <provider> --model <model>` performs the same
+fail-closed model admission before creating a provider session when runtime
+discovery can validate that provider. Direct API providers require an explicit
+selected model that is present in live runtime discovery. CLI wrapper providers
+such as Codex and OpenCode may still run without an explicit model so their
+native harness default remains authoritative, but an explicitly selected model
+must be advertised by shared CLI discovery or pass a provider-owned live
+readiness probe before execution starts. Stale static IDs and typos are
+rejected before the chat/completions or wrapper request. Command-line
+`--api-key` values participate in discovery for that process only, the same way
+they participate in execution.
+
+## Gateway And Operator Projection
+
+Gateway frames project provider-model discovery through a canonical summary and
+route entries. Each entry includes raw evidence summary, normalized model
+identity, provider route identity, optional harness route identity,
+credential/auth evidence, entitlement evidence, freshness, route health, policy
+admission, final eligibility, and reason codes.
+
+GUI and TUI provider pickers display diagnostic catalog counts and reason codes
+from this projection. A large OpenCode, OpenRouter, direct-provider, Ollama, or
+LM Studio catalog remains searchable and explainable, but only entries with
+canonical `eligibility.eligible = true` are selectable. When the canonical
+projection is absent for a modeled route, modeled selection fails closed
+instead of falling back to provider display metadata or stale model arrays.
+
+Model-less harness providers remain explicit model-less routes. They do not
+receive fake model IDs and do not convert native ambient defaults into
+provider/model authority. Native route integrity remains a separate evidence
+plane for proving that a harness default matches Kiln's resolved route.
 
 ## Model Capabilities
 
@@ -247,6 +318,8 @@ Direct API providers:
 - no default-to-first-provider behavior
 - no hidden default-to-first-model behavior
 - unavailable providers are non-selectable for execution
+- catalog membership alone never makes a model selectable
+- stale, partial, or failed catalogs remain diagnostic and fail closed
 - model-less providers are explicit and do not use fake model IDs
 - prompt execution revalidates the active provider/model before admission
 - provider switch errors and prompt execution errors use the same wording for
@@ -258,6 +331,14 @@ model ID. If no selected model exists, the canonical error wording is:
 ```text
 Provider '<provider>' requires a selected model.
 ```
+
+Native harness defaults follow the same fail-closed rule. A native harness may
+have an ambient default, but Kiln does not treat that ambient selection as
+canonical unless route integrity evidence shows it matches the resolved Kiln
+provider/model. A valid explicit route probe outranks a bare native error when
+classifying credentials. If the explicit probe succeeds but bare execution uses
+a stale or unknown native model, the failure layer is route/default mismatch,
+not invalid credential.
 
 ## Provider And Model Route Health
 
@@ -272,6 +353,16 @@ credential health:
 - credential health answers "which secret/account can be used?"
 - provider/model route health answers "is this advertised execution route
   cooling down?"
+- native route integrity answers "does the harness default actually select the
+  canonical provider/model?"
+
+These layers must remain separate in diagnostics. `authentication-failure` and
+`authorization-failure` are credential/account results for a catalog-valid
+explicit route. `unknown-model`, `unavailable-route`, and `stale-catalog` are
+provider/model or catalog results. `projection-drift` and
+`ambient-fallback-mismatch` are native configuration results. A diagnostic may
+carry more than one evidence field, but it must name the layer that failed
+first and must not relabel a route or projection problem as an invalid API key.
 
 Execution surfaces must consult both before admitting work. Retryable route
 outcomes such as `rate-limited`, `quota-exceeded`, and `connection-failed`
@@ -318,12 +409,19 @@ and makes post-hoc diagnosis possible without replaying discovery.
 
 ## Invariants
 
+Provider/model discovery can provide a context-window denominator for partial
+operator evidence, but discovery authority or freshness never makes a context
+measurement authoritative. Only a matching provider-reported context window
+does so. See [Context Usage Projection](./context-usage-projection.md).
+
 - discovery is runtime-owned
-- execution uses the same provider availability truth shown to the operator
+- execution uses the same canonical eligibility truth shown to the operator
 - diagnostics are provider-specific and fail closed
 - model IDs passed to execution are concrete provider model IDs
 - local providers do not imply cloud auth or remote model availability
 - unavailable reasons are actionable, not generic placeholders
+- live provider probes, credential use, quota consumption, and paid inference
+  are never claimed unless explicitly authorized and executed as live evidence
 
 ## Related
 

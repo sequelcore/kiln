@@ -68,24 +68,29 @@ describe("ProviderStatus", () => {
 
     render(<ProviderStatus onOpenPicker={() => undefined} />);
 
-    expect(screen.getByText("authority: auto -> fail_closed · sandbox read_only · authoritative")).toBeInTheDocument();
+    expect(screen.getByText("Authority: Auto -> Blocked · Read-only sandbox · Authoritative")).toBeInTheDocument();
   });
 
-  it("shows authority in the compact composer status", () => {
+  it("keeps authority accessible without duplicating it in the compact composer status", () => {
     useSessionStore.setState({
       authorityStatus: {
-        effective: "audited",
-        admittedAuthority: "audited",
-        requestedAuthority: "auto",
+        effective: "idempotent",
+        admittedAuthority: "idempotent",
+        requestedAuthority: "planning",
         executionMode: "execute",
-        sandboxProjection: "workspace_write",
-        completeness: "authoritative",
+        sandboxProjection: "none",
+        completeness: "partial",
       },
     });
 
     render(<ProviderStatus onOpenPicker={() => undefined} compact />);
 
-    expect(screen.getByText("authority: auto -> audited · sandbox workspace_write · authoritative")).toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "Provider selector. Current selection: Claude / claude-sonnet-4-6. Authority: Planning -> Idempotent · Partial. Click to change.",
+    })).toBeInTheDocument();
+    expect(screen.queryByText("Authority: Planning -> Idempotent · Partial"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText(/Sandboxed/)).not.toBeInTheDocument();
   });
 
   it("renders domain and working directory indicators in the status area", () => {
@@ -110,7 +115,17 @@ describe("ProviderStatus", () => {
 
     render(<ProviderStatus onOpenPicker={() => undefined} compact />);
 
-    expect(screen.getByRole("button", { name: "Provider selector. Current selection: Select provider / model. authority: unknown. Click to change." })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Provider selector. Current selection: Select provider / model. Authority: Unknown. Click to change." })).toBeInTheDocument();
     expect(screen.getByText("Select provider / model")).toBeInTheDocument();
+  });
+
+  it("announces provider switching without restoring technical detail", () => {
+    useSessionStore.setState({ providerSwitching: true });
+
+    render(<ProviderStatus onOpenPicker={() => undefined} compact />);
+
+    expect(screen.getByRole("button", { name: /Provider selector/ })).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByText("Switching provider...")).toBeInTheDocument();
+    expect(screen.queryByText(/Authority:/)).not.toBeInTheDocument();
   });
 });

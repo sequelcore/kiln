@@ -4,6 +4,7 @@ export * from "./lifecycle/index.js";
 export * from "./recall/index.js";
 export * from "./reconsolidation/index.js";
 export * from "./relations/index.js";
+export * from "./efficiency.js";
 export * from "./resources/index.js";
 export { MemoryMutationService } from "./service.js";
 export type { MemoryMutationServiceOptions } from "./service.js";

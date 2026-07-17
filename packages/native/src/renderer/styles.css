@@ -190,18 +190,21 @@ dd {
 
 .managed-agent-list,
 .timeline-list,
-.resource-list {
+.resource-list,
+.work-item-list {
   padding: 0;
   margin: 0;
   list-style: none;
 }
 
-.managed-agent-list {
+.managed-agent-list,
+.work-item-list {
   display: grid;
   gap: 12px;
 }
 
-.managed-agent-list > li {
+.managed-agent-list > li,
+.work-item-list > li {
   display: grid;
   gap: 10px;
   border: 1px solid rgba(148, 163, 184, 0.16);
@@ -210,14 +213,16 @@ dd {
   background: rgba(8, 9, 11, 0.52);
 }
 
-.managed-agent-list header {
+.managed-agent-list header,
+.work-item-list header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
-.managed-agent-list header div {
+.managed-agent-list header div,
+.work-item-list header div {
   display: grid;
   gap: 4px;
   min-width: 0;
@@ -226,22 +231,32 @@ dd {
 .managed-agent-list strong,
 .managed-agent-list span,
 .managed-agent-list code,
+.work-item-list strong,
+.work-item-list span,
 .timeline-list small {
   overflow-wrap: anywhere;
 }
 
-.managed-agent-list header span {
+.managed-agent-list header span,
+.work-item-list header span {
   color: #99a3b3;
   font-size: 12px;
 }
 
-.managed-agent-list mark {
+.managed-agent-list mark,
+.work-item-list mark {
   border-radius: 999px;
   padding: 3px 8px;
   background: rgba(148, 163, 184, 0.12);
   color: #c8d1df;
   font-size: 11px;
   text-transform: uppercase;
+}
+
+.work-item-warning {
+  margin: 0;
+  color: #ffb86b;
+  font-size: 13px;
 }
 
 .managed-agent-list mark[data-attention="active"] {

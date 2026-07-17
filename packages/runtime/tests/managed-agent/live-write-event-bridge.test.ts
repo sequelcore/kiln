@@ -5,13 +5,13 @@ import {
   defineManagedAgentWriteScope,
 } from "@kilnai/core";
 import type { ManagedAgentInvocationRequest } from "@kilnai/core";
+import type { ExecutionSessionEvent } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "../../src/agents/managed-invocation/index.js";
 import {
   collectManagedAgentLiveWriteEvidence,
   collectManagedAgentLiveWriteDecisionEvidence,
   normalizeManagedAgentLiveWriteChanges,
 } from "../../src/agents/managed-invocation/live-write-event-bridge.js";
-import type { CliSessionEvent } from "../../src/execution/cli-session-contract.js";
 
 function makeWriteRequest(): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
@@ -114,7 +114,7 @@ function makeReadOnlyRequest(): ManagedAgentInvocationRequest {
   } as ManagedAgentInvocationRequest);
 }
 
-function fixtureFileChange(path = "C:/workspace/kiln/packages/runtime/tests/fixtures/live-write-proof.txt"): Extract<CliSessionEvent, { readonly type: "file_changed" }> {
+function fixtureFileChange(path = "C:/workspace/kiln/packages/runtime/tests/fixtures/live-write-proof.txt"): Extract<ExecutionSessionEvent, { readonly type: "file_changed" }> {
   return {
     type: "file_changed",
     path,

@@ -19,6 +19,21 @@ describe("conversation turn projection", () => {
     ]);
   });
 
+  it("can keep tool events as standalone conversation rows", () => {
+    const items = projectConversationTurnItems([
+      { id: "user-1", kind: "message", role: "user", turnId: "turn-1" },
+      { id: "tool-start", kind: "event", eventKind: "tool_call_started", toolCallId: "tool-1", turnId: "turn-1" },
+      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", turnId: "turn-1" },
+      { id: "assistant-1", kind: "message", role: "assistant", turnId: "turn-1" },
+    ], { anchorToolEventsToAssistant: false });
+
+    expect(items).toEqual([
+      { kind: "message", entryId: "user-1", beforeEventIds: [], afterEventIds: [] },
+      { kind: "event", entryId: "tool-done" },
+      { kind: "message", entryId: "assistant-1", beforeEventIds: [], afterEventIds: [] },
+    ]);
+  });
+
   it("renders trailing same-turn tool evidence before the previous assistant content", () => {
     const items = projectConversationTurnItems([
       { id: "user-1", kind: "message", role: "user", turnId: "turn-1" },

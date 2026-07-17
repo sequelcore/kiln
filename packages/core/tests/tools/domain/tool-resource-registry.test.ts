@@ -55,6 +55,7 @@ describe("ToolResourceRegistry", () => {
   });
 
   it("includes configured resource providers in the shared registry", async () => {
+    let observedTarget: unknown;
     const surface = createDefaultBuiltinToolSurface({
       resourceProviders: [{
         listResources: () => [{
@@ -69,10 +70,11 @@ describe("ToolResourceRegistry", () => {
           mimeType: "application/json",
           annotations: { readOnlyHint: true },
         }],
-        read: async (uri: string) => {
+        read: async (uri: string, options) => {
           if (uri !== "kiln://custom/resource") {
             return undefined;
           }
+          observedTarget = options?.target;
           return {
             contents: [{
               uri,
@@ -89,8 +91,23 @@ describe("ToolResourceRegistry", () => {
       "kiln://custom/resource/{id}",
     );
     await expect(surface.resources.read("kiln://custom/missing")).rejects.toThrow("Resource not found");
-    const result = await surface.resources.read("kiln://custom/resource");
+    const result = await surface.resources.read("kiln://custom/resource", {
+      target: {
+        gatewayTargetId: "app-gateway:support:tenant:acme",
+        appId: "support",
+        tenantId: "acme",
+        sessionId: "session-1",
+        resourceUri: "kiln://custom/resource",
+      },
+    });
     expect(JSON.parse(result.contents[0]!.text)).toEqual({ ok: true });
+    expect(observedTarget).toEqual({
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+      appId: "support",
+      tenantId: "acme",
+      sessionId: "session-1",
+      resourceUri: "kiln://custom/resource",
+    });
   });
 
   it("paginates resource templates with their own cursor namespace", () => {
@@ -143,14 +160,22 @@ describe("ToolResourceRegistry", () => {
 
     const result = await surface.resources.read("kiln://tools/catalog");
 
+    expect(result.summary).toEqual({
+      kind: "tool-catalog",
+      totalCount: 47,
+      counts: {
+        tool: 47,
+      },
+    });
     expect(result.contents).toHaveLength(1);
     expect(result.contents[0]).toMatchObject({
       uri: "kiln://tools/catalog",
       mimeType: "application/json",
     });
     const payload = JSON.parse(result.contents[0]!.text);
-    expect(payload.totalIndexed).toBe(45);
+    expect(payload.totalIndexed).toBe(47);
     expect(payload.entries.map((entry: { name: string }) => entry.name)).toContain("operator_elicit");
+    expect(payload.entries.map((entry: { name: string }) => entry.name)).toContain("json_query");
   });
 
   it("exposes governed work items when a session work item store is attached", async () => {
@@ -191,8 +216,7 @@ describe("ToolResourceRegistry", () => {
       id: "goal-1",
       objective: "Verify runtime work evidence.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
-      planHash: "sha256:plan",
+      source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -219,12 +243,34 @@ describe("ToolResourceRegistry", () => {
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/work-items/{id}");
 
     const snapshot = await surface.resources.read("kiln://session/work-items");
+    expect(snapshot.summary).toEqual({
+      kind: "session-work-items",
+      totalCount: 1,
+      counts: {
+        workItem: 1,
+        pending: 0,
+        inProgress: 1,
+        paused: 0,
+        completed: 0,
+        blocked: 0,
+        cancelled: 0,
+        executionAttempt: 1,
+        pauseRequirement: 1,
+        missingEvidence: 1,
+      },
+      facets: {
+        workflowProfiles: ["verification-heavy"],
+        goalRunIds: ["goal-1"],
+      },
+    });
     expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
       sequence: started.item.sequence,
       items: [
         {
           id: item.id,
+          resourceUri: `kiln://session/work-items/${item.id}`,
           summary: "Verify runtime work evidence",
+          missingEvidence: ["typecheck"],
           providedEvidence: ["tests"],
           planId: "plan-1",
           goalRunId: "goal-1",
@@ -250,7 +296,9 @@ describe("ToolResourceRegistry", () => {
     const single = await surface.resources.read(`kiln://session/work-items/${item.id}`);
     expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
       id: item.id,
+      resourceUri: `kiln://session/work-items/${item.id}`,
       expectedEvidence: ["tests", "typecheck"],
+      missingEvidence: ["typecheck"],
       planHash: "sha256:plan",
       executionAttempts: [
         expect.objectContaining({
@@ -272,7 +320,7 @@ describe("ToolResourceRegistry", () => {
       id: "goal-1",
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
-      planId: "plan-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
       workItemIds: ["wi-1"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -289,13 +337,29 @@ describe("ToolResourceRegistry", () => {
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/goals/{id}");
 
     const snapshot = await surface.resources.read("kiln://session/goals");
+    expect(snapshot.summary).toEqual({
+      kind: "session-goals",
+      totalCount: 1,
+      counts: {
+        goal: 1,
+        active: 1,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+        workItem: 1,
+        evidenceRequirement: 1,
+      },
+      facets: {
+        workflowProfiles: ["architecture-change"],
+      },
+    });
     expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
       sequence: goal.sequence,
       goals: [
         {
           id: "goal-1",
           status: "active",
-          planId: "plan-1",
+          source: { kind: "approved_plan", planId: "plan-1" },
           workItemIds: ["wi-1"],
         },
       ],
@@ -309,6 +373,47 @@ describe("ToolResourceRegistry", () => {
         escalationPolicy: "approval_required",
       },
     });
+  });
+
+  it("summarizes workspace tree resources without requiring surface-local parsing", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      await mkdir(join(tempDir, "docs"), { recursive: true });
+      await writeFile(join(tempDir, "README.md"), "# Project\n", "utf8");
+      await writeFile(join(tempDir, "docs", "plan.md"), "# Plan\n", "utf8");
+      const surface = createDefaultBuiltinToolSurface({
+        workspaceResources: { rootPath: tempDir },
+      });
+
+      const tree = await surface.resources.read("kiln://workspace/tree?depth=2");
+
+      expect(tree.summary).toEqual({
+        kind: "workspace-tree",
+        totalCount: 3,
+        counts: {
+          entry: 3,
+          directory: 1,
+          file: 2,
+          symlink: 0,
+          other: 0,
+          truncated: 0,
+        },
+        facets: {
+          roots: ["."],
+        },
+        meta: {
+          depth: 2,
+          includeFiles: true,
+        },
+      });
+      expect(JSON.parse(tree.contents[0]!.text)).toMatchObject({
+        root: ".",
+        entryCount: 3,
+        truncated: false,
+      });
+    } finally {
+      await removeTempDir(tempDir);
+    }
   });
 
   it("exposes effective authority snapshots when a session authority store is attached", async () => {

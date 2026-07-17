@@ -10,6 +10,7 @@ import type {
 } from "@kilnai/gateway-contracts";
 import {
   createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
   normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
@@ -60,6 +61,11 @@ export interface ManagedAgentJoinControlResult {
   readonly terminalEvent?: OperatorSessionEvent;
 }
 
+export interface ManagedAgentCockpitTranscriptProjection {
+  readonly projection: OperatorCockpitReadOnlyProjection;
+  readonly events: readonly OperatorSessionEvent[];
+}
+
 const DEFAULT_MANAGED_AGENT_GATEWAY_URL = "http://localhost:4810";
 const DEFAULT_MANAGED_AGENT_CONTROL_TIMEOUT_MS = 10_000;
 const CLI_MANAGED_AGENT_OPERATOR_ID = "cli-operator";
@@ -84,16 +90,23 @@ export async function managedAgentCommand(
   }
 
   const projectedAt = options.projectedAt?.() ?? new Date().toISOString();
-  const projection = await loadManagedAgentCockpitFromTranscript(transcriptStore, sessionId, { projectedAt });
-  const managedAgents = createOperatorCockpitReadOnlyViewState({
+  const cockpit = await loadManagedAgentCockpitTranscriptProjection(transcriptStore, sessionId, { projectedAt });
+  const { projection, events } = cockpit;
+  const cockpitView = createOperatorCockpitReadOnlyViewState({
     projection,
     viewState: {},
-  }).managedAgents;
+  });
+  const managedAgents = cockpitView.managedAgents;
+  const workspaceHome = createOperatorWorkspaceHomeProjection({
+    projectedAt,
+    cockpitView,
+    events,
+  });
 
   switch (subcommand) {
     case "list": {
       console.log(args.includes("--json")
-        ? JSON.stringify({ sessionId, managedAgents, invocations: projection.invocations }, null, 2)
+        ? JSON.stringify({ sessionId, managedAgents, workspaceHome, invocations: projection.invocations }, null, 2)
         : formatManagedAgentList(sessionId, managedAgents));
       return;
     }
@@ -332,18 +345,29 @@ export async function loadManagedAgentCockpitFromTranscript(
   sessionId: string,
   input: { readonly projectedAt: string },
 ): Promise<OperatorCockpitReadOnlyProjection> {
+  return (await loadManagedAgentCockpitTranscriptProjection(transcriptStore, sessionId, input)).projection;
+}
+
+export async function loadManagedAgentCockpitTranscriptProjection(
+  transcriptStore: TranscriptStore,
+  sessionId: string,
+  input: { readonly projectedAt: string },
+): Promise<ManagedAgentCockpitTranscriptProjection> {
   const transcriptEvents = await transcriptStore.readTranscript(sessionId);
   const events = normalizeManagedAgentOperatorReplayEvents(transcriptEvents, { defaultInstanceId: "local" });
-  return projectOperatorCockpitReadOnlyView({
-    projectedAt: input.projectedAt,
-    attachTargets: [{
-      instanceId: "local",
-      label: "Local CLI",
-      kind: "local",
-      gatewayUrl: "http://localhost",
-    }],
+  return {
+    projection: projectOperatorCockpitReadOnlyView({
+      projectedAt: input.projectedAt,
+      attachTargets: [{
+        instanceId: "local",
+        label: "Local CLI",
+        kind: "local",
+        gatewayUrl: "http://localhost",
+      }],
+      events,
+    }),
     events,
-  });
+  };
 }
 
 function findInvocation(
@@ -417,6 +441,7 @@ function formatManagedAgentStatus(
     `Provider: ${invocation.providerRoute ?? "unknown"}`,
     `Events: ${invocation.eventCount}`,
     `Resources: ${item.resourceUris.length}`,
+    invocation.sourceResourceUris.length > 0 ? `Source resources: ${invocation.sourceResourceUris.join(", ")}` : undefined,
     `Cancel: ${item.cancelControl.status} · ${item.cancelControl.reason}`,
     invocation.resourceLease ? `Lease: ${invocation.resourceLease.leaseId}` : undefined,
     invocation.resourceLease ? `Worktree: ${invocation.resourceLease.workingDirectoryPath}` : undefined,
@@ -512,7 +537,10 @@ function formatManagedAgentResources(
   invocation: OperatorCockpitInvocationProjection,
 ): string {
   const { managedInvocationId } = invocation;
-  if (item.resourceUris.length === 0) {
+  const sourceResourceUris = invocation.sourceResourceUris;
+  const sourceResourceUriSet = new Set(sourceResourceUris);
+  const evidenceResourceUris = item.resourceUris.filter((uri) => !sourceResourceUriSet.has(uri));
+  if (sourceResourceUris.length === 0 && evidenceResourceUris.length === 0) {
     return [
       `No resource pointers found for managed child ${managedInvocationId}.`,
       ...formatManagedAgentWorktreeReviewLines(invocation),
@@ -522,11 +550,18 @@ function formatManagedAgentResources(
   }
   return [
     `Resources for managed child ${managedInvocationId}:`,
-    ...item.resourceUris.map((uri) => `- ${uri}`),
+    ...formatManagedAgentResourceSection("Source resources", sourceResourceUris),
+    ...formatManagedAgentResourceSection("Evidence resources", evidenceResourceUris),
     ...formatManagedAgentWorktreeReviewLines(invocation),
     ...formatManagedAgentWorktreeConflictLines(invocation),
     ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].join("\n");
+}
+
+function formatManagedAgentResourceSection(label: string, resourceUris: readonly string[]): readonly string[] {
+  return resourceUris.length > 0
+    ? [label + ":", ...resourceUris.map((uri) => `- ${uri}`)]
+    : [];
 }
 
 function formatManagedAgentCancelResult(result: GuiManagedAgentControlResultFrame): string {

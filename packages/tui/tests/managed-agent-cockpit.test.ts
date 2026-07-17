@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { OperatorSessionEvent } from "@kilnai/gateway-contracts";
 import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
+  EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
   appendManagedAgentSessionEvent,
   formatManagedAgentCockpitLines,
   projectTuiManagedAgentViewState,
+  projectTuiOperatorWorkspaceState,
   selectTuiManagedAgentDrilldownTarget,
 } from "../src/managed-agent-cockpit.js";
 
@@ -149,6 +151,42 @@ describe("TUI managed-agent cockpit projection", () => {
       "    kiln://managed-agent/child-review/transcript",
       "    kiln://managed-agent/child-review/worktree",
     ]));
+  });
+
+  it("projects the TUI operator workspace home from the shared cockpit contract", () => {
+    const events = appendManagedAgentSessionEvent([], event("evt-running", 1, "agent_invocation_started", {
+      invocationId: "child-running",
+      lifecycleState: "running",
+      managedInvocationEvidence: {
+        transcript: {
+          uri: "kiln://managed-agent/child-running/transcript",
+          retention: "session",
+        },
+      },
+    }));
+
+    const workspaceState = projectTuiOperatorWorkspaceState(events);
+
+    expect(workspaceState.cockpitView.managedAgents.activeCount).toBe(1);
+    expect(workspaceState.home.managedAgents).toEqual({
+      totalCount: 1,
+      activeCount: 1,
+      attentionCount: 1,
+    });
+    expect(workspaceState.home.attention.items[0]).toMatchObject({
+      reason: "managed-agent-active",
+      target: {
+        gatewayTargetId: "local-tui",
+        instanceId: "local-tui",
+        sessionId: "session-1",
+        managedInvocationId: "child-running",
+      },
+    });
+    expect(workspaceState.home.gatewayTargets[0]?.gatewayTarget).toMatchObject({
+      targetId: "local-tui",
+      kind: "local-operator-gateway",
+      trust: "local",
+    });
   });
 
   it("formats unresolved drilldown from shared view state without local fallback data", () => {
@@ -301,6 +339,36 @@ describe("TUI managed-agent cockpit projection", () => {
       "  lifecycle timed_out",
       "  timeline:",
       "    1 agent_invocation_failed evt-timeout",
+    ]));
+  });
+
+  it("formats managed invocation recovery as an actionable next work-item step", () => {
+    const failed = event("evt-recovery", 1, "agent_invocation_failed", {
+      invocationId: "child-recovery",
+      lifecycleState: "timed_out",
+      managedInvocationRecovery: {
+        status: "phase_evidence_required",
+        reason: "Child produced partial research evidence before timeout.",
+        nextTool: "work_item.update",
+        thenTool: "work_item.execution.start",
+        workItemId: "work-42",
+        evidenceToRecord: ["source-map", "risk-hypothesis"],
+        requiredToolNames: ["resource_read"],
+        sourceResourceUris: ["kiln://managed-agent/child-recovery/handoff"],
+      },
+    });
+
+    const lines = formatManagedAgentCockpitLines(projectTuiManagedAgentViewState(
+      appendManagedAgentSessionEvent([], failed),
+    ));
+
+    expect(lines).toEqual(expect.arrayContaining([
+      "! child-recovery needs_review failed events:1 resources:1",
+      "  next work_item.update -> work_item.execution.start work:work-42",
+      "  reason Child produced partial research evidence before timeout.",
+      "  evidence source-map,risk-hypothesis",
+      "  tools resource_read",
+      "  source kiln://managed-agent/child-recovery/handoff",
     ]));
   });
 
@@ -562,5 +630,10 @@ describe("TUI managed-agent cockpit projection", () => {
 
   it("formats the empty state without local lifecycle fallback text", () => {
     expect(formatManagedAgentCockpitLines(EMPTY_TUI_MANAGED_AGENT_VIEW_STATE)).toEqual(["(none)"]);
+    expect(EMPTY_TUI_OPERATOR_WORKSPACE_HOME.managedAgents).toEqual({
+      totalCount: 0,
+      activeCount: 0,
+      attentionCount: 0,
+    });
   });
 });

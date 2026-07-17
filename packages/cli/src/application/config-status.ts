@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
+import { parse as parseToml } from "smol-toml";
+import { KILN_STATUS_EVIDENCE_VERSION } from "@kilnai/gateway-contracts";
 import type {
   KilnConfigReadResult,
   KilnConfigReadView,
@@ -8,6 +10,7 @@ import type {
   KilnConfigSetupSnapshot,
   KilnConfigSourceSnapshot,
   KilnConfigStatusSnapshot,
+  KilnGlobalInstructionShimSetupSnapshot,
   KilnHarnessCapabilitySnapshot,
   KilnProjectionTargetSnapshot,
   KilnRepoShimProjectionSnapshot,
@@ -23,29 +26,61 @@ import {
   resolveGlobalConfigPath,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
-import { listHarnessIntegrationCapabilities } from "../config/harness-integration-capabilities.js";
 import {
+  listHarnessIntegrationCapabilities,
+  HARNESSES_WITH_NATIVE_PROJECTION,
+  resolveHarnessRouteCapability,
+  type HarnessIntegrationId,
+} from "../config/harness-integration-capabilities.js";
+import {
+  detectNativeProjectionDrift,
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "../config/native-projection-state.js";
-import { loadAgentDefinitions } from "./agent-loader.js";
+import { stripJsonComments } from "../config/json-comments.js";
+import {
+  classifyNativeRouteIntegrity,
+  type NativeRoute,
+  type NativeRouteCatalogEvidence,
+  type NativeRouteProbeEvidence,
+} from "../config/native-route-integrity.js";
+import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
+import { decideNativeAgentProjection } from "../config/native-agent-projection-decision.js";
 import { projectContextPath } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import {
   readRepoShimProjectionStatuses,
   readWorkflowSnapshotManifestStatus,
 } from "./repo-shim-projection.js";
-import { createConfiguredSkillRegistry } from "../config/skill-registry.js";
+import { readGlobalInstructionShimProjectionSnapshots } from "./global-instruction-shim-projection.js";
+import { readSkillCatalogStatus } from "../config/skill-catalog-status.js";
+import { resolveCliMemoryStorage } from "./cli-memory-storage.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
   readonly now?: Date;
+  readonly userHome?: string;
 }
 
 interface ConfigLoadState {
   readonly source: KilnConfigSourceSnapshot;
   readonly config: KilnGlobalConfig | KilnYaml | null;
+}
+
+interface NativeAgentProjectionSummary {
+  readonly target: string;
+  readonly status: "projected" | "omitted";
+  readonly nativeModel?: string;
+  readonly reason?: string;
+}
+
+interface AgentInvocationCapabilitySummary {
+  readonly target: HarnessIntegrationId;
+  readonly status: "native-supported" | "adapter-supported" | "unsupported";
+  readonly nativeModel?: string;
+  readonly adapterId?: "kiln-managed-invocation";
+  readonly reason?: string;
 }
 
 export async function readConfigStatusSnapshot(
@@ -65,15 +100,32 @@ export async function readConfigStatusSnapshot(
     ...sourceErrors("project context", projectContext),
   );
 
-  const projectionState = await readProjectionSnapshots(rootPath, errors);
+  const projectionState = await readProjectionSnapshots(
+    rootPath,
+    errors,
+    effectiveConfig ?? undefined,
+    options.userHome ?? homedir(),
+  );
+  const permissionIntegrity = aggregatePermissionIntegrity(projectionState.projections);
+  const skillCatalog = effectiveConfig
+    ? readSkillCatalogStatus({
+      projectPath: rootPath,
+      userHome: options.userHome ?? homedir(),
+      skillConfig: effectiveConfig.skills,
+    })
+    : undefined;
   const setup = buildSetupSnapshot({
     rootPath,
     projectContext,
     repoShims: projectionState.repoShims,
+    globalInstructionShims: projectionState.globalInstructionShims,
     projections: projectionState.projections,
+    permissionIntegrity,
+    skillCatalog,
   });
 
   return {
+    evidenceVersion: KILN_STATUS_EVIDENCE_VERSION,
     generatedAt: (options.now ?? new Date()).toISOString(),
     project: {
       rootPath,
@@ -88,6 +140,8 @@ export async function readConfigStatusSnapshot(
     ...(effectiveConfig ? { effectiveConfig: effectiveConfig as unknown as Record<string, unknown> } : {}),
     errors,
     projections: projectionState.projections,
+    permissionIntegrity,
+    ...(skillCatalog ? { skills: skillCatalog } : {}),
     setup,
     harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
   };
@@ -196,12 +250,16 @@ function readProjectContextState(projectPath: string): KilnConfigSourceSnapshot 
 async function readProjectionSnapshots(
   projectPath: string,
   errors: string[],
+  effectiveConfig?: KilnYaml,
+  userHome?: string,
 ): Promise<{
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
 }> {
   const projections: KilnProjectionTargetSnapshot[] = [];
   const repoShimSnapshots: KilnRepoShimProjectionSnapshot[] = [];
+  const globalInstructionShimSnapshots: KilnGlobalInstructionShimSetupSnapshot[] = [];
 
   try {
     const repoShims = await readRepoShimProjectionStatuses(projectPath);
@@ -239,14 +297,46 @@ async function readProjectionSnapshots(
   }
 
   try {
+    const globalInstructionShims = await readGlobalInstructionShimProjectionSnapshots(projectPath, { userHome });
+    for (const shim of globalInstructionShims) {
+      globalInstructionShimSnapshots.push({
+        targetId: shim.targetId,
+        harness: shim.harness === "claude" ? "claude-code" : shim.harness,
+        path: shim.filePath,
+        kind: "global-instruction-shim",
+        status: shim.status,
+        ...(shim.details ? { details: shim.details } : {}),
+        recommendation: globalInstructionShimRecommendationForStatus(shim.status),
+      });
+      projections.push({
+        targetId: shim.targetId,
+        path: shim.filePath,
+        kind: "global-instruction-shim" as const,
+        status: shim.status,
+        ...(shim.details ? { details: shim.details } : {}),
+      });
+    }
+  } catch (error) {
+    errors.push(`global-instruction-shims: ${errorMessage(error)}`);
+  }
+
+  try {
     const installState = readNativeProjectionInstallState(join(projectPath, ".kiln"));
     for (const target of Object.values(installState.targets)) {
+      if (isGlobalInstructionShimTargetId(target.targetId)) {
+        continue;
+      }
+      const routeIntegrity = readNativeRouteIntegrity(target, effectiveConfig);
+      const status = readNativeProjectionStatus(target);
       projections.push({
         targetId: target.targetId,
         path: target.filePath,
         kind: "native",
-        status: readNativeProjectionStatus(target),
-        details: `${target.managedFields.length} managed field(s); updated ${target.updatedAt}`,
+        status,
+        ...(target.permissionIntegrity ? { permissionIntegrity: permissionIntegrityForProjectionStatus(target.permissionIntegrity, status) } : {}),
+        ...(routeIntegrity ? { routeIntegrity } : {}),
+        managedFieldCount: target.managedFields.length,
+        updatedAt: target.updatedAt,
       });
     }
   } catch (error) {
@@ -256,7 +346,14 @@ async function readProjectionSnapshots(
   return {
     projections: projections.sort((left, right) => left.targetId.localeCompare(right.targetId)),
     repoShims: repoShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
+    globalInstructionShims: globalInstructionShimSnapshots.sort((left, right) => left.targetId.localeCompare(right.targetId)),
   };
+}
+
+function isGlobalInstructionShimTargetId(targetId: string): boolean {
+  return targetId === "codex-global-instructions"
+    || targetId === "claude-global-instructions"
+    || targetId === "opencode-global-instructions";
 }
 
 function readNativeProjectionStatus(target: NativeProjectionTargetState): KilnProjectionTargetSnapshot["status"] {
@@ -276,7 +373,135 @@ function readNativeProjectionStatus(target: NativeProjectionTargetState): KilnPr
     });
     return drift ? "drifted" : "managed";
   }
+  const document = readNativeDocument(target.filePath);
+  const drift = detectNativeProjectionDrift({
+    targetId: target.targetId,
+    state: {
+      version: 1,
+      targets: {
+        [target.targetId]: target,
+      },
+    },
+    currentDocument: document,
+  });
+  if (drift) {
+    return "drifted";
+  }
   return "managed";
+}
+
+function permissionIntegrityForProjectionStatus(
+  integrity: NonNullable<NativeProjectionTargetState["permissionIntegrity"]>,
+  status: KilnProjectionTargetSnapshot["status"],
+): NonNullable<KilnProjectionTargetSnapshot["permissionIntegrity"]> {
+  if (status === "managed" || status === "current") {
+    return integrity;
+  }
+
+  const persistedNative = integrity.persistedNative
+    ? {
+      ...integrity.persistedNative,
+      freshness: "stale" as const,
+      proof: status === "missing" ? "unavailable" as const : "contradictory" as const,
+    }
+    : undefined;
+  return {
+    ...integrity,
+    ...(persistedNative ? { persistedNative } : {}),
+    classification: status === "drifted" ? "native-projection-drift" : "stale-evidence",
+    recommendation: status === "missing"
+      ? "Re-run governed native projection sync before trusting persisted native permission evidence."
+      : "Review native permission projection drift before trusting persisted native permission evidence.",
+    remediationRequiresApproval: true,
+  };
+}
+
+function readNativeRouteIntegrity(
+  target: NativeProjectionTargetState,
+  effectiveConfig: KilnYaml | undefined,
+): KilnProjectionTargetSnapshot["routeIntegrity"] | undefined {
+  if (!target.managedFields.includes("model") || !existsSync(target.filePath) || target.projectionKind === "file") {
+    return undefined;
+  }
+  const document = readNativeDocument(target.filePath);
+  const model = typeof document.model === "string" ? document.model.trim() : undefined;
+  const canonicalRoute = canonicalRouteFromConfig(effectiveConfig);
+  const harness = target.targetId.startsWith("opencode-") ? "opencode" : target.targetId.startsWith("codex-") ? "codex" : "claude";
+  const nativeRoute = nativeRouteFromTarget(target.targetId, model, canonicalRoute);
+  const drift = detectNativeProjectionDrift({
+    targetId: target.targetId,
+    state: {
+      version: 1,
+      targets: {
+        [target.targetId]: target,
+      },
+    },
+    currentDocument: document,
+  });
+  const explicitProbe: NativeRouteProbeEvidence = { status: "not-run", credentialSource: "none" };
+  const catalogStatus: NativeRouteCatalogEvidence = model
+    ? { status: "not-observable", providerId: nativeRoute?.providerId, model: nativeRoute?.model }
+    : { status: "missing-default", providerId: canonicalRoute?.providerId, model: canonicalRoute?.model };
+  const diagnostic = classifyNativeRouteIntegrity({
+    harness,
+    canonicalRoute,
+    nativeConfiguredDefault: nativeRoute,
+    selectedRuntimeRoute: nativeRoute,
+    explicitProbe,
+    catalogStatus,
+    projectionDrift: drift !== undefined,
+    bareProofSupported: false,
+  });
+  return {
+    ...(diagnostic.canonicalRoute ? { canonicalRoute: diagnostic.canonicalRoute } : {}),
+    ...(diagnostic.nativeConfiguredDefault ? { nativeConfiguredDefault: diagnostic.nativeConfiguredDefault } : {}),
+    ...(diagnostic.selectedRuntimeRoute ? { selectedRuntimeRoute: diagnostic.selectedRuntimeRoute } : {}),
+    catalogStatus: diagnostic.catalogStatus,
+    explicitProbeStatus: diagnostic.explicitProbeStatus,
+    credentialSource: diagnostic.credentialSource,
+    bareProofSupported: diagnostic.bareProofSupported,
+    routeStatus: diagnostic.routeStatus,
+    credentialStatus: diagnostic.credentialStatus,
+    classification: diagnostic.classification,
+  };
+}
+
+function readNativeDocument(filePath: string): Record<string, unknown> {
+  const raw = readFileSync(filePath, "utf-8");
+  if (extname(filePath) === ".toml") {
+    return parseToml(raw) as Record<string, unknown>;
+  }
+  return JSON.parse(stripJsonComments(raw)) as Record<string, unknown>;
+}
+
+function canonicalRouteFromConfig(config: KilnYaml | undefined): NativeRoute | undefined {
+  const providerId = config?.provider?.trim();
+  const model = config?.model?.default?.trim();
+  return providerId && model ? { providerId, model } : undefined;
+}
+
+function nativeRouteFromTarget(
+  targetId: string,
+  model: string | undefined,
+  canonicalRoute: NativeRoute | undefined,
+): NativeRoute | undefined {
+  if (!model) {
+    return undefined;
+  }
+  if (targetId.startsWith("opencode-") && model.includes("/")) {
+    const [providerId, ...rest] = model.split("/");
+    return providerId && rest.length > 0 ? { providerId, model: rest.join("/") } : undefined;
+  }
+  if (targetId.startsWith("opencode-")) {
+    return { providerId: "opencode", model };
+  }
+  if (targetId.startsWith("codex-")) {
+    const providerId = canonicalRoute?.providerId === "codex" || canonicalRoute?.providerId === "codex-oauth"
+      ? canonicalRoute.providerId
+      : "codex";
+    return { providerId, model };
+  }
+  return undefined;
 }
 
 async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnConfigReadView): Promise<unknown> {
@@ -300,15 +525,20 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
     case "agents":
       return readAgentIndexes(snapshot.project.rootPath);
     case "skills":
-      return readSkillIndexes(snapshot.project.rootPath);
+      return snapshot.skills ?? { entries: [] };
     case "permissions":
-      return config?.permissions ?? null;
-    case "memory":
+      return {
+        policy: config?.permissions ?? null,
+        permissionIntegrity: snapshot.permissionIntegrity,
+      };
+    case "memory": {
+      const memoryStorage = resolveCliMemoryStorage(snapshot.project.rootPath);
       return {
         permissions: config?.permissions?.memory ?? null,
-        memoryDbPath: join(snapshot.project.rootPath, ".kiln", "memory.db"),
-        memoryDbPresent: existsSync(join(snapshot.project.rootPath, ".kiln", "memory.db")),
+        memoryDbPath: memoryStorage.memoryDbPath,
+        memoryDbPresent: existsSync(memoryStorage.memoryDbPath),
       };
+    }
     case "projections":
       return snapshot.projections;
     case "setup":
@@ -328,14 +558,20 @@ function buildSetupSnapshot(input: {
   readonly rootPath: string;
   readonly projectContext: KilnConfigSourceSnapshot;
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
+  readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
   readonly projections: readonly KilnProjectionTargetSnapshot[];
+  readonly permissionIntegrity: KilnConfigStatusSnapshot["permissionIntegrity"];
+  readonly skillCatalog?: ReturnType<typeof readSkillCatalogStatus>;
 }): KilnConfigSetupSnapshot {
   const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
+  const globalInstructionShims = input.globalInstructionShims;
   const projectContextRecommendation = projectContextRecommendationFor(input.projectContext);
   const actions = uniqueSetupActions([
     projectContextRecommendation,
     ...input.repoShims.map((shim) => shim.recommendation),
     ...nativeProjections.map(nativeProjectionRecommendation),
+    ...globalInstructionShims.map((projection) => projection.recommendation),
+    ...skillProjectionRecommendations(input.skillCatalog),
   ]);
   return {
     projectRoot: input.rootPath,
@@ -344,9 +580,20 @@ function buildSetupSnapshot(input: {
       recommendation: projectContextRecommendation,
     },
     repoShims: input.repoShims,
+    globalInstructionShims,
     nativeProjections,
+    permissionIntegrity: input.permissionIntegrity,
+    ...(input.skillCatalog ? { skills: input.skillCatalog } : {}),
     recommendedActions: actions,
   };
+}
+
+function aggregatePermissionIntegrity(
+  projections: readonly KilnProjectionTargetSnapshot[],
+): KilnConfigStatusSnapshot["permissionIntegrity"] {
+  return projections
+    .map((projection) => projection.permissionIntegrity)
+    .filter((integrity): integrity is NonNullable<KilnProjectionTargetSnapshot["permissionIntegrity"]> => integrity !== undefined);
 }
 
 function projectContextRecommendationFor(source: KilnConfigSourceSnapshot): KilnConfigSetupAction {
@@ -382,6 +629,21 @@ function nativeProjectionRecommendation(projection: KilnProjectionTargetSnapshot
   return "none";
 }
 
+function globalInstructionShimRecommendationForStatus(
+  status: KilnGlobalInstructionShimSetupSnapshot["status"],
+): KilnConfigSetupAction {
+  if (status === "missing" || status === "stale") {
+    return "sync-global-instruction-shims";
+  }
+  if (status === "drifted") {
+    return "review-global-instruction-drift";
+  }
+  if (status === "unmanaged") {
+    return "adopt-or-back-up-global-instructions";
+  }
+  return "none";
+}
+
 function uniqueSetupActions(actions: readonly KilnConfigSetupAction[]): readonly KilnConfigSetupAction[] {
   const filtered = actions.filter((action) => action !== "none");
   return filtered.length > 0 ? [...new Set(filtered)] : ["none"];
@@ -394,33 +656,95 @@ async function readAgentIndexes(projectPath: string): Promise<unknown> {
       id: agent.name,
       displayName: agent.displayName,
       role: agent.role,
-      model: agent.model,
+      providerRoute: agent.providerRoute,
       tools: agent.tools,
       skills: agent.skills,
       taskAffinity: agent.taskAffinity,
       routeId: agent.routeId,
+      nativeProjections: nativeAgentProjectionSummaries(agent),
+      invocationCapabilities: agentInvocationCapabilitySummaries(agent),
     })),
   };
 }
 
-function readSkillIndexes(projectPath: string): unknown {
-  const globalState = readGlobalConfigState();
-  const projectState = readProjectConfigState(projectPath);
-  const config = buildEffectiveConfig(globalState, projectState, []);
-  const registry = createConfiguredSkillRegistry({
-    projectPath,
-    userHome: homedir(),
-    skillConfig: config?.skills,
+function nativeAgentProjectionSummaries(agent: KilnAgentDefinition): readonly NativeAgentProjectionSummary[] {
+  return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
+    const decision = decideNativeAgentProjection({ agent, harness: target });
+    if (decision.kind === "omit") {
+      return {
+        target,
+        status: "omitted",
+        reason: decision.reason,
+      };
+    }
+    return {
+      target,
+      status: "projected",
+      ...(decision.nativeModel ? { nativeModel: decision.nativeModel } : {}),
+    };
   });
-  return {
-    skills: registry.all().map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-      filePath: skill.filePath,
-      tags: skill.tags,
-      tools: skill.tools,
-    })),
-  };
+}
+
+function agentInvocationCapabilitySummaries(agent: KilnAgentDefinition): readonly AgentInvocationCapabilitySummary[] {
+  if (!agent.providerRoute) {
+    return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => ({
+      target,
+      status: "native-supported",
+    }));
+  }
+
+  return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
+    const capability = resolveHarnessRouteCapability({
+      harness: target,
+      providerId: agent.providerRoute?.providerId ?? "",
+      model: agent.providerRoute?.model,
+    });
+    if (capability.kind === "native-supported") {
+      return {
+        target,
+        status: capability.kind,
+        nativeModel: capability.nativeModel,
+      };
+    }
+    if (capability.kind === "adapter-supported") {
+      return {
+        target,
+        status: capability.kind,
+        adapterId: capability.adapterId,
+        reason: capability.reason,
+      };
+    }
+    return {
+      target,
+      status: capability.kind,
+      reason: capability.reason,
+    };
+  });
+}
+
+function skillProjectionRecommendations(
+  skillCatalog: ReturnType<typeof readSkillCatalogStatus> | undefined,
+): readonly KilnConfigSetupAction[] {
+  if (!skillCatalog) {
+    return [];
+  }
+  const actions: KilnConfigSetupAction[] = [];
+  for (const skill of skillCatalog.entries) {
+    if (!skill.configured && skill.origin === "native-harness") {
+      actions.push("adopt-or-back-up-native-guidance");
+      continue;
+    }
+    if (skill.projections.some((projection) => projection.status === "missing")) {
+      actions.push("sync-native-projections");
+    }
+    if (skill.projections.some((projection) => projection.status === "drifted")) {
+      actions.push("review-native-projection-drift");
+    }
+    if (skill.projections.some((projection) => projection.status === "unmanaged-native")) {
+      actions.push("review-native-projection-drift");
+    }
+  }
+  return actions;
 }
 
 function projectHarnessCapability(capability: ReturnType<typeof listHarnessIntegrationCapabilities>[number]): KilnHarnessCapabilitySnapshot {
@@ -434,6 +758,10 @@ function projectHarnessCapability(capability: ReturnType<typeof listHarnessInteg
     nativeConfigImport: capability.nativeConfigImport ? "supported" : "unsupported",
     mcpRuntimeTools: capability.mcpRuntimeTools ? "supported" : "unsupported",
     hooks: capability.hooks ? "supported" : "unsupported",
+    crossHarnessManagedInvocation: {
+      adapterId: capability.crossHarnessManagedInvocation.adapterId,
+      supportedProviderIds: capability.crossHarnessManagedInvocation.supportedProviderIds,
+    },
   };
 }
 

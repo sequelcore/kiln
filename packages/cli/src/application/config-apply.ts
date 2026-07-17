@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import type {
   KilnConfigAppliedWrite,
@@ -140,18 +140,44 @@ function validateWritePaths(projectPath: string, paths: readonly string[]): read
     resolve(join(projectRoot, ".kiln", "agents")),
     resolve(join(projectRoot, ".kiln", "skills")),
   ];
+  const canonicalFiles = new Set([resolve(join(projectRoot, ".kiln", "kiln.yaml"))]);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   for (const path of paths) {
     const resolvedPath = resolve(path);
-    if (!canonicalRoots.some((root) => isInside(root, resolvedPath))) {
+    if (!canonicalFiles.has(resolvedPath) && !canonicalRoots.some((root) => isInside(root, resolvedPath))) {
       diagnostics.push({
         severity: "error",
         field: path,
-        message: "Config apply can only write project .kiln/agents or .kiln/skills canonical files.",
+        message: "Config apply can only write project .kiln/agents, .kiln/skills, or .kiln/kiln.yaml canonical configuration.",
+      });
+      continue;
+    }
+    if (!isPhysicallyInsideProject(projectRoot, resolvedPath)) {
+      diagnostics.push({
+        severity: "error",
+        field: path,
+        message: "Config apply refused a canonical path whose physical target escapes the project root.",
       });
     }
   }
   return diagnostics;
+}
+
+function isPhysicallyInsideProject(projectRoot: string, candidate: string): boolean {
+  try {
+    const realProjectRoot = realpathSync(projectRoot);
+    let existingAncestor = candidate;
+    while (!existsSync(existingAncestor)) {
+      const parent = dirname(existingAncestor);
+      if (parent === existingAncestor) return false;
+      existingAncestor = parent;
+    }
+    const realAncestor = realpathSync(existingAncestor);
+    const physicalCandidate = resolve(realAncestor, relative(existingAncestor, candidate));
+    return isInside(realProjectRoot, physicalCandidate);
+  } catch {
+    return false;
+  }
 }
 
 function isInside(root: string, candidate: string): boolean {

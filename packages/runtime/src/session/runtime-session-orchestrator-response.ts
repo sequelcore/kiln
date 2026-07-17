@@ -1,7 +1,8 @@
 import type { ContentPart, ProviderAdapter, ToolCall } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
+import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./runtime-session-orchestrator.types.js";
-import type { OrchestratorUsageSnapshot, OrchestratorResponseUsage } from "./runtime-session-orchestrator-telemetry.js";
+import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type OrchestratorResponseUsage, type ProviderRequestCachePartitionInput, type ProviderRequestRegionEvidence } from "./runtime-session-orchestrator-telemetry.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
 
 export interface FinalizeRuntimeSessionResponseInput {
@@ -10,6 +11,7 @@ export interface FinalizeRuntimeSessionResponseInput {
   readonly parts: readonly ContentPart[];
   readonly usage: OrchestratorResponseUsage;
   readonly usageTotals: OrchestratorUsageSnapshot;
+  readonly providerRequests?: readonly ProviderRequestEvidence[];
   readonly toolExecutions: readonly ToolExecutionSummary[];
   readonly stopReason?: string;
   readonly routingDecision?: {
@@ -48,6 +50,9 @@ export async function finalizeRuntimeSessionResponse(
     outputTokens: input.usageTotals.outputTokens,
     cacheReadTokens: input.usageTotals.cacheReadTokens,
     cacheWriteTokens: input.usageTotals.cacheWriteTokens,
+    ...(input.providerRequests && input.providerRequests.length > 0
+      ? { providerRequests: input.providerRequests }
+      : {}),
     queued: false,
     escalation,
     contextSummary,
@@ -62,16 +67,19 @@ export async function requestRuntimeSessionFallbackResponse(
   system: string,
   session: RuntimeSession,
   maxTokens: number | undefined,
+  cachePartition?: ProviderRequestCachePartitionInput,
 ): Promise<{
   readonly parts: readonly ContentPart[];
   readonly toolCalls: readonly ToolCall[];
   readonly usage: OrchestratorResponseUsage;
+  readonly request: ProviderRequestRegionEvidence;
   readonly stopReason?: string;
 }> {
+  const messages = [...session.conversationHistory];
   const response = await provider.createMessage({
     sessionId: session.id,
     system,
-    messages: [...session.conversationHistory],
+    messages,
     maxTokens,
   });
 
@@ -84,6 +92,14 @@ export async function requestRuntimeSessionFallbackResponse(
       outputTokens: response.outputTokens,
       cacheReadTokens: response.cacheReadTokens,
       cacheWriteTokens: response.cacheWriteTokens,
+      contextUsage: response.contextUsage,
     },
+    request: measureProviderRequestRegions({
+      system,
+      messages,
+      toolCount: 0,
+      cachePartition,
+      ...(response.stopReason ? { stopReason: response.stopReason } : {}),
+    }),
   };
 }

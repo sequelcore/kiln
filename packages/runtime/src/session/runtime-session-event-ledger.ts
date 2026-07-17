@@ -13,15 +13,29 @@ import type {
   SessionProviderIdentity,
   SessionTurnOutcome,
   SessionToolStatus,
+  GoalRun,
   WorkItem,
   WorkItemExecutionAttempt,
   ToolCalledEvent,
   ToolResultEvent,
+  ContextAuditEntry,
+  ContextUsageProjection,
+  VerifiedEfficiencyPolicyIdentity,
 } from "@kilnai/core";
-import { createSessionEvent } from "@kilnai/core";
+import {
+  createSessionEvent,
+  hashPolicyAdaptationConfiguration,
+  projectCostUpdatedEventToLifecycleLedger,
+  projectVerifiedEfficiencyEvidence,
+  reconcileLifecycleAttributionLedger,
+} from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { RuntimeTurnFileChange } from "./runtime-turn-record.js";
 import { sanitizeAssistantEgressText } from "./assistant-egress-sanitizer.js";
+import {
+  projectRuntimeLifecycleAttributionAllocations,
+  type RuntimeLifecycleFinalOutputBoundary,
+} from "./runtime-lifecycle-attribution-allocations.js";
 
 type CapturedRuntimeLedgerEvent =
   | ApprovalReceivedEvent
@@ -44,6 +58,11 @@ export interface RuntimeTurnAuthorityMutationViolation {
   readonly errorCode: string;
   readonly message: string;
   readonly details: Record<string, unknown>;
+}
+
+export interface RuntimeLifecycleAttributionEvidence {
+  readonly contextAudit?: ContextAuditEntry;
+  readonly finalOutput?: RuntimeLifecycleFinalOutputBoundary;
 }
 
 export interface AppendCanonicalTurnEventsInput {
@@ -104,6 +123,8 @@ export interface AppendCanonicalTurnEventsInput {
     readonly issueCodes: readonly string[];
     readonly blockingIssueCodes: readonly string[];
   }[];
+  readonly lifecycleAttributionEvidence?: RuntimeLifecycleAttributionEvidence;
+  readonly efficiencyPolicy?: VerifiedEfficiencyPolicyIdentity;
   readonly clarificationRecords?: readonly {
     readonly specificationId: string;
     readonly clarificationId: string;
@@ -111,6 +132,7 @@ export interface AppendCanonicalTurnEventsInput {
   }[];
   readonly authorityMutationViolations?: readonly RuntimeTurnAuthorityMutationViolation[];
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
+  readonly contextUsage?: ContextUsageProjection;
 }
 
 export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput): readonly CanonicalSessionEvent[] {
@@ -130,9 +152,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
   let sequence = session.nextSessionEventSequence();
   const nextSequence = () => sequence++;
   const pendingApprovalIds: string[] = [];
-  const pendingToolCallIds = new Map<string, string[]>();
   let approvalOrdinal = 0;
-  let toolOrdinal = 0;
   let previousTotalCostUsd = 0;
 
   events.push(createSessionEvent<"turn_started">({
@@ -204,10 +224,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         break;
       }
       case "tool_called": {
-        const toolCallId = `${turnId}:tool:${++toolOrdinal}`;
-        const pending = pendingToolCallIds.get(runtimeEvent.toolName) ?? [];
-        pending.push(toolCallId);
-        pendingToolCallIds.set(runtimeEvent.toolName, pending);
+        const toolCallId = requireRuntimeToolCallId(runtimeEvent, turnId);
         events.push(createSessionEvent<"tool_call_started">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
@@ -216,6 +233,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           toolCallId,
           toolName: runtimeEvent.toolName,
           input: runtimeEvent.toolInput,
+          ...(runtimeEvent.executionScope ? { executionScope: runtimeEvent.executionScope } : {}),
           ...(runtimeEvent.metadata ? { metadata: runtimeEvent.metadata } : {}),
           source: makeSource("tool", "runtime", "orchestrator"),
           timestamp: runtimeEvent.timestamp,
@@ -223,11 +241,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         break;
       }
       case "tool_result": {
-        const pending = pendingToolCallIds.get(runtimeEvent.toolName);
-        const toolCallId = pending?.shift() ?? `${turnId}:tool:${++toolOrdinal}`;
-        if (pending && pending.length === 0) {
-          pendingToolCallIds.delete(runtimeEvent.toolName);
-        }
+        const toolCallId = requireRuntimeToolCallId(runtimeEvent, turnId);
         events.push(createSessionEvent<"tool_call_completed">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
@@ -235,10 +249,14 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           turnId,
           toolCallId,
           toolName: runtimeEvent.toolName,
+          ...(runtimeEvent.executionScope ? { executionScope: runtimeEvent.executionScope } : {}),
           status: toSessionToolStatus(runtimeEvent),
           durationMs: runtimeEvent.durationMs,
           output: runtimeEvent.output,
           outputSummary: runtimeEvent.resultSummary,
+          ...(runtimeEvent.metadata ? { metadata: runtimeEvent.metadata } : {}),
+          ...(runtimeEvent.resourceLinks ? { resourceLinks: runtimeEvent.resourceLinks } : {}),
+          ...(runtimeEvent.toolUsage ? { toolUsage: runtimeEvent.toolUsage } : {}),
           source: makeSource("tool", "runtime", "orchestrator"),
           timestamp: runtimeEvent.timestamp,
         }));
@@ -260,6 +278,15 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           source: makeSource("tool", "runtime", "work-governance"),
         })) {
           events.push(workItemEvent);
+        }
+        for (const goalEvent of projectGoalEvents({
+          sessionId: session.id,
+          turnId,
+          sequence: nextSequence,
+          runtimeEvent,
+          source: makeSource("tool", "runtime", "work-governance"),
+        })) {
+          events.push(goalEvent);
         }
         break;
       }
@@ -301,7 +328,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         const totalCostUsd = runtimeEvent.totalCostUsd;
         const deltaUsd = Math.max(0, totalCostUsd - previousTotalCostUsd);
         previousTotalCostUsd = totalCostUsd;
-        events.push(createSessionEvent<"cost_updated">({
+        const costEvent = createSessionEvent<"cost_updated">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
           kind: "cost_updated",
@@ -311,13 +338,62 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
             inputTokens: runtimeEvent.inputTokens,
             outputTokens: runtimeEvent.outputTokens,
             cacheReadTokens: runtimeEvent.cacheReadTokens,
-            cacheWriteTokens: 0,
+            cacheWriteTokens: runtimeEvent.cacheWriteTokens,
           },
           cost: {
             currency: "USD",
             deltaUsd,
             totalUsd: totalCostUsd,
+            ...(runtimeEvent.costEvidence ? { evidence: runtimeEvent.costEvidence } : {}),
           },
+          source: runtimeSource,
+          timestamp: runtimeEvent.timestamp,
+        });
+        events.push(costEvent);
+        const route = `${costEvent.provider.provider}/${costEvent.provider.model}`;
+        const lifecycleEvidence = normalizeLifecycleAttributionEvidence(
+          input.lifecycleAttributionEvidence,
+          session.id,
+          turnId,
+        );
+        const attributionLedger = projectCostUpdatedEventToLifecycleLedger(costEvent, {
+          allocations: projectRuntimeLifecycleAttributionAllocations({
+            contextAudit: lifecycleEvidence.contextAudit,
+            finalOutput: lifecycleEvidence.finalOutput,
+            route,
+          }),
+          context: {
+            route,
+          },
+        });
+        const reconciled = reconcileLifecycleAttributionLedger(costEvent, attributionLedger);
+        const efficiencyEvidence = projectVerifiedEfficiencyEvidence({
+          lifecycleEvidence: {
+            costEvent,
+            ledger: reconciled.ledger,
+            summary: reconciled.summary,
+          },
+          observedAt: runtimeEvent.timestamp.toISOString(),
+          policy: input.efficiencyPolicy ?? {
+            owner: "ContextGovernor",
+            policyId: "context-whole-block-static-v1",
+            configurationHash: hashPolicyAdaptationConfiguration({ contextAllocationMode: "whole-block" }),
+          },
+          outcome: input.turnOutcome === "completed"
+            ? "succeeded"
+            : input.turnOutcome === "failed"
+              ? "failed"
+              : "unknown",
+        });
+        events.push(createSessionEvent<"lifecycle_attribution_recorded">({
+          kilnSessionId: session.id,
+          sequence: nextSequence(),
+          kind: "lifecycle_attribution_recorded",
+          turnId,
+          parentEventId: costEvent.eventId,
+          ledger: reconciled.ledger,
+          summary: reconciled.summary,
+          efficiencyEvidence,
           source: runtimeSource,
           timestamp: runtimeEvent.timestamp,
         }));
@@ -461,6 +537,18 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
     }));
   }
 
+  if (input.contextUsage) {
+    events.push(createSessionEvent<"context_usage_observed">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "context_usage_observed",
+      turnId,
+      contextUsage: input.contextUsage,
+      source: runtimeSource,
+      timestamp: new Date(input.contextUsage.observedAt),
+    }));
+  }
+
   if (assistantMessageContent && assistantMessageContent.length > 0) {
     events.push(createSessionEvent<"assistant_message">({
       kilnSessionId: session.id,
@@ -501,7 +589,6 @@ function resolveCanonicalTurnIdentity(
       turnOrdinal,
     };
   }
-
   const prefix = `${session.id}:turn:`;
   if (!turnId.startsWith(prefix)) {
     throw new Error("Canonical turn id must belong to the runtime session.");
@@ -528,6 +615,23 @@ function nextCanonicalTurnOrdinal(session: RuntimeSession): number {
   }, 0);
 
   return Math.max(session.userTurnCount, highestPersistedTurnOrdinal + 1, 1);
+}
+
+function normalizeLifecycleAttributionEvidence(
+  evidence: RuntimeLifecycleAttributionEvidence | undefined,
+  sessionId: string,
+  turnId: string,
+): RuntimeLifecycleAttributionEvidence {
+  if (!evidence?.finalOutput) {
+    return evidence ?? {};
+  }
+  return {
+    ...evidence,
+    finalOutput: {
+      ...evidence.finalOutput,
+      evidenceUri: evidence.finalOutput.evidenceUri ?? `kiln://sessions/${sessionId}/turns/${turnId}/final-output`,
+    },
+  };
 }
 
 function projectWorkItemEvents(input: {
@@ -691,6 +795,31 @@ function isWorkItemToolMetadata(value: unknown): value is {
     );
 }
 
+function goalFromToolMetadata(value: unknown): GoalRun | undefined {
+  if (!isRecord(value)) return undefined;
+  return isGoalRun(value.goal) ? value.goal : undefined;
+}
+
+function isGoalRun(value: unknown): value is GoalRun {
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string"
+    && typeof value.objective === "string"
+    && typeof value.ownerSessionId === "string"
+    && isRecord(value.source)
+    && (value.status === "active" || value.status === "completed" || value.status === "failed" || value.status === "cancelled")
+    && Array.isArray(value.workItemIds)
+    && isRecord(value.authorityEnvelope)
+    && isRecord(value.routePolicy)
+    && Array.isArray(value.evidenceRequirements)
+    && typeof value.createdAt === "string"
+    && typeof value.updatedAt === "string"
+    && typeof value.sequence === "number";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isWorkItem(value: unknown): value is WorkItem {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -801,6 +930,68 @@ function makeSource(
   component: string,
 ): SessionEventSource {
   return { actor, surface, component };
+}
+
+function projectGoalEvents(input: {
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly sequence: () => number;
+  readonly runtimeEvent: ToolResultEvent;
+  readonly source: SessionEventSource;
+}): readonly CanonicalSessionEvent[] {
+  const metadata = input.runtimeEvent.metadata;
+  const goal = goalFromToolMetadata(metadata);
+  if (!goal) return [];
+  const envelope = () => ({
+    kilnSessionId: input.sessionId,
+    sequence: input.sequence(),
+    turnId: input.turnId,
+    goal,
+    source: input.source,
+    timestamp: input.runtimeEvent.timestamp,
+  });
+  if (goal.status === "completed" && goal.closeoutSummary) {
+    return [createSessionEvent<"goal.completed">({
+      ...envelope(),
+      kind: "goal.completed",
+      closeoutSummary: goal.closeoutSummary,
+    })];
+  }
+  if (goal.status === "failed" && goal.terminalReason) {
+    return [createSessionEvent<"goal.failed">({
+      ...envelope(),
+      kind: "goal.failed",
+      reason: goal.terminalReason,
+    })];
+  }
+  if (goal.status === "cancelled" && goal.terminalReason) {
+    return [createSessionEvent<"goal.cancelled">({
+      ...envelope(),
+      kind: "goal.cancelled",
+      reason: goal.terminalReason,
+    })];
+  }
+  if (goal.status !== "active") return [];
+  if (isRecord(metadata) && metadata.kind === "goal" && metadata.operation === "create") {
+    return [createSessionEvent<"goal.created">({ ...envelope(), kind: "goal.created" })];
+  }
+  return [createSessionEvent<"goal.updated">({
+    ...envelope(),
+    kind: "goal.updated",
+    changedFields: ["currentPhase"],
+  })];
+}
+
+function requireRuntimeToolCallId(
+  runtimeEvent: ToolCalledEvent | ToolResultEvent,
+  turnId: string,
+): string {
+  if (typeof runtimeEvent.toolCallId === "string" && runtimeEvent.toolCallId.trim().length > 0) {
+    return runtimeEvent.toolCallId;
+  }
+  throw new Error(
+    `Runtime ${runtimeEvent.type} event for tool "${runtimeEvent.toolName}" in turn "${turnId}" is missing toolCallId.`,
+  );
 }
 
 function formatContinuityReason(continuity: RuntimeContinuitySnapshot): string {

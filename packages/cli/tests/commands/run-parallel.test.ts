@@ -5,8 +5,9 @@ import {
 } from "@kilnai/core";
 import {
   RuntimeManagedAgentInvocationService,
-  type ManagedAgentRuntimeInvocationInput,
   type ManagedAgentRuntimeAdapter,
+  type ManagedAgentRuntimeAuthorityObserver,
+  type ManagedAgentRuntimeInvocationInput,
   type ManagedAgentWorktreeLeaseManager,
   type ManagedAgentWorktreeLeaseManagerInput,
   type ManagedAgentWorktreeLeaseReleaseInput,
@@ -61,9 +62,17 @@ describe("runParallelWorkers", () => {
       "completed",
       "completed",
     ]);
+    const invocationService = managedInvocation.invocationService;
+    const records = await Promise.all(
+      invocationService?.list().map((snapshot) => invocationService.join(snapshot.invocationId)) ?? [],
+    );
+    expect(records.map((result) => result.record.capabilitySnapshot.authorityEvidence.classification)).toEqual([
+      "current-verified",
+      "current-verified",
+    ]);
   });
 
-  it("normalizes raw managed invocation options before fan-out service execution", async () => {
+  it("fails closed for raw managed invocation options without runtime authority proof", async () => {
     const managedInvocation = createManagedInvocation();
     const { invocationService: _omitted, ...rawManagedInvocation } = managedInvocation;
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -84,7 +93,7 @@ describe("runParallelWorkers", () => {
 
     const errorOutput = errorSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(errorOutput).not.toContain("requires an invocation service");
-    expect(errorOutput).toContain("isolated worktree lease manager is required");
+    expect(errorOutput).toContain("authorityEvidence.effective-policy-unproven");
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -176,7 +185,7 @@ describe("runParallelWorkers", () => {
 
     expect(managedInvocation.invocationService?.list()).toEqual([]);
     expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain(
-      "Managed fan-out budget admission denied: Budget admission requires a live usage reader.",
+      "Managed orchestration budget admission denied: Budget admission requires a live usage reader.",
     );
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
@@ -207,7 +216,7 @@ describe("runParallelWorkers", () => {
 
     expect(managedInvocation.invocationService?.list()).toEqual([]);
     expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain(
-      "Managed fan-out budget admission denied: All route candidates are over their configured budget ceilings.",
+      "Managed orchestration budget admission denied: All route candidates are over their configured budget ceilings.",
     );
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
@@ -396,6 +405,7 @@ function createManagedInvocation(input: {
     requestedBy: "operator",
     requestSource: "cli:run-workers",
     invocationService: new RuntimeManagedAgentInvocationService({
+      authorityObserver: createRuntimeAuthorityObserver(),
       worktreeLeaseManager: createWorktreeLeaseManager(),
     }),
     routes: [{
@@ -500,6 +510,22 @@ function createWorktreeLeaseManager(): ManagedAgentWorktreeLeaseManager {
   };
 }
 
+function createRuntimeAuthorityObserver(): ManagedAgentRuntimeAuthorityObserver {
+  return {
+    observe: vi.fn(async ({ request }) => ({
+      approval: "on-request",
+      sandbox: request.authority.toolAuthority.writeAllowed === true && request.authority.workingDirectory.mode !== "read-only"
+        ? "workspace-write"
+        : "read-only",
+      source: "runtime-observation",
+      proof: "proven",
+      observedAt: "2026-07-02T08:00:00.000Z",
+      validUntil: "2099-01-01T00:00:00.000Z",
+      reason: "Test route has explicit runtime authority proof.",
+    })),
+  };
+}
+
 function createAdapter(input: {
   readonly failOrdinals: ReadonlySet<number>;
   readonly recoveredOrdinals: ReadonlySet<number>;
@@ -529,6 +555,9 @@ function createAdapter(input: {
         supported: true,
         preservesProviderTokenClasses: true,
         supportsExplicitUnknowns: true,
+        tokenClasses: ["input", "output", "cache_read"],
+        semanticSourceGranularity: "unknown",
+        evidenceBasis: "adapter",
       },
       resultHandoff: {
         boundedSummary: true,
@@ -545,6 +574,7 @@ function createAdapter(input: {
       if (input.failOrdinals.has(ordinal)) {
         throw new Error(`Worker ${ordinal} failed`);
       }
+      const handoffUri = `kiln://managed-invocations/${request.invocationId}/handoff`;
       return defineManagedAgentInvocationRecord({
         invocationId: request.invocationId,
         agentId: request.agentId,
@@ -559,8 +589,29 @@ function createAdapter(input: {
         capabilitySnapshot: admission.capabilitySnapshot,
         resultHandoff: {
           summary: `Worker ${ordinal} completed`,
-          resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
+          resourceUris: [handoffUri],
           memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary: `Worker ${ordinal} completed`,
+            uncertainty: 0,
+            limitations: [],
+            operatorDecisions: [],
+            evidence: [{ uri: handoffUri, kind: "artifact" }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: ["The synthetic CLI child adapter does not exercise a live provider."],
+            verificationResults: [{
+              requirementId: "fan-out-handoff",
+              method: "deterministic",
+              status: "passed",
+              summary: "The bounded child handoff is present.",
+              evidenceUris: [handoffUri],
+            }],
+          },
         },
       });
     },

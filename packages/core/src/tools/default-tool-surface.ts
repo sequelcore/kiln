@@ -34,6 +34,7 @@ import { EditTool } from "./infrastructure/edit-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
 import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
+import { JsonQueryTool, type JsonQueryToolOptions } from "./infrastructure/json-query-tool.js";
 import {
   BrowserClickTool,
   BrowserKeypressTool,
@@ -54,6 +55,7 @@ import {
   type InteractiveUseToolOptions,
 } from "./infrastructure/interactive-use-tool.js";
 import { MemorySaveTool, type MemorySaveToolCallerContext } from "./infrastructure/memory-save-tool.js";
+import { MemorySearchTool } from "./infrastructure/memory-search-tool.js";
 import {
   MonitorListTool,
   MonitorReadTool,
@@ -105,6 +107,7 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly bash?: BashToolOptions;
   readonly grep?: GrepToolOptions;
   readonly glob?: GlobToolOptions;
+  readonly jsonQuery?: JsonQueryToolOptions;
   readonly webFetch?: WebFetchToolOptions;
   readonly webExtract?: WebExtractToolOptions;
   readonly webSearch?: WebSearchToolOptions;
@@ -293,6 +296,7 @@ export function createDefaultBuiltinTools(
     new ComputerCloseApplicationTool(computerUse),
     new GrepTool(options.grep),
     new GlobTool(options.glob),
+    new JsonQueryTool(options.jsonQuery),
     new GitTool(options.git),
     new CodeIntelligenceTool(options.codeIntelligence),
     new MonitorStartTool({ registry: monitorRegistry }),
@@ -303,6 +307,7 @@ export function createDefaultBuiltinTools(
     new TaskUpdateTool({ store: taskStateStore }),
     new OperatorElicitationTool(options.operatorElicitation),
     new ToolCatalogSearchTool(() => catalog),
+    new MemorySearchTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new MemorySaveTool({
       callerContext: memoryMutationCallerContext,
       service: (callerContext) => resolveMemoryMutationService(options, callerContext),
@@ -554,12 +559,10 @@ function projectTools(
   const requested = new Set<string>([
     ...(projection.alwaysOnTools ?? ["read", "grep", "glob"]),
     "tool_catalog_search",
+    "memory_search",
     "resource_list",
     "resource_template_list",
     "resource_read",
-    "kiln_config.read",
-    "kiln_config.propose_change",
-    "kiln_config.apply_change",
   ]);
   return tools.filter((tool) => requested.has(tool.name));
 }

@@ -51,6 +51,24 @@ describe("RuntimeSessionOrchestrator", () => {
       const orchestrator = new RuntimeSessionOrchestrator({ provider });
       expect(orchestrator).toBeDefined();
     });
+
+    it("rejects invalid explicit tool-round envelopes at the runtime boundary", () => {
+      const provider = makeProvider();
+
+      expect(() =>
+        new RuntimeSessionOrchestrator({
+          provider,
+          executionEnvelope: { toolRounds: { max: 0 } },
+        })
+      ).toThrow("executionEnvelope.toolRounds.max must be a positive integer");
+
+      expect(() =>
+        new RuntimeSessionOrchestrator({
+          provider,
+          executionEnvelope: { toolRounds: { max: 1.5 } },
+        })
+      ).toThrow("executionEnvelope.toolRounds.max must be a positive integer");
+    });
   });
 
   describe("processMessage", () => {
@@ -153,6 +171,31 @@ describe("RuntimeSessionOrchestrator", () => {
       expect(provider.createMessage).toHaveBeenCalledWith(
         expect.objectContaining({ maxTokens: 1024 }),
       );
+    });
+
+    it("passes the admitted execution context to the provider boundary", async () => {
+      const session = makeSession();
+
+      await orchestrator.processMessage(session, textParts("msg"), undefined, undefined, {
+        workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+        effectiveTurnAuthority: {
+          executionMode: "execute",
+          requestedAuthority: "destructive",
+          admittedAuthority: "destructive",
+          sourcePolicy: "runtime_surface_projection",
+          reason: "Full Access admitted for the attended operator turn.",
+          completeness: "authoritative",
+          toolCount: 1,
+          deniedToolCount: 0,
+        },
+      });
+
+      expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+        executionContext: {
+          workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+          requestedAuthority: "destructive",
+        },
+      }));
     });
   });
 

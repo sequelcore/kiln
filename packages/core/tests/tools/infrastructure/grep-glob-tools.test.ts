@@ -3,16 +3,42 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { GlobTool } from "../../../src/tools/infrastructure/glob-tool.js";
 import { GrepTool } from "../../../src/tools/infrastructure/grep-tool.js";
+import { resolveRipgrepRuntime } from "../../../src/tools/infrastructure/search-runtime.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "./test-utils.js";
 
+const boundedRgArgs = (maxCount: number): readonly string[] => [
+  "--no-heading",
+  "--line-number",
+  "--max-count",
+  String(maxCount),
+  "--max-filesize",
+  "1M",
+  "--glob",
+  "!**/.git/**",
+  "--glob",
+  "!**/.kiln/**",
+  "--glob",
+  "!**/node_modules/**",
+  "--glob",
+  "!**/dist/**",
+  "--glob",
+  "!**/build/**",
+  "--glob",
+  "!**/coverage/**",
+  "--glob",
+  "!**/.next/**",
+  "--glob",
+  "!**/.turbo/**",
+];
+
 describe("GrepTool", () => {
-  it("uses fallback scanner when rg is unavailable", async () => {
+  it("fails fast when rg runtime is unavailable", async () => {
     const tempDir = await makeTempDir();
     try {
       await writeFile(join(tempDir, "a.txt"), "one\nneedle line\nthree", "utf8");
 
       const tool = new GrepTool({
-        environmentProvider: async () => ({}),
+        searchRuntimeProvider: async () => undefined,
       });
 
       const result = await tool.execute(
@@ -23,11 +49,12 @@ describe("GrepTool", () => {
         makeSandbox(tempDir),
       );
 
-      expect(result.isError).toBe(false);
-      expect(result.output).toContain("a.txt:2:needle line");
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("ripgrep runtime is required");
       expect(result.metadata?.["toolName"]).toBe("grep");
       expect(result.metadata?.["kind"]).toBe("search");
-      expect(result.metadata?.["strategy"]).toBe("fallback");
+      expect(result.metadata?.["strategy"]).toBe("rg");
+      expect(result.metadata?.["runtimeSource"]).toBe("unavailable");
     } finally {
       await removeTempDir(tempDir);
     }
@@ -42,6 +69,7 @@ describe("GrepTool", () => {
       environmentProvider: async () => ({
         rg: { path: "rg-bin", version: "15.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -55,13 +83,103 @@ describe("GrepTool", () => {
     expect(result.metadata?.["toolName"]).toBe("grep");
     expect(result.metadata?.["kind"]).toBe("search");
     expect(result.metadata?.["strategy"]).toBe("rg");
+    expect(result.metadata?.["runtimeSource"]).toBe("system");
+    expect(result.metadata?.["runtimePath"]).toBe("rg-bin");
     expect(commandRunner).toHaveBeenCalledWith(
       "rg-bin",
-      ["--no-heading", "--line-number", "match", "."],
+      [...boundedRgArgs(200), "match", "."],
       process.cwd(),
       30_000,
     );
     expect(commandRunner).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to literal matching when auto mode receives an invalid regex", async () => {
+    const tempDir = await makeTempDir();
+    try {
+      const filePath = join(tempDir, "notes.txt");
+      await writeFile(filePath, "literal value: **/*kiln-context*\n", "utf8");
+
+      const commandRunner = vi.fn(async () => ({
+        stdout: "notes.txt:1:literal value: **/*kiln-context*\n",
+        stderr: "",
+      }));
+      const tool = new GrepTool({
+        searchRuntimeProvider: async () => ({
+          path: "rg-bin",
+          version: "15.0.0",
+          source: "system",
+        }),
+        commandRunner,
+      });
+
+      const result = await tool.execute(
+        {
+          name: "grep",
+          input: { pattern: "**/*kiln-context*", path: filePath, outputMode: "content" },
+        },
+        makeSandbox(tempDir),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.output).toBe("notes.txt:1:literal value: **/*kiln-context*");
+      expect(result.metadata?.["strategy"]).toBe("rg");
+      expect(result.metadata?.["matchMode"]).toBe("literal");
+      expect(commandRunner).toHaveBeenCalledWith(
+        "rg-bin",
+        [...boundedRgArgs(200), "--fixed-strings", "**/*kiln-context*", "notes.txt"],
+        tempDir,
+        30_000,
+      );
+    } finally {
+      await removeTempDir(tempDir);
+    }
+  });
+
+  it("passes fixed-string mode to rg when literal matching is requested", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "src/file.ts:12:literal (value\n",
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      vendoredToolResolver: () => undefined,
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: { pattern: "literal (value", path: ".", outputMode: "content", matchMode: "literal" },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.output).toContain("src/file.ts:12:literal (value");
+    expect(result.metadata?.["matchMode"]).toBe("literal");
+    expect(commandRunner).toHaveBeenCalledWith(
+      "rg-bin",
+      [...boundedRgArgs(200), "--fixed-strings", "literal (value", "."],
+      process.cwd(),
+      30_000,
+    );
+  });
+
+  it("keeps explicit regex mode strict for invalid regular expressions", async () => {
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      vendoredToolResolver: () => undefined,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: { pattern: "**/*kiln-context*", path: ".", outputMode: "content", matchMode: "regex" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("valid regular expression");
   });
 
   it("limits fast path content results by default and records truncation metadata", async () => {
@@ -74,6 +192,7 @@ describe("GrepTool", () => {
       environmentProvider: async () => ({
         rg: { path: "rg-bin", version: "15.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -92,6 +211,95 @@ describe("GrepTool", () => {
     expect(result.metadata?.["truncated"]).toBe(true);
   });
 
+  it("passes explicit maxResults to rg as an execution bound", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "src/file.ts:1:match\nsrc/file.ts:2:match\n",
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      vendoredToolResolver: () => undefined,
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: { pattern: "match", path: ".", outputMode: "content", maxResults: 2 },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(commandRunner).toHaveBeenCalledWith(
+      "rg-bin",
+      [...boundedRgArgs(2), "match", "."],
+      process.cwd(),
+      30_000,
+    );
+  });
+
+  it("applies default excludes after caller glob filters so broad globs cannot reopen nuisance directories", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "packages/core/src/tools/domain/tool.ts:171:memory_search\n",
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      vendoredToolResolver: () => undefined,
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "grep",
+      input: {
+        pattern: "memory_search",
+        path: ".",
+        glob: "**/*",
+        outputMode: "content",
+        matchMode: "literal",
+        maxResults: 100,
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(commandRunner).toHaveBeenCalledWith(
+      "rg-bin",
+      [
+        "--no-heading",
+        "--line-number",
+        "--max-count",
+        "100",
+        "--max-filesize",
+        "1M",
+        "--glob",
+        "**/*",
+        "--glob",
+        "!**/.git/**",
+        "--glob",
+        "!**/.kiln/**",
+        "--glob",
+        "!**/node_modules/**",
+        "--glob",
+        "!**/dist/**",
+        "--glob",
+        "!**/build/**",
+        "--glob",
+        "!**/coverage/**",
+        "--glob",
+        "!**/.next/**",
+        "--glob",
+        "!**/.turbo/**",
+        "--fixed-strings",
+        "memory_search",
+        ".",
+      ],
+      process.cwd(),
+      30_000,
+    );
+  });
+
   it("honors explicit maxResults for fast path output", async () => {
     const commandRunner = vi.fn(async () => ({
       stdout: "src/file.ts:1:match\nsrc/file.ts:2:match\nsrc/file.ts:3:match\n",
@@ -101,6 +309,7 @@ describe("GrepTool", () => {
       environmentProvider: async () => ({
         rg: { path: "rg-bin", version: "15.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -118,54 +327,31 @@ describe("GrepTool", () => {
     expect(result.metadata?.["truncated"]).toBe(true);
   });
 
-  it("uses bounded fallback for files_with_matches so maxResults limits broad directory work", async () => {
-    const tempDir = await makeTempDir();
-    try {
-      await mkdir(join(tempDir, "src"), { recursive: true });
-      await writeFile(join(tempDir, "src", "a.ts"), "match\n", "utf8");
-      await writeFile(join(tempDir, "src", "b.ts"), "match\n", "utf8");
-      await writeFile(join(tempDir, "src", "c.ts"), "match\n", "utf8");
-      const commandRunner = vi.fn(async () => ({
-        stdout: "",
-        stderr: "",
-      }));
-      const tool = new GrepTool({
-        environmentProvider: async () => ({
-          rg: { path: "rg-bin", version: "15.0.0" },
-        }),
-        commandRunner,
-      });
+  it("does not cap per-file counts when count output is requested", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "src/file.ts:125\n",
+      stderr: "",
+    }));
+    const tool = new GrepTool({
+      environmentProvider: async () => ({
+        rg: { path: "rg-bin", version: "15.0.0" },
+      }),
+      vendoredToolResolver: () => undefined,
+      commandRunner,
+    });
 
-      const result = await tool.execute(
-        {
-          name: "grep",
-          input: {
-            pattern: "match",
-            path: tempDir,
-            glob: "**/*.ts",
-            outputMode: "files_with_matches",
-            maxResults: 2,
-          },
-        },
-        makeSandbox(tempDir),
-      );
+    const result = await tool.execute({
+      name: "grep",
+      input: { pattern: "match", path: ".", outputMode: "count", maxResults: 2 },
+    });
 
-      expect(result.isError).toBe(false);
-      expect(result.output).toContain("src/a.ts");
-      expect(result.output).toContain("src/b.ts");
-      expect(result.output).not.toContain("src/c.ts");
-      expect(result.output).toContain("[grep results truncated: returned 2 of 3 matches");
-      expect(result.metadata?.["strategy"]).toBe("fallback");
-      expect(result.metadata?.["count"]).toBe(2);
-      expect(result.metadata?.["totalCount"]).toBe(3);
-      expect(result.metadata?.["truncated"]).toBe(true);
-      expect(commandRunner).not.toHaveBeenCalled();
-    } finally {
-      await removeTempDir(tempDir);
-    }
+    expect(result.isError).toBe(false);
+    const [, args] = commandRunner.mock.calls[0] ?? [];
+    expect(args).toContain("--count");
+    expect(args).not.toContain("--max-count");
   });
 
-  it("falls back to the internal scanner when rg fails to launch", async () => {
+  it("does not fall back to the internal scanner when rg fails to launch", async () => {
     const tempDir = await makeTempDir();
     try {
       await writeFile(join(tempDir, "a.txt"), "one\nneedle line\nthree", "utf8");
@@ -177,8 +363,10 @@ describe("GrepTool", () => {
         });
       });
       const tool = new GrepTool({
-        environmentProvider: async () => ({
-          rg: { path: "rg-bin", version: "15.0.0" },
+        searchRuntimeProvider: async () => ({
+          path: "rg-bin",
+          version: "15.0.0",
+          source: "system",
         }),
         commandRunner,
       });
@@ -191,9 +379,11 @@ describe("GrepTool", () => {
         makeSandbox(tempDir),
       );
 
-      expect(result.isError).toBe(false);
-      expect(result.output).toContain("a.txt:2:needle line");
-      expect(result.metadata?.["strategy"]).toBe("fallback");
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("ENOENT");
+      expect(result.output).not.toContain("a.txt:2:needle line");
+      expect(result.metadata?.["strategy"]).toBe("rg");
+      expect(result.metadata?.["runtimeSource"]).toBe("system");
       expect(commandRunner).toHaveBeenCalledTimes(1);
     } finally {
       await removeTempDir(tempDir);
@@ -214,6 +404,7 @@ describe("GrepTool", () => {
         environmentProvider: async () => ({
           rg: { path: "rg-bin", version: "15.0.0" },
         }),
+        vendoredToolResolver: () => undefined,
         commandRunner,
       });
 
@@ -229,68 +420,10 @@ describe("GrepTool", () => {
       expect(result.output).toContain("notes.txt:1:needle line");
       expect(commandRunner).toHaveBeenCalledWith(
         "rg-bin",
-        ["--no-heading", "--line-number", "needle", "notes.txt"],
+        [...boundedRgArgs(200), "needle", "notes.txt"],
         tempDir,
         30_000,
       );
-    } finally {
-      await removeTempDir(tempDir);
-    }
-  });
-
-  it("searches a single file path with the fallback scanner", async () => {
-    const tempDir = await makeTempDir();
-    try {
-      const filePath = join(tempDir, "notes.txt");
-      await writeFile(filePath, "needle line\nother line", "utf8");
-
-      const tool = new GrepTool({
-        environmentProvider: async () => ({}),
-      });
-
-      const result = await tool.execute(
-        {
-          name: "grep",
-          input: { pattern: "needle", path: filePath, outputMode: "content" },
-        },
-        makeSandbox(tempDir),
-      );
-
-      expect(result.isError).toBe(false);
-      expect(result.output).toBe("notes.txt:1:needle line");
-      expect(result.metadata?.["strategy"]).toBe("fallback");
-    } finally {
-      await removeTempDir(tempDir);
-    }
-  });
-
-  it("limits fallback content results by default and records truncation metadata", async () => {
-    const tempDir = await makeTempDir();
-    try {
-      const filePath = join(tempDir, "notes.txt");
-      const content = Array.from({ length: 205 }, (_, index) => `needle ${index + 1}`).join("\n");
-      await writeFile(filePath, content, "utf8");
-
-      const tool = new GrepTool({
-        environmentProvider: async () => ({}),
-      });
-
-      const result = await tool.execute(
-        {
-          name: "grep",
-          input: { pattern: "needle", path: filePath, outputMode: "content" },
-        },
-        makeSandbox(tempDir),
-      );
-
-      expect(result.isError).toBe(false);
-      expect(result.output).toContain("notes.txt:200:needle 200");
-      expect(result.output).not.toContain("notes.txt:201:needle 201");
-      expect(result.output).toContain("[grep results truncated: returned 200 of 205 matches");
-      expect(result.metadata?.["count"]).toBe(200);
-      expect(result.metadata?.["totalCount"]).toBe(205);
-      expect(result.metadata?.["maxResults"]).toBe(200);
-      expect(result.metadata?.["truncated"]).toBe(true);
     } finally {
       await removeTempDir(tempDir);
     }
@@ -319,6 +452,94 @@ describe("GrepTool", () => {
   });
 });
 
+describe("resolveRipgrepRuntime", () => {
+  it("prefers bundled rg over configured and system runtimes", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "ripgrep 15.0.0\n",
+      stderr: "",
+    }));
+
+    const runtime = await resolveRipgrepRuntime({
+      bundledPath: "bundled-rg",
+      configuredPath: "configured-rg",
+      commandRunner,
+      vendoredToolResolver: () => undefined,
+      environmentProvider: async () => ({
+        rg: { path: "system-rg", version: "ripgrep 14.1.1" },
+      }),
+    });
+
+    expect(runtime).toEqual({
+      path: "bundled-rg",
+      version: "ripgrep 15.0.0",
+      source: "bundled",
+    });
+    expect(commandRunner).toHaveBeenCalledWith("bundled-rg", ["--version"], process.cwd(), 1_500);
+  });
+
+  it("uses vendored rg as bundled runtime before configured and system runtimes", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "ripgrep 15.0.0\n",
+      stderr: "",
+    }));
+
+    const runtime = await resolveRipgrepRuntime({
+      configuredPath: "configured-rg",
+      commandRunner,
+      vendoredToolResolver: () => ({ path: "vendored-rg" }),
+      environmentProvider: async () => ({
+        rg: { path: "system-rg", version: "ripgrep 14.1.1" },
+      }),
+    });
+
+    expect(runtime).toEqual({
+      path: "vendored-rg",
+      version: "ripgrep 15.0.0",
+      source: "bundled",
+    });
+    expect(commandRunner).toHaveBeenCalledWith("vendored-rg", ["--version"], process.cwd(), 1_500);
+  });
+
+  it("uses configured rg when no bundled runtime is present", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "ripgrep 15.0.0\nfeatures:+pcre2\n",
+      stderr: "",
+    }));
+
+    const runtime = await resolveRipgrepRuntime({
+      configuredPath: "configured-rg",
+      commandRunner,
+      vendoredToolResolver: () => undefined,
+      environmentProvider: async () => ({}),
+    });
+
+    expect(runtime).toEqual({
+      path: "configured-rg",
+      version: "ripgrep 15.0.0",
+      source: "configured",
+    });
+  });
+
+  it("reports system rg from detected tool environment", async () => {
+    const commandRunner = vi.fn();
+
+    const runtime = await resolveRipgrepRuntime({
+      commandRunner,
+      vendoredToolResolver: () => undefined,
+      environmentProvider: async () => ({
+        rg: { path: "system-rg", version: "ripgrep 14.1.1" },
+      }),
+    });
+
+    expect(runtime).toEqual({
+      path: "system-rg",
+      version: "ripgrep 14.1.1",
+      source: "system",
+    });
+    expect(commandRunner).not.toHaveBeenCalled();
+  });
+});
+
 describe("GlobTool", () => {
   it("uses fallback walker when fd is unavailable", async () => {
     const tempDir = await makeTempDir();
@@ -329,6 +550,7 @@ describe("GlobTool", () => {
 
       const tool = new GlobTool({
         environmentProvider: async () => ({}),
+        vendoredToolResolver: () => undefined,
       });
 
       const result = await tool.execute(
@@ -361,6 +583,7 @@ describe("GlobTool", () => {
 
       const tool = new GlobTool({
         environmentProvider: async () => ({}),
+        vendoredToolResolver: () => undefined,
       });
 
       const result = await tool.execute(
@@ -391,6 +614,7 @@ describe("GlobTool", () => {
       environmentProvider: async () => ({
         fd: { path: "fd-bin", version: "10.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -413,6 +637,38 @@ describe("GlobTool", () => {
     expect(commandRunner).toHaveBeenCalledTimes(1);
   });
 
+  it("uses vendored fd before system fd when available", async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: "src/one.ts\n",
+      stderr: "",
+    }));
+    const tool = new GlobTool({
+      environmentProvider: async () => ({
+        fd: { path: "system-fd", version: "9.0.0" },
+      }),
+      vendoredToolResolver: (binary) =>
+        binary === "fd" ? { path: "vendored-fd", version: "10.4.2" } : undefined,
+      commandRunner,
+    });
+
+    const result = await tool.execute({
+      name: "glob",
+      input: { pattern: "**/*.ts", path: "." },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata?.["strategy"]).toBe("fd");
+    expect(result.metadata?.["runtimeSource"]).toBe("bundled");
+    expect(result.metadata?.["runtimePath"]).toBe("vendored-fd");
+    expect(result.metadata?.["runtimeVersion"]).toBe("10.4.2");
+    expect(commandRunner).toHaveBeenCalledWith(
+      "vendored-fd",
+      ["--glob", "--type", "f", "**/*.ts", "."],
+      process.cwd(),
+      30_000,
+    );
+  });
+
   it("falls back to the internal walker when fd fails to launch", async () => {
     const tempDir = await makeTempDir();
     try {
@@ -430,6 +686,7 @@ describe("GlobTool", () => {
         environmentProvider: async () => ({
           fd: { path: "fd-bin", version: "10.0.0" },
         }),
+        vendoredToolResolver: () => undefined,
         commandRunner,
       });
 
@@ -468,6 +725,7 @@ describe("GlobTool", () => {
       environmentProvider: async () => ({
         fd: { path: "fd-bin", version: "10.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -519,6 +777,7 @@ describe("GlobTool", () => {
       environmentProvider: async () => ({
         fd: { path: "fd-bin", version: "10.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -556,6 +815,7 @@ describe("GlobTool", () => {
       environmentProvider: async () => ({
         fd: { path: "fd-bin", version: "10.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -597,6 +857,7 @@ describe("GlobTool", () => {
       environmentProvider: async () => ({
         fd: { path: "fd-bin", version: "10.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -633,6 +894,7 @@ describe("GlobTool", () => {
       environmentProvider: async () => ({
         fd: { path: "fd-bin", version: "10.0.0" },
       }),
+      vendoredToolResolver: () => undefined,
       commandRunner,
     });
 
@@ -652,6 +914,7 @@ describe("GlobTool", () => {
     try {
       const tool = new GlobTool({
         environmentProvider: async () => ({}),
+        vendoredToolResolver: () => undefined,
       });
 
       const result = await tool.execute(

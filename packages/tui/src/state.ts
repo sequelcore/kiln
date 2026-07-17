@@ -7,8 +7,13 @@ import type {
   OperatorCockpitManagedAgentViewState,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
+  OperatorWorkspaceHomeProjection,
+  ContextUsageProjection,
 } from "@kilnai/gateway-contracts";
-import { EMPTY_TUI_MANAGED_AGENT_VIEW_STATE } from "./managed-agent-cockpit.js";
+import {
+  EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
+  EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
+} from "./managed-agent-cockpit.js";
 import type { MessageRole } from "./types.js";
 
 /** Message structure for TUI chat history. */
@@ -16,6 +21,7 @@ export interface Message {
   role: "user" | "assistant" | "tool" | "error";
   content: string;
   toolName?: string;
+  toolCallId?: string;
   toolInput?: unknown;
 }
 
@@ -38,6 +44,7 @@ export interface ReactiveState {
   turns: number;
   inputTokens: number;
   outputTokens: number;
+  contextUsage?: ContextUsageProjection;
   themePickerOpen: boolean;
   themePickerIndex: number;
   providerPickerOpen: boolean;
@@ -80,6 +87,8 @@ export interface ReactiveState {
   managedAgentSessionEvents: readonly OperatorSessionEvent[];
   /** Shared cockpit projection for managed children visible in the TUI sidebar. */
   managedAgents: OperatorCockpitManagedAgentViewState;
+  /** Shared Operator Workspace home projection for cross-surface summaries. */
+  operatorWorkspaceHome: OperatorWorkspaceHomeProjection;
   /** Whether plan mode is active (read-only planning). */
   planMode: boolean;
   /** Available slash commands for command palette. */
@@ -149,9 +158,11 @@ export interface WorkItem {
   sessionId?: string;
   turnId?: string;
   id: string;
+  resourceUri?: string;
   summary: string;
   status: string;
   workflowProfile: string;
+  authorityProfile?: string;
   assignedAgentProfile?: string;
   expectedEvidence: string[];
   providedEvidence: string[];
@@ -196,6 +207,7 @@ export function createReactiveState(): ReactiveState {
     turns: 0,
     inputTokens: 0,
     outputTokens: 0,
+    contextUsage: undefined,
     themePickerOpen: false,
     themePickerIndex: 0,
     providerPickerOpen: false,
@@ -225,6 +237,7 @@ export function createReactiveState(): ReactiveState {
     workItems: [],
     managedAgentSessionEvents: [],
     managedAgents: EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
+    operatorWorkspaceHome: EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
     planMode: false,
     slashCommands: [],
     slashCommandIndex: -1,

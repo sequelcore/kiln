@@ -26,10 +26,30 @@ import {
 import type { Message } from "../lib/session-store.js";
 import { getStableUserId } from "../lib/stable-user-id.js";
 import { useSessionStore } from "../lib/session-store.js";
+import { MarkdownTable, MarkdownTableCell, MarkdownTableHeadCell } from "./markdown-table.js";
 import { OperatorAvatar } from "./operator-avatar.js";
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from "@/components/ui/attachment";
 import { Badge } from "@/components/ui/badge";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
+import {
+  Message as ConversationMessage,
+  MessageAvatar,
+  MessageContent,
+  MessageFooter,
+  MessageHeader,
+} from "@/components/ui/message";
 import { cn } from "@/lib/utils";
+import { TranscriptSurface } from "./transcript-surface.js";
 
 type ResourceDataUrlLoader = (uri: string) => Promise<string | null>;
 
@@ -80,17 +100,13 @@ const markdownComponents: Components = {
     );
   },
   table({ children }) {
-    return (
-      <div className="my-3 max-w-full overflow-x-auto rounded-md border border-border/70">
-        <table className="w-full border-collapse text-left text-sm">{children}</table>
-      </div>
-    );
+    return <MarkdownTable>{children}</MarkdownTable>;
   },
   th({ children }) {
-    return <th className="border-b border-r border-border/70 bg-background-element px-3 py-2 font-semibold last:border-r-0">{children}</th>;
+    return <MarkdownTableHeadCell>{children}</MarkdownTableHeadCell>;
   },
   td({ children }) {
-    return <td className="border-r border-t border-border/60 px-3 py-2 align-top last:border-r-0">{children}</td>;
+    return <MarkdownTableCell>{children}</MarkdownTableCell>;
   },
   code({ className, children, ...rest }) {
     const match = /language-(\w+)/.exec(className ?? "");
@@ -115,6 +131,10 @@ const markdownComponents: Components = {
     );
   },
 };
+
+export function MarkdownMessageContent(props: { readonly content: string }) {
+  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{props.content}</ReactMarkdown>;
+}
 
 interface MessageRowProps {
   readonly message: Message;
@@ -148,7 +168,7 @@ function VoiceAudioParts(props: {
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <AttachmentGroup className="mt-1 max-w-full py-0">
       {props.parts.map((part) => (
         <VoiceAudioPart
           key={`${part.index}:${part.source}`}
@@ -157,7 +177,7 @@ function VoiceAudioParts(props: {
           captionTrackSrc={props.captionTrackSrc}
         />
       ))}
-    </div>
+    </AttachmentGroup>
   );
 }
 
@@ -182,7 +202,7 @@ function VoiceAudioControls(props: {
   }
   const pending = props.message.voiceSynthesisStatus === "pending";
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <MessageFooter className="px-0">
       <Button
         type="button"
         variant="ghost"
@@ -201,7 +221,7 @@ function VoiceAudioControls(props: {
           <Volume2 data-icon="inline-start" aria-hidden="true" />
         )}
       </Button>
-    </div>
+    </MessageFooter>
   );
 }
 
@@ -235,15 +255,26 @@ function VoiceAudioPart(props: {
   };
 
   return (
-    <div className="flex max-w-full flex-col gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 py-1">
-      <div className="flex items-center gap-1">
+    <Attachment
+      size="sm"
+      state={artifactPreviewStatus === "error" ? "error" : artifactPreviewStatus === "loading" ? "processing" : "done"}
+      className="max-w-72"
+    >
+      <AttachmentMedia>
+        <FileAudio aria-hidden="true" />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{part.label}</AttachmentTitle>
+        <AttachmentDescription>
+          {artifactPreviewStatus === "error" ? "Preview unavailable" : "Voice output"}
+        </AttachmentDescription>
+      </AttachmentContent>
+      <AttachmentActions>
         {part.src ? (
           <>
-            <Button
+            <AttachmentAction
               type="button"
               variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground hover:text-foreground"
               aria-label={part.label}
               title={part.label}
               onClick={() => {
@@ -251,30 +282,26 @@ function VoiceAudioPart(props: {
               }}
             >
               <Volume2 data-icon="inline-start" aria-hidden="true" />
-            </Button>
+            </AttachmentAction>
             <audio ref={audioRef} preload="none" src={part.src}>
               <track kind="captions" srcLang="en" label="Transcript" src={props.captionTrackSrc} />
             </audio>
           </>
         ) : (
-          <Button
+          <AttachmentAction
             type="button"
             variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground"
             aria-label={part.label}
             title={part.label}
             disabled
           >
             <Volume2 data-icon="inline-start" aria-hidden="true" />
-          </Button>
+          </AttachmentAction>
         )}
         {part.artifactUri ? (
-          <Button
+          <AttachmentAction
             type="button"
             variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:text-foreground"
             aria-label="Open audio artifact"
             title={canLoadArtifact ? "Open audio artifact" : "Audio artifact preview unavailable"}
             disabled={!canLoadArtifact || artifactPreviewStatus === "loading"}
@@ -287,9 +314,9 @@ function VoiceAudioPart(props: {
             ) : (
               <FileAudio data-icon="inline-start" aria-hidden="true" />
             )}
-          </Button>
+          </AttachmentAction>
         ) : null}
-      </div>
+      </AttachmentActions>
       {artifactPreviewSrc ? (
         <audio
           aria-label="Audio artifact preview"
@@ -306,7 +333,7 @@ function VoiceAudioPart(props: {
           Audio artifact preview unavailable.
         </p>
       ) : null}
-    </div>
+    </Attachment>
   );
 }
 
@@ -327,11 +354,8 @@ export function MessageRow(props: MessageRowProps) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
   const isOperational = message.role === "tool" || message.role === "error";
-  const hasAnchoredOperationalContent = Boolean(props.beforeContent || props.afterContent);
-  const hasMessageContent = message.content.trim().length > 0;
   const voiceAudioParts = isAssistant ? projectVoiceAudioOutputParts(message.parts ?? []) : [];
   const captionTrackSrc = createAudioCaptionTrackSrc(message.content);
-  const showStreamingCursor = message.streaming && (hasMessageContent || !hasAnchoredOperationalContent);
   const identity = projectMessageIdentity({
     role: message.role,
     provider: assistantProvider,
@@ -342,71 +366,48 @@ export function MessageRow(props: MessageRowProps) {
   const avatarMotion = message.streaming && isAssistant ? "subtle" : "none";
 
   return (
-    <article
-      data-role={message.role}
-      className={cn(
-        "mx-auto flex w-full max-w-3xl items-start gap-2",
-        isUser ? "justify-end" : "justify-start",
-      )}
-    >
-      {!isUser ? (
-        <OperatorAvatar identity={identity} state={avatarState} motion={avatarMotion} className="mt-1" />
-      ) : null}
-      <div
-        className={cn(
-          "min-w-0",
-          isUser ? "max-w-[min(42rem,82%)]" : "max-w-[min(44rem,90%)]",
-          isAssistant ? "rounded-2xl rounded-tl-md bg-muted/35 px-3.5 py-2.5 shadow-sm" : "",
-          isOperational ? "rounded-2xl rounded-tl-md bg-muted/35 px-3.5 py-2.5 shadow-sm" : "",
-        )}
-      >
-        <header className={cn(
-          "mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground",
-          isUser ? "justify-end" : "justify-start",
-          isUser ? "sr-only" : "",
-        )}>
-          <span>{label}</span>
-          {assistantProviderLabel ? (
-            <Badge variant="outline" className="max-w-full truncate">
-              {assistantProviderLabel}
-              {assistantModel ? ` / ${assistantModel}` : " / —"}
-            </Badge>
-          ) : null}
-        </header>
-        <div
-          className={cn(
-            "min-w-0 text-sm leading-6 text-foreground",
-            isUser
-              ? "rounded-2xl rounded-tr-md border border-[var(--color-user-border)] bg-[var(--color-user-bg)] px-3.5 py-2.5 text-[var(--color-user-fg)] shadow-sm"
-              : "",
-          )}
-        >
+    <TranscriptSurface data-role={message.role} kind="message">
+      <ConversationMessage align={isUser ? "end" : "start"}>
+        <MessageAvatar className="self-start overflow-visible rounded-none bg-transparent">
+          <OperatorAvatar identity={identity} state={avatarState} motion={avatarMotion} />
+        </MessageAvatar>
+        <MessageContent className={cn(isUser ? "items-end" : "items-start")}>
+          <MessageHeader className={cn("gap-2 px-0", isUser ? "sr-only" : "")}>
+            <span>{label}</span>
+            {assistantProviderLabel ? (
+              <Badge variant="outline" className="max-w-full truncate">
+                {assistantProviderLabel}
+                {assistantModel ? ` / ${assistantModel}` : " / —"}
+              </Badge>
+            ) : null}
+          </MessageHeader>
           {isAssistant && props.beforeContent ? (
-            <div className="mb-2 flex flex-col gap-1.5">
+            <div className="mb-2 flex w-full min-w-0 max-w-[min(44rem,90%)] flex-col gap-1.5">
               {props.beforeContent}
             </div>
           ) : null}
-          {showMarkdown ? (
-            <div className="markdown-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
-              {showStreamingCursor ? (
-                <span
-                  aria-label="Streaming"
-                  className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
-                />
-              ) : null}
-            </div>
-          ) : (
-            <p className="whitespace-pre-wrap break-words">
-              {message.content}
-              {showStreamingCursor ? (
-                <span
-                  aria-label="Streaming"
-                  className="ml-1 inline-block h-4 w-1 animate-pulse rounded bg-[var(--color-cursor-fg)] align-middle"
-                />
-              ) : null}
-            </p>
-          )}
+          <Bubble
+            align={isUser ? "end" : "start"}
+            variant={isUser ? "secondary" : isOperational ? (message.role === "error" ? "destructive" : "muted") : "ghost"}
+            className={cn(isUser ? "max-w-[min(42rem,82%)]" : "max-w-[min(44rem,90%)]")}
+          >
+            <BubbleContent
+              className={cn(
+                "leading-6",
+                isUser ? "border border-[var(--color-user-border)] bg-[var(--color-user-bg)] text-[var(--color-user-fg)] shadow-sm" : "",
+              )}
+            >
+              {showMarkdown ? (
+                <div className="markdown-body">
+                  <MarkdownMessageContent content={message.content} />
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap break-words">
+                  {message.content}
+                </p>
+              )}
+            </BubbleContent>
+          </Bubble>
           {isAssistant ? (
             <VoiceAudioControls
               message={message}
@@ -417,13 +418,12 @@ export function MessageRow(props: MessageRowProps) {
             />
           ) : null}
           {isAssistant && props.afterContent ? (
-            <div className="mt-2 flex flex-col gap-1.5">
+            <div className="flex w-full min-w-0 max-w-[min(44rem,90%)] flex-col gap-1.5">
               {props.afterContent}
             </div>
           ) : null}
-        </div>
-      </div>
-      {isUser ? <OperatorAvatar identity={identity} state={avatarState} className="mt-1" /> : null}
-    </article>
+        </MessageContent>
+      </ConversationMessage>
+    </TranscriptSurface>
   );
 }

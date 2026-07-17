@@ -12,19 +12,24 @@ import type {
   GuiOutboundFrame,
   GuiProviderCatalogStatus,
   GuiProviderDiscoveryResult,
+  GuiProviderModelDiscoveryProjection,
   GuiProviderReasoningEffort,
   OperatorTurnRequestedAuthority,
+  OperatorGoalMaterializationRequirement,
   GuiSessionDetail,
   GuiSessionEvent,
   GuiSessionSummary,
   OperatorEventDetailItem,
   OperatorSessionEventKind,
   ToolResultPresentation,
+  ContextUsageProjection,
 } from "@kilnai/gateway-contracts";
 import {
   formatOperatorEventValue,
   isGuiProviderModeless,
   presentOperatorEventPayload,
+  ContextUsageProjectionSchema,
+  VerifiedEfficiencyEvidenceProjectionSchema,
 } from "@kilnai/gateway-contracts";
 import {
   deriveSessionContinuity,
@@ -32,6 +37,8 @@ import {
 } from "./session-continuity.js";
 
 const BROWSER_STREAM_UNAVAILABLE_REASON = "No live browser stream transport is configured.";
+const MAX_LIVE_TOOL_OUTPUT_CHARS = 64 * 1024;
+const LIVE_TOOL_OUTPUT_TRUNCATION_MARKER = "… earlier output truncated …\n";
 
 export interface ApprovalRequest {
   readonly id: string;
@@ -66,6 +73,7 @@ export interface ChangedFileEntry {
 
 export interface WorkItemEntry {
   readonly id: string;
+  readonly resourceUri?: string;
   readonly summary: string;
   readonly status: string;
   readonly workflowProfile: string;
@@ -249,6 +257,13 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function appendLiveToolOutput(current: string, delta: string): string {
+  const combined = `${current}${delta}`;
+  if (combined.length <= MAX_LIVE_TOOL_OUTPUT_CHARS) return combined;
+  const retained = combined.slice(-(MAX_LIVE_TOOL_OUTPUT_CHARS - LIVE_TOOL_OUTPUT_TRUNCATION_MARKER.length));
+  return `${LIVE_TOOL_OUTPUT_TRUNCATION_MARKER}${retained}`;
+}
+
 function hasAudioPart(parts: readonly unknown[] | undefined): boolean {
   return Array.isArray(parts)
     && parts.some((part) => isObjectRecord(part) && part.type === "audio");
@@ -407,6 +422,7 @@ function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | 
   const referenceRoots = readStringArray(item.referenceRoots);
   return {
     id,
+    resourceUri: `kiln://session/work-items/${encodeURIComponent(id)}`,
     summary,
     status,
     workflowProfile,
@@ -494,13 +510,15 @@ function mergeWorkItemEntry(previous: WorkItemEntry | undefined, next: WorkItemE
   };
 }
 
+const USD_FORMATTER = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 4,
+});
+
 function formatUsd(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  }).format(value);
+  return USD_FORMATTER.format(value);
 }
 
 function areSessionSummariesEqual(
@@ -525,13 +543,20 @@ function appendSessionEvent(
   events: readonly GuiSessionEvent[],
   event: GuiSessionEvent,
 ): readonly GuiSessionEvent[] {
-  const next = events.some((candidate) => candidate.eventId === event.eventId)
-    ? events.map((candidate) => candidate.eventId === event.eventId ? event : candidate)
-    : [...events, event];
-  return [...next].sort((a, b) => {
+  if (events.some((candidate) => candidate.eventId === event.eventId)) {
+    return events;
+  }
+  return [...events, event].toSorted((a, b) => {
     const sequenceCompare = a.sequence - b.sequence;
     return sequenceCompare === 0 ? a.eventId.localeCompare(b.eventId) : sequenceCompare;
   });
+}
+
+function canonicalSessionEvents(events: readonly GuiSessionEvent[]): readonly GuiSessionEvent[] {
+  return events.reduce<readonly GuiSessionEvent[]>(
+    (canonical, event) => appendSessionEvent(canonical, event),
+    [],
+  );
 }
 
 function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
@@ -546,6 +571,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   readonly routedProvider: string | null;
   readonly routedModel: string | null;
   readonly authorityStatus: AuthorityStatus | null;
+  readonly contextUsage: ContextUsageProjection | null;
 } {
   const messages: Message[] = [];
   const timelineEntries: TimelineEntry[] = [];
@@ -559,6 +585,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   let lastAuthorityStatus: AuthorityStatus | null = null;
   let interactiveUseSnapshot: GuiInteractiveUseSnapshot | null = null;
   let browserSessionState: GuiBrowserSessionState | null = null;
+  let contextUsage: ContextUsageProjection | null = null;
 
   for (const event of detail.events) {
     const payload = isObjectRecord(event.payload) ? event.payload : {};
@@ -574,7 +601,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         streaming: false,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
@@ -614,7 +641,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         sessionEventMessageId: messageId,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
@@ -659,7 +686,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         sessionEventMessageId: messageId,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
@@ -680,7 +707,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         streaming: false,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "message",
         createdAt: event.timestamp,
         sequence: event.sequence,
@@ -694,7 +721,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       lastRoutedProvider = provider.provider ?? lastRoutedProvider;
       lastRoutedModel = provider.model ?? lastRoutedModel;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -720,7 +747,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         startedAt: event.timestamp,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -737,6 +764,26 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
           input,
         },
       });
+      continue;
+    }
+
+    if (event.kind === "tool_call_output_delta") {
+      const toolCallId = readString(payload.toolCallId);
+      const delta = readString(payload.delta);
+      if (!toolCallId || delta === null) continue;
+      const entryIndex = timelineEntries.findIndex((entry) => entry.type === "event"
+        && entry.eventKind === "tool_call_started"
+        && toolCallIdFromDetails(entry.details) === toolCallId);
+      if (entryIndex < 0) continue;
+      const entry = timelineEntries[entryIndex]! as TimelineEventEntry;
+      const details = isObjectRecord(entry.details) ? entry.details : {};
+      timelineEntries[entryIndex] = {
+        ...entry,
+        details: {
+          ...details,
+          liveOutput: appendLiveToolOutput(readString(details.liveOutput) ?? "", delta),
+        },
+      };
       continue;
     }
 
@@ -760,7 +807,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         completedAt: event.timestamp,
       });
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -788,7 +835,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const changeType = normalizeLoadedChangeType(change?.changeType);
       if (!path || !changeType) continue;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -812,7 +859,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       inputTokens += inputDelta;
       outputTokens += outputDelta;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -829,10 +876,37 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       continue;
     }
 
+    if (event.kind === "context_usage_observed") {
+      const parsed = ContextUsageProjectionSchema.safeParse(payload.contextUsage);
+      if (parsed.success) {
+        contextUsage = parsed.data;
+      }
+      continue;
+    }
+
+    if (event.kind === "lifecycle_attribution_recorded") {
+      const presentation = presentOperatorEventPayload(event.kind, payload);
+      const efficiencyEvidence = VerifiedEfficiencyEvidenceProjectionSchema.safeParse(payload.efficiencyEvidence);
+      timelineEntries.push({
+        id: `timeline:${event.eventId}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        presentationDetails: presentation.details,
+        ...(efficiencyEvidence.success ? { details: efficiencyEvidence.data } : {}),
+      });
+      continue;
+    }
+
     if (isWorkItemTimelineEventKind(event.kind)) {
       const presentation = presentOperatorEventPayload(event.kind, payload);
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -849,7 +923,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (isWorkflowLifecycleTimelineEventKind(event.kind)) {
       timelineEntries.push(workflowLifecycleTimelineEntry({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         kind: event.kind,
         payload,
         timestamp: event.timestamp,
@@ -861,7 +935,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_requested") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -876,7 +950,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_started") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -891,7 +965,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_completed") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -906,7 +980,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_failed") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -921,7 +995,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "agent_invocation_cancelled") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -939,7 +1013,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const strategy = readString(payload.decision);
       if (!strategy) continue;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -966,7 +1040,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       lastAuthorityStatus = readAuthorityStatus(payload.authorityStatus) ?? lastAuthorityStatus;
       turnCounter += 1;
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -981,7 +1055,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "approval_requested") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -999,7 +1073,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const resolution = isObjectRecord(payload.resolution) ? payload.resolution : null;
       const decision = readString(resolution?.decision) ?? "resolved";
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -1015,7 +1089,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "turn_started") {
       timelineEntries.push({
-        id: `${detail.id}:timeline:${event.sequence}`,
+        id: `timeline:${event.eventId}`,
         type: "event",
         eventKind: event.kind,
         createdAt: event.timestamp,
@@ -1058,6 +1132,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     routedProvider: lastRoutedProvider,
     routedModel: lastRoutedModel,
     authorityStatus: lastAuthorityStatus,
+    contextUsage,
   };
 }
 
@@ -1104,48 +1179,6 @@ export interface TimelineEventEntry {
 }
 
 export type TimelineEntry = TimelineMessageEntry | TimelineEventEntry;
-
-function ensureLiveAssistantAnchor(
-  state: SessionStoreState,
-  createdAt: string,
-  turnId: string | undefined,
-): {
-  readonly messages: readonly Message[];
-  readonly timelineEntries: readonly TimelineEntry[];
-  readonly currentAssistant: string;
-} {
-  const existingId = state.currentAssistant;
-  if (existingId && state.messages.some((message) => message.id === existingId && message.role === "assistant")) {
-    return {
-      messages: state.messages,
-      timelineEntries: state.timelineEntries,
-      currentAssistant: existingId,
-    };
-  }
-
-  const assistantId = createMessageId();
-  const assistantMessage: Message = {
-    id: assistantId,
-    role: "assistant",
-    content: "",
-    createdAt,
-    streaming: true,
-  };
-  return {
-    messages: [...state.messages, assistantMessage],
-    timelineEntries: [
-      ...state.timelineEntries,
-      {
-        id: `timeline:${assistantId}`,
-        type: "message",
-        createdAt,
-        ...(turnId ? { turnId } : {}),
-        message: assistantMessage,
-      },
-    ],
-    currentAssistant: assistantId,
-  };
-}
 
 function timelineTurnId(event: GuiSessionEvent): { readonly turnId?: string } {
   return event.turnId ? { turnId: event.turnId } : {};
@@ -1426,14 +1459,60 @@ function normalizeProviderDescriptors(
   return Array.from(providersById.values());
 }
 
-function providerSupportsSelection(provider: ProviderDescriptor, model: string | null): boolean {
+function providerSelectionEligibility(
+  provider: ProviderDescriptor,
+  model: string | null,
+  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
+): { readonly eligible: boolean; readonly reasonCodes: readonly string[] } {
+  if (!provider.available) {
+    return { eligible: false, reasonCodes: [] };
+  }
+  if (isGuiProviderModeless(provider.id) && provider.models.length === 0) {
+    return { eligible: model === null, reasonCodes: [] };
+  }
+  if (!discovery) {
+    return {
+      eligible: false,
+      reasonCodes: ["canonical provider model discovery is unavailable"],
+    };
+  }
+  const entry = model === null
+    ? undefined
+    : discovery.entries.find((candidate) => (
+        candidate.providerRoute.providerId === provider.id
+        && candidate.providerRoute.providerModelId === model
+      ));
+  return entry?.eligibility ?? {
+    eligible: false,
+    reasonCodes: ["not present in canonical provider model discovery"],
+  };
+}
+
+function providerSupportsSelection(
+  provider: ProviderDescriptor,
+  model: string | null,
+  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
+): boolean {
+  return providerSelectionEligibility(provider, model, discovery).eligible;
+}
+
+function providerSelectionFailureMessage(
+  provider: ProviderDescriptor,
+  model: string | null,
+  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
+): string {
   if (!providerHasSelectableSurface(provider)) {
-    return false;
+    return `${provider.label} is unavailable.`;
   }
-  if (provider.models.length === 0) {
-    return isGuiProviderModeless(provider.id) && model === null;
+  const reasonCodes = providerSelectionEligibility(provider, model, discovery).reasonCodes;
+  if (reasonCodes.length > 0) {
+    const selection = model === null ? provider.label : `${provider.label} model ${model}`;
+    return `${selection} is not eligible: ${reasonCodes.join(", ")}.`;
   }
-  return model !== null && provider.models.includes(model);
+  if (model === null && provider.models.length > 0) {
+    return providerRequiresSelectedModelMessage(provider.id);
+  }
+  return `${provider.label} does not advertise the requested model.`;
 }
 
 function providerHasSelectableSurface(provider: ProviderDescriptor): boolean {
@@ -1456,7 +1535,7 @@ function resolveStoredProviderSelectionRestore(
     return null;
   }
   const provider = state.providers.find((candidate) => candidate.id === stored.provider);
-  if (!provider || !providerSupportsSelection(provider, stored.model)) {
+  if (!provider || !providerSupportsSelection(provider, stored.model, state.providerModelDiscovery)) {
     return null;
   }
   if (!options.allowActiveOverride && (state.activeProvider || state.providerExplicitSelection)) {
@@ -1650,6 +1729,7 @@ interface SessionStoreState {
   readonly providerCatalogError: string | null;
   readonly providers: readonly ProviderDescriptor[];
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
+  readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection | null;
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
   readonly sessionList: readonly GuiSessionSummary[];
@@ -1669,6 +1749,7 @@ interface SessionStoreState {
   readonly currentTurnTrackedInputTokens: number;
   readonly currentTurnTrackedOutputTokens: number;
   readonly clearPending: boolean;
+  readonly turnCancelPending: boolean;
   readonly providerSwitching: boolean;
   readonly providerSwitchTarget: ProviderSwitchTarget | null;
   readonly providerAuthenticating: boolean;
@@ -1677,6 +1758,7 @@ interface SessionStoreState {
   readonly providerAuthDetails: ProviderAuthDetails | null;
   readonly providerExplicitSelection: boolean;
   readonly authorityStatus: AuthorityStatus | null;
+  readonly contextUsage: ContextUsageProjection | null;
   readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
   readonly browserSessionState: GuiBrowserSessionState | null;
   readonly browserLiveViewportFrame: GuiBrowserLiveViewportFrame | null;
@@ -1702,11 +1784,13 @@ interface SessionStoreActions {
   onProvidersRefreshed: (
     providers: readonly ProviderDescriptor[],
     providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+    providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
   ) => void;
   onSessionEvent: (event: GuiSessionEvent) => void;
   onTextDelta: (frame: StoreTextDeltaFrame) => void;
   onActivity: (frame: StoreActivityFrame) => void;
   onDone: (frame: Extract<GuiInboundFrame, { type: "done" }>) => void;
+  onTurnCancelResult: (frame: Extract<GuiInboundFrame, { type: "turn_cancel_result" }>) => void;
   onVoiceSynthesisCompleted: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_completed" }>) => void;
   onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
@@ -1725,13 +1809,16 @@ interface SessionStoreActions {
       displayContent?: string;
       reasoningEffort?: GuiProviderReasoningEffort;
       requestedAuthority?: OperatorTurnRequestedAuthority;
+      governedWorkRequirement?: OperatorGoalMaterializationRequirement;
+      gatewayTargetId?: string;
       appName?: string;
       tenantId?: string;
     },
   ) => boolean;
   requestVoiceSynthesis: (messageId: string) => boolean;
   sendClear: () => boolean;
-  setPlanMode: (enabled: boolean) => void;
+  cancelActiveTurn: () => boolean;
+  setPlanMode: (enabled: boolean, options?: { readonly gatewayTargetId?: string }) => void;
   setContinuation: (sessionId: string | null) => void;
   disconnect: () => void;
   onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
@@ -1739,14 +1826,23 @@ interface SessionStoreActions {
   onBrowserLiveViewportFrame: (frame: Extract<GuiInboundFrame, { type: "browser_live_viewport_frame" }>) => void;
   onBrowserOperatorInputAck: (frame: Extract<GuiInboundFrame, { type: "browser_operator_input_ack" }>) => void;
   sendBrowserOperatorInput: (
-    request: { readonly sessionId: string; readonly input: GuiBrowserOperatorInput },
+    request: {
+      readonly sessionId: string;
+      readonly gatewayTargetId?: string;
+      readonly input: GuiBrowserOperatorInput;
+    },
   ) => boolean;
   requestBrowserSessionControl: (
     action: "takeover" | "release",
-    options?: { readonly sessionId?: string; readonly reason?: string },
+    options?: { readonly gatewayTargetId?: string; readonly sessionId?: string; readonly reason?: string },
   ) => boolean;
   onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
-  sendApprovalResponse: (approved: boolean, reason: string | undefined, approvalId: string) => boolean;
+  sendApprovalResponse: (
+    approved: boolean,
+    reason: string | undefined,
+    approvalId: string,
+    options?: { readonly gatewayTargetId?: string },
+  ) => boolean;
 }
 
 export type SessionStore = SessionStoreState & SessionStoreActions;
@@ -1766,6 +1862,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   providerCatalogError: null,
   providers: [],
   providerDiscovery: [],
+  providerModelDiscovery: null,
   activeProvider: null,
   activeModel: null,
   sessionList: [],
@@ -1785,6 +1882,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   currentTurnTrackedInputTokens: 0,
   currentTurnTrackedOutputTokens: 0,
   clearPending: false,
+  turnCancelPending: false,
   providerSwitching: false,
   providerSwitchTarget: null,
   providerAuthenticating: false,
@@ -1793,6 +1891,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   providerAuthDetails: null,
   providerExplicitSelection: false,
   authorityStatus: null,
+  contextUsage: null,
   interactiveUseSnapshot: null,
   browserSessionState: null,
   browserLiveViewportFrame: null,
@@ -1865,7 +1964,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   viewSessionDetail: (detail) => {
-    const loaded = mapSessionDetailToLoadedState(detail);
+    const sessionEvents = canonicalSessionEvents(detail.events);
+    const loaded = mapSessionDetailToLoadedState({ ...detail, events: sessionEvents });
     clearStoredContinuationTarget();
     set({
       selectedSessionId: detail.id,
@@ -1873,7 +1973,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       continuationTargetId: detail.id,
       messages: loaded.messages,
       timelineEntries: loaded.timelineEntries,
-      sessionEvents: detail.events,
+      sessionEvents,
       currentAssistant: null,
       status: "ready",
       activity: null,
@@ -1886,6 +1986,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       routedProvider: loaded.routedProvider,
       routedModel: loaded.routedModel,
       authorityStatus: loaded.authorityStatus,
+      contextUsage: loaded.contextUsage,
       interactiveUseSnapshot: loaded.interactiveUseSnapshot,
       browserSessionState: loaded.browserSessionState,
       currentTurnTrackedInputTokens: 0,
@@ -1930,7 +2031,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const activeProviderDescriptor = explicitActiveProvider
       ? providers.find((provider) => (
         provider.id === explicitActiveProvider
-          && providerSupportsSelection(provider, requestedModel)
+          && providerSupportsSelection(provider, requestedModel, frame.providerModelDiscovery)
       ))
       : undefined;
     const activeProvider = activeProviderDescriptor ? explicitActiveProvider ?? null : null;
@@ -1944,6 +2045,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({
       providers,
       providerDiscovery: frame.providerDiscovery ?? current.providerDiscovery,
+      providerModelDiscovery: frame.providerModelDiscovery,
       providerCatalogStatus: "ready",
       providerCatalogError: null,
       activeProvider,
@@ -1954,7 +2056,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       providerExplicitSelection: explicitSelection,
       continuationTargetId: current.continuationTargetId,
       status: "ready",
-      errorBanner: null,
+      errorBanner: explicitActiveProvider && !activeProviderDescriptor
+        ? (() => {
+            const provider = providers.find((candidate) => candidate.id === explicitActiveProvider);
+            return provider
+              ? providerSelectionFailureMessage(provider, requestedModel, frame.providerModelDiscovery)
+              : `${explicitActiveProvider} is unavailable.`;
+          })()
+        : null,
       providerSwitching: false,
       providerSwitchTarget: null,
       providerSwitchTimeoutId: null,
@@ -1970,10 +2079,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       get().switchProvider(restore.provider, restore.model ?? undefined);
     } else if (activeProvider) {
       writeStoredProviderSelection(activeProvider, activeModel);
+    } else {
+      const stored = readStoredProviderSelection();
+      const storedProvider = stored
+        ? providers.find((provider) => provider.id === stored.provider)
+        : undefined;
+      if (stored && storedProvider && !providerSupportsSelection(
+        storedProvider,
+        stored.model,
+        frame.providerModelDiscovery,
+      )) {
+        set({
+          errorBanner: providerSelectionFailureMessage(
+            storedProvider,
+            stored.model,
+            frame.providerModelDiscovery,
+          ),
+        });
+      }
     }
   },
 
-  onProvidersRefreshed: (nextProviders, nextProviderDiscovery) => {
+  onProvidersRefreshed: (nextProviders, nextProviderDiscovery, nextProviderModelDiscovery) => {
     const current = get();
     const providers = normalizeProviderDescriptors(nextProviders);
     const activeProvider = current.activeProvider;
@@ -1982,7 +2109,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const activeStillAvailable = activeProvider
       ? providers.some((provider) => (
         provider.id === activeProvider
-          && providerSupportsSelection(provider, requestedModel)
+          && providerSupportsSelection(
+            provider,
+            requestedModel,
+            nextProviderModelDiscovery ?? current.providerModelDiscovery,
+          )
       ))
       : false;
     const nextActiveProvider = activeStillAvailable ? activeProvider : null;
@@ -1996,6 +2127,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       && current.activeModel === nextActiveModel
       && current.providerExplicitSelection === nextProviderExplicitSelection
       && current.routeMode === nextRouteMode
+      && (nextProviderModelDiscovery === undefined
+        || current.providerModelDiscovery === nextProviderModelDiscovery)
     ) {
       return;
     }
@@ -2003,12 +2136,25 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({
       providers,
       providerDiscovery: nextProviderDiscovery ?? current.providerDiscovery,
+      providerModelDiscovery: nextProviderModelDiscovery ?? current.providerModelDiscovery,
       providerCatalogStatus: "ready",
       providerCatalogError: null,
       activeProvider: nextActiveProvider,
       activeModel: nextActiveModel,
       routeMode: nextRouteMode,
       providerExplicitSelection: nextProviderExplicitSelection,
+      errorBanner: activeProvider && !activeStillAvailable
+        ? (() => {
+            const provider = providers.find((candidate) => candidate.id === activeProvider);
+            return provider
+              ? providerSelectionFailureMessage(
+                  provider,
+                  requestedModel,
+                  nextProviderModelDiscovery ?? current.providerModelDiscovery,
+                )
+              : `${activeProvider} is unavailable.`;
+          })()
+        : current.errorBanner,
     });
 
     const restore = resolveStoredProviderSelectionRestore(get());
@@ -2024,6 +2170,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
     if (state.status === "running" && state.liveSessionId !== event.kilnSessionId) {
       set({ liveSessionId: event.kilnSessionId });
+    }
+    if (state.sessionEvents.some((candidate) => candidate.eventId === event.eventId)) {
+      return;
     }
     const payload = isObjectRecord(event.payload) ? event.payload : {};
     set({ sessionEvents: appendSessionEvent(state.sessionEvents, event) });
@@ -2069,10 +2218,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       const toolName = readString(payload.toolName) ?? "tool";
       const input = isObjectRecord(payload.input) ? payload.input : {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
-      const anchored = ensureLiveAssistantAnchor(get(), event.timestamp, event.turnId);
+      const current = get();
       set({
         timelineEntries: [
-          ...anchored.timelineEntries,
+          ...current.timelineEntries,
           {
             id: `timeline:${event.eventId}`,
             type: "event",
@@ -2092,8 +2241,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             },
           },
         ],
-        messages: anchored.messages,
-        currentAssistant: anchored.currentAssistant,
         activity: {
           phase: "tool_running",
           toolName,
@@ -2103,17 +2250,41 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return;
     }
 
+    if (event.kind === "tool_call_output_delta") {
+      const toolCallId = readString(payload.toolCallId);
+      const delta = readString(payload.delta);
+      if (!toolCallId || delta === null) return;
+      const current = get();
+      set({
+        timelineEntries: current.timelineEntries.map((entry) => {
+          if (entry.type !== "event" || entry.eventKind !== "tool_call_started"
+            || toolCallIdFromDetails(entry.details) !== toolCallId) {
+            return entry;
+          }
+          const details = isObjectRecord(entry.details) ? entry.details : {};
+          return {
+            ...entry,
+            details: {
+              ...details,
+              liveOutput: appendLiveToolOutput(readString(details.liveOutput) ?? "", delta),
+            },
+          };
+        }),
+      });
+      return;
+    }
+
     if (event.kind === "tool_call_completed") {
       const status = isObjectRecord(payload.status) ? payload.status : null;
       const interactiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(event.kilnSessionId, event, payload, status);
       const browserSessionState = browserSessionStateFromSnapshot(interactiveUseSnapshot);
-      const priorToolCalls = deriveToolCallLog(get().timelineEntries);
+      const current = get();
+      const priorToolCalls = deriveToolCallLog(current.timelineEntries);
       const priorInput = priorToolCalls.find((entry) => entry.callId === (readString(payload.toolCallId) ?? event.eventId))?.input ?? {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
-      const anchored = ensureLiveAssistantAnchor(get(), event.timestamp, event.turnId);
       set({
         timelineEntries: [
-          ...anchored.timelineEntries,
+          ...current.timelineEntries,
           {
             id: `timeline:${event.eventId}`,
             type: "event",
@@ -2135,8 +2306,6 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             },
           },
         ],
-        messages: anchored.messages,
-        currentAssistant: anchored.currentAssistant,
         activity: null,
         ...(interactiveUseSnapshot ? { interactiveUseSnapshot } : {}),
         ...(interactiveUseSnapshot ? { browserSessionState } : {}),
@@ -2221,6 +2390,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return;
     }
 
+    if (event.kind === "context_usage_observed") {
+      const parsed = ContextUsageProjectionSchema.safeParse(payload.contextUsage);
+      if (parsed.success) {
+        set({ contextUsage: parsed.data });
+      }
+      return;
+    }
+
     if (event.kind === "cost_updated") {
       const cost = isObjectRecord(payload.cost) ? payload.cost : null;
       const usage = isObjectRecord(payload.usage) ? payload.usage : null;
@@ -2249,6 +2426,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               usage,
               cost,
             },
+          },
+        ],
+      });
+      return;
+    }
+
+    if (event.kind === "lifecycle_attribution_recorded") {
+      const presentation = presentOperatorEventPayload(event.kind, payload);
+      const efficiencyEvidence = VerifiedEfficiencyEvidenceProjectionSchema.safeParse(payload.efficiencyEvidence);
+      set({
+        timelineEntries: [
+          ...get().timelineEntries,
+          {
+            id: `timeline:${event.eventId}`,
+            type: "event",
+            eventKind: event.kind,
+            createdAt: event.timestamp,
+            sequence: event.sequence,
+            ...timelineTurnId(event),
+            title: presentation.title,
+            summary: presentation.summary,
+            tone: presentation.tone,
+            presentationDetails: presentation.details,
+            ...(efficiencyEvidence.success ? { details: efficiencyEvidence.data } : {}),
           },
         ],
       });
@@ -2466,6 +2667,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         ],
         currentAssistant: null,
         status: "ready",
+        turnCancelPending: false,
         activity: null,
         activityPhase: "idle",
         authorityStatus: authorityStatus ?? current.authorityStatus,
@@ -2509,6 +2711,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const targetIndex = existingId
       ? messageList.findIndex((message) => message.id === existingId)
       : -1;
+
+    if (targetIndex < 0 && frame.content.trim().length === 0) {
+      set({ status: "running", activityPhase: "streaming", errorBanner: null });
+      return;
+    }
 
     if (targetIndex >= 0) {
       const current = messageList[targetIndex];
@@ -2754,6 +2961,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       turnCounter: state.turnCounter + 1,
       clearTimeoutId: null,
       clearPending: false,
+      turnCancelPending: false,
+    });
+  },
+
+  onTurnCancelResult: (frame) => {
+    const state = get();
+    if (frame.status === "accepted") {
+      set({ turnCancelPending: true, errorBanner: null });
+      return;
+    }
+    set({
+      turnCancelPending: false,
+      ...(frame.status === "failed"
+        ? { errorBanner: frame.reason ?? "The active turn could not be cancelled." }
+        : state.status === "running"
+          ? { status: "ready" as const, activity: null, activityPhase: "idle" as const }
+          : {}),
     });
   },
 
@@ -2827,6 +3051,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingProvider: null,
       respondingModel: null,
       clearPending: false,
+      turnCancelPending: false,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,
@@ -2876,6 +3101,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
       clearPending: false,
+      turnCancelPending: false,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,
@@ -2996,6 +3222,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
     set({
       providers: normalizeProviderDescriptors(frame.providers ?? state.providers),
+      providerDiscovery: frame.providerDiscovery ?? state.providerDiscovery,
+      providerModelDiscovery: frame.providerModelDiscovery,
       providerCatalogStatus: "ready",
       providerCatalogError: null,
       providerAuthenticating: false,
@@ -3064,28 +3292,29 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     const targetProvider = state.providers.find((candidate) => candidate.id === provider);
-    if (!targetProvider || !providerHasSelectableSurface(targetProvider)) {
+    if (!targetProvider) {
       if (!state.providerSwitching) {
         set({
           providerSwitching: false,
           providerSwitchTarget: null,
           providerSwitchTimeoutId: null,
-          errorBanner: `${targetProvider?.label ?? provider} is unavailable.`,
+          errorBanner: `${provider} is unavailable.`,
         });
       }
       return false;
     }
     const normalizedModel = readString(model) ?? null;
-    if (!providerSupportsSelection(targetProvider, normalizedModel)) {
+    if (!providerSupportsSelection(targetProvider, normalizedModel, state.providerModelDiscovery)) {
       if (!state.providerSwitching) {
-        const message = normalizedModel === null && targetProvider.models.length > 0
-          ? providerRequiresSelectedModelMessage(provider)
-          : `${targetProvider.label} does not advertise the requested model.`;
         set({
           providerSwitching: false,
           providerSwitchTarget: null,
           providerSwitchTimeoutId: null,
-          errorBanner: message,
+          errorBanner: providerSelectionFailureMessage(
+            targetProvider,
+            normalizedModel,
+            state.providerModelDiscovery,
+          ),
         });
       }
       return false;
@@ -3251,8 +3480,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingModel: state.activeModel,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
+      contextUsage: null,
       errorBanner: null,
       currentAssistant: null,
+      turnCancelPending: false,
     });
 
     outboundSend({
@@ -3264,6 +3495,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       ...(continuity.outboundSessionIntent ? { sessionIntent: continuity.outboundSessionIntent } : {}),
       ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
       ...(options?.requestedAuthority ? { requestedAuthority: options.requestedAuthority } : {}),
+      ...(options?.governedWorkRequirement ? { governedWorkRequirement: options.governedWorkRequirement } : {}),
+      ...(options?.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
       ...(options?.appName ? { appName: options.appName } : {}),
       ...(options?.tenantId ? { tenantId: options.tenantId } : {}),
     });
@@ -3301,6 +3534,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return true;
   },
 
+  cancelActiveTurn: () => {
+    const state = get();
+    if (!state.outboundSend || state.status !== "running" || state.turnCancelPending) {
+      return false;
+    }
+    state.outboundSend({
+      type: "turn_cancel",
+      requestId: createMessageId(),
+      reason: "Operator cancelled the active GUI turn.",
+    });
+    set({ turnCancelPending: true, errorBanner: null });
+    return true;
+  },
+
   sendClear: () => {
     const state = get();
     if (!state.outboundSend || state.clearPending) {
@@ -3333,7 +3580,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return true;
   },
 
-  setPlanMode: (enabled) => {
+  setPlanMode: (enabled, options = {}) => {
     const state = get();
     if (enabled) {
       persistPlanMode(true);
@@ -3341,7 +3588,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return;
     }
     if (state.planMode && state.outboundSend) {
-      state.outboundSend({ type: "execution_mode_transition", toMode: "execute" });
+      state.outboundSend({
+        type: "execution_mode_transition",
+        toMode: "execute",
+        ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
+      });
       return;
     }
     persistPlanMode(false);
@@ -3376,6 +3627,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingProvider: null,
       respondingModel: null,
       clearPending: false,
+      turnCancelPending: false,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,
@@ -3439,6 +3691,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     outboundSend({
       type: "browser_operator_input",
       requestId: nextBrowserInputRequestId(),
+      ...(request.gatewayTargetId ? { gatewayTargetId: request.gatewayTargetId } : {}),
       sessionId: request.sessionId,
       input: request.input,
     });
@@ -3454,6 +3707,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     outboundSend({
       type: "browser_session_control",
       action,
+      ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
       ...(options.sessionId ? { sessionId: options.sessionId } : {}),
       ...(options.reason ? { reason: options.reason } : {}),
     });
@@ -3478,14 +3732,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 
-  sendApprovalResponse: (approved, reason, approvalId) => {
+  sendApprovalResponse: (approved, reason, approvalId, options = {}) => {
     const state = get();
     const outboundSend = state.outboundSend;
     if (!outboundSend) return false;
     if (approved) {
-      outboundSend({ type: "approve", approvalId });
+      outboundSend({
+        type: "approve",
+        approvalId,
+        ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
+      });
     } else {
-      outboundSend({ type: "reject", reason: reason ?? "rejected by user", approvalId });
+      outboundSend({
+        type: "reject",
+        reason: reason ?? "rejected by user",
+        approvalId,
+        ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
+      });
     }
     return true;
   },

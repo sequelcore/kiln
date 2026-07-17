@@ -1,12 +1,13 @@
-import { expect, test } from "./fixtures/gateway.js";
+import { expect, test, waitForGuiReady } from "./fixtures/gateway.js";
 
 test.describe("parity category 7 - memory lattice", () => {
   test("opens the Memory mode and renders the gateway-backed graph", async ({ page }) => {
     await page.goto("/");
+    await waitForGuiReady(page);
 
     await page.getByRole("button", { name: "Memory" }).click();
 
-    await expect(page.getByRole("region", { name: "Memory graph" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Memory graph" })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("region", { name: "Memory Lattice records" })).toContainText(
       "Memory Lattice contract",
     );

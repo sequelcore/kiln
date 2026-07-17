@@ -1,7 +1,8 @@
 import { CredentialPool, type Credential } from "@kilnai/core";
 import { describe, expect, it, vi } from "vitest";
 import { PooledHarnessSession } from "../../src/wrapper/pooled-harness-session.js";
-import type { IKilnSession, SessionCapabilities, SessionEvent, SessionRunOptions } from "../../src/wrapper/session.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
+import type { IKilnSession, SessionCapabilities, SessionRunOptions } from "../../src/wrapper/session.js";
 
 const CAPABILITIES: SessionCapabilities = {
   mcp: false,
@@ -23,12 +24,12 @@ class MockSession implements IKilnSession {
 
   constructor(
     sessionId: string,
-    private readonly events: readonly SessionEvent[],
+    private readonly events: readonly ExecutionSessionEvent[],
   ) {
     this.sessionId = sessionId;
   }
 
-  async *run(_options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(_options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     for (const event of this.events) {
       yield event;
     }
@@ -139,12 +140,13 @@ function credential(id: string, homeDir: string): Credential<{ homeDir: string }
     lastSuccess: null,
     lastExhausted: null,
     cooldownUntil: null,
+    invalidReason: null,
     softLeaseCount: 0,
   };
 }
 
-async function collect(events: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
-  const collected: SessionEvent[] = [];
+async function collect(events: AsyncIterable<ExecutionSessionEvent>): Promise<ExecutionSessionEvent[]> {
+  const collected: ExecutionSessionEvent[] = [];
   for await (const event of events) {
     collected.push(event);
   }

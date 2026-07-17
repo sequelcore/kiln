@@ -90,6 +90,6 @@ of editing generated guidance by hand.
 
 Kiln stores memory as governed records with layer, provenance, revisions,
 relations, lifecycle evidence, and context-admission evidence. Reads use bounded
-`kiln://memory/...` resources; writes go through governed mutation services or
-the `memory_save` tool subject to memory authority. See [Memory](guides/memory.md)
-and [Architecture: Memory](architecture/memory.md).
+`memory_search` and `kiln://memory/...` resources; writes go through governed
+mutation services or the `memory_save` tool subject to memory authority. See
+[Memory](guides/memory.md) and [Architecture: Memory](architecture/memory.md).

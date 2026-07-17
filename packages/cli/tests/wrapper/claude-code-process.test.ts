@@ -6,7 +6,8 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 import { query as mockedQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeSession } from "../../src/wrapper/claude-code-process.js";
 import type { ClaudeSessionConfig } from "../../src/wrapper/claude-code-process.js";
-import type { IKilnSession, SessionEvent } from "../../src/wrapper/session.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
+import type { IKilnSession } from "../../src/wrapper/session.js";
 
 function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSessionConfig {
   return {
@@ -17,8 +18,8 @@ function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSession
   };
 }
 
-async function collectEvents(iter: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
-  const events: SessionEvent[] = [];
+async function collectEvents(iter: AsyncIterable<ExecutionSessionEvent>): Promise<ExecutionSessionEvent[]> {
+  const events: ExecutionSessionEvent[] = [];
   for await (const event of iter) events.push(event);
   return events;
 }

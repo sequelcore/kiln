@@ -10,7 +10,11 @@ import type {
 
 export interface ManagedAgentCockpitPanelProps {
   readonly cockpit: NativeCockpitReadOnlyViewState;
-  readonly onCancel?: (input: { readonly sessionId: string; readonly invocationId: string }) => void;
+  readonly onCancel?: (input: {
+    readonly sessionId: string;
+    readonly invocationId: string;
+    readonly gatewayTargetId?: string;
+  }) => void;
   readonly selectedManagedInvocationId?: string;
 }
 
@@ -24,6 +28,59 @@ const ATTENTION_LABELS: Record<OperatorCockpitManagedAgentAttentionState, string
   clear: "Clear",
   unknown: "Unknown",
 };
+
+function ManagedAgentNextAction({
+  item,
+}: {
+  readonly item: OperatorCockpitManagedAgentViewItem;
+}): ReactElement | null {
+  const action = item.managedInvocationRecovery ?? item.managedInvocationPhaseCompletion;
+  if (!action?.nextTool) {
+    return null;
+  }
+  const toolChain = action.thenTool ? `${action.nextTool} -> ${action.thenTool}` : action.nextTool;
+  return (
+    <section className="managed-agent-next-action" aria-label={`${item.managedInvocationId} next governed action`}>
+      <h3>Next governed action</h3>
+      <dl className="managed-agent-details">
+        <div>
+          <dt>Tools</dt>
+          <dd>{toolChain}</dd>
+        </div>
+        {action.workItemId ? (
+          <div>
+            <dt>Work</dt>
+            <dd>work {action.workItemId}</dd>
+          </div>
+        ) : null}
+        {action.reason ? (
+          <div>
+            <dt>Reason</dt>
+            <dd>{action.reason}</dd>
+          </div>
+        ) : null}
+        {action.evidenceToRecord.length > 0 ? (
+          <div>
+            <dt>Evidence</dt>
+            <dd>evidence {action.evidenceToRecord.join(", ")}</dd>
+          </div>
+        ) : null}
+        {action.requiredToolNames.length > 0 ? (
+          <div>
+            <dt>Required Tools</dt>
+            <dd>tools {action.requiredToolNames.join(", ")}</dd>
+          </div>
+        ) : null}
+        {action.sourceResourceUris.map((uri) => (
+          <div key={uri}>
+            <dt>Source</dt>
+            <dd>source {uri}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
 
 export function ManagedAgentCockpitPanel({
   cockpit,
@@ -125,10 +182,11 @@ export function ManagedAgentCockpitPanel({
                 <button
                   type="button"
                   title={item.cancelControl.reason}
-                  onClick={() => onCancel({
-                    sessionId: item.sessionId,
-                    invocationId: item.managedInvocationId,
-                  })}
+                        onClick={() => onCancel({
+                          sessionId: item.sessionId,
+                          invocationId: item.managedInvocationId,
+                          ...(item.gatewayTargetId ? { gatewayTargetId: item.gatewayTargetId } : {}),
+                        })}
                 >
                   Cancel
                 </button>
@@ -166,6 +224,7 @@ export function ManagedAgentCockpitPanel({
                   </dl>
                 </section>
               ) : null}
+              <ManagedAgentNextAction item={item} />
               <ol className="timeline-list" aria-label={`${item.managedInvocationId} lifecycle timeline`}>
                 {item.lifecycleTimeline.slice(-4).map((entry) => (
                   <li key={entry.eventId}>

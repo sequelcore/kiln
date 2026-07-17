@@ -1,7 +1,56 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { KilnConfigSetupSnapshot } from "@kilnai/gateway-contracts";
+import type { KilnConfigSetupSnapshot, KilnSkillCatalogSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { SetupPanel } from "../src/components/setup-panel.js";
+
+function permissionIntegrity(): TrustedExecutionIntegrity {
+  return {
+    harness: "codex",
+    desired: {
+      profile: "trusted-full-access",
+      source: "operator-local-config",
+      observedAt: "2026-07-01T15:00:00.000Z",
+      verifiedAt: "2026-07-01T15:00:01.000Z",
+      freshness: "current",
+      proof: "proven",
+    },
+    persistedNative: {
+      profile: "restricted",
+      source: "native-config",
+      observedAt: "2026-07-01T15:01:00.000Z",
+      verifiedAt: "2026-07-01T15:01:01.000Z",
+      freshness: "current",
+      proof: "proven",
+      projectionOwnership: "kiln-managed",
+    },
+    effectiveRuntime: {
+      profile: "workspace-write",
+      source: "runtime-observation",
+      observedAt: "2026-07-01T15:02:00.000Z",
+      verifiedAt: "2026-07-01T15:02:01.000Z",
+      freshness: "current",
+      proof: "proven",
+    },
+    enforcement: {
+      approvalControl: "enforced",
+      filesystemSandbox: "enforced",
+      networkBoundary: "enforced",
+      strength: "strong",
+    },
+    authorization: {
+      status: "authorized",
+      scope: "operator-local",
+      authorizedBy: "operator",
+      authorizedAt: "2026-07-01T14:59:00.000Z",
+      revocable: true,
+    },
+    semanticLoss: [],
+    classification: "runtime-policy-mismatch",
+    recommendation: "Restart Codex with proven Full Access or choose a narrower trusted profile.",
+    remediationRequiresApproval: true,
+    lastVerifiedAt: "2026-07-01T15:02:01.000Z",
+  };
+}
 
 function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnConfigSetupSnapshot {
   return {
@@ -20,9 +69,64 @@ function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnCo
         recommendation: "sync-repo-shims",
       },
     ],
+    globalInstructionShims: [],
     nativeProjections: [],
+    permissionIntegrity: [],
     recommendedActions: ["adopt-project-context", "sync-repo-shims"],
     ...overrides,
+  };
+}
+
+function skillCatalog(): KilnSkillCatalogSnapshot {
+  return {
+    entries: [
+      {
+        name: "repo-context-review",
+        description: "Review repository context before implementation.",
+        origin: "builtin",
+        configured: true,
+        builtIn: true,
+        sourcePath: "builtin://kiln/skills/repo-context-review",
+        projections: [
+          { target: "claude", displayName: "Claude Code", path: "C:/Users/test/.claude/skills/repo-context-review/SKILL.md", status: "missing" },
+          { target: "codex", displayName: "Codex", path: "C:/Users/test/.codex/skills/repo-context-review/SKILL.md", status: "projected" },
+          { target: "opencode", displayName: "OpenCode", path: "C:/Users/test/.config/opencode/skills/repo-context-review/SKILL.md", status: "drifted" },
+        ],
+        admission: { state: "available", reason: "Kiln governance may admit this skill when a route selects it." },
+      },
+      {
+        name: "clear-writing",
+        description: "Write clear operator-facing copy.",
+        origin: "user",
+        configured: true,
+        builtIn: false,
+        sourcePath: "C:/Users/test/.kiln/skills/clear-writing/SKILL.md",
+        projections: [{ target: "codex", displayName: "Codex", path: "C:/Users/test/.codex/skills/clear-writing/SKILL.md", status: "projected" }],
+        admission: { state: "admitted", reason: "Explicitly requested by the active managed invocation." },
+      },
+      {
+        name: "frontend-review",
+        description: "Review operator interfaces.",
+        origin: "project",
+        configured: true,
+        builtIn: false,
+        sourcePath: "C:/workspace/kiln/.kiln/skills/frontend-review/SKILL.md",
+        projections: [{ target: "opencode", displayName: "OpenCode", path: "C:/Users/test/.config/opencode/skills/frontend-review/SKILL.md", status: "missing" }],
+        admission: { state: "blocked", reason: "The active route does not permit this skill." },
+        omissionReason: "route-policy-blocked",
+      },
+      {
+        name: "native-only",
+        description: "Native harness-local skill outside the Kiln registry.",
+        origin: "native-harness",
+        configured: false,
+        builtIn: false,
+        sourcePath: "C:/Users/test/.codex/skills/native-only/SKILL.md",
+        projections: [{ target: "codex", displayName: "Codex", path: "C:/Users/test/.codex/skills/native-only/SKILL.md", status: "unmanaged-native" }],
+        admission: { state: "unavailable", reason: "Harness-local skill is not configured in Kiln." },
+        omissionReason: "native-harness-local-only",
+      },
+    ],
   };
 }
 
@@ -37,6 +141,7 @@ describe("SetupPanel", () => {
         error={null}
         onRefresh={vi.fn()}
         onExecuteAction={onExecuteAction}
+        onPreviewSource={vi.fn()}
       />,
     );
 
@@ -77,11 +182,245 @@ describe("SetupPanel", () => {
         error={null}
         onRefresh={vi.fn()}
         onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
       />,
     );
 
     expect(screen.getByText("Configuration Is Current")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Required Setup Actions" })).toHaveTextContent("No setup actions are required.");
     expect(screen.queryByRole("button", { name: "Current" })).not.toBeInTheDocument();
+  });
+
+  it("warns when permission integrity is mismatched even without setup repair actions", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          projectContext: {
+            path: "C:/workspace/kiln/.kiln/project-context.md",
+            status: "valid",
+            recommendation: "none",
+          },
+          repoShims: [],
+          nativeProjections: [],
+          permissionIntegrity: [permissionIntegrity()],
+          recommendedActions: ["none"],
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("Configuration Is Current")).not.toBeInTheDocument();
+    expect(screen.getByText("Permission Integrity Needs Attention")).toBeInTheDocument();
+    const integrity = screen.getByRole("region", { name: "Permission Integrity" });
+    expect(integrity).toHaveTextContent("codex");
+    expect(integrity).toHaveTextContent("runtime-policy-mismatch");
+    expect(integrity).toHaveTextContent("desired trusted-full-access");
+    expect(integrity).toHaveTextContent("persisted restricted");
+    expect(integrity).toHaveTextContent("effective workspace-write");
+    expect(integrity).toHaveTextContent("approval required");
+    expect(integrity).toHaveTextContent("Restart Codex with proven Full Access");
+  });
+
+  it("presents setup sources as comparable inventories instead of a path dump", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          nativeProjections: [{
+            targetId: "codex-agent:planner",
+            path: "C:/Users/test/.codex/agents/planner.toml",
+            kind: "native",
+            status: "managed",
+            managedFieldCount: 1,
+            updatedAt: "2026-06-27T12:29:50.875Z",
+          }],
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("heading", { name: "Setup Sources" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Configuration Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Canonical setup sources" })).toHaveTextContent(
+      "Durable repository guidance inherited by every harness",
+    );
+    expect(screen.getByRole("table", { name: "Native harness projections" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Native harness projections" })).toHaveTextContent("1 managed field");
+    expect(screen.queryByText("2026-06-27T12:29:50.875Z")).not.toBeInTheDocument();
+    expect(screen.queryByText("C:/workspace/kiln/.kiln/project-context.md")).not.toBeInTheDocument();
+    expect(screen.queryByText("C:/workspace/kiln/AGENTS.md")).not.toBeInTheDocument();
+  });
+
+  it("opens project-owned setup sources through the workspace preview boundary", () => {
+    const onPreviewSource = vi.fn();
+
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          projectContext: {
+            path: "C:/workspace/kiln/.kiln/project-context.md",
+            status: "valid",
+            recommendation: "none",
+          },
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={onPreviewSource}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview Project Context" }));
+
+    expect(onPreviewSource).toHaveBeenCalledWith("C:/workspace/kiln/.kiln/project-context.md");
+  });
+
+  it("renders global instruction shim targets in overview and inventory from the shared setup snapshot", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          globalInstructionShims: [
+            {
+              targetId: "codex-global-instructions",
+              harness: "codex",
+              path: "C:/Users/test/.codex/AGENTS.md",
+              kind: "global-instruction-shim",
+              status: "stale",
+              recommendation: "sync-global-instruction-shims",
+            },
+            {
+              targetId: "claude-global-instructions",
+              harness: "claude-code",
+              path: "C:/Users/test/.claude/CLAUDE.md",
+              kind: "global-instruction-shim",
+              status: "unmanaged",
+              recommendation: "adopt-or-back-up-global-instructions",
+            },
+            {
+              targetId: "opencode-global-instructions",
+              harness: "opencode",
+              path: "C:/Users/test/.config/opencode/AGENTS.md",
+              kind: "global-instruction-shim",
+              status: "drifted",
+              recommendation: "review-global-instruction-drift",
+            },
+          ],
+          recommendedActions: [
+            "sync-global-instruction-shims",
+            "adopt-or-back-up-global-instructions",
+            "review-global-instruction-drift",
+          ],
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("3 Actions Need Attention")).toBeInTheDocument();
+    expect(screen.getByText("5 sources")).toBeInTheDocument();
+    expect(screen.getAllByText("Global Instruction Shims")).toHaveLength(2);
+    const inventory = screen.getByRole("table", { name: "Global instruction shims" });
+    expect(inventory).toHaveTextContent("codex-global-instructions");
+    expect(inventory).toHaveTextContent("claude-global-instructions");
+    expect(inventory).toHaveTextContent("opencode-global-instructions");
+    expect(inventory).toHaveTextContent("codex");
+    expect(inventory).toHaveTextContent("claude-code");
+    expect(inventory).toHaveTextContent("opencode");
+    expect(inventory).toHaveTextContent("stale");
+    expect(inventory).toHaveTextContent("unmanaged");
+    expect(inventory).toHaveTextContent("drifted");
+    expect(inventory).toHaveTextContent("sync-global-instruction-shims");
+    expect(inventory).toHaveTextContent("adopt-or-back-up-global-instructions");
+    expect(inventory).toHaveTextContent("review-global-instruction-drift");
+  });
+
+  it("executes safe global sync once but blocks global adoption and drift review actions", () => {
+    const onExecuteAction = vi.fn();
+
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({
+          recommendedActions: [
+            "sync-global-instruction-shims",
+            "adopt-or-back-up-global-instructions",
+            "review-global-instruction-drift",
+          ],
+        })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={onExecuteAction}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    const actions = screen.getByRole("region", { name: "Required Setup Actions" });
+    fireEvent.click(within(actions).getByRole("button", { name: "Sync Global Instruction Shims" }));
+    fireEvent.click(within(actions).getByRole("button", { name: "Review Global Instructions" }));
+    fireEvent.click(within(actions).getByRole("button", { name: "Review Global Instruction Drift" }));
+
+    expect(onExecuteAction).toHaveBeenCalledTimes(1);
+    expect(onExecuteAction).toHaveBeenCalledWith("sync-global-instruction-shims");
+    expect(within(actions).getByRole("button", { name: "Review Global Instructions" })).toBeDisabled();
+    expect(within(actions).getByRole("button", { name: "Review Global Instruction Drift" })).toBeDisabled();
+  });
+
+  it("renders the shared skill catalog as an accessible, diagnostic-only inventory", () => {
+    render(
+      <SetupPanel
+        snapshot={setupSnapshot({ skills: skillCatalog() })}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onExecuteAction={vi.fn()}
+        onPreviewSource={vi.fn()}
+      />,
+    );
+
+    const inventory = screen.getByRole("table", { name: "Skill catalog" });
+    expect(inventory).toHaveTextContent("repo-context-review");
+    expect(inventory).toHaveTextContent("Review repository context before implementation.");
+    expect(inventory).toHaveTextContent("builtin");
+    expect(inventory).toHaveTextContent("built-in");
+    expect(inventory).toHaveTextContent("available");
+    expect(inventory).toHaveTextContent("Kiln governance may admit this skill");
+    expect(inventory).toHaveTextContent("clear-writing");
+    expect(inventory).toHaveTextContent("admitted");
+    expect(inventory).toHaveTextContent("frontend-review");
+    expect(inventory).toHaveTextContent("blocked");
+    expect(inventory).toHaveTextContent("route-policy-blocked");
+    expect(inventory).toHaveTextContent("native-only");
+    expect(inventory).toHaveTextContent("unmanaged-native");
+    expect(inventory).toHaveTextContent("Claude Code");
+    expect(inventory).toHaveTextContent("Codex");
+    expect(inventory).toHaveTextContent("OpenCode");
+    expect(screen.getByText("Available means Kiln governance may admit a skill; it does not mean the skill is loaded into this active session.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy path for repo-context-review in Codex" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /admit/i })).not.toBeInTheDocument();
+  });
+
+  it("renders accessible empty states when the shared skill catalog is absent or empty", () => {
+    const { rerender } = render(
+      <SetupPanel snapshot={setupSnapshot()} loading={false} error={null} onRefresh={vi.fn()} onExecuteAction={vi.fn()} onPreviewSource={vi.fn()} />,
+    );
+
+    expect(screen.getByRole("status", { name: "Skill catalog status" })).toHaveTextContent("Skill diagnostics are unavailable from this setup snapshot.");
+
+    rerender(
+      <SetupPanel snapshot={setupSnapshot({ skills: { entries: [] } })} loading={false} error={null} onRefresh={vi.fn()} onExecuteAction={vi.fn()} onPreviewSource={vi.fn()} />,
+    );
+
+    expect(screen.getByRole("status", { name: "Skill catalog status" })).toHaveTextContent("No skills are reported in this setup snapshot.");
   });
 });

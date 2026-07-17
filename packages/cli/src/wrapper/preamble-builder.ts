@@ -21,6 +21,7 @@ function buildExecutableToolGuidanceSection(): string {
     "For workspace search or inspection requests, call glob, grep, or read immediately with non-empty JSON arguments instead of answering from assumption.",
     'Use glob with an object like {"pattern":"**/*.ts","path":"packages/cli"} to discover candidate files when the exact path is unknown.',
     'Use grep with an object like {"pattern":"buildProviderSystemPrompt","path":"packages/cli","glob":"**/*.ts","outputMode":"content","maxResults":50} to search file contents.',
+    'When searching exact text that may contain regex punctuation, pass "matchMode":"literal"; use "matchMode":"regex" only when regex behavior is intentional.',
     "For broad searches, start with outputMode files_with_matches or count, then read the small set of candidate files. Avoid package-wide content grep unless maxResults is small.",
     "If the next step needs concrete file paths, use raw or structured output, or summary output that includes path samples; do not proceed from count-only evidence.",
     "For UI/frontend work, confirm actual package roots first with tree on known workspace directories, glob **/package.json, or a bounded raw/structured glob. Do not assume paths such as gui, web, app, packages/web, or packages/app exist.",

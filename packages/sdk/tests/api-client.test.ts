@@ -43,6 +43,58 @@ describe("ApiClient", () => {
     });
   });
 
+  it("reads resources through the canonical resource endpoint with target identity", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        uri: "kiln://session/work-items/work-1",
+        target: {
+          gatewayTargetId: "app-gateway:support:tenant:acme",
+          appId: "support",
+          tenantId: "acme",
+          sessionId: "session-1",
+          resourceUri: "kiln://session/work-items/work-1",
+        },
+        contents: [{
+          kind: "text",
+          uri: "kiln://session/work-items/work-1",
+          mimeType: "text/markdown",
+          text: "# Work item",
+        }],
+      }),
+    }));
+
+    const result = await client.readResource({
+      uri: " kiln://session/work-items/work-1 ",
+      target: {
+        gatewayTargetId: "app-gateway:support:tenant:acme",
+        appId: "support",
+        tenantId: "acme",
+        sessionId: "session-1",
+        resourceUri: "kiln://session/work-items/work-1",
+      },
+    });
+
+    expect(result.target?.gatewayTargetId).toBe("app-gateway:support:tenant:acme");
+    expect(fetch).toHaveBeenCalledWith("http://localhost:4000/gui/api/resources/read", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        uri: "kiln://session/work-items/work-1",
+        target: {
+          gatewayTargetId: "app-gateway:support:tenant:acme",
+          appId: "support",
+          tenantId: "acme",
+          sessionId: "session-1",
+          resourceUri: "kiln://session/work-items/work-1",
+        },
+      }),
+    });
+  });
+
   it("delete sends DELETE request", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
 

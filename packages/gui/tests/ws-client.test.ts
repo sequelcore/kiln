@@ -7,6 +7,27 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { GuiInboundFrame, GuiOutboundFrame } from "@kilnai/gateway-contracts";
 import { GuiWsClient } from "../src/lib/ws-client";
 
+const EMPTY_PROVIDER_MODEL_DISCOVERY: Extract<GuiInboundFrame, { type: "welcome" }>["providerModelDiscovery"] = {
+  catalogEvidence: {
+    status: "failed",
+    source: {
+      kind: "test",
+      id: "gui-ws-client",
+    },
+    observedAt: "2026-07-01T00:00:00.000Z",
+    counts: {
+      total: 0,
+      returned: 0,
+      omitted: 0,
+    },
+    failure: {
+      classification: "catalog-unavailable",
+      summary: "No provider model discovery fixture.",
+    },
+  },
+  entries: [],
+};
+
 // Track created WebSocket instances for testing
 let wsInstances: MockWebSocket[] = [];
 
@@ -98,6 +119,57 @@ describe("GuiWsClient", () => {
       const wsInstance = wsInstances[wsInstances.length - 1];
       expect(wsInstance.url).toContain("userId=user-456");
       expect(wsInstance.url).toContain("ws://localhost:3000/ws");
+    });
+  });
+
+  describe("canonical session events", () => {
+    it("accepts live context-usage evidence instead of dropping it during frame validation", () => {
+      client = createClient();
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1]!;
+      wsInstance.simulateMessage(JSON.stringify({
+        type: "session_event",
+        event: {
+          eventId: "context-1",
+          kilnSessionId: "session-1",
+          sequence: 1,
+          timestamp: "2026-07-12T00:00:01.000Z",
+          kind: "context_usage_observed",
+          payload: {
+            contextUsage: {
+              state: "partial",
+              usedTokens: 12,
+              contextWindowTokens: 128,
+              remainingTokens: 116,
+              usedPercentage: 9.375,
+              observedAt: "2026-07-12T00:00:01.000Z",
+              measurement: "provider_reported",
+              lifecycle: "completed",
+              contextWindowAuthority: "runtime_observed",
+              freshness: "fresh",
+            },
+          },
+        },
+      }));
+
+      expect(onFrame).toHaveBeenCalledWith(expect.objectContaining({
+        type: "session_event",
+        event: expect.objectContaining({ kind: "context_usage_observed" }),
+      }));
+    });
+
+    it("preserves the terminal capability while adding the stable user id", () => {
+      client = new GuiWsClient({
+        baseUrl: "ws://localhost:3000/ws?operatorToken=secret",
+        userId: "user-456",
+        onFrame,
+        onStateChange,
+      });
+      client.connect();
+
+      const url = new URL(wsInstances.at(-1)!.url);
+      expect(url.searchParams.get("operatorToken")).toBe("secret");
+      expect(url.searchParams.get("userId")).toBe("user-456");
     });
   });
 
@@ -388,10 +460,11 @@ describe("GuiWsClient", () => {
         { type: "provider_auth", provider: "opencode-go", requestId: "provider-auth-2", apiKey: "sk-test", tier: "go" },
         { type: "provider", provider: "openai", model: "gpt-4", requestId: "provider-switch-1" },
         { type: "provider", provider: "claude", requestId: "provider-switch-2" },
-        { type: "continue", sessionId: "session-123" },
+        { type: "continue", sessionId: "session-123", gatewayTargetId: "gateway:local-app" },
         {
           type: "browser_session_control",
           action: "takeover",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "browser-1",
           reason: "Inspect before continuing.",
           requestId: "browser-control-1",
@@ -399,6 +472,7 @@ describe("GuiWsClient", () => {
         {
           type: "browser_session_control",
           action: "release",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "browser-1",
           requestId: "browser-control-2",
         },
@@ -407,6 +481,7 @@ describe("GuiWsClient", () => {
           action: "cancel",
           sessionId: "session-1",
           invocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           reason: "Operator stopped duplicate work.",
           requestId: "managed-agent-control-1",
         },
@@ -415,6 +490,7 @@ describe("GuiWsClient", () => {
           action: "join",
           sessionId: "session-1",
           invocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           requestId: "managed-agent-control-2",
         },
         {
@@ -422,6 +498,7 @@ describe("GuiWsClient", () => {
           action: "prompt",
           sessionId: "session-1",
           invocationId: "child-running",
+          gatewayTargetId: "gateway:local-app",
           prompt: "Use the latest runtime ledger evidence before continuing.",
           deliveryMode: "steer",
           wakeRequested: true,
@@ -430,6 +507,7 @@ describe("GuiWsClient", () => {
         {
           type: "browser_operator_input",
           requestId: "browser-input-1",
+          gatewayTargetId: "gateway:browser-app",
           sessionId: "browser-1",
           input: {
             kind: "wheel",
@@ -439,9 +517,9 @@ describe("GuiWsClient", () => {
             deltaY: 420,
           },
         },
-        { type: "approve", approvalId: "approval-123" },
-        { type: "reject", reason: "not approved", approvalId: "approval-123" },
-        { type: "execution_mode_transition", toMode: "execute" },
+        { type: "approve", approvalId: "approval-123", gatewayTargetId: "gateway:local-app" },
+        { type: "reject", reason: "not approved", approvalId: "approval-123", gatewayTargetId: "gateway:local-app" },
+        { type: "execution_mode_transition", toMode: "execute", gatewayTargetId: "gateway:local-app" },
       ];
 
       for (const frame of frames) {
@@ -672,6 +750,58 @@ describe("GuiWsClient", () => {
         },
         {
           json: {
+            type: "session_event",
+            event: {
+              eventId: "evt-lifecycle-attribution",
+              kilnSessionId: "sess-1",
+              sequence: 6,
+              timestamp: "2026-06-30T18:00:00.000Z",
+              kind: "lifecycle_attribution_recorded",
+              turnId: "sess-1:turn:1",
+              payload: {
+                ledger: {
+                  sourceEventId: "evt-cost",
+                  context: { route: "codex-oauth/gpt-5.5" },
+                  records: [
+                    { source: "unknown", tokenClass: "raw", tokens: 100 },
+                  ],
+                },
+                summary: {
+                  totalTokens: 100,
+                  totalCostUsd: 0.01,
+                  bySource: { unknown: 100 },
+                },
+              },
+            },
+          },
+          expected: {
+            type: "session_event",
+            event: {
+              eventId: "evt-lifecycle-attribution",
+              kilnSessionId: "sess-1",
+              sequence: 6,
+              timestamp: "2026-06-30T18:00:00.000Z",
+              kind: "lifecycle_attribution_recorded",
+              turnId: "sess-1:turn:1",
+              payload: {
+                ledger: {
+                  sourceEventId: "evt-cost",
+                  context: { route: "codex-oauth/gpt-5.5" },
+                  records: [
+                    { source: "unknown", tokenClass: "raw", tokens: 100 },
+                  ],
+                },
+                summary: {
+                  totalTokens: 100,
+                  totalCostUsd: 0.01,
+                  bySource: { unknown: 100 },
+                },
+              },
+            },
+          },
+        },
+        {
+          json: {
             type: "activity_phase",
             kilnSessionId: "sess-1",
             turnId: "sess-1:turn:live",
@@ -697,6 +827,7 @@ describe("GuiWsClient", () => {
               toolCallId: "tool-browser",
               toolName: "browser_observe",
               provider: "playwright",
+              gatewayTargetId: "gateway:browser-app",
               sessionId: "browser-1",
               operation: "observe",
               url: "https://example.com/",
@@ -711,6 +842,7 @@ describe("GuiWsClient", () => {
               toolCallId: "tool-browser",
               toolName: "browser_observe",
               provider: "playwright",
+              gatewayTargetId: "gateway:browser-app",
               sessionId: "browser-1",
               operation: "observe",
               url: "https://example.com/",
@@ -738,6 +870,7 @@ describe("GuiWsClient", () => {
               toolCallId: "tool-browser",
               toolName: "browser_observe",
               provider: "playwright",
+              gatewayTargetId: "gateway:browser-app",
               sessionId: "browser-1",
               operation: "observe",
               url: "https://example.com/",
@@ -752,6 +885,7 @@ describe("GuiWsClient", () => {
               toolCallId: "tool-browser",
               toolName: "browser_observe",
               provider: "playwright",
+              gatewayTargetId: "gateway:browser-app",
               sessionId: "browser-1",
               operation: "observe",
               url: "https://example.com/",
@@ -1052,6 +1186,7 @@ describe("GuiWsClient", () => {
         {
           json: {
             type: "welcome",
+            providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
             executionMode: "execute",
@@ -1059,6 +1194,7 @@ describe("GuiWsClient", () => {
           },
           expected: {
             type: "welcome",
+            providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
             executionMode: "execute",
@@ -1096,7 +1232,10 @@ describe("GuiWsClient", () => {
             requestId: "provider-switch-2",
           },
         },
-        { json: { type: "continuation_selected", sessionId: "sess-1" }, expected: { type: "continuation_selected", sessionId: "sess-1" } },
+        {
+          json: { type: "continuation_selected", sessionId: "sess-1", gatewayTargetId: "gateway:local-app" },
+          expected: { type: "continuation_selected", sessionId: "sess-1", gatewayTargetId: "gateway:local-app" },
+        },
       ];
 
       client = createClient();

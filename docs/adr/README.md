@@ -19,3 +19,4 @@ Execution sequencing belongs in `docs/roadmap/`. Stable doctrine belongs in
 | [ADR-005](ADR-005-memory-lattice-governed-memory.md) | Memory Lattice governed memory graph |
 | [ADR-006](ADR-006-agent-context-surfaces.md) | Agent context surfaces |
 | [ADR-007](ADR-007-multimodal-transport-and-capability-delegation.md) | Multimodal transport and capability delegation |
+| [ADR-008](ADR-008-managed-invocation-caller-identity.md) | Managed invocation caller identity |

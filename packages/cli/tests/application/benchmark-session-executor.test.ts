@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
+import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
 
 const benchmarkExecutorMocks = vi.hoisted(() => ({
   cleanupWorktree: vi.fn(),
@@ -7,6 +8,9 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   createDefaultRegistry: vi.fn(),
   createSessionBuiltinToolOptions: vi.fn(),
   discoverManagedAgentProviderModels: vi.fn(),
+  discoverCodexCliModelDiscovery: vi.fn(),
+  discoverGuiDirectProviderModelDiscovery: vi.fn(),
+  discoverOpencodeCliModelDiscovery: vi.fn(),
   getProjectContextArtifactCache: vi.fn(),
   loadBuiltinToolSurfaceOptions: vi.fn(),
   loadKilnConfig: vi.fn(),
@@ -35,6 +39,9 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 });
 
 vi.mock("@kilnai/runtime", () => ({
+  discoverCodexCliModelDiscovery: benchmarkExecutorMocks.discoverCodexCliModelDiscovery,
+  discoverGuiDirectProviderModelDiscovery: benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery,
+  discoverOpencodeCliModelDiscovery: benchmarkExecutorMocks.discoverOpencodeCliModelDiscovery,
   getProjectContextArtifactCache: benchmarkExecutorMocks.getProjectContextArtifactCache,
   ProviderModelRouteHealthStore: class ProviderModelRouteHealthStore {
     recordOutcome = benchmarkExecutorMocks.recordRouteHealth;
@@ -78,6 +85,30 @@ vi.mock("../../src/config/provider-route-candidates.js", () => ({
 
 vi.mock("../../src/config/builtin-tool-surface-config.js", () => ({
   loadConfiguredBuiltinToolSurfaceOptions: benchmarkExecutorMocks.loadBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection: vi.fn((options, profile) => ({
+    ...options,
+    toolProjection: {
+      mode: "deferred",
+      alwaysOnTools: profile === "read-only" ? [
+        "read",
+        "read_many",
+        "grep",
+        "glob",
+        "tree",
+        "stat",
+        "git",
+        "json_query",
+        "code_intelligence",
+        "web_search",
+        "web_fetch",
+        "web_extract",
+        "kiln_config.read",
+        "work_governance.assess",
+        "work_profile.list",
+        "work_item.list",
+      ] : [],
+    },
+  })),
 }));
 
 vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
@@ -186,7 +217,23 @@ describe("createBenchmarkSessionExecutor", () => {
       ...options,
       artifactResources: { store: {} },
     }));
-    benchmarkExecutorMocks.discoverManagedAgentProviderModels.mockResolvedValue([]);
+    benchmarkExecutorMocks.discoverManagedAgentProviderModels.mockResolvedValue({});
+    benchmarkExecutorMocks.discoverCodexCliModelDiscovery.mockResolvedValue({
+      models: ["benchmark-model"],
+      modelCapabilities: {
+        "benchmark-model": { supportedReasoningEfforts: ["low", "medium", "high"] },
+      },
+      status: "available",
+      reason: "test",
+      authState: "authenticated",
+    });
+    benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery.mockResolvedValue({});
+    benchmarkExecutorMocks.discoverOpencodeCliModelDiscovery.mockResolvedValue({
+      models: [],
+      status: "unavailable",
+      reason: "test",
+      authState: "unknown",
+    });
     benchmarkExecutorMocks.getProjectContextArtifactCache.mockResolvedValue({});
     benchmarkExecutorMocks.loadBuiltinToolSurfaceOptions.mockResolvedValue({
       memoryResources: {
@@ -240,10 +287,37 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "Only one sentence.",
         attempts: [],
         exactArtifacts: [],
+        finalCostEvidence: {
+          kind: "subscription",
+          currency: "USD",
+          amountUsd: 0,
+          comparable: false,
+          reason: "subscription billing does not expose per-call metered charges",
+        },
         finalCostUsd: 0,
         inputTokens: 4,
         lastError: null,
         outputTokens: 3,
+        providerRequests: [{
+          requestIndex: 0,
+          inputTokens: 4,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          cumulativeInputTokens: 4,
+          cumulativeOutputTokens: 3,
+          cumulativeCacheReadTokens: 0,
+          cumulativeCacheWriteTokens: 0,
+          systemBytes: 100,
+          messageBytes: 50,
+          toolSchemaBytes: 25,
+          systemHash: "sha256:system",
+          messageHash: "sha256:message",
+          toolSchemaHash: "sha256:tools",
+          stablePrefixHash: "sha256:prefix",
+          toolCount: 2,
+          stopReason: "end_turn",
+        }],
         sessionSucceeded: true,
         successfulModelId: "benchmark-model",
         successfulProviderId: "codex",
@@ -270,12 +344,102 @@ describe("createBenchmarkSessionExecutor", () => {
     });
 
     expect(result.output).toBe("Only one sentence.");
+    expect(result.metadata).toMatchObject({
+      costEvidence: {
+        kind: "subscription",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: false,
+      },
+      providerRequests: [expect.objectContaining({
+        requestIndex: 0,
+        cumulativeInputTokens: 4,
+        toolSchemaBytes: 25,
+        stablePrefixHash: "sha256:prefix",
+      })],
+    });
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       output: expect.objectContaining({ mode: "answer" }),
+      sessionConfig: expect.objectContaining({
+        executionEnvelope: { toolRounds: { max: 8 } },
+        requestedAuthority: "read_only",
+      }),
     }));
+    expect(createManagedDirectProviderAdapterFactory).toHaveBeenCalledWith(expect.objectContaining({
+      executionEnvelope: { toolRounds: { max: 8 } },
+    }));
+    expect(benchmarkExecutorMocks.createSessionBuiltinToolOptions).toHaveBeenCalledWith(expect.objectContaining({
+      toolProjection: {
+        mode: "deferred",
+        alwaysOnTools: expect.arrayContaining([
+          "read",
+          "read_many",
+          "web_search",
+          "work_item.list",
+        ]),
+      },
+    }));
+    const projectedTools = benchmarkExecutorMocks.createSessionBuiltinToolOptions.mock.calls[0]?.[0]
+      ?.toolProjection?.alwaysOnTools;
+    expect(projectedTools).not.toContain("bash");
+    expect(projectedTools).not.toContain("write");
+    expect(projectedTools).not.toContain("kiln_config.propose_change");
+    expect(projectedTools).not.toContain("kiln_config.apply_change");
+    expect(projectedTools).not.toContain("work_item.update");
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("[tool] status"));
+  });
+
+  it("resolves supported reasoning effort and records the exact route evidence", async () => {
+    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
+      { provider: "codex", model: "benchmark-model" },
+    ]);
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        provider: "codex",
+        model: "benchmark-model",
+        reasoningEffort: "high",
+      },
+    });
+
+    const result = await executor("Return exactly one sentence.", makeBenchmarkContext({
+      id: "reasoning-effort",
+      input: "Return exactly one sentence.",
+    }));
+
+    expect(result.metadata?.reasoningEffortResolution).toEqual({
+      status: "resolved",
+      requested: "high",
+      resolved: "high",
+      source: "explicit",
+    });
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
+      routeCandidates: [{ provider: "codex", model: "benchmark-model", reasoningEffort: "high" }],
+      sessionConfig: expect.objectContaining({ reasoningEffort: "high" }),
+    }));
+  });
+
+  it("fails closed when requested effort lacks provider capability evidence", async () => {
+    const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
+    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
+      { provider: "codex", model: "unknown-model" },
+    ]);
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        provider: "codex",
+        model: "unknown-model",
+        reasoningEffort: "high",
+      },
+    });
+
+    await expect(executor("Return exactly one sentence.", makeBenchmarkContext({
+      id: "unsupported-effort",
+      input: "Return exactly one sentence.",
+    }))).rejects.toThrow("capability-unknown");
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
 
   it("keeps abandoned provider partial output and fallback telemetry out of stdout", async () => {
@@ -297,6 +461,13 @@ describe("createBenchmarkSessionExecutor", () => {
           { providerId: "opencode", succeeded: true, error: null },
         ],
         exactArtifacts: [],
+        finalCostEvidence: {
+          kind: "subscription",
+          currency: "USD",
+          amountUsd: 0,
+          comparable: false,
+          reason: "subscription billing does not expose per-call metered charges",
+        },
         finalCostUsd: 0,
         inputTokens: 4,
         lastError: null,
@@ -332,6 +503,13 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "failed partial",
         attempts: [{ providerId: "codex", succeeded: false, error: "Provider failed" }],
         exactArtifacts: ["Provider error: Provider failed"],
+        finalCostEvidence: {
+          kind: "unknown",
+          currency: "unknown",
+          amountUsd: 0,
+          comparable: false,
+          reason: "metered pricing is missing for provider/model",
+        },
         finalCostUsd: 0,
         inputTokens: 4,
         lastError: "Provider failed",
@@ -355,6 +533,7 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(result.metadata).toMatchObject({
       sessionSucceeded: false,
       policyViolations: ["Provider failed"],
+      routeFailures: ["codex: Provider failed"],
     });
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
@@ -369,6 +548,13 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "timeout partial",
         attempts: [{ providerId: "codex", succeeded: false, error: "Timed out after 1000ms" }],
         exactArtifacts: ["Provider error: Timed out after 1000ms"],
+        finalCostEvidence: {
+          kind: "unknown",
+          currency: "unknown",
+          amountUsd: 0,
+          comparable: false,
+          reason: "metered pricing is missing for provider/model",
+        },
         finalCostUsd: 0,
         inputTokens: 4,
         lastError: "Timed out after 1000ms",

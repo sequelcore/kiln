@@ -79,6 +79,18 @@ Lifecycle evidence includes:
 The GUI is the first practical consumer, but it reads the same
 lifecycle evidence resources used by every other surface.
 
+## Reads
+
+Use `memory_search` when a model-facing or operator-facing session needs to
+consult memory directly. The tool searches governed Memory Lattice context and
+returns readable matched records plus the bounded graph evidence used to find
+them. It is a native adapter over the same `kiln://memory/...` resource plane,
+so it inherits the same read authority and does not create a private memory
+backend.
+
+Use `resource_read` for exact `kiln://memory/...` resources when a caller
+already has a graph, node, relation, provenance, lifecycle, or admission URI.
+
 ## Writes
 
 Use governed write paths:
@@ -137,9 +149,16 @@ evidence and are visible through Memory Lattice resources.
 
 ## Configuration
 
-The current local backing store is SQLite. Project CLI surfaces use
-`.kiln/memory.db`; gateway apps use their resolved app memory base path. YAML
-can declare model-facing memory authority through `permissions.memory` and
-agent-scoped overrides. Lifecycle retention, sync policy, and admission-policy
-references remain separate policy concerns. YAML must not define GUI layout or
-duplicate memory contracts.
+The current local backing store is SQLite. CLI surfaces store mutable memory
+under Kiln user app state, keyed by normalized project identity. They must not
+create `.kiln/memory.db` in arbitrary working directories as an implicit side
+effect. Project-local `.kiln/` remains for explicit project config, repo
+shims, and governed projections.
+
+Project-local `.kiln/memory.db` files are not supported Kiln state. Remove them
+from workspaces instead of importing them into the current storage contract.
+Gateway apps continue to use their resolved app memory base path. YAML can
+declare model-facing memory authority through `permissions.memory` and
+agent-scoped overrides. Lifecycle retention, sync policy, and
+admission-policy references remain separate policy concerns. YAML must not
+define GUI layout or duplicate memory contracts.

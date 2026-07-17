@@ -11,9 +11,11 @@ const {
   mockSessionManagerPrepare,
   mockResolveGuiOperatorDiscoveryResults,
   mockProjectGuiOperatorModels,
+  mockProjectGuiProviderModelDiscovery,
   mockResolveGuiProviderSwitch,
   mockCreateProviderCatalogService,
   mockDeriveGovernedTurnOutcomeFromToolRecords,
+  mockGlobalConfig,
 } = vi.hoisted(() => ({
   mockGatewaySessionCtor: vi.fn(),
   mockWaitForGateway: vi.fn(),
@@ -48,6 +50,27 @@ const {
       entry.available ? [[entry.provider, entry.models]] : []
     )))
   )),
+  mockProjectGuiProviderModelDiscovery: vi.fn((discovery: Array<{ provider: string; models: string[] }>) => ({
+    catalogEvidence: {
+      status: "complete",
+      source: {
+        kind: "test",
+        id: "tui-session-persistence",
+      },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: {
+        total: discovery.length,
+        returned: discovery.length,
+        omitted: 0,
+      },
+    },
+    entries: discovery.flatMap((provider) => provider.models.map((model) => ({
+      providerRoute: { providerId: provider.provider, providerModelId: model, scope: "provider" },
+      normalizedModel: { providerId: provider.provider, modelId: model },
+      freshness: { status: "fresh", observedAt: "2026-07-01T00:00:00.000Z" },
+      eligibility: { eligible: true, reasonCodes: [] },
+    }))),
+  })),
   mockCreateProviderCatalogService: vi.fn((resolveDiscovery: () => Promise<readonly unknown[]>, emptyDiscovery: readonly unknown[]) => {
     let discovery = emptyDiscovery;
     const listeners = new Set<(snapshot: { status: string; discovery: readonly unknown[] }) => void>();
@@ -76,10 +99,19 @@ const {
   mockResolveGuiProviderSwitch: vi.fn((input: {
     provider: string;
     model?: string;
-    models: Record<string, string[]>;
+    discovery?: ReadonlyArray<{ provider: string; models: string[] }>;
+    providerModelDiscovery?: {
+      entries: ReadonlyArray<{
+        providerRoute: { providerId: string; providerModelId: string };
+      }>;
+    };
   }) => {
     const provider = input.provider.trim();
-    const providerModels = input.models[provider];
+    const providerModels = provider === "claude"
+      ? input.discovery?.find((entry) => entry.provider === provider)?.models
+      : input.providerModelDiscovery?.entries
+          .filter((entry) => entry.providerRoute.providerId === provider)
+          .map((entry) => entry.providerRoute.providerModelId);
     if (!providerModels) {
       return { ok: false, error: `Provider '${provider}' is unavailable` } as const;
     }
@@ -122,6 +154,9 @@ const {
       ? "failed"
       : undefined
   )),
+  mockGlobalConfig: {
+    value: null as { ui?: { theme?: string } } | null,
+  },
 }));
 
 vi.mock("@kilnai/tui", () => ({
@@ -224,6 +259,7 @@ vi.mock("@kilnai/runtime", () => ({
   resolveGuiOperatorDiscoveryResults: mockResolveGuiOperatorDiscoveryResults,
   markGuiProviderDiscoveryStale: (discovery: readonly unknown[]) => discovery,
   projectGuiOperatorModels: mockProjectGuiOperatorModels,
+  projectGuiProviderModelDiscovery: mockProjectGuiProviderModelDiscovery,
   createProviderCatalogService: mockCreateProviderCatalogService,
   deriveGovernedTurnOutcomeFromToolRecords: mockDeriveGovernedTurnOutcomeFromToolRecords,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
@@ -235,7 +271,7 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
   },
 }));
 vi.mock("../../src/config/global-config.js", () => ({
-  readGlobalConfig: vi.fn(() => null),
+  readGlobalConfig: vi.fn(() => mockGlobalConfig.value),
   resolveGlobalDefaultProvider: () => undefined,
   resolveGlobalDefaultModel: () => undefined,
   resolveGlobalUiTheme: () => undefined,
@@ -353,6 +389,7 @@ describe("makeMultiProviderSessionFactory", () => {
     mockWaitForGateway.mockResolvedValue(undefined);
     mockGetProjectContextArtifactCache.mockResolvedValue(new InMemoryContextArtifactCache());
     mockSessionManagerPrepare.mockRejectedValue(new Error("missing gateway config"));
+    mockGlobalConfig.value = null;
     mockStartTuiGateway.mockResolvedValue({
       port: 4801,
       url: "ws://localhost:4801/ws",
@@ -402,6 +439,35 @@ describe("makeMultiProviderSessionFactory", () => {
 
     expect(registry.createSession).toHaveBeenCalled();
     expect(sessions[0]?.continuationSessionId).toBeUndefined();
+  });
+
+  it("passes the parent runtime authority and workspace into the provider session", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+    const { factory } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/fallback",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+    );
+    const session = factory("sys", "/workspace/kiln", {
+      requestedAuthority: "destructive",
+    });
+
+    for await (const _ of session.run({ prompt: "execute managed work" } as any)) {}
+
+    expect(registry.createSession).toHaveBeenCalledWith(
+      "codex-oauth",
+      expect.objectContaining({
+        cwd: "/workspace/kiln",
+        requestedAuthority: "destructive",
+      }),
+    );
   });
 
   it("passes the persisted transcript turn id into GUI provider session runs", async () => {
@@ -505,6 +571,17 @@ describe("makeMultiProviderSessionFactory", () => {
     );
   });
 
+  it("does not pass a default tool-round budget into the interactive TUI gateway", async () => {
+    await tuiCommand(APP_CONFIG as never, {
+      cwd: "/p",
+      provider: "claude",
+    });
+
+    expect(mockStartTuiGateway).toHaveBeenCalledWith(
+      expect.not.objectContaining({ maxToolRounds: expect.anything() }),
+    );
+  });
+
   it("passes the stable Kiln session id into recreated provider sessions", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry();
@@ -533,7 +610,7 @@ describe("makeMultiProviderSessionFactory", () => {
     );
   });
 
-  it("attaches managed invocation resources to recreated provider sessions", async () => {
+  it("does not attach globally visible managed invocation resources to recreated provider sessions", async () => {
     const { store } = makeStore(null);
     const { registry } = makeRegistry();
     const transcriptStore = makeTranscriptStore();
@@ -551,10 +628,17 @@ describe("makeMultiProviderSessionFactory", () => {
       undefined,
       "tui",
       {
-        routes: [],
-        requestedBy: "assistant",
-        requestSource: "tui",
-        invocationService,
+        callerIdentity: {
+          kind: "kiln-runtime",
+          surface: "tui",
+          attachmentId: "kiln-runtime:tui",
+        },
+        options: {
+          routes: [],
+          requestedBy: "assistant",
+          requestSource: "tui",
+          invocationService,
+        },
       } as any,
     );
     const session = factory("sys", "/p");
@@ -562,13 +646,7 @@ describe("makeMultiProviderSessionFactory", () => {
     for await (const _ of session.run({ prompt: "managed resources" } as any)) {}
 
     const options = vi.mocked(registry.createSession).mock.calls[0]?.[1]?.builtinToolOptions;
-    expect(options?.resourceProviders).toContainEqual(expect.objectContaining({
-      kind: "managed-invocation-resource-provider",
-      input: expect.objectContaining({
-        artifactStore: expect.any(Object),
-        service: invocationService,
-      }),
-    }));
+    expect(options?.resourceProviders).toBeUndefined();
   });
 
   it("shares builtin resource state across recreated provider sessions", async () => {
@@ -737,6 +815,7 @@ describe("makeMultiProviderSessionFactory", () => {
             inputTokens: 30,
             outputTokens: 12,
             cacheReadTokens: 3,
+            cacheWriteTokens: 7,
           };
           yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
         }),
@@ -766,6 +845,7 @@ describe("makeMultiProviderSessionFactory", () => {
         inputTokens: 30,
         outputTokens: 12,
         cacheReadTokens: 3,
+        cacheWriteTokens: 7,
       },
     });
     expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
@@ -775,6 +855,7 @@ describe("makeMultiProviderSessionFactory", () => {
         inputTokens: 30,
         outputTokens: 12,
         cacheReadTokens: 3,
+        cacheWriteTokens: 7,
       }],
     });
   });
@@ -806,7 +887,14 @@ describe("makeMultiProviderSessionFactory", () => {
       cache,
       undefined,
       "gui",
-      { routes: [] },
+      {
+        callerIdentity: {
+          kind: "kiln-runtime",
+          surface: "gui",
+          attachmentId: "kiln-runtime:gui",
+        },
+        options: { routes: [] },
+      },
     );
     const session = factory("sys", "/proj");
     const run = session.run({ prompt: "start a managed child", kilnSessionId: "sess-managed-events" } as any);
@@ -968,6 +1056,58 @@ describe("makeMultiProviderSessionFactory", () => {
     ]));
     expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
       lastTurnOutcome: "failed",
+      sessionLedger: {
+        currentPhase: "completed",
+      },
+    });
+  });
+
+  it("keeps persisted GUI-command turns completed when governance assessment is only advisory", async () => {
+    const { store } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+      createSession: vi.fn().mockReturnValue({
+        sessionId: "sess-governance-advisory",
+        providerSessionId: "prov-governance-advisory",
+        dispose: vi.fn().mockResolvedValue(undefined),
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
+          yield { type: "tool_result", toolName: "web_search", output: "1 source for kiln docs\n1. Kiln docs https://docs.example.com/kiln" };
+          yield { type: "text_delta", content: "Research complete with cited sources." };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+        }),
+      }),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+
+    const { factory } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+    );
+    const session = factory("sys", "/proj");
+    for await (const _ of session.run({ prompt: "research local search" } as any)) {}
+
+    const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
+    expect(appendedEvents.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      payload: {
+        outcome: "completed",
+      },
+      source: {
+        surface: "gui",
+        component: "gui-command",
+      },
+    });
+    expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
+      lastTurnOutcome: "completed",
       sessionLedger: {
         currentPhase: "completed",
       },
@@ -1462,6 +1602,43 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(mockStartTui).not.toHaveBeenCalled();
   });
 
+  it("does not synthesize gateway admission when provider model discovery is absent", async () => {
+    const previousTransport = process.env.KILN_TUI_TRANSPORT;
+    delete process.env.KILN_TUI_TRANSPORT;
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-gateway-authority-"));
+
+    mockStartTuiGateway.mockResolvedValue({
+      port: 4801,
+      url: "ws://localhost:4801/ws",
+      models: { openai: ["gpt-5.4"] },
+      providerDiscovery: [{
+        provider: "openai",
+        available: true,
+        models: ["gpt-5.4"],
+        status: "available",
+        reason: "Observed model catalog.",
+        authState: "authenticated",
+        lastCheckedAt: "2026-07-01T12:00:00.000Z",
+      }],
+      shutdown: vi.fn(),
+    });
+
+    try {
+      await expect(tuiCommand(APP_CONFIG, { cwd, provider: "openai" })).rejects.toThrow(
+        "Provider 'openai' is not available in the runtime TUI model catalog. Available providers: none",
+      );
+    } finally {
+      process.env.KILN_TUI_TRANSPORT = previousTransport;
+      await rm(cwd, { recursive: true, force: true });
+    }
+
+    expect(mockProjectGuiProviderModelDiscovery).not.toHaveBeenCalled();
+    expect(mockStartTui).not.toHaveBeenCalled();
+  });
+
   it("accepts pending direct bootstrap and fails closed when a direct-api provider remains undiscovered", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
     process.env.KILN_TUI_TRANSPORT = "direct";
@@ -1640,6 +1817,6 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(switchToModelessProviderResult).toBe("claude");
     expect(directApiSwitchError).toContain("model");
     expect(mockResolveGuiOperatorDiscoveryResults).toHaveBeenCalled();
-    expect(mockProjectGuiOperatorModels).toHaveBeenCalled();
+    expect(mockProjectGuiProviderModelDiscovery).toHaveBeenCalled();
   });
 });

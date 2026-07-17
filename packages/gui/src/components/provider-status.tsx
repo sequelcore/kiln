@@ -1,8 +1,8 @@
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
-import type { GuiAuthorityStatus } from "@kilnai/gateway-contracts";
 import { ChevronDownIcon } from "lucide-react";
 import { useSessionStore } from "../lib/session-store.js";
 import { Button } from "@/components/ui/button";
+import { formatAuthorityStatus } from "../lib/authority-status-view.js";
 
 interface ProviderStatusProps {
   readonly onOpenPicker: () => void;
@@ -35,16 +35,6 @@ function formatWorkingDirectory(workingDirectory: string | undefined): string {
   return tail ? `.../${tail}` : normalized;
 }
 
-function formatAuthorityStatus(authorityStatus: GuiAuthorityStatus | null): string {
-  if (!authorityStatus) {
-    return "authority: unknown";
-  }
-  const requested = authorityStatus.requestedAuthority ?? "unknown";
-  const admitted = authorityStatus.admittedAuthority ?? authorityStatus.effective;
-  const sandbox = authorityStatus.sandboxProjection ? ` · sandbox ${authorityStatus.sandboxProjection}` : "";
-  return `authority: ${requested} -> ${admitted}${sandbox} · ${authorityStatus.completeness}`;
-}
-
 export function ProviderStatus(props: ProviderStatusProps) {
   const providers = useSessionStore((state) => state.providers);
   const activeProvider = useSessionStore((state) => state.activeProvider);
@@ -68,26 +58,20 @@ export function ProviderStatus(props: ProviderStatusProps) {
   const compactLabel = displayProviderId
     ? `${displayLabel} / ${modelLabel}`
     : "Select provider / model";
-  const authorityLabel = formatAuthorityStatus(authorityStatus);
+  const authorityStatusLabel = formatAuthorityStatus(authorityStatus);
 
   if (props.compact) {
     return (
       <Button
         type="button"
-        variant={routeMode === "responding" ? "secondary" : "outline"}
+        variant={routeMode === "responding" ? "secondary" : "ghost"}
         size="sm"
-        aria-label={`Provider selector. Current selection: ${compactLabel}. ${authorityLabel}. Click to change.`}
+        aria-label={`Provider selector. Current selection: ${compactLabel}. ${authorityStatusLabel}. Click to change.`}
+        aria-live="polite"
         onClick={props.onOpenPicker}
-        className="h-auto min-w-0 max-w-full justify-start py-1.5 text-left"
+        className="h-8 min-w-0 max-w-full shrink justify-start px-2 text-left"
       >
-        <span className="grid min-w-0 gap-0.5">
-          <span className="min-w-0 truncate">
-            {compactLabel}
-          </span>
-          <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/80">
-            {authorityLabel}
-          </span>
-        </span>
+        <span className="min-w-0 truncate">{providerSwitching ? "Switching provider..." : compactLabel}</span>
         <ChevronDownIcon data-icon="inline-end" />
       </Button>
     );
@@ -97,13 +81,13 @@ export function ProviderStatus(props: ProviderStatusProps) {
     <Button
       type="button"
       variant={routeMode === "responding" ? "secondary" : "outline"}
-      aria-label={`Provider selector. Current selection: ${compactLabel}. ${authorityLabel}. Click to change.`}
+      aria-label={`Provider selector. Current selection: ${compactLabel}. ${authorityStatusLabel}. Click to change.`}
       onClick={props.onOpenPicker}
       title={[
         `domain: ${props.domainLabel ?? "—"}`,
         `cwd: ${props.workingDirectory ?? "—"}`,
       ].join("\n")}
-      className="h-auto min-w-0 justify-start text-left"
+      className="h-auto min-w-0 shrink justify-start text-left"
     >
       <span className="grid min-w-0 gap-1">
         <span className="flex min-w-0 items-center gap-1.5">
@@ -118,7 +102,7 @@ export function ProviderStatus(props: ProviderStatusProps) {
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-muted-foreground/75">
           <span>domain: {props.domainLabel ?? "—"}</span>
           <span>cwd: {formatWorkingDirectory(props.workingDirectory)}</span>
-          <span>{authorityLabel}</span>
+          <span>{authorityStatusLabel}</span>
         </span>
       </span>
       {providerSwitching ? (

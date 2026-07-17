@@ -54,6 +54,7 @@ import {
   type RunOutputController,
   type RunOutputMode,
 } from "../application/run-output.js";
+import { buildCliVerifiedEfficiencyEvidence } from "../application/verified-efficiency-evidence.js";
 import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
 import {
   TranscriptStore,
@@ -70,13 +71,17 @@ import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
-import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import {
+  loadConfiguredBuiltinToolSurfaceOptions,
+  withProgressiveRuntimeToolProjection,
+} from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   createCliTranscriptBudgetUsageReader,
   createRuntimeBudgetAdmissionFromGlobalConfig,
   projectGlobalRoutingBudgetPolicy,
 } from "../application/runtime-budget-admission.js";
+import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
@@ -85,26 +90,34 @@ import {
   admitManagedAgentOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
   createSessionBuiltinToolOptions,
-  type CanonicalSessionEventKind,
   type ManagedAgentOrchestrationAdmissionLimits,
   type ReasoningEffort,
-  type SessionEventSource,
   VerificationResult,
   formatProviderModelRouteCooldown,
   mapProviderModelRouteErrorToOutcome,
   scoreComplexity,
 } from "@kilnai/core";
 import {
+  attachManagedInvocationSessionEventSink,
   ProviderModelRouteHealthStore,
+  discoverGuiCliOperatorModels,
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
-  runManagedAgentFanOutLifecycle,
+  probeCodexCliModelReadiness,
+  runManagedAgentOrchestrationLifecycle,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
+  normalizeContextUsageProjection,
 } from "@kilnai/runtime";
+import {
+  managedInvocationPersistedTranscriptEventDrafts,
+  operatorTranscriptSourceForEntry,
+  projectGovernanceTranscriptEventDrafts,
+  projectOperatorTranscriptEntryToDraft,
+} from "../application/operator-transcript-projection.js";
 import type { ContextArtifactCache } from "@kilnai/core";
 import type {
-  ManagedAgentFanOutBudgetAdmissionInput,
+  ManagedAgentOrchestrationBudgetAdmissionInput,
   ManagedInvocationToolOptions,
   RuntimeBudgetUsageReader,
 } from "@kilnai/runtime";
@@ -192,6 +205,11 @@ export const PLAN_POLICY: KilnPermissionPolicy = {
       reason: "Plan mode may discover available governed tools without granting execution authority.",
     },
     {
+      tool: "memory_search",
+      action: "allow",
+      reason: "Plan mode may search governed read-only memory context.",
+    },
+    {
       tool: "read",
       action: "allow",
       reason: "Plan mode requires read-only file inspection.",
@@ -245,6 +263,7 @@ interface RunProviderModelDiscovery {
   readonly models: readonly string[];
   readonly status: string;
   readonly reason: string;
+  readonly modelReadinessFailures?: Readonly<Record<string, string>>;
 }
 
 export type RunProviderModelAdmission =
@@ -256,7 +275,12 @@ export function resolveRunProviderModelAdmission(input: {
   readonly model: string | undefined;
   readonly discovery: Readonly<Record<string, RunProviderModelDiscovery | undefined>>;
 }): RunProviderModelAdmission {
-  if (!isDirectApiProvider(input.provider)) {
+  if (!modelDiscoveryCanValidateProvider(input.provider)) {
+    return { ok: true };
+  }
+
+  const model = input.model?.trim() ?? "";
+  if (!isDirectApiProvider(input.provider) && model.length === 0) {
     return { ok: true };
   }
 
@@ -274,11 +298,17 @@ export function resolveRunProviderModelAdmission(input: {
     };
   }
 
-  const model = input.model?.trim() ?? "";
   if (model.length === 0) {
     return {
       ok: false,
       error: `Provider '${input.provider}' requires a selected model.`,
+    };
+  }
+  const modelReadinessFailure = discovery.modelReadinessFailures?.[model];
+  if (modelReadinessFailure) {
+    return {
+      ok: false,
+      error: modelReadinessFailure,
     };
   }
   if (!discovery.models.includes(model)) {
@@ -289,6 +319,17 @@ export function resolveRunProviderModelAdmission(input: {
   }
 
   return { ok: true };
+}
+
+function modelDiscoveryCanValidateProvider(provider: ProviderId | undefined): provider is ProviderId {
+  return provider === "codex" || provider === "opencode" || isDirectApiProvider(provider);
+}
+
+function requiresCliWrapperModelDiscovery(candidate: RunSessionRouteCandidate): boolean {
+  return (
+    (candidate.provider === "codex" || candidate.provider === "opencode")
+    && (candidate.model?.trim().length ?? 0) > 0
+  );
 }
 
 function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
@@ -307,6 +348,7 @@ interface AdmittedRunRouteCandidate extends RunSessionRouteCandidate {
 async function resolveAdmittedRunRouteCandidates(input: {
   readonly candidates: readonly RunSessionRouteCandidate[];
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
+  readonly cwd: string;
   readonly env: Record<string, string>;
   readonly routeHealthStore: ProviderModelRouteHealthStore;
 }): Promise<{
@@ -325,19 +367,39 @@ async function resolveAdmittedRunRouteCandidates(input: {
         ...input.env,
       })
     : {};
+  const wrapperCandidates = input.candidates.filter(requiresCliWrapperModelDiscovery);
+  const cliDiscovery = wrapperCandidates.length > 0
+    ? await discoverGuiCliOperatorModels({
+        ...getRuntimeProviderAvailability(input.registry),
+        codex: wrapperCandidates.some((candidate) => candidate.provider === "codex"),
+        opencode: wrapperCandidates.some((candidate) => candidate.provider === "opencode"),
+      })
+    : undefined;
+  const codexDiscovery = cliDiscovery
+    ? await extendCodexDiscoveryWithReadinessProbes({
+        discovery: cliDiscovery.codexDiscovery,
+        candidates: wrapperCandidates.filter((candidate) => candidate.provider === "codex"),
+        cwd: input.cwd,
+        env: input.env,
+      })
+    : undefined;
+  const providerDiscovery: Record<string, RunProviderModelDiscovery | undefined> = {
+    ...directDiscovery,
+    ...(cliDiscovery
+      ? {
+          codex: codexDiscovery,
+          opencode: cliDiscovery.opencodeDiscovery,
+        }
+      : {}),
+  };
 
   const admitted: AdmittedRunRouteCandidate[] = [];
   const routeCapabilities = new Map<string, { readonly supportedReasoningEfforts?: readonly ReasoningEffort[] }>();
   for (const candidate of input.candidates) {
-    if (!isDirectApiProvider(candidate.provider)) {
-      admitted.push(candidate as AdmittedRunRouteCandidate);
-      continue;
-    }
-
     const admission = resolveRunProviderModelAdmission({
       provider: candidate.provider,
       model: candidate.model,
-      discovery: directDiscovery,
+      discovery: providerDiscovery,
     });
     if (!admission.ok) {
       rejectedReasons.push(`${formatRouteCandidate(candidate)}: ${admission.error}`);
@@ -363,6 +425,44 @@ async function resolveAdmittedRunRouteCandidates(input: {
   }
 
   return { candidates: admitted, rejectedReasons, routeCapabilities };
+}
+
+async function extendCodexDiscoveryWithReadinessProbes(input: {
+  readonly discovery: RunProviderModelDiscovery;
+  readonly candidates: readonly RunSessionRouteCandidate[];
+  readonly cwd: string;
+  readonly env: Record<string, string>;
+}): Promise<RunProviderModelDiscovery> {
+  let discovery = input.discovery;
+  for (const candidate of input.candidates) {
+    const model = candidate.model?.trim();
+    if (!model || discovery.models.includes(model)) {
+      continue;
+    }
+    const readiness = await probeCodexCliModelReadiness({
+      model,
+      reasoningEffort: candidate.reasoningEffort,
+      cwd: input.cwd,
+      env: input.env,
+    });
+    if (!readiness.runnable) {
+      discovery = {
+        ...discovery,
+        modelReadinessFailures: {
+          ...(discovery.modelReadinessFailures ?? {}),
+          [model]: readiness.reason,
+        },
+      };
+      continue;
+    }
+    discovery = {
+      ...discovery,
+      status: "available",
+      reason: readiness.reason,
+      models: [...discovery.models, model],
+    };
+  }
+  return discovery;
 }
 
 function routeKey(provider: string, model: string): string {
@@ -605,8 +705,8 @@ async function readSubmittedPlanFromTranscript(projectPath: string, sessionId: s
   }
 }
 
-async function promptForPlanApproval(): Promise<boolean> {
-  process.stdout.write("Approve and execute? [y/N]: ");
+async function promptForConfirmation(message: string): Promise<boolean> {
+  process.stdout.write(message);
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -628,6 +728,34 @@ async function promptForPlanApproval(): Promise<boolean> {
 
   rl.close();
   return answer.trim().toLowerCase() === "y";
+}
+
+async function promptForPlanApproval(): Promise<boolean> {
+  return promptForConfirmation("Approve and execute? [y/N]: ");
+}
+
+export function createCliRuntimeApprovalHandler(input: {
+  readonly outputMode: RunOutputMode;
+  readonly inputInteractive: boolean;
+  readonly outputInteractive: boolean;
+  readonly prompt?: (description: string) => Promise<boolean>;
+}): ((description: string) => Promise<{ readonly approved: boolean; readonly reason: string }>) | undefined {
+  if (input.outputMode !== "human" || !input.inputInteractive || !input.outputInteractive) {
+    return undefined;
+  }
+  const prompt = input.prompt ?? (async (description: string) => {
+    process.stdout.write(`\nApproval required: ${description}\n`);
+    return promptForConfirmation("Approve this action? [y/N]: ");
+  });
+  return async (description) => {
+    const approved = await prompt(description);
+    return {
+      approved,
+      reason: approved
+        ? "Approved by the interactive CLI operator."
+        : "Denied by the interactive CLI operator.",
+    };
+  };
 }
 
 export async function runCommand(
@@ -723,17 +851,22 @@ export async function runCommand(
     text: task,
     agentTaskAffinity: resolvedAgent?.taskAffinity,
   });
-  const configuredRouteCandidates = resolveProviderRouteCandidates({
+  const agentProviderRouteCandidate: RunSessionRouteCandidate | undefined = resolvedAgent?.providerRoute
+    ? {
+      provider: resolvedAgent.providerRoute.providerId as ProviderId,
+      ...(resolvedAgent.providerRoute.model ? { model: resolvedAgent.providerRoute.model } : {}),
+    }
+    : undefined;
+  const configuredRouteCandidates = [
+    ...(agentProviderRouteCandidate && !flags.provider && !flags.model ? [agentProviderRouteCandidate] : []),
+    ...resolveProviderRouteCandidates({
     globalConfig,
     flagProvider: flags.provider,
     flagModel: flags.model,
     taskText: task,
     agentTaskAffinity: resolvedAgent?.taskAffinity,
-  }).map((candidate) => (
-    candidate.model || !resolvedAgent?.model
-      ? candidate
-      : { ...candidate, model: resolvedAgent.model }
-  ));
+    }),
+  ];
   const preferredProvider = configuredRouteCandidates[0]?.provider;
   if (
     flags.requestedAuthority
@@ -756,8 +889,7 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
   const effectiveModel = configuredRouteCandidates[0]?.model
-    ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig))
-    ?? resolvedAgent?.model;
+    ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig));
   const config = buildConfig({ ...flags, provider: preferredProvider }, mode);
   let identityAppConfig = withWorkGovernanceContext(
     withGlobalIdentityContext(resolvedAppConfig, globalConfig),
@@ -904,6 +1036,7 @@ export async function runCommand(
     ? await resolveAdmittedRunRouteCandidates({
         candidates: configuredRouteCandidates,
         registry,
+        cwd,
         env,
         routeHealthStore: directRouteHealthStore ?? new ProviderModelRouteHealthStore(),
       })
@@ -952,7 +1085,7 @@ export async function runCommand(
     });
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
-  let builtinToolOptions = createSessionBuiltinToolOptions({
+  let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
     goalRunStore,
@@ -965,16 +1098,21 @@ export async function runCommand(
         ownerSessionId: approvalMemorySessionId,
       }),
     ],
-  });
+  }, "execute"));
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
     cwd,
     registry,
     surface: "run",
+    maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
+    ...(runtimeBudgetAdmission ? { orchestrationBudgetAdmission: runtimeBudgetAdmission } : {}),
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
-    providerModels: managedAgentProviderModels,
-    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions: () => builtinToolOptions, runtimeEnv: env }),
+    providerModelEligibility: managedAgentProviderModels,
+    directAdapterFactory: createManagedDirectProviderAdapterFactory({
+      builtinToolOptions: () => builtinToolOptions,
+      runtimeEnv: env,
+    }),
     builtinToolOptions: () => builtinToolOptions,
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
@@ -982,9 +1120,20 @@ export async function runCommand(
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
+  const managedInvocationAttachment = managedInvocationWithService
+    ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService)
+    : undefined;
+  const managedInvocationWithTranscriptSink = attachManagedInvocationSessionEventSink(managedInvocationAttachment, {
+    publish: async (events) => {
+      await transcriptStore.appendManyNext(sessionId, managedInvocationPersistedTranscriptEventDrafts(events));
+    },
+  });
   builtinToolOptions = withManagedAgentInvocationResourceProvider(
     builtinToolOptions,
-    managedInvocationWithService ? { service: managedInvocationWithService.invocationService } : undefined,
+    managedInvocationWithService ? {
+      service: managedInvocationWithService.invocationService,
+      parentSessionId: sessionId,
+    } : undefined,
   );
 
   const initialMetadata = deriveSessionMetadata({
@@ -1168,7 +1317,7 @@ export async function runCommand(
     addDir: flags.addDir,
     localProvider: flags.localProvider,
     builtinToolOptions,
-    managedInvocation: managedInvocationWithService,
+    managedInvocation: managedInvocationWithTranscriptSink,
     ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,
@@ -1180,6 +1329,11 @@ export async function runCommand(
     workingDirectory: context.workingDirectory,
   });
   const approvalMemoryStore: ApprovalMemoryStore = new ApprovalMemoryStoreImpl(cwd);
+  const requestApproval = createCliRuntimeApprovalHandler({
+    outputMode: runOutput.mode,
+    inputInteractive: process.stdin.isTTY === true,
+    outputInteractive: process.stdout.isTTY === true,
+  });
   const runAbortController = new AbortController();
 
   let signalHandlersRegistered = false;
@@ -1226,6 +1380,7 @@ export async function runCommand(
       sessionHooks,
       abortSignal: runAbortController.signal,
       output: runOutput,
+      ...(requestApproval ? { requestApproval } : {}),
     });
   } catch (error) {
     const errorMessage = errorToMessage(error);
@@ -1271,6 +1426,18 @@ export async function runCommand(
     submittedPlan: submittedPlanFromSession,
   } = runResult;
 
+  // Harness sessions do not expose a compatible model-window contract. Keep
+  // this single runtime-normalized projection explicit instead of deriving a
+  // percentage from transcript or billing totals.
+  const contextUsage = normalizeContextUsageProjection({
+    providerId: successfulProviderId ?? preferredProvider ?? "unknown",
+    modelId: successfulModelId ?? effectiveModel ?? "unknown",
+    turnId: sessionId,
+    observedAt: new Date().toISOString(),
+    measurement: "runtime_estimate",
+    lifecycle: "completed",
+  });
+
   if (directRouteHealthStore) {
     for (const attempt of attempts) {
       if (!isDirectApiProvider(attempt.providerId) || !attempt.model) {
@@ -1293,20 +1460,22 @@ export async function runCommand(
   }
 
   try {
-    for (const [seq, entry] of transcript.entries()) {
+    for (const entry of transcript) {
       const timestamp = "ts" in entry && typeof entry.ts === "string"
         ? entry.ts
         : new Date().toISOString();
-      const legacyType = typeof entry.event.type === "string" ? entry.event.type : "assistant_message";
-      await transcriptStore.append(sessionId, {
-        eventId: randomUUID(),
+      const eventId = randomUUID();
+      const draft = projectOperatorTranscriptEntryToDraft({
+        eventId,
         kilnSessionId: sessionId,
-        sequence: seq + 1,
         timestamp,
-        kind: mapTranscriptTypeToKind(legacyType),
-        source: mapTranscriptTypeToSource(legacyType),
-        payload: entry.event as Record<string, unknown>,
+        event: entry.event,
+        source: operatorTranscriptSourceForEntry(entry.event, "cli", "run-command"),
       });
+      await transcriptStore.appendManyNext(
+        sessionId,
+        [draft, ...projectGovernanceTranscriptEventDrafts(draft)],
+      );
     }
   } catch {
     // fail-open
@@ -1314,10 +1483,9 @@ export async function runCommand(
 
   if (flags.plan && submittedPlanFromSession !== undefined) {
     try {
-      await transcriptStore.append(sessionId, {
+      await transcriptStore.appendNext(sessionId, {
         eventId: randomUUID(),
         kilnSessionId: sessionId,
-        sequence: transcript.length + 1,
         timestamp: new Date().toISOString(),
         kind: "tool_call_started",
         source: { actor: "tool", surface: "cli", component: "run-command" },
@@ -1427,6 +1595,19 @@ export async function runCommand(
       runOutput.writeTelemetryLine('[kiln] Tip: run "kiln skill capture --last" after configuring ANTHROPIC_API_KEY to capture this session as a skill.');
     }
   }
+
+  try {
+    await transcriptStore.appendNext(sessionId, {
+      eventId: randomUUID(),
+      kilnSessionId: sessionId,
+      timestamp: contextUsage.observedAt,
+      kind: "context_usage_observed",
+      source: { actor: "runtime", surface: "cli", component: "run-command" },
+      payload: { contextUsage },
+    });
+  } catch {
+    // Transcript persistence is best-effort and must not change the run outcome.
+  }
   if (!sessionSucceeded) {
     await transcriptStore.finalize(sessionId, {
       completedAt: new Date().toISOString(),
@@ -1483,6 +1664,7 @@ export async function runCommand(
       completedAt,
       durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
       contextGovernance: previewContextGovernance,
+      contextUsage,
       lastError: appendCleanupFailure(lastError, cleanupErrorMessage),
       attempts,
       exactArtifacts,
@@ -1542,6 +1724,47 @@ export async function runCommand(
     }
   })();
 
+  const contextGovernanceConfig = appConfig.kilnYaml?.contextGovernance;
+  const contextAllocationMode = contextGovernanceConfig?.allocationMode ?? "whole-block";
+  const activeAdaptation = contextGovernanceConfig?.adaptation;
+  const cacheReadTokens = providerTokenUsage.reduce((total, usage) => total + (usage.cacheReadTokens ?? 0), 0);
+  const cacheWriteTokens = providerTokenUsage.reduce((total, usage) => total + (usage.cacheWriteTokens ?? 0), 0);
+  const routeIsAggregate = providersUsed.length > 1;
+  const cliEfficiencyEvidence = buildCliVerifiedEfficiencyEvidence({
+    sessionId,
+    turnId: sessionId,
+    observedAt: new Date().toISOString(),
+    providerId: routeIsAggregate ? "multi-route" : successfulProviderId ?? preferredProvider ?? "unknown",
+    modelId: routeIsAggregate ? "multiple" : successfulModelId ?? effectiveModel ?? "unknown",
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    costUsd: finalCostUsd,
+    outcome: verificationResult?.passed === false ? "failed" : sessionSucceeded ? "succeeded" : "failed",
+    contextAllocationMode,
+    ...(activeAdaptation
+      ? {
+          policySelection: {
+            policyId: activeAdaptation.activePolicyId,
+            configurationHash: activeAdaptation.activeConfigurationHash,
+          },
+        }
+      : {}),
+    ...(verificationResult
+      ? {
+          verificationResults: verificationResult.checks.map((check, index) => ({
+            verificationResultId: `cli-verification-${index + 1}`,
+            status: check.passed ? "passed" as const : "failed" as const,
+            method: "deterministic",
+            evidenceUris: [
+              `kiln://sessions/${encodeURIComponent(sessionId)}/verification/${index + 1}`,
+            ],
+          })),
+        }
+      : {}),
+  }).efficiencyEvidence;
+
   const resumeOutcome: ResumeOutcome = {
     succeeded: sessionSucceeded,
     finalProvider: successfulProviderId,
@@ -1567,6 +1790,8 @@ export async function runCommand(
       resumeFeedback: context.resumeFeedback,
       resumeOutcome,
       contextGovernance: previewContextGovernance,
+      contextUsage,
+      efficiencyEvidence: cliEfficiencyEvidence,
     };
     const finalReport = continuationSessionId
       ? { ...reportWithResumeStrategy, resumedFrom: continuationSessionId }
@@ -1619,6 +1844,8 @@ export async function runCommand(
     durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
     verificationPassed: verificationResult?.passed,
     contextGovernance: previewContextGovernance,
+    contextUsage,
+    efficiencyEvidence: cliEfficiencyEvidence,
     lastError,
     attempts,
     verificationResult,
@@ -1686,6 +1913,8 @@ interface RunOutputEmissionInput {
   readonly durationMs: number;
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
+  readonly contextUsage?: import("@kilnai/gateway-contracts").ContextUsageProjection;
+  readonly efficiencyEvidence?: import("@kilnai/gateway-contracts").VerifiedEfficiencyEvidenceProjection;
   readonly lastError: string | null;
   readonly attempts: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -1709,6 +1938,8 @@ interface RunFailureOutputInput {
   readonly startedAtMs?: number;
   readonly verificationPassed?: boolean;
   readonly contextGovernance?: ReturnType<typeof summarizeContextGovernance>;
+  readonly contextUsage?: import("@kilnai/gateway-contracts").ContextUsageProjection;
+  readonly efficiencyEvidence?: import("@kilnai/gateway-contracts").VerifiedEfficiencyEvidenceProjection;
   readonly lastError: string;
   readonly attempts?: readonly RunSessionAttemptResult[];
   readonly verificationResult?: VerificationResult;
@@ -1737,6 +1968,8 @@ function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureO
     durationMs: Date.now() - (Number.isFinite(startedAtMs) ? startedAtMs : Date.now()),
     verificationPassed: input.verificationPassed,
     contextGovernance: input.contextGovernance,
+    contextUsage: input.contextUsage,
+    efficiencyEvidence: input.efficiencyEvidence,
     lastError: input.lastError,
     attempts: input.attempts ?? [],
     verificationResult: input.verificationResult,
@@ -1761,43 +1994,6 @@ function errorToMessage(error: unknown): string {
 
 function appendCleanupFailure(primaryError: string, cleanupError: string | undefined): string {
   return cleanupError ? `${primaryError}; ${cleanupError}` : primaryError;
-}
-
-function mapTranscriptTypeToKind(type: string): CanonicalSessionEventKind {
-  switch (type) {
-    case "user":
-      return "user_message";
-    case "text_delta":
-      return "assistant_delta";
-    case "tool_use":
-      return "tool_call_started";
-    case "tool_result":
-      return "tool_call_completed";
-    case "cost_update":
-      return "cost_updated";
-    case "error":
-      return "error_recorded";
-    default:
-      return "assistant_message";
-  }
-}
-
-function mapTranscriptTypeToSource(type: string): SessionEventSource {
-  switch (type) {
-    case "user":
-      return { actor: "user", surface: "cli", component: "run-command" };
-    case "text_delta":
-      return { actor: "assistant", surface: "cli", component: "run-command" };
-    case "tool_use":
-    case "tool_result":
-      return { actor: "tool", surface: "cli", component: "run-command" };
-    case "cost_update":
-      return { actor: "runtime", surface: "cli", component: "run-command" };
-    case "error":
-      return { actor: "runtime", surface: "cli", component: "run-command" };
-    default:
-      return { actor: "system", surface: "cli", component: "run-command" };
-  }
 }
 
 function resolveParallelWorkerAdmissionLimits(
@@ -1835,7 +2031,7 @@ function resolveParallelWorkerAdmissionLimits(
 function projectParallelWorkerBudgetAdmission(
   globalConfig: KilnGlobalConfig | null | undefined,
   executionOptions: RunCommandExecutionOptions,
-): ManagedAgentFanOutBudgetAdmissionInput | undefined {
+): ManagedAgentOrchestrationBudgetAdmissionInput | undefined {
   if (globalConfig?.routing?.budgetAware !== true) {
     return undefined;
   }
@@ -1869,6 +2065,7 @@ export async function runParallelWorkers(
     task,
     childCount: workerCount,
     maxConcurrentChildren: workerCount,
+    workingDirectoryMode: "isolated-worktree",
   });
   const admissionLimits = resolveParallelWorkerAdmissionLimits(
     appConfig,
@@ -1886,12 +2083,13 @@ export async function runParallelWorkers(
     exitRunCommand(1, executionOptions);
   }
 
-  let lifecycleResult: Awaited<ReturnType<typeof runManagedAgentFanOutLifecycle>>;
+  let lifecycleResult: Awaited<ReturnType<typeof runManagedAgentOrchestrationLifecycle>>;
   try {
     const budgetAdmission = projectParallelWorkerBudgetAdmission(executionOptions.globalConfig, executionOptions);
-    lifecycleResult = await runManagedAgentFanOutLifecycle({
+    lifecycleResult = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: admission.request,
       managedInvocation: managedInvocationWithService,
+      profile: "foundation-apply-approved-writes",
       routeSelector: {
         ...(flags.provider ? { providerId: flags.provider } : {}),
         ...(flags.model ? { model: flags.model } : {}),

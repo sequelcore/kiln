@@ -2,8 +2,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { isOperatorThemeName, type OperatorThemeName } from "@kilnai/gateway-contracts";
 import { routeTree } from "./routeTree.gen.js";
 import { GuiErrorBoundary } from "./components/gui-error-boundary.js";
+import { applyOperatorTheme } from "./lib/operator-theme-projection.js";
+import { KILN_GUI_UI_STORAGE_KEY, KILN_GUI_UI_STORAGE_VERSION } from "./lib/ui-preferences.js";
 import "./styles.css";
 
 const KILN_LOGO_URL = new URL("../../../docs/assets/logo.svg", import.meta.url).href;
@@ -14,37 +17,25 @@ const KILN_LOGO_URL = new URL("../../../docs/assets/logo.svg", import.meta.url).
 (function applyPersistedTheme() {
   const urlTheme = new URLSearchParams(window.location.search).get("theme");
   try {
-    if (urlTheme === "kiln-dark" || urlTheme === "kiln-light" || urlTheme === "system-follow") {
-      localStorage.setItem("kiln.gui.ui", JSON.stringify({
-        state: { theme: urlTheme },
-        version: 0,
+    let theme: OperatorThemeName = "kiln-dark";
+    if (isOperatorThemeName(urlTheme)) {
+      theme = urlTheme;
+      localStorage.setItem(KILN_GUI_UI_STORAGE_KEY, JSON.stringify({
+        state: { theme },
+        version: KILN_GUI_UI_STORAGE_VERSION,
       }));
-      document.documentElement.dataset.theme = urlTheme === "kiln-light"
-        ? "light"
-        : urlTheme === "kiln-dark"
-          ? "dark"
-          : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-      return;
-    }
-    const raw = localStorage.getItem("kiln.gui.ui");
-    if (!raw) {
-      document.documentElement.dataset.theme = "dark";
-      return;
-    }
-    const parsed = JSON.parse(raw) as { state?: { theme?: string } };
-    const theme = parsed?.state?.theme;
-    if (theme === "kiln-dark") {
-      document.documentElement.dataset.theme = "dark";
-    } else if (theme === "kiln-light") {
-      document.documentElement.dataset.theme = "light";
     } else {
-      // system-follow or unrecognised
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      document.documentElement.dataset.theme = prefersDark ? "dark" : "light";
+      const raw = localStorage.getItem(KILN_GUI_UI_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { state?: { theme?: unknown } };
+        if (isOperatorThemeName(parsed.state?.theme)) {
+          theme = parsed.state.theme;
+        }
+      }
     }
+    applyOperatorTheme(theme, window.matchMedia("(prefers-color-scheme: dark)").matches);
   } catch {
-    // If localStorage read fails, default to kiln-dark
-    document.documentElement.dataset.theme = "dark";
+    applyOperatorTheme("kiln-dark", true);
   }
 })();
 

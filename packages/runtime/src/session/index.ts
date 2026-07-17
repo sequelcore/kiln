@@ -23,6 +23,13 @@ export type { EffectiveTurnAuthorityActionability } from "./effective-turn-autho
 export type {
   RuntimeFeedbackEvidenceCollectorInput,
 } from "./session-feedback-evidence.js";
+export {
+  projectRuntimeLifecycleAttributionAllocations,
+} from "./runtime-lifecycle-attribution-allocations.js";
+export type {
+  ProjectRuntimeLifecycleAttributionAllocationsInput,
+  RuntimeLifecycleFinalOutputBoundary,
+} from "./runtime-lifecycle-attribution-allocations.js";
 export type {
   EffectiveTurnAuthorityPolicyInput,
   EffectiveTurnAuthorityPolicyInputSource,
@@ -31,6 +38,8 @@ export type {
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
+  RuntimeExecutionEnvelope,
+  RuntimeToolRoundBudget,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.js";
 

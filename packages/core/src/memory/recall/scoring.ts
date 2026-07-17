@@ -14,6 +14,16 @@ export interface MemoryRecallEvidence {
   readonly lastAdmittedAt?: string;
   readonly noiseScore?: number;
   readonly estimatedTokens?: number;
+  readonly integrity?: MemoryRecallIntegrityEvidence;
+}
+
+export interface MemoryRecallIntegrityEvidence {
+  readonly contradictionState: "none" | "resolved" | "unresolved";
+  readonly superseded: boolean;
+  readonly poisoned: boolean;
+  readonly derivativeTrust: "original" | "verified" | "untrusted";
+  readonly expired: boolean;
+  readonly canonicalEvidenceAvailable: boolean;
 }
 
 export interface MemoryRecallScoringPolicy {
@@ -94,9 +104,48 @@ export function scoreMemoryRecall(input: MemoryRecallScoringInput): MemoryRecall
   };
 }
 
-export function toMemoryContextCandidates(candidates: readonly MemoryRecallCandidate[]): readonly ContextCandidate[] {
+export type MemoryInjectionEligibility = "eligible" | "inhibited";
+
+export interface MemoryInjectionDecision {
+  readonly recordId: string;
+  readonly eligibility: MemoryInjectionEligibility;
+  readonly reasons: readonly string[];
+}
+
+export function evaluateMemoryInjectionEligibility(
+  candidates: readonly MemoryRecallCandidate[],
+  evidence: readonly { readonly recordId: string; readonly integrity: MemoryRecallIntegrityEvidence }[],
+): readonly MemoryInjectionDecision[] {
+  const byRecord = new Map(evidence.map((entry) => [entry.recordId, entry.integrity]));
+  return candidates.map((candidate) => {
+    const integrity = byRecord.get(candidate.record.id);
+    const reasons: string[] = [];
+    if (!integrity) reasons.push("injection-evidence-missing");
+    else {
+      if (integrity.poisoned) reasons.push("poisoned-memory");
+      if (integrity.derivativeTrust === "untrusted") reasons.push("untrusted-derivative");
+      if (integrity.contradictionState === "unresolved") reasons.push("unresolved-contradiction");
+      if (integrity.superseded) reasons.push("superseded-memory");
+      if (integrity.expired) reasons.push("expired-memory");
+      if (!integrity.canonicalEvidenceAvailable) reasons.push("canonical-evidence-missing");
+    }
+    return {
+      recordId: candidate.record.id,
+      eligibility: candidate.eligibility === "eligible" && reasons.length === 0 ? "eligible" : "inhibited",
+      reasons: candidate.eligibility === "eligible" ? reasons : [...candidate.reasons, ...reasons],
+    };
+  });
+}
+
+export function toMemoryContextCandidates(
+  candidates: readonly MemoryRecallCandidate[],
+  injectionDecisions: readonly MemoryInjectionDecision[],
+): readonly ContextCandidate[] {
+  const injectable = new Set(injectionDecisions
+    .filter((decision) => decision.eligibility === "eligible")
+    .map((decision) => decision.recordId));
   return candidates
-    .filter((candidate) => candidate.eligibility === "eligible")
+    .filter((candidate) => candidate.eligibility === "eligible" && injectable.has(candidate.record.id))
     .map((candidate) => ({
       kind: "memory",
       source: `memory-recall:${candidate.record.layer}`,
@@ -127,6 +176,7 @@ function scoreCandidate(
   const layer = policy.layerWeights[entry.record.layer];
   const noise = clampUnit(entry.noiseScore ?? 0);
   const stale = isStaleMutableMemory(entry.record.layer, ageDays, policy);
+  const integrityReasons = hardIntegrityReasons(entry.integrity);
 
   if (cue > 0) reasons.push("cue-match");
   if (cue === 0 && cues.length > 0) reasons.push("cue-miss");
@@ -134,12 +184,14 @@ function scoreCandidate(
   if (salience < policy.lowSalienceThreshold) reasons.push("low-salience");
   if (stale) reasons.push("stale-mutable-memory");
   if (noise >= policy.highNoiseThreshold) reasons.push("noise-inhibition");
+  reasons.push(...integrityReasons);
 
   const inhibition = clampUnit(
     (cue === 0 && cues.length > 0 ? 0.4 : 0)
     + (salience < policy.lowSalienceThreshold ? 0.25 : 0)
     + (stale ? 0.2 : 0)
-    + (noise * 0.35),
+    + (noise * 0.35)
+    + (integrityReasons.length > 0 ? 1 : 0),
   );
   const score = clampUnit(
     (cue * 0.3)
@@ -150,7 +202,10 @@ function scoreCandidate(
     + (layer * 0.1)
     - inhibition,
   );
-  const eligibility = score >= policy.eligibilityThreshold && !(cue === 0 && cues.length > 0) && inhibition < 0.55
+  const eligibility = score >= policy.eligibilityThreshold
+    && !(cue === 0 && cues.length > 0)
+    && inhibition < 0.55
+    && integrityReasons.length === 0
     ? "eligible"
     : "inhibited";
 
@@ -170,6 +225,17 @@ function scoreCandidate(
     reasons,
     estimatedTokens: entry.estimatedTokens,
   };
+}
+
+function hardIntegrityReasons(integrity: MemoryRecallIntegrityEvidence | undefined): readonly string[] {
+  if (!integrity) return [];
+  const reasons: string[] = [];
+  if (integrity.poisoned) reasons.push("poisoned-memory");
+  if (integrity.derivativeTrust === "untrusted") reasons.push("untrusted-derivative");
+  if (integrity.contradictionState === "unresolved") reasons.push("unresolved-contradiction");
+  if (integrity.superseded) reasons.push("superseded-memory");
+  if (integrity.expired) reasons.push("expired-memory");
+  return reasons;
 }
 
 function scoreCueMatch(record: MemoryRecord, cues: readonly string[]): number {

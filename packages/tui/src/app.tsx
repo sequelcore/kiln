@@ -14,7 +14,7 @@ import {
   listOperatorCommands,
   type GuiProviderCatalogStatus,
   type GuiProviderDiscoveryResult,
-  type KilnConfigSetupAction,
+  type GuiProviderModelDiscoveryProjection,
   type KilnConfigSetupSnapshot,
   type OperatorCommandDefinition,
   type OperatorTurnRequestedAuthority,
@@ -24,6 +24,7 @@ import type { Message, ReasoningEffort, ContinuationSidebarInfo, SessionListItem
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
+import { formatSetupSnapshot } from "./setup-format.js";
 import {
   initUI,
   createThemePicker,
@@ -81,7 +82,6 @@ function operatorCommandToSlashCommand(command: OperatorCommandDefinition): Slas
     type: "builtin",
   };
 }
-
 export async function startTui(
   createSession: () => Promise<SessionLike>,
   providerDisplayInfo: readonly ProviderDisplayInfo[],
@@ -97,6 +97,8 @@ export async function startTui(
   refreshProviders?: () => Promise<void> | void,
   persistThemePreference?: (themeName: string) => Promise<void> | void,
   loadSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>,
+  onFirstFrame?: () => void,
+  providerModelDiscoveryRef?: { current: GuiProviderModelDiscoveryProjection | null },
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -151,6 +153,7 @@ export async function startTui(
     providerDisplayInfo.map((entry) => [entry.id, [...entry.models]]),
   ) as Record<string, string[]>;
   let providerDiscovery = providerDiscoveryRef?.current ?? [];
+  let providerModelDiscovery = providerModelDiscoveryRef?.current ?? null;
   let providerCatalogStatus: GuiProviderCatalogStatus = "ready";
   let providerCatalogError: string | null = null;
 
@@ -185,7 +188,7 @@ export async function startTui(
   if (initialProviderIndex >= 0) {
     providerPickerState.providerIndex = initialProviderIndex;
     update(state, "providerPickerIndex", initialProviderIndex);
-    const initialModel = providerModels[provider]?.[0];
+    const initialModel = getSelectableProviderModels(provider)[0];
     if (initialModel) {
       update(state, "currentModel", initialModel);
     }
@@ -216,6 +219,7 @@ export async function startTui(
           validProviders.map((providerName) => [providerName, models[providerName] ?? []]),
         );
         providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
+        providerModelDiscovery = providerModelDiscoveryRef?.current ?? providerModelDiscovery;
         syncReasoningEffort();
         if (providerPicker) {
           renderProviderPicker();
@@ -465,6 +469,7 @@ export async function startTui(
   };
 
   applySidebarVisibility(renderer.width >= 100);
+  onFirstFrame?.();
 
   if (typeof (renderer as unknown as { on?: unknown }).on === "function") {
     (
@@ -483,23 +488,42 @@ export async function startTui(
   }
 
   function getCurrentModels(): string[] {
-    return providerModels[getCurrentProvider()] ?? [];
+    return getSelectableProviderModels(getCurrentProvider());
   }
 
   function getProviderDiscovery(providerName: string): GuiProviderDiscoveryResult | undefined {
     return providerDiscovery.find((entry) => entry.provider === providerName);
   }
 
+  function getSelectableProviderModels(providerName: string): string[] {
+    const entries = providerModelDiscovery?.entries;
+    if (!entries) {
+      return providerModels[providerName] ?? [];
+    }
+    return entries
+      .filter((entry) => entry.providerRoute.providerId === providerName && entry.eligibility.eligible)
+      .map((entry) => entry.providerRoute.providerModelId);
+  }
+
+  function getProviderDiagnosticReason(providerName: string): string | undefined {
+    return providerModelDiscovery?.entries.find((entry) => (
+      entry.providerRoute.providerId === providerName
+      && !entry.eligibility.eligible
+      && entry.eligibility.reasonCodes.length > 0
+    ))?.eligibility.reasonCodes.join(", ");
+  }
+
   function providerIsSelectable(providerName: string): boolean {
-    const discovery = getProviderDiscovery(providerName);
-    if (discovery) {
-      return discovery.available;
+    if (providerModelDiscovery) {
+      return isGuiProviderModeless(providerName)
+        ? getProviderDiscovery(providerName)?.available === true
+        : getSelectableProviderModels(providerName).length > 0;
     }
     const info = providerInfoById.get(providerName);
     if (info?.available === false) {
       return false;
     }
-    const models = providerModels[providerName] ?? [];
+    const models = getSelectableProviderModels(providerName);
     return models.length > 0 || isGuiProviderModeless(providerName);
   }
 
@@ -518,7 +542,9 @@ export async function startTui(
   }
 
   function getProviderReason(providerName: string): string | undefined {
-    const reason = getProviderDiscovery(providerName)?.reason ?? providerInfoById.get(providerName)?.reason;
+    const reason = getProviderDiagnosticReason(providerName)
+      ?? getProviderDiscovery(providerName)?.reason
+      ?? providerInfoById.get(providerName)?.reason;
     return reason ? conciseUnavailableReason(reason) : undefined;
   }
 
@@ -956,6 +982,7 @@ export async function startTui(
       }
       await refreshProviders?.();
       providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
+      providerModelDiscovery = providerModelDiscoveryRef?.current ?? providerModelDiscovery;
       const refreshedModels = providerModelsRef?.current;
       if (refreshedModels) {
         providerModels = Object.fromEntries(
@@ -1042,6 +1069,7 @@ export async function startTui(
       });
       await refreshProviders?.();
       providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
+      providerModelDiscovery = providerModelDiscoveryRef?.current ?? providerModelDiscovery;
       const refreshedModels = providerModelsRef?.current;
       if (refreshedModels) {
         providerModels = Object.fromEntries(
@@ -1841,36 +1869,4 @@ export async function startTui(
 
   await new Promise<void>((resolve) => renderer.once("destroy", resolve));
   clearOperatorThemeHandler();
-}
-
-const SETUP_ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
-  none: "current",
-  "adopt-project-context": "adopt project context",
-  "review-project-context": "review project context",
-  "sync-repo-shims": "sync repo shims",
-  "sync-native-projections": "sync native projections",
-  "review-and-force-sync-repo-shims": "review shim drift",
-  "adopt-or-back-up-native-guidance": "adopt native guidance",
-  "review-native-projection-drift": "review native drift",
-};
-
-function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
-  const actions = snapshot.recommendedActions.length > 0
-    ? snapshot.recommendedActions.map((action) => SETUP_ACTION_LABELS[action]).join(", ")
-    : SETUP_ACTION_LABELS.none;
-  const repoShims = snapshot.repoShims.length > 0
-    ? snapshot.repoShims.map((shim) => `  - ${shim.target}: ${shim.status}`).join("\n")
-    : "  - none";
-  const nativeProjections = snapshot.nativeProjections.length > 0
-    ? snapshot.nativeProjections.map((projection) => `  - ${projection.targetId}: ${projection.status}`).join("\n")
-    : "  - none";
-  return [
-    `project: ${snapshot.projectRoot}`,
-    `project context: ${snapshot.projectContext.status}`,
-    `actions: ${actions}`,
-    "repo shims:",
-    repoShims,
-    "native projections:",
-    nativeProjections,
-  ].join("\n");
 }

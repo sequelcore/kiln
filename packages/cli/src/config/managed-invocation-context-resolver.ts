@@ -34,6 +34,7 @@ export function createManagedInvocationContextResolver(
     let profileSkills: readonly string[] = [];
     let agentInstructionProfiles: readonly string[] = [];
     let agentTaskAffinity: readonly ModelTaskSuitabilityTask[] = [];
+    let agentWorkClassification = input.workClassification;
     if (input.agentProfile) {
       const definitions = await loadAgentDefinitions(projectPath);
       const agent = findAgent(definitions, input.agentProfile);
@@ -44,6 +45,7 @@ export function createManagedInvocationContextResolver(
       profileSkills = agent.skills ?? [];
       agentInstructionProfiles = agent.instructionProfiles ?? [];
       agentTaskAffinity = agent.taskAffinity ?? [];
+      agentWorkClassification = input.workClassification ?? agent.workClassification;
       sections.push([
         "## Child Agent Profile",
         `name: ${agent.name}`,
@@ -85,6 +87,7 @@ export function createManagedInvocationContextResolver(
       model: input.providerRoute?.model,
       taskSuitability: input.taskSuitability,
       modelTaskSuitability: config.modelTaskSuitability,
+      workClassification: agentWorkClassification,
       requesterLabel: "Managed invocation",
     });
     for (const candidate of skillSelection.contextCandidates) {
@@ -95,6 +98,9 @@ export function createManagedInvocationContextResolver(
       ...(sections.length > 0 ? { promptPrefix: sections.join("\n\n") } : {}),
       ...(admittedAgentProfile ? { admittedAgentProfile } : {}),
       ...(skillSelection.skillNames.length > 0 ? { admittedSkills: skillSelection.skillNames } : {}),
+      ...(agentWorkClassification ? { workClassification: agentWorkClassification } : {}),
+      ...(skillSelection.workRecommendedSkillNames.length > 0 ? { workRecommendedSkills: skillSelection.workRecommendedSkillNames } : {}),
+      ...(skillSelection.workRecommendedSkillDiagnostics.length > 0 ? { workRecommendedSkillDiagnostics: skillSelection.workRecommendedSkillDiagnostics } : {}),
       ...(admittedInstructionProfiles.length > 0 ? { admittedInstructionProfiles } : {}),
     } satisfies ManagedInvocationContextResolution;
   };

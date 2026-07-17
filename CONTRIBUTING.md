@@ -24,7 +24,7 @@ and platform-specific tool packages:
 | `packages/sdk` | `@kilnai/react` | React hooks and clients for frontend integration. Depends on React and consumes shared Kiln types. |
 | `packages/widget` | `@kilnai/widget` | Embeddable chat widget (Shadow DOM, auto-reconnect WebSocket, zero deps, IIFE bundle). No dependency on other packages. |
 | `packages/tui` | `@kilnai/tui` | Terminal operator surface. Experimental and maintenance-only per ADR-005. |
-| `packages/gui` | `@kilnai/gui` (private) | Primary web operator surface served by the runtime gateway. |
+| `packages/gui` | `@kilnai/gui` | Primary web operator surface served by the runtime gateway. |
 | `packages/native` | `@kilnai/native` (private) | Electron-backed native operator surface. It consumes gateway contracts and must not import runtime or core implementations directly. |
 | `packages/studio` | `@kilnai/studio` (private) | Dev UI SPA served at `/studio` in dev mode. Not published to npm. |
 | `packages/tools` | `@kilnai/tools` | Vendored developer-tool resolver for platform packages. |
@@ -35,13 +35,25 @@ and platform-specific tool packages:
 | Command | Description |
 |---------|-------------|
 | `bun run typecheck` | Type-check all packages and private surfaces |
-| `bun run test` | Run all tests via Vitest |
+| `bun run test` | Run deterministic tests via Vitest |
+| `bun run test:startup-profile` | Run the real-browser GUI startup gate |
 | `bun run build` | Build all packages |
 | `bun run test:e2e` | Run GUI Playwright tests |
 
 **IMPORTANT: Always use `bun run test`, never `bun test`.**
 
 `bun test` (without `run`) invokes Bun's built-in test runner, which does not use the Vitest configuration. It runs all `.test.ts` files in a single process without isolation, causing hundreds of false failures from mock leakage between test files. `bun run test` invokes the `test` script defined in `package.json`, which runs Vitest with the correct configuration.
+
+The startup profile is a separate browser/process gate. Install its browser
+once before running it locally:
+
+```bash
+bunx playwright install chromium
+bun run test:startup-profile
+```
+
+GitHub Actions installs Chromium and its Linux dependencies explicitly before
+running this gate.
 
 The monorepo uses TypeScript project references where packages publish
 declaration output. Keep root scripts aligned with package-level scripts so a

@@ -24,6 +24,28 @@ export {
 } from "./operator-commands.js";
 
 export type {
+  OperatorResourceContentKind,
+  OperatorResourceProviderReadResult,
+  OperatorResourceReadPresentation,
+  OperatorResourceReadPresentationList,
+  OperatorResourceReadPresentationMeta,
+  OperatorResourceReadPresentationRow,
+  OperatorResourceReadContent,
+  OperatorResourceReadRequest,
+  OperatorResourceReadResult,
+  OperatorResourceReadSummary,
+} from "./resource-inspector.js";
+export {
+  OPERATOR_RESOURCE_CONTENT_KINDS,
+  OperatorResourceReadContentSchema,
+  OperatorResourceReadRequestSchema,
+  OperatorResourceReadResultSchema,
+  OperatorResourceReadSummarySchema,
+  projectOperatorResourceReadPresentation,
+  projectOperatorResourceReadResult,
+} from "./resource-inspector.js";
+
+export type {
   KilnConfigProjectSnapshot,
   KilnConfigReadResult,
   KilnConfigReadView,
@@ -31,6 +53,8 @@ export type {
   KilnConfigSetupActionRequest,
   KilnConfigSetupActionResult,
   KilnConfigSetupActionStatus,
+  KilnGlobalInstructionShimSetupSnapshot,
+  KilnSetupHarness,
   KilnConfigSetupSnapshot,
   KilnConfigSourceSnapshot,
   KilnConfigSourceStatus,
@@ -38,25 +62,68 @@ export type {
   KilnHarnessCapabilitySnapshot,
   KilnProjectionTargetSnapshot,
   KilnProjectionTargetStatus,
+  KilnResolvedWorkGovernancePolicy,
   KilnRepoShimProjectionSnapshot,
+  KilnSkillAdmissionState,
+  KilnSkillCatalogProjectionStatus,
+  KilnSkillCatalogSnapshot,
+  KilnSkillCatalogSnapshotEntry,
+  KilnSkillOriginKind,
+  KilnSkillProjectionTargetSnapshot,
+  TrustedExecutionIntegrity,
 } from "./config-status.js";
 export {
   KILN_CONFIG_READ_VIEWS,
+  KILN_STATUS_EVIDENCE_VERSION,
+  KILN_SETUP_HARNESSES,
+  KILN_WORK_GOVERNANCE_EVIDENCE,
+  KILN_WORK_GOVERNANCE_TRIGGERS,
+  GUI_EXECUTABLE_CONFIG_SETUP_ACTIONS,
   KILN_CONFIG_SETUP_ACTION_STATUSES,
   KILN_CONFIG_SETUP_ACTIONS,
   KILN_CONFIG_SOURCE_STATUSES,
   KILN_PROJECTION_TARGET_STATUSES,
+  TRUSTED_EXECUTION_CLASSIFICATIONS,
+  TRUSTED_EXECUTION_EVIDENCE_FRESHNESS,
+  TRUSTED_EXECUTION_EVIDENCE_SOURCES,
+  TRUSTED_EXECUTION_PROFILES,
+  TRUSTED_EXECUTION_PROOF_STATUSES,
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
+  KilnConfigStatusSnapshotSchema,
+  KilnResolvedWorkGovernancePolicySchema,
   KilnConfigSourceSnapshotSchema,
   KilnProjectionTargetSnapshotSchema,
   KilnRepoShimProjectionSnapshotSchema,
+  KilnSkillCatalogSnapshotEntrySchema,
+  KilnSkillCatalogSnapshotSchema,
+  KilnSkillProjectionTargetSnapshotSchema,
+  isGuiExecutableConfigSetupAction,
+  TrustedExecutionIntegritySchema,
 } from "./config-status.js";
 
 export type {
   GuiProviderDescriptor,
   GuiProviderDiscoveryResult,
+  GuiProviderCatalogEvidenceStatus,
+  GuiProviderCatalogEvidenceSource,
+  GuiProviderCatalogEvidenceCounts,
+  GuiProviderCatalogEvidenceFailure,
+  GuiProviderCatalogEvidenceSummary,
+  GuiNormalizedModelIdentity,
+  GuiProviderModelRouteIdentity,
+  GuiHarnessModelRouteIdentity,
+  GuiProviderModelRawEvidenceSummary,
+  GuiProviderModelCredentialEvidence,
+  GuiProviderModelEntitlementEvidence,
+  GuiProviderModelFreshness,
+  GuiProviderModelRouteHealthEvidence,
+  GuiProviderModelPolicyAdmission,
+  GuiProviderModelEligibilityReasonCode,
+  GuiProviderModelEligibility,
+  GuiProviderModelRouteEntry,
+  GuiProviderModelDiscoveryProjection,
   GuiModelRoutingDiagnostic,
   GuiModelRoutingRationale,
   GuiModelRoutingRankingEvidence,
@@ -77,6 +144,7 @@ export type {
   GuiProviderAuthDeviceCodeStarted,
   GuiProviderAuthCompleted,
   GuiProviderAuthFailed,
+  GuiSessionTurnOutcome,
   GuiSessionSummary,
   GuiSessionListResponse,
   GuiTelemetrySnapshot,
@@ -89,6 +157,7 @@ export type {
   OperatorSessionEventKind,
   OperatorAgentInvocationSessionEventKind,
   OperatorSessionEventSource,
+  OperatorExecutionScope,
   OperatorManagedAgentProviderRoute,
   OperatorManagedAgentRouteHealthSnapshot,
   OperatorManagedAgentProviderModelProofSnapshot,
@@ -131,6 +200,7 @@ export type {
   GuiManagedAgentControlResultFrame,
   GuiManagedAgentControlResultStatus,
   GuiOutboundFrame,
+  OperatorGoalMaterializationRequirement,
   GuiInboundFrame,
   GuiSessionConnectionState,
   OperatorThemeScope,
@@ -252,10 +322,54 @@ export {
 } from "./operator-cockpit-view-state.js";
 
 export type {
+  OperatorAttentionItem,
+  OperatorAttentionReason,
+  OperatorAttentionSeverity,
+  OperatorAttentionSummary,
+} from "./operator-attention.js";
+export {
+  OPERATOR_ATTENTION_REASONS,
+  OPERATOR_ATTENTION_SEVERITIES,
+  createOperatorAttentionSummary,
+} from "./operator-attention.js";
+
+export type {
+  OperatorWorkspaceGatewayTargetSummary,
+  OperatorWorkspaceApprovalItem,
+  OperatorWorkspaceApprovalSummary,
+  OperatorWorkspaceConfigHealthItem,
+  OperatorWorkspaceConfigHealthSummary,
+  OperatorWorkspaceGatewayHealthItem,
+  OperatorWorkspaceGatewayHealthSummary,
+  OperatorWorkspaceHealthStatus,
+  OperatorWorkspaceHomeEmptyProjectionInput,
+  OperatorWorkspaceHomeProjection,
+  OperatorWorkspaceHomeProjectionInput,
+  OperatorWorkspaceManagedAgentSummary,
+  OperatorWorkspaceProviderReadinessItem,
+  OperatorWorkspaceProviderReadinessSummary,
+  OperatorWorkspaceResourceItem,
+  OperatorWorkspaceResourceSummary,
+  OperatorWorkspaceRouteHealthItem,
+  OperatorWorkspaceRouteHealthSummary,
+  OperatorWorkspaceSessionSummary,
+  OperatorWorkspaceWorkItemSummary,
+  OperatorWorkspaceWorkSummary,
+} from "./operator-workspace-home.js";
+export {
+  createOperatorWorkspaceConfigHealthSummary,
+  createEmptyOperatorWorkspaceHomeProjection,
+  createOperatorWorkspaceHomeProjection,
+} from "./operator-workspace-home.js";
+
+export type {
   OperatorCockpitAction,
   OperatorCockpitActionAdmissionInput,
   OperatorCockpitActionTarget,
   OperatorCockpitCancellationRequest,
+  OperatorGatewayTargetIdentity,
+  OperatorGatewayTargetKind,
+  OperatorGatewayTargetTrust,
   OperatorCockpitReadOnlyAction,
   OperatorCockpitReadOnlyActionIntent,
   OperatorCockpitReadOnlyActionIntentInput,
@@ -263,8 +377,11 @@ export type {
 export {
   OPERATOR_COCKPIT_ACTIONS,
   OPERATOR_COCKPIT_READ_ONLY_ACTIONS,
+  OPERATOR_GATEWAY_TARGET_KINDS,
+  OPERATOR_GATEWAY_TARGET_TRUST,
   OperatorCockpitActionTargetSchema,
   OperatorCockpitCancellationRequestSchema,
+  OperatorGatewayTargetIdentitySchema,
   createOperatorCockpitCancellationRequest,
   createOperatorCockpitReadOnlyActionIntent,
   operatorCockpitActionAllowed,
@@ -374,22 +491,55 @@ export type {
 } from "./voice-input-parts.js";
 
 export {
+  createImageInputParts,
+  imageInputDisplayText,
+} from "./image-input-parts.js";
+export type {
+  ImageInputBlobLike,
+  ImageInputImagePart,
+  ImageInputPartsInput,
+} from "./image-input-parts.js";
+
+export {
   formatOperatorEventValue,
+  operatorEventTargetsConversation,
   operatorEventTargetsSurface,
   presentOperatorEventPayload,
   presentOperatorSessionEvent,
 } from "./operator-event-presentation.js";
 export type {
+  OperatorEventConversationDisposition,
   OperatorEventDetailItem,
   OperatorEventPresentation,
   OperatorEventSurface,
   OperatorEventTone,
+  ToolResultClassification,
+  ToolResultClassificationSource,
+  ToolResultDiagnosticInputPresentation,
+  ToolResultDiagnosticPresentation,
+  ToolResultGoalEvidenceRequirementPresentation,
+  ToolResultGoalPresentation,
   ToolResultOutputKind,
   ToolResultPresentation,
   ToolResultPreview,
   ToolResultRawAvailability,
-  ToolResultResourceLinkPresentation,
+  ToolResultSearchResult,
+  ToolResultTaskItemPresentation,
+  ToolResultTaskPresentation,
+  ToolResultTaskStatus,
+  ToolResultWorkItemPresentation,
 } from "./operator-event-presentation.js";
+
+export {
+  buildOperatorToolResultPayload,
+  parseOperatorToolResultEnvelope,
+  parseOperatorToolResultResourceLinks,
+} from "./operator-tool-result.js";
+export type {
+  OperatorToolResultPayload,
+  ParsedOperatorToolResultEnvelope,
+  ToolResultResourceLinkPresentation,
+} from "./operator-tool-result.js";
 
 export {
   PRESENTATION_INTENT_KINDS,
@@ -426,10 +576,14 @@ export {
   OPERATOR_THEME_PALETTES,
   isDarkOperatorTheme,
   isOperatorThemeName,
+  operatorColorToCss,
+  operatorColorToHex,
   resolveOperatorThemePalette,
 } from "./operator-themes.js";
 export type {
   ConcreteOperatorThemeName,
+  OperatorColor,
+  OperatorStatusColors,
   OperatorThemeName,
   OperatorThemePalette,
 } from "./operator-themes.js";
@@ -456,6 +610,22 @@ export {
   SessionFeedbackPublicationProjectionSchema,
   SessionFeedbackReporterProjectionSchema,
 } from "./session-feedback-projection.js";
+
+export {
+  ContextUsageProjectionSchema,
+  formatContextUsageProjection,
+} from "./context-usage-projection.js";
+export type { ContextUsageProjection } from "./context-usage-projection.js";
+
+export {
+  VerifiedEfficiencyEvidenceProjectionSchema,
+  formatVerifiedEfficiencyEvidence,
+} from "./verified-efficiency-evidence.js";
+export type {
+  VerifiedEfficiencyActionKind,
+  VerifiedEfficiencyEvidenceProjection,
+  VerifiedEfficiencyVolume,
+} from "./verified-efficiency-evidence.js";
 export type {
   SessionFeedbackEvidencePreview,
   SessionFeedbackIssueDraftPreview,
@@ -464,3 +634,13 @@ export type {
   SessionFeedbackPublicationProjection,
   SessionFeedbackReporterProjection,
 } from "./session-feedback-projection.js";
+
+export { projectWorkflowActivity } from "./workflow-activity-projection.js";
+export type {
+  WorkflowActivityProjection,
+  WorkflowExecutionAttemptActivity,
+  WorkflowGoalActivity,
+  WorkflowToolCallActivity,
+  WorkflowToolCallState,
+  WorkflowWorkItemActivity,
+} from "./workflow-activity-projection.js";

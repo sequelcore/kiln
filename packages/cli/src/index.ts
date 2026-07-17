@@ -55,6 +55,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     plan: planCommand?.description ?? "Start a planning session before execution (3-phase workflow)",
     project: "Scout or adopt canonical repo context for generated project shims",
     status: "Show current phase, tasks, and costs",
+    doctor: "Diagnose local harness installation, path, version, auth, and model readiness",
     memory: "Browse and search memory layers",
     config: "Edit domain config and provider settings",
     "mcp-config": "Generate MCP client configuration JSON",
@@ -103,6 +104,10 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --mcp       Start tools command in MCP stdio mode");
     console.log("  --resources List shared tool resources as JSON");
     console.log("  --resource  Read one shared tool resource URI");
+    console.log("  --gateway-target-id  Target identity for resource reads");
+    console.log("  --app-id     App identity for target-aware resource reads");
+    console.log("  --tenant-id  Tenant identity for target-aware resource reads");
+    console.log("  --session-id Session identity for target-aware resource reads");
     console.log("  --plan      Plan mode: read-only exploration before execution");
     console.log("  --continue    Continue the current canonical Kiln session target");
     console.log("  --continue-session <id>  Continue an explicit Kiln session id");
@@ -196,6 +201,14 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       console.log("Migrated .kiln/config.json → kiln.yaml");
     }
     statusCommand(config);
+    return;
+  }
+
+  if (command === "doctor") {
+    const { doctorCommand } = await import("./commands/doctor.js");
+    await doctorCommand(config, {
+      json: args.includes("--json"),
+    });
     return;
   }
 
@@ -345,6 +358,10 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       mcp: args.includes("--mcp"),
       resources: args.includes("--resources"),
       resource: findFlag(args, "--resource"),
+      gatewayTargetId: findFlag(args, "--gateway-target-id"),
+      appId: findFlag(args, "--app-id"),
+      tenantId: findFlag(args, "--tenant-id"),
+      sessionId: findFlag(args, "--session-id"),
     });
     return;
   }

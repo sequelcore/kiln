@@ -1,15 +1,14 @@
 /**
  * ClaudeSession using the official Agent SDK.
- * Implements IKilnSession — async generator returning SessionEvent.
+ * Implements IKilnSession — async generator returning ExecutionSessionEvent.
  *
  * Replaces the previous callback-based (start/onMessage/onExit) API.
  * See: https://github.com/anthropic-ai/claude-code/issues/771
  */
 
 import { randomUUID } from "node:crypto";
-import { appendExecutionIdentity, resolveExecutionIdentity } from "@kilnai/core";
+import { appendExecutionIdentity, resolveExecutionIdentity, type ExecutionSessionEvent } from "@kilnai/core";
 import type {
-  SessionEvent,
   SessionCapabilities,
   SessionRunOptions,
   IKilnSession,
@@ -134,7 +133,7 @@ export class ClaudeSession implements IKilnSession {
     return this.sessionId;
   }
 
-  async *run(options: SessionRunOptions): AsyncIterable<SessionEvent> {
+  async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
     const abortController = new AbortController();

@@ -37,6 +37,20 @@ const runtimeMocks = vi.hoisted(() => ({
       entry.available ? [[entry.provider, entry.models]] : []
     )))
   )),
+  projectGuiProviderModelDiscovery: vi.fn((discovery: Array<{ provider: string; models: string[] }>) => ({
+    catalogEvidence: {
+      status: "complete",
+      source: { kind: "test", id: "tui-startup-provider-catalog-guard" },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: { total: discovery.length, returned: discovery.length, omitted: 0 },
+    },
+    entries: discovery.flatMap((provider) => provider.models.map((model) => ({
+      providerRoute: { providerId: provider.provider, providerModelId: model, scope: "provider" },
+      normalizedModel: { providerId: provider.provider, modelId: model },
+      freshness: { status: "fresh", observedAt: "2026-07-01T00:00:00.000Z" },
+      eligibility: { eligible: true, reasonCodes: [] },
+    }))),
+  })),
   createProviderCatalogService: vi.fn((resolveDiscovery: () => Promise<readonly unknown[]>, emptyDiscovery: readonly unknown[]) => {
     let discovery = emptyDiscovery;
     const listeners = new Set<(snapshot: { status: string; discovery: readonly unknown[] }) => void>();
@@ -65,10 +79,35 @@ const runtimeMocks = vi.hoisted(() => ({
   resolveGuiProviderSwitch: vi.fn((input: {
     provider: string;
     model?: string;
-    models: Record<string, string[]>;
+    models?: Record<string, string[]>;
+    discovery?: readonly Array<{ provider: string; available: boolean; reason: string }>;
+    providerModelDiscovery?: {
+      entries: readonly Array<{
+        providerRoute: { providerId: string; providerModelId: string };
+        eligibility: { eligible: boolean; reasonCodes: readonly string[] };
+      }>;
+    };
   }) => {
     const provider = input.provider.trim();
-    const providerModels = input.models[provider];
+    const discovery = input.discovery?.find((entry) => entry.provider === provider);
+    if (discovery && !discovery.available) {
+      return { ok: false, error: discovery.reason } as const;
+    }
+    const route = input.providerModelDiscovery?.entries.find((entry) => (
+      entry.providerRoute.providerId === provider
+      && entry.providerRoute.providerModelId === input.model
+    ));
+    if (route && !route.eligibility.eligible) {
+      return {
+        ok: false,
+        error: `Provider '${provider}' model '${input.model}' is not eligible (${route.eligibility.reasonCodes.join(", ")})`,
+      } as const;
+    }
+    const providerModels = route
+      ? input.providerModelDiscovery?.entries
+          .filter((entry) => entry.providerRoute.providerId === provider)
+          .map((entry) => entry.providerRoute.providerModelId)
+      : input.models?.[provider];
     if (!providerModels || providerModels.length === 0) {
       return { ok: false, error: `Provider '${provider}' is unavailable` } as const;
     }
@@ -92,9 +131,40 @@ const runtimeMocks = vi.hoisted(() => ({
     models: {
       openai: ["gpt-5.4"],
     },
+    providerDiscovery: gatewayDiscovery("openai", ["gpt-5.4"]),
+    providerModelDiscovery: gatewayProjection("openai", "gpt-5.4", true),
     shutdown: vi.fn(),
   })),
 }));
+
+function gatewayDiscovery(provider: string, models: readonly string[]) {
+  return [{
+    provider,
+    available: true,
+    models: [...models],
+    status: models.length > 0 ? "available" : "model_selection_not_required",
+    reason: `${provider} models discovered.`,
+    authState: models.length > 0 ? "authenticated" : "not_required",
+    lastCheckedAt: "2026-04-28T12:00:00.000Z",
+  }];
+}
+
+function gatewayProjection(provider: string, model: string, eligible: boolean) {
+  return {
+    catalogEvidence: {
+      status: "complete",
+      source: { kind: "test", id: "gateway-bootstrap" },
+      observedAt: "2026-07-01T00:00:00.000Z",
+      counts: { total: 1, returned: 1, omitted: 0 },
+    },
+    entries: [{
+      providerRoute: { providerId: provider, providerModelId: model, scope: "provider" },
+      normalizedModel: { providerId: provider, modelId: model },
+      freshness: { status: "fresh", observedAt: "2026-07-01T00:00:00.000Z" },
+      eligibility: { eligible, reasonCodes: eligible ? [] : ["missing-entitlement-evidence"] },
+    }],
+  };
+}
 
 const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
@@ -163,10 +233,8 @@ const registryMocks = vi.hoisted(() => {
 });
 
 const managedProviderModelMocks = vi.hoisted(() => ({
-  discoverManagedAgentProviderModels: vi.fn(async () => ({
-    codex: ["gpt-5.3-codex-spark"],
-    opencode: ["opencode/minimax-m2.5-free"],
-  })),
+  eligibleModels: null as unknown as (models: Record<string, string[]>) => Record<string, unknown>,
+  discoverManagedAgentProviderModels: vi.fn(),
 }));
 
 const resumeMocks = vi.hoisted(() => ({
@@ -282,6 +350,7 @@ vi.mock("@kilnai/runtime", () => ({
   resolveGuiOperatorDiscoveryResults: runtimeMocks.resolveGuiOperatorDiscoveryResults,
   markGuiProviderDiscoveryStale: (discovery: readonly unknown[]) => discovery,
   projectGuiOperatorModels: runtimeMocks.projectGuiOperatorModels,
+  projectGuiProviderModelDiscovery: runtimeMocks.projectGuiProviderModelDiscovery,
   createProviderCatalogService: runtimeMocks.createProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
   resolveGuiProviderSwitch: runtimeMocks.resolveGuiProviderSwitch,
@@ -303,10 +372,48 @@ vi.mock("../../src/config/env-config.js", () => ({
   resolveEffectiveProvider: configMocks.resolveEffectiveProvider,
 }));
 
-vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
-  PENDING_MANAGED_AGENT_PROVIDER_MODELS: {},
-  discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
-}));
+vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
+  const core = await vi.importActual<typeof import("@kilnai/core")>("@kilnai/core");
+  const runtime = await vi.importActual<typeof import("@kilnai/runtime")>("@kilnai/runtime");
+  const observedAt = "2026-07-01T12:00:00.000Z";
+  const requirements = {
+    use: "managed-agent",
+    evaluatedAt: observedAt,
+    requiredStates: ["discovered", "configured", "authenticated", "capabilityCompatible", "policyAdmitted", "routeHealthy"],
+    requiredCapabilities: [],
+    minimumCapabilityAuthority: "harness-reported",
+    minimumStateAuthority: "harness-reported",
+    requireProbe: false,
+  } as const;
+  managedProviderModelMocks.eligibleModels = (models) =>
+    Object.fromEntries(Object.entries(models).map(([providerId, providerModels]) => {
+      const catalog = runtime.normalizeRuntimeProviderDiscoveryCatalog({
+        providerId,
+        family: providerId === "codex" ? "codex-harness" : "opencode-harness",
+        discovery: { models: providerModels, status: "available", reason: "fixture catalog", authState: "authenticated" },
+        observedAt,
+        freshness: "fresh",
+        harnessId: providerId,
+        reportedProviderId: providerId,
+      });
+      return [providerId, Object.fromEntries(catalog.routes.map((route) => [
+        route.identity.route.providerModelId,
+        {
+          catalogDiagnosticEvidence: route,
+          catalogDiagnosticDecision: core.deriveProviderModelEligibility(route, requirements, []),
+        },
+      ]))];
+    }));
+  managedProviderModelMocks.discoverManagedAgentProviderModels.mockImplementation(async () =>
+    managedProviderModelMocks.eligibleModels({
+      codex: ["gpt-5.3-codex-spark"],
+      opencode: ["opencode/minimax-m2.5-free"],
+    }));
+  return {
+    PENDING_MANAGED_AGENT_PROVIDER_MODEL_CATALOG_DIAGNOSTICS: {},
+    discoverManagedAgentProviderModels: managedProviderModelMocks.discoverManagedAgentProviderModels,
+  };
+});
 
 vi.mock("../../src/application/continuation-sidebar-info.js", () => ({
   loadContinuationSidebarInfo: resumeMocks.loadContinuationSidebarInfo,
@@ -356,6 +463,7 @@ const APP_CONFIG: KilnAppConfig = {
 
 describe("tuiCommand startup provider catalog guard", () => {
   const originalTransport = process.env.KILN_TUI_TRANSPORT;
+  const originalStartupProfile = process.env.KILN_STARTUP_PROFILE;
   let cwd: string | undefined;
 
   beforeEach(() => {
@@ -372,16 +480,19 @@ describe("tuiCommand startup provider catalog guard", () => {
       models: {
         openai: ["gpt-5.4"],
       },
+      providerDiscovery: gatewayDiscovery("openai", ["gpt-5.4"]),
+      providerModelDiscovery: gatewayProjection("openai", "gpt-5.4", true),
       shutdown: vi.fn(),
     });
-    managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue({
+    managedProviderModelMocks.discoverManagedAgentProviderModels.mockResolvedValue(managedProviderModelMocks.eligibleModels({
       codex: ["gpt-5.3-codex-spark"],
       opencode: ["opencode/minimax-m2.5-free"],
-    });
+    }));
   });
 
   afterEach(() => {
     process.env.KILN_TUI_TRANSPORT = originalTransport;
+    process.env.KILN_STARTUP_PROFILE = originalStartupProfile;
     if (cwd) {
       rmSync(cwd, { recursive: true, force: true });
       cwd = undefined;
@@ -414,9 +525,87 @@ describe("tuiCommand startup provider catalog guard", () => {
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
     expect(runtimeMocks.resolveGuiOperatorDiscoveryResults).toHaveBeenCalledWith(expect.objectContaining({ openai: true }));
-    expect(runtimeMocks.projectGuiOperatorModels).toHaveBeenCalled();
+    expect(runtimeMocks.projectGuiProviderModelDiscovery).toHaveBeenCalled();
     expect(tuiMocks.waitForGateway).not.toHaveBeenCalled();
     expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects direct execution when catalog observation has no eligible projection entry", async () => {
+    process.env.KILN_TUI_TRANSPORT = "direct";
+    registryMocks.providerDisplayInfo = [
+      { id: "openai", group: "direct-api", models: ["gpt-5.4"], free: false },
+    ];
+    runtimeMocks.projectGuiProviderModelDiscovery.mockImplementation(() => ({
+      catalogEvidence: {
+        status: "complete",
+        source: { kind: "test", id: "catalog-observation-only" },
+        observedAt: "2026-07-01T12:00:00.000Z",
+        counts: { total: 1, returned: 1, omitted: 0 },
+      },
+      entries: [{
+        providerRoute: { providerId: "openai", providerModelId: "gpt-5.4", scope: "provider" },
+        normalizedModel: { providerId: "openai", modelId: "gpt-5.4" },
+        freshness: { status: "fresh", observedAt: "2026-07-01T12:00:00.000Z" },
+        eligibility: { eligible: false, reasonCodes: ["policy-not-admitted"] },
+      }],
+    }) as never);
+    try {
+      await expect(tuiCommand(APP_CONFIG, { cwd, provider: "openai" })).rejects.toThrow(
+        "Provider 'openai' is not available in the runtime TUI model catalog. Available providers: none",
+      );
+      expect(tuiMocks.startTui).not.toHaveBeenCalled();
+    } finally {
+      runtimeMocks.projectGuiProviderModelDiscovery.mockRestore();
+    }
+  });
+
+  it("uses projection ineligibility reason codes to reject direct switches", async () => {
+    process.env.KILN_TUI_TRANSPORT = "direct";
+    registryMocks.providerDisplayInfo = [
+      { id: "claude", group: "harness", models: [], free: false },
+      { id: "openai", group: "direct-api", models: ["gpt-5.4"], free: false },
+    ];
+    runtimeMocks.projectGuiProviderModelDiscovery.mockImplementation(() => ({
+      catalogEvidence: {
+        status: "complete",
+        source: { kind: "test", id: "stale-catalog" },
+        observedAt: "2026-06-01T12:00:00.000Z",
+        counts: { total: 1, returned: 1, omitted: 0 },
+      },
+      entries: [{
+        providerRoute: { providerId: "openai", providerModelId: "gpt-5.4", scope: "provider" },
+        normalizedModel: { providerId: "openai", modelId: "gpt-5.4" },
+        freshness: { status: "stale", observedAt: "2026-06-01T12:00:00.000Z" },
+        eligibility: { eligible: false, reasonCodes: ["stale-evidence"] },
+      }],
+    }) as never);
+    let switchError = "";
+    tuiMocks.startTui.mockImplementationOnce(async (createSession: () => Promise<unknown>) => {
+      const session = await createSession() as {
+        switchProvider: (provider: string, model?: string) => Promise<string>;
+      };
+      try {
+        await session.switchProvider("openai", "gpt-5.4");
+      } catch (error) {
+        switchError = error instanceof Error ? error.message : String(error);
+      }
+    });
+
+    try {
+      await expect(tuiCommand(APP_CONFIG, { cwd, provider: "claude" })).resolves.toBeUndefined();
+      expect(switchError).toBe("Provider 'openai' model 'gpt-5.4' is not eligible (stale-evidence)");
+      expect(runtimeMocks.resolveGuiProviderSwitch).toHaveBeenCalledWith(expect.objectContaining({
+        provider: "openai",
+        model: "gpt-5.4",
+        discovery: expect.any(Array),
+        providerModelDiscovery: expect.objectContaining({ entries: expect.any(Array) }),
+      }));
+      expect(runtimeMocks.resolveGuiProviderSwitch).not.toHaveBeenCalledWith(expect.objectContaining({
+        models: expect.anything(),
+      }));
+    } finally {
+      runtimeMocks.projectGuiProviderModelDiscovery.mockRestore();
+    }
   });
 
   it("accepts direct startup for registry-owned harness providers without inventing model lists", async () => {
@@ -477,6 +666,10 @@ describe("tuiCommand startup provider catalog guard", () => {
     expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
     const gatewayOptions = runtimeMocks.startTuiGateway.mock.calls[0]?.[0];
     expect(gatewayOptions?.builtinToolOptions).toMatchObject({
+      toolProjection: {
+        mode: "deferred",
+        alwaysOnTools: expect.arrayContaining(["read", "write", "work_item.update"]),
+      },
       memoryResources: {
         authority: {
           caller: { kind: "operator_surface", id: "tui" },
@@ -496,6 +689,36 @@ describe("tuiCommand startup provider catalog guard", () => {
     expect(startTuiArgs[2]).toBe("claude");
     expect(startTuiArgs[7]).toEqual(expect.objectContaining({ current: { claude: [] } }));
     expect(startTuiArgs[8]).toEqual(expect.objectContaining({ current: [] }));
+    expect(startTuiArgs[9]).toBeUndefined();
+    expect(startTuiArgs[10]).toBeUndefined();
+  });
+
+  it("accepts gateway startup for modeled providers only through the canonical projection", async () => {
+    delete process.env.KILN_TUI_TRANSPORT;
+    registryMocks.providerDisplayInfo = [
+      { id: "openai", group: "direct-api", models: ["gpt-5.4"], free: false },
+    ];
+    runtimeMocks.startTuiGateway.mockResolvedValue({
+      port: 4801,
+      url: "ws://localhost:4801/ws",
+      models: {
+        openai: ["gpt-5.4"],
+      },
+      providerDiscovery: gatewayDiscovery("openai", ["gpt-5.4"]),
+      providerModelDiscovery: gatewayProjection("openai", "gpt-5.4", true),
+      shutdown: vi.fn(),
+    });
+
+    await expect(
+      tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
+    ).resolves.toBeUndefined();
+
+    expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
+    const startTuiArgs = tuiMocks.startTui.mock.calls[0] ?? [];
+    expect(startTuiArgs[1]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "openai", models: ["gpt-5.4"] }),
+    ]));
+    expect(startTuiArgs[7]).toEqual(expect.objectContaining({ current: { openai: ["gpt-5.4"] } }));
     expect(startTuiArgs[9]).toBeUndefined();
     expect(startTuiArgs[10]).toBeUndefined();
   });
@@ -520,7 +743,7 @@ describe("tuiCommand startup provider catalog guard", () => {
       models: {},
       shutdown: vi.fn(),
     });
-    let resolveDiscovery: ((models: { codex: string[]; opencode: string[] }) => void) | undefined;
+    let resolveDiscovery: ((models: ReturnType<typeof managedProviderModelMocks.eligibleModels>) => void) | undefined;
     managedProviderModelMocks.discoverManagedAgentProviderModels.mockImplementationOnce(() =>
       new Promise((resolve) => {
         resolveDiscovery = resolve;
@@ -534,10 +757,58 @@ describe("tuiCommand startup provider catalog guard", () => {
       }
       expect(runtimeMocks.startTuiGateway).toHaveBeenCalledTimes(1);
     } finally {
-      resolveDiscovery?.({ codex: ["gpt-5.3-codex-spark"], opencode: [] });
+      resolveDiscovery?.(managedProviderModelMocks.eligibleModels({ codex: ["gpt-5.3-codex-spark"], opencode: [] }));
       await command;
     }
     expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits startup profile markers through first TUI frame when profiling is enabled", async () => {
+    delete process.env.KILN_TUI_TRANSPORT;
+    process.env.KILN_STARTUP_PROFILE = "1";
+    const stderrWrites: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
+      stderrWrites.push(String(chunk));
+      return true;
+    });
+    tuiMocks.startTui.mockImplementationOnce(async (...args: unknown[]) => {
+      const onFirstFrame = args[14] as (() => void) | undefined;
+      onFirstFrame?.();
+    });
+    runtimeMocks.startTuiGateway.mockResolvedValue({
+      port: 4801,
+      url: "ws://localhost:4801/ws",
+      models: {},
+      providerDiscovery: [],
+      providerModelDiscovery: {
+        catalogEvidence: {
+          status: "failed",
+          source: { kind: "test", id: "pending-profile" },
+          observedAt: "2026-07-01T00:00:00.000Z",
+          counts: { total: 0, returned: 0, omitted: 0 },
+        },
+        entries: [],
+      },
+      shutdown: vi.fn(),
+    });
+
+    try {
+      await expect(
+        tuiCommand(APP_CONFIG, { cwd, provider: "codex" }),
+      ).resolves.toBeUndefined();
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    const markerLines = stderrWrites.filter((line) => line.startsWith("KILN_STARTUP_PROFILE "));
+    const phases = markerLines.map((line) => (
+      JSON.parse(line.slice("KILN_STARTUP_PROFILE ".length)) as { phase: string; surface: string }
+    ));
+    expect(phases).toEqual(expect.arrayContaining([
+      expect.objectContaining({ surface: "tui", phase: "command-entered" }),
+      expect.objectContaining({ surface: "tui", phase: "gateway-started" }),
+      expect.objectContaining({ surface: "tui", phase: "tui-first-frame-rendered" }),
+    ]));
   });
 
   it("accepts pending direct startup for non-model-less harness providers and fails closed on execution", async () => {

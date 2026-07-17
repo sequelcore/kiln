@@ -8,6 +8,7 @@ const syncMocks = vi.hoisted(() => ({
   syncNativeAgentProjections: vi.fn(),
   resolveProjectRoot: vi.fn(),
   writeRepoShimProjections: vi.fn(),
+  syncGlobalInstructionShimProjections: vi.fn(),
   syncNativeSkillProjections: vi.fn(),
   uninstallNativeTargets: vi.fn(),
 }));
@@ -38,6 +39,10 @@ vi.mock("../../src/application/project-root-resolver.js", () => ({
 
 vi.mock("../../src/application/repo-shim-projection.js", () => ({
   writeRepoShimProjections: syncMocks.writeRepoShimProjections,
+}));
+
+vi.mock("../../src/application/global-instruction-shim-projection.js", () => ({
+  syncGlobalInstructionShimProjections: syncMocks.syncGlobalInstructionShimProjections,
 }));
 
 vi.mock("../../src/config/native-skill-projection.js", () => ({
@@ -90,6 +95,21 @@ describe("syncCommand", () => {
       targets: [
         { kind: "agents", path: "AGENTS.md", written: true, status: "written", errors: [] },
         { kind: "claude", path: "CLAUDE.md", written: true, status: "written", errors: [] },
+      ],
+      errors: [],
+    });
+    syncMocks.syncGlobalInstructionShimProjections.mockResolvedValue({
+      synced: 3,
+      targets: [
+        {
+          targetId: "codex-global-instructions",
+          harness: "codex",
+          displayName: "Codex global instructions",
+          filePath: "C:/Users/test/.codex/AGENTS.md",
+          status: "written",
+          written: true,
+          errors: [],
+        },
       ],
       errors: [],
     });
@@ -148,7 +168,7 @@ describe("syncCommand", () => {
 
   it("rejects unknown explicit targets", () => {
     expect(() => parseSyncFlags(["--target", "unknown"])).toThrow(
-      'Unknown sync target "unknown". Valid targets: permissions, hooks, agents, repo-shims, skills',
+      'Unknown sync target "unknown". Valid targets: permissions, hooks, agents, repo-shims, global-instructions, skills',
     );
   });
 
@@ -165,6 +185,7 @@ describe("syncCommand", () => {
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--hooks", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--agents", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--repo-shims", "--force"]))).toBe(true);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--global-instructions", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--skills", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--force"]))).toBe(true);
   });
@@ -233,6 +254,33 @@ describe("syncCommand", () => {
     expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith("C:/resolved/project", { force: false });
   });
 
+  it("syncs global instruction shims as a separate native instruction target", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    syncMocks.resolveProjectRoot.mockReturnValue({
+      rootPath: "C:/resolved/project",
+      source: "kiln-yaml",
+      hasKilnYaml: true,
+      hasGitRoot: true,
+      projectName: "project",
+    });
+    let output = "";
+
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--global-instructions", "--project", "C:/resolved/project"]);
+      output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+
+    expect(syncMocks.syncGlobalInstructionShimProjections).toHaveBeenCalledWith("C:/resolved/project", {
+      force: false,
+      disabledHarnesses: [],
+    });
+    expect(syncMocks.writeRepoShimProjections).not.toHaveBeenCalled();
+    expect(output).toContain("Global instruction shims: 3");
+    expect(output).toContain("C:/Users/test/.codex/AGENTS.md: OK (written)");
+  });
+
   it("fails repo-shim sync when no project root can be resolved", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit:${code}`);
@@ -273,6 +321,28 @@ describe("syncCommand", () => {
     expect(output).toContain("Claude Code: runtime injection: not proven; native projection: install-state; native import: unsupported; MCP: supported; hooks: supported");
     expect(output).toContain("Codex: runtime injection: CODEX_HOME + CLI config overrides; native projection: install-state; native import: supported; MCP: supported; hooks: supported");
     expect(output).toContain("OpenCode: runtime injection: OPENCODE_CONFIG_CONTENT; native projection: install-state; native import: supported; MCP: supported; hooks: supported");
+  });
+
+  it("labels the aggregate skill sync count as projections", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    syncMocks.syncNativeSkillProjections.mockResolvedValue({
+      claude: true,
+      codex: true,
+      opencode: true,
+      synced: 120,
+      errors: [],
+    });
+    let output = "";
+
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--skills"]);
+      output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+
+    expect(output).toContain("Skill projections:       120");
+    expect(output).not.toContain("(120 skills)");
   });
 
   it("accepts appConfig, subcommand, and args parameters", async () => {

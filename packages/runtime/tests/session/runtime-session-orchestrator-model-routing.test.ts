@@ -78,16 +78,36 @@ function makeManagedAdapter(summary = "Delegated vision summary."): ManagedAgent
           retention: "session",
         },
         usage: {
+          source: "adapter",
           tokenClasses: [
-            { name: "input_tokens", value: 7 },
-            { name: "output_tokens", value: 5 },
-            { name: "cache_read_tokens", value: 0 },
+            { name: "input", value: 7 },
+            { name: "output", value: 5 },
+            { name: "cache_read", value: 0 },
           ],
+          cost: { currency: "unknown", amount: "unknown" },
         },
         resultHandoff: {
           summary,
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1",
+            status: "completed",
+            summary,
+            uncertainty: 0,
+            limitations: ["The synthetic vision adapter does not exercise a live provider."],
+            operatorDecisions: [],
+            evidence: [{
+              uri: `kiln://managed-invocations/${request.invocationId}/transcript`,
+              kind: "artifact",
+            }],
+            citations: [],
+            warnings: [],
+            failures: [],
+            approvalRequirements: [],
+            residualRisks: ["Live provider behavior remains unverified by this unit test."],
+            verificationResults: [],
+          },
         },
       })),
   };
@@ -118,6 +138,9 @@ function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor>
       supported: true,
       preservesProviderTokenClasses: true,
       supportsExplicitUnknowns: true,
+      tokenClasses: ["input", "output", "cache_read"],
+      semanticSourceGranularity: "unknown",
+      evidenceBasis: "adapter",
     },
     resultHandoff: {
       boundedSummary: true,
@@ -487,6 +510,14 @@ describe("RuntimeSessionOrchestrator model routing", () => {
           surface: "cli-harness",
           model: "gpt-4o",
         },
+        observedRuntimeAuthority: {
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "runtime-observation",
+          proof: "proven",
+          observedAt: "2026-07-02T08:00:00.000Z",
+          validUntil: "2099-01-01T00:00:00.000Z",
+        },
         authority: {
           authorityProfileId: "authority:managed-vision:readonly",
           permissionProfile: "read-only",
@@ -521,6 +552,77 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const request = (managedAdapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]
       .request as ManagedAgentInvocationRequest;
     expect(request.input.resourceUris).toEqual([artifactUri]);
+    expect(request.executionIntent).toEqual({
+      attendance: "unattended",
+      lifecycle: "automation",
+    });
+  });
+
+  it("passes normalized phase, uncertainty, verification, and cost signals to the route owner", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Phase-aware route",
+      confidence: 0.9,
+      routingTier: "cascade",
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+      providerPool: new Map<string, ProviderAdapter>([["routed", routedProvider]]),
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("verify the change"), undefined, undefined, {
+      modelRoutingPolicy: {
+        task: "verified-change",
+        phase: "verify",
+        uncertainty: 0.7,
+        verificationNeed: 1,
+        retryRisk: 0.2,
+        cacheInvalidationCostUsd: 0.01,
+        verifierCostUsd: 0.03,
+      },
+    });
+
+    expect(router.route).toHaveBeenCalledWith(expect.objectContaining({
+      task: "verified-change",
+      phase: "verify",
+      uncertainty: 0.7,
+      verificationNeed: 1,
+      retryRisk: 0.2,
+      cacheInvalidationCostUsd: 0.01,
+      verifierCostUsd: 0.03,
+    }));
+    expect(result.routingDecision?.rationale.inputsUsed).toMatchObject({
+      task: "verified-change",
+      phase: "verify",
+      uncertainty: 0.7,
+      verificationNeed: 1,
+      retryRisk: 0.2,
+      cacheInvalidationCostUsd: 0.01,
+      verifierCostUsd: 0.03,
+    });
+  });
+
+  it("rejects invalid phase-aware route signals before routing or provider execution", async () => {
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Invalid route",
+      confidence: 1,
+      routingTier: "cascade",
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+    });
+
+    await expect(orchestrator.processMessage(makeSession(), textParts("verify"), undefined, undefined, {
+      modelRoutingPolicy: { uncertainty: 1.1 },
+    })).rejects.toThrow("Model routing uncertainty must be between 0 and 1");
+    expect(router.route).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
   });
 
   it("delegates image admission to a managed auxiliary route when the active route lacks vision", async () => {
@@ -539,6 +641,14 @@ describe("RuntimeSessionOrchestrator model routing", () => {
           providerId: "openai",
           surface: "cli-harness",
           model: "gpt-4o",
+        },
+        observedRuntimeAuthority: {
+          approval: "on-request",
+          sandbox: "read-only",
+          source: "runtime-observation",
+          proof: "proven",
+          observedAt: "2026-07-02T08:00:00.000Z",
+          validUntil: "2099-01-01T00:00:00.000Z",
         },
         authority: {
           authorityProfileId: "authority:managed-vision:readonly",
@@ -577,6 +687,10 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       .request as ManagedAgentInvocationRequest;
     expect(request.requestSource).toBe("runtime-multimodal-delegation");
     expect(request.requestedAuthority).toBe("read_only");
+    expect(request.executionIntent).toEqual({
+      attendance: "unattended",
+      lifecycle: "automation",
+    });
     expect(request.input.resourceUris).toEqual(["kiln://runtime/session-artifact/0"]);
     expect(request.input.context).toMatchObject({
       mode: "resources",
@@ -1225,6 +1339,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       model: "opencode/minimax-m2.5-free",
       canonicalModel: "minimax-m2.5-free",
       billingMode: "free",
+      costEvidence: {
+        kind: "free",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: true,
+      },
       byRoleModel: {
         "assistant:opencode/minimax-m2.5-free": {
           model: "opencode/minimax-m2.5-free",
@@ -1232,6 +1352,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
           billingMode: "free",
           calls: 1,
           costUsd: 0,
+          costEvidence: {
+            kind: "free",
+            currency: "USD",
+            amountUsd: 0,
+            comparable: true,
+          },
         },
       },
       totalCostUsd: 0,
@@ -1264,6 +1390,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       model: "opencode/nemotron-3-super-free",
       canonicalModel: "nemotron-3-super-free",
       billingMode: "free",
+      costEvidence: {
+        kind: "free",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: true,
+      },
       byRoleModel: {
         "assistant:opencode/nemotron-3-super-free": {
           model: "opencode/nemotron-3-super-free",
@@ -1271,6 +1403,12 @@ describe("RuntimeSessionOrchestrator model routing", () => {
           billingMode: "free",
           calls: 1,
           costUsd: 0,
+          costEvidence: {
+            kind: "free",
+            currency: "USD",
+            amountUsd: 0,
+            comparable: true,
+          },
         },
       },
       totalCostUsd: 0,
@@ -1278,6 +1416,73 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(warnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('Model "opencode/nemotron-3-super-free" not found in MODEL_PRICING'),
     );
+  });
+
+  it("emits non-comparable cost evidence for unpriced subscription and metered routes", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      eventBus,
+    });
+    const session = makeSession();
+
+    await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
+      modelOverride: { provider: "codex-oauth", model: "gpt-5.5" },
+    });
+
+    const costUpdateEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
+    );
+    expect(costUpdateEvents[0]?.[0]).toMatchObject({
+      type: "cost_update",
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+      billingMode: "subscription",
+      totalCostUsd: 0,
+      costEvidence: {
+        kind: "subscription",
+        currency: "USD",
+        amountUsd: 0,
+        comparable: false,
+      },
+      byRoleModel: {
+        "assistant:gpt-5.5": {
+          costUsd: 0,
+          costEvidence: {
+            kind: "subscription",
+            currency: "USD",
+            amountUsd: 0,
+            comparable: false,
+          },
+        },
+      },
+    });
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("No metered pricing found"),
+    );
+
+    eventBus.emit.mockClear();
+    await orchestrator.processMessage(makeSession(), textParts("hello"), undefined, undefined, {
+      modelOverride: { provider: "openai", model: "unknown-metered-model" },
+    });
+
+    const unknownCostUpdateEvents = eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string }).type === "cost_update",
+    );
+    expect(unknownCostUpdateEvents[0]?.[0]).toMatchObject({
+      type: "cost_update",
+      provider: "openai",
+      model: "unknown-metered-model",
+      billingMode: "metered",
+      totalCostUsd: 0,
+      costEvidence: {
+        kind: "unknown",
+        currency: "unknown",
+        amountUsd: 0,
+        comparable: false,
+      },
+    });
   });
 
   it("routingDecision is included in OrchestrateResult", async () => {

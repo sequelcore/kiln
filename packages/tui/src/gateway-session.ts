@@ -12,6 +12,7 @@ import {
   presentOperatorSessionEvent,
   projectVoiceAudioOutputParts,
   type GuiProviderDiscoveryResult,
+  type GuiProviderModelDiscoveryProjection,
   type OperatorTurnRequestedAuthority,
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
@@ -115,20 +116,42 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       type: "activity",
       activity: "tool_use",
       toolName,
+      toolCallId: readString(payload.toolCallId) ?? undefined,
       input: payload.input,
+      surfaces: presentation.surfaces,
+      ...scoped,
+    };
+  }
+  if (event.kind === "tool_call_output_delta") {
+    const toolCallId = readString(payload.toolCallId);
+    const output = readString(payload.delta);
+    if (!toolCallId || output === null) return null;
+    return {
+      type: "activity",
+      activity: "tool_output",
+      toolCallId,
+      toolName: readString(payload.toolName) ?? "tool",
+      stream: payload.stream === "stderr" ? "stderr" : "stdout",
+      output,
+      chunkIndex: readNumber(payload.chunkIndex),
       surfaces: presentation.surfaces,
       ...scoped,
     };
   }
   if (event.kind === "tool_call_completed") {
     const toolName = readString(payload.toolName) ?? "tool";
+    const metadata = asRecord(payload.metadata) ?? undefined;
     return {
       type: "activity",
       activity: "tool_result",
       toolName,
+      toolCallId: readString(payload.toolCallId) ?? undefined,
       output: presentation.toolPresentation?.presentationIntent
         ? formatPresentationIntentAsText(presentation.toolPresentation.presentationIntent)
         : presentation.toolPresentation?.summary ?? readString(payload.outputSummary) ?? readString(payload.output) ?? "",
+      metadata,
+      resourceLinks: presentation.toolPresentation?.resourceLinks,
+      toolUsage: payload.toolUsage,
       toolPresentation: presentation.toolPresentation,
       surfaces: presentation.surfaces,
       ...scoped,
@@ -160,6 +183,25 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       inputTokens: readNumber(usage?.inputTokens),
       outputTokens: readNumber(usage?.outputTokens),
       surfaces: presentation.surfaces,
+      ...scoped,
+    };
+  }
+  if (event.kind === "context_usage_observed") {
+    return {
+      type: "activity",
+      activity: "context_usage",
+      metadata: { contextUsage: payload.contextUsage },
+      surfaces: presentation.surfaces,
+      ...scoped,
+    };
+  }
+  if (event.kind === "lifecycle_attribution_recorded") {
+    return {
+      type: "activity",
+      activity: event.kind,
+      details: presentation.compactText,
+      surfaces: presentation.surfaces,
+      sessionEvent: event,
       ...scoped,
     };
   }
@@ -236,6 +278,7 @@ export class GatewaySession implements SessionLike {
   private onWelcome: ((
     models: Record<string, string[]>,
     providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+    providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
   ) => void) | null = null;
 
   /** Pending queue items for the current turn. Set while a turn is in flight. */
@@ -273,6 +316,7 @@ export class GatewaySession implements SessionLike {
     onWelcome?: (
       models: Record<string, string[]>,
       providerDiscovery?: readonly GuiProviderDiscoveryResult[],
+      providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
     ) => void,
   ) {
     this.userId = `kiln-tui-${randomUUID()}`;
@@ -608,13 +652,21 @@ export class GatewaySession implements SessionLike {
       });
     } else if (frame.type === "welcome") {
       if (frame.models && this.onWelcome) {
-        this.onWelcome(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[] | undefined);
+        this.onWelcome(
+          frame.models,
+          frame.providerDiscovery as readonly GuiProviderDiscoveryResult[] | undefined,
+          frame.providerModelDiscovery,
+        );
       }
       if ("executionMode" in frame) {
         this._planMode = frame.executionMode === "plan";
       }
     } else if (frame.type === "providers_refreshed") {
-      this.onWelcome?.(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[]);
+      this.onWelcome?.(
+        frame.models,
+        frame.providerDiscovery as readonly GuiProviderDiscoveryResult[],
+        frame.providerModelDiscovery,
+      );
       this.providerRefreshCallbacks?.resolve();
     } else if (frame.type === "provider_auth_started") {
       const pending = this.providerAuthCallbacks;
@@ -647,7 +699,11 @@ export class GatewaySession implements SessionLike {
         modelCount: frame.models?.[frame.provider]?.length,
         discovery: frame.providerDiscovery?.find((entry) => entry.provider === frame.provider),
       });
-      this.onWelcome?.(frame.models, frame.providerDiscovery as readonly GuiProviderDiscoveryResult[]);
+      this.onWelcome?.(
+        frame.models,
+        frame.providerDiscovery as readonly GuiProviderDiscoveryResult[],
+        frame.providerModelDiscovery,
+      );
       const pending = this.providerAuthCallbacks;
       if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {
         pending.resolve();

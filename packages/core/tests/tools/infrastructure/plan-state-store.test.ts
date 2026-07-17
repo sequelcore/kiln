@@ -58,6 +58,88 @@ describe("plan state store", () => {
     expect(notifications).toContain(`kiln://session/plans/${first.id}`);
   });
 
+  it("normalizes work classification and its plan work-item provenance", () => {
+    const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
+
+    const plan = store.submitPlan(baseInput({
+      proposedWorkItems: [classifiedWorkItem({
+        workClassification: {
+          intents: [" write ", "review", "write"],
+          artifacts: [" document ", "message"],
+          domains: [" education "],
+          effects: [" write-artifact "],
+          modes: [" coauthor "],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: " wi-1 ",
+        },
+      })],
+    }));
+
+    expect(plan.proposedWorkItems[0]).toMatchObject({
+      workClassification: {
+        intents: ["write", "review"],
+        artifacts: ["document", "message"],
+        domains: ["education"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      workClassificationProvenance: {
+        sourceKind: "plan-work-item",
+        sourceId: "wi-1",
+      },
+    });
+  });
+
+  it("fails closed when plan work-item classification provenance does not match its draft", () => {
+    const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
+
+    expect(() => store.submitPlan(baseInput({
+      proposedWorkItems: [classifiedWorkItem({
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: "wi-other",
+        },
+      })],
+    }))).toThrow("Work classification provenance sourceId 'wi-other' must match plan work-item id 'wi-1'");
+  });
+
+  it("binds work classification and provenance to approval content hashes", () => {
+    const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
+    const first = store.submitPlan(baseInput({
+      proposedWorkItems: [classifiedWorkItem()],
+    }));
+    expect(store.approvePlan(first.id).success).toBe(true);
+
+    const revised = store.submitPlan({
+      ...baseInput({
+        proposedWorkItems: [classifiedWorkItem({
+          workClassification: {
+            intents: ["review"],
+            artifacts: ["document"],
+            domains: ["education"],
+            effects: ["read-only"],
+            modes: ["critique"],
+          },
+        })],
+      }),
+      planId: first.id,
+    });
+
+    expect(revised.contentHash).not.toBe(first.contentHash);
+    expect(revised.approval).toMatchObject({
+      status: "superseded",
+      planHash: first.contentHash,
+      supersededByPlanHash: revised.contentHash,
+    });
+    expect(store.executionReadiness(first.id)).toMatchObject({
+      success: true,
+      ready: false,
+      code: "approval_hash_mismatch",
+    });
+  });
+
   it("does not approve draft or malformed plans", () => {
     const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
     const draft = store.submitPlan({
@@ -205,6 +287,46 @@ function baseInput(overrides: Partial<PlanSubmissionInput> = {}): PlanSubmission
     constitutionSnapshot: {
       instructionProfileHash: "profile-hash",
       instructionProfileIds: ["sequel-engineering"],
+    },
+    ...overrides,
+  };
+}
+
+interface ClassifiedWorkItemDraftInput {
+  readonly workClassification?: {
+    readonly intents?: readonly string[];
+    readonly artifacts?: readonly string[];
+    readonly domains?: readonly string[];
+    readonly effects?: readonly string[];
+    readonly modes?: readonly string[];
+  };
+  readonly workClassificationProvenance?: {
+    readonly sourceKind: string;
+    readonly sourceId: string;
+  };
+}
+
+function classifiedWorkItem(
+  overrides: ClassifiedWorkItemDraftInput = {},
+): PlanSubmissionInput["proposedWorkItems"][number] {
+  return {
+    id: "wi-1",
+    summary: "Implement content-hash-aware plan approval state.",
+    workflowProfile: "verification-heavy",
+    risk: "medium",
+    expectedEvidence: ["unit-tests"],
+    verificationGates: ["bun test"],
+    dependencies: [],
+    workClassification: {
+      intents: ["write"],
+      artifacts: ["document"],
+      domains: ["education"],
+      effects: ["write-artifact"],
+      modes: ["coauthor"],
+    },
+    workClassificationProvenance: {
+      sourceKind: "plan-work-item",
+      sourceId: "wi-1",
     },
     ...overrides,
   };

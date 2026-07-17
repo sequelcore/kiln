@@ -169,6 +169,59 @@ describe("OpenAIAdapter", () => {
     ]);
   });
 
+  it("round-trips canonical dotted tool names through provider-safe function names", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse({
+      choices: [{
+        message: {
+          content: null,
+          tool_calls: [{
+            id: "call_managed",
+            type: "function",
+            function: {
+              name: "managed_agent_invoke",
+              arguments: '{"agent":"scout"}',
+            },
+          }],
+        },
+      }],
+    }));
+    vi.stubGlobal("fetch", mockFetch);
+
+    const response = await adapter.createMessage(makeOptions({
+      tools: [makeToolDef("managed_agent.invoke")],
+      toolChoice: { type: "tool", name: "managed_agent.invoke" },
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
+    expect(body.tools[0].function.name).toBe("managed_agent_invoke");
+    expect(body.tool_choice.function.name).toBe("managed_agent_invoke");
+    expect(response.toolCalls).toEqual([{
+      id: "call_managed",
+      name: "managed_agent.invoke",
+      input: { agent: "scout" },
+    }]);
+  });
+
+  it("uses deterministic distinct provider names when canonical names normalize to the same value", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await adapter.createMessage(makeOptions({
+      tools: [
+        makeToolDef("memory.search"),
+        makeToolDef("memory_search"),
+        makeToolDef("1password.lookup"),
+      ],
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
+    expect(body.tools.map((tool: { function: { name: string } }) => tool.function.name)).toEqual([
+      "memory_search",
+      "memory_search_2",
+      "tool_1password_lookup",
+    ]);
+  });
+
   it("serializes prior tool use and tool result messages for follow-up calls", async () => {
     const mockFetch = mockFetchResponse(makeOpenAIResponse());
     vi.stubGlobal("fetch", mockFetch);
@@ -222,6 +275,27 @@ describe("OpenAIAdapter", () => {
         content: "fixture contents",
       },
     ]);
+  });
+
+  it("replays canonical dotted tool use with the same provider-safe identity", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await adapter.createMessage(makeOptions({
+      tools: [makeToolDef("managed_agent.invoke")],
+      messages: [{
+        role: "assistant",
+        parts: [{
+          type: "tool_use",
+          id: "call_managed",
+          name: "managed_agent.invoke",
+          input: { agent: "scout" },
+        }],
+      }],
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
+    expect(body.messages[1].tool_calls[0].function.name).toBe("managed_agent_invoke");
   });
 
   it("serializes image parts without degrading them to text", async () => {
@@ -373,6 +447,44 @@ describe("OpenAIAdapter", () => {
     // Verify stream: true in request body
     const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
     expect(body.stream).toBe(true);
+  });
+
+  it("restores canonical tool names from streamed provider tool calls", async () => {
+    const chunk = JSON.stringify({
+      choices: [{
+        delta: {
+          tool_calls: [{
+            index: 0,
+            id: "call_managed",
+            function: {
+              name: "managed_agent_invoke",
+              arguments: '{"agent":"scout"}',
+            },
+          }],
+        },
+      }],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: mockSSEStream([chunk]),
+    }));
+
+    const events: AgentStreamEvent[] = [];
+    for await (const event of adapter.streamMessage(makeOptions({
+      tools: [makeToolDef("managed_agent.invoke")],
+    }))) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: "tool_use",
+      content: JSON.stringify({
+        id: "call_managed",
+        name: "managed_agent.invoke",
+        input: { agent: "scout" },
+      }),
+    });
   });
 });
 

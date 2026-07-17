@@ -1,9 +1,15 @@
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
+import { statSync } from "node:fs";
 import {
+  estimateTextTokens,
   skillConfigToContextCandidate,
   type ContextCandidate,
   type ModelTaskSuitability,
   type ModelTaskSuitabilityTask,
+  type WorkClassification,
+  type WorkRecommendedSkillDiagnostic,
+  recommendedSkillsForWorkClassification,
 } from "@kilnai/core";
 import type {
   KilnModelTaskSuitabilityOverride,
@@ -26,6 +32,7 @@ export interface TaskSkillSelectionInput {
   readonly model?: string;
   readonly taskSuitability?: readonly ModelTaskSuitability[];
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
+  readonly workClassification?: WorkClassification;
   readonly requesterLabel: string;
 }
 
@@ -33,8 +40,33 @@ export interface TaskSkillSelectionResult {
   readonly skillNames: readonly string[];
   readonly explicitSkillNames: readonly string[];
   readonly autoSkillNames: readonly string[];
+  readonly workRecommendedSkillNames: readonly string[];
+  readonly workRecommendedSkillDiagnostics: readonly WorkRecommendedSkillDiagnostic[];
   readonly unavailableAutoSkillNames: readonly string[];
   readonly contextCandidates: readonly ContextCandidate[];
+  readonly projectionEvidence: TaskSkillProjectionEvidence;
+}
+
+export interface TaskSkillProjectionSelectionEvidence {
+  readonly skillName: string;
+  readonly selectionReason: "explicit" | "auto";
+  readonly materializationSource: "memory-cache" | "filesystem";
+  readonly metadataBytes: number;
+  readonly contextBytes: number;
+  readonly contextTokens: number;
+}
+
+export interface TaskSkillProjectionEvidence {
+  readonly policyId: "progressive-skill-projection-v1";
+  readonly selectionHash: string;
+  readonly catalogSkillCount: number;
+  readonly selectedSkillCount: number;
+  readonly deferredSkillCount: number;
+  readonly catalogMetadataBytes: number;
+  readonly selectedContextBytes: number;
+  readonly selectedContextTokens: number;
+  readonly avoidedSourceBytes: number;
+  readonly selections: readonly TaskSkillProjectionSelectionEvidence[];
 }
 
 export function resolveTaskSkillSelection(input: TaskSkillSelectionInput): TaskSkillSelectionResult {
@@ -63,35 +95,155 @@ export function resolveTaskSkillSelection(input: TaskSkillSelectionInput): TaskS
     ...autoResolved.map((skill) => skill.name),
   ]);
 
-  const contextCandidates = skillNames.map((name) => {
-    const skill = registry.load(name);
-    if (!skill) {
+  const explicitNameSet = new Set(explicitResolved.map((skill) => skill.name));
+  const catalog = registry.all();
+  const catalogMetadata = new Map(catalog.map((skill) => [skill.name, renderSkillMetadata(skill)] as const));
+  const contextCandidates: ContextCandidate[] = [];
+  const selections: TaskSkillProjectionSelectionEvidence[] = [];
+  for (const name of skillNames) {
+    const materialized = registry.loadWithEvidence(name);
+    if (!materialized) {
       throw new Error(
         `${input.requesterLabel} references skill "${name}", but the skill content could not be loaded.`,
       );
     }
-    return skillConfigToContextCandidate(skill, {
+    const candidate = skillConfigToContextCandidate(materialized.skill, {
       required: true,
       score: SKILL_CONTEXT_SCORE,
     });
-  });
+    contextCandidates.push(candidate);
+    const metadata = catalogMetadata.get(name) ?? "";
+    selections.push({
+      skillName: name,
+      selectionReason: explicitNameSet.has(name) ? "explicit" : "auto",
+      materializationSource: materialized.source,
+      metadataBytes: Buffer.byteLength(metadata, "utf8"),
+      contextBytes: Buffer.byteLength(candidate.content, "utf8"),
+      contextTokens: estimateTextTokens(candidate.content),
+    });
+  }
+
+  const selectedNameSet = new Set(skillNames);
+  const projectionEvidence = buildProjectionEvidence(catalog, catalogMetadata, selections, selectedNameSet);
 
   return {
     skillNames,
     explicitSkillNames,
     autoSkillNames: autoResolved.map((skill) => skill.name),
+    workRecommendedSkillNames: resolveWorkRecommendedSkills(input),
+    workRecommendedSkillDiagnostics: resolveWorkRecommendedSkillDiagnostics({
+      input,
+      admittedSkillNames: skillNames,
+      unavailableAutoSkillNames,
+    }),
     unavailableAutoSkillNames,
     contextCandidates,
+    projectionEvidence,
   };
 }
 
+function buildProjectionEvidence(
+  catalog: readonly { readonly name: string; readonly filePath: string }[],
+  metadata: ReadonlyMap<string, string>,
+  selections: readonly TaskSkillProjectionSelectionEvidence[],
+  selectedNames: ReadonlySet<string>,
+): TaskSkillProjectionEvidence {
+  const catalogMetadataBytes = [...metadata.values()].reduce((total, value) => total + Buffer.byteLength(value, "utf8"), 0);
+  const avoidedSourceBytes = catalog
+    .filter((skill) => !selectedNames.has(skill.name))
+    .reduce((total, skill) => total + sourceBytes(skill.filePath, metadata.get(skill.name) ?? ""), 0);
+  const selectedContextBytes = selections.reduce((total, selection) => total + selection.contextBytes, 0);
+  const selectedContextTokens = selections.reduce((total, selection) => total + selection.contextTokens, 0);
+  const selectionHash = `sha256:${createHash("sha256")
+    .update(JSON.stringify(selections.map(({ skillName, selectionReason }) => ({ skillName, selectionReason }))))
+    .digest("hex")}`;
+  return {
+    policyId: "progressive-skill-projection-v1",
+    selectionHash,
+    catalogSkillCount: catalog.length,
+    selectedSkillCount: selections.length,
+    deferredSkillCount: Math.max(0, catalog.length - selections.length),
+    catalogMetadataBytes,
+    selectedContextBytes,
+    selectedContextTokens,
+    avoidedSourceBytes,
+    selections,
+  };
+}
+
+function renderSkillMetadata(skill: {
+  readonly name: string;
+  readonly description?: string;
+  readonly tools?: readonly string[];
+  readonly tags?: readonly string[];
+}): string {
+  return JSON.stringify({
+    name: skill.name,
+    description: skill.description ?? "",
+    tools: skill.tools ?? [],
+    tags: skill.tags ?? [],
+  });
+}
+
+function sourceBytes(filePath: string, fallbackMetadata: string): number {
+  try {
+    return statSync(filePath).size;
+  } catch {
+    return Buffer.byteLength(fallbackMetadata, "utf8");
+  }
+}
+
+function resolveWorkRecommendedSkillDiagnostics(input: {
+  readonly input: TaskSkillSelectionInput;
+  readonly admittedSkillNames: readonly string[];
+  readonly unavailableAutoSkillNames: readonly string[];
+}): readonly WorkRecommendedSkillDiagnostic[] {
+  const admitted = new Set(input.admittedSkillNames);
+  const unavailable = new Set(input.unavailableAutoSkillNames);
+  return resolveWorkRecommendedSkills(input.input).map((skillName) => {
+    if (admitted.has(skillName)) {
+      return {
+        skillName,
+        state: "admitted",
+        reason: "Recommended by work classification and admitted by auto selection.",
+      };
+    }
+    if (unavailable.has(skillName)) {
+      return {
+        skillName,
+        state: "unavailable",
+        reason: "Recommended by work classification but not found in the governed Kiln registry.",
+      };
+    }
+    return {
+      skillName,
+      state: "advisory",
+      reason: "skills.selection.mode is advisory; recommendation was not auto-admitted.",
+    };
+  });
+}
+
 function resolveAutoRecommendedSkills(input: TaskSkillSelectionInput): readonly string[] {
-  if (input.selection?.mode !== "auto" || !input.task) {
+  if (input.selection?.mode !== "auto") {
+    return [];
+  }
+  return unique([
+    ...resolveTaskRecommendedSkills(input),
+    ...resolveWorkRecommendedSkills(input),
+  ]);
+}
+
+function resolveTaskRecommendedSkills(input: TaskSkillSelectionInput): readonly string[] {
+  if (!input.task) {
     return [];
   }
   const taskSuitability = (input.taskSuitability ?? resolveConfiguredTaskSuitability(input))
     .find((entry) => entry.task === input.task);
   return normalizeSkillNames(taskSuitability?.recommendedSkills);
+}
+
+function resolveWorkRecommendedSkills(input: TaskSkillSelectionInput): readonly string[] {
+  return normalizeSkillNames(recommendedSkillsForWorkClassification(input.workClassification));
 }
 
 function resolveConfiguredTaskSuitability(input: TaskSkillSelectionInput): readonly ModelTaskSuitability[] {

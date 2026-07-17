@@ -168,6 +168,114 @@ describe("tools command", () => {
     expect(stdoutSpy).toHaveBeenCalledWith("{\"totalIndexed\":24}");
   });
 
+  it("passes explicit target identity when reading a resource", async () => {
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await toolsCommand(APP_CONFIG, {
+      resource: "kiln://session/work-items",
+      gatewayTargetId: "app-gateway:support:tenant:acme",
+      appId: "support",
+      tenantId: "acme",
+      sessionId: "session-1",
+    });
+
+    expect(coreMocks.resources.read).toHaveBeenCalledWith("kiln://session/work-items", {
+      target: {
+        gatewayTargetId: "app-gateway:support:tenant:acme",
+        appId: "support",
+        tenantId: "acme",
+        sessionId: "session-1",
+        resourceUri: "kiln://session/work-items",
+      },
+    });
+    expect(stdoutSpy).toHaveBeenCalledWith("{\"totalIndexed\":24}");
+  });
+
+  it("prints summarized text resources with the shared operator resource contract", async () => {
+    coreMocks.resources.read.mockResolvedValueOnce({
+      summary: {
+        kind: "external-engagement",
+        totalCount: 2,
+        counts: {
+          artifact: 2,
+          candidate: 3,
+        },
+        facets: {
+          artifactKinds: ["candidate-report", "evidence-report"],
+        },
+      },
+      contents: [{
+        uri: "kiln://external-engagement/artifacts",
+        mimeType: "application/json",
+        text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
+      }],
+    });
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await toolsCommand(APP_CONFIG, { resource: "kiln://external-engagement/artifacts" });
+
+    expect(stdoutSpy).toHaveBeenCalledWith(JSON.stringify({
+      uri: "kiln://external-engagement/artifacts",
+      summary: {
+        kind: "external-engagement",
+        totalCount: 2,
+        counts: {
+          artifact: 2,
+          candidate: 3,
+        },
+        facets: {
+          artifactKinds: ["candidate-report", "evidence-report"],
+        },
+      },
+      contents: [{
+        kind: "text",
+        uri: "kiln://external-engagement/artifacts",
+        mimeType: "application/json",
+        text: "{\"artifactRoot\":\".kiln/external-engagement\"}",
+      }],
+      presentation: {
+        uri: "kiln://external-engagement/artifacts",
+        title: "external-engagement",
+        total: { label: "total", value: 2 },
+        counts: [
+          { label: "artifact", value: 2 },
+          { label: "candidate", value: 3 },
+        ],
+        facets: [
+          { label: "artifactKinds", values: ["candidate-report", "evidence-report"] },
+        ],
+        meta: [],
+        contentCount: 1,
+        hasMore: false,
+      },
+    }, null, 2));
+  });
+
+  it("prints non-text resource reads with the shared operator resource contract", async () => {
+    coreMocks.resources.read.mockResolvedValueOnce({
+      contents: [{
+        uri: "kiln://artifacts/capture",
+        mimeType: "image/png",
+        blob: "iVBORw0KGgo=",
+      }],
+      nextCursor: "byte:1024",
+    });
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await toolsCommand(APP_CONFIG, { resource: "kiln://artifacts/capture" });
+
+    expect(stdoutSpy).toHaveBeenCalledWith(JSON.stringify({
+      uri: "kiln://artifacts/capture",
+      contents: [{
+        kind: "blob",
+        uri: "kiln://artifacts/capture",
+        mimeType: "image/png",
+        blob: "iVBORw0KGgo=",
+      }],
+      nextCursor: "byte:1024",
+    }, null, 2));
+  });
+
   it("shows the tools command in CLI help output", async () => {
     process.argv = ["bun", "kiln", "--help"];
     const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});

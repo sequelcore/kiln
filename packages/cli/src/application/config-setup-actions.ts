@@ -8,14 +8,17 @@ import { syncNativeAgentProjections } from "../config/native-agent-projection.js
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
+import { adoptNativeHarnessSkills } from "../config/native-skill-adoption.js";
 import { writeProjectContextAdoption } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import { writeRepoShimProjections } from "./repo-shim-projection.js";
+import { syncGlobalInstructionShimProjections } from "./global-instruction-shim-projection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 
 export interface ExecuteConfigSetupActionInput {
   readonly projectPath: string;
   readonly action: KilnConfigSetupAction;
+  readonly userHome?: string;
 }
 
 export async function executeConfigSetupAction(
@@ -33,15 +36,21 @@ export async function executeConfigSetupAction(
       case "sync-repo-shims":
         return await syncRepoShims(projectPath, input.action);
       case "sync-native-projections":
-        return await syncNativeProjections(projectPath, input.action);
+        return await syncNativeProjections(projectPath, input.action, input.userHome);
+      case "sync-global-instruction-shims":
+        return await syncGlobalInstructionShims(projectPath, input.action, input.userHome);
       case "review-project-context":
         return await result(input.action, "blocked", "Review the project context before replacing it.", [], projectPath);
       case "review-and-force-sync-repo-shims":
         return await result(input.action, "blocked", "Review repo-shim drift before running a force sync.", [], projectPath);
       case "adopt-or-back-up-native-guidance":
-        return await result(input.action, "blocked", "Review unmanaged native guidance before adopting or backing it up.", [], projectPath);
+        return await adoptNativeGuidance(projectPath, input.action, input.userHome);
+      case "adopt-or-back-up-global-instructions":
+        return await adoptGlobalInstructions(projectPath, input.action, input.userHome);
       case "review-native-projection-drift":
         return await result(input.action, "blocked", "Review native projection drift before overwriting managed fields.", [], projectPath);
+      case "review-global-instruction-drift":
+        return await result(input.action, "blocked", "Review global instruction shim drift before overwriting managed files.", [], projectPath);
     }
   } catch (error) {
     return result(input.action, "failed", errorMessage(error), [errorMessage(error)], projectPath);
@@ -82,13 +91,36 @@ async function syncRepoShims(
   );
 }
 
+async function syncGlobalInstructionShims(
+  projectPath: string,
+  action: KilnConfigSetupAction,
+  userHome?: string,
+): Promise<KilnConfigSetupActionResult> {
+  const sync = await syncGlobalInstructionShimProjections(projectPath, {
+    userHome,
+    disabledHarnesses: [],
+  });
+  if (sync.errors.length > 0) {
+    return result(action, "failed", "Global instruction shim sync failed.", sync.errors, projectPath, userHome);
+  }
+  return result(
+    action,
+    sync.synced > 0 ? "applied" : "noop",
+    sync.synced > 0 ? "Global instruction shims synced." : "Global instruction shims are already current.",
+    [],
+    projectPath,
+    userHome,
+  );
+}
+
 async function syncNativeProjections(
   projectPath: string,
   action: KilnConfigSetupAction,
+  userHome?: string,
 ): Promise<KilnConfigSetupActionResult> {
   const kilnYaml = await loadKilnConfig(projectPath);
   if (!kilnYaml) {
-    return result(action, "failed", "No kiln.yaml found in the project .kiln directory.", ["No kiln.yaml found."], projectPath);
+    return result(action, "failed", "No kiln.yaml found in the project .kiln directory.", ["No kiln.yaml found."], projectPath, userHome);
   }
 
   const disabledHarnesses = [] as const;
@@ -98,6 +130,7 @@ async function syncNativeProjections(
   const skillResult = await syncNativeSkillProjections(projectPath, {
     disabledHarnesses,
     skillConfig: kilnYaml.skills,
+    userHome,
   });
   const errors = [
     ...permissionResult.errors,
@@ -106,10 +139,78 @@ async function syncNativeProjections(
     ...skillResult.errors,
   ];
   if (errors.length > 0) {
-    return result(action, "failed", "Native projection sync failed.", errors, projectPath);
+    return result(action, "failed", "Native projection sync failed.", errors, projectPath, userHome);
   }
 
-  return result(action, "applied", "Native projections synced.", [], projectPath);
+  return result(action, "applied", "Native projections synced.", [], projectPath, userHome);
+}
+
+async function adoptGlobalInstructions(
+  projectPath: string,
+  action: KilnConfigSetupAction,
+  userHome?: string,
+): Promise<KilnConfigSetupActionResult> {
+  const sync = await syncGlobalInstructionShimProjections(projectPath, {
+    userHome,
+    disabledHarnesses: [],
+    adoptUnmanaged: true,
+  });
+  if (sync.errors.length > 0) {
+    return result(action, "failed", "Global instruction adoption failed.", sync.errors, projectPath, userHome);
+  }
+  return result(
+    action,
+    sync.synced > 0 ? "applied" : "noop",
+    sync.synced > 0 ? "Global instructions adopted and projected." : "No unmanaged global instructions need adoption.",
+    [],
+    projectPath,
+    userHome,
+  );
+}
+
+async function adoptNativeGuidance(
+  projectPath: string,
+  action: KilnConfigSetupAction,
+  userHome?: string,
+): Promise<KilnConfigSetupActionResult> {
+  const kilnYaml = await loadKilnConfig(projectPath);
+  if (!kilnYaml) {
+    return result(action, "failed", "No kiln.yaml found in the project .kiln directory.", ["No kiln.yaml found."], projectPath, userHome);
+  }
+
+  const adoption = adoptNativeHarnessSkills({
+    projectPath,
+    userHome,
+    skillConfig: kilnYaml.skills,
+  });
+  if (adoption.errors.length > 0) {
+    return result(
+      action,
+      adoption.adopted.length > 0 ? "failed" : "blocked",
+      adoption.adopted.length > 0
+        ? `Adopted ${adoption.adopted.length} native skill(s), but some native skills need manual reconciliation.`
+        : "Native skill adoption requires manual reconciliation.",
+      adoption.errors,
+      projectPath,
+      userHome,
+    );
+  }
+  if (adoption.adopted.length === 0) {
+    return result(action, "noop", "No unmanaged native skills need adoption.", [], projectPath, userHome);
+  }
+
+  const sync = await syncNativeProjections(projectPath, action, userHome);
+  if (sync.status === "failed") {
+    return sync;
+  }
+  return result(
+    action,
+    "applied",
+    `Adopted and projected ${adoption.adopted.length} native skill(s): ${adoption.adopted.join(", ")}.`,
+    [],
+    projectPath,
+    userHome,
+  );
 }
 
 async function result(
@@ -118,13 +219,14 @@ async function result(
   message: string,
   errors: readonly string[],
   projectPath: string,
+  userHome?: string,
 ): Promise<KilnConfigSetupActionResult> {
   return {
     action,
     status,
     message,
     errors,
-    setup: (await readConfigStatusSnapshot({ projectPath })).setup,
+    setup: (await readConfigStatusSnapshot({ projectPath, userHome })).setup,
   };
 }
 

@@ -741,6 +741,75 @@ describe("CodexOAuthAdapter", () => {
       });
     });
 
+    it("restores optional fields omitted through Codex strict-mode nullable arguments", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([{
+        event: "response.completed",
+        data: {
+          response: {
+            id: "resp_strict_optional_1",
+            status: "completed",
+            output: [{
+              type: "function_call",
+              id: "call_strict_optional_1",
+              name: "finish_work",
+              arguments: JSON.stringify({
+                id: "work-1",
+                handoff: {
+                  summary: "Local evidence collected.",
+                  resourceUris: ["kiln://artifacts/work-1"],
+                  structuredResult: null,
+                  verificationUsage: null,
+                },
+                adoption: null,
+                closeoutSummary: null,
+              }),
+            }],
+            usage: { input_tokens: 20, output_tokens: 8 },
+          },
+        },
+      }]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions({
+        tools: [{
+          name: "finish_work",
+          description: "Finish governed work.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              handoff: {
+                type: "object",
+                properties: {
+                  summary: { type: "string" },
+                  resourceUris: { type: "array", items: { type: "string" } },
+                  structuredResult: { type: "object" },
+                  verificationUsage: { type: "object" },
+                },
+                required: ["summary", "resourceUris"],
+              },
+              adoption: { type: "object" },
+              closeoutSummary: { type: "string" },
+            },
+            required: ["id"],
+          },
+          tags: new Set(["governance"]),
+        }],
+      }));
+
+      expect(response.toolCalls).toEqual([{
+        id: "call_strict_optional_1",
+        name: "finish_work",
+        input: {
+          id: "work-1",
+          handoff: {
+            summary: "Local evidence collected.",
+            resourceUris: ["kiln://artifacts/work-1"],
+          },
+        },
+      }]);
+    });
+
     it("preserves invalid tool calls even when leading text contains JSON", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
@@ -2273,13 +2342,49 @@ describe("CodexOAuthAdapter", () => {
       [403, "PROVIDER_AUTH_FAILED"],
       [429, "PROVIDER_RATE_LIMITED"],
       [402, "PROVIDER_QUOTA_EXCEEDED"],
-      [500, "PROVIDER_UNAVAILABLE"],
     ])("throws %s provider errors with code %s", async (status, code) => {
       mockFetch.mockResolvedValueOnce(jsonResponse(status, { error: "provider_error" }));
 
       const { adapter } = await createAdapter();
 
       await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({ code });
+    });
+
+    it("retries a transient 520 response before streaming starts", async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(520, { error: "unknown_origin_response" }))
+        .mockResolvedValueOnce(sseResponse([{
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_after_520",
+              status: "completed",
+              output: [{ type: "message", content: [{ type: "output_text", text: "Recovered" }] }],
+              usage: { input_tokens: 2, output_tokens: 1 },
+            },
+          },
+        }]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.parts).toEqual([{ type: "text", text: "Recovered" }]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("bounds retries when transient 5xx responses persist", async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(500, { error: "provider_error" }))
+        .mockResolvedValueOnce(jsonResponse(500, { error: "provider_error" }))
+        .mockResolvedValueOnce(jsonResponse(500, { error: "provider_error" }));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "PROVIDER_UNAVAILABLE",
+        retryable: true,
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it("classifies malformed SSE JSON as provider unavailable", async () => {

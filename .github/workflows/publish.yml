@@ -3,77 +3,36 @@ name: Publish
 on:
   push:
     tags:
-      - "v2.*"
+      - "v*"
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: publish-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  prepare:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: "1.3.14"
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
+
+      - run: npm install --global npm@11.5.1
 
       - run: bun install --frozen-lockfile
 
-      - name: Validate release tag and package graph
-        run: |
-          VERSION=$(node -p "require('./packages/core/package.json').version")
-          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match package version ${VERSION}."
-            exit 1
-          fi
-
-          node <<'NODE'
-          const fs = require("fs");
-          const path = require("path");
-
-          const packagesDir = "packages";
-          const packages = fs.readdirSync(packagesDir)
-            .map((name) => path.join(packagesDir, name, "package.json"))
-            .filter((file) => fs.existsSync(file))
-            .map((file) => ({ file, manifest: JSON.parse(fs.readFileSync(file, "utf8")) }));
-
-          const version = packages.find((pkg) => pkg.manifest.name === "@kilnai/core").manifest.version;
-          const published = packages.filter((pkg) => pkg.manifest.private !== true);
-          const failures = [];
-
-          for (const { file, manifest } of published) {
-            if (manifest.version !== version) {
-              failures.push(`${file}: expected version ${version}, found ${manifest.version}`);
-            }
-
-            for (const section of ["dependencies", "peerDependencies", "optionalDependencies"]) {
-              for (const [name, range] of Object.entries(manifest[section] ?? {})) {
-                if (!name.startsWith("@kilnai/")) {
-                  continue;
-                }
-                if (range !== `^${version}` && range !== version && range !== "workspace:*") {
-                  failures.push(`${file}: ${section}.${name} must target ${version}, found ${range}`);
-                }
-              }
-            }
-          }
-
-          if (failures.length > 0) {
-            console.error(failures.join("\n"));
-            process.exit(1);
-          }
-          NODE
+      - name: Validate release cohort
+        run: bun run release:validate --ref "${GITHUB_REF_NAME}"
 
       - name: Typecheck
         run: bun run typecheck
@@ -81,90 +40,86 @@ jobs:
       - name: Test
         run: bun run test
 
+      - name: Install Chromium for startup profile
+        run: bunx playwright install --with-deps chromium
+
+      - name: Test GUI startup profile
+        run: bun run test:startup-profile
+
       - name: Build
         run: bun run build
 
-      - name: Resolve workspace versions for publish
-        run: |
-          node <<'NODE'
-          const fs = require("fs");
-          const path = require("path");
+      - name: Stage and pack complete release
+        run: bun run release:pack --ref "${GITHUB_REF_NAME}"
 
-          const packagesDir = "packages";
-          const version = JSON.parse(fs.readFileSync("packages/core/package.json", "utf8")).version;
+      - name: Upload immutable release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: .release/bundle
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
 
-          for (const packageName of fs.readdirSync(packagesDir)) {
-            const manifestPath = path.join(packagesDir, packageName, "package.json");
-            if (!fs.existsSync(manifestPath)) {
-              continue;
-            }
+  smoke:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
 
-            const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-            if (manifest.private === true) {
-              continue;
-            }
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
 
-            for (const section of ["dependencies", "peerDependencies", "optionalDependencies", "devDependencies"]) {
-              const deps = manifest[section];
-              if (!deps) {
-                continue;
-              }
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
 
-              for (const name of Object.keys(deps)) {
-                if (name.startsWith("@kilnai/") && deps[name] === "workspace:*") {
-                  deps[name] = `^${version}`;
-                }
-              }
-            }
+      - run: npm install --global npm@11.5.1
 
-            fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-          }
-          NODE
+      - name: Download prepared release bundle
+        uses: actions/download-artifact@v5
+        with:
+          name: release-bundle
+          path: .release/bundle
 
-      - name: Publish @kilnai/gateway-contracts
-        working-directory: packages/gateway-contracts
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Clean-install smoke
+        run: bun run release:smoke
 
-      - name: Publish @kilnai/core
-        working-directory: packages/core
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  publish:
+    needs: [prepare, smoke]
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
 
-      - name: Publish @kilnai/gui
-        working-directory: packages/gui
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
 
-      - name: Publish @kilnai/runtime
-        working-directory: packages/runtime
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
 
-      - name: Publish @kilnai/react
-        working-directory: packages/sdk
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm install --global npm@11.5.1
 
-      - name: Publish @kilnai/cli
-        working-directory: packages/cli
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Download verified release bundle
+        uses: actions/download-artifact@v5
+        with:
+          name: release-bundle
+          path: .release/bundle
 
-      - name: Publish @kilnai/tui
-        working-directory: packages/tui
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Preflight complete npm cohort
+        run: bun run release:preflight
 
-      - name: Publish @kilnai/widget
-        working-directory: packages/widget
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish tarballs with trusted publishing
+        run: bun run release:publish
