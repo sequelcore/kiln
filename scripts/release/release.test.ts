@@ -9,6 +9,7 @@ import {
   assertPackedLegalFiles,
   buildReleasePlan,
   calculateIntegrity,
+  inferReleaseIdentity,
   parseReleaseRef,
   prepareStaging,
   selectInstallTarballs,
@@ -72,6 +73,33 @@ describe("parseReleaseRef", () => {
     "rejects unsupported or ambiguous ref %s",
     (ref) => expect(() => parseReleaseRef(ref)).toThrow(),
   );
+});
+
+describe("inferReleaseIdentity", () => {
+  it("derives a candidate identity from the complete public cohort", () => {
+    expect(
+      inferReleaseIdentity([
+        packageRecord("@kilnai/core"),
+        packageRecord("@kilnai/cli"),
+        packageRecord("@kilnai/private", {}, { private: true, version: "0.0.0" }),
+      ]),
+    ).toEqual({ version: "2.2.0-beta.1", distTag: "beta" });
+  });
+
+  it("fails closed for an empty or split public cohort", () => {
+    expect(() =>
+      inferReleaseIdentity([
+        packageRecord("@kilnai/private", {}, { private: true }),
+      ]),
+    ).toThrow(/empty/);
+
+    expect(() =>
+      inferReleaseIdentity([
+        packageRecord("@kilnai/core"),
+        packageRecord("@kilnai/cli", {}, { version: "2.1.0" }),
+      ]),
+    ).toThrow(/split cohort/);
+  });
 });
 
 describe("buildReleasePlan", () => {

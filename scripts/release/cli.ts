@@ -12,6 +12,7 @@ import {
   buildWorkspaceOrder,
   calculateIntegrity,
   discoverPackages,
+  inferReleaseIdentity,
   isCleanSmokeTermination,
   parseReleaseRef,
   prepareStaging,
@@ -99,8 +100,11 @@ async function buildWorkspace(): Promise<void> {
 
 async function validate(): Promise<void> {
   const records = await discoverPackages(packagesRoot);
-  const ref = stringOption("--ref") ?? process.env.RELEASE_REF ?? process.env.GITHUB_REF_NAME ?? defaultRef(records);
-  const plan = buildReleasePlan(records, parseReleaseRef(ref));
+  const explicitRef = stringOption("--ref") ?? process.env.RELEASE_REF;
+  const identity = explicitRef
+    ? parseReleaseRef(explicitRef)
+    : inferReleaseIdentity(records);
+  const plan = buildReleasePlan(records, identity);
   console.log(
     `Validated ${plan.packages.length}-package ${plan.version} cohort for npm dist-tag ${plan.distTag}:\n` +
       plan.packages.map((pkg, index) => `${index + 1}. ${pkg.name}`).join("\n"),
@@ -109,8 +113,14 @@ async function validate(): Promise<void> {
 
 async function pack(): Promise<void> {
   const records = await discoverPackages(packagesRoot);
-  const ref = stringOption("--ref") ?? process.env.RELEASE_REF ?? process.env.GITHUB_REF_NAME ?? defaultRef(records);
-  const plan = buildReleasePlan(records, parseReleaseRef(ref));
+  const explicitRef =
+    stringOption("--ref") ??
+    process.env.RELEASE_REF ??
+    process.env.GITHUB_REF_NAME;
+  const identity = explicitRef
+    ? parseReleaseRef(explicitRef)
+    : inferReleaseIdentity(records);
+  const plan = buildReleasePlan(records, identity);
   await rm(releaseRoot, { recursive: true, force: true });
   await mkdir(bundleRoot, { recursive: true });
   await prepareStaging(plan, packagesRoot, stageRoot);
@@ -462,12 +472,6 @@ function parsePackOutput(
     integrity: packed.integrity,
     files: packed.files.map((file) => file.path!),
   };
-}
-
-function defaultRef(records: Awaited<ReturnType<typeof discoverPackages>>): string {
-  const core = records.find(({ manifest }) => manifest.name === "@kilnai/core");
-  if (!core) throw new Error("Cannot infer release ref without @kilnai/core");
-  return `v${core.manifest.version}`;
 }
 
 function stringOption(name: string): string | undefined {

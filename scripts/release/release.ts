@@ -107,6 +107,31 @@ export function parseReleaseRef(ref: string): ReleaseIdentity {
   );
 }
 
+export function inferReleaseIdentity(
+  records: readonly PackageRecord[],
+): ReleaseIdentity {
+  const publishedVersions = new Set(
+    records
+      .filter(
+        ({ manifest }) =>
+          manifest.private !== true &&
+          manifest.name?.startsWith(INTERNAL_SCOPE),
+      )
+      .map(({ manifest }) => manifest.version),
+  );
+
+  if (publishedVersions.size === 0) {
+    throw new Error("Cannot infer release identity from an empty cohort");
+  }
+  if (publishedVersions.size !== 1) {
+    throw new Error(
+      `Cannot infer release identity from split cohort versions: ${[...publishedVersions].sort().join(", ")}`,
+    );
+  }
+
+  return parseReleaseRef(`v${[...publishedVersions][0]}`);
+}
+
 export async function discoverPackages(packagesRoot: string): Promise<PackageRecord[]> {
   const entries = await readdir(packagesRoot, { withFileTypes: true });
   const records: PackageRecord[] = [];
