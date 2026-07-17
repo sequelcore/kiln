@@ -236,6 +236,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   startupProfiler.mark("gateway-start-requested");
   const gateway = await startGuiGateway({
     port,
+    guiAssetMode: mode === "dev" ? "external" : "bundled",
     getProviderAvailability: () => getRuntimeProviderAvailability(registry),
     getSnapshot: async (context) => buildDashboardSnapshot(
       registry,

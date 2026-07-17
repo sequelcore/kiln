@@ -126,6 +126,7 @@ async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
 export interface StartGuiGatewayOptions {
   readonly port?: number;
   readonly guiDistPath?: string;
+  readonly guiAssetMode?: "bundled" | "external";
   readonly getSnapshot: (context?: {
     readonly operatorModels?: Record<string, string[]>;
     readonly operatorDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -430,9 +431,10 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   const builtinToolOptions = options.builtinToolOptions;
   const memoryLatticeResources = createAttachedRuntimeBuiltinToolSurface({ builtinToolOptions });
   const app = new Hono();
-  const guiDistPath = resolveGuiDistPath(options.guiDistPath);
-  mountGuiStaticAssets(app, guiDistPath);
-  const hasMountedGui = true;
+  const hasMountedGui = options.guiAssetMode !== "external";
+  if (hasMountedGui) {
+    mountGuiStaticAssets(app, resolveGuiDistPath(options.guiDistPath));
+  }
   const transportOptions = options.operatorTransport;
   const operatorTerminalCapability = transportOptions && options.workingDirectory
     ? crypto.randomUUID()

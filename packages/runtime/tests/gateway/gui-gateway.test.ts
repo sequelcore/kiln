@@ -1041,6 +1041,31 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("starts an API-only gateway without resolving a GUI bundle when assets are external", async () => {
+    const missingDistDir = createTempDir();
+    const stop = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    const gateway = await startGuiGateway({
+      guiAssetMode: "external",
+      guiDistPath: missingDistDir,
+      getSnapshot: async () => ({ } as never),
+    });
+
+    try {
+      expect(gateway.hasMountedGui).toBe(false);
+    } finally {
+      gateway.shutdown();
+      rmSync(missingDistDir, { recursive: true, force: true });
+    }
+  });
+
   it("starts listening before operator provider discovery resolves", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

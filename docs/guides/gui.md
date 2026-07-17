@@ -41,7 +41,10 @@ By default, the command:
 4. Shuts down the gateway when that window closes
 
 Use `--dev` only when developing this repository's GUI source. Dev mode expects
-the `packages/gui` workspace to exist in the current Kiln source checkout.
+the `packages/gui` workspace to exist in the current Kiln source checkout. Vite
+owns GUI assets in this mode, while the local gateway exposes only the operator
+API and WebSocket contract; a prebuilt `packages/gui/dist` bundle is not a dev
+startup prerequisite.
 
 ### App Gateway Attach Mode
 

@@ -18,12 +18,18 @@ const gatewayHarness = vi.hoisted(() => ({
     workingDirectory?: string;
   } | null,
   operatorModels: {} as Record<string, string[]>,
-  lastOptions: null as { builtinToolOptions?: unknown; operatorTransport?: Record<string, unknown>; workingDirectory?: string } | null,
+  lastOptions: null as {
+    builtinToolOptions?: unknown;
+    guiAssetMode?: "bundled" | "external";
+    operatorTransport?: Record<string, unknown>;
+    workingDirectory?: string;
+  } | null,
   shutdown: vi.fn(),
   closeWindow: vi.fn(),
   startGuiGateway: vi.fn(async (options: {
     getSnapshot: (context?: { operatorModels?: Record<string, string[]> }) => Promise<unknown>;
     builtinToolOptions?: unknown;
+    guiAssetMode?: "bundled" | "external";
     operatorTransport?: Record<string, unknown>;
     workingDirectory?: string;
   }) => {
@@ -431,6 +437,7 @@ describe("GUI dashboard provider availability", () => {
         },
       },
     });
+    expect(gatewayHarness.lastOptions?.guiAssetMode).toBe("bundled");
   });
 
   it("resolves nested cwd to the canonical project root before opening GUI state", async () => {
