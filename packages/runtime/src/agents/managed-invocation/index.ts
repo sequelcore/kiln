@@ -3,7 +3,7 @@ import { access, mkdir, rmdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import type { Server } from "node:net";
 import { createHash } from "node:crypto";
-import { win32 as pathWin32 } from "node:path";
+import { join as joinPath, win32 as pathWin32 } from "node:path";
 import { promisify } from "node:util";
 import {
   buildManagedAgentAuthorityEvidence,
@@ -607,7 +607,7 @@ export class ManagedFilesystemArtifactDirectoryLeaseManager implements ManagedAg
   }
 
   private artifactDirectoryPath(invocationId: string): string {
-    return pathWin32.join(this.artifactRootPath, invocationId);
+    return joinPath(this.artifactRootPath, invocationId);
   }
 
   private assertArtifactDirectoryPath(path: string): void {
