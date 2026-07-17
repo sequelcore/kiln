@@ -53,7 +53,7 @@ focused component, typecheck, build, and browser validation evidence.
 
 ## Progress Snapshot
 
-Updated: 2026-07-14
+Updated: 2026-07-17
 
 The following GUI foundations have been implemented and verified. Their stable
 behavior belongs in the canonical GUI and architecture documentation; this
@@ -114,8 +114,19 @@ Current verification evidence:
   active.
 - Startup profiling tests, GUI tests, repository typecheck, and repository
   build pass for the measured startup slices.
+- The complete Chromium parity suite passes (18 tests) against isolated
+  gateway fixtures. A production GUI session using `OpenCode Go / kimi-k3`
+  completed a real read-only tool call, rendered one terminal execution row
+  and a separate assistant response, emitted no browser console errors, and
+  restored the same terminal evidence after reload.
+- The intended `Codex OAuth / gpt-5.6-luna` route passed the same production
+  lifecycle after operator reauthentication. Its tool row reached `Completed`,
+  passive activity ended with the turn, and reload restored the same terminal
+  tool and assistant evidence without browser console errors.
 - Final operator live validation remains pending and is required before this
-  roadmap can close.
+  roadmap can close. Long-running work, interruption, reconnect, compact
+  layout, and the broader capability-diagnostic scenarios below still require
+  operator evidence.
 
 Still open before public release:
 
@@ -133,6 +144,11 @@ Still open before public release:
 - Final live validation of long conversations, streaming interruptions,
   restored sessions, structured outputs, inspector modes, responsive sidebar,
   and workspace file-type icon coverage.
+
+The `3.0.0-beta.1` prerelease tag is blocked on this live-validation evidence
+plus the package-graph, npm dist-tag, package-content, and registry checks in
+the canonical [release runbook](../operations/release.md). A candidate note or
+passing source build is not publication evidence.
 
 ## Delivery Slices - Release-Blocking Debt
 

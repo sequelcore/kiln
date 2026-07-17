@@ -126,8 +126,9 @@ curl http://localhost:3300/budget?tenantId=bella-salon
 **Add WhatsApp**: See the [whatsapp-bot](../whatsapp-bot/) example for WhatsApp channel configuration.
 
 **Use the public widget package**: The demo HTML loads
-`../../../packages/widget/dist/widget.js` from the source tree for repository
-development. Public HTML should target `@kilnai/widget@2.1.0`.
+`../../../packages/widget/dist/widget.iife.js` from the source tree for
+repository development. Public HTML should pin an exact published
+`@kilnai/widget` version and load its `dist/widget.iife.js` artifact.
 
 ## Next steps
 

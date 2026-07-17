@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/tools",
-  "version": "2.0.0",
+  "version": "3.0.0-beta.1",
   "description": "Developer tool package resolver for Kiln",
   "type": "module",
   "exports": {
@@ -15,7 +15,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -37,9 +37,9 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@kilnai/tools-darwin-arm64": "2.0.0",
-    "@kilnai/tools-darwin-x64": "2.0.0",
-    "@kilnai/tools-linux-x64": "2.0.0",
-    "@kilnai/tools-win32-x64": "2.0.0"
+    "@kilnai/tools-darwin-arm64": "3.0.0-beta.1",
+    "@kilnai/tools-darwin-x64": "3.0.0-beta.1",
+    "@kilnai/tools-linux-x64": "3.0.0-beta.1",
+    "@kilnai/tools-win32-x64": "3.0.0-beta.1"
   }
 }

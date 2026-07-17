@@ -43,7 +43,10 @@
   Supported public change log beginning with the 2.0 baseline.
 
 - [Release Notes](releases/README.md)
-  Curated notes for supported public releases.
+  Curated notes for supported public releases and clearly marked prerelease
+  candidates.
+- [Release Runbook](operations/release.md)
+  Canonical package publication, verification, and recovery procedure.
 
 ## Public Baseline
 

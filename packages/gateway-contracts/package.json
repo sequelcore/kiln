@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/gateway-contracts",
-  "version": "2.1.0",
+  "version": "3.0.0-beta.1",
   "description": "Shared HTTP/WebSocket frame contracts between the Kiln runtime gateway and operator surfaces",
   "type": "module",
   "exports": {
@@ -31,7 +31,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

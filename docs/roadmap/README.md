@@ -44,6 +44,13 @@ The TypeScript 7 migration is not an executable Kiln roadmap item while the
 required Bun alias fix is unpublished. Its external dependency and follow-up
 belong in the Sequel infrastructure debt register, not in this queue.
 
+The `3.0.0-beta.1` prerelease is a candidate, not a completed release. Its
+13-package graph and `beta` publish route are implemented. Tagging remains
+blocked until the Roadmap 02 operator live-validation gate closes, npm trusted
+publishing is configured, and the exact committed candidate passes the
+cross-platform [release runbook](../operations/release.md). Kiln `2.1.0`
+remains the supported public package line until registry verification succeeds.
+
 ## Track Status
 
 | Track | State | Current position | Next admissible action or trigger |

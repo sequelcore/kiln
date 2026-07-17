@@ -21,9 +21,12 @@
 
 ### Script tag (recommended)
 
+Pin an exact published version; do not use a moving dist-tag for production
+embeds.
+
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@kilnai/widget@latest/dist/widget.js"
+  src="https://cdn.jsdelivr.net/npm/@kilnai/widget@<published-version>/dist/widget.iife.js"
   data-gateway="wss://your-gateway.example.com"
   data-app="your-app"
   data-widget-id="your-widget-id"
@@ -43,13 +46,13 @@ bun add @kilnai/widget
 import { KilnWidget } from "@kilnai/widget";
 
 const widget = new KilnWidget({
-  gateway: "wss://your-gateway.example.com",
-  app: "your-app",
+  gatewayUrl: "wss://your-gateway.example.com",
+  appName: "your-app",
   widgetId: "your-widget-id",
 });
-
-widget.mount(document.body);
 ```
+
+Construction mounts the widget into `document.body`.
 
 ## Configuration
 
@@ -79,9 +82,9 @@ All options can be set via `data-*` attributes on the script tag or passed to th
 
 ## How it works
 
-```
+```text
 Website (your-site.com)
-  │ <script> tag loads widget.js
+  │ script tag loads widget.iife.js
   │ Shadow DOM renders chat UI
   │ WebSocket connects to gateway
   ▼
@@ -90,7 +93,7 @@ Kiln Gateway
   │ Injects tenant system prompt (name, services, FAQs)
   │ Routes to Kiln app
   ▼
-AI Agent responds with text + suggestion chips
+AI Agent responds with text and suggestion chips
 ```
 
 ## Documentation

@@ -33,7 +33,9 @@ provider routing, and operator-facing control surfaces.
 
 Kiln `2.1.0` is the current supported public package line for the control-plane
 architecture. The `2.0.0` release remains the first supported public baseline.
-The repository is public and buildable from source.
+The repository is public and buildable from source. The
+[`3.0.0-beta.1` note](docs/releases/3.0.0-beta.1.md) describes an unpublished
+candidate; it is not package or installation evidence.
 
 Use this repo today if you want to:
 
@@ -132,6 +134,7 @@ Start here:
 - [Research Index](docs/research/README.md)
 - [Roadmap](docs/roadmap/README.md)
 - [Changelog](docs/changelog.md)
+- [Release Runbook](docs/operations/release.md)
 
 Most important architecture documents:
 

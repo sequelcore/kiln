@@ -4,18 +4,25 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
+  "packageManager": "bun@1.3.14",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter '*' build",
+    "build": "bun run scripts/release/cli.ts build",
     "typecheck": "tsc -b packages/gateway-contracts packages/tools packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
-    "test": "bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/native test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/gui test",
+    "test": "bun run test:scripts && bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/tools test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/native test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/gui test",
     "test:e2e": "bun run --cwd packages/gui test:e2e",
     "profile:startup": "bun run scripts/profile-startup.ts",
     "test:harness": "bun run scripts/run-managed-agent-harness-tests.ts",
     "test:managed-agents:live": "bun run scripts/run-managed-agent-live-tests.ts",
-    "vendor:tools": "bun run scripts/vendor-tools.ts"
+    "vendor:tools": "bun run scripts/vendor-tools.ts",
+    "test:scripts": "vitest run --config scripts/vitest.config.ts",
+    "release:validate": "bun run scripts/release/cli.ts validate",
+    "release:pack": "bun run scripts/release/cli.ts pack",
+    "release:smoke": "bun run scripts/release/cli.ts smoke",
+    "release:preflight": "bun run scripts/release/cli.ts preflight",
+    "release:publish": "bun run scripts/release/cli.ts publish"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",

@@ -1,14 +1,16 @@
-import { expect, test } from "bun:test";
+import { execFile as execFileCallback } from "node:child_process";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
+import { promisify } from "node:util";
+import { expect, test } from "vitest";
 
-const repoRoot = resolve(import.meta.dir, "..");
+const execFile = promisify(execFileCallback);
+const repoRoot = resolve(import.meta.dirname, "..");
 
 test("profiles the first usable GUI interaction when browser measurement is enabled", async () => {
   const gatewayPort = await reservePort();
   const guiPort = await reservePort();
-  const child = Bun.spawn([
-    "bun",
+  const { stdout } = await execFile("bun", [
     "run",
     "scripts/profile-startup.ts",
     "--mode",
@@ -25,17 +27,11 @@ test("profiles the first usable GUI interaction when browser measurement is enab
     "--no-open",
   ], {
     cwd: repoRoot,
-    stdout: "pipe",
-    stderr: "pipe",
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 40_000,
   });
 
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-
-  expect(exitCode, stderr).toBe(0);
   const profile = JSON.parse(stdout) as {
     command: { measureFirstPaint?: boolean };
     timings: {
@@ -52,7 +48,7 @@ test("profiles the first usable GUI interaction when browser measurement is enab
   expect(profile.timings.browserResourceSummary?.count).toBeGreaterThan(0);
   expect(profile.timings.browserResourceSummary?.slowest.length).toBeGreaterThan(0);
   expect(profile.timings.browserResourceSummary?.slowest[0]?.durationMs).toBeGreaterThanOrEqual(0);
-  expect(profile.timings.browserResourceSummary?.slowest[0]?.name).toStartWith("/gui/");
+  expect(profile.timings.browserResourceSummary?.slowest[0]?.name).toMatch(/^\/gui\//u);
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("browser-ready");
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("gui-first-usable-interaction");
 }, 45_000);

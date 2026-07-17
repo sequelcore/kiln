@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/tui",
-  "version": "2.1.0",
+  "version": "3.0.0-beta.1",
   "description": "Interactive terminal operator surface for the Kiln control plane",
   "type": "module",
   "exports": {
@@ -14,7 +14,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts tests"
   },
@@ -35,10 +35,10 @@
     "access": "public"
   },
   "dependencies": {
-    "@kilnai/gateway-contracts": "^2.1.0",
+    "@kilnai/gateway-contracts": "3.0.0-beta.1",
     "@opentui/core": "0.1.92",
     "@opentui/react": "0.1.92",
-    "@kilnai/core": "^2.1.0",
+    "@kilnai/core": "3.0.0-beta.1",
     "react": "^19.0.0"
   },
   "optionalDependencies": {

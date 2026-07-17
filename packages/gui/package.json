@@ -1,6 +1,6 @@
 {
   "name": "@kilnai/gui",
-  "version": "2.1.0",
+  "version": "3.0.0-beta.1",
   "description": "Rich web operator surface for the Kiln control plane",
   "type": "module",
   "license": "Apache-2.0",
@@ -9,8 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest",
-    "test:run": "vitest run",
+    "test": "vitest run",
     "lint": "eslint src tests",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -19,8 +18,13 @@
   "devDependencies": {
     "@base-ui/react": "^1.4.1",
     "@fontsource-variable/geist": "^5.2.8",
+    "@shadcn/react": "^0.1.0",
     "@tanstack/react-query": "^5.75.3",
     "@tanstack/react-router": "^1.120.12",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "ansi-to-react": "^6.2.6",
+    "border-beam": "1.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -28,6 +32,8 @@
     "lucide-react": "^1.8.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-file-icon": "1.6.0",
+    "react-json-view-lite": "2.5.0",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-gfm": "^4.0.1",
@@ -38,8 +44,8 @@
     "zod": "^3.24.3",
     "zustand": "^5.0.4",
     "@eslint/js": "^9.26.0",
-    "@kilnai/core": "^2.1.0",
-    "@kilnai/gateway-contracts": "^2.1.0",
+    "@kilnai/core": "3.0.0-beta.1",
+    "@kilnai/gateway-contracts": "3.0.0-beta.1",
     "@playwright/test": "^1.52.0",
     "@tailwindcss/vite": "^4.1.5",
     "@tanstack/react-query-devtools": "^5.75.3",
@@ -84,14 +90,5 @@
   ],
   "publishConfig": {
     "access": "public"
-  },
-  "dependencies": {
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
-    "@shadcn/react": "^0.1.0",
-    "ansi-to-react": "^6.2.6",
-    "border-beam": "1.3.0",
-    "react-file-icon": "1.6.0",
-    "react-json-view-lite": "2.5.0"
   }
 }

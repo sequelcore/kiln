@@ -6,145 +6,37 @@ baseline. Active and deferred execution tracks live in
 [`docs/architecture/`](architecture/README.md); curated release notes live in
 [`docs/releases/`](releases/README.md).
 
+## Unreleased - 3.0.0-beta.1 candidate
+
+This section describes the current prerelease candidate in the repository. It
+is not a publication record. Kiln `2.1.0` remains the supported public package
+line until the beta tag, package graph, publish workflow, and registry evidence
+have all been verified.
+
+- Extended managed-agent execution with background and parallel lifecycle
+  evidence, bounded result resources, recovery, dependency-aware orchestration,
+  and governed heterogeneous teams.
+- Added provider-neutral route eligibility, trusted-execution evidence, and
+  action-effect governance across direct-provider and native-harness paths.
+- Added an operator workspace projection, target-aware resource inspection, and
+  shared managed-execution evidence for CLI, GUI, and TUI surfaces.
+- Improved GUI execution continuity with canonical activity ownership,
+  structured tool output, long-thread navigation, restored-session
+  deduplication, and reduced-motion behavior.
+- Added deterministic CLI output contracts and provider-neutral benchmark,
+  efficiency, cost, and verification evidence.
+- Added governed native developer-tool resolution for `rg`, `fd`, and `jq`.
+
+Candidate details and unresolved promotion gates are recorded in
+[`docs/releases/3.0.0-beta.1.md`](releases/3.0.0-beta.1.md). The release
+procedure is defined in
+[`docs/operations/release.md`](operations/release.md).
+
 ## v2.1.0
 
-- Added governed heterogeneous agent teams to the existing managed
-  orchestration controller: every work item now preserves its configured agent
-  identity, route, and dependencies; Runtime propagates completed handoffs and
-  resource URIs, blocks failed dependency chains, and requires genuinely
-  distinct provider/model identities for independent review. The initial
-  frontend roster uses Kimi K3 for visual production, Kimi K2.7 for
-  repository-specific implementation advice, and Codex Terra for independent
-  React/TypeScript review. Its structural benchmark profile requires paired
-  individual evidence before the team can be promoted.
-- Closed managed-orchestration replay and handoff gaps: child handoff contracts
-  are projected into direct-provider and native-harness prompts, exact structured
-  results are validated without synthetic evidence, and every orchestration
-  child now persists canonical lifecycle events into its parent session. The
-  interactive CLI handles audited runtime approval requests, while structured
-  output remains fail-closed. Native Codex/OpenCode launch on Windows now uses
-  verified executables rather than shell command shims.
-- Completed the verified-efficiency control plane: reconciled lifecycle and
-  cache-topology evidence, progressive loading, typed lossless and reversible
-  context reduction, utility and phase-aware allocation, delegation and
-  verification accounting, governed memory reconsolidation, operator-approved
-  adaptation with exact rollback, cross-surface evidence parity, and a
-  content-hashed publication gate that currently authorizes no public claim.
-- Fixed GUI Full Access execution integrity: an explicitly attended operator
-  turn now authorizes Kiln-owned workspace mutation tools through bounded
-  session/tenant/route evidence, while managed and unattended children continue
-  to fail closed without their own goal and work-item authority envelopes. The
-  selector remains separate from native harness sandbox proof and canonical
-  provider permission state.
-- Fixed GUI provider/model selection eligibility so fresh authenticated
-  account-scoped catalogs such as Codex OAuth and OpenCode Go/Zen are selectable
-  while large harness-only catalogs remain diagnostic until entitlement evidence
-  is available.
-- Added continuous GUI tool-execution rows keyed by canonical `toolCallId`,
-  contract-driven bounded structured-output visualizers, a semantic long-thread
-  navigation trail with visible-block active position, proximity zoom on
-  hover/focus, and replay/restore deduplication by `eventId`. Markdown-like
-  web/search tool output is promoted to structured search-result evidence and
-  rendered as source/result rows instead of raw monospaced text or generic
-  document markdown. Active tool treatment is a compact inline trace with
-  text/icon state and optional shimmer, while aggregate thinking/execution
-  activity uses a restrained `border-beam` with visible phase text instead of an
-  isolated ellipsis; all motion is suppressed under reduced motion.
-- Added provider-neutral benchmark integrity for efficiency work: provider tool
-  names round-trip to canonical Kiln identities, route failures are classified
-  from shared route-health evidence, execution economics distinguish metered,
-  subscription, free, and unknown cost, and internal benchmark baselines emit
-  typed transcript, tool-call, diagnostic, usage, route, cost, and result
-  artifacts before readiness or routing promotion.
-- Added provider-neutral trusted-execution permission integrity: Kiln now keeps
-  canonical desired policy, native projection, session override, observed
-  runtime policy, harness enforcement strength, evidence freshness, operator
-  authorization, and remediation classification separate across Codex, Claude
-  Code, and OpenCode; doctor, setup/status, CLI, GUI, TUI, managed-agent
-  execution, and model-readable config views consume the shared evidence
-  contract without treating UI Full Access selection as runtime proof.
-- Added the provider-model eligibility plane: provider catalog observations are
-  preserved as raw diagnostic evidence, normalized through runtime adapter
-  families, evaluated by canonical eligibility for interactive and managed-agent
-  use, and projected to Gateway, GUI, TUI, and CLI operator surfaces without
-  local eligibility derivation or live provider spend.
-- Stabilized the `@kilnai/cli` package test harness for workspace verification:
-  CLI Vitest runs stay single-worker, emit verbose progress under filtered
-  workspace commands, and bound test, hook, and teardown stalls without
-  depending on live credentials or operator-local harness state.
-- Completed the execution-surfaces convergence track: shared Operator
-  Workspace home projection, gateway target switcher, target-aware resource
-  inspector reads through runtime provider options, SDK `ApiClient.readResource`,
-  CLI target-aware resource reads, and stable architecture/guide documentation.
-- Promoted native developer-tool contracts into stable runtime and
-  documentation surfaces: `grep` resolves the vendored `rg` runtime,
-  `glob` can use vendored `fd`, `json_query` executes through native `jq`,
-  `memory_search` exposes governed memory reads, and the private
-  `@kilnai/tools-*` packages carry platform runtime metadata for packaged
-  execution evidence.
-- Kept GUI Markdown tables horizontally scrollable through a scoped transcript
-  renderer without changing shared shadcn table primitives.
-- Replaced internal tool annotation authority with canonical action-effect
-  governance: builtin tools now declare immutable effect envelopes, concrete
-  calls resolve input-sensitive invocation effects before authority, external
-  MCP hints remain untrusted presentation metadata, fallback tools authorize
-  independently, and runtime evidence records resolved effect plus authority.
-- Persisted terminal `agent_invocation_*` events for background
-  `managed_agent.start` children as soon as runtime finalization completes, so
-  GUI/TUI transcripts and replay no longer depend on a later join or cancel
-  control to close naturally completed child work. Terminalized startup
-  failures after runtime-owned lease side effects now record the same canonical
-  requested, started, and failed events.
-- Exposed admitted managed-child authority and observed child tool progress as
-  structured runtime evidence: managed invocation lifecycle tools now project
-  `authoritySnapshot` with explicit tool, write, network, working-directory, and
-  memory-scope authority, and direct-provider children report bounded
-  `progressEvents` from the child runtime event bus.
-- Kept direct-provider managed child result handoffs bounded while preserving
-  long final child output as governed replay resources, projected through
-  managed-agent or artifact resource URIs instead of inline session metadata.
-- Preserved persisted GUI/TUI turn identity through executable runtime
-  per-call config so managed children record the correct parent turn, made
-  `managed_agent.join` return successful terminal observations for cancelled
-  or other non-completed children, exposed terminal handoff/resource evidence
-  in model-visible join output, and added managed-route timeout source
-  diagnostics.
-- Raised synthesized managed-agent route timeouts to five minutes, projected
-  route timeout budgets into the model-facing managed-agent catalog, made
-  CLI-harness timeout handoffs name the admitted timeout and replay resources,
-  clarified `contextMode: "resources"` versus child `resource_read` authority,
-  and made successful `managed_agent.cancel` controls report accepted terminal
-  cancellation evidence instead of a failed tool result.
-- Made paginated `resource_read` continuations model-visible with a trailing
-  JSON control block, and kept GUI/TUI managed invocation lifecycle tools bound
-  to the stable outer Kiln session across recreated provider turns.
-- Made `kiln managed-agent` replay recover GUI/TUI managed-child cockpit state
-  from persisted managed tool-completion evidence and list snapshots when
-  canonical `agent_invocation_*` events were absent or only partially persisted
-  through the shared gateway-contract normalizer, returned managed transcript
-  resources as bounded `text/markdown` bodies, and shared managed child
-  `contextMode: "resources"` context construction across direct-provider and
-  CLI-harness adapters, with terminal list snapshots kept provisional until
-  richer terminal tool evidence arrives and join evidence allowed to complete
-  canonical-start-only streams.
-- Projected adapter-private managed invocation evidence pointers into public
-  managed-agent or artifact resource URIs before they cross GUI, TUI, CLI,
-  replay, or model-facing `resource_read` surfaces, including nonterminal
-  start metadata and TUI per-turn resource reads. Direct-provider and
-  CLI-harness managed children now hydrate admitted resource context from the
-  current session-scoped builtin tool surface instead of the
-  route-construction-time surface.
-- Promoted the background and parallel managed-agent track into stable
-  architecture docs, including runtime-owned child lifecycle, parallel
-  orchestration admission, resource leases, cross-surface cockpit projection,
-  artifact-backed resource pagination, runtime budget admission, and remote
-  harness route constraints.
 - Published `@kilnai/gui` as a public static asset package.
 - Made `@kilnai/cli` the public global install boundary for CLI, GUI, TUI,
   runtime, gateway contracts, and GUI assets.
-- Added deterministic `kiln run --output answer|json` contracts and kept
-  `kiln benchmark run-internal` stdout machine-readable for exact-format eval
-  and benchmark harnesses.
 - Moved runtime-owned GUI serving to the installed `@kilnai/gui` package and
   removed source-tree GUI discovery from production startup.
 - Made `kiln gui` production mode the default from any working directory;

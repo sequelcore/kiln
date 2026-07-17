@@ -32,7 +32,7 @@ contracts so `kiln gui` and `kiln tui` can run from any project directory.
 Or use directly:
 
 ```bash
-bunx kiln init
+bunx @kilnai/cli init
 ```
 
 ## Commands
