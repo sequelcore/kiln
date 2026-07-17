@@ -9,7 +9,7 @@ dist/
 .DS_Store
 *.tsbuildinfo
 .claude/
-memory/
+/memory/
 .kiln/*
 !.kiln/kiln.yaml
 !.kiln/project-context.md
