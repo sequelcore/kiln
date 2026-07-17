@@ -121,7 +121,7 @@ const configMocks = vi.hoisted(() => ({
     return provider.length > 0 ? provider : undefined;
   }),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
-  resolveGlobalConfigPath: vi.fn(() => "C:/Users/R3XED/.kiln/config.yaml"),
+  resolveGlobalConfigPath: vi.fn(() => "C:/Users/ExampleUser/.kiln/config.yaml"),
   resolveGlobalUiTheme: vi.fn((config: { ui?: { theme?: string } } | null) => config?.ui?.theme),
   resolveEffectiveProvider: vi.fn((provider: string | undefined, globalProvider?: string) => {
     const normalize = (value?: string) => {

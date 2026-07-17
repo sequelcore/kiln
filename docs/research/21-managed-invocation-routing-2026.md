@@ -41,16 +41,16 @@ The correction is runtime ownership:
 
 ## Local Harness Comparison
 
-The local Codex clone resolves role, depth/capacity, model/reasoning, execution
-policy, environment, and parent lineage before spawn in
-`C:/Proyectos/Sequel/cloned/codex/codex-rs/core/src/tools/handlers/multi_agents/spawn.rs`
-and `codex-rs/core/src/agent/control/spawn.rs`.
+The local Codex research checkout resolves role, depth/capacity,
+model/reasoning, execution policy, environment, and parent lineage before spawn
+in `codex-rs/core/src/tools/handlers/multi_agents/spawn.rs` and
+`codex-rs/core/src/agent/control/spawn.rs`.
 
-The local OpenCode clone resolves the target agent, derives child permissions,
-creates a child session with `parentID`, resolves the explicit agent model or
-inherits the parent model, and then prompts that exact session in
-`C:/Proyectos/Sequel/cloned/opencode/packages/opencode/src/tool/task.ts` and
-`agent/subagent-permissions.ts`.
+The local OpenCode research checkout resolves the target agent, derives child
+permissions, creates a child session with `parentID`, resolves the explicit
+agent model or inherits the parent model, and then prompts that exact session
+in `packages/opencode/src/tool/task.ts` and
+`packages/opencode/src/agent/subagent-permissions.ts`.
 
 Both support the same architectural conclusion: child identity and effective
 execution policy belong to the runtime spawn boundary, not to a later model

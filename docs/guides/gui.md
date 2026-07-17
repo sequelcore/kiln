@@ -549,13 +549,13 @@ Use the repo-level startup profiler before changing GUI or operator-gateway
 startup behavior:
 
 ```bash
-bun run profile:startup -- --mode dev --cwd C:\Proyectos\Sequel\kiln --no-open
+bun run profile:startup -- --mode dev --cwd . --no-open
 ```
 
 For a cold Vite dependency cache run, clear only the GUI Vite optimizer cache:
 
 ```bash
-bun run profile:startup -- --mode dev --cwd C:\Proyectos\Sequel\kiln --clear-vite-cache --no-open
+bun run profile:startup -- --mode dev --cwd . --clear-vite-cache --no-open
 ```
 
 The profiler emits JSON with the commit SHA, OS, Bun/Node/Vite/React versions,
@@ -567,7 +567,7 @@ do not infer them from Vite's `ready in` line or from gateway health alone.
 To measure the first usable GUI interaction, enable browser automation:
 
 ```bash
-bun run profile:startup -- --mode dev --cwd C:\Proyectos\Sequel\kiln --measure-first-paint --no-open
+bun run profile:startup -- --mode dev --cwd . --measure-first-paint --no-open
 ```
 
 This launches a headless browser in an isolated Node subprocess and waits until

@@ -182,6 +182,7 @@ describe("BashTool", () => {
   });
 
   it("normalizes Windows shell cwd paths before sandbox validation and execution", async () => {
+    const windowsWorkspace = "C:\\workspace\\kiln";
     const commandRunner = vi.fn(async () => ({
       stdout: "ok\n",
       stderr: "",
@@ -193,22 +194,23 @@ describe("BashTool", () => {
         input: {
           command: "git rev-parse --show-toplevel",
           timeout: 5_000,
-          cwd: "/mnt/c/Proyectos/Sequel/kiln",
+          cwd: "/mnt/c/workspace/kiln",
         },
       },
-      makeSandbox("C:\\Proyectos\\Sequel\\kiln"),
+      makeSandbox(windowsWorkspace),
     );
 
     expect(result.isError).toBe(false);
     expect(commandRunner).toHaveBeenCalledWith(
       "git rev-parse --show-toplevel",
-      "C:\\Proyectos\\Sequel\\kiln",
+      windowsWorkspace,
       5_000,
     );
-    expect(result.metadata?.["cwd"]).toBe("C:\\Proyectos\\Sequel\\kiln");
+    expect(result.metadata?.["cwd"]).toBe(windowsWorkspace);
   });
 
   it("normalizes MSYS drive cwd paths before sandbox validation and execution", async () => {
+    const windowsWorkspace = "C:\\workspace\\kiln";
     const commandRunner = vi.fn(async () => ({
       stdout: "ok\n",
       stderr: "",
@@ -220,15 +222,15 @@ describe("BashTool", () => {
         input: {
           command: "pwd",
           timeout: 5_000,
-          cwd: "/c/Proyectos/Sequel/kiln",
+          cwd: "/c/workspace/kiln",
         },
       },
-      makeSandbox("C:\\Proyectos\\Sequel\\kiln"),
+      makeSandbox(windowsWorkspace),
     );
 
     expect(result.isError).toBe(false);
-    expect(commandRunner).toHaveBeenCalledWith("pwd", "C:\\Proyectos\\Sequel\\kiln", 5_000);
-    expect(result.metadata?.["cwd"]).toBe("C:\\Proyectos\\Sequel\\kiln");
+    expect(commandRunner).toHaveBeenCalledWith("pwd", windowsWorkspace, 5_000);
+    expect(result.metadata?.["cwd"]).toBe(windowsWorkspace);
   });
 
   it("preserves failed execution output and metadata when injected runner rejects", async () => {

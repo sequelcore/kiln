@@ -21,7 +21,7 @@ describe("doctorCommand", () => {
     await doctorCommand(MOCK_APP_CONFIG, {
       json: true,
       projectRoot: "C:\\repo",
-      env: { USERPROFILE: "C:\\Users\\R3XED", PATH: "" },
+      env: { USERPROFILE: "C:\\Users\\ExampleUser", PATH: "" },
       fileExists: () => false,
       runVersion: vi.fn(async () => undefined),
       readConfigProjections: vi.fn(async () => []),
@@ -68,7 +68,7 @@ describe("doctorCommand", () => {
     await doctorCommand(MOCK_APP_CONFIG, {
       json: true,
       projectRoot: "C:\\repo",
-      env: { USERPROFILE: "C:\\Users\\R3XED", PATH: "" },
+      env: { USERPROFILE: "C:\\Users\\ExampleUser", PATH: "" },
       fileExists: () => false,
       runVersion: vi.fn(async () => undefined),
       readConfigStatus: vi.fn(async () => ({
@@ -84,7 +84,7 @@ describe("doctorCommand", () => {
             projections: [{
               target: "codex",
               displayName: "Codex",
-              path: "C:\\Users\\R3XED\\.codex\\skills\\project-ui\\SKILL.md",
+              path: "C:\\Users\\ExampleUser\\.codex\\skills\\project-ui\\SKILL.md",
               status: "missing",
             }],
             admission: {

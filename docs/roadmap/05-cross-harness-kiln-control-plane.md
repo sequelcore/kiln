@@ -129,8 +129,9 @@ real external consumer requires the surface.
 
 ### Cloned Harness Evidence
 
-Use cloned sources under `C:/Proyectos/Sequel/cloned` as primary implementation
-evidence before designing adapters:
+Use dedicated local research checkouts as primary implementation evidence before
+designing adapters. Checkout location is operator-specific and must not become
+part of product configuration or documentation:
 
 - `cloned/codex` for Codex global instruction loading, config, app server, and
   CLI behavior.

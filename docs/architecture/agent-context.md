@@ -554,14 +554,15 @@ The active implementation owns:
   instructions, resources, and optional scripts for task-specific workflows:
   <https://developers.openai.com/codex/skills>. The local Codex source also
   models skill authority, package id, enabled state, and prompt visibility
-  separately (`C:\Proyectos\Sequel\cloned\codex\codex-rs\ext\skills\src\catalog.rs`).
+  separately (`codex-rs/ext/skills/src/catalog.rs` in the Codex research
+  checkout).
 - OpenCode's public skill documentation loads skills from repo and home
   directories, exposes them through a native `skill` tool, and allows global or
   per-agent skill permissions: <https://opencode.ai/docs/skills/>.
 - Claude Code's public skill documentation covers custom and bundled skills:
   <https://docs.anthropic.com/en/docs/claude-code/skills>. The local Claude
-  Code source distinguishes managed, user, project, bundled, plugin, and MCP
-  skill sources (`C:\Proyectos\Sequel\cloned\claude-code\skills\loadSkillsDir.ts`).
+  Code research checkout distinguishes managed, user, project, bundled, plugin,
+  and MCP skill sources (`skills/loadSkillsDir.ts`).
 - Everything Claude Code and Gentle AI demonstrate market demand for portable
   skill and agent catalogs, but their content must be adapted into Kiln-native
   contracts rather than copied as product identity.

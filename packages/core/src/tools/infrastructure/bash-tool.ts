@@ -1,3 +1,5 @@
+import { win32 } from "node:path";
+
 import {
   detectToolEnvironment,
   type ToolEnvironment,
@@ -85,9 +87,10 @@ export class BashTool implements DevTool {
     }
 
     const sandboxContext = getSandboxContext(sandbox);
-    const cwd = resolvePath(
-      normalizeShellCwdForHost(optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(), this.platform),
+    const cwd = resolveShellCwd(
+      optionalString(input, "cwd") ?? sandboxContext?.cwd ?? process.cwd(),
       sandbox,
+      this.platform,
     );
 
     // Validate cwd is within sandbox boundaries (read access implies path containment)
@@ -341,6 +344,22 @@ async function runBashCommand(
 function normalizeShellCwdForHost(cwd: string, platform: NodeJS.Platform): string {
   if (platform !== "win32") return cwd;
   return normalizeWindowsShellPath(cwd);
+}
+
+function resolveShellCwd(cwd: string, sandbox: unknown, platform: NodeJS.Platform): string {
+  const normalizedCwd = normalizeShellCwdForHost(cwd, platform);
+  if (platform !== "win32") {
+    return resolvePath(normalizedCwd, sandbox);
+  }
+
+  if (win32.isAbsolute(normalizedCwd)) {
+    return win32.normalize(normalizedCwd);
+  }
+
+  const sandboxCwd = getSandboxContext(sandbox)?.cwd;
+  return sandboxCwd
+    ? win32.resolve(normalizeWindowsShellPath(sandboxCwd), normalizedCwd)
+    : win32.resolve(normalizedCwd);
 }
 
 function normalizeWindowsShellPath(pathValue: string): string {

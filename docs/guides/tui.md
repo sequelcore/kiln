@@ -328,7 +328,7 @@ This path keeps the same safety, session, runtime-summary, and cost-tracking mac
 Use the repo-level startup profiler before changing TUI startup behavior:
 
 ```bash
-bun run profile:startup -- --surface tui --cwd C:\Proyectos\Sequel\kiln --provider claude --port 4974
+bun run profile:startup -- --surface tui --cwd . --provider claude --port 4974
 ```
 
 The profiler emits structured JSON with commit SHA, OS, Bun/Node versions,

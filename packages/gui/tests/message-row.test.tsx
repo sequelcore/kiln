@@ -66,7 +66,7 @@ describe("MessageRow", () => {
           content: [
             "| Skill | configured | origin | builtIn | sourcePath | claude projection | codex projection | opencode projection | admission.state | admission.reason | Current session status / omission reason |",
             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-            "| shadcn | true | user | false | C:\\Users\\R3XED\\.kiln\\skills\\shadcn\\SKILL.md | projected | projected | projected | available | Configured Kiln skill. | Admitted in this current session; available for explicit admission/request. |",
+            "| shadcn | true | user | false | C:\\Users\\ExampleUser\\.kiln\\skills\\shadcn\\SKILL.md | projected | projected | projected | available | Configured Kiln skill. | Admitted in this current session; available for explicit admission/request. |",
           ].join("\n"),
           createdAt: "2026-06-28T00:00:00.000Z",
           parts: [],
@@ -78,7 +78,7 @@ describe("MessageRow", () => {
     expect(table.parentElement).toHaveAttribute("aria-label", "Scrollable markdown table");
     expect(table).toHaveClass("w-max", "min-w-full", "table-auto");
     expect(screen.getByRole("columnheader", { name: "Current session status / omission reason" })).toHaveClass("min-w-36");
-    expect(screen.getByRole("cell", { name: /C:\\Users\\R3XED/ })).toHaveClass("min-w-40");
+    expect(screen.getByRole("cell", { name: /C:\\Users\\ExampleUser/ })).toHaveClass("min-w-40");
   });
 
   it("keeps assistant identity and markdown content from clipping each other", () => {

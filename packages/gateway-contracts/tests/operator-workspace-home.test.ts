@@ -351,7 +351,7 @@ describe("operator workspace home projection", () => {
       nativeProjections: [
         {
           targetId: "native-projection:codex",
-          path: "C:/Users/R3XED/.codex/config.toml",
+          path: "C:/Users/ExampleUser/.codex/config.toml",
           kind: "native",
           status: "drifted",
           details: "Codex native projection drifted from resolved Kiln config.",

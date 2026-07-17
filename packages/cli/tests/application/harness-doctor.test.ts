@@ -78,10 +78,10 @@ function permissionIntegrity(): TrustedExecutionIntegrity {
 
 describe("harness doctor", () => {
   it("reports canonical executable, version, auth, models, and competing PATH entries", async () => {
-    const npmDir = "C:\\Users\\R3XED\\AppData\\Roaming\\npm";
-    const wingetDir = "C:\\Users\\R3XED\\AppData\\Local\\Microsoft\\WinGet\\Links";
+    const npmDir = "C:\\Users\\ExampleUser\\AppData\\Roaming\\npm";
+    const wingetDir = "C:\\Users\\ExampleUser\\AppData\\Local\\Microsoft\\WinGet\\Links";
     const env = {
-      USERPROFILE: "C:\\Users\\R3XED",
+      USERPROFILE: "C:\\Users\\ExampleUser",
       PATH: [npmDir, wingetDir].join(delimiter),
     };
     const existing = new Set([
@@ -112,10 +112,10 @@ describe("harness doctor", () => {
   });
 
   it("does not treat a globally installed old kiln command as a repair action", async () => {
-    const npmDir = "C:\\Users\\R3XED\\.bun\\bin";
-    const sourceBin = "C:\\Proyectos\\Sequel\\kiln\\packages\\cli\\src";
+    const npmDir = "C:\\Users\\ExampleUser\\.bun\\bin";
+    const sourceBin = "C:\\workspace\\kiln\\packages\\cli\\src";
     const env = {
-      USERPROFILE: "C:\\Users\\R3XED",
+      USERPROFILE: "C:\\Users\\ExampleUser",
       PATH: [npmDir, sourceBin].join(delimiter),
     };
     const existing = new Set([
@@ -124,7 +124,7 @@ describe("harness doctor", () => {
 
     const report = await buildHarnessDoctorReport({
       env,
-      projectRoot: "C:\\Proyectos\\Sequel\\kiln",
+      projectRoot: "C:\\workspace\\kiln",
       fileExists: (path) => existing.has(path),
       runVersion: vi.fn(async () => "kiln 0.1.0"),
       discoverModels: vi.fn(async () => createDiscovery()),
@@ -145,7 +145,7 @@ describe("harness doctor", () => {
   it("renders a read-only human report", async () => {
     const integrity = permissionIntegrity();
     const report = await buildHarnessDoctorReport({
-      env: { USERPROFILE: "C:\\Users\\R3XED", PATH: "" },
+      env: { USERPROFILE: "C:\\Users\\ExampleUser", PATH: "" },
       fileExists: () => false,
       runVersion: vi.fn(async () => undefined),
       readConfigProjections: vi.fn(async () => [{
@@ -157,7 +157,7 @@ describe("harness doctor", () => {
         targetId: "codex-config",
         kind: "native",
         status: "managed",
-        path: "C:\\Users\\R3XED\\.codex\\config.toml",
+        path: "C:\\Users\\ExampleUser\\.codex\\config.toml",
         permissionIntegrity: integrity,
       }]),
       discoverModels: vi.fn(async () => createDiscovery({

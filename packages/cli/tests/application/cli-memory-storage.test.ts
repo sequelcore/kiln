@@ -6,12 +6,12 @@ describe("cli memory storage", () => {
     const resolution = resolveCliMemoryStorage("C:\\Projects\\Example App", {
       platform: "win32",
       env: {
-        LOCALAPPDATA: "C:\\Users\\R3XED\\AppData\\Local",
-        USERPROFILE: "C:\\Users\\R3XED",
+        LOCALAPPDATA: "C:\\Users\\ExampleUser\\AppData\\Local",
+        USERPROFILE: "C:\\Users\\ExampleUser",
       },
     });
 
-    expect(resolution.memoryDbPath).toMatch(/^C:\\Users\\R3XED\\AppData\\Local\\Kiln\\memory\\projects\\Example-App-[a-f0-9]{16}\\memory\.db$/u);
+    expect(resolution.memoryDbPath).toMatch(/^C:\\Users\\ExampleUser\\AppData\\Local\\Kiln\\memory\\projects\\Example-App-[a-f0-9]{16}\\memory\.db$/u);
     expect(JSON.stringify(resolution)).not.toContain(".kiln");
   });
 
