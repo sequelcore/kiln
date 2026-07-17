@@ -17,23 +17,41 @@ describe("BunPtyAdapter", () => {
     const script = `
       import { OperatorTerminalService } from ${JSON.stringify(serviceUrl.href)};
       import { BunPtyAdapter } from ${JSON.stringify(adapterUrl.href)};
-      const service = new OperatorTerminalService({ workspaceRoot: process.cwd(), adapter: new BunPtyAdapter() });
-      let terminalId = "";
       const marker = "kiln-operator-terminal-integration";
+      const childScript = \`
+        process.stdin.setRawMode?.(true);
+        process.stdin.resume();
+        process.stdin.once("data", () => {
+          process.stdin.pause();
+          process.stdout.write(\${JSON.stringify(marker + "\\n")}, () => {
+            process.exitCode = 0;
+          });
+        });
+      \`;
+      const service = new OperatorTerminalService({
+        workspaceRoot: process.cwd(),
+        adapter: new BunPtyAdapter(),
+        resolveShell: () => ({ executable: process.execPath, args: ["-e", childScript] }),
+      });
+      let receivedMarker = false;
+      let receivedExit = false;
       const done = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error("PTY did not return interactive output.")), 5000);
-        service.open({ ownerId: "test", cols: 80, rows: 24, onEvent: (event) => {
-          if (event.type === "output" && event.data.includes(marker)) {
+        const complete = () => {
+          if (receivedMarker && receivedExit) {
             clearTimeout(timeout);
             resolve();
           }
-        }}).then((terminal) => {
-          terminalId = terminal.terminalId;
-          service.write("test", terminalId, "echo " + marker + (process.platform === "win32" ? String.fromCharCode(13) : "\\n"));
+        };
+        service.open({ ownerId: "test", cols: 80, rows: 24, onEvent: (event) => {
+          if (event.type === "output" && event.data.includes(marker)) receivedMarker = true;
+          if (event.type === "exit" && event.exitCode === 0) receivedExit = true;
+          complete();
+        }}).then(({ terminalId }) => {
+          service.write("test", terminalId, "ping");
         }).catch(reject);
       });
       await done;
-      service.closeOwner("test");
       console.log("PTY_INTEGRATION_OK");
     `;
     const result = spawnSync(bunExecutable!, ["-e", script], {
