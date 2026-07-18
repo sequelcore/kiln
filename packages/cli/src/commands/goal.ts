@@ -12,6 +12,7 @@ import type {
   WorkflowProfile,
 } from "@kilnai/core";
 import {
+  GoalRunStore,
   PlanStateStore,
   reconstructGoalRunsFromSessionEvents,
   reconstructWorkItemsFromSessionEvents,
@@ -19,8 +20,9 @@ import {
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import { GoalControlService } from "../application/goal-control-service.js";
 
-const GOAL_STATUSES: readonly GoalRunStatus[] = ["active", "completed", "failed", "cancelled"];
+const GOAL_STATUSES: readonly GoalRunStatus[] = ["active", "paused", "completed", "failed", "cancelled"];
 
 export interface GoalCommandOptions {
   readonly projectPath?: string;
@@ -73,11 +75,16 @@ export async function goalCommand(
         throw new Error("Goal cancellation requires --reason <text>.");
       }
       const cancelledBy = readFlag(args, "--cancelled-by");
-      const cancelled = await appendGoalCancellation(transcriptStore, sessionId, goalId, {
+      const goalSnapshot = await loadGoalSnapshotFromTranscript(transcriptStore, sessionId);
+      const cancelled = await controlPersistedGoal({
+        transcriptStore,
+        goalSnapshot,
+        goalId,
+        action: "cancel",
         reason,
-        cancelledBy,
-        now: options.now ?? (() => new Date()),
-        eventId: options.eventId ?? randomUUID,
+        requestedBy: cancelledBy ?? process.env.USERNAME ?? process.env.USER ?? "operator",
+        now: options.now,
+        eventId: options.eventId,
       });
       console.log(args.includes("--json") ? JSON.stringify({ sessionId, goal: cancelled }, null, 2) : `Cancelled ${cancelled.id}: ${cancelled.terminalReason}`);
       return;
@@ -89,14 +96,53 @@ export async function goalCommand(
       if (!goal) {
         throw new Error(`Goal not found: ${goalId}`);
       }
-      const workItemSnapshot = await loadWorkItemSnapshotFromTranscript(transcriptStore, sessionId);
-      const step = selectNextGoalExecutionStep({
-        goalRun: goal,
-        workItems: workItemSnapshot.items,
+      const resumed = await controlPersistedGoal({
+        transcriptStore,
+        goalSnapshot,
+        goalId,
+        action: "resume",
+        requestedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
+        now: options.now,
+        eventId: options.eventId,
       });
+      const workItemSnapshot = await loadWorkItemSnapshotFromTranscript(transcriptStore, sessionId);
+      const step = selectNextGoalExecutionStep({ goalRun: resumed, workItems: workItemSnapshot.items });
       console.log(args.includes("--json")
-        ? JSON.stringify({ sessionId, goalId, step }, null, 2)
-        : formatGoalResume(goal, step));
+        ? JSON.stringify({ sessionId, goal: resumed, step }, null, 2)
+        : formatGoalResume(resumed, step));
+      return;
+    }
+    case "pause": {
+      const goalId = requirePositional(args, "goal id");
+      const goalSnapshot = await loadGoalSnapshotFromTranscript(transcriptStore, sessionId);
+      const paused = await controlPersistedGoal({
+        transcriptStore,
+        goalSnapshot,
+        goalId,
+        action: "pause",
+        requestedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
+        now: options.now,
+        eventId: options.eventId,
+      });
+      console.log(args.includes("--json") ? JSON.stringify({ sessionId, goal: paused }, null, 2) : `Paused ${paused.id}.`);
+      return;
+    }
+    case "edit": {
+      const goalId = requirePositional(args, "goal id");
+      const objective = readFlag(args, "--objective");
+      if (!objective) throw new Error("Goal edit requires --objective <text>.");
+      const goalSnapshot = await loadGoalSnapshotFromTranscript(transcriptStore, sessionId);
+      const updated = await controlPersistedGoal({
+        transcriptStore,
+        goalSnapshot,
+        goalId,
+        action: "update_objective",
+        objective,
+        requestedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
+        now: options.now,
+        eventId: options.eventId,
+      });
+      console.log(args.includes("--json") ? JSON.stringify({ sessionId, goal: updated }, null, 2) : `Updated ${updated.id}: ${updated.objective}`);
       return;
     }
     case "approve-plan": {
@@ -116,6 +162,31 @@ export async function goalCommand(
     default:
       throw new Error(`Unknown goal subcommand: ${subcommand}`);
   }
+}
+
+async function controlPersistedGoal(input: {
+  readonly transcriptStore: TranscriptStore;
+  readonly goalSnapshot: GoalRunSnapshot;
+  readonly goalId: string;
+  readonly action: "pause" | "resume" | "update_objective" | "cancel";
+  readonly objective?: string;
+  readonly reason?: string;
+  readonly requestedBy: string;
+  readonly now?: () => Date;
+  readonly eventId?: () => string;
+}): Promise<GoalRun> {
+  const store = new GoalRunStore({ now: () => (input.now?.() ?? new Date()).toISOString() });
+  for (const goal of input.goalSnapshot.goals) store.restore(goal);
+  const service = new GoalControlService(store, input.transcriptStore, input.eventId ?? randomUUID);
+  await service.control({
+    goalRunId: input.goalId,
+    action: input.action,
+    ...(input.objective ? { objective: input.objective } : {}),
+    ...(input.reason ? { reason: input.reason } : {}),
+    requestedBy: input.requestedBy,
+    sourceSurface: "cli",
+  });
+  return store.get(input.goalId)!;
 }
 
 export async function loadGoalSnapshotFromTranscript(
@@ -166,54 +237,6 @@ export async function loadWorkItemSnapshotFromTranscript(
       } as CanonicalSessionEvent];
     }),
   );
-}
-
-async function appendGoalCancellation(
-  transcriptStore: TranscriptStore,
-  sessionId: string,
-  goalId: string,
-  options: {
-    readonly reason: string;
-    readonly cancelledBy?: string;
-    readonly now: () => Date;
-    readonly eventId: () => string;
-  },
-): Promise<GoalRun> {
-  const transcript = await transcriptStore.readTranscript(sessionId);
-  const snapshot = await loadGoalSnapshotFromTranscript(transcriptStore, sessionId);
-  const goal = snapshot.goals.find((candidate) => candidate.id === goalId);
-  if (!goal) {
-    throw new Error(`Goal not found: ${goalId}`);
-  }
-  if (goal.status !== "active") {
-    throw new Error(`Goal ${goalId} is ${goal.status} and cannot be cancelled.`);
-  }
-  const timestamp = options.now().toISOString();
-  const sequence = Math.max(0, ...transcript.map((event) => event.sequence)) + 1;
-  const terminalReason = options.cancelledBy
-    ? `${options.reason} (${options.cancelledBy})`
-    : options.reason;
-  const cancelled: GoalRun = {
-    ...goal,
-    status: "cancelled",
-    terminalReason,
-    updatedAt: timestamp,
-    sequence,
-  };
-  await transcriptStore.append(sessionId, {
-    eventId: options.eventId(),
-    kilnSessionId: sessionId,
-    sequence,
-    timestamp,
-    kind: "goal.cancelled",
-    source: { actor: "user", surface: "cli", component: "goal-command" },
-    payload: {
-      goal: cancelled,
-      reason: options.reason,
-      ...(options.cancelledBy ? { cancelledBy: options.cancelledBy } : {}),
-    },
-  });
-  return cancelled;
 }
 
 async function appendPlanApproval(
@@ -592,17 +615,20 @@ function requirePositional(args: readonly string[], label: string): string {
 }
 
 function printGoalHelp(): void {
-  console.log("\nUsage: kiln goal <list|inspect|approve-plan|cancel|resume> [options]\n");
+  console.log("\nUsage: kiln goal <list|inspect|approve-plan|pause|resume|edit|cancel> [options]\n");
   console.log("Subcommands:");
   console.log("  list                 List goals from a canonical session transcript");
   console.log("  inspect <goal-id>    Inspect one goal from a canonical session transcript");
   console.log("  approve-plan <id>    Append a canonical plan approval event after analysis is ready");
+  console.log("  pause <goal-id>      Pause foreground scheduling and freeze active time");
+  console.log("  resume <goal-id>     Resume a paused goal and report its next execution step");
+  console.log("  edit <goal-id>       Update the canonical objective with --objective");
   console.log("  cancel <goal-id>     Append a canonical goal cancellation event");
-  console.log("  resume <goal-id>     Report the next canonical execution step for a goal");
   console.log("");
   console.log("Options:");
   console.log("  --session <id>       Session id to read; defaults to latest recorded session");
-  console.log("  --status <status>    Filter list by active, completed, failed, or cancelled");
+  console.log("  --status <status>    Filter list by active, paused, completed, failed, or cancelled");
+  console.log("  --objective <text>   Replacement objective for goal edit");
   console.log("  --reason <text>      Cancellation reason");
   console.log("  --cancelled-by <id>  Operator id for cancellation");
   console.log("  --approved-by <id>   Operator id for plan approval");

@@ -2529,12 +2529,15 @@ function goalToolOutputProjection(goal: GoalRun): Record<string, unknown> {
     ...(goal.currentPhase ? { currentPhase: goal.currentPhase } : {}),
     ...(goal.closeoutSummary ? { closeoutSummary: boundedToolProjectionText(goal.closeoutSummary) } : {}),
     ...(goal.terminalReason ? { terminalReason: boundedToolProjectionText(goal.terminalReason) } : {}),
+    createdAt: goal.createdAt,
     evidenceRequirements: goal.evidenceRequirements.map((requirement) => ({
       id: requirement.id,
       required: requirement.required,
       recorded: recordedEvidence.has(requirement.id),
     })),
     resourceUri: `kiln://session/goals/${encodeURIComponent(goal.id)}`,
+    activeDurationMs: goal.activeDurationMs,
+    ...(goal.activeSince ? { activeSince: goal.activeSince } : {}),
     updatedAt: goal.updatedAt,
     sequence: goal.sequence,
   };

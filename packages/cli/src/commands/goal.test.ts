@@ -78,13 +78,18 @@ describe("goal command", () => {
     });
   });
 
-  it("resumes a goal by reporting the next canonical execution step", async () => {
+  it("resumes a paused goal and reports the next canonical execution step", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);
     await appendGoalCreated(transcriptStore, "session-1", makeGoal({ id: "goal-1" }));
     await appendWorkItemUpdated(transcriptStore, "session-1", makeWorkItem({ id: "work-1" }));
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
+    await goalCommand({ createRegistry: (() => undefined) as never }, "pause", ["goal-1", "--session", "session-1"], {
+      projectPath: root,
+      eventId: () => "event-goal-paused",
+    });
+    log.mockClear();
     await goalCommand({ createRegistry: (() => undefined) as never }, "resume", ["goal-1", "--session", "session-1"], { projectPath: root });
 
     expect(log.mock.calls[0]?.[0]).toContain("Goal goal-1 is ready to resume.");

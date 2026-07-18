@@ -39,6 +39,7 @@ import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { createStartupProfiler } from "../application/startup-profiler.js";
 import { loadContinuationSidebarInfo } from "../application/continuation-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
+import { GoalControlService } from "../application/goal-control-service.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
 import {
   createKilnRuntimeManagedInvocationAttachment,
@@ -151,6 +152,7 @@ export async function guiCommand(
   );
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const goalControlService = new GoalControlService(goalRunStore, transcriptStore);
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({
     transcriptStore,
@@ -306,6 +308,9 @@ export async function guiCommand(
       budgetAdmission: runtimeBudgetAdmission,
       workingDirectory: cwd,
       domainLabel: bootstrapContext.domainLabel,
+    },
+    goalController: {
+      control: (input) => goalControlService.control({ ...input, sourceSurface: "gui" }),
     },
   });
   startupProfiler.mark("gateway-started", { port: gateway.port });
