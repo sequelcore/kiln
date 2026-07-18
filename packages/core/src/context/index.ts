@@ -41,3 +41,12 @@ export type {
   CoordinationSwarmMember,
   CoordinationSwarmState,
 } from "./coordination-context.js";
+export {
+  DEFAULT_CONVERSATION_TOOL_RESULT_PROJECTION_POLICY,
+  projectConversationForModel,
+} from "./conversation-projection.js";
+export type {
+  ConversationProjectionEvidence,
+  ConversationToolResultProjectionPolicy,
+  ProjectedConversation,
+} from "./conversation-projection.js";

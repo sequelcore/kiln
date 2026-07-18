@@ -233,6 +233,17 @@ describe("ToolResourceRegistry", () => {
       workItemId: item.id,
       executionMode: "managed_delegation",
       managedInvocationId: "invocation-1",
+      managedInvocationProof: {
+        invocationId: "invocation-1",
+        parentSessionId: "session-1",
+        goalRunId: goal.id,
+        workItemId: item.id,
+        resultHandoff: {
+          summary: "Managed verifier returned resource-backed evidence.",
+          resourceUris: ["kiln://artifacts/invocation-1/handoff"],
+          memoryWriteProposalUris: [],
+        },
+      },
       summary: "Run managed verification.",
     });
 

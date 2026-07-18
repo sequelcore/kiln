@@ -100,6 +100,7 @@ export {
   defineVerificationUsageReport,
   evaluateOutputVerificationPromotion,
   projectStructuredExecutionResult,
+  STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
 } from "./output-verification-allocation.js";
 export type {
   AssistantOutputVerbosity,

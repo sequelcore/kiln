@@ -216,6 +216,7 @@ export interface WorkItemExecutionAttempt {
   readonly summary?: string;
   readonly failureReason?: WorkItemExecutionFailureReason;
   readonly managedInvocationId?: string;
+  readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
   readonly providedEvidence: readonly string[];
   readonly missingEvidence: readonly string[];
   readonly missingResidualRisk: boolean;
@@ -299,6 +300,7 @@ export interface WorkItemStartExecutionAttemptInput {
   readonly executionMode: WorkItemExecutionMode;
   readonly summary?: string;
   readonly managedInvocationId?: string;
+  readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
 }
 
 export interface WorkItemStartExecutionAttemptResult {
@@ -383,6 +385,15 @@ export class WorkItemStore {
       id,
       sourceWorkItemId,
     });
+    const verificationGateResults = normalizeVerificationGateResults(
+      input.verificationGateResults ?? existing?.verificationGateResults ?? [],
+    );
+    const skippedVerificationGates = unique([
+      ...(input.skippedVerificationGates ?? existing?.skippedVerificationGates ?? []),
+      ...verificationGateResults
+        .filter((result) => result.status === "skipped")
+        .map((result) => result.gate),
+    ]);
     const item: WorkItem = {
       id,
       summary: input.summary,
@@ -402,8 +413,8 @@ export class WorkItemStore {
       }),
       providedEvidence: unique(input.providedEvidence ?? existing?.providedEvidence ?? []),
       verificationGates: unique(input.verificationGates),
-      skippedVerificationGates: unique(input.skippedVerificationGates ?? existing?.skippedVerificationGates ?? []),
-      verificationGateResults: normalizeVerificationGateResults(input.verificationGateResults ?? existing?.verificationGateResults ?? []),
+      skippedVerificationGates,
+      verificationGateResults,
       dependencies: unique(input.dependencies ?? existing?.dependencies ?? []),
       residualRisk: input.residualRisk ?? existing?.residualRisk,
       pauseRequirements: normalizePauseRequirements(input.pauseRequirements ?? existing?.pauseRequirements ?? []),
@@ -425,8 +436,10 @@ export class WorkItemStore {
       ...classification,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      sequence: ++this.sequence,
+      sequence: this.sequence + 1,
     };
+    assertConsistentEvidence(item.providedEvidence, item.skippedVerificationGates);
+    this.sequence = item.sequence;
     this.items.set(id, item);
     this.notifyChanged(item.id);
     return item;
@@ -536,6 +549,9 @@ export class WorkItemStore {
       startedAt,
       ...(input.summary ? { summary: input.summary } : {}),
       ...(input.managedInvocationId ? { managedInvocationId: input.managedInvocationId } : {}),
+      ...(input.managedInvocationResultHandoff
+        ? { managedInvocationResultHandoff: input.managedInvocationResultHandoff }
+        : {}),
       providedEvidence: [],
       missingEvidence: [],
       missingResidualRisk: false,
@@ -585,10 +601,12 @@ export class WorkItemStore {
     const managedOrchestrationAdoption = normalizeManagedOrchestrationAdoption(
       input.managedOrchestrationAdoption ?? existing.managedOrchestrationAdoption,
     );
+    const managedInvocationResultHandoff = input.managedInvocationResultHandoff
+      ?? attempt.managedInvocationResultHandoff;
     const synthesizedHandoff = synthesizeManagedOrchestrationResultHandoff({
       item: existing,
       attempt,
-      managedInvocationResultHandoff: input.managedInvocationResultHandoff,
+      managedInvocationResultHandoff,
       completedAt: this.now(),
     });
     const managedOrchestrationResultHandoff = normalizeManagedOrchestrationResultHandoff(
@@ -623,8 +641,9 @@ export class WorkItemStore {
       skippedVerificationGates: allSkippedVerificationGates,
       verificationGateResults,
       ...(residualRisk ? { residualRisk } : {}),
-      ...(input.managedInvocationResultHandoff?.verificationUsage
-        ? { verificationUsage: input.managedInvocationResultHandoff.verificationUsage }
+      ...(managedInvocationResultHandoff ? { managedInvocationResultHandoff } : {}),
+      ...(managedInvocationResultHandoff?.verificationUsage
+        ? { verificationUsage: managedInvocationResultHandoff.verificationUsage }
         : attempt.verificationUsage
           ? { verificationUsage: attempt.verificationUsage }
           : {}),
@@ -681,7 +700,12 @@ export class WorkItemStore {
     ]);
     const failedVerificationGates = failedGates(verificationGateResults);
     const missingVerificationGates = missingRequiredVerificationGates(existing, verificationGateResults, allSkippedVerificationGates);
-    const missingEvidence = missingExpectedEvidence(existing, providedEvidence);
+    const missingEvidence = missingExpectedEvidence({
+      ...existing,
+      providedEvidence,
+      skippedVerificationGates: allSkippedVerificationGates,
+      verificationGateResults,
+    }, providedEvidence);
     const residualRisk = existing.residualRisk ?? attempt.residualRisk;
     const missingResidualRisk = requiresResidualRisk(existing.expectedEvidence, allSkippedVerificationGates) && !residualRisk;
     const completedAt = this.now();
@@ -905,6 +929,19 @@ function normalizeTextRecord(value: Readonly<Record<string, string>> | undefined
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+function assertConsistentEvidence(
+  providedEvidence: readonly string[],
+  skippedVerificationGates: readonly string[],
+): void {
+  const skipped = new Set(skippedVerificationGates);
+  const contradiction = providedEvidence.find((evidence) => skipped.has(evidence));
+  if (contradiction) {
+    throw new Error(
+      `Work item evidence cannot be both provided evidence and a skipped verification gate: ${contradiction}.`,
+    );
+  }
+}
+
 function normalizeTextArray(value: readonly string[] | undefined): readonly string[] | undefined {
   if (!value) {
     return undefined;
@@ -1050,6 +1087,13 @@ function missingExpectedEvidence(
   item: WorkItem,
   providedEvidence: readonly string[],
 ): readonly string[] {
+  const accountedEvidence = new Set([
+    ...providedEvidence,
+    ...item.skippedVerificationGates,
+    ...item.verificationGateResults
+      .filter((result) => result.status === "skipped")
+      .map((result) => result.gate),
+  ]);
   return item.expectedEvidence.filter((evidence) => {
     if (isSatisfiedManagedOrchestrationResultHandoff(item, evidence)) {
       return false;
@@ -1063,7 +1107,7 @@ function missingExpectedEvidence(
     if (isPendingManagedOrchestrationAdoptionGate(item, evidence)) {
       return true;
     }
-    return !providedEvidence.includes(evidence);
+    return !accountedEvidence.has(evidence);
   });
 }
 
@@ -1108,7 +1152,7 @@ function synthesizeManagedOrchestrationResultHandoff(input: {
   }
   const policy = input.item.managedOrchestration;
   if (!policy) {
-    throw new Error("Managed invocation result handoff requires managed orchestration policy.");
+    return undefined;
   }
   if (input.attempt.executionMode !== "managed_delegation" || !input.attempt.managedInvocationId) {
     throw new Error("Managed invocation result handoff requires a managed-delegation execution attempt.");

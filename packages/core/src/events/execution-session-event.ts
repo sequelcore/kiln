@@ -4,6 +4,8 @@ import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { SessionToolUsageSnapshot } from "./session-event.js";
 import type { ContextUsageRawEvidence } from "./context-usage-projection.js";
 import type { SessionExecutionScope } from "./session-execution-scope.js";
+import type { SessionTurnOutcome } from "./session-event.js";
+import type { ConversationProjectionEvidence } from "../context/conversation-projection.js";
 
 export type ExecutionSessionCostTrackingMode =
   | "native"
@@ -60,6 +62,7 @@ export interface ProviderRequestEvidence {
   readonly cachePartition: ProviderRequestCachePartitionEvidence;
   readonly toolCount: number;
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
+  readonly conversationProjection?: ConversationProjectionEvidence;
   readonly stopReason?: string;
   readonly contextUsage?: ContextUsageRawEvidence;
 }
@@ -194,7 +197,7 @@ export type ExecutionSessionEvent = (
       readonly type: "completed";
       readonly totalUsd: number;
       readonly durationMs: number;
-      readonly isError: boolean;
+      readonly outcome: SessionTurnOutcome;
       readonly isPreflightCrash: boolean;
     }
   | { readonly type: "error"; readonly code: string; readonly message: string; readonly isRetryable: boolean }

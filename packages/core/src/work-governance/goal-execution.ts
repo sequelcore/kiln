@@ -75,6 +75,22 @@ export interface StartGoalExecutionAttemptInput {
   readonly executionMode: WorkItemExecutionMode;
   readonly summary?: string;
   readonly managedInvocationId?: string;
+  readonly managedInvocationProof?: ManagedInvocationExecutionProof;
+}
+
+export interface ManagedInvocationExecutionProof {
+  readonly invocationId: string;
+  readonly parentSessionId: string;
+  readonly goalRunId: string;
+  readonly workItemId: string;
+  readonly resultHandoff: ManagedAgentResultHandoff;
+}
+
+export interface CompleteGoalExecutionInput {
+  readonly goalRunStore: GoalRunStore;
+  readonly workItemStore: WorkItemStore;
+  readonly goalRunId: string;
+  readonly closeoutSummary?: string;
 }
 
 export interface GoalExecutionAttemptTransition {
@@ -211,6 +227,7 @@ export function selectNextGoalExecutionStep(input: SelectNextGoalExecutionStepIn
 export function startGoalExecutionAttempt(input: StartGoalExecutionAttemptInput): GoalExecutionAttemptTransition {
   const goal = requireActiveGoal(input.goalRunStore, input.goalRunId);
   assertGoalContainsWorkItem(goal, input.workItemId);
+  assertManagedInvocationProof(input, goal);
   const item = input.workItemStore.get(input.workItemId);
   const pendingPauseRequirements = item?.pauseRequirements?.filter((requirement) => requirement.status === "pending") ?? [];
   if (pendingPauseRequirements.length > 0) {
@@ -222,6 +239,7 @@ export function startGoalExecutionAttempt(input: StartGoalExecutionAttemptInput)
     executionMode: input.executionMode,
     summary: input.summary,
     managedInvocationId: input.managedInvocationId,
+    managedInvocationResultHandoff: input.managedInvocationProof?.resultHandoff,
   });
   if (!started) {
     throw new Error(`Work item ${input.workItemId} was not found.`);
@@ -235,6 +253,24 @@ export function startGoalExecutionAttempt(input: StartGoalExecutionAttemptInput)
     item: started.item,
     attempt: started.attempt,
   };
+}
+
+export function completeGoalExecution(input: CompleteGoalExecutionInput): GoalRun {
+  const goal = requireActiveGoal(input.goalRunStore, input.goalRunId);
+  const incompleteWorkItemIds = goal.workItemIds.filter(
+    (workItemId) => input.workItemStore.get(workItemId)?.status !== "completed",
+  );
+  if (incompleteWorkItemIds.length > 0) {
+    throw new Error(`Goal ${goal.id} has incomplete work items: ${incompleteWorkItemIds.join(", ")}.`);
+  }
+  const missingGoalEvidence = missingRequiredGoalEvidence(goal);
+  if (missingGoalEvidence.length > 0) {
+    throw new Error(`Goal ${goal.id} is missing required evidence: ${missingGoalEvidence.join(", ")}.`);
+  }
+  return input.goalRunStore.complete({
+    id: goal.id,
+    closeoutSummary: input.closeoutSummary ?? generateGoalCloseoutSummary(goal, input.workItemStore),
+  });
 }
 
 export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInput): GoalExecutionAttemptFinish {
@@ -325,7 +361,7 @@ function transitionGoalAfterCompletedItem(
     };
   }
 
-  const missingGoalEvidence = missingRequiredGoalEvidence(goal, input.workItemStore);
+  const missingGoalEvidence = missingRequiredGoalEvidence(goal);
   if (missingGoalEvidence.length > 0) {
     return {
       goal: input.goalRunStore.update({
@@ -344,30 +380,36 @@ function transitionGoalAfterCompletedItem(
   };
 }
 
-function missingRequiredGoalEvidence(goal: GoalRun, workItemStore: WorkItemStore): readonly string[] {
-  const provided = new Set<string>();
-  for (const id of goal.workItemIds) {
-    const item = workItemStore.get(id);
-    if (!item) {
-      continue;
-    }
-    for (const evidence of goalProvidedEvidence(item)) {
-      provided.add(evidence);
-    }
-    if (item.residualRisk) {
-      provided.add("residual-risk");
-    }
-    if (projectManagedOrchestrationAdoptionGate(item).status === "adopted") {
-      provided.add(MANAGED_ORCHESTRATION_ADOPTION_GATE_EVIDENCE);
-    }
-    if (projectManagedOrchestrationResultHandoff(item).status === "recorded") {
-      provided.add(MANAGED_ORCHESTRATION_RESULT_HANDOFF_EVIDENCE);
-    }
-  }
+export function missingRequiredGoalEvidence(goal: GoalRun): readonly string[] {
+  const provided = new Set(goal.evidence.map((record) => record.requirementId));
   return goal.evidenceRequirements
     .filter((requirement) => requirement.required)
     .map((requirement) => requirement.id)
     .filter((id) => !provided.has(id));
+}
+
+function assertManagedInvocationProof(
+  input: StartGoalExecutionAttemptInput,
+  goal: GoalRun,
+): void {
+  if (input.executionMode !== "managed_delegation") {
+    if (input.managedInvocationId || input.managedInvocationProof) {
+      throw new Error("Direct execution cannot link managed invocation provenance.");
+    }
+    return;
+  }
+  const proof = input.managedInvocationProof;
+  if (!input.managedInvocationId || !proof) {
+    throw new Error("Managed delegation requires verified invocation provenance.");
+  }
+  if (
+    proof.invocationId !== input.managedInvocationId
+    || proof.parentSessionId !== goal.ownerSessionId
+    || proof.goalRunId !== goal.id
+    || proof.workItemId !== input.workItemId
+  ) {
+    throw new Error("Managed invocation provenance does not match the goal execution scope.");
+  }
 }
 
 function generateGoalCloseoutSummary(goal: GoalRun, workItemStore: WorkItemStore): string {

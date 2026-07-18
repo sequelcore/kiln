@@ -38,7 +38,7 @@ export type WorkItemToolName =
   | "work_item.execution.start"
   | "work_item.execution.finish"
   | "work_item.execution.fail";
-export type GoalToolName = "goal.create";
+export type GoalToolName = "goal.create" | "goal.evidence.record" | "goal.complete";
 export type ElicitationToolName = "operator_elicit";
 export type MemoryToolName = "memory_search" | "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
@@ -112,7 +112,7 @@ export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 export type TaskStateToolOperation = "list" | "update";
 export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 export type WorkItemToolOperation = "update" | "list" | "complete" | "execution_started" | "execution_finished";
-export type GoalToolOperation = "create";
+export type GoalToolOperation = "create" | "record_evidence" | "complete";
 export type ElicitationToolOperation = "elicit";
 export type MemoryToolOperation = "search" | "save";
 export type ResourceToolOperation = "list" | "list_templates" | "read";
@@ -475,6 +475,7 @@ export interface GoalToolResultMetadata<TToolName extends GoalToolName = GoalToo
   readonly goal?: GoalRun;
   readonly linkedWorkItemIds?: readonly string[];
   readonly missingWorkItemIds?: readonly string[];
+  readonly changedFields?: readonly string[];
   readonly sequence?: number;
   readonly errorCode?: "invalid_input" | "not_found";
   readonly verbosity?: ToolOutputVerbosity;

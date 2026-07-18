@@ -6,6 +6,8 @@ export type {
   GoalRunCreateInput,
   GoalRunEscalationPolicy,
   GoalRunEvidenceRequirement,
+  GoalRunEvidenceRecord,
+  GoalRunRecordEvidenceInput,
   GoalRunResourceChangeNotifier,
   GoalRunRoutePolicy,
   GoalRunSnapshot,
@@ -26,6 +28,7 @@ export {
 } from "./goal-run.js";
 export type {
   FailGoalExecutionAttemptInput,
+  CompleteGoalExecutionInput,
   FinishGoalExecutionAttemptInput,
   GoalExecutionAttemptFinish,
   GoalExecutionAttemptTransition,
@@ -33,12 +36,15 @@ export type {
   GoalExecutionStep,
   SelectNextGoalExecutionStepInput,
   StartGoalExecutionAttemptInput,
+  ManagedInvocationExecutionProof,
 } from "./goal-execution.js";
 export {
+  completeGoalExecution,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
+  missingRequiredGoalEvidence,
 } from "./goal-execution.js";
 export type {
   FeedbackRepairApproval,

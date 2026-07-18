@@ -80,13 +80,59 @@ describe("GoalRunStore", () => {
       evidenceRequirements: [],
     });
 
-    expect(store.complete({ id: goal.id, closeoutSummary: "All evidence linked." }).status).toBe("completed");
+    expect(store.complete({ id: goal.id, closeoutSummary: "All evidence linked." })).toMatchObject({
+      status: "completed",
+      currentPhase: "completed",
+    });
     expect(() => store.update({ id: goal.id, currentPhase: "resume" })).toThrow(
       "Goal goal-terminal is terminal and cannot transition",
     );
     expect(() => store.cancel({ id: goal.id, reason: "operator changed mind" })).toThrow(
       "Goal goal-terminal is terminal and cannot transition",
     );
+  });
+
+  it("records structured evidence only for declared goal requirements", () => {
+    const store = new GoalRunStore({ now: () => "2026-05-12T18:00:00.000Z" });
+    const goal = store.create({
+      id: "goal-evidence",
+      objective: "Close the governed release.",
+      ownerSessionId: "session-1",
+      source: { kind: "approved_plan", planId: "plan-1" },
+      workItemIds: ["wi-1"],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Release evidence must be explicit.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [
+        { id: "release-contract", description: "Release contract is verified.", required: true },
+      ],
+    });
+
+    const recorded = store.recordEvidence({
+      id: goal.id,
+      requirementId: "release-contract",
+      summary: "Package manifests and public exports match the release contract.",
+      resourceUris: ["kiln://artifact/release-contract"],
+      workItemIds: ["wi-1"],
+    });
+
+    expect(recorded.evidence).toEqual([
+      {
+        requirementId: "release-contract",
+        summary: "Package manifests and public exports match the release contract.",
+        resourceUris: ["kiln://artifact/release-contract"],
+        workItemIds: ["wi-1"],
+        recordedAt: "2026-05-12T18:00:00.000Z",
+      },
+    ]);
+    expect(() => store.recordEvidence({
+      id: goal.id,
+      requirementId: "undeclared",
+      summary: "This must not be accepted.",
+    })).toThrow("Goal goal-evidence does not declare evidence requirement undeclared");
   });
 
   it("fails fast for invalid authority, duplicate work items, and malformed evidence requirements", () => {

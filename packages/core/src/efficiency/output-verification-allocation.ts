@@ -60,6 +60,102 @@ export interface StructuredExecutionResult {
   readonly verificationResults: readonly StructuredVerificationResult[];
 }
 
+export const STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    version: { type: "string", const: "structured-execution-result-v1" },
+    status: { type: "string", enum: ["completed", "blocked", "failed", "cancelled"] },
+    summary: { type: "string", minLength: 1 },
+    details: { type: "string", minLength: 1 },
+    uncertainty: { type: "number", minimum: 0, maximum: 1 },
+    limitations: { type: "array", items: { type: "string", minLength: 1 } },
+    operatorDecisions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string", minLength: 1 },
+          summary: { type: "string", minLength: 1 },
+          rationale: { type: "string", minLength: 1 },
+        },
+        required: ["id", "summary"],
+        additionalProperties: false,
+      },
+    },
+    evidence: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          uri: { type: "string", minLength: 1 },
+          kind: { type: "string", enum: ["artifact", "citation", "diagnostic", "verification"] },
+          label: { type: "string", minLength: 1 },
+        },
+        required: ["uri", "kind"],
+        additionalProperties: false,
+      },
+    },
+    citations: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          uri: { type: "string", minLength: 1 },
+          label: { type: "string", minLength: 1 },
+        },
+        required: ["uri", "label"],
+        additionalProperties: false,
+      },
+    },
+    warnings: { type: "array", items: { type: "string", minLength: 1 } },
+    failures: { type: "array", items: { type: "string", minLength: 1 } },
+    approvalRequirements: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string", minLength: 1 },
+          status: { type: "string", enum: ["pending", "approved", "denied"] },
+          summary: { type: "string", minLength: 1 },
+        },
+        required: ["id", "status", "summary"],
+        additionalProperties: false,
+      },
+    },
+    residualRisks: { type: "array", items: { type: "string", minLength: 1 } },
+    verificationResults: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          requirementId: { type: "string", minLength: 1 },
+          method: { type: "string", enum: ["deterministic", "model-judge", "human-review"] },
+          status: { type: "string", enum: ["passed", "failed", "skipped", "inconclusive"] },
+          summary: { type: "string", minLength: 1 },
+          evidenceUris: { type: "array", items: { type: "string", minLength: 1 } },
+        },
+        required: ["requirementId", "method", "status", "summary", "evidenceUris"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: [
+    "version",
+    "status",
+    "summary",
+    "limitations",
+    "operatorDecisions",
+    "evidence",
+    "citations",
+    "warnings",
+    "failures",
+    "approvalRequirements",
+    "residualRisks",
+    "verificationResults",
+  ],
+  additionalProperties: false,
+};
+
 export interface StructuredExecutionResultProjection extends Omit<StructuredExecutionResult, "details"> {
   readonly verbosity: AssistantOutputVerbosity;
   readonly details?: string;

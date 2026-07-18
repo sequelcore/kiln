@@ -24,6 +24,22 @@ export interface GoalRunEvidenceRequirement {
   readonly required: boolean;
 }
 
+export interface GoalRunEvidenceRecord {
+  readonly requirementId: string;
+  readonly summary: string;
+  readonly resourceUris: readonly string[];
+  readonly workItemIds: readonly string[];
+  readonly recordedAt: string;
+}
+
+export interface GoalRunRecordEvidenceInput {
+  readonly id: string;
+  readonly requirementId: string;
+  readonly summary: string;
+  readonly resourceUris?: readonly string[];
+  readonly workItemIds?: readonly string[];
+}
+
 export type GoalRunSource =
   | {
       readonly kind: "approved_plan";
@@ -77,6 +93,7 @@ export interface GoalRun {
   readonly authorityEnvelope: GoalRunAuthorityEnvelope;
   readonly routePolicy: GoalRunRoutePolicy;
   readonly evidenceRequirements: readonly GoalRunEvidenceRequirement[];
+  readonly evidence: readonly GoalRunEvidenceRecord[];
   readonly currentPhase?: string;
   readonly closeoutSummary?: string;
   readonly terminalReason?: string;
@@ -131,6 +148,7 @@ export class GoalRunStore {
       authorityEnvelope: normalizeAuthorityEnvelope(input.authorityEnvelope),
       routePolicy: normalizeRoutePolicy(input.routePolicy),
       evidenceRequirements: normalizeEvidenceRequirements(input.evidenceRequirements),
+      evidence: [],
       ...(normalizeText(input.currentPhase) ? { currentPhase: normalizeText(input.currentPhase)! } : {}),
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -165,6 +183,38 @@ export class GoalRunStore {
       status: "completed",
       closeoutSummary: requireText(input.closeoutSummary, "closeoutSummary"),
     });
+  }
+
+  recordEvidence(input: GoalRunRecordEvidenceInput): GoalRun {
+    const existing = this.requireMutableGoal(input.id);
+    const requirementId = requireText(input.requirementId, "requirementId");
+    if (!existing.evidenceRequirements.some((requirement) => requirement.id === requirementId)) {
+      throw new Error(`Goal ${existing.id} does not declare evidence requirement ${requirementId}.`);
+    }
+    const workItemIds = uniqueOptional(input.workItemIds ?? [], "workItemIds");
+    const unknownWorkItemId = workItemIds.find((workItemId) => !existing.workItemIds.includes(workItemId));
+    if (unknownWorkItemId) {
+      throw new Error(`Goal ${existing.id} does not contain work item ${unknownWorkItemId}.`);
+    }
+    const record: GoalRunEvidenceRecord = {
+      requirementId,
+      summary: requireText(input.summary, "summary"),
+      resourceUris: uniqueOptional(input.resourceUris ?? [], "resourceUris"),
+      workItemIds,
+      recordedAt: this.now(),
+    };
+    const goal: GoalRun = {
+      ...existing,
+      evidence: [
+        ...existing.evidence.filter((candidate) => candidate.requirementId !== requirementId),
+        record,
+      ],
+      updatedAt: record.recordedAt,
+      sequence: ++this.sequence,
+    };
+    this.goals.set(goal.id, goal);
+    this.notifyChanged(goal.id);
+    return goal;
   }
 
   fail(input: GoalRunTerminalInput): GoalRun {
@@ -228,6 +278,7 @@ export class GoalRunStore {
     const goal: GoalRun = {
       ...existing,
       ...terminal,
+      currentPhase: terminal.status,
       updatedAt: this.now(),
       sequence: ++this.sequence,
     };
@@ -337,6 +388,18 @@ function uniqueRequired(values: readonly string[], field: string): readonly stri
     const normalized = requireText(value, `${field}.${index}`);
     if (seen.has(normalized)) {
       throw new Error(`Duplicate ${field} id: ${normalized}`);
+    }
+    seen.add(normalized);
+    return normalized;
+  });
+}
+
+function uniqueOptional(values: readonly string[], field: string): readonly string[] {
+  const seen = new Set<string>();
+  return values.map((value, index) => {
+    const normalized = requireText(value, `${field}.${index}`);
+    if (seen.has(normalized)) {
+      throw new Error(`Duplicate ${field} value: ${normalized}`);
     }
     seen.add(normalized);
     return normalized;

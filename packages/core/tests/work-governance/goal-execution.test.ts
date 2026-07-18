@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  completeGoalExecution,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   GoalRunStore,
@@ -12,6 +13,189 @@ import {
 import { createSessionEvent } from "../../src/events/index.js";
 
 describe("goal execution loop", () => {
+  it("accepts a verified direct managed handoff without inventing managed orchestration policy", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-direct-managed-handoff",
+      summary: "Inspect through one governed managed child.",
+      workflowProfile: "verification-heavy",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["surface-map"],
+      verificationGates: [],
+      assignedAgentProfile: "scout",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-direct-managed-handoff",
+      objective: "Adopt a direct managed child result.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        reason: "Read-only inspection.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const handoff = managedResultHandoff();
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "managed_delegation",
+      managedInvocationId: "invocation-direct-1",
+      managedInvocationProof: {
+        invocationId: "invocation-direct-1",
+        parentSessionId: "session-1",
+        goalRunId: goal.id,
+        workItemId: item.id,
+        resultHandoff: handoff,
+      },
+    });
+
+    const finished = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["surface-map"],
+      managedInvocationResultHandoff: handoff,
+    });
+
+    expect(finished).toMatchObject({
+      item: {
+        status: "completed",
+        managedOrchestration: undefined,
+        managedOrchestrationResultHandoff: undefined,
+      },
+      attempt: {
+        status: "completed",
+        managedInvocationId: "invocation-direct-1",
+        managedInvocationResultHandoff: handoff,
+      },
+      goal: { status: "completed", currentPhase: "completed" },
+    });
+  });
+
+  it("rejects fabricated managed invocation identifiers at the domain boundary", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-managed-proof",
+      summary: "Run a verified managed child.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: [],
+      verificationGates: [],
+      assignedAgentProfile: "coder",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-managed-proof",
+      objective: "Require managed invocation provenance.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        reason: "Read-only delegated inspection.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+
+    expect(() => startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "managed_delegation",
+      managedInvocationId: "invented-id",
+    })).toThrow("Managed delegation requires verified invocation provenance");
+
+    expect(startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "managed_delegation",
+      managedInvocationId: "invocation-1",
+      managedInvocationProof: {
+        invocationId: "invocation-1",
+        parentSessionId: "session-1",
+        goalRunId: goal.id,
+        workItemId: item.id,
+        resultHandoff: managedResultHandoff(),
+      },
+    }).attempt.managedInvocationId).toBe("invocation-1");
+  });
+
+  it("completes a paused goal after explicit goal-level evidence is recorded", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-goal-closeout",
+      summary: "Verify the release.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: [],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-closeout",
+      objective: "Close with explicit release evidence.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        reason: "Verification only.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [
+        { id: "release-contract", description: "Release contract verified.", required: true },
+      ],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+    const finished = finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      providedEvidence: ["tests"],
+    });
+    expect(finished.goal.currentPhase).toBe("paused:goal-closeout");
+    expect(finished.missingGoalEvidence).toEqual(["release-contract"]);
+
+    goalRunStore.recordEvidence({
+      id: goal.id,
+      requirementId: "release-contract",
+      summary: "Exports and package manifests verified.",
+      workItemIds: [item.id],
+    });
+    expect(completeGoalExecution({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      closeoutSummary: "Release contract and work-item evidence verified.",
+    })).toMatchObject({
+      status: "completed",
+      closeoutSummary: "Release contract and work-item evidence verified.",
+    });
+  });
+
   it("selects the first ready pending work item and derives managed delegation from governance assessment", () => {
     const workItemStore = new WorkItemStore({ now: fixedNow });
     const completed = workItemStore.upsert({
@@ -108,6 +292,7 @@ describe("goal execution loop", () => {
       workItemId: item.id,
       executionMode: "managed_delegation",
       managedInvocationId: "invocation-failed-1",
+      managedInvocationProof: managedProof(goal.id, item.id, "invocation-failed-1"),
     });
 
     const failed = failGoalExecutionAttempt({
@@ -174,6 +359,7 @@ describe("goal execution loop", () => {
       workItemId: item.id,
       executionMode: "managed_delegation",
       managedInvocationId: "invocation-cancelled-1",
+      managedInvocationProof: managedProof(goal.id, item.id, "invocation-cancelled-1"),
     });
 
     const cancelled = failGoalExecutionAttempt({
@@ -793,7 +979,7 @@ describe("goal execution loop", () => {
     });
   });
 
-  it("blocks goal completion when required goal evidence is missing from linked work items", () => {
+  it("keeps goal-level requirements independent from similarly named work-item evidence", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
     const item = workItemStore.upsert({
@@ -841,7 +1027,7 @@ describe("goal execution loop", () => {
 
     expect(blocked).toMatchObject({
       missingEvidence: [],
-      missingGoalEvidence: ["typecheck"],
+      missingGoalEvidence: ["tests", "typecheck"],
       goal: {
         status: "active",
         currentPhase: "paused:goal-closeout",
@@ -921,6 +1107,14 @@ describe("goal execution loop", () => {
       workItemId: item.id,
       executionMode: "managed_delegation",
       managedInvocationId: "invocation-adoption-goal",
+      managedInvocationProof: managedProof(goal.id, item.id, "invocation-adoption-goal"),
+    });
+    goalRunStore.recordEvidence({
+      id: goal.id,
+      requirementId: "managed-orchestration:adoption-gate",
+      summary: "Reviewer adopted the managed child output.",
+      resourceUris: ["kiln://artifacts/orch-adoption-goal/adoption"],
+      workItemIds: [item.id],
     });
 
     const completed = finishGoalExecutionAttempt({
@@ -1053,6 +1247,7 @@ describe("goal execution loop", () => {
       workItemId: item.id,
       executionMode: "managed_delegation",
       managedInvocationId: "invocation-readiness-goal",
+      managedInvocationProof: managedProof(goal.id, item.id, "invocation-readiness-goal"),
     });
 
     const blocked = finishGoalExecutionAttempt({
@@ -1921,4 +2116,22 @@ describe("goal execution loop", () => {
 
 function fixedNow(): string {
   return "2026-05-12T20:00:00.000Z";
+}
+
+function managedProof(goalRunId: string, workItemId: string, invocationId: string) {
+  return {
+    invocationId,
+    parentSessionId: "session-1",
+    goalRunId,
+    workItemId,
+    resultHandoff: managedResultHandoff(),
+  };
+}
+
+function managedResultHandoff() {
+  return {
+    summary: "Managed child returned substantive evidence.",
+    resourceUris: ["kiln://artifacts/managed-child/handoff"],
+    memoryWriteProposalUris: [],
+  };
 }
