@@ -1828,6 +1828,7 @@ function wireOperatorTransport(
               ...(output.admittedInput ? { admittedInput: output.admittedInput } : {}),
               inputTokens: output.inputTokens,
               outputTokens: output.outputTokens,
+              outcome: output.outcome,
               routedProvider,
               routedModel,
               routingRationale: output.routingDecision?.rationale,

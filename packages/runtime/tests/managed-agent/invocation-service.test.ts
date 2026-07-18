@@ -600,7 +600,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
   });
 
-  it("canonicalizes strict structured child JSON before enforcing required handoff fields", async () => {
+  it("enforces required handoff fields on the adapter-owned structured result", async () => {
     const request = defineManagedAgentInvocationRequest({
       ...makeRequest(),
       input: {
@@ -651,6 +651,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
           resultHandoff: {
             ...baseRecord.resultHandoff!,
             summary: "H".repeat(400),
+            structuredResult,
           },
           replayResources: [{
             uri: "kiln://artifacts/invocation-1/result",

@@ -72,7 +72,7 @@ export interface AppendCanonicalTurnEventsInput {
   readonly userMessageContent: string;
   readonly assistantMessageContent?: string;
   readonly queued: boolean;
-  readonly turnOutcome?: SessionTurnOutcome;
+  readonly turnOutcome: SessionTurnOutcome;
   readonly turnStartedAt: Date;
   readonly turnCompletedAt: Date;
   readonly continuity: RuntimeContinuitySnapshot;
@@ -567,7 +567,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
     sequence: nextSequence(),
     kind: "turn_completed",
     turnId,
-    outcome: input.turnOutcome ?? (input.queued ? "cancelled" : "completed"),
+    outcome: input.turnOutcome,
     outputMessageId: assistantMessageContent ? `${turnId}:assistant` : undefined,
     durationMs: Math.max(0, input.turnCompletedAt.getTime() - input.turnStartedAt.getTime()),
     source: runtimeSource,
@@ -811,6 +811,7 @@ function isGoalRun(value: unknown): value is GoalRun {
     && isRecord(value.authorityEnvelope)
     && isRecord(value.routePolicy)
     && Array.isArray(value.evidenceRequirements)
+    && Array.isArray(value.evidence)
     && typeof value.createdAt === "string"
     && typeof value.updatedAt === "string"
     && typeof value.sequence === "number";
@@ -978,7 +979,9 @@ function projectGoalEvents(input: {
   return [createSessionEvent<"goal.updated">({
     ...envelope(),
     kind: "goal.updated",
-    changedFields: ["currentPhase"],
+    changedFields: isRecord(metadata) && Array.isArray(metadata.changedFields)
+      ? metadata.changedFields.filter((field): field is string => typeof field === "string")
+      : ["currentPhase"],
   })];
 }
 

@@ -19,6 +19,8 @@ import type {
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
   SessionExecutionScope,
+  SessionTurnOutcome,
+  ConversationToolResultProjectionPolicy,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
@@ -52,6 +54,11 @@ export const RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON 
 
 export interface RuntimeExecutionEnvelope {
   readonly toolRounds?: RuntimeToolRoundBudget;
+  readonly conversation?: RuntimeConversationExecutionEnvelope;
+}
+
+export interface RuntimeConversationExecutionEnvelope {
+  readonly toolResults?: ConversationToolResultProjectionPolicy;
 }
 
 export interface RuntimeToolRoundBudget {
@@ -182,6 +189,7 @@ export interface OrchestrateResult {
   readonly cacheWriteTokens: number;
   readonly providerRequests?: readonly ProviderRequestEvidence[];
   readonly queued: boolean;
+  readonly outcome: SessionTurnOutcome;
   readonly escalation?: EscalationSignal;
   readonly contextSummary?: string;
   readonly stopReason?: string;

@@ -19,7 +19,6 @@ import type {
 } from "@kilnai/core";
 import {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
-  buildBuiltinInvocationEffectResolvers,
   deriveAuthorityFromEffect,
   executeWithRetry,
   getBuiltinEffectEnvelope,
@@ -28,6 +27,7 @@ import {
   normalizeToolCall,
   resolveInvocationEffect,
 } from "@kilnai/core";
+import { buildRuntimeInvocationEffectResolvers } from "./runtime-invocation-effect-resolvers.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import type {
   DangerousCommandDecisionLike,
@@ -52,6 +52,7 @@ const COMMAND_TOOL_SHELL_BY_NAME = new Map<string, CommandShell>([
 ]);
 const MAX_STREAMED_TOOL_OUTPUT_CHARS = 64 * 1024;
 const MAX_TOOL_OUTPUT_CHUNK_CHARS = 8 * 1024;
+const RUNTIME_INVOCATION_EFFECT_RESOLVERS = buildRuntimeInvocationEffectResolvers();
 const TOOL_OUTPUT_TRUNCATION_MARKER = "\n… live output truncated; full terminal result follows …\n";
 
 function parseCommandShell(value: unknown): CommandShell | undefined {
@@ -95,11 +96,13 @@ function formatDangerousCommandBlockMessage(decision: DangerousCommandDecisionLi
 function authorityFromResolvedInvocationEffect(
   admittedAuthority: AuthorityDescriptor,
   resolvedEffect: ResolvedInvocationEffect,
+  declaredEffect: ResolvedInvocationEffect,
 ): AuthorityDescriptor | undefined {
   if (admittedAuthority.allowed && !admittedAuthority.requiresApproval) {
     return undefined;
   }
-  if (!isConservativeStaticAuthority(admittedAuthority)) {
+  const declaredAuthority = deriveAuthorityFromEffect(declaredEffect);
+  if (!sameAuthorityDescriptor(admittedAuthority, declaredAuthority)) {
     return undefined;
   }
   const invocationAuthority = deriveAuthorityFromEffect(resolvedEffect);
@@ -109,11 +112,14 @@ function authorityFromResolvedInvocationEffect(
   return invocationAuthority;
 }
 
-function isConservativeStaticAuthority(authority: AuthorityDescriptor): boolean {
-  return authority.requiresApproval && (
-    authority.reason === "Privileged or unknown identity use requires confirmation"
-    || authority.reason === "Unknown effects require confirmation"
-  );
+function sameAuthorityDescriptor(
+  left: AuthorityDescriptor,
+  right: AuthorityDescriptor,
+): boolean {
+  return left.level === right.level
+    && left.allowed === right.allowed
+    && left.requiresApproval === right.requiresApproval
+    && left.reason === right.reason;
 }
 
 function extractToolResultMetadata(resultValue: unknown): Record<string, unknown> | undefined {
@@ -495,6 +501,7 @@ export class RuntimeSessionToolExecutor {
       const authResult = this.resolveAuthorization(
         normalizedToolCall.name,
         resolvedEffect,
+        capability,
         perCallConfig,
       );
       let executionAuthority = authResult;
@@ -805,6 +812,7 @@ export class RuntimeSessionToolExecutor {
   private resolveAuthorization(
     toolName: string,
     resolvedEffect: ResolvedInvocationEffect,
+    capability: Capability | undefined,
     perCallConfig?: PerCallToolConfig,
   ): AuthorityDescriptor | undefined {
     const authority = perCallConfig?.toolAuthority?.get(toolName);
@@ -817,7 +825,14 @@ export class RuntimeSessionToolExecutor {
           reason: "Invalid authority descriptor; execution denied",
         };
       }
-      const narrowedAuthority = authorityFromResolvedInvocationEffect(authority, resolvedEffect);
+      const declaredEffect = capability?.effectEnvelope
+        ?? getBuiltinEffectEnvelope(toolName)
+        ?? CONSERVATIVE_UNKNOWN_ENVELOPE;
+      const narrowedAuthority = authorityFromResolvedInvocationEffect(
+        authority,
+        resolvedEffect,
+        declaredEffect,
+      );
       if (narrowedAuthority) {
         return narrowedAuthority;
       }
@@ -845,7 +860,7 @@ export class RuntimeSessionToolExecutor {
         toolName,
         input,
         envelope,
-        buildBuiltinInvocationEffectResolvers(),
+        RUNTIME_INVOCATION_EFFECT_RESOLVERS,
       );
     } catch {
       return CONSERVATIVE_UNKNOWN_ENVELOPE;

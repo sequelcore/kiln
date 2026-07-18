@@ -7,6 +7,7 @@ import type {
   ToolDefinition,
   ProviderExecutionContext,
   ProviderExecutionRequestedAuthority,
+  ConversationToolResultProjectionPolicy,
 } from "@kilnai/core";
 import {
   extractText,
@@ -16,6 +17,7 @@ import {
   resolveExecutionIdentity,
   textParts,
   type ProviderRequestEvidence,
+  projectConversationForModel,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import {
@@ -74,7 +76,32 @@ function resolveExecutionEnvelope(value: RuntimeExecutionEnvelope | undefined): 
   }
   return {
     ...(value.toolRounds ? { toolRounds: resolveToolRoundBudget(value.toolRounds) } : {}),
+    ...(value.conversation ? {
+      conversation: {
+        ...(value.conversation.toolResults
+          ? { toolResults: resolveConversationToolResultPolicy(value.conversation.toolResults) }
+          : {}),
+      },
+    } : {}),
   };
+}
+
+function resolveConversationToolResultPolicy(
+  value: ConversationToolResultProjectionPolicy,
+): ConversationToolResultProjectionPolicy {
+  if (!Number.isSafeInteger(value.triggerToolResultTokens) || value.triggerToolResultTokens <= 0) {
+    throw new KilnError(
+      "A2A_INVALID_REQUEST",
+      "executionEnvelope.conversation.toolResults.triggerToolResultTokens must be a positive integer",
+    );
+  }
+  if (!Number.isSafeInteger(value.retainRecentToolResults) || value.retainRecentToolResults < 0) {
+    throw new KilnError(
+      "A2A_INVALID_REQUEST",
+      "executionEnvelope.conversation.toolResults.retainRecentToolResults must be a non-negative integer",
+    );
+  }
+  return { ...value };
 }
 
 function resolveToolRoundBudget(value: RuntimeToolRoundBudget): RuntimeToolRoundBudget {
@@ -130,6 +157,7 @@ export type {
   EffectiveTurnAuthoritySnapshot,
   PerCallToolConfig,
   RuntimeExecutionEnvelope,
+  RuntimeConversationExecutionEnvelope,
   RuntimeToolRoundBudget,
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
@@ -207,6 +235,7 @@ export class RuntimeSessionOrchestrator {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           queued: true,
+          outcome: "paused",
         };
       }
     }
@@ -305,6 +334,7 @@ export class RuntimeSessionOrchestrator {
           toolExecutions,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
           preLlmEscalation: escalation,
+          outcome: "failed",
         });
       }
 
@@ -341,10 +371,14 @@ export class RuntimeSessionOrchestrator {
         executionEnvelope,
       );
       const providerExecutionContext = buildProviderExecutionContext(perCallConfig);
+      const conversationProjection = projectConversationForModel(
+        session.conversationHistory,
+        executionEnvelope?.conversation?.toolResults,
+      );
       const response = await routing.effectiveProvider.createMessage({
         sessionId: session.id,
         system: routing.invocationSystem,
-        messages: [...session.conversationHistory],
+        messages: conversationProjection.messages,
         tools: toolsForRound,
         maxTokens: this.deps.maxTokens,
         reasoningEffort: perCallConfig?.reasoningEffort,
@@ -365,7 +399,7 @@ export class RuntimeSessionOrchestrator {
         session.activeAgentId ?? undefined,
         measureProviderRequestRegions({
           system: routing.invocationSystem,
-          messages: session.conversationHistory,
+          messages: conversationProjection.messages,
           tools: toolsForRound,
           toolCount: toolsForRound?.length ?? 0,
           toolProjection: buildProviderRequestToolProjectionEvidence({
@@ -377,6 +411,7 @@ export class RuntimeSessionOrchestrator {
             materializationDecisions: pendingMaterializationDecisions,
           }),
           cachePartition,
+          conversationProjection: conversationProjection.evidence,
           ...(response.stopReason ? { stopReason: response.stopReason } : {}),
         }),
       );
@@ -472,6 +507,7 @@ export class RuntimeSessionOrchestrator {
           session,
           routing,
           cachePartition,
+          executionEnvelope,
           toolExecutions,
           preLlmEscalation: escalation,
         });
@@ -538,6 +574,7 @@ export class RuntimeSessionOrchestrator {
           session,
           routing,
           cachePartition,
+          executionEnvelope,
           toolExecutions,
           preLlmEscalation: escalation,
         });
@@ -601,6 +638,7 @@ export class RuntimeSessionOrchestrator {
       session,
       this.deps.maxTokens,
       buildRuntimeProviderRequestCachePartition(session, routing, perCallConfig, executionEnvelope),
+      executionEnvelope?.conversation?.toolResults,
     );
     const usageTotals = this.telemetry.recordResponse(
       session.id,
@@ -677,6 +715,7 @@ export class RuntimeSessionOrchestrator {
     readonly session: RuntimeSession;
     readonly routing: RuntimeSessionRoutingResolution;
     readonly cachePartition?: ProviderRequestCachePartitionInput;
+    readonly executionEnvelope?: RuntimeExecutionEnvelope;
     readonly toolExecutions: readonly ToolExecutionSummary[];
     readonly preLlmEscalation?: EscalationSignal;
   }): Promise<OrchestrateResult> {
@@ -686,6 +725,7 @@ export class RuntimeSessionOrchestrator {
       input.session,
       this.deps.maxTokens,
       input.cachePartition,
+      input.executionEnvelope?.conversation?.toolResults,
     );
     const fallbackUsageTotals = this.telemetry.recordResponse(
       input.session.id,

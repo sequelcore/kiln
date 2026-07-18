@@ -15,7 +15,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -34,7 +34,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -54,7 +54,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -74,7 +74,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -105,7 +105,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -132,7 +132,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -151,7 +151,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -170,7 +170,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -193,7 +193,7 @@ describe("CliSubscriptionExecutor", () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
@@ -225,7 +225,7 @@ describe("CliSubscriptionExecutor", () => {
       run: () => eventStream([
         { type: "text_delta", content: "done" },
         { type: "tool_result", toolName: "Edit", output: "Updated src/app.ts" },
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
       dispose,
     });
@@ -248,7 +248,7 @@ describe("CliSubscriptionExecutor", () => {
       run: () => eventStream([
         { type: "tool_result", toolName: "Edit", output: "Updated src/app.ts" },
         { type: "file_changed", path: "src/app.ts", changeType: "modified", linesAdded: 3, linesRemoved: 1 },
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
       dispose,
     });
@@ -283,7 +283,7 @@ describe("CliSubscriptionExecutor", () => {
         { type: "text_delta", content: "world" },
         { type: "cost_update", usd: 0.02, outputTokens: 7, cacheReadTokens: 3 },
         { type: "cost_update", usd: 0.03, inputTokens: 12, outputTokens: 9, cacheReadTokens: 4 },
-        { type: "completed", totalUsd: 0.03, durationMs: 1, isError: false, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0.03, durationMs: 1, outcome: "completed", isPreflightCrash: false },
       ]),
       dispose,
     });
@@ -302,12 +302,12 @@ describe("CliSubscriptionExecutor", () => {
     expect(result.stopReason).toBe("end_turn");
   });
 
-  it("maps completed isError=true to stopReason=error", async () => {
+  it("preserves a failed terminal outcome as the stop reason", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const factory = vi.fn().mockReturnValue({
       run: () => eventStream([
         { type: "text_delta", content: "partial" },
-        { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+        { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
       ]),
       dispose,
     });
@@ -319,7 +319,7 @@ describe("CliSubscriptionExecutor", () => {
     });
 
     expect(extractText(result.parts)).toBe("partial");
-    expect(result.stopReason).toBe("error");
+    expect(result.stopReason).toBe("failed");
   });
 
   it("throws on error events and still disposes in finally", async () => {

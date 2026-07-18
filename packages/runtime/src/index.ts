@@ -512,6 +512,7 @@ export type {
   OrchestrateResult,
   PerCallToolConfig,
   RuntimeExecutionEnvelope,
+  RuntimeConversationExecutionEnvelope,
   RuntimeToolRoundBudget,
   ToolExecutionSummary,
   SessionStore,

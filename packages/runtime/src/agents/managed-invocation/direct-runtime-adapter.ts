@@ -1,4 +1,5 @@
 import type {
+  ActionEffectEnvelope,
   AuthorityDescriptor,
   Capability,
   ErrorEvent,
@@ -10,6 +11,7 @@ import type {
   ManagedAgentWriteEvidence,
   ProviderAdapter,
   SandboxConfig,
+  StructuredExecutionResult,
   ToolDefinition,
   ToolAuthorizedEvent,
   ToolCacheHitEvent,
@@ -24,6 +26,8 @@ import {
   EventBus,
   extractText,
   SandboxPolicy,
+  STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
+  defineStructuredExecutionResult,
   textParts,
 } from "@kilnai/core";
 import { RuntimeSession } from "../../session/runtime-session.js";
@@ -77,6 +81,22 @@ const CHILD_EXECUTION_RESOURCE_LIMIT = 12000;
 const TOOL_OUTPUT_LIMIT = 1200;
 const RESULT_RESOURCE_NOTICE = "Full child result is available through the managed invocation result resource.";
 const NO_DIRECT_HANDOFF_SUMMARY = "Direct provider managed invocation finished without final handoff text.";
+const MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME = "managed_agent.submit_handoff";
+const MANAGED_AGENT_SUBMIT_HANDOFF_EFFECT: ActionEffectEnvelope = {
+  operation: "mutate",
+  boundaries: ["process"],
+  reversibility: "compensatable",
+  dataEgress: "metadata",
+  identityUse: "none",
+  consequences: ["local-state"],
+  idempotency: "non-idempotent",
+};
+const MANAGED_AGENT_SUBMIT_HANDOFF_AUTHORITY: AuthorityDescriptor = {
+  level: 2,
+  allowed: true,
+  requiresApproval: false,
+  reason: "Runtime-internal structured handoff submission is an audited process-local mutation",
+};
 
 export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeAdapter {
   readonly descriptor;
@@ -225,11 +245,36 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       void Promise.resolve(input.progressObserver?.(event)).catch(() => undefined);
     };
     try {
-      const allowedToolNames = new Set(request.authority.toolAuthority.allowedToolNames);
-      const tools = this.tools.filter((tool) => allowedToolNames.has(tool.name));
-      const capabilityMap = this.capabilityMap ? filterMap(this.capabilityMap, allowedToolNames) : undefined;
-      const toolAuthority = this.toolAuthority ? filterMap(this.toolAuthority, allowedToolNames) : undefined;
-      const runtimeBuiltinTools = this.builtinToolsProvider();
+      const handoffSubmission = request.input.handoff ? createManagedHandoffSubmission() : undefined;
+      const allowedToolNames = new Set([
+        ...request.authority.toolAuthority.allowedToolNames,
+        ...(handoffSubmission ? [MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME] : []),
+      ]);
+      const tools = [
+        ...this.tools.filter((tool) => allowedToolNames.has(tool.name)),
+        ...(handoffSubmission ? [handoffSubmission.tool] : []),
+      ];
+      const capabilityMap = this.capabilityMap
+        ? new Map(filterMap(this.capabilityMap, allowedToolNames))
+        : new Map<string, Capability>();
+      const toolAuthority = this.toolAuthority
+        ? new Map(filterMap(this.toolAuthority, allowedToolNames))
+        : new Map<string, AuthorityDescriptor>();
+      const runtimeBuiltinTools = new Map(this.builtinToolsProvider());
+      if (handoffSubmission) {
+        runtimeBuiltinTools.set(MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME, handoffSubmission.execute);
+        capabilityMap.set(MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME, {
+          name: handoffSubmission.tool.name,
+          description: handoffSubmission.tool.description,
+          schema: handoffSubmission.tool.inputSchema,
+          tags: ["managed-invocation", "handoff", "runtime-internal"],
+          effectEnvelope: MANAGED_AGENT_SUBMIT_HANDOFF_EFFECT,
+        });
+        toolAuthority.set(
+          MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME,
+          MANAGED_AGENT_SUBMIT_HANDOFF_AUTHORITY,
+        );
+      }
       const builtinTools = withManagedToolSandbox(
         runtimeBuiltinTools,
         createManagedToolSandbox(request),
@@ -248,7 +293,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         tools,
         builtinTools,
         eventBus,
-        ...(capabilityMap ? { capabilityMap } : {}),
+        ...(capabilityMap.size > 0 ? { capabilityMap } : {}),
       };
       const orchestrator = new RuntimeSessionOrchestrator(deps);
       const perCallConfig: PerCallToolConfig = {
@@ -257,8 +302,8 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         abortSignal,
         toolAllowlist: allowedToolNames,
         additionalTools: tools,
-        ...(capabilityMap ? { perCallCapabilities: capabilityMap } : {}),
-        ...(toolAuthority ? { toolAuthority } : {}),
+        ...(capabilityMap.size > 0 ? { perCallCapabilities: capabilityMap } : {}),
+        ...(toolAuthority.size > 0 ? { toolAuthority } : {}),
         ...(request.providerRoute.reasoningEffort ? { reasoningEffort: request.providerRoute.reasoningEffort as PerCallToolConfig["reasoningEffort"] } : {}),
       };
       const governedResourceContext = await buildManagedInvocationResourceContext({
@@ -275,6 +320,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         textParts(appendManagedResultHandoffContract(
           request.input.prompt ?? request.input.summary,
           request,
+          "submission-tool",
         )),
         governedResourceContext,
         builtinTools,
@@ -283,7 +329,8 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const resultText = extractText(result.parts);
       const replayResource = resultReplayResource(request.invocationId, resultText);
       const childExecutionResource = childExecutionReplayResource(request.invocationId, result, resultText);
-      const summary = clipSummary(resultText, replayResource?.uri, result.stopReason);
+      const structuredResult = handoffSubmission?.result();
+      const summary = structuredResult?.summary ?? clipSummary(resultText, replayResource?.uri, result.stopReason);
       const writeEvidence = collectDirectRuntimeWriteEvidence(request, result.toolExecutions ?? []);
       const resultResourceUris = [
         managedInvocationUri(request.invocationId, "transcript"),
@@ -315,8 +362,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         },
         resultHandoff: {
           summary,
-          resourceUris: resultResourceUris,
+          resourceUris: uniqueStrings([
+            ...resultResourceUris,
+            ...(structuredResult?.evidence.map((item) => item.uri) ?? []),
+            ...(structuredResult?.citations.map((item) => item.uri) ?? []),
+            ...(structuredResult?.verificationResults.flatMap((item) => item.evidenceUris) ?? []),
+          ]),
           memoryWriteProposalUris: [],
+          ...(structuredResult ? { structuredResult } : {}),
         },
         ...(replayResources.length > 0 ? { replayResources } : {}),
         ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
@@ -384,6 +437,54 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
     };
   }
+}
+
+function createManagedHandoffSubmission(): {
+  readonly tool: ToolDefinition;
+  readonly execute: RuntimeBuiltinToolExecutor;
+  readonly result: () => StructuredExecutionResult | undefined;
+} {
+  let submitted: StructuredExecutionResult | undefined;
+  const tool: ToolDefinition = {
+    name: MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME,
+    description: "Submit the single canonical structured result for this managed child invocation. Call exactly once after the work and its verification are complete.",
+    inputSchema: STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
+    tags: new Set(["managed-agent", "handoff", "runtime-control"]),
+  };
+  return {
+    tool,
+    execute: async (input) => {
+      if (submitted) {
+        return {
+          output: "Managed result handoff was already submitted.",
+          isError: true,
+          metadata: { errorCode: "managed_handoff_already_submitted" },
+        };
+      }
+      try {
+        submitted = defineStructuredExecutionResult(input as unknown as StructuredExecutionResult);
+        return {
+          output: "Managed result handoff accepted.",
+          isError: false,
+          metadata: {
+            kind: "managed-result-handoff",
+            status: submitted.status,
+          },
+        };
+      } catch (error) {
+        return {
+          output: error instanceof Error ? error.message : String(error),
+          isError: true,
+          metadata: { errorCode: "managed_handoff_invalid" },
+        };
+      }
+    },
+    result: () => submitted,
+  };
+}
+
+function uniqueStrings(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
 }
 
 function attachManagedChildProgressObserver(

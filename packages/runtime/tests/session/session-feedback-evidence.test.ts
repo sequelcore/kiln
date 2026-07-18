@@ -22,6 +22,7 @@ describe("runtime session feedback evidence", () => {
       channel: "cli",
       userMessageContent: "Run the typecheck.",
       assistantMessageContent: "Typecheck failed.",
+      turnOutcome: "completed",
       queued: false,
       turnStartedAt: new Date("2026-05-18T10:00:00.000Z"),
       turnCompletedAt: new Date("2026-05-18T10:00:04.000Z"),

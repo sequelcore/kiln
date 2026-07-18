@@ -145,6 +145,14 @@ describe("RuntimeSessionOrchestrator", () => {
       expect(extractText(result.parts)).toBe("mock response");
     });
 
+    it("returns an explicit canonical completed outcome", async () => {
+      const session = makeSession();
+
+      const result = await orchestrator.processMessage(session, textParts("hello"));
+
+      expect(result.outcome).toBe("completed");
+    });
+
     it("accumulates conversation history across multiple calls", async () => {
       const session = makeSession();
       await orchestrator.processMessage(session, textParts("first message"));
@@ -154,6 +162,57 @@ describe("RuntimeSessionOrchestrator", () => {
       expect(session.conversationHistory[1]).toEqual({ role: "assistant", parts: textParts("mock response") });
       expect(session.conversationHistory[2]).toEqual({ role: "user", parts: textParts("second message") });
       expect(session.conversationHistory[3]).toEqual({ role: "assistant", parts: textParts("mock response") });
+    });
+
+    it("projects old tool results for the provider while retaining the canonical session history", async () => {
+      const session = makeSession();
+      for (let index = 1; index <= 5; index += 1) {
+        const toolUseId = `call-${index}`;
+        session.addAssistantMessage([{
+          type: "tool_use",
+          id: toolUseId,
+          name: "read",
+          input: { path: `file-${index}.ts` },
+        }]);
+        session.addUserMessage([{
+          type: "tool_result",
+          toolUseId,
+          content: String(index).repeat(160),
+        }]);
+      }
+      const projectedOrchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        executionEnvelope: {
+          conversation: {
+            toolResults: {
+              triggerToolResultTokens: 100,
+              retainRecentToolResults: 2,
+            },
+          },
+        },
+      });
+
+      const result = await projectedOrchestrator.processMessage(session, textParts("continue"));
+
+      const providerMessages = vi.mocked(provider.createMessage).mock.calls[0]?.[0].messages ?? [];
+      const projectedResults = providerMessages.flatMap((message) => (
+        message.parts.filter((part) => part.type === "tool_result")
+      ));
+      expect(projectedResults.slice(0, 3).map((part) => part.content)).toEqual([
+        "[cleared:call-1]",
+        "[cleared:call-2]",
+        "[cleared:call-3]",
+      ]);
+      expect(session.conversationHistory[1]?.parts[0]).toEqual({
+        type: "tool_result",
+        toolUseId: "call-1",
+        content: "1".repeat(160),
+      });
+      expect(result.providerRequests?.[0]?.conversationProjection).toMatchObject({
+        clearedToolResultCount: 3,
+        clearedToolUseIds: ["call-1", "call-2", "call-3"],
+        overflow: false,
+      });
     });
 
     it("uses session systemPrompt as system parameter", async () => {

@@ -6,7 +6,7 @@ export class CliResponseAssembler {
   private inputTokens = 0;
   private outputTokens = 0;
   private cacheReadTokens = 0;
-  private isError = false;
+  private outcome: Extract<ExecutionSessionEvent, { readonly type: "completed" }>["outcome"] = "completed";
 
   consume(event: ExecutionSessionEvent): void {
     if (event.type === "text_delta" && !event.isThinking) {
@@ -16,9 +16,9 @@ export class CliResponseAssembler {
       if (event.outputTokens !== undefined) this.outputTokens = event.outputTokens;
       if (event.cacheReadTokens !== undefined) this.cacheReadTokens = event.cacheReadTokens;
     } else if (event.type === "completed") {
-      this.isError = event.isError;
+      this.outcome = event.outcome;
     } else if (event.type === "error") {
-      this.isError = true;
+      this.outcome = "failed";
       throw new Error(`[${event.code}] ${event.message}`);
     }
   }
@@ -31,7 +31,7 @@ export class CliResponseAssembler {
       cacheReadTokens: this.cacheReadTokens,
       cacheWriteTokens: 0,
       toolCalls: [],
-      stopReason: this.isError ? "error" : "end_turn",
+      stopReason: this.outcome === "completed" ? "end_turn" : this.outcome,
     };
   }
 }

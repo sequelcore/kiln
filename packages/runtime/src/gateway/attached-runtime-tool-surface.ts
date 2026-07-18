@@ -56,6 +56,7 @@ import {
   createManagedAgentInvokeToolDefinition,
   createManagedAgentOrchestrateToolDefinition,
   createManagedInvocationToolCallMetadataResolver,
+  createManagedInvocationToolExecutor,
   createManagedInvocationLifecycleToolExecutors,
   MANAGED_AGENT_CANCEL_CAPABILITY,
   MANAGED_AGENT_CANCEL_TOOL,
@@ -70,6 +71,7 @@ import {
   MANAGED_AGENT_START_TOOL,
   MANAGED_AGENT_STATUS_CAPABILITY,
   MANAGED_AGENT_STATUS_TOOL,
+  resolveManagedInvocationService,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool.js";
@@ -439,7 +441,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
   options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
 ): AttachedRuntimeBuiltinToolSurface {
   const themeController = options.operatorSurface?.theme;
-  const managedInvocation = options.managedInvocation
+  const managedInvocationAttachment = options.managedInvocation
     ? normalizeManagedInvocationAttachment(options.managedInvocation)
     : undefined;
   const requiresPlanningStores = options.executionMode === "plan";
@@ -455,6 +457,13 @@ export function createAttachedRuntimeBuiltinToolSurface(
   const baseSurface = options.builtinToolOptions || requiresPlanningStores
     ? buildRuntimeSurface(coreSurface, { requireSessionStores: requiresPlanningStores })
     : DEFAULT_BUILTIN_TOOL_SURFACE;
+  const managedInvocation = managedInvocationAttachment
+    ? {
+        ...managedInvocationAttachment,
+        governedScopeAdmission: managedInvocationAttachment.governedScopeAdmission
+          ?? createManagedInvocationGovernedScopeAdmission(coreSurface),
+      }
+    : undefined;
 
   const callBuiltinTools = new Map(baseSurface.callBuiltinTools);
   const capabilities = new Map(baseSurface.capabilities);
@@ -517,7 +526,11 @@ export function createAttachedRuntimeBuiltinToolSurface(
 
   if (managedInvocation) {
     const managedInvocationOptions = managedInvocation.options;
-    const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(managedInvocation);
+    const managedInvocationService = resolveManagedInvocationService(managedInvocationOptions);
+    const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(
+      managedInvocation,
+      managedInvocationService,
+    );
     const managedInvocationExecutor = managedInvocationExecutors.get(MANAGED_AGENT_INVOKE_TOOL.name);
     for (const [toolName, executor] of managedInvocationExecutors) {
       callBuiltinTools.set(toolName, executor);
@@ -528,7 +541,11 @@ export function createAttachedRuntimeBuiltinToolSurface(
         WORK_ITEM_EXECUTION_START_TOOL_NAME,
         createManagedDelegationWorkItemStartExecutor(
           workItemExecutionStart,
-          managedInvocationExecutor,
+          createManagedInvocationToolExecutor(
+            managedInvocation,
+            managedInvocationService,
+            "already-admitted",
+          ),
           managedInvocationOptions,
         ),
       );
@@ -592,6 +609,90 @@ export function createAttachedRuntimeBuiltinToolSurface(
     listResources: baseSurface.listResources,
     listResourceTemplates: baseSurface.listResourceTemplates,
     readResource: baseSurface.readResource,
+  };
+}
+
+function createManagedInvocationGovernedScopeAdmission(
+  surface: DefaultBuiltinToolSurface,
+): NonNullable<ManagedInvocationToolAttachment["governedScopeAdmission"]> {
+  return (input) => {
+    const goalRunStore = surface.goalRunStore;
+    const workItemStore = surface.workItemStore;
+    if (!goalRunStore || !workItemStore) {
+      return {
+        admitted: false,
+        code: "governed_scope_store_unavailable",
+        message: "Managed invocation governed scope requires the session goal and work item stores.",
+      };
+    }
+    const goal = goalRunStore.get(input.goalRunId);
+    if (!goal) {
+      return {
+        admitted: false,
+        code: "goal_not_found",
+        message: `Goal not found: ${input.goalRunId}`,
+        suggestedNextTool: "goal.create",
+      };
+    }
+    if (goal.ownerSessionId !== input.parentSessionId) {
+      return {
+        admitted: false,
+        code: "goal_session_mismatch",
+        message: `Goal ${goal.id} does not belong to runtime session ${input.parentSessionId}.`,
+      };
+    }
+    if (goal.status !== "active") {
+      return {
+        admitted: false,
+        code: "goal_not_active",
+        message: `Goal ${goal.id} is ${goal.status}; managed invocation requires an active goal.`,
+      };
+    }
+    if (!input.workItemId) {
+      return { admitted: true };
+    }
+    const workItem = workItemStore.get(input.workItemId);
+    if (!workItem) {
+      return {
+        admitted: false,
+        code: "work_item_not_found",
+        message: `Work item not found: ${input.workItemId}`,
+        suggestedNextTool: "work_item.update",
+      };
+    }
+    if (workItem.goalRunId !== goal.id || !goal.workItemIds.includes(workItem.id)) {
+      return {
+        admitted: false,
+        code: "governed_scope_mismatch",
+        message: `Work item ${workItem.id} is not governed by goal ${goal.id}.`,
+      };
+    }
+    if (workItem.status === "completed" || workItem.status === "cancelled") {
+      return {
+        admitted: false,
+        code: "work_item_not_active",
+        message: `Work item ${workItem.id} is ${workItem.status}; managed invocation requires an open work item.`,
+      };
+    }
+    if (!input.attemptId) {
+      return { admitted: true };
+    }
+    const attempt = workItem.executionAttempts.find((candidate) => candidate.id === input.attemptId);
+    if (!attempt) {
+      return {
+        admitted: false,
+        code: "execution_attempt_not_found",
+        message: `Execution attempt not found: ${input.attemptId}`,
+      };
+    }
+    if (attempt.goalRunId !== goal.id || attempt.workItemId !== workItem.id || attempt.status !== "started") {
+      return {
+        admitted: false,
+        code: "execution_attempt_not_active",
+        message: `Execution attempt ${attempt.id} is not an active attempt for work item ${workItem.id} and goal ${goal.id}.`,
+      };
+    }
+    return { admitted: true };
   };
 }
 
@@ -755,7 +856,9 @@ function managedIntermediatePhaseCompletedResult(
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
   const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
-  const managedOutput = parseJsonRecord(managedResult.output) ?? managedResult.output;
+  const managedOutput = projectManagedIntermediateOutput(
+    parseJsonRecord(managedResult.output) ?? managedResult.output,
+  );
   const output = {
     ...(initialOutput ?? {}),
     status: "paused",
@@ -780,6 +883,64 @@ function managedIntermediatePhaseCompletedResult(
     ...(managedResult.resourceLinks !== undefined ? { resourceLinks: managedResult.resourceLinks } : {}),
     ...(managedResult.content !== undefined ? { content: managedResult.content } : {}),
   };
+}
+
+function projectManagedIntermediateOutput(value: unknown): unknown {
+  const record = readRecord(value);
+  if (!record) {
+    return value;
+  }
+  const resultHandoff = readRecord(record.resultHandoff);
+  const structuredResult = readRecord(resultHandoff?.structuredResult);
+  return {
+    ...pickDefined(record, [
+      "status",
+      "summary",
+      "invocationId",
+      "routeId",
+      "routeSource",
+      "parentSessionId",
+      "parentTurnId",
+      "childSessionId",
+      "childTurnId",
+      "phaseCompletion",
+      "recovery",
+    ]),
+    ...(resultHandoff
+      ? {
+          resultHandoff: {
+            ...pickDefined(resultHandoff, ["summary", "resourceUris", "memoryWriteProposalUris"]),
+            ...(structuredResult
+              ? {
+                  structuredResult: pickDefined(structuredResult, [
+                    "version",
+                    "status",
+                    "summary",
+                    "uncertainty",
+                    "limitations",
+                    "operatorDecisions",
+                    "warnings",
+                    "failures",
+                    "approvalRequirements",
+                    "residualRisks",
+                    "verificationResults",
+                    "verbosity",
+                  ]),
+                }
+              : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+function pickDefined(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> {
+  return Object.fromEntries(keys.flatMap((key) => (
+    record[key] === undefined ? [] : [[key, record[key]]]
+  )));
 }
 
 function prepareManagedInvocationRequest(

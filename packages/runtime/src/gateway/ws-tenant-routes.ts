@@ -477,6 +477,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   parts: result.parts,
                   inputTokens: result.inputTokens,
                   outputTokens: result.outputTokens,
+                  outcome: result.outcome,
                 }));
 
                 if (followUpSuggestions.length > 0) {

@@ -83,14 +83,24 @@ import {
   projectManagedInvocationRecordResources,
   projectManagedInvocationResourceLeaseResources,
 } from "./resource-projection.js";
-
-export const MANAGED_AGENT_INVOKE_TOOL_NAME = "managed_agent.invoke";
-export const MANAGED_AGENT_START_TOOL_NAME = "managed_agent.start";
-export const MANAGED_AGENT_STATUS_TOOL_NAME = "managed_agent.status";
-export const MANAGED_AGENT_LIST_TOOL_NAME = "managed_agent.list";
-export const MANAGED_AGENT_JOIN_TOOL_NAME = "managed_agent.join";
-export const MANAGED_AGENT_CANCEL_TOOL_NAME = "managed_agent.cancel";
-export const MANAGED_AGENT_ORCHESTRATE_TOOL_NAME = "managed_agent.orchestrate";
+import {
+  MANAGED_AGENT_CANCEL_TOOL_NAME,
+  MANAGED_AGENT_INVOKE_TOOL_NAME,
+  MANAGED_AGENT_JOIN_TOOL_NAME,
+  MANAGED_AGENT_LIST_TOOL_NAME,
+  MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+  MANAGED_AGENT_START_TOOL_NAME,
+  MANAGED_AGENT_STATUS_TOOL_NAME,
+} from "./tool-names.js";
+export {
+  MANAGED_AGENT_CANCEL_TOOL_NAME,
+  MANAGED_AGENT_INVOKE_TOOL_NAME,
+  MANAGED_AGENT_JOIN_TOOL_NAME,
+  MANAGED_AGENT_LIST_TOOL_NAME,
+  MANAGED_AGENT_ORCHESTRATE_TOOL_NAME,
+  MANAGED_AGENT_START_TOOL_NAME,
+  MANAGED_AGENT_STATUS_TOOL_NAME,
+} from "./tool-names.js";
 const MANAGED_AGENT_ORCHESTRATION_PROFILES = MANAGED_AGENT_ADMISSION_PROFILES.filter(
   (profile): profile is Exclude<ManagedAgentAdmissionProfile, "rejected"> => profile !== "rejected",
 );
@@ -156,7 +166,28 @@ export type ManagedInvocationToolOptionsWithService = ManagedInvocationToolOptio
 export interface ManagedInvocationToolAttachment {
   readonly options: ManagedInvocationToolOptions;
   readonly callerIdentity: ManagedAgentCallerAttachmentIdentity;
+  readonly governedScopeAdmission?: ManagedInvocationGovernedScopeAdmission;
 }
+
+export interface ManagedInvocationGovernedScopeAdmissionInput {
+  readonly parentSessionId: string;
+  readonly goalRunId: string;
+  readonly workItemId?: string;
+  readonly attemptId?: string;
+}
+
+export type ManagedInvocationGovernedScopeAdmissionResult =
+  | { readonly admitted: true }
+  | {
+      readonly admitted: false;
+      readonly code: string;
+      readonly message: string;
+      readonly suggestedNextTool?: string;
+    };
+
+export type ManagedInvocationGovernedScopeAdmission = (
+  input: ManagedInvocationGovernedScopeAdmissionInput,
+) => ManagedInvocationGovernedScopeAdmissionResult;
 
 export interface ManagedInvocationAgentCatalogEntry {
   readonly name: string;
@@ -752,8 +783,9 @@ export function createManagedAgentStartToolDefinition(
 export function createManagedInvocationToolExecutor(
   attachment: ManagedInvocationToolAttachment,
   service = resolveManagedInvocationService(attachment.options),
+  scopeAdmission: "required" | "already-admitted" = "required",
 ): RuntimeBuiltinToolExecutor {
-  return async (input, context) => executeManagedInvocationTool(input, context, attachment, service);
+  return async (input, context) => executeManagedInvocationTool(input, context, attachment, service, scopeAdmission);
 }
 
 export function createManagedAgentOrchestrateToolDefinition(
@@ -1085,6 +1117,7 @@ async function prepareManagedInvocationRequest(
   context: RuntimeBuiltinToolExecutionContext | undefined,
   attachment: ManagedInvocationToolAttachment,
   toolName: string,
+  scopeAdmission: "required" | "already-admitted" = "required",
 ): Promise<
   | { readonly ok: true; readonly prepared: PreparedManagedInvocationRequest }
   | { readonly ok: false; readonly result: ManagedInvocationToolResult }
@@ -1098,6 +1131,38 @@ async function prepareManagedInvocationRequest(
   const parsed = parseInput(canonicalizedRawInput.input, toolName);
   if (!parsed.ok) {
     return { ok: false, result: errorResult(parsed.error, {}, toolName) };
+  }
+
+  if (scopeAdmission === "required" && parsed.input.goalRunId) {
+    const admission = attachment.governedScopeAdmission?.({
+      parentSessionId: context.session.id,
+      goalRunId: parsed.input.goalRunId,
+      ...(parsed.input.workItemId ? { workItemId: parsed.input.workItemId } : {}),
+      ...(parsed.input.attemptId ? { attemptId: parsed.input.attemptId } : {}),
+    });
+    if (!admission) {
+      return {
+        ok: false,
+        result: errorResult(
+          "Managed invocation governed scope cannot be verified on this runtime surface.",
+          {
+            errorCode: "governed_scope_admission_unavailable",
+            status: "denied",
+          },
+          toolName,
+        ),
+      };
+    }
+    if (!admission.admitted) {
+      return {
+        ok: false,
+        result: errorResult(admission.message, {
+          errorCode: admission.code,
+          status: "denied",
+          ...(admission.suggestedNextTool ? { suggestedNextTool: admission.suggestedNextTool } : {}),
+        }, toolName),
+      };
+    }
   }
 
   const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.input.agentProfile);
@@ -1580,9 +1645,16 @@ async function executeManagedInvocationTool(
   context: RuntimeBuiltinToolExecutionContext | undefined,
   attachment: ManagedInvocationToolAttachment,
   service: RuntimeManagedAgentInvocationService,
+  scopeAdmission: "required" | "already-admitted" = "required",
 ): Promise<ManagedInvocationToolResult> {
   const { options } = attachment;
-  const preparedResult = await prepareManagedInvocationRequest(rawInput, context, attachment, MANAGED_AGENT_INVOKE_TOOL_NAME);
+  const preparedResult = await prepareManagedInvocationRequest(
+    rawInput,
+    context,
+    attachment,
+    MANAGED_AGENT_INVOKE_TOOL_NAME,
+    scopeAdmission,
+  );
   if (!preparedResult.ok) {
     return preparedResult.result;
   }
@@ -2531,7 +2603,12 @@ function projectManagedInvocationSnapshot(snapshot: ManagedAgentRuntimeInvocatio
     startedAt: snapshot.startedAt,
     ...(snapshot.finishedAt ? { finishedAt: snapshot.finishedAt } : {}),
     ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
-    ...(snapshot.progressEvents && snapshot.progressEvents.length > 0 ? { progressEvents: snapshot.progressEvents } : {}),
+    ...(snapshot.progressEvents && snapshot.progressEvents.length > 0
+      ? {
+          progressEventCount: snapshot.progressEvents.length,
+          recentProgressEvents: projectManagedInvocationRecentProgressEvents(snapshot.progressEvents),
+        }
+      : {}),
     terminalEvidenceAvailable: snapshot.record !== undefined || snapshot.error !== undefined,
   };
 }
@@ -2587,7 +2664,7 @@ function terminalManagedInvocationResult(input: {
     : buildManagedInvocationPhaseHandoffRecovery(input.rawInput, input.record.resultHandoff);
   const phaseCompletion = !shouldValidateSubstantiveHandoff
     ? undefined
-    : buildManagedInvocationPhaseCompletion(input.rawInput, input.record.resultHandoff);
+    : buildManagedInvocationPhaseCompletion(input.rawInput, input.record.resultHandoff, input.record.invocationId);
   const handoffError = handoffRecovery !== undefined;
   const projectedStatus = handoffError ? "handoff_not_substantive" : input.record.lifecycleState;
   const resourceLease = input.record.resourceLease ?? input.record.capabilitySnapshot.resourceLease;
@@ -2595,13 +2672,14 @@ function terminalManagedInvocationResult(input: {
   const timeoutEvidence = projectManagedInvocationTimeoutEvidence(input.record.capabilitySnapshot.authorityProfile);
   const authoritySnapshot = projectManagedInvocationAuthoritySnapshot(input.record.authority);
   const childLineage = projectManagedInvocationChildLineage(input.record);
-  const terminalProgressEvents = projectManagedInvocationTerminalProgressEvents(input.progressEvents);
+  const progressEventCount = input.progressEvents?.length ?? 0;
+  const recentProgressEvents = projectManagedInvocationRecentProgressEvents(input.progressEvents);
   const resourceLinks = projectManagedInvocationResultResourceLinks(input.record);
   const structuredEvidence = input.record.resultHandoff !== undefined
     || input.record.transcript !== undefined
     || resourceLease !== undefined
     || (input.record.diagnostics !== undefined && input.record.diagnostics.length > 0)
-    || terminalProgressEvents.length > 0;
+    || recentProgressEvents.length > 0;
   const outputVerbosity = input.request.input.handoff?.outputVerbosity ?? "standard";
   const projectedResultHandoff = input.record.resultHandoff
     ? {
@@ -2629,7 +2707,7 @@ function terminalManagedInvocationResult(input: {
           ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
           ...(resourceLease ? { resourceLease } : {}),
           ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
-          ...(terminalProgressEvents.length > 0 ? { progressEvents: terminalProgressEvents } : {}),
+          ...(recentProgressEvents.length > 0 ? { progressEventCount, recentProgressEvents } : {}),
           ...(recovery ? { recovery } : {}),
           ...(handoffRecovery ? { recovery: handoffRecovery } : {}),
           ...(phaseCompletion ? { phaseCompletion } : {}),
@@ -2665,7 +2743,7 @@ function terminalManagedInvocationResult(input: {
       resultHandoff: projectedResultHandoff,
       transcript: input.record.transcript,
       ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
-      ...(terminalProgressEvents.length > 0 ? { progressEvents: terminalProgressEvents } : {}),
+      ...(recentProgressEvents.length > 0 ? { progressEventCount, recentProgressEvents } : {}),
       ...(resourceLease ? { resourceLease } : {}),
       ...(input.record.diagnostics ? { diagnostics: input.record.diagnostics } : {}),
       ...(recovery ? { managedInvocationRecovery: recovery } : {}),
@@ -2773,19 +2851,25 @@ function buildManagedInvocationPresentationIntent(input: {
   };
 }
 
-function projectManagedInvocationTerminalProgressEvents(
+const MANAGED_INVOCATION_RECENT_PROGRESS_LIMIT = 8;
+
+function projectManagedInvocationRecentProgressEvents(
   progressEvents: ManagedAgentRuntimeInvocationSnapshot["progressEvents"] | undefined,
 ): readonly Record<string, unknown>[] {
-  return (progressEvents ?? []).map((event) => ({
+  return (progressEvents ?? []).slice(-MANAGED_INVOCATION_RECENT_PROGRESS_LIMIT).map((event) => ({
     eventId: event.eventId,
     kind: event.kind,
     recordedAt: event.recordedAt,
-    summary: event.summary,
+    summary: boundedProgressText(event.summary),
     ...(event.toolName ? { toolName: event.toolName } : {}),
     ...(event.success !== undefined ? { success: event.success } : {}),
     ...(event.isError !== undefined ? { isError: event.isError } : {}),
     ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
   }));
+}
+
+function boundedProgressText(value: string): string {
+  return value.length > 240 ? `${value.slice(0, 237)}...` : value;
 }
 
 function boundedPresentationText(value: string): string {

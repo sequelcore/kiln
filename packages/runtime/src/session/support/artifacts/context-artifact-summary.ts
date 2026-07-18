@@ -9,31 +9,33 @@ import {
 } from "@kilnai/core";
 import type { RuntimeSession } from "../../runtime-session.js";
 
-function buildRuntimeThreadArtifactKey(session: Pick<RuntimeSession, "appName" | "tenantId" | "userId">): string {
-  return `runtime-thread-summary:${session.appName}:${session.tenantId}:${session.userId}`;
+function buildRuntimeThreadArtifactKey(session: Pick<RuntimeSession, "appName" | "tenantId" | "id">): string {
+  return `runtime-thread-summary:${session.appName}:${session.tenantId}:${session.id}`;
 }
 
-function buildRuntimeHandoffArtifactKey(session: Pick<RuntimeSession, "appName" | "tenantId" | "userId">): string {
-  return `runtime-handoff-summary:${session.appName}:${session.tenantId}:${session.userId}`;
+function buildRuntimeHandoffArtifactKey(session: Pick<RuntimeSession, "appName" | "tenantId" | "id">): string {
+  return `runtime-handoff-summary:${session.appName}:${session.tenantId}:${session.id}`;
 }
 
 function buildRuntimeContextBundleKey(input: {
   appName: string;
   tenantId: string;
+  sessionId: string;
   channel: string;
   provider: string;
   taskShape: string;
 }): string {
-  return `runtime-context-bundle:${input.appName}:${input.tenantId}:${input.channel}:${input.provider}:${input.taskShape}`;
+  return `runtime-context-bundle:${input.appName}:${input.tenantId}:${input.sessionId}:${input.channel}:${input.provider}:${input.taskShape}`;
 }
 
 function buildRuntimeToolBundleKey(input: {
   appName: string;
   tenantId: string;
+  sessionId: string;
   channel: string;
   taskShape: string;
 }): string {
-  return `runtime-tool-bundle:${input.appName}:${input.tenantId}:${input.channel}:${input.taskShape}`;
+  return `runtime-tool-bundle:${input.appName}:${input.tenantId}:${input.sessionId}:${input.channel}:${input.taskShape}`;
 }
 
 function buildRuntimeContinuityOutcomeKey(input: {
@@ -47,6 +49,11 @@ function buildRuntimeContinuityOutcomeKey(input: {
 
 const RUNTIME_CONTINUITY_HISTORY_LIMIT = 6;
 const MIN_RUNTIME_FEEDBACK_SAMPLES = 2;
+const NON_AUTHORITATIVE_CONTINUITY_HEADER = [
+  "Non-authoritative session continuity.",
+  "These cached summaries belong to this logical session but may be stale.",
+  "Re-read canonical tools and resources before using any goal, work item, attempt, invocation, approval, authority, or execution state.",
+].join("\n");
 export type RuntimeSupportArtifactSource = "thread" | "handoff" | "context" | "tools";
 export interface RuntimeSupportArtifactsDetailedResult {
   content?: string;
@@ -188,7 +195,7 @@ export function normalizeRuntimeTaskShape(text: string): string {
 export function readRuntimeSupportArtifacts(
   cache: ContextArtifactCache | undefined,
   input: {
-    session: Pick<RuntimeSession, "appName" | "tenantId" | "userId" | "exactArtifacts" | "sessionLedger">;
+    session: Pick<RuntimeSession, "id" | "appName" | "tenantId" | "userId" | "exactArtifacts" | "sessionLedger">;
     channel: string;
     providerHint?: string;
     taskShape: string;
@@ -200,7 +207,7 @@ export function readRuntimeSupportArtifacts(
 export function readRuntimeSupportArtifactsDetailed(
   cache: ContextArtifactCache | undefined,
   input: {
-    session: Pick<RuntimeSession, "appName" | "tenantId" | "userId" | "exactArtifacts" | "sessionLedger">;
+    session: Pick<RuntimeSession, "id" | "appName" | "tenantId" | "userId" | "exactArtifacts" | "sessionLedger">;
     channel: string;
     providerHint?: string;
     taskShape: string;
@@ -252,6 +259,7 @@ export function readRuntimeSupportArtifactsDetailed(
       content: cache.get(buildRuntimeContextBundleKey({
         appName: input.session.appName,
         tenantId: input.session.tenantId,
+        sessionId: input.session.id,
         channel: input.channel,
         provider,
         taskShape: input.taskShape,
@@ -262,6 +270,7 @@ export function readRuntimeSupportArtifactsDetailed(
       content: cache.get(buildRuntimeToolBundleKey({
         appName: input.session.appName,
         tenantId: input.session.tenantId,
+        sessionId: input.session.id,
         channel: input.channel,
         taskShape: input.taskShape,
       }))?.content,
@@ -300,7 +309,9 @@ export function readRuntimeSupportArtifactsDetailed(
   const resolvedContents = contents.filter((content): content is string => Boolean(content && content.trim() !== ""));
 
   return {
-    content: resolvedContents.length > 0 ? resolvedContents.join("\n\n") : undefined,
+    content: resolvedContents.length > 0
+      ? [NON_AUTHORITATIVE_CONTINUITY_HEADER, ...resolvedContents].join("\n\n")
+      : undefined,
     decision,
     supportArtifactCount: signals.cachedResumeSignalCount,
     supportArtifactSources,
@@ -312,7 +323,7 @@ export function readRuntimeSupportArtifactsDetailed(
 
 export function writeRuntimeThreadSummaryArtifact(
   cache: ContextArtifactCache | undefined,
-  session: Pick<RuntimeSession, "appName" | "tenantId" | "userId" | "sessionLedger" | "exactArtifacts">,
+  session: Pick<RuntimeSession, "id" | "appName" | "tenantId" | "userId" | "sessionLedger" | "exactArtifacts">,
 ): void {
   if (!cache) return;
 
@@ -335,7 +346,7 @@ export function writeRuntimeThreadSummaryArtifact(
     content,
     createdAt: now,
     updatedAt: now,
-    tags: [session.appName, session.tenantId, session.userId],
+    tags: [session.appName, session.tenantId, session.id],
   };
   cache.set(artifact);
 }
@@ -343,7 +354,7 @@ export function writeRuntimeThreadSummaryArtifact(
 export function writeRuntimeHandoffSummaryArtifact(
   cache: ContextArtifactCache | undefined,
   input: {
-    session: Pick<RuntimeSession, "appName" | "tenantId" | "userId">;
+    session: Pick<RuntimeSession, "id" | "appName" | "tenantId" | "userId">;
     handoffBrief?: string;
     handoffBlocked?: boolean;
     handoffBlockReason?: string;
@@ -374,7 +385,7 @@ export function writeRuntimeHandoffSummaryArtifact(
     ].join("\n"),
     createdAt: now,
     updatedAt: now,
-    tags: [input.session.appName, input.session.tenantId, input.session.userId],
+    tags: [input.session.appName, input.session.tenantId, input.session.id],
   };
   cache.set(artifact);
 }
@@ -384,6 +395,7 @@ export function writeRuntimeContextBundleArtifact(
   input: {
     appName: string;
     tenantId: string;
+    sessionId: string;
     channel: string;
     provider: string;
     taskShape: string;
@@ -409,7 +421,7 @@ export function writeRuntimeContextBundleArtifact(
     ].join("\n"),
     createdAt: now,
     updatedAt: now,
-    tags: [input.appName, input.tenantId, input.channel, input.provider, input.taskShape],
+    tags: [input.appName, input.tenantId, input.sessionId, input.channel, input.provider, input.taskShape],
   };
   cache.set(artifact);
 }
@@ -419,6 +431,7 @@ export function writeRuntimeToolBundleArtifact(
   input: {
     appName: string;
     tenantId: string;
+    sessionId: string;
     channel: string;
     taskShape: string;
     toolExecutions?: readonly {
@@ -449,7 +462,7 @@ export function writeRuntimeToolBundleArtifact(
     ].join("\n"),
     createdAt: now,
     updatedAt: now,
-    tags: [input.appName, input.tenantId, input.channel, input.taskShape],
+    tags: [input.appName, input.tenantId, input.sessionId, input.channel, input.taskShape],
   };
   cache.set(artifact);
 }

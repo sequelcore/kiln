@@ -363,6 +363,7 @@ describe("TUI authority forwarding", () => {
       parts: [],
       inputTokens: 1,
       outputTokens: 1,
+      outcome: "paused",
       routedProvider: "codex-oauth",
       routedModel: "gpt-5.4-mini",
       runtimeContinuity: { strategy: "none" },
@@ -383,6 +384,7 @@ describe("TUI authority forwarding", () => {
       executionMode: "execute",
       completeness: "authoritative",
     });
+    expect(done.outcome).toBe("paused");
   });
 
   it("executes tools for kiln-executable TUI providers", async () => {

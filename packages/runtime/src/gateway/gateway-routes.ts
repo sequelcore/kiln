@@ -1101,6 +1101,7 @@ async function processAppGatewayGuiMessage(
       parts: result.parts,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
+      outcome: result.outcome,
       ...(result.routingDecision?.provider ? { routedProvider: result.routingDecision.provider } : {}),
       ...(result.routingDecision?.model ? { routedModel: result.routingDecision.model } : {}),
       runtimeContinuity: result.runtimeContinuity ?? { strategy: "none" },

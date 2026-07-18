@@ -1,9 +1,12 @@
-import type { ContentPart, ProviderAdapter, ToolCall } from "@kilnai/core";
+import { projectConversationForModel } from "@kilnai/core";
+import type { ContentPart, ConversationToolResultProjectionPolicy, ProviderAdapter, ToolCall } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./runtime-session-orchestrator.types.js";
 import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type OrchestratorResponseUsage, type ProviderRequestCachePartitionInput, type ProviderRequestRegionEvidence } from "./runtime-session-orchestrator-telemetry.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
+import { deriveRuntimeTurnOutcome } from "./governed-turn-outcome.js";
+import type { SessionTurnOutcome } from "@kilnai/core";
 
 export interface FinalizeRuntimeSessionResponseInput {
   readonly deps: OrchestratorDeps;
@@ -21,6 +24,7 @@ export interface FinalizeRuntimeSessionResponseInput {
     readonly reasoning: string;
   };
   readonly preLlmEscalation?: EscalationSignal;
+  readonly outcome?: SessionTurnOutcome;
 }
 
 export async function finalizeRuntimeSessionResponse(
@@ -54,6 +58,10 @@ export async function finalizeRuntimeSessionResponse(
       ? { providerRequests: input.providerRequests }
       : {}),
     queued: false,
+    outcome: input.outcome ?? deriveRuntimeTurnOutcome({
+      toolExecutions: input.toolExecutions,
+      stopReason: input.stopReason,
+    }),
     escalation,
     contextSummary,
     ...(input.stopReason !== undefined ? { stopReason: input.stopReason } : {}),
@@ -68,6 +76,7 @@ export async function requestRuntimeSessionFallbackResponse(
   session: RuntimeSession,
   maxTokens: number | undefined,
   cachePartition?: ProviderRequestCachePartitionInput,
+  conversationPolicy?: ConversationToolResultProjectionPolicy,
 ): Promise<{
   readonly parts: readonly ContentPart[];
   readonly toolCalls: readonly ToolCall[];
@@ -75,7 +84,8 @@ export async function requestRuntimeSessionFallbackResponse(
   readonly request: ProviderRequestRegionEvidence;
   readonly stopReason?: string;
 }> {
-  const messages = [...session.conversationHistory];
+  const conversationProjection = projectConversationForModel(session.conversationHistory, conversationPolicy);
+  const messages = conversationProjection.messages;
   const response = await provider.createMessage({
     sessionId: session.id,
     system,
@@ -99,6 +109,7 @@ export async function requestRuntimeSessionFallbackResponse(
       messages,
       toolCount: 0,
       cachePartition,
+      conversationProjection: conversationProjection.evidence,
       ...(response.stopReason ? { stopReason: response.stopReason } : {}),
     }),
   };

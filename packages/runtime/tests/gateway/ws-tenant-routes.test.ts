@@ -173,6 +173,7 @@ describe("createWsTenantRoutes", () => {
       registerTools: vi.fn(),
       processMessage: vi.fn().mockResolvedValue({
         parts: textParts("Hello from agent"),
+        outcome: "completed",
         inputTokens: 10,
         outputTokens: 20,
       }),
@@ -435,6 +436,7 @@ describe("createWsTenantRoutes", () => {
         type: "done",
         content: "Hello from agent",
         parts: textParts("Hello from agent"),
+        outcome: "completed",
         inputTokens: 10,
         outputTokens: 20,
       });

@@ -170,7 +170,14 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         evidenceUris: ["kiln://managed-invocations/inv-direct-1/readme"],
       }],
     } as const;
-    const provider = providerWithResponses([response(JSON.stringify(structuredResult))]);
+    const provider = providerWithResponses([
+      response("Submitting the governed result.", [{
+        id: "handoff-1",
+        name: "managed_agent.submit_handoff",
+        input: structuredResult,
+      }]),
+      response("Handoff submitted."),
+    ]);
     const adapter = new ManagedDirectProviderRuntimeAdapter({
       providerId: "openai",
       model: "gpt-test",
@@ -206,6 +213,13 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(JSON.stringify(firstProviderCall)).toContain("Managed Result Handoff Contract");
     expect(JSON.stringify(firstProviderCall)).toContain("structured-execution-result-v1");
     expect(JSON.stringify(firstProviderCall)).toContain("residualRisks");
+    expect(firstProviderCall.tools).toContainEqual(expect.objectContaining({
+      name: "managed_agent.submit_handoff",
+      inputSchema: expect.objectContaining({
+        type: "object",
+        additionalProperties: false,
+      }),
+    }));
   });
 
   it("runs a child RuntimeSessionOrchestrator and returns the shared managed invocation record shape", async () => {

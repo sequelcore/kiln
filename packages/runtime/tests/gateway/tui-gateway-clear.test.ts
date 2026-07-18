@@ -946,7 +946,7 @@ describe("TUI gateway message fail-closed behavior", () => {
             cacheReadTokens: 20,
           };
           yield { type: "text_delta" as const, content: "Parent turn completed." };
-          yield { type: "completed" as const, totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false };
+          yield { type: "completed" as const, totalUsd: 0, durationMs: 1, outcome: "completed" as const, isPreflightCrash: false };
         },
         dispose: vi.fn().mockResolvedValue(undefined),
       })),

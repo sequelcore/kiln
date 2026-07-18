@@ -12,7 +12,6 @@ import {
   defineManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentInvocationRecord,
-  defineStructuredExecutionResult,
   defineVerificationUsageReport,
   evaluateManagedAgentAdmission,
   isManagedAgentWriteAuthorityProfile,
@@ -58,20 +57,14 @@ export type {
   ManagedChildParentAuthoritySnapshot,
 } from "./context-credential-admission.js";
 
-function attachStructuredManagedResult(record: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
-  if (!record.resultHandoff) return record;
-  const structuredResult = record.resultHandoff.structuredResult ?? [
-    ...(record.replayResources ?? []).map((resource) => resource.text),
-    record.resultHandoff.summary,
-  ].map(parseStructuredManagedResult).find((candidate) => candidate !== undefined);
-  if (!structuredResult) return record;
-  const verificationUsage = record.resultHandoff.verificationUsage
-    ?? deriveStructuredVerificationUsage(structuredResult);
+function attachStructuredVerificationUsage(record: ManagedAgentInvocationRecord): ManagedAgentInvocationRecord {
+  const structuredResult = record.resultHandoff?.structuredResult;
+  if (!record.resultHandoff || !structuredResult || record.resultHandoff.verificationUsage) return record;
+  const verificationUsage = deriveStructuredVerificationUsage(structuredResult);
   return {
     ...record,
     resultHandoff: {
       ...record.resultHandoff,
-      structuredResult,
       ...(verificationUsage ? { verificationUsage } : {}),
     },
   };
@@ -101,15 +94,6 @@ function deriveStructuredVerificationUsage(structuredResult: StructuredExecution
   });
 }
 
-function parseStructuredManagedResult(text: string): StructuredExecutionResult | undefined {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
-  try {
-    return defineStructuredExecutionResult(JSON.parse(trimmed) as StructuredExecutionResult);
-  } catch {
-    return undefined;
-  }
-}
 export {
   appendManagedInvocationSessionEvents,
 } from "./session-events.js";
@@ -1596,7 +1580,7 @@ export class RuntimeManagedAgentInvocationService {
       ...(input.progressObserver !== undefined ? { progressObserver: input.progressObserver } : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
     });
-    const canonicalRecord = attachStructuredManagedResult(record);
+    const canonicalRecord = attachStructuredVerificationUsage(record);
     const attributedRecord = defineManagedAgentInvocationRecord({
       ...canonicalRecord,
       coordinationUsage: buildManagedAgentCoordinationUsage({

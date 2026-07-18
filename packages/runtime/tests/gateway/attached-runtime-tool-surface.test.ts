@@ -18,8 +18,10 @@ import {
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  GoalRunStore,
   SandboxPolicy,
   textParts,
+  WorkItemStore,
 } from "@kilnai/core";
 import {
   buildAttachedRuntimePerCallToolConfig,
@@ -326,6 +328,93 @@ function makeManagedExecutionStartTool(
 }
 
 describe("attached runtime builtin tool surface", () => {
+  it("rejects managed invocation scopes that do not exist in the session governance stores", async () => {
+    const workItemStore = new WorkItemStore();
+    const goalRunStore = new GoalRunStore();
+    workItemStore.upsert({
+      id: "work-real",
+      summary: "Inspect the repository.",
+      workflowProfile: "verification-heavy",
+      triggers: ["repository inspection"],
+      expectedEvidence: ["surface-map"],
+      verificationGates: [],
+      goalRunId: "goal-real",
+    });
+    goalRunStore.create({
+      id: "goal-real",
+      objective: "Inspect the repository without writes.",
+      ownerSessionId: "session-parent",
+      source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
+      workItemIds: ["work-real"],
+      authorityEnvelope: {
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        reason: "Read-only inspection.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const adapter = makeManagedAdapter();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { workItemStore, goalRunStore },
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-readonly",
+          routeSource: "explicit-managed-route",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:opencode:readonly",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read"],
+              workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
+              timeoutMs: 120000,
+              credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
+              memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
+            },
+          },
+        }],
+      },
+    });
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "tool-call-scope", name: "managed_agent.invoke", input: {} },
+    };
+    const invoke = runtimeSurface.callBuiltinTools.get("managed_agent.invoke");
+
+    const missing = await invoke?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode" },
+      task: "Inspect the repository.",
+      goalRunId: "goal-missing",
+      workItemId: "work-missing",
+    }, context) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+
+    expect(missing).toMatchObject({
+      isError: true,
+      metadata: {
+        errorCode: "goal_not_found",
+        suggestedNextTool: "goal.create",
+      },
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+
+    const admitted = await invoke?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode" },
+      task: "Inspect the repository.",
+      goalRunId: "goal-real",
+      workItemId: "work-real",
+    }, context) as { readonly isError: boolean };
+
+    expect(admitted.isError).toBe(false);
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+  });
+
   it("projects default runtime tools from the canonical core builtin surface", () => {
     const coreSurface = createDefaultBuiltinToolSurface();
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface();
@@ -1680,6 +1769,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         workItemId: "work-managed",
       },
     });
+    expect(result.output).not.toContain('"transcript"');
+    expect(result.output).not.toContain('"capabilitySnapshot"');
     expect(startTool.calls).toHaveLength(1);
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
     expect(result.metadata).toMatchObject({
@@ -2189,7 +2280,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     });
   });
 
-  it("returns unavailable failure closeout recovery when managed-delegation auto-start route is unavailable", async () => {
+  it("blocks the work item without inventing an attempt when managed-delegation auto-start is unavailable", async () => {
     const startTool = makeManagedExecutionStartTool({
       profile: "foundation-readonly-plan",
       requestedAuthority: "read_only",
@@ -2201,7 +2292,6 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       summary: "Execute governed managed work.",
       goalRunId: "goal-managed",
       workItemId: "work-managed",
-      attemptId: "goal-managed:work-managed:attempt:1",
       expectedEvidence: ["managed-agent-review"],
       executionPhase: {
         id: "managed-review-closeout",
@@ -2248,18 +2338,20 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const output = JSON.parse(result.output) as {
       readonly recovery?: {
         readonly nextTool?: string;
-        readonly workItemExecutionFailInputTemplate?: Record<string, unknown>;
+        readonly blockedWorkItemUpdateInputTemplate?: Record<string, unknown>;
       };
     };
 
     expect(result.isError).toBe(true);
     expect(output.recovery).toMatchObject({
-      nextTool: "work_item.execution.fail",
-      workItemExecutionFailInputTemplate: {
-        goalRunId: "goal-managed",
-        workItemId: "work-managed",
-        attemptId: "goal-managed:work-managed:attempt:1",
-        failureReason: "unavailable",
+      nextTool: "work_item.update",
+      blockedWorkItemUpdateInputTemplate: {
+        id: "work-managed",
+        status: "blocked",
+        pauseRequirements: [{
+          kind: "capability",
+          status: "pending",
+        }],
       },
     });
     expect(result.metadata).toMatchObject({
@@ -2268,9 +2360,10 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         status: "unavailable",
       },
       managedInvocationRecovery: {
-        nextTool: "work_item.execution.fail",
-        workItemExecutionFailInputTemplate: {
-          failureReason: "unavailable",
+        nextTool: "work_item.update",
+        blockedWorkItemUpdateInputTemplate: {
+          id: "work-managed",
+          status: "blocked",
         },
       },
     });

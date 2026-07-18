@@ -3,6 +3,7 @@ import type { ManagedAgentInvocationRequest } from "@kilnai/core";
 export function appendManagedResultHandoffContract(
   prompt: string,
   request: ManagedAgentInvocationRequest,
+  delivery: "structured-output" | "submission-tool" = "structured-output",
 ): string {
   const contract = request.input.handoff;
   if (!contract) return prompt;
@@ -12,8 +13,12 @@ export function appendManagedResultHandoffContract(
     prompt,
     "",
     "## Managed Result Handoff Contract",
-    "Your final response must be exactly one JSON object with no Markdown fence or surrounding prose.",
-    "It must satisfy the structured-execution-result-v1 contract shown below.",
+    delivery === "submission-tool"
+      ? "Before your final response, call managed_agent.submit_handoff exactly once with the completed structured result. Do not print or repeat the handoff JSON as prose."
+      : "Your final response must be exactly one JSON object with no Markdown fence or surrounding prose.",
+    delivery === "submission-tool"
+      ? "The tool input must satisfy the structured-execution-result-v1 contract. Kiln validates and records that tool input as the canonical handoff."
+      : "It must satisfy the structured-execution-result-v1 contract shown below.",
     `Role intent: ${contract.roleIntent ?? "managed child"}.`,
     `Required result fields: ${(contract.requiredResultFields ?? []).join(", ") || "summary"}.`,
     `Expected evidence: ${(contract.expectedEvidence ?? []).join(", ") || "result handoff"}.`,

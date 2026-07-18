@@ -37,6 +37,7 @@ export function managedInvocationFailureReasonFromStatus(status: unknown): WorkI
 export function buildManagedInvocationPhaseCompletion(
   request: Record<string, unknown> | undefined,
   resultHandoff: ManagedAgentResultHandoff | undefined,
+  invocationId: string,
 ): Record<string, unknown> | undefined {
   if (!hasSubstantivePhaseHandoff(request, resultHandoff)) {
     return undefined;
@@ -46,6 +47,7 @@ export function buildManagedInvocationPhaseCompletion(
     reason: "Managed child completed an intermediate execution phase. Record the phase evidence on the same work item before replying or starting the next phase.",
     includeResultResources: true,
     resultHandoff,
+    invocationId,
   });
 }
 
@@ -73,6 +75,7 @@ function buildManagedInvocationPhaseAction(
     readonly includeResultResources: boolean;
     readonly resultHandoff?: ManagedAgentResultHandoff;
     readonly failureReason?: WorkItemExecutionFailureReason;
+    readonly invocationId?: string;
   },
 ): Record<string, unknown> | undefined {
   const phase = readRecord(request?.executionPhase);
@@ -86,7 +89,6 @@ function buildManagedInvocationPhaseAction(
   }
   const workItemId = readText(request.workItemId);
   const goalRunId = readText(request.goalRunId);
-  const attemptId = readText(request.attemptId);
   const evidenceToRecord = readTextArray(phase.expectedEvidence);
   if (!workItemId || evidenceToRecord.length === 0) {
     return undefined;
@@ -106,11 +108,10 @@ function buildManagedInvocationPhaseAction(
     : [];
   if (completionTool === "work_item.execution.finish") {
     if (options.status === "phase_evidence_required") {
-      const failureSummary = options.resultHandoff?.summary ?? options.reason;
       return {
         status: options.status,
         reason: options.reason,
-        nextTool: "work_item.execution.fail",
+        nextTool: "work_item.update",
         workItemId,
         ...(goalRunId ? { goalRunId } : {}),
         evidenceToRecord,
@@ -122,22 +123,30 @@ function buildManagedInvocationPhaseAction(
               inspection: "Use resource_read on sourceResourceUris when the managed handoff content is needed before recording failure evidence.",
             }
           : {}),
-        workItemExecutionFailInputTemplate: {
-          ...(goalRunId ? { goalRunId } : {}),
-          workItemId,
-          ...(attemptId ? { attemptId } : {}),
-          failureReason: options.failureReason ?? "failed",
-          summary: failureSummary,
+        blockedWorkItemUpdateInputTemplate: {
+          id: workItemId,
+          status: "blocked",
+          summary: `Managed invocation did not produce a verified handoff for ${summary}`,
+          pauseRequirements: [{
+            id: "managed-invocation-capability",
+            kind: "capability",
+            summary: options.resultHandoff?.summary
+              ?? `Managed invocation ${options.failureReason ?? "failed"}: ${options.reason}`,
+            status: "pending",
+          }],
         },
         ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
       };
     }
+    if (!goalRunId || !options.invocationId) {
+      return undefined;
+    }
     return {
       status: options.status,
       reason: options.reason,
-      nextTool: "work_item.execution.finish",
+      nextTool: "work_item.execution.start",
       workItemId,
-      ...(goalRunId ? { goalRunId } : {}),
+      goalRunId,
       evidenceToRecord,
       ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
       ...(sourceResourceUris.length > 0
@@ -147,18 +156,10 @@ function buildManagedInvocationPhaseAction(
             inspection: "Use resource_read on sourceResourceUris when the managed handoff content is needed before recording evidence.",
           }
         : {}),
-      workItemExecutionFinishInputTemplate: {
-        ...(goalRunId ? { goalRunId } : {}),
+      workItemExecutionStartInputTemplate: {
+        goalRunId,
         workItemId,
-        ...(attemptId ? { attemptId } : {}),
-        providedEvidence: evidenceToRecord,
-        ...(options.resultHandoff
-          ? {
-              managedInvocationResultHandoff: {
-                ...options.resultHandoff,
-              },
-            }
-          : {}),
+        managedInvocationId: options.invocationId,
       },
       ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
     };

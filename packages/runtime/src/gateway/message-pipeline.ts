@@ -30,9 +30,9 @@ import type {
   VoiceConfig,
   VoiceFailureMode,
   VoiceSurface,
-  SessionTurnOutcome,
   CanonicalSessionEvent,
   ContextUsageProjection,
+  SessionTurnOutcome,
 } from "@kilnai/core";
 import { DefaultContextGovernor, estimateTextTokens, extractText, hasModality, textParts, GroundingRail, KilnError, renderProjectedContext, skillConfigToContextCandidate, VALID_VOICE_SURFACES } from "@kilnai/core";
 import type { AbuseDetectionConfig } from "../session/repetitive-abuse-detector.js";
@@ -44,11 +44,6 @@ import type {
   RuntimeBuiltinToolExecutor,
   ToolExecutionSummary,
 } from "../session/runtime-session-orchestrator.js";
-import {
-  RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
-  RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
-  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
-} from "../session/runtime-session-orchestrator.types.js";
 import {
   describeEffectiveTurnAuthorityActionability,
   formatEffectiveTurnAuthorityGuidance,
@@ -77,7 +72,6 @@ import {
   type RuntimeTurnProviderValidation,
   type RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
-import { deriveGovernedTurnOutcome } from "../session/governed-turn-outcome.js";
 import { appendCanonicalTurnEvents, type RuntimeTurnAuthorityMutationViolation } from "../session/runtime-session-event-ledger.js";
 import { normalizeContextUsageProjection, type ContextUsageWindowEvidence } from "../session/context-usage-projection.js";
 import { sanitizeAssistantEgressText as sanitizeAssistantEgressTextCanonical } from "../session/assistant-egress-sanitizer.js";
@@ -109,30 +103,6 @@ type RuntimePipelineLedgerEvent =
   | MultimodalRoutedEvent
   | ToolCalledEvent
   | ToolResultEvent;
-
-function deriveCanonicalTurnOutcome(input: {
-  readonly runtimeEvents: readonly RuntimePipelineLedgerEvent[];
-  readonly surfaceToolCompletions?: readonly RuntimeTurnToolCompletion[];
-  readonly toolExecutions?: readonly ToolExecutionSummary[];
-  readonly stopReason?: string;
-}): SessionTurnOutcome | undefined {
-  if (input.stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON) {
-    return "paused";
-  }
-  if (isFailedRuntimeStopReason(input.stopReason)) {
-    return "failed";
-  }
-  return deriveGovernedTurnOutcome({
-    runtimeToolResults: input.runtimeEvents.filter((event): event is ToolResultEvent => event.type === "tool_result"),
-    surfaceToolCompletions: input.surfaceToolCompletions,
-    toolExecutions: input.toolExecutions,
-  });
-}
-
-function isFailedRuntimeStopReason(stopReason: string | undefined): boolean {
-  return stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
-    || stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON;
-}
 
 function sanitizeAssistantEgressParts(parts: readonly ContentPart[]): readonly ContentPart[] {
   const sanitized = parts.map((part) => {
@@ -923,6 +893,7 @@ export interface AdmittedTurnResult {
   readonly outputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
+  readonly outcome: SessionTurnOutcome;
   readonly queued: boolean;
   readonly sessionId: string;
   readonly sessionMode: SessionMode;
@@ -1983,6 +1954,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         parts: [],
         admittedInput: { content: userText },
         inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+        outcome: "paused",
         queued: true,
         sessionId: session.id,
         sessionMode: session.sessionMode,
@@ -2018,6 +1990,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         parts: [],
         admittedInput: { content: userText },
         inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+        outcome: "paused",
         queued: true,
         sessionId: session.id,
         sessionMode: session.sessionMode,
@@ -2054,6 +2027,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
           parts: [],
           admittedInput: { content: userText },
           inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+          outcome: "paused",
           queued: true,
           sessionId: session.id,
           sessionMode: session.sessionMode,
@@ -2496,12 +2470,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     userMessageContent: userText,
     assistantMessageContent: extractText(resultParts),
     queued: result.queued,
-    turnOutcome: deriveCanonicalTurnOutcome({
-      runtimeEvents: capturedRuntimeEvents,
-      surfaceToolCompletions: externalTurnCapture?.toolCompletions,
-      toolExecutions: turnToolExecutions,
-      stopReason: result.stopReason,
-    }),
+    turnOutcome: result.outcome,
     turnStartedAt,
     turnCompletedAt: new Date(),
     continuity: runtimeContinuityPresentation.runtimeContinuity,
@@ -2703,6 +2672,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       outputTokens: result.outputTokens,
       cacheReadTokens: result.cacheReadTokens,
       cacheWriteTokens: result.cacheWriteTokens,
+      outcome: result.outcome,
       queued: result.queued,
       sessionId: session.id,
       sessionMode: session.sessionMode,

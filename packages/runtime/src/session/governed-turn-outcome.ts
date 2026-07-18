@@ -1,17 +1,90 @@
 import type { SessionTurnOutcome, ToolResultEvent } from "@kilnai/core";
 import type { RuntimeTurnToolCompletion } from "./runtime-turn-record.js";
 import type { ToolExecutionSummary } from "./runtime-session-orchestrator.js";
+import {
+  RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON,
+  RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
+  RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
+  RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
+} from "./runtime-session-orchestrator.types.js";
 
 export type GovernedTurnOutcomeToolRecord = RuntimeTurnToolCompletion;
+
+export function deriveRuntimeTurnOutcome(input: {
+  readonly runtimeToolResults?: readonly ToolResultEvent[];
+  readonly surfaceToolCompletions?: readonly RuntimeTurnToolCompletion[];
+  readonly toolExecutions?: readonly ToolExecutionSummary[];
+  readonly stopReason?: string;
+}): SessionTurnOutcome {
+  if (input.stopReason === RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON) {
+    return "paused";
+  }
+  if (
+    input.stopReason === RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON
+    || input.stopReason === RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON
+    || input.stopReason === RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON
+  ) {
+    return "failed";
+  }
+  return deriveGovernedTurnOutcome(input) ?? "completed";
+}
 
 export function deriveGovernedTurnOutcome(input: {
   readonly runtimeToolResults?: readonly ToolResultEvent[];
   readonly surfaceToolCompletions?: readonly RuntimeTurnToolCompletion[];
   readonly toolExecutions?: readonly ToolExecutionSummary[];
 }): SessionTurnOutcome | undefined {
-  return deriveGovernedTurnOutcomeFromToolRecords(input.runtimeToolResults)
-    ?? deriveGovernedTurnOutcomeFromToolRecords(input.surfaceToolCompletions)
-    ?? deriveGovernedTurnOutcomeFromToolRecords(input.toolExecutions);
+  const evidencePlanes = [
+    input.runtimeToolResults,
+    input.surfaceToolCompletions,
+    input.toolExecutions,
+  ].filter((records): records is readonly GovernedTurnOutcomeToolRecord[] => Boolean(records?.length));
+  const observedGoalIds = new Set(evidencePlanes.flatMap(readObservedGoalIds));
+  const completedGoalIds = new Set(evidencePlanes.flatMap(readCompletedGoalIds));
+  const everyObservedGoalCompleted = observedGoalIds.size > 0
+    && [...observedGoalIds].every((goalId) => completedGoalIds.has(goalId));
+  const combinedEvidence = evidencePlanes.flat();
+
+  if (
+    everyObservedGoalCompleted
+    && !hasUnresolvedManagedInvocationBlockingExecutionFailure(combinedEvidence)
+  ) {
+    const terminalPlane = evidencePlanes.find((records) =>
+      readCompletedGoalIds(records).length > 0
+      && deriveGovernedTurnOutcomeFromToolRecords(records) === undefined,
+    );
+    if (terminalPlane) {
+      return undefined;
+    }
+  }
+
+  return evidencePlanes
+    .map(deriveGovernedTurnOutcomeFromToolRecords)
+    .find((outcome) => outcome !== undefined);
+}
+
+function readObservedGoalIds(
+  toolExecutions: readonly GovernedTurnOutcomeToolRecord[],
+): readonly string[] {
+  return toolExecutions.flatMap((execution) => {
+    const goal = readGoalSnapshot(execution);
+    const id = readText(goal?.id);
+    return id ? [id] : [];
+  });
+}
+
+function readCompletedGoalIds(
+  toolExecutions: readonly GovernedTurnOutcomeToolRecord[],
+): readonly string[] {
+  return toolExecutions.flatMap((execution) => {
+    const goal = readGoalSnapshot(execution);
+    const id = readText(goal?.id);
+    return id && goal?.status === "completed" ? [id] : [];
+  });
+}
+
+function readGoalSnapshot(execution: GovernedTurnOutcomeToolRecord): Record<string, unknown> | undefined {
+  return readRecord(execution.metadata?.goal) ?? readRecord(parseJsonRecord(execution.output)?.goal);
 }
 
 export function deriveGovernedTurnOutcomeFromToolRecords(
@@ -32,6 +105,9 @@ export function deriveGovernedTurnOutcomeFromToolRecords(
   if (hasOpenGovernedWorkWithoutCloseout(toolExecutions)) {
     return "failed";
   }
+  if (hasOpenGoalWithoutCloseout(toolExecutions)) {
+    return "failed";
+  }
   if (hasStartedExecutionWithoutTerminalCloseout(toolExecutions)) {
     return "failed";
   }
@@ -39,6 +115,20 @@ export function deriveGovernedTurnOutcomeFromToolRecords(
     .filter((execution) => isWorkGovernanceToolName(execution.toolName))
     .at(-1);
   return latestGovernanceExecution?.success === false ? "failed" : undefined;
+}
+
+function hasOpenGoalWithoutCloseout(
+  toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
+): boolean {
+  const latestGoals = new Map<string, Record<string, unknown>>();
+  for (const execution of toolExecutions ?? []) {
+    const goal = readRecord(execution.metadata?.goal);
+    const id = goal ? readText(goal.id) : undefined;
+    if (goal && id) {
+      latestGoals.set(id, goal);
+    }
+  }
+  return [...latestGoals.values()].some((goal) => goal.status === "active");
 }
 
 function hasUnrecordedManagedInvocationPhaseCompletion(
@@ -445,6 +535,8 @@ function isManagedInvocationTerminalFailureStatus(status: unknown): boolean {
 function isWorkGovernanceToolName(toolName: string): boolean {
   return toolName === "work_governance.assess"
     || toolName === "goal.create"
+    || toolName === "goal.evidence.record"
+    || toolName === "goal.complete"
     || toolName === "work_item.update"
     || toolName === "work_item.complete"
     || toolName === "work_item.execution.start"

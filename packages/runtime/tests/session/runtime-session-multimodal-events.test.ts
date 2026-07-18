@@ -19,6 +19,7 @@ describe("runtime multimodal session events", () => {
       channel: "gui",
       userMessageContent: "Describe this image",
       assistantMessageContent: "The image shows a form.",
+      turnOutcome: "completed",
       queued: false,
       turnStartedAt: timestamp,
       turnCompletedAt: timestamp,

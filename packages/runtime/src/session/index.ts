@@ -39,6 +39,7 @@ export type {
   OrchestrateResult,
   PerCallToolConfig,
   RuntimeExecutionEnvelope,
+  RuntimeConversationExecutionEnvelope,
   RuntimeToolRoundBudget,
   ToolExecutionSummary,
 } from "./runtime-session-orchestrator.js";

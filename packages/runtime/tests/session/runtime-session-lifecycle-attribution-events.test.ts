@@ -67,6 +67,7 @@ describe("runtime session lifecycle attribution events", () => {
       channel: "gui",
       userMessageContent: "Measure this turn.",
       assistantMessageContent: "Measured.",
+      turnOutcome: "completed",
       queued: false,
       turnStartedAt: startedAt,
       turnCompletedAt: completedAt,
@@ -178,6 +179,7 @@ describe("runtime session lifecycle attribution events", () => {
       channel: "gui",
       userMessageContent: "Measure this turn.",
       assistantMessageContent: "Canonical output.",
+      turnOutcome: "completed",
       queued: false,
       turnStartedAt: new Date("2026-06-30T12:00:00.000Z"),
       turnCompletedAt: completedAt,
@@ -251,7 +253,7 @@ describe("runtime session lifecycle attribution events", () => {
       cacheWritten: { tokens: 2 },
       avoided: { tokens: 0 },
     });
-    expect(attributionEvent.efficiencyEvidence.outcome).toBe("unknown");
+    expect(attributionEvent.efficiencyEvidence.outcome).toBe("succeeded");
   });
 
   it("maps path-like procedural source identity without emitting an invalid evidence URI", () => {
@@ -267,6 +269,7 @@ describe("runtime session lifecycle attribution events", () => {
       channel: "gui",
       userMessageContent: "Use the selected skill.",
       assistantMessageContent: "Done.",
+      turnOutcome: "completed",
       queued: false,
       turnStartedAt: new Date("2026-06-30T12:00:00.000Z"),
       turnCompletedAt: completedAt,

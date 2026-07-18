@@ -192,6 +192,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
+        outcome: "completed",
         inputTokens: 10,
         outputTokens: 20,
       });
@@ -215,6 +216,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
+        outcome: "completed",
         inputTokens: 10,
         outputTokens: 20,
       });
@@ -238,6 +240,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
+        outcome: "completed",
         inputTokens: 10,
         outputTokens: 20,
       });
@@ -263,6 +266,7 @@ describe("createWsRoutes", () => {
       const responseParts = textParts("world");
       const processMessage = vi.fn().mockResolvedValue({
         parts: responseParts,
+        outcome: "completed",
         inputTokens: 5,
         outputTokens: 15,
       });
@@ -283,6 +287,7 @@ describe("createWsRoutes", () => {
         type: "done",
         content: "world",
         parts: responseParts,
+        outcome: "completed",
         inputTokens: 5,
         outputTokens: 15,
       });
@@ -293,6 +298,7 @@ describe("createWsRoutes", () => {
       const userParts = textParts("explicit parts");
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
+        outcome: "completed",
         inputTokens: 1,
         outputTokens: 2,
       });
@@ -317,6 +323,7 @@ describe("createWsRoutes", () => {
       const artifactStore = new MemoryArtifactResourceStore({ now: () => "2026-05-13T12:00:00.000Z" });
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
+        outcome: "completed",
         inputTokens: 1,
         outputTokens: 2,
       });
@@ -361,6 +368,7 @@ describe("createWsRoutes", () => {
       const artifactStore = new MemoryArtifactResourceStore();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("response"),
+        outcome: "completed",
         inputTokens: 1,
         outputTokens: 2,
       });
@@ -419,6 +427,7 @@ describe("createWsRoutes", () => {
       const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
       const processMessage = vi.fn().mockResolvedValue({
         parts: textParts("ok"),
+        outcome: "completed",
         inputTokens: 1,
         outputTokens: 1,
       });

@@ -201,6 +201,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
   writeRuntimeContextBundleArtifact(input.contextArtifactCache, {
     appName: session.appName,
     tenantId: session.tenantId,
+    sessionId: session.id,
     channel: input.channel,
     provider: providerForState ?? "unknown",
     taskShape: input.taskShape,
@@ -211,6 +212,7 @@ export function applyRuntimeTurnRecord(input: RuntimeTurnRecordInput): RuntimeTu
   writeRuntimeToolBundleArtifact(input.contextArtifactCache, {
     appName: session.appName,
     tenantId: session.tenantId,
+    sessionId: session.id,
     channel: input.channel,
     taskShape: input.taskShape,
     toolExecutions: input.toolExecutions,

@@ -14,6 +14,7 @@ import type {
   ProviderRequestToolMaterializationDecisionEvidence,
   ProviderRequestToolProjectionEvidence,
   ContextUsageRawEvidence,
+  ConversationProjectionEvidence,
 } from "@kilnai/core";
 import { computeUsageCostUsd, resolveExecutionCostEvidence, resolveExecutionPricing } from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
@@ -54,6 +55,7 @@ export interface ProviderRequestRegionEvidence {
   readonly cachePartition: ProviderRequestCachePartitionEvidence;
   readonly toolCount: number;
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
+  readonly conversationProjection?: ConversationProjectionEvidence;
   readonly stopReason?: string;
 }
 
@@ -91,6 +93,7 @@ export function measureProviderRequestRegions(input: {
   readonly tools?: unknown;
   readonly toolCount: number;
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
+  readonly conversationProjection?: ConversationProjectionEvidence;
   readonly stopReason?: string;
   readonly requestRegionOrder?: readonly ProviderRequestCacheRegionSource[];
   readonly cachePartition?: ProviderRequestCachePartitionInput;
@@ -134,6 +137,7 @@ export function measureProviderRequestRegions(input: {
     cachePartition: buildCachePartitionEvidence(input.cachePartition),
     toolCount: input.toolCount,
     ...(input.toolProjection ? { toolProjection: input.toolProjection } : {}),
+    ...(input.conversationProjection ? { conversationProjection: input.conversationProjection } : {}),
     ...(input.stopReason ? { stopReason: input.stopReason } : {}),
   };
 }

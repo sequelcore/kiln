@@ -393,6 +393,7 @@ describe("GUI authority forwarding", () => {
     const doneFrame = {
       type: "done",
       content: "done",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
       authorityStatus,

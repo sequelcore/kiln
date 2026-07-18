@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveGovernedTurnOutcomeFromToolRecords } from "../../src/session/governed-turn-outcome.js";
+import {
+  deriveGovernedTurnOutcome,
+  deriveGovernedTurnOutcomeFromToolRecords,
+} from "../../src/session/governed-turn-outcome.js";
 import type { GovernedTurnOutcomeToolRecord } from "../../src/session/governed-turn-outcome.js";
 
 function record(input: GovernedTurnOutcomeToolRecord): GovernedTurnOutcomeToolRecord {
@@ -7,6 +10,103 @@ function record(input: GovernedTurnOutcomeToolRecord): GovernedTurnOutcomeToolRe
 }
 
 describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
+  it("reconciles an incomplete runtime plane with canonical terminal surface closeout", () => {
+    const activeGoal = { id: "goal-1", status: "active" };
+    const completedGoal = { ...activeGoal, status: "completed" };
+    const completedItem = { id: "work-1", status: "completed" };
+
+    expect(deriveGovernedTurnOutcome({
+      runtimeToolResults: [record({
+        toolName: "work_item.execution.finish",
+        success: false,
+        metadata: { item: { id: "work-1", status: "in_progress" }, goal: activeGoal },
+      })] as never,
+      surfaceToolCompletions: [
+        record({
+          toolName: "work_item.execution.finish",
+          success: true,
+          metadata: { item: completedItem, attempt: { id: "attempt-2", status: "completed" }, goal: activeGoal },
+        }),
+        record({
+          toolName: "goal.complete",
+          success: true,
+          metadata: { goal: completedGoal },
+        }),
+      ],
+    })).toBeUndefined();
+  });
+
+  it("does not let terminal goal closeout hide an unresolved managed invocation failure", () => {
+    const activeGoal = { id: "goal-1", status: "active" };
+
+    expect(deriveGovernedTurnOutcome({
+      runtimeToolResults: [record({
+        toolName: "managed_agent.invoke",
+        success: false,
+        metadata: { kind: "managed-invocation", status: "timed-out", goal: activeGoal },
+      })] as never,
+      surfaceToolCompletions: [record({
+        toolName: "goal.complete",
+        success: true,
+        metadata: { goal: { ...activeGoal, status: "completed" } },
+      })],
+    })).toBe("failed");
+  });
+
+  it("treats goal evidence and completion as terminal recovery after work completion", () => {
+    const completedItem = { id: "work-1", status: "completed" };
+    const activeGoal = { id: "goal-1", status: "active" };
+
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_item.execution.start",
+        success: true,
+        metadata: { item: { id: "work-1", status: "in_progress" }, attempt: { id: "attempt-1" } },
+      }),
+      record({
+        toolName: "work_item.execution.finish",
+        success: true,
+        metadata: { item: completedItem, attempt: { id: "attempt-1", status: "completed" }, goal: activeGoal },
+      }),
+      record({
+        toolName: "goal.evidence.record",
+        success: true,
+        metadata: { goal: activeGoal },
+      }),
+      record({
+        toolName: "goal.complete",
+        success: true,
+        metadata: { goal: { ...activeGoal, status: "completed" } },
+      }),
+    ])).toBeUndefined();
+  });
+
+  it("keeps an evidence-updated goal failed until goal.complete closes it", () => {
+    const activeGoal = {
+      id: "goal-1",
+      status: "active",
+    };
+    const recorded = record({
+      toolName: "goal.evidence.record",
+      success: true,
+      metadata: { kind: "goal", operation: "record_evidence", goal: activeGoal },
+    });
+
+    expect(deriveGovernedTurnOutcomeFromToolRecords([recorded])).toBe("failed");
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      recorded,
+      record({
+        toolName: "goal.complete",
+        success: true,
+        metadata: {
+          kind: "goal",
+          operation: "complete",
+          goal: { ...activeGoal, status: "completed" },
+        },
+      }),
+    ])).toBeUndefined();
+  });
+
   it("does not fail a completed research turn only because governance recommended orchestration", () => {
     expect(deriveGovernedTurnOutcomeFromToolRecords([
       record({

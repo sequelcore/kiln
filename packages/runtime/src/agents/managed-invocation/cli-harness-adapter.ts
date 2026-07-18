@@ -9,6 +9,7 @@ import {
   defineManagedAgentAdapterWriteAuthorityDescriptor,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineStructuredExecutionResult,
 } from "@kilnai/core";
 import type {
   ExecutionSessionEvent,
@@ -18,6 +19,7 @@ import type {
   ManagedAgentInvocationRequest,
   ManagedAgentWriteEvidence,
   ManagedAgentProviderRoute,
+  StructuredExecutionResult,
 } from "@kilnai/core";
 import type {
   CliSession,
@@ -259,7 +261,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       readOnlyFilesystemViolation,
     });
     const lifecycleState = resolveLifecycleState(request, collected, writeEvidence);
-    const summary = summarizeResult(request, collected, writeEvidence);
+    const structuredResult = request.input.handoff
+      ? parseCliHarnessStructuredResult(collected.textParts.join(""))
+      : undefined;
+    const summary = structuredResult?.summary ?? summarizeResult(request, collected, writeEvidence);
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
       lifecycleState,
@@ -280,6 +285,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
           ...writeEvidence.resultResourceUris,
         ],
         memoryWriteProposalUris: [],
+        ...(structuredResult ? { structuredResult } : {}),
       },
       ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
     });
@@ -372,6 +378,16 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     }
 
     return collected;
+  }
+}
+
+function parseCliHarnessStructuredResult(text: string): StructuredExecutionResult | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+  try {
+    return defineStructuredExecutionResult(JSON.parse(trimmed) as StructuredExecutionResult);
+  } catch {
+    return undefined;
   }
 }
 
@@ -589,7 +605,7 @@ function resolveLifecycleState(
   if (collected.error !== undefined) {
     return isCancellationError(collected.error) ? "cancelled" : "failed";
   }
-  if (collected.completed?.isError) {
+  if (collected.completed && collected.completed.outcome !== "completed") {
     return "failed";
   }
   if (requiresApprovedWorkspaceWriteEvidence(request) && !hasCompletedWorkspaceWriteEvidence(writeEvidence)) {

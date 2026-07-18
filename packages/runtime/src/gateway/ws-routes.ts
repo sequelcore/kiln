@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ArtifactResourceStore, ContentPart, IncomingMessage } from "@kilnai/core";
+import type { ArtifactResourceStore, ContentPart, IncomingMessage, SessionTurnOutcome } from "@kilnai/core";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { textParts, extractText } from "@kilnai/core";
 import { createGenericMediaDownloader } from "./audio-preprocessor.js";
@@ -21,6 +21,7 @@ export interface WsRoutesConfig {
     parts: readonly ContentPart[];
     inputTokens: number;
     outputTokens: number;
+    outcome: SessionTurnOutcome;
   }>;
 }
 
@@ -107,6 +108,7 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
                   parts: result.parts,
                   inputTokens: result.inputTokens,
                   outputTokens: result.outputTokens,
+                  outcome: result.outcome,
                 }));
               } catch (err) {
                 ws.send(JSON.stringify({

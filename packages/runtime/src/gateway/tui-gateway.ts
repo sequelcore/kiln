@@ -10,6 +10,7 @@ import {
   type GuiProviderModelDiscoveryProjection,
   type GuiProviderModelRouteHealth,
   type GuiProviderReasoningEffort,
+  type GuiSessionTurnOutcome,
   type OperatorExecutionMode,
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
@@ -344,6 +345,7 @@ export function buildTuiDoneFramePayload(input: {
   readonly parts: readonly unknown[];
   readonly inputTokens: number;
   readonly outputTokens: number;
+  readonly outcome: GuiSessionTurnOutcome;
   readonly routedProvider: string;
   readonly routedModel: string;
   readonly runtimeContinuity: {
@@ -363,6 +365,7 @@ export function buildTuiDoneFramePayload(input: {
   readonly parts: readonly unknown[];
   readonly inputTokens: number;
   readonly outputTokens: number;
+  readonly outcome: GuiSessionTurnOutcome;
   readonly routedProvider: string;
   readonly routedModel: string;
   readonly runtimeContinuity: {
@@ -384,6 +387,7 @@ export function buildTuiDoneFramePayload(input: {
     parts: input.parts,
     inputTokens: input.inputTokens,
     outputTokens: input.outputTokens,
+    outcome: input.outcome,
     routedProvider: input.routedProvider,
     routedModel: input.routedModel,
     runtimeContinuity: input.runtimeContinuity,
@@ -981,6 +985,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               parts: output.parts,
               inputTokens: output.inputTokens,
               outputTokens: output.outputTokens,
+              outcome: output.outcome,
               routedProvider,
               routedModel,
               runtimeContinuity,

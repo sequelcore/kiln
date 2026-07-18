@@ -63,6 +63,7 @@ function createAttachedRuntimeBuiltinToolSurface(
           managedInvocation: {
             options: managedInvocation,
             callerIdentity,
+            governedScopeAdmission: () => ({ admitted: true as const }),
           },
         }
       : {}),
@@ -383,13 +384,15 @@ function makeProgressReportingDeferredAdapter(): {
   const adapter: ManagedAgentRuntimeAdapter = {
     descriptor: makeDescriptor(),
     invoke: vi.fn(async ({ request, admission, progressObserver }) => {
-      await progressObserver?.({
-        eventId: `${request.invocationId}:progress:tool-called`,
-        kind: "tool_called",
-        recordedAt: "2026-06-30T00:00:00.000Z",
-        summary: "grep called",
-        toolName: "grep",
-      });
+      for (let ordinal = 1; ordinal <= 10; ordinal += 1) {
+        await progressObserver?.({
+          eventId: `${request.invocationId}:progress:tool-called:${ordinal}`,
+          kind: "tool_called",
+          recordedAt: `2026-06-30T00:00:${ordinal.toString().padStart(2, "0")}.000Z`,
+          summary: `grep ${ordinal} called`,
+          toolName: "grep",
+        });
+      }
       const record = await terminal.promise;
       return defineManagedAgentInvocationRecord({
         ...record,
@@ -1310,7 +1313,8 @@ describe("managed invocation runtime tool", () => {
       readonly output: string;
       readonly metadata: {
         readonly lifecycleState?: string;
-        readonly progressEvents?: readonly {
+        readonly progressEventCount?: number;
+        readonly recentProgressEvents?: readonly {
           readonly kind?: string;
           readonly summary?: string;
           readonly toolName?: string;
@@ -1318,7 +1322,8 @@ describe("managed invocation runtime tool", () => {
       };
     };
     const statusOutput = JSON.parse(status.output) as {
-      readonly progressEvents?: readonly {
+      readonly progressEventCount?: number;
+      readonly recentProgressEvents?: readonly {
         readonly kind?: string;
         readonly summary?: string;
         readonly toolName?: string;
@@ -1327,13 +1332,17 @@ describe("managed invocation runtime tool", () => {
 
     expect(status.metadata).toMatchObject({
       lifecycleState: "running",
-      progressEvents: [{
-        kind: "tool_called",
-        summary: "grep called",
-        toolName: "grep",
-      }],
+      progressEventCount: 10,
     });
-    expect(statusOutput.progressEvents).toEqual(status.metadata.progressEvents);
+    expect(status.metadata.recentProgressEvents).toHaveLength(8);
+    expect(status.metadata.recentProgressEvents?.[0]).toMatchObject({
+      kind: "tool_called",
+      summary: "grep 3 called",
+      toolName: "grep",
+    });
+    expect(status.metadata.recentProgressEvents?.at(-1)).toMatchObject({ summary: "grep 10 called" });
+    expect(statusOutput.recentProgressEvents).toEqual(status.metadata.recentProgressEvents);
+    expect(statusOutput).not.toHaveProperty("progressEvents");
 
     const request = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request as ManagedAgentInvocationRequest;
     terminal.resolve(defineManagedAgentInvocationRecord({
@@ -1366,14 +1375,14 @@ describe("managed invocation runtime tool", () => {
       toolCall: { id: "tool-call-progress-join", name: "managed_agent.join", input: {} },
     }) as {
       readonly metadata: {
-        readonly progressEvents?: readonly {
+        readonly recentProgressEvents?: readonly {
           readonly kind?: string;
           readonly toolName?: string;
         }[];
       };
     };
 
-    expect(joined.metadata.progressEvents).toEqual(status.metadata.progressEvents);
+    expect(joined.metadata.recentProgressEvents).toEqual(status.metadata.recentProgressEvents);
   });
 
   it("fails closed before invocation when required read paths are outside route authority", async () => {
@@ -3925,7 +3934,8 @@ describe("managed invocation runtime tool", () => {
       readonly output: string;
       readonly isError: boolean;
       readonly metadata: {
-        readonly progressEvents?: readonly {
+        readonly progressEventCount?: number;
+        readonly recentProgressEvents?: readonly {
           readonly kind: string;
           readonly summary: string;
           readonly toolName?: string;
@@ -3933,7 +3943,8 @@ describe("managed invocation runtime tool", () => {
       };
     };
     const output = JSON.parse(result.output) as {
-      readonly progressEvents?: readonly {
+      readonly progressEventCount?: number;
+      readonly recentProgressEvents?: readonly {
         readonly kind: string;
         readonly summary: string;
         readonly toolName?: string;
@@ -3941,12 +3952,14 @@ describe("managed invocation runtime tool", () => {
     };
 
     expect(result.isError).toBe(false);
-    expect(result.metadata.progressEvents).toEqual([expect.objectContaining({
+    expect(result.metadata.progressEventCount).toBe(1);
+    expect(result.metadata.recentProgressEvents).toEqual([expect.objectContaining({
       kind: "tool_called",
       summary: "read called",
       toolName: "read",
     })]);
-    expect(output.progressEvents).toEqual(result.metadata.progressEvents);
+    expect(output.recentProgressEvents).toEqual(result.metadata.recentProgressEvents);
+    expect(output).not.toHaveProperty("progressEvents");
   });
 
   it("returns phase recovery instructions when an explicit intermediate managed child times out", async () => {
@@ -4038,7 +4051,7 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
-  it("returns failure closeout recovery when an explicit final managed child times out", async () => {
+  it("blocks the work item without inventing an attempt when a final managed child times out", async () => {
     const surface = makeSurface(makeTimedOutAdapter());
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
@@ -4061,7 +4074,6 @@ describe("managed invocation runtime tool", () => {
       summary: "Execute the final managed child phase.",
       goalRunId: "goal-final",
       workItemId: "work-final",
-      attemptId: "goal-final:work-final:attempt:1",
       expectedEvidence: ["managed-orchestration:result-handoff"],
       executionPhase: {
         id: "managed-review-closeout",
@@ -4086,41 +4098,34 @@ describe("managed invocation runtime tool", () => {
         readonly goalRunId?: string;
         readonly workItemId?: string;
         readonly evidenceToRecord?: readonly string[];
-        readonly workItemExecutionFailInputTemplate?: Record<string, unknown>;
+        readonly blockedWorkItemUpdateInputTemplate?: Record<string, unknown>;
       };
     };
 
     expect(result.isError).toBe(true);
     expect(result.metadata.status).toBe("timed_out");
     expect(result.metadata.managedInvocationRecovery).toMatchObject({
-      nextTool: "work_item.execution.fail",
-      goalRunId: "goal-final",
+      nextTool: "work_item.update",
       workItemId: "work-final",
       evidenceToRecord: ["managed-orchestration:result-handoff"],
-        workItemExecutionFailInputTemplate: {
-          goalRunId: "goal-final",
-          workItemId: "work-final",
-          attemptId: "goal-final:work-final:attempt:1",
-          failureReason: "timed_out",
-          summary: "Managed child failed before recording an intermediate execution phase. If the parent completes this evidence locally, it must record the phase before replying or starting the next phase.",
-        },
+      blockedWorkItemUpdateInputTemplate: {
+        id: "work-final",
+        status: "blocked",
+        pauseRequirements: [{ kind: "capability", status: "pending" }],
+      },
     });
     expect(output).toMatchObject({
       status: "timed_out",
       recovery: {
-        nextTool: "work_item.execution.fail",
-        goalRunId: "goal-final",
+        nextTool: "work_item.update",
         workItemId: "work-final",
         evidenceToRecord: ["managed-orchestration:result-handoff"],
-        workItemExecutionFailInputTemplate: {
-          goalRunId: "goal-final",
-          workItemId: "work-final",
-          attemptId: "goal-final:work-final:attempt:1",
-          failureReason: "timed_out",
+        blockedWorkItemUpdateInputTemplate: {
+          id: "work-final",
+          status: "blocked",
         },
       },
     });
-    expect(output.recovery?.workItemExecutionFailInputTemplate).not.toHaveProperty("providedEvidence");
   });
 
   it("returns a phase completion handoff when an explicit intermediate managed child succeeds", async () => {
@@ -4213,7 +4218,7 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
-  it("returns a final phase finish template with readable managed invocation handoff", async () => {
+  it("returns a final phase start template with the verified managed invocation handoff", async () => {
     const phaseSummary = "Managed implementation completed with tests and reviewable handoff evidence.";
     const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
     const session = makeSession();
@@ -4237,7 +4242,6 @@ describe("managed invocation runtime tool", () => {
       summary: "Execute the final managed child phase.",
       goalRunId: "goal-final",
       workItemId: "work-final",
-      attemptId: "goal-final:work-final:attempt:1",
       expectedEvidence: ["managed-orchestration:result-handoff"],
       executionPhase: {
         id: "managed-review-closeout",
@@ -4261,62 +4265,30 @@ describe("managed invocation runtime tool", () => {
         readonly goalRunId?: string;
         readonly workItemId?: string;
         readonly evidenceToRecord?: readonly string[];
-        readonly workItemExecutionFinishInputTemplate?: {
+        readonly workItemExecutionStartInputTemplate?: {
           readonly goalRunId?: string;
           readonly workItemId?: string;
-          readonly attemptId?: string;
-          readonly providedEvidence?: readonly string[];
-          readonly managedInvocationResultHandoff?: {
-            readonly summary?: string;
-            readonly resourceUris?: readonly string[];
-            readonly structuredResult?: StructuredExecutionResult;
-            readonly verificationUsage?: { readonly version?: string; readonly totals?: { readonly tokens?: number } };
-            readonly orchestrationId?: string;
-            readonly childId?: string;
-            readonly completedAt?: string;
-          };
+          readonly managedInvocationId?: string;
         };
       };
     };
 
     expect(result.isError).toBe(false);
     expect(output.phaseCompletion).toMatchObject({
-        nextTool: "work_item.execution.finish",
+        nextTool: "work_item.execution.start",
         goalRunId: "goal-final",
         workItemId: "work-final",
         evidenceToRecord: ["managed-orchestration:result-handoff"],
         requiredToolNames: ["read"],
-        workItemExecutionFinishInputTemplate: {
-        goalRunId: "goal-final",
-        workItemId: "work-final",
-        attemptId: "goal-final:work-final:attempt:1",
-        providedEvidence: ["managed-orchestration:result-handoff"],
-        managedInvocationResultHandoff: {
-          summary: phaseSummary,
-          resourceUris: [expect.stringContaining("kiln://managed-agents/invocations/")],
-          structuredResult: {
-            status: "completed",
-            verificationResults: [{ status: "passed" }],
-          },
-          verificationUsage: {
-            version: "verification-usage-v1",
-            totals: { tokens: 8 },
-          },
+        workItemExecutionStartInputTemplate: {
+          goalRunId: "goal-final",
+          workItemId: "work-final",
+          managedInvocationId: expect.any(String),
         },
-      },
     });
-    expect(
-      output.phaseCompletion?.workItemExecutionFinishInputTemplate?.managedInvocationResultHandoff?.orchestrationId,
-    ).toBeUndefined();
-    expect(
-      output.phaseCompletion?.workItemExecutionFinishInputTemplate?.managedInvocationResultHandoff?.childId,
-    ).toBeUndefined();
-    expect(
-      output.phaseCompletion?.workItemExecutionFinishInputTemplate?.managedInvocationResultHandoff?.completedAt,
-    ).toBeUndefined();
     expect(result.metadata.managedInvocationPhaseCompletion).toMatchObject({
       status: "phase_completed_by_child",
-      nextTool: "work_item.execution.finish",
+      nextTool: "work_item.execution.start",
       workItemId: "work-final",
     });
   });
@@ -4363,7 +4335,6 @@ describe("managed invocation runtime tool", () => {
       summary: "Execute the final managed child phase.",
       goalRunId: "goal-final",
       workItemId: "work-final",
-      attemptId: "goal-final:work-final:attempt:1",
       expectedEvidence: ["managed-orchestration:result-handoff"],
       executionPhase: {
         id: "managed-review-closeout",
@@ -4386,7 +4357,7 @@ describe("managed invocation runtime tool", () => {
     expect(output.status).toBe("handoff_not_substantive");
     expect(output.recovery).toMatchObject({
       status: "phase_evidence_required",
-      nextTool: "work_item.execution.fail",
+      nextTool: "work_item.update",
     });
     expect(output.phaseCompletion).toBeUndefined();
   });

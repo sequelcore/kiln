@@ -94,6 +94,7 @@ function makeMockOrchestrator(): RuntimeSessionOrchestrator {
       outputTokens: 50,
       cacheReadTokens: 10,
       cacheWriteTokens: 5,
+      outcome: "completed",
       queued: false,
     } satisfies OrchestrateResult),
     registerTools: vi.fn(),
@@ -243,6 +244,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -311,6 +313,7 @@ describe("processAdmittedTurn", () => {
         outputTokens: 120,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
+        outcome: "completed",
         queued: false,
         providerRequests: [
           { providerId: "openai", modelId: "gpt-5", inputTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 0 },
@@ -479,6 +482,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 8,
           cacheReadTokens: 4,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -573,6 +577,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
           toolExecutions: [{
             toolName: "web_search",
@@ -651,6 +656,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -723,6 +729,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -976,6 +983,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-plan",
@@ -1120,6 +1128,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 4,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-plan-metadata",
@@ -1189,6 +1198,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 7,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-spec",
@@ -1306,6 +1316,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 6,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-spec-draft",
@@ -1358,6 +1369,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 6,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-plan-failed",
@@ -2308,6 +2320,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult),
         model: "claude-sonnet-4-20250514",
@@ -2334,6 +2347,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
           escalation: { reason: "custom", confidence: 0.9, detail: "policy escalation" },
           contextSummary: "sensitive escalation summary",
@@ -2376,6 +2390,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
           escalation: { reason: "custom", confidence: 0.9, detail: "policy escalation" },
           contextSummary: "sensitive escalation summary",
@@ -2443,6 +2458,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult),
         model: "gpt-5.5",
@@ -2612,6 +2628,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -2659,6 +2676,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -2685,6 +2703,7 @@ describe("processAdmittedTurn", () => {
         outputTokens: 4,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
+        outcome: "completed",
         queued: false,
         toolExecutions: [{
           toolName: "write",
@@ -2715,6 +2734,7 @@ describe("processAdmittedTurn", () => {
         outputTokens: 4,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
+        outcome: "completed",
         queued: false,
         toolExecutions: [{
           toolName: "read_file",
@@ -2863,6 +2883,7 @@ describe("processAdmittedTurn", () => {
         outputTokens: 4,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
+        outcome: "completed",
         queued: false,
         toolExecutions: [
           {
@@ -2956,6 +2977,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3048,6 +3070,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "failed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3075,6 +3098,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "failed",
       queued: false,
       toolExecutions: [{
         toolCallId: "tool-work-start-failed",
@@ -3114,6 +3138,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "paused",
       queued: false,
       stopReason: "tool_round_budget_exhausted",
     } satisfies OrchestrateResult);
@@ -3140,6 +3165,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
       toolExecutions: [
         {
@@ -3193,6 +3219,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "failed",
       queued: false,
       toolExecutions: [
         {
@@ -3265,6 +3292,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "failed",
       queued: false,
       toolExecutions: [
         {
@@ -3411,6 +3439,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "failed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3441,6 +3470,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "failed",
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -3520,6 +3550,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "failed",
       queued: false,
       toolExecutions: [
         {
@@ -3646,6 +3677,7 @@ describe("processAdmittedTurn", () => {
           outputTokens: 5,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "failed",
           queued: false,
         } satisfies OrchestrateResult;
       }),
@@ -3681,6 +3713,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -3714,6 +3747,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -3743,6 +3777,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
       toolExecutions: [{
         toolName: "web_search",
@@ -3785,6 +3820,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
       toolExecutions: [{
         toolName: "web_search",
@@ -3829,6 +3865,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -3858,6 +3895,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -3903,6 +3941,7 @@ describe("processAdmittedTurn", () => {
       outputTokens: 5,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      outcome: "completed",
       queued: false,
     } satisfies OrchestrateResult);
 
@@ -3951,6 +3990,7 @@ describe("processAdmittedTurn", () => {
             outputTokens: 5,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
+            outcome: "failed",
             queued: false,
           } satisfies OrchestrateResult;
         }),
@@ -4215,6 +4255,7 @@ describe("processAdmittedTurn", () => {
             outputTokens: 3,
             cacheReadTokens: 0,
             cacheWriteTokens: 0,
+            outcome: "completed",
             queued: false,
           } satisfies OrchestrateResult;
         }),
