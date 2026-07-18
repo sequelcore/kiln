@@ -33,7 +33,10 @@ import {
   createCliTranscriptBudgetUsageReader,
   createRuntimeBudgetAdmissionFromGlobalConfig,
 } from "../application/runtime-budget-admission.js";
-import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
+import {
+  createKilnRuntimeManagedInvocationAttachment,
+  createManagedInvocationExecutionProofResolverRef,
+} from "../application/managed-invocation-attachment.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
@@ -87,6 +90,7 @@ import {
   type DefaultBuiltinToolRegistryOptions,
   type ExecutionSessionRunOptions,
   type SessionEventSource,
+  type SessionTurnOutcome,
 } from "@kilnai/core";
 import {
   attachManagedInvocationSessionEventSink,
@@ -95,7 +99,6 @@ import {
 } from "@kilnai/runtime";
 import {
   createProviderCatalogService,
-  deriveGovernedTurnOutcomeFromToolRecords,
   markGuiProviderDiscoveryStale,
   projectGuiProviderModelDiscovery,
   providerRequiresSelectedModelMessage,
@@ -110,7 +113,6 @@ import {
 } from "../application/operator-transcript-projection.js";
 import type {
   CliSessionFactoryContext,
-  GovernedTurnOutcomeToolRecord,
   ManagedInvocationToolAttachment,
   RuntimeBudgetAdmissionPort,
   RuntimeSessionHydrator,
@@ -380,21 +382,6 @@ function persistedEvent(
   };
 }
 
-function toolCompletionFromPayload(payload: Record<string, unknown>): GovernedTurnOutcomeToolRecord {
-  const status = payload.status && typeof payload.status === "object"
-    ? payload.status as Record<string, unknown>
-    : undefined;
-  return {
-    toolName: typeof payload.toolName === "string" ? payload.toolName : "unknown",
-    success: status?.state !== "failed",
-    output: typeof payload.output === "string" ? payload.output : undefined,
-    resultSummary: typeof payload.outputSummary === "string" ? payload.outputSummary : undefined,
-    ...(payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
-      ? { metadata: payload.metadata as Record<string, unknown> }
-      : {}),
-  };
-}
-
 function extractManagedProviderRouteIdFromToolUse(toolName: string, input: unknown): string | undefined {
   if (toolName !== "managed_agent.invoke" && toolName !== "managed_agent.start") {
     return undefined;
@@ -454,15 +441,25 @@ export async function makeMultiProviderSessionFactory(
         await writer.appendManagedInvocationEvents(events);
         return;
       }
-      await transcriptStore.appendManyNext(sessionId, managedInvocationPersistedTranscriptEventDrafts(events));
+      const appended = await transcriptStore.appendManyNext(
+        sessionId,
+        managedInvocationPersistedTranscriptEventDrafts(events),
+      );
+      const managedProviders = events
+        .map(managedInvocationProviderId)
+        .filter((providerId): providerId is string => providerId !== undefined);
+      const managedUsage = managedInvocationProviderTokenUsageForAppendedEvents(events, appended);
+      if (managedProviders.length > 0) {
+        const existingMeta = await transcriptStore.readMeta(sessionId);
+        if (existingMeta) {
+          await transcriptStore.finalize(sessionId, {
+            providersUsed: mergeProvidersUsed(existingMeta.providersUsed, managedProviders),
+            ...(managedUsage.length > 0 ? { providerTokenUsage: managedUsage } : {}),
+          });
+        }
+      }
     },
   });
-  const managedInvocationWithService = managedInvocationWithTranscriptSink
-    ? {
-        ...managedInvocationWithTranscriptSink,
-        options: withManagedInvocationService(managedInvocationWithTranscriptSink.options),
-      }
-    : undefined;
   const sessionBuiltinToolOptions = createSessionBuiltinToolOptions(builtinToolOptions);
 
   let currentProvider: ProviderId | null = initialProvider;
@@ -537,7 +534,7 @@ export async function makeMultiProviderSessionFactory(
           ...(context?.requestedAuthority ? { requestedAuthority: context.requestedAuthority } : {}),
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,
-          ...(managedInvocationWithService ? { managedInvocation: managedInvocationWithService } : {}),
+          ...(managedInvocationWithTranscriptSink ? { managedInvocation: managedInvocationWithTranscriptSink } : {}),
           ...(budgetAdmission ? { budgetAdmission } : {}),
         });
         activeSession = resumedSession;
@@ -586,16 +583,16 @@ export async function makeMultiProviderSessionFactory(
         }
 
         let turnCostUsd = 0;
-        let turnIsError = false;
+        let turnOutcome: SessionTurnOutcome | undefined;
         let turnInputTokens = 0;
         let turnOutputTokens = 0;
         let turnCacheReadTokens = 0;
         let turnCacheWriteTokens = 0;
         let turnProviderTokenUsage: PersistedProviderTokenUsage | undefined;
+        const managedProviderTokenUsage = new Map<string, PersistedProviderTokenUsage>();
         let assistantContent = "";
         let assistantDeltaIndex = 0;
         const pendingToolCallIds = new Map<string, string[]>();
-        const toolCompletions: GovernedTurnOutcomeToolRecord[] = [];
         let syntheticToolOrdinal = 0;
         const priorTranscript = await transcriptStore.readTranscript(capturedId);
         const appendTranscriptEvent = async (event: PersistedTranscriptEventDraft): Promise<void> => {
@@ -603,10 +600,19 @@ export async function makeMultiProviderSessionFactory(
         };
         activeTranscriptWriters.set(capturedId, {
           appendManagedInvocationEvents: async (events) => {
-            await transcriptStore.appendManyNext(
+            for (const event of events) {
+              const managedProviderId = managedInvocationProviderId(event);
+              if (managedProviderId) {
+                providersUsed.add(managedProviderId);
+              }
+            }
+            const appended = await transcriptStore.appendManyNext(
               capturedId,
               managedInvocationPersistedTranscriptEventDrafts(events),
             );
+            for (const usage of managedInvocationProviderTokenUsageForAppendedEvents(events, appended)) {
+              recordPersistedProviderTokenUsage(managedProviderTokenUsage, usage);
+            }
           },
         });
         const turnOrdinal = priorTranscript.filter((event) => event.kind === "turn_started").length + 1;
@@ -695,7 +701,6 @@ export async function makeMultiProviderSessionFactory(
                   ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
                   ...(event.isError !== undefined ? { isError: event.isError } : {}),
               });
-              toolCompletions.push(toolCompletionFromPayload(toolResultPayload));
               const persistedToolResult = toPersistedTranscriptEvent(
                 capturedId,
                 0,
@@ -713,7 +718,6 @@ export async function makeMultiProviderSessionFactory(
                 ],
               );
             } else if (event.type === "error") {
-              turnIsError = true;
               await appendTranscriptEvent(
                 toPersistedTranscriptEvent(capturedId, 0, "error", {
                   message: event.message,
@@ -760,7 +764,7 @@ export async function makeMultiProviderSessionFactory(
             }
             if (event.type === "completed") {
               turnCostUsd = event.totalUsd;
-              turnIsError = event.isError;
+              turnOutcome = event.outcome;
             }
             yield options.executionScope && !event.executionScope
               ? { ...event, executionScope: options.executionScope }
@@ -781,9 +785,7 @@ export async function makeMultiProviderSessionFactory(
           }
           const lastTurnOutcome = options.abortSignal?.aborted
             ? "cancelled"
-            : turnIsError || deriveGovernedTurnOutcomeFromToolRecords(toolCompletions) === "failed"
-              ? "failed"
-              : "completed";
+            : turnOutcome ?? "failed";
           await appendTranscriptEvent(
             persistedEvent(capturedId, 0, "turn_completed", source("runtime"), {
               turnId,
@@ -825,7 +827,12 @@ export async function makeMultiProviderSessionFactory(
               outputTokens: turnOutputTokens,
               cacheReadTokens: turnCacheReadTokens,
               cacheWriteTokens: turnCacheWriteTokens,
-              ...(turnProviderTokenUsage ? { providerTokenUsage: [turnProviderTokenUsage] } : {}),
+              ...((turnProviderTokenUsage || managedProviderTokenUsage.size > 0) ? {
+                providerTokenUsage: [
+                  ...(turnProviderTokenUsage ? [turnProviderTokenUsage] : []),
+                  ...managedProviderTokenUsage.values(),
+                ],
+              } : {}),
               providerThread: resumedSession.providerSessionId
                 ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
                 : undefined,
@@ -872,7 +879,7 @@ export async function makeMultiProviderSessionFactory(
 
   return {
     factory: policyAwareFactory,
-    managedInvocation: managedInvocationWithService,
+    managedInvocation: managedInvocationWithTranscriptSink,
     getProvider: () => currentProvider ?? "",
     setProvider: (newProvider: string) => {
       if (providers.includes(newProvider as ProviderId)) {
@@ -906,6 +913,73 @@ export async function makeMultiProviderSessionFactory(
       }
     },
   };
+}
+
+function managedInvocationProviderId(event: CanonicalSessionEvent): string | undefined {
+  if (
+    event.kind !== "agent_invocation_requested"
+    && event.kind !== "agent_invocation_started"
+    && event.kind !== "agent_invocation_completed"
+    && event.kind !== "agent_invocation_failed"
+    && event.kind !== "agent_invocation_cancelled"
+  ) {
+    return undefined;
+  }
+  const providerId = event.providerRoute?.providerId;
+  return typeof providerId === "string" && providerId.trim().length > 0
+    ? providerId.trim()
+    : undefined;
+}
+
+function managedInvocationProviderTokenUsageForAppendedEvents(
+  events: readonly CanonicalSessionEvent[],
+  appended: readonly PersistedTranscriptEvent[],
+): readonly PersistedProviderTokenUsage[] {
+  const appendedEventIds = new Set(appended.map((event) => event.eventId));
+  return events.flatMap((event) => {
+    if (
+      (event.kind !== "agent_invocation_completed"
+        && event.kind !== "agent_invocation_failed"
+        && event.kind !== "agent_invocation_cancelled")
+      || !appendedEventIds.has(event.eventId)
+    ) {
+      return [];
+    }
+    const provider = managedInvocationProviderId(event);
+    const usage = event.managedInvocationEvidence?.usage;
+    if (!provider || !usage) {
+      return [];
+    }
+    const tokenClasses = new Map(usage.tokenClasses.map((entry) => [entry.name, entry.value] as const));
+    const readUsage = (name: "input" | "output" | "cache_read" | "cache_write"): number => {
+      const value = tokenClasses.get(name);
+      return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+    };
+    return [{
+      provider,
+      ...(event.providerRoute?.model ? { model: event.providerRoute.model } : {}),
+      inputTokens: readUsage("input"),
+      outputTokens: readUsage("output"),
+      cacheReadTokens: readUsage("cache_read"),
+      cacheWriteTokens: readUsage("cache_write"),
+    }];
+  });
+}
+
+function recordPersistedProviderTokenUsage(
+  usageByProviderModel: Map<string, PersistedProviderTokenUsage>,
+  usage: PersistedProviderTokenUsage,
+): void {
+  const key = `${usage.provider}\0${usage.model ?? ""}`;
+  const existing = usageByProviderModel.get(key);
+  usageByProviderModel.set(key, {
+    provider: usage.provider,
+    ...(usage.model ? { model: usage.model } : {}),
+    inputTokens: (existing?.inputTokens ?? 0) + (usage.inputTokens ?? 0),
+    outputTokens: (existing?.outputTokens ?? 0) + (usage.outputTokens ?? 0),
+    cacheReadTokens: (existing?.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0),
+    cacheWriteTokens: (existing?.cacheWriteTokens ?? 0) + (usage.cacheWriteTokens ?? 0),
+  });
 }
 
 export interface MultiProviderSessionManager {
@@ -1010,7 +1084,7 @@ function mapSessionEventToTui(
   | { type: "text_delta"; content: string; isThinking?: boolean; sessionId?: string; turnId?: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionId?: string; turnId?: string }
   | { type: "cost_update"; usd: number; sessionId?: string; turnId?: string }
-  | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
+  | { type: "completed"; totalUsd: number; outcome: SessionTurnOutcome; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "activity"; activity: string; toolName?: string; output?: string; input?: unknown; sessionId?: string; turnId?: string } {
   const candidate = event as { type?: string; [key: string]: unknown } | undefined;
@@ -1040,13 +1114,22 @@ function mapSessionEventToTui(
         usd: typeof candidate.usd === "number" ? candidate.usd : 0,
         ...scoped,
       };
-    case "completed":
+    case "completed": {
+      const outcome = readSessionTurnOutcome(candidate.outcome);
+      if (!outcome) {
+        return {
+          type: "error",
+          message: "Session completed without a canonical terminal outcome.",
+        };
+      }
       return {
         type: "completed",
         totalUsd: typeof candidate.totalUsd === "number" ? candidate.totalUsd : 0,
+        outcome,
         routedProvider: route?.provider,
         routedModel: route?.model || undefined,
       };
+    }
     case "error":
       return {
         type: "error",
@@ -1090,6 +1173,12 @@ function mapSessionEventToTui(
         activity: "unknown_event",
       };
   }
+}
+
+function readSessionTurnOutcome(value: unknown): SessionTurnOutcome | undefined {
+  return value === "completed" || value === "failed" || value === "cancelled" || value === "paused"
+    ? value
+    : undefined;
 }
 
 async function bootstrapDirectSession(
@@ -1268,6 +1357,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupModel = resolveGlobalDefaultModel(globalConfig);
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
   await recoverStaleOpenTranscriptSessions({
@@ -1297,7 +1387,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
+        workItemStore,
+        goalRunStore,
+        managedInvocationProofResolver: managedInvocationProofs.resolve,
+      }),
     ],
   }, "execute"));
   startupProfiler.mark("builtin-tool-options-created");
@@ -1334,6 +1428,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
+  managedInvocationProofs.bind(managedInvocationWithService);
   const managedInvocationAttachment = managedInvocationWithService
     ? createKilnRuntimeManagedInvocationAttachment("tui", managedInvocationWithService)
     : undefined;

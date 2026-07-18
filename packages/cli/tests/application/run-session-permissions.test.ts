@@ -70,10 +70,10 @@ describe("runSession tool permission gating", () => {
 
     const directProviderSession = createSessionFromEvents([
       { type: "error", code: "PROVIDER_SESSION_ERROR", message: "Missing required API key", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
     ]);
     const fallbackHarnessSession = createSessionFromEvents([
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -120,10 +120,10 @@ describe("runSession tool permission gating", () => {
 
     const primarySession = createSessionFromEvents([
       { type: "error", code: "PRIMARY_FAILED", message: "Primary failed", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
     ]);
     const fallbackSession = createSessionFromEvents([
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -167,7 +167,7 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -221,7 +221,7 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Read", input: { filePath: "project/.env" } },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -277,7 +277,7 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Write", input: { path: "project/.env", content: "x" } },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -335,7 +335,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Read", input: { path: "project/docs/readme.md" } },
       { type: "tool_result", toolName: "Read", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -402,7 +402,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
       { type: "tool_result", toolName: "Bash", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -473,7 +473,7 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -544,7 +544,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
       { type: "tool_result", toolName: "Read", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ], "provider-session-42");
 
     const result = await runSession({
@@ -605,7 +605,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Write", input: { filePath: "README.md", content: "ok" } },
       { type: "tool_result", toolName: "Write", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -658,7 +658,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
       { type: "tool_result", toolName: "Bash", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -706,7 +706,7 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -765,7 +765,7 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -831,7 +831,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
       { type: "tool_result", toolName: "Bash", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -903,7 +903,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
       { type: "tool_result", toolName: "Bash", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ], "provider-session-42");
 
     const result = await runSession({
@@ -958,7 +958,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "bash", input: { command: "git status" } },
       { type: "tool_result", toolName: "bash", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -1008,7 +1008,7 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -1074,7 +1074,7 @@ describe("runSession tool permission gating", () => {
         source: "mcp",
         mcpSelector: "secrets/fetch",
       },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -1136,7 +1136,7 @@ describe("runSession tool permission gating", () => {
         mcpSelector: "  MeMoRy_Store ",
       },
       { type: "tool_result", toolName: "memory_store", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -1193,7 +1193,7 @@ describe("runSession tool permission gating", () => {
         source: "mcp",
       },
       { type: "tool_result", toolName: "Memory_Store", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -1245,7 +1245,7 @@ describe("runSession tool permission gating", () => {
     const session = createSessionFromEvents([
       { type: "tool_use", toolName: "memory_store", input: { key: "a", value: "b" }, source: "mcp" },
       { type: "tool_result", toolName: "memory_store", output: "ok" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({

@@ -420,7 +420,13 @@ describe("GUI dashboard provider availability", () => {
     expect(gatewayHarness.lastOptions?.builtinToolOptions).toMatchObject({
       toolProjection: {
         mode: "deferred",
-        alwaysOnTools: expect.arrayContaining(["read", "write", "work_item.update"]),
+        alwaysOnTools: expect.arrayContaining([
+          "read",
+          "write",
+          "work_item.update",
+          "goal.evidence.record",
+          "goal.complete",
+        ]),
       },
       webFetch: expect.any(Object),
       webSearch: expect.any(Object),

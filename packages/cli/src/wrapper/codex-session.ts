@@ -504,7 +504,11 @@ export class CodexSession implements IKilnSession {
             type: "completed",
             totalUsd: computedUsd,
             durationMs: Date.now() - startTime,
-            isError: lastError !== null,
+            outcome: options.abortSignal?.aborted
+              ? "cancelled"
+              : lastError !== null
+                ? "failed"
+                : "completed",
             isPreflightCrash: !initReceived && computedUsd === 0,
           };
           if (this.config.sessionLedgerOwner !== "host") try {
@@ -561,7 +565,7 @@ export class CodexSession implements IKilnSession {
               type: "completed",
               totalUsd: 0,
               durationMs: Date.now() - startTime,
-              isError: true,
+              outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
               isPreflightCrash: !initReceived,
             };
             if (this.config.sessionLedgerOwner !== "host") try {
@@ -608,7 +612,7 @@ export class CodexSession implements IKilnSession {
           type: "completed",
           totalUsd: 0,
           durationMs: Date.now() - startTime,
-          isError: true,
+          outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
           isPreflightCrash: !initReceived,
         };
         if (this.config.sessionLedgerOwner !== "host") try {

@@ -1,11 +1,12 @@
 import type {
   ActionEffectEnvelope,
   DevTool,
-  ManagedAgentResultHandoff,
+  ManagedInvocationExecutionProof,
   ModelTaskSuitabilityTask,
   ToolInput,
   ToolResult,
   WorkItem,
+  WorkItemExecutionAttempt,
   WorkItemExecutionFailureReason,
   WorkItemPauseRequirement,
   WorkItemPauseRequirementKind,
@@ -14,19 +15,18 @@ import type {
   WorkClassificationInput,
   WorkClassificationProvenanceInput,
   VerificationGateResult,
-  StructuredExecutionResult,
-  VerificationUsageReport,
 } from "@kilnai/core";
 import {
   containsFrontendReferenceEvidence,
-  defineStructuredExecutionResult,
-  defineVerificationUsageReport,
+  completeGoalExecution,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   goalToolMetadata,
   GoalRunStore,
   isCanonicalArtifactContentUri,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
+  projectManagedOrchestrationAdoptionGate,
+  projectManagedOrchestrationResultHandoff,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
   WorkItemStore,
@@ -149,6 +149,9 @@ const WORK_GOVERNANCE_MUTATION_EFFECT: ActionEffectEnvelope = {
 };
 type ManagedInvocationProfile = typeof MANAGED_INVOCATION_PROFILES[number];
 type ManagedInvocationAuthority = typeof MANAGED_INVOCATION_AUTHORITIES[number];
+export type ManagedInvocationExecutionProofResolver = (
+  invocationId: string,
+) => ManagedInvocationExecutionProof | undefined;
 type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
 type ManagedInvocationPhaseId =
   | "visual-reference-research"
@@ -174,6 +177,7 @@ export function createWorkGovernanceTools(
     readonly workItemStore?: WorkItemStore;
     readonly goalRunStore?: GoalRunStore;
     readonly ownerSessionId?: string;
+    readonly managedInvocationProofResolver?: ManagedInvocationExecutionProofResolver;
   } = {},
 ): readonly DevTool[] {
   const store = options.workItemStore ?? new WorkItemStore();
@@ -185,7 +189,9 @@ export function createWorkGovernanceTools(
     new WorkItemListTool(store),
     new WorkItemCompleteTool(store),
     new GoalCreateTool(goalRunStore, store, options.ownerSessionId),
-    new WorkItemExecutionStartTool(goalRunStore, store),
+    new GoalEvidenceRecordTool(goalRunStore),
+    new GoalCompleteTool(goalRunStore, store),
+    new WorkItemExecutionStartTool(goalRunStore, store, options.managedInvocationProofResolver),
     new WorkItemExecutionFinishTool(goalRunStore, store),
     new WorkItemExecutionFailTool(goalRunStore, store),
   ];
@@ -598,7 +604,7 @@ export class WorkItemUpdateTool implements DevTool {
 
     return {
       output: JSON.stringify({
-        item,
+        item: workItemToolOutputProjection(item),
         ...(nextExecution ? nextExecution : {}),
       }, null, 2),
       metadata: workItemToolMetadata("work_item.update", {
@@ -711,7 +717,7 @@ export class WorkItemListTool implements DevTool {
     const items = this.store.list(status);
     const snapshot = this.store.snapshot(status);
     return {
-      output: JSON.stringify({ items }, null, 2),
+      output: JSON.stringify({ items: items.map(workItemToolOutputProjection) }, null, 2),
       metadata: workItemToolMetadata("work_item.list", {
         operation: "list",
         ...(status ? { status } : {}),
@@ -741,13 +747,13 @@ export class WorkItemCompleteTool implements DevTool {
       providedEvidence: {
         type: "array",
         items: { type: "string", enum: EVIDENCE },
-        description: "Evidence produced for this work item.",
+        description: "Evidence actually produced for this work item. Never include a label that is skipped.",
       },
       residualRisk: { type: "string", description: "Residual-risk closeout. Required when residual-risk is expected evidence." },
       skippedVerificationGates: {
         type: "array",
         items: { type: "string" },
-        description: "Verification gates intentionally skipped during closeout. Requires residual-risk closeout.",
+        description: "Expected verification labels intentionally skipped during closeout. A skip accounts for the expectation without claiming evidence and requires residual-risk closeout.",
       },
       verificationGateResults: verificationGateResultsSchema(),
     },
@@ -821,7 +827,7 @@ export class WorkItemCompleteTool implements DevTool {
         output: JSON.stringify({
           status: "blocked",
           missing,
-          item: completion.item,
+          item: workItemToolOutputProjection(completion.item),
         }, null, 2),
         metadata: workItemToolMetadata("work_item.complete", {
           operation: "complete",
@@ -842,7 +848,7 @@ export class WorkItemCompleteTool implements DevTool {
     return {
       output: JSON.stringify({
         status: "completed",
-        item: completion.item,
+        item: workItemToolOutputProjection(completion.item),
       }, null, 2),
       metadata: workItemToolMetadata("work_item.complete", {
         operation: "complete",
@@ -878,6 +884,7 @@ export class GoalCreateTool implements DevTool {
   readonly description = [
     "Create a governed goal run from existing work items and link those work items to the goal.",
     "Use this before work_item.execution.start; never invent a goalRunId without creating it through this tool.",
+    "Goal-level evidence requirements are closed explicitly with goal.evidence.record followed by goal.complete.",
   ].join(" ");
 
   readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
@@ -1182,6 +1189,7 @@ export class WorkItemExecutionStartTool implements DevTool {
   constructor(
     private readonly goalRunStore: GoalRunStore,
     private readonly workItemStore: WorkItemStore,
+    private readonly managedInvocationProofResolver?: ManagedInvocationExecutionProofResolver,
   ) {}
 
   async execute(input: ToolInput): Promise<ToolResult> {
@@ -1295,6 +1303,20 @@ export class WorkItemExecutionStartTool implements DevTool {
         isError: true,
       };
     }
+    const managedInvocationProof = managedInvocationId
+      ? this.managedInvocationProofResolver?.(managedInvocationId)
+      : undefined;
+    if (step.executionMode === "managed_delegation" && !managedInvocationProof) {
+      return {
+        output: JSON.stringify({
+          status: "paused",
+          reason: "managedInvocationId is not a verified managed invocation for this runtime.",
+          managedInvocationId,
+          nextTool: "managed_agent.invoke",
+        }, null, 2),
+        isError: true,
+      };
+    }
 
     try {
       const started = startGoalExecutionAttempt({
@@ -1305,13 +1327,14 @@ export class WorkItemExecutionStartTool implements DevTool {
         executionMode: step.executionMode,
         summary: readText(input.input.summary),
         managedInvocationId,
+        managedInvocationProof,
       });
       return {
         output: JSON.stringify({
           status: "started",
-          goal: started.goal,
-          item: started.item,
-          attempt: started.attempt,
+          goal: goalToolOutputProjection(started.goal),
+          item: workItemToolOutputProjection(started.item),
+          attempt: executionAttemptToolOutputProjection(started.attempt),
         }, null, 2),
         metadata: workItemToolMetadata("work_item.execution.start", {
           operation: "execution_started",
@@ -1361,41 +1384,15 @@ export class WorkItemExecutionFinishTool implements DevTool {
       providedEvidence: {
         type: "array",
         items: { type: "string", enum: EVIDENCE },
-        description: "Evidence produced by the attempt.",
+        description: "Evidence actually produced by the attempt. Never include a label that is skipped.",
       },
       residualRisk: { type: "string", description: "Residual-risk closeout." },
       skippedVerificationGates: {
         type: "array",
         items: { type: "string" },
-        description: "Verification gates intentionally skipped by the attempt. Requires residual-risk closeout.",
+        description: "Expected verification labels intentionally skipped by the attempt. A skip accounts for the expectation without claiming evidence and requires residual-risk closeout.",
       },
       verificationGateResults: verificationGateResultsSchema(),
-      managedInvocationResultHandoff: {
-        type: "object",
-        properties: {
-          summary: { type: "string", minLength: 1 },
-          resourceUris: {
-            type: "array",
-            items: { type: "string", minLength: 1 },
-            minItems: 1,
-          },
-          memoryWriteProposalUris: {
-            type: "array",
-            items: { type: "string", minLength: 1 },
-          },
-          structuredResult: {
-            type: "object",
-            description: "Canonical structured execution result. Core validation rejects malformed control state.",
-          },
-          verificationUsage: {
-            type: "object",
-            description: "Independent verifier token, cost, latency, and evidence attribution.",
-          },
-        },
-        required: ["summary", "resourceUris"],
-        additionalProperties: false,
-        description: "Raw managed invocation result handoff returned by managed_agent.invoke.",
-      },
       managedOrchestrationAdoption: {
         type: "object",
         properties: {
@@ -1459,24 +1456,37 @@ export class WorkItemExecutionFinishTool implements DevTool {
         verificationGateResults,
         residualRisk: readText(input.input.residualRisk),
         summary: readText(input.input.summary),
-        managedInvocationResultHandoff: requireManagedInvocationResultHandoff(input.input.managedInvocationResultHandoff),
         managedOrchestrationAdoption: readManagedOrchestrationAdoption(input.input.managedOrchestrationAdoption),
         closeoutSummary: readText(input.input.closeoutSummary),
       });
-      const missing = [
+      const workItemBlockers = [
         ...finished.missingEvidence,
-        ...finished.missingGoalEvidence,
         ...finished.missingVerificationGates.map((gate) => `missing gate: ${gate}`),
         ...finished.failedVerificationGates.map((gate) => `failed gate: ${gate}`),
         ...(finished.missingResidualRisk ? ["residual-risk closeout"] : []),
       ];
+      const missing = [
+        ...workItemBlockers,
+        ...finished.missingGoalEvidence,
+      ];
+      const status = workItemBlockers.length > 0
+        ? "blocked"
+        : finished.missingGoalEvidence.length > 0
+          ? "work_completed_goal_closeout_pending"
+          : "completed";
       return {
         output: JSON.stringify({
-          status: missing.length > 0 ? "blocked" : "completed",
+          status,
           missing,
-          goal: finished.goal,
-          item: finished.item,
-          attempt: finished.attempt,
+          ...(finished.missingGoalEvidence.length > 0
+            ? {
+                nextTool: "goal.evidence.record",
+                afterEvidenceTool: "goal.complete",
+              }
+            : {}),
+          goal: goalToolOutputProjection(finished.goal),
+          item: workItemToolOutputProjection(finished.item),
+          attempt: executionAttemptToolOutputProjection(finished.attempt),
         }, null, 2),
         metadata: workItemToolMetadata("work_item.execution.finish", {
           operation: "execution_finished",
@@ -1491,7 +1501,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
           failedVerificationGates: finished.failedVerificationGates,
           missingResidualRisk: finished.missingResidualRisk,
           sequence: finished.item.sequence,
-          ...(missing.length === 0
+          ...(workItemBlockers.length === 0
             ? {
               executionScopeTransition: {
                 action: "exit" as const,
@@ -1507,9 +1517,9 @@ export class WorkItemExecutionFinishTool implements DevTool {
               },
             }
             : {}),
-          ...(missing.length > 0 ? { errorCode: "missing_evidence" } : {}),
+          ...(workItemBlockers.length > 0 ? { errorCode: "missing_evidence" } : {}),
         }),
-        isError: missing.length > 0,
+        isError: workItemBlockers.length > 0,
       };
     } catch (error) {
       return { output: error instanceof Error ? error.message : String(error), isError: true };
@@ -1589,9 +1599,9 @@ export class WorkItemExecutionFailTool implements DevTool {
         output: JSON.stringify({
           status: "blocked",
           missing,
-          goal: failed.goal,
-          item: failed.item,
-          attempt: failed.attempt,
+          goal: goalToolOutputProjection(failed.goal),
+          item: workItemToolOutputProjection(failed.item),
+          attempt: executionAttemptToolOutputProjection(failed.attempt),
         }, null, 2),
         metadata: workItemToolMetadata("work_item.execution.fail", {
           operation: "execution_finished",
@@ -1755,7 +1765,6 @@ function buildManagedInvocationRequest(
   }
   const expectedEvidence = phase.expectedEvidence;
   const residualRiskRequired = expectedEvidence.includes("residual-risk");
-  const attemptId = `${goal.id}:${step.workItemId}:attempt:${step.workItem.executionAttempts.length + 1}`;
   const profile = phaseRequiresReadOnlyVisualResearch
     ? "foundation-readonly-plan"
     : readManagedInvocationProfile(step.workItem.authorityProfile)
@@ -1781,7 +1790,6 @@ function buildManagedInvocationRequest(
     ...(resourceUris.length > 0 ? { resourceUris } : {}),
     goalRunId: goal.id,
     workItemId: step.workItemId,
-    attemptId,
     ...(step.workItem.workClassification ? { workClassification: step.workItem.workClassification } : {}),
     ...(agentProfile ? { agentProfile } : {}),
     roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
@@ -2168,7 +2176,11 @@ function verificationGateResultsSchema(): Record<string, unknown> {
       type: "object",
       properties: {
         gate: { type: "string", minLength: 1 },
-        status: { type: "string", enum: ["passed", "failed", "skipped"] },
+        status: {
+          type: "string",
+          enum: ["passed", "failed", "skipped"],
+          description: "passed means verified evidence; failed blocks closeout; skipped accounts for the gate without claiming evidence and requires residual risk.",
+        },
         summary: { type: "string" },
         evidence: {
           type: "array",
@@ -2218,49 +2230,6 @@ function readVerificationGateResultStatus(value: unknown): VerificationGateResul
   return value === "passed" || value === "failed" || value === "skipped" ? value : undefined;
 }
 
-function requireManagedInvocationResultHandoff(
-  value: unknown,
-): ManagedAgentResultHandoff | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const record = requireInputRecord(value, "managedInvocationResultHandoff");
-  const summary = readText(record.summary);
-  const resourceUris = requireNonEmptyTextArray(
-    record.resourceUris,
-    "managedInvocationResultHandoff.resourceUris",
-  );
-  if (!summary) {
-    throw new Error("Invalid input: managedInvocationResultHandoff.summary must be a non-empty string.");
-  }
-  const memoryWriteProposalUris = record.memoryWriteProposalUris === undefined
-    ? []
-    : requireTextArray(record.memoryWriteProposalUris, "managedInvocationResultHandoff.memoryWriteProposalUris");
-  const structuredResult = record.structuredResult === undefined
-    ? undefined
-    : defineStructuredExecutionResult(
-        requireInputRecord(
-          record.structuredResult,
-          "managedInvocationResultHandoff.structuredResult",
-        ) as unknown as StructuredExecutionResult,
-      );
-  const verificationUsage = record.verificationUsage === undefined
-    ? undefined
-    : defineVerificationUsageReport(
-        requireInputRecord(
-          record.verificationUsage,
-          "managedInvocationResultHandoff.verificationUsage",
-        ) as Omit<VerificationUsageReport, "totals">,
-      );
-  return {
-    summary,
-    resourceUris,
-    memoryWriteProposalUris,
-    ...(structuredResult ? { structuredResult } : {}),
-    ...(verificationUsage ? { verificationUsage } : {}),
-  };
-}
-
 function taskAffinityForPhase(phase: ManagedInvocationPhaseId): readonly ModelTaskSuitabilityTask[] {
   switch (phase) {
     case "visual-reference-research":
@@ -2273,6 +2242,204 @@ function taskAffinityForPhase(phase: ManagedInvocationPhaseId): readonly ModelTa
     case "implementation-verification":
       return ["test-writing"];
   }
+}
+
+export class GoalEvidenceRecordTool implements DevTool {
+  readonly name = "goal.evidence.record";
+  readonly description = [
+    "Record explicit structured evidence for one declared goal-level requirement.",
+    "Use after the relevant work items produce the evidence and before goal.complete.",
+  ].join(" ");
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
+  readonly inputSchema = {
+    type: "object",
+    properties: {
+      goalRunId: { type: "string", minLength: 1 },
+      requirementId: { type: "string", minLength: 1 },
+      summary: { type: "string", minLength: 1 },
+      resourceUris: { type: "array", items: { type: "string", minLength: 1 } },
+      workItemIds: { type: "array", items: { type: "string", minLength: 1 } },
+    },
+    required: ["goalRunId", "requirementId", "summary"],
+    additionalProperties: false,
+  };
+
+  constructor(private readonly goalRunStore: GoalRunStore) {}
+
+  async execute(input: ToolInput): Promise<ToolResult> {
+    const goalRunId = readText(input.input.goalRunId);
+    const requirementId = readText(input.input.requirementId);
+    const summary = readText(input.input.summary);
+    if (!goalRunId || !requirementId || !summary) {
+      return {
+        output: 'Invalid input: "goalRunId", "requirementId", and "summary" must be non-empty strings',
+        isError: true,
+      };
+    }
+    try {
+      const goal = this.goalRunStore.recordEvidence({
+        id: goalRunId,
+        requirementId,
+        summary,
+        resourceUris: readTextArray(input.input.resourceUris),
+        workItemIds: readTextArray(input.input.workItemIds),
+      });
+      return {
+        output: JSON.stringify({ status: "recorded", goal: goalToolOutputProjection(goal) }, null, 2),
+        metadata: goalToolMetadata("goal.evidence.record", {
+          operation: "record_evidence",
+          id: goal.id,
+          goal,
+          changedFields: ["evidence"],
+          sequence: goal.sequence,
+        }),
+        isError: false,
+      };
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), isError: true };
+    }
+  }
+}
+
+export class GoalCompleteTool implements DevTool {
+  readonly name = "goal.complete";
+  readonly description = [
+    "Complete an active goal after every linked work item and required goal-level evidence record are complete.",
+    "Fails closed and reports missing work or evidence.",
+  ].join(" ");
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
+  readonly inputSchema = {
+    type: "object",
+    properties: {
+      goalRunId: { type: "string", minLength: 1 },
+      closeoutSummary: { type: "string", minLength: 1 },
+    },
+    required: ["goalRunId"],
+    additionalProperties: false,
+  };
+
+  constructor(
+    private readonly goalRunStore: GoalRunStore,
+    private readonly workItemStore: WorkItemStore,
+  ) {}
+
+  async execute(input: ToolInput): Promise<ToolResult> {
+    const goalRunId = readText(input.input.goalRunId);
+    if (!goalRunId) {
+      return { output: 'Invalid input: "goalRunId" must be a non-empty string', isError: true };
+    }
+    try {
+      const goal = completeGoalExecution({
+        goalRunStore: this.goalRunStore,
+        workItemStore: this.workItemStore,
+        goalRunId,
+        closeoutSummary: readText(input.input.closeoutSummary),
+      });
+      return {
+        output: JSON.stringify({ status: "completed", goal: goalToolOutputProjection(goal) }, null, 2),
+        metadata: goalToolMetadata("goal.complete", {
+          operation: "complete",
+          id: goal.id,
+          goal,
+          changedFields: ["status", "closeoutSummary"],
+          sequence: goal.sequence,
+        }),
+        isError: false,
+      };
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), isError: true };
+    }
+  }
+}
+
+function workItemToolOutputProjection(item: WorkItem): Record<string, unknown> {
+  const latestAttempt = item.executionAttempts.at(-1);
+  return {
+    id: item.id,
+    summary: boundedToolProjectionText(item.summary),
+    status: item.status,
+    workflowProfile: item.workflowProfile,
+    ...(item.risk ? { risk: item.risk } : {}),
+    triggers: item.triggers,
+    ...(item.surface ? { surface: item.surface } : {}),
+    ...(item.assignedAgentProfile ? { assignedAgentProfile: item.assignedAgentProfile } : {}),
+    ...(item.routeId ? { routeId: item.routeId } : {}),
+    ...(item.authorityProfile ? { authorityProfile: item.authorityProfile } : {}),
+    expectedEvidence: item.expectedEvidence,
+    providedEvidence: item.providedEvidence,
+    verificationGates: item.verificationGates,
+    skippedVerificationGates: item.skippedVerificationGates,
+    verificationGateResults: item.verificationGateResults.map(verificationGateResultToolOutputProjection),
+    dependencies: item.dependencies,
+    ...(item.residualRisk ? { residualRisk: boundedToolProjectionText(item.residualRisk) } : {}),
+    pauseRequirements: item.pauseRequirements,
+    ...(item.goalRunId ? { goalRunId: item.goalRunId } : {}),
+    ...(item.workClassification ? { workClassification: item.workClassification } : {}),
+    ...(item.workClassificationProvenance
+      ? { workClassificationProvenance: item.workClassificationProvenance }
+      : {}),
+    ...(latestAttempt ? { latestAttempt: executionAttemptToolOutputProjection(latestAttempt) } : {}),
+    managedOrchestrationResultHandoff: projectManagedOrchestrationResultHandoff(item),
+    managedOrchestrationAdoptionGate: projectManagedOrchestrationAdoptionGate(item),
+    resourceUri: `kiln://session/work-items/${encodeURIComponent(item.id)}`,
+    updatedAt: item.updatedAt,
+    sequence: item.sequence,
+  };
+}
+
+function executionAttemptToolOutputProjection(attempt: WorkItemExecutionAttempt): Record<string, unknown> {
+  return {
+    id: attempt.id,
+    workItemId: attempt.workItemId,
+    goalRunId: attempt.goalRunId,
+    status: attempt.status,
+    executionMode: attempt.executionMode,
+    ...(attempt.managedInvocationId ? { managedInvocationId: attempt.managedInvocationId } : {}),
+    hasManagedInvocationResultHandoff: attempt.managedInvocationResultHandoff !== undefined,
+    providedEvidence: attempt.providedEvidence,
+    missingEvidence: attempt.missingEvidence,
+    missingResidualRisk: attempt.missingResidualRisk,
+    skippedVerificationGates: attempt.skippedVerificationGates,
+    verificationGateResults: attempt.verificationGateResults.map(verificationGateResultToolOutputProjection),
+    ...(attempt.residualRisk ? { residualRisk: boundedToolProjectionText(attempt.residualRisk) } : {}),
+    startedAt: attempt.startedAt,
+    ...(attempt.completedAt ? { completedAt: attempt.completedAt } : {}),
+  };
+}
+
+function goalToolOutputProjection(goal: GoalRun): Record<string, unknown> {
+  const recordedEvidence = new Set(goal.evidence.map((record) => record.requirementId));
+  return {
+    id: goal.id,
+    objective: boundedToolProjectionText(goal.objective),
+    status: goal.status,
+    workItemIds: goal.workItemIds,
+    ...(goal.currentPhase ? { currentPhase: goal.currentPhase } : {}),
+    ...(goal.closeoutSummary ? { closeoutSummary: boundedToolProjectionText(goal.closeoutSummary) } : {}),
+    ...(goal.terminalReason ? { terminalReason: boundedToolProjectionText(goal.terminalReason) } : {}),
+    evidenceRequirements: goal.evidenceRequirements.map((requirement) => ({
+      id: requirement.id,
+      required: requirement.required,
+      recorded: recordedEvidence.has(requirement.id),
+    })),
+    resourceUri: `kiln://session/goals/${encodeURIComponent(goal.id)}`,
+    updatedAt: goal.updatedAt,
+    sequence: goal.sequence,
+  };
+}
+
+function verificationGateResultToolOutputProjection(result: VerificationGateResult): Record<string, unknown> {
+  return {
+    gate: result.gate,
+    status: result.status,
+    ...(result.summary ? { summary: boundedToolProjectionText(result.summary, 240) } : {}),
+    evidenceCount: result.evidence?.length ?? 0,
+    ...(result.completedAt ? { completedAt: result.completedAt } : {}),
+  };
+}
+
+function boundedToolProjectionText(value: string, maxLength = 480): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
 function readManagedOrchestrationAdoption(value: unknown): WorkItem["managedOrchestrationAdoption"] | undefined {

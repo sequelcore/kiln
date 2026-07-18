@@ -584,7 +584,7 @@ describe("ProviderSession.run()", () => {
       canonicalModel: "gpt-4o",
       billingMode: "metered",
     }));
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it.each([
@@ -645,7 +645,7 @@ describe("ProviderSession.run()", () => {
       isRetryable: false,
     });
     expect(events).toContainEqual({ type: "tool_result", toolName: "provider_tool_result", output: "tool output" });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it.each([
@@ -684,6 +684,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 7,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -724,7 +725,46 @@ describe("ProviderSession.run()", () => {
       provider,
       cacheWriteTokens: 7,
     }));
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+  });
+
+  it("uses the runtime terminal outcome after an earlier tool failure is recovered", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "Goal completed after correcting the closeout input." }],
+      toolExecutions: [
+        {
+          toolCallId: "call-failed-closeout",
+          toolName: "work_item.execution.finish",
+          durationMs: 5,
+          success: false,
+          resultSummary: "Evidence cannot be both provided and skipped.",
+        },
+        {
+          toolCallId: "call-goal-complete",
+          toolName: "goal.complete",
+          durationMs: 5,
+          success: true,
+          resultSummary: "Goal completed.",
+        },
+      ],
+      inputTokens: 20,
+      outputTokens: 8,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      outcome: "completed",
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-5.6-terra",
+    }));
+    const events = await collectEvents(session.run({ prompt: "complete governed work" }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      outcome: "completed",
+    }));
   });
 
   it("records min-policy inputs for CLI executable requested authority", async () => {
@@ -736,6 +776,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -843,6 +884,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -883,6 +925,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -959,6 +1002,7 @@ describe("ProviderSession.run()", () => {
     runtimeMocks.processMessage.mockResolvedValueOnce({
       parts: [], toolExecutions: [], inputTokens: 0, outputTokens: 0,
       cacheReadTokens: 0, cacheWriteTokens: 0, queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -997,6 +1041,7 @@ describe("ProviderSession.run()", () => {
       return {
         parts: [], toolExecutions: [], inputTokens: 0, outputTokens: 0,
         cacheReadTokens: 0, cacheWriteTokens: 0, queued: false,
+        outcome: "completed",
       };
     });
     const requestApproval = vi.fn(async () => ({ approved: true, reason: "operator approved" }));
@@ -1027,6 +1072,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const abortController = new AbortController();
@@ -1058,6 +1104,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1088,6 +1135,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1162,6 +1210,7 @@ describe("ProviderSession.run()", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         queued: false,
+        outcome: "completed",
       };
     });
 
@@ -1199,6 +1248,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1239,6 +1289,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "failed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1249,7 +1300,7 @@ describe("ProviderSession.run()", () => {
     }));
     const events = await collectEvents(session.run({ prompt: "run tests" }));
 
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it("keeps deferred provider tools materializable without admitting mutating tools to the initial read-only projection", async () => {
@@ -1320,6 +1371,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1382,6 +1434,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1468,6 +1521,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1540,6 +1594,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
     const budgetAdmission = { admit: vi.fn() };
 
@@ -1591,7 +1646,7 @@ describe("ProviderSession.run()", () => {
       message: "Provider route is over budget.",
       isRetryable: false,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it("normalizes direct-provider builtin tool executor results before runtime execution", async () => {
@@ -1620,6 +1675,7 @@ describe("ProviderSession.run()", () => {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       queued: false,
+      outcome: "completed",
     });
 
     const session = new ProviderSession(baseConfig({
@@ -1698,7 +1754,7 @@ describe("ProviderSession.run()", () => {
       message: "provider stream exploded",
       isRetryable: false,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it("preserves retryability when an executable provider request fails transiently", async () => {
@@ -1724,7 +1780,7 @@ describe("ProviderSession.run()", () => {
       message: "Codex OAuth request failed (status 520: origin returned an unexpected response)",
       isRetryable: true,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it("includes credential pool exhaustion outcome and provider cause in streaming errors", async () => {
@@ -1748,7 +1804,7 @@ describe("ProviderSession.run()", () => {
       message: "All credentials in the pool are exhausted: last outcome rate-limited; last error openrouter API error 429: free-model rate limit",
       isRetryable: true,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it("respects abortSignal before start", async () => {
@@ -1771,7 +1827,7 @@ describe("ProviderSession.run()", () => {
       message: "Aborted before start",
       isRetryable: false,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "cancelled" }));
   });
 
   it("passes abortSignal to a direct provider adapter", async () => {

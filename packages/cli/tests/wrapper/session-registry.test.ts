@@ -117,7 +117,7 @@ const makeMockSession = (id: string): IKilnSession => ({
     permissionPolicy: { approval: "on-request", sandbox: "read-only" },
   },
   run: async function* () {
-    yield { type: "completed", totalUsd: 0, durationMs: 0, isError: false, isPreflightCrash: false };
+    yield { type: "completed", totalUsd: 0, durationMs: 0, outcome: "completed", isPreflightCrash: false };
   },
   dispose: async () => {},
   providerSessionId: undefined,

@@ -14,7 +14,6 @@ const {
   mockProjectGuiProviderModelDiscovery,
   mockResolveGuiProviderSwitch,
   mockCreateProviderCatalogService,
-  mockDeriveGovernedTurnOutcomeFromToolRecords,
   mockGlobalConfig,
 } = vi.hoisted(() => ({
   mockGatewaySessionCtor: vi.fn(),
@@ -135,25 +134,6 @@ const {
       modelForAck: model,
     } as const;
   }),
-  mockDeriveGovernedTurnOutcomeFromToolRecords: vi.fn((records: readonly {
-    readonly toolName: string;
-    readonly success: boolean;
-    readonly metadata?: Record<string, unknown>;
-  }[] | undefined) => (
-    (records ?? []).some((record) => (
-      record.toolName === "managed_agent.invoke"
-      && !record.success
-      && record.metadata?.kind === "managed-invocation"
-      && record.metadata.status === "timed-out"
-    ) || (
-      record.toolName === "work_item.execution.start"
-      && record.success
-      && record.metadata?.kind === "work_item"
-      && record.metadata.status === "in_progress"
-    ))
-      ? "failed"
-      : undefined
-  )),
   mockGlobalConfig: {
     value: null as { ui?: { theme?: string } } | null,
   },
@@ -261,7 +241,6 @@ vi.mock("@kilnai/runtime", () => ({
   projectGuiOperatorModels: mockProjectGuiOperatorModels,
   projectGuiProviderModelDiscovery: mockProjectGuiProviderModelDiscovery,
   createProviderCatalogService: mockCreateProviderCatalogService,
-  deriveGovernedTurnOutcomeFromToolRecords: mockDeriveGovernedTurnOutcomeFromToolRecords,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
   resolveGuiProviderSwitch: mockResolveGuiProviderSwitch,
 }));
@@ -770,7 +749,7 @@ describe("makeMultiProviderSessionFactory", () => {
         dispose: vi.fn().mockResolvedValue(undefined),
         run: vi.fn().mockImplementation(async function* () {
           yield { type: "text_delta", content: "Done." };
-          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "completed", isPreflightCrash: false };
         }),
       }),
     } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
@@ -817,7 +796,7 @@ describe("makeMultiProviderSessionFactory", () => {
             cacheReadTokens: 3,
             cacheWriteTokens: 7,
           };
-          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "completed", isPreflightCrash: false };
         }),
       }),
     } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
@@ -914,6 +893,11 @@ describe("makeMultiProviderSessionFactory", () => {
         requestSource: "runtime-tool",
         routeId: "codex-oauth-readonly",
         routeSource: "explicit-managed-route",
+        providerRoute: {
+          providerId: "opencode-go",
+          surface: "direct-provider",
+          model: "deepseek-v4-flash",
+        },
         lifecycleState: "pending",
         inputSummary: "Review runtime projection.",
         source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
@@ -931,8 +915,48 @@ describe("makeMultiProviderSessionFactory", () => {
         parentSessionId: "sess-managed-events",
         routeId: "codex-oauth-readonly",
         routeSource: "explicit-managed-route",
+        providerRoute: {
+          providerId: "opencode-go",
+          surface: "direct-provider",
+          model: "deepseek-v4-flash",
+        },
         lifecycleState: "running",
         attempt: 1,
+        source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+      }),
+      createSessionEvent<"agent_invocation_completed">({
+        eventId: "event-managed-completed",
+        kilnSessionId: "sess-managed-events",
+        sequence: 101,
+        timestamp: new Date("2026-05-28T04:42:00.002Z"),
+        kind: "agent_invocation_completed",
+        turnId: "sess-managed-events:turn:1",
+        parentEventId: "event-managed-started",
+        invocationId: "managed-1",
+        agentId: "agent-reviewer",
+        parentSessionId: "sess-managed-events",
+        routeId: "codex-oauth-readonly",
+        routeSource: "explicit-managed-route",
+        providerRoute: {
+          providerId: "opencode-go",
+          surface: "direct-provider",
+          model: "deepseek-v4-flash",
+        },
+        lifecycleState: "completed",
+        durationMs: 120,
+        resultSummary: "Review complete.",
+        managedInvocationEvidence: {
+          usage: {
+            source: "provider",
+            tokenClasses: [
+              { name: "input", value: 1200 },
+              { name: "output", value: 80 },
+              { name: "cache_read", value: 400 },
+              { name: "cache_write", value: 20 },
+            ],
+            cost: { currency: "USD", amount: 0 },
+          },
+        },
         source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
       }),
     ], {
@@ -948,10 +972,11 @@ describe("makeMultiProviderSessionFactory", () => {
       "tool_call_started",
       "agent_invocation_requested",
       "agent_invocation_started",
+      "agent_invocation_completed",
       "tool_call_completed",
       "turn_completed",
     ]);
-    expect(appendedEvents.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(appendedEvents.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(appendedEvents[3]).toMatchObject({
       eventId: "event-managed-requested",
       sequence: 4,
@@ -961,6 +986,118 @@ describe("makeMultiProviderSessionFactory", () => {
         managedInvocationId: "managed-1",
       },
     });
+    expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
+      providersUsed: ["codex-oauth", "opencode-go"],
+      providerTokenUsage: [{
+        provider: "opencode-go",
+        model: "deepseek-v4-flash",
+        inputTokens: 1200,
+        outputTokens: 80,
+        cacheReadTokens: 400,
+        cacheWriteTokens: 20,
+      }],
+    });
+  });
+
+  it("attributes managed child providers when lifecycle events arrive outside an active turn", async () => {
+    const { store } = makeStore(null);
+    const transcriptStore = makeTranscriptStore();
+    vi.mocked(transcriptStore.readMeta).mockResolvedValue({
+      kilnSessionId: "sess-background-managed",
+      provider: "codex-oauth",
+      providersUsed: ["codex-oauth"],
+      task: "interactive",
+      startedAt: "2026-05-28T04:42:00.000Z",
+    });
+    const { managedInvocation } = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      { list: vi.fn().mockReturnValue([]) } as never,
+      store as never,
+      transcriptStore,
+      makeContextArtifactCache(),
+      undefined,
+      "gui",
+      {
+        callerIdentity: {
+          kind: "kiln-runtime",
+          surface: "gui",
+          attachmentId: "kiln-runtime:gui",
+        },
+        options: { routes: [] },
+      },
+    );
+
+    await managedInvocation?.sessionEventSink?.publish([
+      createSessionEvent<"agent_invocation_completed">({
+        eventId: "event-managed-background-completed",
+        kilnSessionId: "sess-background-managed",
+        sequence: 1,
+        timestamp: new Date("2026-05-28T04:42:01.000Z"),
+        kind: "agent_invocation_completed",
+        invocationId: "managed-background-1",
+        agentId: "agent-reviewer",
+        parentSessionId: "sess-background-managed",
+        routeId: "opencode-go-readonly",
+        routeSource: "explicit-managed-route",
+        providerRoute: {
+          providerId: "opencode-go",
+          surface: "direct-provider",
+          model: "deepseek-v4-flash",
+        },
+        lifecycleState: "completed",
+        durationMs: 1000,
+        resultSummary: "Background managed review completed.",
+        source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+      }),
+    ], {
+      session: { id: "sess-background-managed" },
+    } as never);
+
+    expect(vi.mocked(transcriptStore.finalize)).toHaveBeenCalledWith(
+      "sess-background-managed",
+      { providersUsed: ["codex-oauth", "opencode-go"] },
+    );
+  });
+
+  it("preserves live managed-route catalog updates after attaching the transcript sink", async () => {
+    const { store } = makeStore(null);
+    const registry = {
+      list: vi.fn().mockReturnValue([]),
+    } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+    let routes: readonly unknown[] = [];
+    const managedInvocation = {
+      callerIdentity: {
+        kind: "kiln-runtime" as const,
+        surface: "gui" as const,
+        attachmentId: "kiln-runtime:gui",
+      },
+      options: {
+        get routes() {
+          return routes;
+        },
+      },
+    };
+
+    const manager = await makeMultiProviderSessionFactory(
+      "codex-oauth",
+      PROVIDER_IDS,
+      "/proj",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "gui",
+      managedInvocation as any,
+    );
+
+    expect(manager.managedInvocation?.options.routes).toEqual([]);
+    routes = [{ routeId: "codex-oauth-readonly" }];
+    expect(manager.managedInvocation?.options.routes).toEqual([{ routeId: "codex-oauth-readonly" }]);
   });
 
   it("marks persisted GUI-command turns failed when governed tool completions are blocking", async () => {
@@ -1004,7 +1141,7 @@ describe("makeMultiProviderSessionFactory", () => {
           yield { type: "tool_result", toolName: "managed_agent.invoke", output: timedOutManagedInvocation };
           yield { type: "tool_result", toolName: "work_item.update", output: openWorkItem };
           yield { type: "text_delta", content: "Continuing with repository inspection next." };
-          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "failed", isPreflightCrash: false };
         }),
       }),
     } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
@@ -1036,24 +1173,6 @@ describe("makeMultiProviderSessionFactory", () => {
         component: "gui-command",
       },
     });
-    expect(mockDeriveGovernedTurnOutcomeFromToolRecords).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({
-        toolName: "managed_agent.invoke",
-        success: false,
-        metadata: expect.objectContaining({
-          kind: "managed-invocation",
-          status: "timed-out",
-        }),
-      }),
-      expect.objectContaining({
-        toolName: "work_item.update",
-        success: true,
-        metadata: expect.objectContaining({
-          kind: "work_item",
-          status: "pending",
-        }),
-      }),
-    ]));
     expect(vi.mocked(transcriptStore.finalize).mock.calls.at(-1)?.[1]).toMatchObject({
       lastTurnOutcome: "failed",
       sessionLedger: {
@@ -1074,7 +1193,7 @@ describe("makeMultiProviderSessionFactory", () => {
           yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
           yield { type: "tool_result", toolName: "web_search", output: "1 source for kiln docs\n1. Kiln docs https://docs.example.com/kiln" };
           yield { type: "text_delta", content: "Research complete with cited sources." };
-          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "completed", isPreflightCrash: false };
         }),
       }),
     } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
@@ -1163,7 +1282,7 @@ describe("makeMultiProviderSessionFactory", () => {
           yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
           yield { type: "tool_result", toolName: "work_item.execution.start", output: openExecutionStart };
           yield { type: "text_delta", content: "Execution has started; implementation is still pending." };
-          yield { type: "completed", totalUsd: 0, durationMs: 10, isError: false, isPreflightCrash: false };
+          yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "failed", isPreflightCrash: false };
         }),
       }),
     } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
@@ -1744,7 +1863,7 @@ describe("makeMultiProviderSessionFactory", () => {
             permissionPolicy: { approval: "never", sandbox: "workspace-write" },
           },
           run: vi.fn().mockImplementation(async function* () {
-            yield { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false };
+            yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
           }),
         };
       },

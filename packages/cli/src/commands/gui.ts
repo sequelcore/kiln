@@ -40,7 +40,10 @@ import { createStartupProfiler } from "../application/startup-profiler.js";
 import { loadContinuationSidebarInfo } from "../application/continuation-sidebar-info.js";
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
-import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
+import {
+  createKilnRuntimeManagedInvocationAttachment,
+  createManagedInvocationExecutionProofResolverRef,
+} from "../application/managed-invocation-attachment.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import {
@@ -137,6 +140,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   );
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({
     transcriptStore,
     workItemStore,
@@ -159,7 +163,11 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     additionalTools: [
       ...(configuredBuiltinToolOptions.additionalTools ?? []),
       ...createKilnConfigTools(cwd),
-      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
+      ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
+        workItemStore,
+        goalRunStore,
+        managedInvocationProofResolver: managedInvocationProofs.resolve,
+      }),
     ],
   }, "execute"));
   startupProfiler.mark("builtin-tool-options-created");
@@ -196,6 +204,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
+  managedInvocationProofs.bind(managedInvocationWithService);
   const managedInvocationAttachment = managedInvocationWithService
     ? createKilnRuntimeManagedInvocationAttachment("gui", managedInvocationWithService)
     : undefined;

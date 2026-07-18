@@ -22,6 +22,7 @@ import {
   type ToolDefinition,
   type ToolResultEvent,
   type ReasoningEffort,
+  type SessionTurnOutcome,
   resolveDirectProviderExecutionProfile,
   type DefaultBuiltinToolRegistryOptions,
   CONSERVATIVE_UNKNOWN_ENVELOPE,
@@ -290,7 +291,7 @@ export class ProviderSession implements IKilnSession {
         type: "completed",
         totalUsd: 0,
         durationMs: Date.now() - startedAt,
-        isError: true,
+        outcome: "cancelled",
         isPreflightCrash: true,
       };
       return;
@@ -313,7 +314,7 @@ export class ProviderSession implements IKilnSession {
           type: "completed",
           totalUsd: 0,
           durationMs: Date.now() - startedAt,
-          isError: true,
+          outcome: "failed",
           isPreflightCrash: false,
         };
         return;
@@ -327,7 +328,13 @@ export class ProviderSession implements IKilnSession {
         ? formatExecutableSessionError(err)
         : formatProviderSessionError(err);
       yield { type: "error", code, message, isRetryable: isProviderSessionErrorRetryable(err) };
-      yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError: true, isPreflightCrash: false };
+      yield {
+        type: "completed",
+        totalUsd: 0,
+        durationMs: Date.now() - startedAt,
+        outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
+        isPreflightCrash: false,
+      };
     }
   }
 
@@ -433,7 +440,7 @@ export class ProviderSession implements IKilnSession {
   }
 
   private async *runTextOnly(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
-    let isError = false;
+    let outcome: SessionTurnOutcome = "completed";
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
@@ -450,9 +457,9 @@ export class ProviderSession implements IKilnSession {
       ...(options.abortSignal ? { signal: options.abortSignal } : {}),
     })) {
       if (options.abortSignal?.aborted) {
-        isError = true;
+        outcome = "cancelled";
         yield { type: "error", code: "ABORTED", message: "Aborted during execution", isRetryable: false };
-        yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError, isPreflightCrash: false };
+        yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
         return;
       }
 
@@ -472,7 +479,7 @@ export class ProviderSession implements IKilnSession {
           message: "Provider emitted a tool call in text-only execution mode.",
           isRetryable: false,
         };
-        isError = true;
+        outcome = "failed";
         continue;
       }
       if (event.type === "tool_result") {
@@ -495,7 +502,7 @@ export class ProviderSession implements IKilnSession {
           inputTokens,
           outputTokens,
         };
-        yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError, isPreflightCrash: false };
+        yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
         return;
       }
     }
@@ -509,7 +516,7 @@ export class ProviderSession implements IKilnSession {
       canonicalModel: this.resolvedModel,
       billingMode: getDefaultBillingMode(this.config.provider),
     };
-    yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError, isPreflightCrash: false };
+    yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
   }
 
   private buildPerCallConfig(
@@ -757,11 +764,7 @@ export class ProviderSession implements IKilnSession {
       throw new Error("Runtime session orchestrator did not return a result.");
     }
 
-    let isError = false;
     for (const toolExec of result.toolExecutions ?? []) {
-      if (!toolExec.success) {
-        isError = true;
-      }
       if (!hasLiveToolEvents) {
         const output = toolExec.output ?? toolExec.resultSummary;
         if (toolExec.toolCallId || toolExec.input) {
@@ -801,7 +804,6 @@ export class ProviderSession implements IKilnSession {
         message: result.escalation.reason,
         isRetryable: false,
       };
-      isError = true;
     }
 
     this.contextTracker.update(result.inputTokens ?? 0, result.outputTokens ?? 0);
@@ -829,7 +831,13 @@ export class ProviderSession implements IKilnSession {
       cacheWriteTokens: result.cacheWriteTokens,
       providerRequests: result.providerRequests,
     };
-    yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, isError, isPreflightCrash: false };
+    yield {
+      type: "completed",
+      totalUsd: 0,
+      durationMs: Date.now() - startedAt,
+      outcome: result.outcome,
+      isPreflightCrash: false,
+    };
   }
 }
 

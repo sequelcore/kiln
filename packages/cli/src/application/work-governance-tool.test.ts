@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { GoalRunStore, WorkItemStore } from "@kilnai/core";
+import {
+  finishGoalExecutionAttempt,
+  GoalRunStore,
+  startGoalExecutionAttempt,
+  WorkItemStore,
+} from "@kilnai/core";
+import type { ManagedAgentResultHandoff } from "@kilnai/core";
 import { assessWorkGovernance } from "./work-governance-policy.js";
 import { createWorkGovernanceTools, WorkGovernanceAssessTool } from "./work-governance-tool.js";
 
@@ -129,6 +135,16 @@ describe("work-governance-tool", () => {
     }
 
     expect(missingTypes).toEqual([]);
+  });
+
+  it("keeps managed invocation handoff runtime-owned during execution finish", () => {
+    const finishTool = createWorkGovernanceTools(policy)
+      .find((candidate) => candidate.name === "work_item.execution.finish");
+    const schema = finishTool?.inputSchema as {
+      readonly properties?: Record<string, unknown>;
+    };
+
+    expect(schema.properties).not.toHaveProperty("managedInvocationResultHandoff");
   });
 
   it("exposes the visual reference phase route as an explicit work item update field", () => {
@@ -618,7 +634,7 @@ describe("work-governance-tool", () => {
       routePolicy: { workflowProfile: "managed-agent-change" },
       evidenceRequirements: [],
     });
-    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const tools = createWorkGovernanceTools(policy, managedToolOptions(goal, item, workItemStore, goalRunStore));
     await tools.find((candidate) => candidate.name === "work_item.execution.start")?.execute({
       name: "work_item.execution.start",
       input: {
@@ -662,7 +678,7 @@ describe("work-governance-tool", () => {
     });
   });
 
-  it("synthesizes structured managed orchestration result handoff from raw invocation handoff", async () => {
+  it("synthesizes structured managed orchestration result handoff from the proof bound at start", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
     const item = workItemStore.upsert({
@@ -719,13 +735,51 @@ describe("work-governance-tool", () => {
         preferredRouteId: "opencode-readonly",
         managedAgentProfile: "coder",
       },
-      evidenceRequirements: [{
-        id: "managed-orchestration:result-handoff",
-        description: "Structured child result handoff.",
-        required: true,
-      }],
+      evidenceRequirements: [],
     });
-    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const boundHandoff: ManagedAgentResultHandoff = {
+      summary: "Implemented the managed child scope and produced reviewable handoff evidence.",
+      resourceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
+      memoryWriteProposalUris: [],
+      structuredResult: {
+        version: "structured-execution-result-v1",
+        status: "completed",
+        summary: "Implemented the managed child scope and produced reviewable handoff evidence.",
+        limitations: [],
+        operatorDecisions: [],
+        evidence: [{ uri: "kiln://artifacts/orch-cli/child-1-handoff", kind: "verification" }],
+        citations: [],
+        warnings: [],
+        failures: [],
+        approvalRequirements: [],
+        residualRisks: ["No live provider call was required."],
+        verificationResults: [{
+          requirementId: "managed-child-contract",
+          method: "deterministic",
+          status: "passed",
+          summary: "The structured handoff is valid.",
+          evidenceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
+        }],
+      },
+      verificationUsage: {
+        version: "verification-usage-v1",
+        attempts: [{
+          requirementId: "managed-child-contract",
+          method: "deterministic",
+          status: "passed",
+          providerTokenClass: "input",
+          tokens: { value: 6, source: "estimated" },
+          costUsd: { value: 0, source: "estimated" },
+          latencyMs: { value: 2, source: "estimated" },
+          evidenceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
+        }],
+        totals: { tokens: 6, costUsd: 0, latencyMs: 2 },
+      },
+    };
+    const tools = createWorkGovernanceTools(
+      policy,
+      managedToolOptions(goal, item, workItemStore, goalRunStore, boundHandoff),
+    );
     const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
     const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
     const started = await startTool?.execute({
@@ -742,6 +796,11 @@ describe("work-governance-tool", () => {
         managedInvocationId: "orch-cli:child:1",
       },
     });
+    expect(started?.output).not.toContain("structuredResult");
+    expect(JSON.parse(started?.output ?? "{}")).toMatchObject({
+      item: { resourceUri: `kiln://session/work-items/${encodeURIComponent(item.id)}` },
+      attempt: { hasManagedInvocationResultHandoff: true },
+    });
 
     const finished = await finishTool?.execute({
       name: "work_item.execution.finish",
@@ -750,43 +809,6 @@ describe("work-governance-tool", () => {
         workItemId: item.id,
         attemptId: "goal-managed-handoff:orch-cli:child:1:work-item:attempt:1",
         providedEvidence: ["managed-orchestration:result-handoff"],
-        managedInvocationResultHandoff: {
-          summary: "Implemented the managed child scope and produced reviewable handoff evidence.",
-          resourceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
-          structuredResult: {
-            version: "structured-execution-result-v1",
-            status: "completed",
-            summary: "Implemented the managed child scope and produced reviewable handoff evidence.",
-            limitations: [],
-            operatorDecisions: [],
-            evidence: [{ uri: "kiln://artifacts/orch-cli/child-1-handoff", kind: "verification" }],
-            citations: [],
-            warnings: [],
-            failures: [],
-            approvalRequirements: [],
-            residualRisks: ["No live provider call was required."],
-            verificationResults: [{
-              requirementId: "managed-child-contract",
-              method: "deterministic",
-              status: "passed",
-              summary: "The structured handoff is valid.",
-              evidenceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
-            }],
-          },
-          verificationUsage: {
-            version: "verification-usage-v1",
-            attempts: [{
-              requirementId: "managed-child-contract",
-              method: "deterministic",
-              status: "passed",
-              providerTokenClass: "input",
-              tokens: { value: 6, source: "estimated" },
-              costUsd: { value: 0, source: "estimated" },
-              latencyMs: { value: 2, source: "estimated" },
-              evidenceUris: ["kiln://artifacts/orch-cli/child-1-handoff"],
-            }],
-          },
-        },
       },
     });
 
@@ -808,6 +830,15 @@ describe("work-governance-tool", () => {
         verificationUsage: {
           version: "verification-usage-v1",
           totals: { tokens: 6, costUsd: 0, latencyMs: 2 },
+        },
+      },
+    });
+    expect(finished?.output).not.toContain("structuredResult");
+    expect(JSON.parse(finished?.output ?? "{}")).toMatchObject({
+      item: {
+        resourceUri: `kiln://session/work-items/${encodeURIComponent(item.id)}`,
+        latestAttempt: {
+          hasManagedInvocationResultHandoff: true,
         },
       },
     });
@@ -898,13 +929,9 @@ describe("work-governance-tool", () => {
         preferredRouteId: "opencode-readonly",
         managedAgentProfile: "coder",
       },
-      evidenceRequirements: [{
-        id: "managed-orchestration:adoption-gate",
-        description: "Structured child adoption readiness.",
-        required: true,
-      }],
+      evidenceRequirements: [],
     });
-    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const tools = createWorkGovernanceTools(policy, managedToolOptions(goal, item, workItemStore, goalRunStore));
     await tools.find((candidate) => candidate.name === "work_item.execution.start")?.execute({
       name: "work_item.execution.start",
       input: {
@@ -953,10 +980,6 @@ describe("work-governance-tool", () => {
           { gate: "managed orchestration review", status: "passed" },
           { gate: "managed orchestration adoption gate", status: "passed" },
         ],
-        managedInvocationResultHandoff: {
-          summary: "Implemented child scope with diff, verification, and review resources.",
-          resourceUris: ["kiln://artifacts/orch-cli-readiness/child-1-handoff"],
-        },
         managedOrchestrationAdoption: {
           target: "slice-6-handoff-review-adoption",
           adoptedBy: "reviewer",
@@ -967,6 +990,17 @@ describe("work-governance-tool", () => {
     });
 
     expect(finished?.isError).toBe(false);
+    const projectedFinish = JSON.parse(finished?.output ?? "{}") as {
+      readonly item?: {
+        readonly verificationGateResults?: readonly Record<string, unknown>[];
+      };
+    };
+    expect(projectedFinish.item?.verificationGateResults?.[0]).toMatchObject({
+      gate: "managed orchestration diff evidence",
+      status: "passed",
+      evidenceCount: 0,
+    });
+    expect(projectedFinish.item?.verificationGateResults?.[0]).not.toHaveProperty("evidence");
     expect(finished?.metadata).toMatchObject({
       operation: "execution_finished",
       status: "completed",
@@ -982,133 +1016,6 @@ describe("work-governance-tool", () => {
       missingVerificationGates: [],
     });
     expect(goalRunStore.get(goal.id)?.status).toBe("completed");
-  });
-
-  it("rejects malformed raw managed invocation handoff input before finishing execution", async () => {
-    const goalRunStore = new GoalRunStore({ now: fixedNow });
-    const workItemStore = new WorkItemStore({ now: fixedNow });
-    const item = workItemStore.upsert({
-      id: "orch-cli-invalid:child:1:work-item",
-      summary: "Reject malformed managed child handoff.",
-      workflowProfile: "managed-agent-change",
-      triggers: ["managed-agent-change"],
-      expectedEvidence: ["managed-orchestration:result-handoff"],
-      verificationGates: ["managed orchestration child handoff"],
-      goalRunId: "goal-invalid-handoff",
-      routeId: "opencode-readonly",
-      assignedAgentProfile: "coder",
-      authorityProfile: "foundation-propose-writes",
-      managedOrchestration: {
-        orchestrationId: "orch-cli-invalid",
-        mode: "decomposition",
-        childId: "orch-cli-invalid:child:1",
-        ordinal: 1,
-        roleIntent: "implementation-child",
-        expectedEvidence: [{
-          kind: "result-handoff",
-          label: "bounded child result handoff",
-          required: true,
-        }],
-        isolation: {
-          required: true,
-          reason: "isolated worktree required",
-          workingDirectoryMode: "isolated-worktree",
-        },
-        mergePolicy: {
-          mode: "collect-all",
-          adoptionRequired: false,
-        },
-        adoptionGate: {
-          required: false,
-          target: "slice-6-handoff-review-adoption",
-          reason: "Adoption not required for this child.",
-        },
-      },
-    });
-    const goal = goalRunStore.create({
-      id: "goal-invalid-handoff",
-      objective: "Reject malformed handoff.",
-      ownerSessionId: "session-1",
-      source: { kind: "approved_plan", planId: "plan-1" },
-      workItemIds: [item.id],
-      authorityEnvelope: {
-        maximumAuthority: "audited",
-        escalationPolicy: "approval_required",
-        reason: "Approved plan.",
-      },
-      routePolicy: {
-        workflowProfile: "managed-agent-change",
-        preferredRouteId: "opencode-readonly",
-        managedAgentProfile: "coder",
-      },
-      evidenceRequirements: [{
-        id: "managed-orchestration:result-handoff",
-        description: "Structured child result handoff.",
-        required: true,
-      }],
-    });
-    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
-    await tools.find((candidate) => candidate.name === "work_item.execution.start")?.execute({
-      name: "work_item.execution.start",
-      input: {
-        goalRunId: goal.id,
-        managedInvocationId: "orch-cli-invalid:child:1",
-      },
-    });
-
-    const rejected = await tools.find((candidate) => candidate.name === "work_item.execution.finish")?.execute({
-      name: "work_item.execution.finish",
-      input: {
-        goalRunId: goal.id,
-        workItemId: item.id,
-        attemptId: "goal-invalid-handoff:orch-cli-invalid:child:1:work-item:attempt:1",
-        managedInvocationResultHandoff: {
-          summary: "Implemented the managed child scope.",
-          resourceUris: [],
-        },
-      },
-    });
-
-    expect(rejected?.isError).toBe(true);
-    expect(rejected?.output).toContain("managedInvocationResultHandoff.resourceUris");
-    expect(workItemStore.get(item.id)?.status).toBe("in_progress");
-
-    const rejectedMixedUris = await tools.find((candidate) => candidate.name === "work_item.execution.finish")?.execute({
-      name: "work_item.execution.finish",
-      input: {
-        goalRunId: goal.id,
-        workItemId: item.id,
-        attemptId: "goal-invalid-handoff:orch-cli-invalid:child:1:work-item:attempt:1",
-        managedInvocationResultHandoff: {
-          summary: "Implemented the managed child scope.",
-          resourceUris: ["", "kiln://artifacts/orch-cli-invalid/child-1-handoff"],
-        },
-      },
-    });
-
-    expect(rejectedMixedUris?.isError).toBe(true);
-    expect(rejectedMixedUris?.output).toContain("managedInvocationResultHandoff.resourceUris");
-    expect(workItemStore.get(item.id)?.status).toBe("in_progress");
-
-    const rejectedNullStructuredResult = await tools.find((candidate) => candidate.name === "work_item.execution.finish")?.execute({
-      name: "work_item.execution.finish",
-      input: {
-        goalRunId: goal.id,
-        workItemId: item.id,
-        attemptId: "goal-invalid-handoff:orch-cli-invalid:child:1:work-item:attempt:1",
-        managedInvocationResultHandoff: {
-          summary: "Implemented the managed child scope.",
-          resourceUris: ["kiln://artifacts/orch-cli-invalid/child-1-handoff"],
-          structuredResult: null,
-        },
-      },
-    });
-
-    expect(rejectedNullStructuredResult?.isError).toBe(true);
-    expect(rejectedNullStructuredResult?.output).toContain(
-      "managedInvocationResultHandoff.structuredResult must be an object",
-    );
-    expect(workItemStore.get(item.id)?.status).toBe("in_progress");
   });
 
   it("returns generated goal closeout summary when final execution omits manual summary", async () => {
@@ -1368,17 +1275,22 @@ describe("work-governance-tool", () => {
       },
     });
 
-    expect(blocked?.isError).toBe(true);
+    expect(blocked?.isError).toBe(false);
     expect(blocked?.output).toContain("typecheck");
+    expect(JSON.parse(blocked?.output ?? "{}")).toMatchObject({
+      status: "work_completed_goal_closeout_pending",
+      nextTool: "goal.evidence.record",
+      afterEvidenceTool: "goal.complete",
+    });
     expect(blocked?.metadata).toMatchObject({
       kind: "work_item",
       operation: "execution_finished",
       id: item.id,
       status: "completed",
       missingEvidence: [],
-      missingGoalEvidence: ["typecheck"],
-      errorCode: "missing_evidence",
+      missingGoalEvidence: ["tests", "typecheck"],
     });
+    expect(blocked?.metadata).not.toHaveProperty("errorCode");
     expect(goalRunStore.get(goal.id)).toMatchObject({
       status: "active",
       currentPhase: "paused:goal-closeout",
@@ -2314,7 +2226,21 @@ describe("work-governance-tool", () => {
       },
       evidenceRequirements: [],
     });
-    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+    const startTool = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      managedInvocationProofResolver: (invocationId) => ({
+        invocationId,
+        parentSessionId: "session-1",
+        goalRunId: goal.id,
+        workItemId: item.id,
+        resultHandoff: {
+          summary: "Managed child returned substantive evidence.",
+          resourceUris: ["kiln://artifacts/work-managed/handoff"],
+          memoryWriteProposalUris: [],
+        },
+      }),
+    })
       .find((candidate) => candidate.name === "work_item.execution.start");
 
     const missingInvocation = await startTool?.execute({
@@ -2384,7 +2310,6 @@ describe("work-governance-tool", () => {
       contextMode: "resources",
       resourceUris: ["kiln://artifacts/work-managed/context/content"],
       workItemId: "work-managed",
-      attemptId: "goal-managed:work-managed:attempt:1",
       agentProfile: "coder",
       roleIntent: "Execute governed work item work-managed for goal goal-managed.",
       executionPhase: {
@@ -2407,6 +2332,7 @@ describe("work-governance-tool", () => {
       doneCriteria: ["review child handoff", "Produce phase evidence: managed-agent-review."],
       residualRiskRequired: false,
     });
+    expect(missingInvocationOutput.managedInvocationRequest).not.toHaveProperty("attemptId");
     expect(missingInvocationOutput.managedInvocationRequest?.task).toContain("Execute delegated work.");
     expect(workItemStore.get(item.id)?.status).toBe("pending");
 
@@ -2421,6 +2347,19 @@ describe("work-governance-tool", () => {
     });
     expect(rejectedTranscriptContext).toMatchObject({ isError: true });
     expect(rejectedTranscriptContext?.output).toContain("canonical kiln://artifacts");
+
+    const unverifiedStartTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+    const unverified = await unverifiedStartTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+        managedInvocationId: "invented-invocation",
+      },
+    });
+    expect(unverified).toMatchObject({ isError: true });
+    expect(unverified?.output).toContain("not a verified managed invocation");
 
     const started = await startTool?.execute({
       name: "work_item.execution.start",
@@ -2883,8 +2822,105 @@ describe("work-governance-tool", () => {
     expect(goalRunStore.get("goal-reuse")).toBeUndefined();
     expect(goalRunStore.get("goal-terminal")).toBeUndefined();
   });
+
+  it("records declared goal evidence and closes the paused goal explicitly", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-explicit-closeout",
+      summary: "Verify the release contract.",
+      workflowProfile: "small-fix",
+      triggers: [],
+      expectedEvidence: [],
+      verificationGates: [],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-explicit-closeout",
+      objective: "Close with explicit evidence.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        reason: "Read-only verification.",
+      },
+      routePolicy: { workflowProfile: "small-fix" },
+      evidenceRequirements: [
+        { id: "release-contract", description: "Release contract verified.", required: true },
+      ],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+    finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const evidenceTool = tools.find((candidate) => candidate.name === "goal.evidence.record");
+    const completeTool = tools.find((candidate) => candidate.name === "goal.complete");
+
+    const recorded = await evidenceTool?.execute({
+      name: "goal.evidence.record",
+      input: {
+        goalRunId: goal.id,
+        requirementId: "release-contract",
+        summary: "Package contract verified.",
+        workItemIds: [item.id],
+      },
+    });
+    const completed = await completeTool?.execute({
+      name: "goal.complete",
+      input: {
+        goalRunId: goal.id,
+        closeoutSummary: "Release contract verified and work completed.",
+      },
+    });
+
+    expect(recorded).toMatchObject({
+      isError: false,
+      metadata: { kind: "goal", operation: "record_evidence", changedFields: ["evidence"] },
+    });
+    expect(completed).toMatchObject({
+      isError: false,
+      metadata: { kind: "goal", operation: "complete" },
+    });
+    expect(goalRunStore.get(goal.id)).toMatchObject({ status: "completed" });
+  });
 });
 
 function fixedNow(): string {
   return "2026-05-12T20:00:00.000Z";
+}
+
+function managedToolOptions(
+  goal: { readonly id: string; readonly ownerSessionId: string },
+  item: { readonly id: string },
+  workItemStore: WorkItemStore,
+  goalRunStore: GoalRunStore,
+  resultHandoff: ManagedAgentResultHandoff = {
+    summary: "Managed child returned substantive evidence.",
+    resourceUris: ["kiln://artifacts/managed-child/handoff"],
+    memoryWriteProposalUris: [],
+  },
+) {
+  return {
+    workItemStore,
+    goalRunStore,
+    managedInvocationProofResolver: (invocationId: string) => ({
+      invocationId,
+      parentSessionId: goal.ownerSessionId,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      resultHandoff,
+    }),
+  };
 }

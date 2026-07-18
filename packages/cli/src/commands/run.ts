@@ -81,7 +81,10 @@ import {
   createRuntimeBudgetAdmissionFromGlobalConfig,
   projectGlobalRoutingBudgetPolicy,
 } from "../application/runtime-budget-admission.js";
-import { createKilnRuntimeManagedInvocationAttachment } from "../application/managed-invocation-attachment.js";
+import {
+  createKilnRuntimeManagedInvocationAttachment,
+  createManagedInvocationExecutionProofResolverRef,
+} from "../application/managed-invocation-attachment.js";
 import {
   SkillGenerator,
   AnthropicAdapter,
@@ -1085,6 +1088,7 @@ export async function runCommand(
     });
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
@@ -1096,6 +1100,7 @@ export async function runCommand(
         workItemStore,
         goalRunStore,
         ownerSessionId: approvalMemorySessionId,
+        managedInvocationProofResolver: managedInvocationProofs.resolve,
       }),
     ],
   }, "execute"));
@@ -1120,6 +1125,7 @@ export async function runCommand(
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
     : undefined;
+  managedInvocationProofs.bind(managedInvocationWithService);
   const managedInvocationAttachment = managedInvocationWithService
     ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService)
     : undefined;

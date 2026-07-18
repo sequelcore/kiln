@@ -63,7 +63,7 @@ describe("runSession output routing", () => {
       { type: "tool_use", toolCallId: "bash-1", toolName: "bash", input: { command: "bunx vitest run" } },
       { type: "tool_result", toolCallId: "bash-1", toolName: "bash", output: "blocked", isError: true },
       { type: "text_delta", content: "Only four bullets.\n" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -114,7 +114,7 @@ describe("runSession output routing", () => {
     const session = createSessionFromEvents([
       { type: "text_delta", content: "private reasoning", isThinking: true },
       { type: "text_delta", content: "visible answer" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -160,11 +160,11 @@ describe("runSession output routing", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const primarySession = createSessionFromEvents([
       { type: "error", code: "PRIMARY_FAILED", message: "Primary failed", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
     ]);
     const fallbackSession = createSessionFromEvents([
       { type: "text_delta", content: "fallback answer" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     await runSession({
@@ -202,11 +202,11 @@ describe("runSession output routing", () => {
     const primarySession = createSessionFromEvents([
       { type: "text_delta", content: "primary partial" },
       { type: "error", code: "PRIMARY_FAILED", message: "Primary failed", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
     ]);
     const fallbackSession = createSessionFromEvents([
       { type: "text_delta", content: "fallback answer" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -250,11 +250,11 @@ describe("runSession output routing", () => {
     const primarySession = createSessionFromEvents([
       { type: "text_delta", content: "primary partial" },
       { type: "error", code: "PRIMARY_FAILED", message: "Primary failed", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
     ]);
     const fallbackSession = createSessionFromEvents([
       { type: "text_delta", content: "fallback answer" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
     const result = await runSession({
@@ -291,7 +291,7 @@ describe("runSession output routing", () => {
   it("preserves provider error details when a run crashes before turn start", async () => {
     const session = createSessionFromEvents([
       { type: "error", code: "CODEX_EXIT_ERROR", message: "unexpected argument --bad", isRetryable: false },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: true },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: true },
     ]);
 
     const result = await runSession({

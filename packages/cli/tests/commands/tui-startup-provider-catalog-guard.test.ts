@@ -80,9 +80,9 @@ const runtimeMocks = vi.hoisted(() => ({
     provider: string;
     model?: string;
     models?: Record<string, string[]>;
-    discovery?: readonly Array<{ provider: string; available: boolean; reason: string }>;
+    discovery?: ReadonlyArray<{ provider: string; available: boolean; reason: string }>;
     providerModelDiscovery?: {
-      entries: readonly Array<{
+      entries: ReadonlyArray<{
         providerRoute: { providerId: string; providerModelId: string };
         eligibility: { eligible: boolean; reasonCodes: readonly string[] };
       }>;
@@ -668,7 +668,13 @@ describe("tuiCommand startup provider catalog guard", () => {
     expect(gatewayOptions?.builtinToolOptions).toMatchObject({
       toolProjection: {
         mode: "deferred",
-        alwaysOnTools: expect.arrayContaining(["read", "write", "work_item.update"]),
+        alwaysOnTools: expect.arrayContaining([
+          "read",
+          "write",
+          "work_item.update",
+          "goal.evidence.record",
+          "goal.complete",
+        ]),
       },
       memoryResources: {
         authority: {

@@ -119,12 +119,26 @@ describe("builtin tool surface config", () => {
 
   it("projects execution tools while deferring specialized capabilities", () => {
     const surface = createDefaultBuiltinToolSurface(withProgressiveRuntimeToolProjection({
-      additionalTools: [{
-        name: "work_item.update",
-        description: "Update governed work item.",
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
-        execute: async () => ({ output: "updated", isError: false }),
-      }],
+      additionalTools: [
+        {
+          name: "work_item.update",
+          description: "Update governed work item.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          execute: async () => ({ output: "updated", isError: false }),
+        },
+        {
+          name: "goal.evidence.record",
+          description: "Record goal evidence.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          execute: async () => ({ output: "recorded", isError: false }),
+        },
+        {
+          name: "goal.complete",
+          description: "Complete a goal.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          execute: async () => ({ output: "completed", isError: false }),
+        },
+      ],
     }, "execute"));
 
     expect(surface.toolNames).toContain("tool_catalog_search");
@@ -132,6 +146,8 @@ describe("builtin tool surface config", () => {
     expect(surface.toolNames).toContain("write");
     expect(surface.toolNames).toContain("web_search");
     expect(surface.toolNames).toContain("work_item.update");
+    expect(surface.toolNames).toContain("goal.evidence.record");
+    expect(surface.toolNames).toContain("goal.complete");
     expect(surface.toolNames).not.toContain("browser_session_start");
     expect(surface.registry.has("browser_session_start")).toBe(true);
   });

@@ -17,7 +17,7 @@ describe("runSession", () => {
         cacheReadTokens: 3,
         cacheWriteTokens: 4,
       };
-      yield { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false };
+      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
     });
     const createSession = vi.fn(() => ({
       run,
@@ -111,7 +111,7 @@ describe("runSession", () => {
         },
       };
       yield { type: "tool_result", toolName: "managed_agent.invoke", output: "ok" };
-      yield { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false };
+      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
     });
     const createSession = vi.fn(() => ({
       run,

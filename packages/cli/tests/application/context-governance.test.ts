@@ -86,7 +86,7 @@ describe("runSession context governance integration", () => {
         type: "completed",
         totalUsd: 0,
         durationMs: 1,
-        isError: false,
+        outcome: "completed",
         isPreflightCrash: false,
       } as const;
     });

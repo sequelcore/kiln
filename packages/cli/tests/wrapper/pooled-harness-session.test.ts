@@ -89,12 +89,12 @@ describe("PooledHarnessSession", () => {
           return new MockSession("first-session", [
             { type: "text_delta", content: "partial output must be discarded" },
             { type: "error", code: "CODEX_EXIT_ERROR", message: "codex exited with 429", isRetryable: false },
-            { type: "completed", totalUsd: 0, durationMs: 1, isError: true, isPreflightCrash: false },
+            { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
           ]);
         }
         return new MockSession("second-session", [
           { type: "text_delta", content: "final output" },
-          { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+          { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
         ]);
       },
     });
@@ -105,7 +105,7 @@ describe("PooledHarnessSession", () => {
     expect(createDefaultSession).not.toHaveBeenCalled();
     expect(events).toEqual([
       { type: "text_delta", content: "final output" },
-      { type: "completed", totalUsd: 0, durationMs: 1, isError: false, isPreflightCrash: false },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
   });
 

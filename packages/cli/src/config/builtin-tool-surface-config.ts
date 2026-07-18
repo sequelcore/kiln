@@ -40,6 +40,8 @@ export const PROGRESSIVE_RUNTIME_EXECUTION_TOOLS = [
   "work_item.execution.finish",
   "work_item.execution.fail",
   "goal.create",
+  "goal.evidence.record",
+  "goal.complete",
 ] as const;
 
 export type ProgressiveRuntimeToolProfile = "read-only" | "execute";

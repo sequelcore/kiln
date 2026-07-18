@@ -450,7 +450,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               options.registry.reportFailure(providerId, true);
               break;
             }
-            if (event.isError) {
+            if (event.outcome !== "completed") {
               lastError = attemptError ?? `Provider ${providerId} ended with error`;
               exactArtifacts.add(lastError);
               options.registry.reportFailure(providerId, false);

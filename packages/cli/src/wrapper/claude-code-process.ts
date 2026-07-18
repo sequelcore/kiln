@@ -276,7 +276,11 @@ export class ClaudeSession implements IKilnSession {
             type: "completed",
             totalUsd: totalCostUsd,
             durationMs: Date.now() - startTime,
-            isError: resultMsg.is_error ?? false,
+            outcome: options.abortSignal?.aborted
+              ? "cancelled"
+              : resultMsg.is_error
+                ? "failed"
+                : "completed",
             isPreflightCrash: !initReceived && totalCostUsd === 0,
           };
           if (this.config.sessionLedgerOwner !== "host") try {

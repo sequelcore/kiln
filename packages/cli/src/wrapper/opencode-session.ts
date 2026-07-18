@@ -744,7 +744,7 @@ export class OpenCodeSession implements IKilnSession {
           type: "completed",
           totalUsd: this._lastCostUsd,
           durationMs: Date.now() - startTime,
-          isError: true,
+          outcome: options.abortSignal?.aborted ? "cancelled" : "failed",
           isPreflightCrash: false,
         };
         return;
@@ -1076,12 +1076,16 @@ export class OpenCodeSession implements IKilnSession {
           isRetryable: true,
         };
       }
-      const isError = stopReason === "cancelled" || emptyResponse;
+      const outcome = stopReason === "cancelled" || options.abortSignal?.aborted
+        ? "cancelled"
+        : emptyResponse
+          ? "failed"
+          : "completed";
       yield {
         type: "completed",
         totalUsd: this._lastCostUsd,
         durationMs: Date.now() - startTime,
-        isError,
+        outcome,
         isPreflightCrash: false,
       };
       if (this._config.sessionLedgerOwner !== "host") try {
@@ -1091,7 +1095,7 @@ export class OpenCodeSession implements IKilnSession {
           task: this._config.task,
           provider: "opencode",
           model: this._config.model,
-          hasError: isError,
+          hasError: outcome !== "completed",
         });
         await store.append({
           sessionId: this._remoteSessionId ?? this.sessionId,

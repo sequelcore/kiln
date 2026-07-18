@@ -548,7 +548,13 @@ describe("run command builtin tool wiring", () => {
       id: "surface-options",
       toolProjection: expect.objectContaining({
         mode: "deferred",
-        alwaysOnTools: expect.arrayContaining(["read", "write", "work_item.update"]),
+        alwaysOnTools: expect.arrayContaining([
+          "read",
+          "write",
+          "work_item.update",
+          "goal.evidence.record",
+          "goal.complete",
+        ]),
       }),
       workItemStore: expect.any(Object),
       additionalTools: expect.arrayContaining([

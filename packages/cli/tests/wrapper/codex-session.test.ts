@@ -847,7 +847,7 @@ describe("CodexSession.run() completion", () => {
     mockSpawn.mockReset();
   });
 
-  it("completed.isError is false when no error items received", async () => {
+  it("emits a completed outcome when no error items are received", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
 
@@ -860,11 +860,11 @@ describe("CodexSession.run() completion", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { isError: boolean } | undefined;
-    expect(completed?.isError).toBe(false);
+    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { outcome: string } | undefined;
+    expect(completed?.outcome).toBe("completed");
   });
 
-  it("completed.isError is true when error item received", async () => {
+  it("emits a failed outcome when an error item is received", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
 
@@ -878,8 +878,8 @@ describe("CodexSession.run() completion", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { isError: boolean } | undefined;
-    expect(completed?.isError).toBe(true);
+    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { outcome: string } | undefined;
+    expect(completed?.outcome).toBe("failed");
   });
 
   it("completed.isPreflightCrash is true when turn.failed before turn.started", async () => {
@@ -974,8 +974,8 @@ describe("CodexSession.run() error handling", () => {
 
     const events = await collectPromise;
     expect(events).toContainEqual(expect.objectContaining({ type: "error", code: "CODEX_EXIT_ERROR" }));
-    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { isError: boolean } | undefined;
-    expect(completed?.isError).toBe(true);
+    const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { outcome: string } | undefined;
+    expect(completed?.outcome).toBe("failed");
   });
 
   it("run() does not emit UNKNOWN_MODEL error for unknown model", async () => {
@@ -1049,7 +1049,7 @@ describe("CodexSession lifecycle", () => {
 
     resolveClose(0);
     const events = await collectPromise;
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
   });
 
   it("run() drains stderr from the Codex subprocess", async () => {
@@ -1067,7 +1067,7 @@ describe("CodexSession lifecycle", () => {
     emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
     resolveExit(0);
 
-    await expect(collectPromise).resolves.toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+    await expect(collectPromise).resolves.toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
   });
 
   it("dispose() calls kill() on a running subprocess", async () => {

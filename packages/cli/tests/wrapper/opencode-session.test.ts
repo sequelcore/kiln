@@ -465,7 +465,7 @@ describe("OpenCodeSession.run() integration", () => {
     }
 
     expect(events).toContainEqual({ type: "text_delta", content: "Hello from updated text" });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
   });
 
   it("run() does not duplicate text when delta and updated snapshot cover the same part", async () => {
@@ -632,7 +632,7 @@ describe("OpenCodeSession.run() integration", () => {
 
     expect(events).toContainEqual({ type: "text_delta", content: "Recovered from prompt result" });
     expect(mock.session.messages).not.toHaveBeenCalled();
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
   });
 
   it("run() falls back to final assistant messages when SSE and prompt response omit text", async () => {
@@ -667,7 +667,7 @@ describe("OpenCodeSession.run() integration", () => {
       { throwOnError: false },
     );
     expect(events).toContainEqual({ type: "text_delta", content: "Recovered from session messages" });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: false }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
   });
 
   it("run() reports an empty OpenCode response as a harness error", async () => {
@@ -691,7 +691,7 @@ describe("OpenCodeSession.run() integration", () => {
       message: "OpenCode session reached idle without assistant text, usage, tool, or file-change evidence.",
       isRetryable: true,
     });
-    expect(events).toContainEqual(expect.objectContaining({ type: "completed", isError: true }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
   it("run() yields tool_use for pending/running tool via message.part.updated", async () => {
@@ -1102,7 +1102,7 @@ describe("OpenCodeSession.run() integration", () => {
     expect(costUpdateIndex).toBeLessThan(completedIndex);
   });
 
-  it("run() yields completed with isError false for end_turn", async () => {
+  it("run() yields a completed outcome for end_turn", async () => {
     const mock = makeMockClient("ses_ok", [
       {
         directory: "/tmp",
@@ -1119,10 +1119,10 @@ describe("OpenCodeSession.run() integration", () => {
 
     const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed");
     expect(completed).toBeDefined();
-    expect((completed as { isError: boolean }).isError).toBe(false);
+    expect((completed as { outcome: string }).outcome).toBe("completed");
   });
 
-  it("run() yields completed with isError true for cancelled", async () => {
+  it("run() yields a cancelled outcome for cancelled", async () => {
     const mock = makeMockClient("ses_cancel", [
       {
         directory: "/tmp",
@@ -1139,7 +1139,7 @@ describe("OpenCodeSession.run() integration", () => {
 
     const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed");
     expect(completed).toBeDefined();
-    expect((completed as { isError: boolean }).isError).toBe(true);
+    expect((completed as { outcome: string }).outcome).toBe("cancelled");
   });
 
   it("run() respects abortSignal and kills subprocess", async () => {

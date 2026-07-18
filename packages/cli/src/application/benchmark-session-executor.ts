@@ -46,7 +46,10 @@ import {
 } from "../config/builtin-tool-surface-config.js";
 import { createKilnConfigTools } from "./config-tools.js";
 import { createWorkGovernanceTools } from "./work-governance-tool.js";
-import { createKilnRuntimeManagedInvocationAttachment } from "./managed-invocation-attachment.js";
+import {
+  createKilnRuntimeManagedInvocationAttachment,
+  createManagedInvocationExecutionProofResolverRef,
+} from "./managed-invocation-attachment.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -150,6 +153,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     });
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
+    const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
     let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
       ...configuredBuiltinToolOptions,
       workItemStore,
@@ -157,7 +161,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       additionalTools: [
         ...(configuredBuiltinToolOptions.additionalTools ?? []),
         ...createKilnConfigTools(cwd),
-        ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, { workItemStore, goalRunStore }),
+        ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
+          workItemStore,
+          goalRunStore,
+          managedInvocationProofResolver: managedInvocationProofs.resolve,
+        }),
       ],
     }, "read-only"));
     const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
@@ -181,6 +189,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const managedInvocationWithService = managedInvocation
       ? withManagedInvocationService(managedInvocation)
       : undefined;
+    managedInvocationProofs.bind(managedInvocationWithService);
     const managedInvocationAttachment = managedInvocationWithService
       ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
       : undefined;
