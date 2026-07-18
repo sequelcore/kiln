@@ -3,6 +3,7 @@ export type {
   GoalRunAuthorityEnvelope,
   GoalRunAuthorityLevel,
   GoalRunCompleteInput,
+  GoalRunControlInput,
   GoalRunCreateInput,
   GoalRunEscalationPolicy,
   GoalRunEvidenceRequirement,

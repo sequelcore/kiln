@@ -43,6 +43,7 @@ export type GoalExecutionStep =
     readonly goalRunId: string;
     readonly reasonCode:
       | "goal_terminal"
+      | "operator_paused"
       | "missing_work_items"
       | "dependencies_incomplete"
       | "pause_requirements_unresolved"
@@ -138,6 +139,9 @@ export function selectNextGoalExecutionStep(input: SelectNextGoalExecutionStepIn
   const goal = input.goalRun;
   if (isTerminalGoalStatus(goal.status)) {
     return paused(goal, "goal_terminal", `Goal ${goal.id} is terminal.`, [], [], []);
+  }
+  if (goal.status === "paused") {
+    return paused(goal, "operator_paused", `Goal ${goal.id} is paused by the operator.`, [], [], []);
   }
 
   const itemsById = new Map(input.workItems.map((item) => [item.id, item]));
@@ -274,7 +278,7 @@ export function completeGoalExecution(input: CompleteGoalExecutionInput): GoalRu
 }
 
 export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInput): GoalExecutionAttemptFinish {
-  const goal = requireActiveGoal(input.goalRunStore, input.goalRunId);
+  const goal = requireNonTerminalGoal(input.goalRunStore, input.goalRunId);
   assertGoalContainsWorkItem(goal, input.workItemId);
   const completed = input.workItemStore.finishExecutionAttempt({
     id: input.workItemId,
@@ -290,7 +294,14 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
   if (!completed) {
     throw new Error(`Work item ${input.workItemId} attempt ${input.attemptId} was not found.`);
   }
-  const goalCloseout = completed.item.status === "completed"
+  const goalCloseout = goal.status === "paused"
+    ? {
+        goal,
+        missingGoalEvidence: completed.item.status === "completed"
+          ? missingRequiredGoalEvidence(goal)
+          : [],
+      }
+    : completed.item.status === "completed"
     ? transitionGoalAfterCompletedItem(input, goal)
     : {
         goal: input.goalRunStore.update({
@@ -312,7 +323,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
 }
 
 export function failGoalExecutionAttempt(input: FailGoalExecutionAttemptInput): GoalExecutionAttemptFinish {
-  const goal = requireActiveGoal(input.goalRunStore, input.goalRunId);
+  const goal = requireNonTerminalGoal(input.goalRunStore, input.goalRunId);
   assertGoalContainsWorkItem(goal, input.workItemId);
   const failed = input.workItemStore.failExecutionAttempt({
     id: input.workItemId,
@@ -324,10 +335,12 @@ export function failGoalExecutionAttempt(input: FailGoalExecutionAttemptInput): 
   if (!failed) {
     throw new Error(`Work item ${input.workItemId} attempt ${input.attemptId} was not found.`);
   }
-  const updatedGoal = input.goalRunStore.update({
-    id: goal.id,
-    currentPhase: `paused:${input.workItemId}`,
-  });
+  const updatedGoal = goal.status === "paused"
+    ? goal
+    : input.goalRunStore.update({
+        id: goal.id,
+        currentPhase: `paused:${input.workItemId}`,
+      });
   return {
     goal: updatedGoal,
     item: failed.item,
@@ -465,6 +478,14 @@ function resolveExecutionMode(
 }
 
 function requireActiveGoal(goalRunStore: GoalRunStore, id: string): GoalRun {
+  const goal = requireNonTerminalGoal(goalRunStore, id);
+  if (goal.status !== "active") {
+    throw new Error(`Goal ${id} is paused and cannot start or close execution.`);
+  }
+  return goal;
+}
+
+function requireNonTerminalGoal(goalRunStore: GoalRunStore, id: string): GoalRun {
   const goal = goalRunStore.get(id);
   if (!goal) {
     throw new Error(`Goal ${id} was not found.`);

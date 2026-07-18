@@ -2,10 +2,92 @@ import { describe, expect, it } from "vitest";
 import { createSessionEvent } from "../../src/events/index.js";
 import {
   GoalRunStore,
+  WorkItemStore,
+  completeGoalExecution,
   reconstructGoalRunsFromSessionEvents,
+  selectNextGoalExecutionStep,
 } from "../../src/work-governance/index.js";
 
 describe("GoalRunStore", () => {
+  it("owns foreground goal lifecycle and accumulates only active execution time", () => {
+    let now = "2026-05-12T18:00:00.000Z";
+    const store = new GoalRunStore({ now: () => now });
+    const goal = store.create({
+      id: "goal-lifecycle",
+      objective: "Control the foreground goal.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      workItemIds: [],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Operator-controlled implementation.",
+      },
+      routePolicy: { workflowProfile: "small-fix" },
+      evidenceRequirements: [],
+    });
+
+    expect(goal).toMatchObject({
+      status: "active",
+      activeDurationMs: 0,
+      activeSince: "2026-05-12T18:00:00.000Z",
+    });
+
+    now = "2026-05-12T18:02:30.000Z";
+    const paused = store.pause({ id: goal.id });
+    expect(paused).toMatchObject({
+      status: "paused",
+      currentPhase: "operator_paused",
+      activeDurationMs: 150_000,
+    });
+    expect(paused).not.toHaveProperty("activeSince");
+    expect(selectNextGoalExecutionStep({ goalRun: paused, workItems: [] })).toMatchObject({
+      status: "paused",
+      reasonCode: "operator_paused",
+    });
+    expect(() => completeGoalExecution({
+      goalRunStore: store,
+      workItemStore: new WorkItemStore(),
+      goalRunId: paused.id,
+    })).toThrow("Goal goal-lifecycle is paused and cannot start or close execution");
+
+    now = "2026-05-12T18:12:30.000Z";
+    const resumed = store.resume({ id: goal.id });
+    expect(resumed).toMatchObject({
+      status: "active",
+      activeDurationMs: 150_000,
+      activeSince: "2026-05-12T18:12:30.000Z",
+    });
+
+    now = "2026-05-12T18:13:00.000Z";
+    expect(store.complete({ id: goal.id, closeoutSummary: "Done." })).toMatchObject({
+      status: "completed",
+      activeDurationMs: 180_000,
+    });
+  });
+
+  it("permits only one non-terminal foreground goal per owner session", () => {
+    const store = new GoalRunStore({ now: () => "2026-05-12T18:00:00.000Z" });
+    const input = {
+      objective: "First goal.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct" as const, turnId: "turn-1" },
+      workItemIds: [],
+      authorityEnvelope: {
+        maximumAuthority: "read_only" as const,
+        escalationPolicy: "deny" as const,
+        reason: "Inspection only.",
+      },
+      routePolicy: { workflowProfile: "small-fix" },
+      evidenceRequirements: [],
+    };
+    store.create({ ...input, id: "goal-1" });
+
+    expect(() => store.create({ ...input, id: "goal-2" })).toThrow(
+      "Session session-1 already has foreground goal goal-1",
+    );
+  });
+
   it("creates goal runs with authority, route, plan, work-item, and evidence linkage", () => {
     const notifications: string[] = [];
     const store = new GoalRunStore({

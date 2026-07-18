@@ -1,6 +1,6 @@
 import { compareSessionEvents, type CanonicalSessionEvent } from "../events/session-event.js";
 
-export type GoalRunStatus = "active" | "completed" | "failed" | "cancelled";
+export type GoalRunStatus = "active" | "paused" | "completed" | "failed" | "cancelled";
 
 export type GoalRunAuthorityLevel = "read_only" | "audited" | "destructive";
 
@@ -78,6 +78,10 @@ export interface GoalRunTerminalInput {
   readonly reason?: string;
 }
 
+export interface GoalRunControlInput {
+  readonly id: string;
+}
+
 export interface GoalRunCompleteInput {
   readonly id: string;
   readonly closeoutSummary: string;
@@ -97,6 +101,8 @@ export interface GoalRun {
   readonly currentPhase?: string;
   readonly closeoutSummary?: string;
   readonly terminalReason?: string;
+  readonly activeDurationMs: number;
+  readonly activeSince?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly sequence: number;
@@ -137,11 +143,18 @@ export class GoalRunStore {
     if (this.goals.has(id)) {
       throw new Error(`Goal ${id} already exists.`);
     }
+    const ownerSessionId = requireText(input.ownerSessionId, "ownerSessionId");
+    const existingForeground = this.list().find(
+      (goal) => goal.ownerSessionId === ownerSessionId && !isTerminalGoalStatus(goal.status),
+    );
+    if (existingForeground) {
+      throw new Error(`Session ${ownerSessionId} already has foreground goal ${existingForeground.id}.`);
+    }
     const timestamp = this.now();
     const goal: GoalRun = {
       id,
       objective: requireText(input.objective, "objective"),
-      ownerSessionId: requireText(input.ownerSessionId, "ownerSessionId"),
+      ownerSessionId,
       source: normalizeGoalRunSource(input.source),
       status: "active",
       workItemIds: uniqueRequired(input.workItemIds, "workItemIds"),
@@ -149,6 +162,8 @@ export class GoalRunStore {
       routePolicy: normalizeRoutePolicy(input.routePolicy),
       evidenceRequirements: normalizeEvidenceRequirements(input.evidenceRequirements),
       evidence: [],
+      activeDurationMs: 0,
+      activeSince: timestamp,
       ...(normalizeText(input.currentPhase) ? { currentPhase: normalizeText(input.currentPhase)! } : {}),
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -183,6 +198,45 @@ export class GoalRunStore {
       status: "completed",
       closeoutSummary: requireText(input.closeoutSummary, "closeoutSummary"),
     });
+  }
+
+  pause(input: GoalRunControlInput): GoalRun {
+    const existing = this.requireMutableGoal(input.id);
+    if (existing.status !== "active") {
+      throw new Error(`Goal ${input.id} is ${existing.status} and cannot be paused.`);
+    }
+    const timestamp = this.now();
+    const { activeSince: _activeSince, ...pausedState } = existing;
+    const goal: GoalRun = {
+      ...pausedState,
+      status: "paused",
+      currentPhase: "operator_paused",
+      activeDurationMs: accumulatedActiveDuration(existing, timestamp),
+      updatedAt: timestamp,
+      sequence: ++this.sequence,
+    };
+    this.goals.set(goal.id, goal);
+    this.notifyChanged(goal.id);
+    return goal;
+  }
+
+  resume(input: GoalRunControlInput): GoalRun {
+    const existing = this.requireMutableGoal(input.id);
+    if (existing.status !== "paused") {
+      throw new Error(`Goal ${input.id} is ${existing.status} and cannot be resumed.`);
+    }
+    const timestamp = this.now();
+    const goal: GoalRun = {
+      ...existing,
+      status: "active",
+      currentPhase: "operator_resumed",
+      activeSince: timestamp,
+      updatedAt: timestamp,
+      sequence: ++this.sequence,
+    };
+    this.goals.set(goal.id, goal);
+    this.notifyChanged(goal.id);
+    return goal;
   }
 
   recordEvidence(input: GoalRunRecordEvidenceInput): GoalRun {
@@ -240,6 +294,15 @@ export class GoalRunStore {
   }
 
   restore(goal: GoalRun): GoalRun {
+    const existingForeground = this.list().find(
+      (candidate) => candidate.id !== goal.id
+        && candidate.ownerSessionId === goal.ownerSessionId
+        && !isTerminalGoalStatus(candidate.status)
+        && !isTerminalGoalStatus(goal.status),
+    );
+    if (existingForeground) {
+      throw new Error(`Session ${goal.ownerSessionId} already has foreground goal ${existingForeground.id}.`);
+    }
     this.goals.set(goal.id, goal);
     this.sequence = Math.max(this.sequence, goal.sequence);
     this.notifyChanged(goal.id);
@@ -275,11 +338,14 @@ export class GoalRunStore {
     existing: GoalRun,
     terminal: Pick<GoalRun, "status"> & Partial<Pick<GoalRun, "closeoutSummary" | "terminalReason">>,
   ): GoalRun {
+    const timestamp = this.now();
+    const { activeSince: _activeSince, ...terminalState } = existing;
     const goal: GoalRun = {
-      ...existing,
+      ...terminalState,
       ...terminal,
       currentPhase: terminal.status,
-      updatedAt: this.now(),
+      activeDurationMs: accumulatedActiveDuration(existing, timestamp),
+      updatedAt: timestamp,
       sequence: ++this.sequence,
     };
     this.goals.set(goal.id, goal);
@@ -291,6 +357,18 @@ export class GoalRunStore {
     this.resourceNotifications?.notifyResourceUpdated("kiln://session/goals");
     this.resourceNotifications?.notifyResourceUpdated(`kiln://session/goals/${encodeURIComponent(id)}`);
   }
+}
+
+function accumulatedActiveDuration(goal: GoalRun, timestamp: string): number {
+  if (!goal.activeSince) {
+    return goal.activeDurationMs;
+  }
+  const startedAt = Date.parse(goal.activeSince);
+  const endedAt = Date.parse(timestamp);
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt) || endedAt < startedAt) {
+    throw new Error(`Goal ${goal.id} active clock is invalid.`);
+  }
+  return goal.activeDurationMs + (endedAt - startedAt);
 }
 
 function normalizeGoalRunSource(source: GoalRunSource): GoalRunSource {

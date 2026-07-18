@@ -47,7 +47,7 @@ describe("work-governance store restore", () => {
 
   it("restores goal runs with canonical sequence and resource notifications", () => {
     const source = new GoalRunStore({ now: () => "2026-05-12T18:00:00.000Z" });
-    const goal = source.create({
+    const activeGoal = source.create({
       id: "goal-restored",
       objective: "Resume the governed repair goal.",
       ownerSessionId: "session-1",
@@ -62,6 +62,10 @@ describe("work-governance store restore", () => {
       evidenceRequirements: [
         { id: "tests", description: "Focused tests pass.", required: true },
       ],
+    });
+    const goal = source.complete({
+      id: activeGoal.id,
+      closeoutSummary: "Restored goal completed before the follow-up goal starts.",
     });
     const notifications: string[] = [];
     const store = new GoalRunStore({
