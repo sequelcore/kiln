@@ -98,6 +98,7 @@ Core subsystems:
 - **ContextGovernor** decides what context is sufficient, affordable, and safe to expose
 - **Managed coordination policy** selects direct, sequential, centralized, or independent-review execution from governed signals
 - **GoalRunStore and WorkItemStore** own durable goal, dependency, execution, evidence, and recovery state
+- **Foreground goal control** keeps one active or operator-paused goal per session, with canonical active-time accounting and shared GUI/CLI lifecycle events
 - **Managed orchestration lifecycle** resolves each admitted specialist and route, executes dependency-ready children, propagates bounded handoffs, and records terminal evidence
 - **SafetyKernel** enforces hard boundaries with fail-closed defaults
 - **ModeController** manages operating modes such as `NORMAL`, `DEGRADED`, and `LOCKED`

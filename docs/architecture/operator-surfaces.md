@@ -119,6 +119,23 @@ visual row, terminal sidebar line, or progress badge as authoritative.
 Authority remains in tool metadata, canonical session events, and resource-plane
 snapshots.
 
+Each runtime session admits at most one non-terminal foreground goal. Parallel
+execution belongs to that goal's work items and managed invocations; independent
+goals use independent sessions. The core owns `active`, operator-`paused`, and
+terminal transitions together with accumulated active time. Operator pause
+stops admission of subsequent goal work but does not misrepresent an already
+running tool call as cancelled. Turn cancellation and managed-child cancellation
+remain separate controls.
+
+GUI projects the foreground goal into a compact dock adjacent to the composer.
+The dock exposes the canonical objective, active elapsed time, work-item
+progress, attributed file changes, and pause/resume/edit/cancel controls. Its
+structured detail must be available by keyboard and click; hover may preview but
+cannot be the only access path. The durable goal and tool history remains in the
+transcript. CLI exposes the same lifecycle through `kiln goal pause`, `resume`,
+`edit`, and `cancel`; terminal projections may be less visual but must preserve
+the same state and event semantics.
+
 Operator identity display follows the same rule. Agent, sub-agent, operator,
 assistant, provider, tool, and system identities must be projected from
 canonical gateway-contract data before any surface renders them. Rich surfaces

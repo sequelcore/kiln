@@ -155,6 +155,17 @@ The shared GUI catalog includes `goal`, `plan`, `exec`, `provider`, `theme`,
 work/goal surface, and `plan`/`exec` toggle the same planning state used by the
 composer controls.
 
+## Active Goal Dock
+
+When a session owns a non-terminal foreground goal, the GUI renders a compact
+goal dock immediately above the composer. The collapsed dock keeps the
+canonical objective, active elapsed time, work-item count, and attributed file
+count visible. Its keyboard-accessible popover expands the ordered work items
+and exact file/line changes. Pause, resume, objective edit, and audited
+cancellation send typed `goal_control` frames; they never become model prompts.
+Cancellation is confirmed and preserves the terminal goal record rather than
+deleting evidence.
+
 ## Design System
 
 The GUI uses shadcn with Base UI primitives as its component baseline. The

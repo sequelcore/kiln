@@ -148,6 +148,9 @@ interactive commands include `/clear`, `/theme`, `/provider`, `/effort`,
 - `/effort` cycles the active model's advertised reasoning effort options.
 - `/theme` opens the theme picker.
 - `/continue` focuses the session browser in the sidebar.
+- `/goal` focuses the canonical goal/work projection in the sidebar. Lifecycle
+  mutations use the same persisted core transitions exposed by
+  `kiln goal pause|resume|edit|cancel`.
 - Arrow keys or `j` / `k` navigate the theme picker, provider picker, slash popover, and session list depending on the current UI state.
 
 Printable-first key routing means normal printable characters are appended to the input before most special-case handlers run. That keeps typing responsive and reserves command handling for explicit control keys and slash commands instead of intercepting ordinary text entry.
