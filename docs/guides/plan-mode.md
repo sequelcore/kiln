@@ -209,13 +209,15 @@ verification gates, dependencies, pause requirements, and residual-risk
 requirements. Surfaces must render these canonical work items instead of
 inventing local checklist state.
 
-Execution attempts are explicit. `work_item.execution.start` records the start
-of a governed attempt, including route and authority context. Delegated work
-links the attempt to `managed_agent.invoke`; if the managed invocation id is
-missing, runtime pauses the work item instead of pretending the delegation is
-traceable. If the managed child fails before a parent attempt starts, the work
-item remains paused with `operation=managed_invocation_failed`, and the
-canonical turn is failed rather than completed. A successful start that leaves
+Execution attempts are explicit. For delegated work, the managed invocation
+precedes the attempt. A substantive terminal child handoff supplies a verified
+invocation id to `work_item.execution.start`; that transition atomically creates
+the governed attempt and links route, authority, and child evidence. Unknown or
+fabricated invocation ids fail closed. If the managed child fails before a
+parent attempt starts, no attempt id is created; Runtime returns
+`operation=managed_invocation_failed` plus a blocked work-item update with a
+pending capability requirement, and the canonical turn is failed rather than
+completed. A successful start that leaves
 the item `in_progress` is also not closeout; the turn remains failed/blocked
 until `work_item.execution.finish` records terminal evidence. Goal-owned work
 rejects `work_item.complete`. `work_item.execution.finish` records evidence, verification-gate
@@ -226,6 +228,10 @@ gates, or skipped verification without residual-risk notes block completion and
 project actionable missing-evidence state. If no manual final summary is
 provided, runtime generates a deterministic closeout summary from the evidence
 already recorded in the goal and work-item lifecycle.
+Goal-level requirements are recorded explicitly through
+`goal.evidence.record`; completing work-item evidence with the same label does
+not satisfy them. `goal.complete` is the only terminal closeout transition after
+all work items and declared goal evidence are complete.
 
 The canonical event and resource surface for this lifecycle is:
 

@@ -550,6 +550,12 @@ does not accept `status=in_progress`. A scout or local read-only diagnosis does
 not complete routed work. When a pending work item has an assigned write route,
 the parent should create or use a goal and call `work_item.execution.start`
 instead of reporting a generic read-only sandbox block.
+Goal-bound work closes through the explicit execution lifecycle. A verified
+managed invocation may be attached only through `work_item.execution.start`;
+after `work_item.execution.finish` closes every item, the parent records each
+declared goal requirement with `goal.evidence.record` and calls
+`goal.complete`. These control-plane tools are part of the canonical execute
+projection on CLI, GUI, and TUI surfaces.
 
 UI work that depends on aesthetics or product polish requires
 `visual-reference-research` before planning. Text-only web search is

@@ -212,14 +212,16 @@ or runtime requests the next governed execution step.
 3. choose direct execution or managed delegation from the governed assessment
    and route hints
 4. start an execution attempt with `work_item.execution.start`
-5. for managed delegation, require a recorded `managedInvocationId` before the
-   attempt can start
+5. for managed delegation, resolve `managedInvocationId` through the runtime
+   invocation service and verify its parent session, goal/work-item scope,
+   terminal success, and substantive handoff before the attempt can start
 6. collect evidence and residual-risk closeout
 7. finish the attempt with `work_item.execution.finish`
-8. update the goal phase or terminal state
-9. project the attempt and goal state through canonical events and session
+8. record each declared goal-level requirement with `goal.evidence.record`
+9. close the fully evidenced goal with `goal.complete`
+10. project the attempt and goal state through canonical events and session
    resources
-10. generate a deterministic final summary when completion is admitted and no
+11. generate a deterministic final summary when completion is admitted and no
     manual summary is supplied
 
 **Gates:**
@@ -227,20 +229,21 @@ or runtime requests the next governed execution step.
 - work item must belong to the goal
 - dependencies must be completed
 - pending pause requirements must be resolved
-- managed delegation must be linked to a managed invocation id
+- managed delegation must be linked to a verified, scope-matching, substantive
+  runtime invocation
 - completion requires expected evidence and residual-risk closeout where
   required
-- goal completion requires all configured goal evidence to be satisfied across
-  linked work items
+- goal completion requires an explicit structured record for every required
+  goal-level evidence requirement
 
 **State transitions:** work-item status, execution attempt history, goal
 current phase, terminal goal status, final summary state, and session
 work-item/goal resources.
 
 **Fail-closed behavior:** missing dependencies, unresolved pause requirements,
-missing managed invocation id, missing evidence, failed verification gates, or
-missing residual-risk closeout pauses or blocks execution instead of advancing
-the goal.
+missing or unverifiable managed invocation provenance, missing evidence, failed
+verification gates, missing residual-risk closeout, or missing goal evidence
+pauses or blocks execution instead of advancing the goal.
 
 ## Tool Execution
 

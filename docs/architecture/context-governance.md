@@ -92,6 +92,40 @@ prompt memory such as `combinedMemory` after admission. Route-local retrieval
 may remain as input collection, but model admission goes through the governed
 projection.
 
+### Model-Facing Conversation Projection
+
+The canonical transcript and the model-facing conversation are different
+projections of the same session. Kiln always retains the complete transcript
+for replay, operator inspection, resources, and future continuation. Before
+each provider request, runtime applies one deterministic cross-provider
+projection to accumulated tool results:
+
+- below the configured tool-result threshold, the original message array is
+  passed through unchanged;
+- above the threshold, oldest tool-result payloads are replaced with stable
+  disclosure placeholders until the projection is within budget;
+- the most recent configured number of tool results is always retained so the
+  model can continue the active tool loop;
+- assistant `tool_use` parts, user `tool_result` identity, error state, and
+  message order are preserved;
+- the canonical transcript is never mutated by projection.
+
+The default `tool-result-clearing-v1` policy triggers at 24,000 estimated tool
+result tokens and retains the three most recent results. Runtime execution
+envelopes may override both positive integer values. Each provider-request
+record carries the policy, original/projected token estimates, cleared tool-use
+ids, and overflow state. Request byte/hash evidence is measured from the exact
+projected messages sent to the provider.
+
+This local deterministic policy is the portable baseline across Codex OAuth,
+OpenCode, native harnesses, and API providers. Provider-native compaction can
+remain an additional transport optimization, but it cannot become Kiln's
+canonical transcript owner or silently change replay state. This separation
+matches the server-side editing/full-client-history boundary documented by
+[Anthropic context editing](https://platform.claude.com/docs/en/build-with-claude/context-editing)
+and the canonical compacted-window continuation model documented by
+[OpenAI compaction](https://developers.openai.com/api/docs/guides/compaction).
+
 ## Coordination Provider Failures
 
 Coordination providers are runtime dependencies because they read operational
@@ -123,6 +157,15 @@ The current target is:
   turn context assembly after admission
 - session managers may surface continuity artifacts, but they must not become a
   second context-policy center
+- runtime continuity content is scoped to the same logical session identity;
+  task-shape similarity alone never admits another session's summaries or tool
+  outcomes
+- cached continuity is non-authoritative. Goal, work-item, attempt, invocation,
+  approval, authority, and execution state must be re-read from canonical tools
+  or resources before use
+- cross-session continuity feedback may aggregate strategy, latency, token, and
+  outcome measurements, but it must not transport raw tool results or
+  state-bearing identifiers into a new model turn
 - runtime support seams should emit context and continuity presentation from
   dedicated owners, not from local helper formatting
 - skills are procedural context candidates, not a parallel system-prompt
@@ -137,3 +180,5 @@ The current target is:
 - memory sparsity or retrieval failure is explicit
 - context policy is not hidden in helper utilities
 - admitted/deferred context decisions are auditable
+- a summary candidate cannot establish live operational authority or resource
+  existence

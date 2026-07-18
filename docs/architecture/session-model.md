@@ -60,6 +60,16 @@ thread.
 Provider switching therefore changes the next execution route; it does not
 switch the operator into a different session namespace.
 
+Runtime cache-first continuity follows the same namespace boundary. Thread,
+handoff, context, and tool-summary artifacts are keyed by the logical session
+identity in addition to app, tenant, channel, provider, and task shape as
+applicable. A fresh session with a similar prompt cannot inherit another
+session's goal, work-item, attempt, invocation, approval, or execution state.
+Cached support within a resumed session is explicitly non-authoritative and
+must be reconciled with canonical transcript, tools, and resources. Historical
+cross-session feedback is limited to aggregate continuity measurements; it does
+not carry raw tool outcomes into the model context.
+
 ### Resume Target Persistence
 
 Session history and resume intent are separate persistence concerns.
@@ -104,6 +114,28 @@ All operator surfaces share the same model:
   not delete stored session history.
 - Telemetry is attributed per provider/turn inside the session, while the
   session itself remains canonical.
+
+## Terminal Turn Outcome
+
+Runtime is the single owner of terminal turn outcome. Every execution session,
+including direct providers and native Claude, Codex, and OpenCode harnesses,
+emits exactly one terminal `outcome`: `completed`, `failed`, `paused`, or
+`cancelled`. Intermediate error and failed-tool events remain audit evidence;
+they do not permanently fail a turn that the runtime later recovers and closes
+successfully.
+
+CLI, TUI, GUI, replay, and managed-child adapters persist and present that
+terminal value without re-deriving it from tool names, event order, or a local
+`isError` boolean. A missing terminal outcome fails closed at the surface
+boundary. Session lifecycle remains separate: a host stream can finish cleanly
+while its canonical turn outcome is failed or paused.
+
+Every terminal transport carries the same value. In particular, WebSocket
+`done` frames require `outcome`; gateway adapters must not reduce a runtime
+result to content and token counts. Operator surfaces present `completed` as
+success, `failed` as error, `paused` as an action-required warning, and
+`cancelled` as a neutral cancellation. Reaching the end of a stream is not
+evidence that the turn succeeded.
 
 ## Operator Session Events
 

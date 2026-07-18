@@ -39,6 +39,20 @@ The correction is runtime ownership:
   selection instead of trusting an unexpired local timestamp;
 - keep evidence recording and final integration with the parent work item.
 
+The live release validation exposed one remaining authority leak after the
+initial routing correction: `work_item.execution.start` still accepted the
+returned invocation id as an unverified string, and custom goal evidence had no
+recording/closeout operation. The canonical follow-up removes both gaps:
+
+- managed-delegation start resolves the invocation against the active runtime
+  service and verifies exact session/goal/work-item scope plus a completed,
+  substantive handoff;
+- goal evidence is stored as explicit requirement-scoped records;
+- `goal.complete` validates completed work and required goal evidence before
+  terminalizing the goal;
+- CLI, GUI, TUI, benchmark, replay, and workflow projections share these
+  contracts.
+
 ## Local Harness Comparison
 
 The local Codex research checkout resolves role, depth/capacity,

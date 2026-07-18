@@ -240,14 +240,15 @@ evidence, credential route, and memory scope. Operator surfaces and parent
 agents must use this snapshot as the inspectable authority evidence for a child
 invocation.
 
-Running and terminal snapshots may also carry `progressEvents`. These are
-runtime-observed child events such as tool authorization, tool call, tool
-result, tool cache hit, and runtime error. Direct-provider children emit these
-events through the child `RuntimeSessionOrchestrator` event bus; the managed
-invocation service retains a bounded recent event list for status, list, join,
-cancel, and replay consumers. Progress events are evidence of observed
-execution, not authority grants, and surfaces must not infer missing authority
-from them.
+Running and terminal model-facing snapshots carry `progressEventCount` and at
+most eight bounded `recentProgressEvents`. These summarize runtime-observed
+child events such as tool authorization, tool call, tool result, tool cache hit,
+and runtime error without replaying the entire child history into every parent
+turn. Direct-provider children emit the complete event stream through the child
+`RuntimeSessionOrchestrator` event bus; the managed invocation service and
+transcript retain canonical replay evidence. Progress events are evidence of
+observed execution, not authority grants, and surfaces must not infer missing
+authority from them.
 
 Managed children also carry runtime authority evidence for the permission plane
 when the selected route requires trusted or full-access execution. The request
@@ -824,6 +825,11 @@ session transcript. Background children publish terminal events through the
 start-registered runtime observer when they finish naturally. Out-of-band GUI
 join and cancel controls publish the same terminal events through that sink only
 when they are the first terminal observation.
+Parent session usage attribution follows the same idempotent boundary. A newly
+persisted child terminal event contributes its provider/model input, output,
+cache-read, and cache-write usage exactly once. Replayed or duplicate terminal
+events are filtered by canonical event identity, and surfaces do not estimate
+child usage from parent tool output or free-form handoff text.
 Transcript replay prefers canonical `agent_invocation_*` events when present.
 When a GUI or TUI transcript contains only partial canonical lifecycle evidence
 or managed tool-completion evidence, replay projects the missing operator events
@@ -842,13 +848,13 @@ If canonical start evidence exists but the canonical terminal event is missing,
 terminal managed-tool evidence still closes the invocation instead of being
 suppressed by the earlier canonical event.
 
-Surfaces should render `authoritySnapshot` and `progressEvents` as structured
-evidence when present. `authoritySnapshot` is the cross-surface source of truth
-for the admitted child authority, including explicit `writeAllowed` and
-`networkAllowed` booleans. `progressEvents` is the cross-surface source of truth
-for child tool activity observed before or after terminal join. A surface may
-summarize or paginate these fields for usability, but it must preserve the
-underlying runtime metadata for replay and operator inspection.
+Surfaces should render `authoritySnapshot`, `progressEventCount`, and
+`recentProgressEvents` as structured evidence when present. `authoritySnapshot`
+is the cross-surface source of truth for the admitted child authority, including
+explicit `writeAllowed` and `networkAllowed` booleans. The recent event window is
+only the bounded live projection; canonical child events remain available from
+the transcript and managed-invocation resources for replay and operator
+inspection.
 
 The shared cockpit projection carries active and terminal children, attention
 state, stale heartbeat state, lifecycle timeline, route identity, dirty-worktree
@@ -1007,13 +1013,25 @@ parent-session replay merely because it starts and joins children internally.
 
 When a managed invocation is used to satisfy a governed work item, the parent
 work item records the child handoff through `work_item.execution.start` by
-storing the `managedInvocationId` on the execution attempt. The same attempt is
+storing the verified `managedInvocationId` and substantive result handoff on
+the execution attempt. The identifier is resolved through the active runtime
+invocation service; caller text is not authority. Runtime rejects unknown,
+non-terminal, failed, non-substantive, parent-session-mismatched, or
+goal/work-item-mismatched invocations. The same attempt is
 projected through `work_item_execution_started` and
 `work_item_execution_finished` events and through
 `kiln://session/work-items`, so replay and operator surfaces can connect child
 evidence to the parent work item without parsing prose. A started attempt is
 still open work: until `work_item.execution.finish` records terminal evidence,
 the parent turn is projected as failed/blocked rather than completed.
+Direct managed-delegation handoff and managed-orchestration adoption are
+separate contracts. A single verified child handoff remains attached to its
+execution attempt and never requires a synthetic multi-child orchestration
+policy. Explicit orchestration continues to require its merge/adoption policy
+and projected result handoff.
+Parent session metadata derives child provider attribution from canonical
+managed-invocation lifecycle events, including auto-started work-item phases;
+it does not depend on a visible parent `managed_agent.invoke` tool call.
 Similarly, a successful read-only `managed_agent.invoke` scout does not close
 the parent work item by itself. Execute-mode parent turns receive runtime
 closeout guidance that requires them to continue on the same work item after the
@@ -1048,6 +1066,21 @@ managed child failure later returns recovery guidance, the envelope includes a c
 evidence-to-record, and phase-specific verification gate placeholders. Parent
 agents must execute that tool call only after local recovery evidence is
 actually collected; prose that describes the template is not recovery.
+Pre-start failure recovery never fabricates the deterministic id that a future
+attempt would receive. It returns a blocked `work_item.update` template with a
+pending `capability` requirement. A successful final child instead returns
+`work_item.execution.start` input containing the verified invocation id; only
+that start transition persists the attempt and binds the runtime-verified result
+handoff to it. `work_item.execution.fail` and `work_item.execution.finish` are
+valid only after the persisted start. Finish never accepts a caller-authored
+`managedInvocationResultHandoff`; it closes against the proof already bound by
+the runtime so a model cannot replace or reconstruct child evidence.
+
+When the last work item completes, required goal-level evidence remains an
+independent closeout boundary. The parent records each declared requirement
+through `goal.evidence.record` and then calls `goal.complete`. Recreating the
+goal, copying work-item evidence labels, or emitting a prose summary cannot
+close that boundary.
 The same fail-closed rule applies to successful intermediate children. A
 `managed_agent.invoke` result carrying `managedInvocationPhaseCompletion` or
 `phaseCompletion` is unresolved until a later successful `work_item.update`
@@ -1101,6 +1134,13 @@ Requested authority must also match the selected managed profile. A read-only
 profile cannot be elevated to audited or destructive authority by request text
 or approval flow; the parent must select an admitted write-capable profile and
 route instead.
+The declared `managed_agent.invoke` and `managed_agent.start` envelope remains
+destructive because those tools can target write-capable routes. At invocation
+time, runtime narrows a validated `foundation-readonly-plan` request to an
+audited, compensatable external invocation effect. That read-only child does
+not require an interactive approval handler, so CLI, GUI, and TUI share the
+same behavior. Write-capable or malformed requests retain the conservative
+envelope and continue to require the applicable authority and approval flow.
 If `skills.selection.mode: auto` is configured, CLI-owned managed invocation
 may admit recommended skills for the selected route/task without requiring the
 parent model to repeat them in the tool call. This is still admission, not
@@ -1172,12 +1212,33 @@ write evidence provides the substantive handoff. This keeps parent agents,
 operators, replay, and future SDK surfaces from treating an empty child run as
 usable work.
 
-When an invocation declares a structured handoff contract, Runtime appends that
-contract to the child prompt for both direct providers and native harness
-adapters. The child must return one exact `structured-execution-result-v1` JSON
-object containing the required summary, evidence, checks, verification results,
-and residual risks. Runtime parses and validates that object against the
-contract; it does not synthesize missing success evidence from prose.
+When an invocation declares a structured handoff contract, every adapter must
+produce the same canonical `structured-execution-result-v1` value containing
+the required summary, evidence, verification results, and residual risks. The
+transport differs without changing the contract:
+
+- direct-provider children receive the runtime-internal
+  `managed_agent.submit_handoff` tool and must call it exactly once; Runtime
+  validates and captures the tool input before accepting completion
+- CLI harness adapters require one exact structured result and validate it at
+  the harness boundary
+- remote harness transports return the structured result in the typed managed
+  invocation record
+
+The submission tool is child-internal. It is not projected onto the parent,
+GUI, TUI, or CLI tool surface and grants no workspace or network authority.
+Runtime does not recover missing fields from assistant prose and does not
+synthesize successful verification evidence.
+
+Managed invocation scope is admitted before provider execution. A supplied
+`goalRunId` must identify an active goal owned by the parent runtime session. A
+supplied `workItemId` must identify an open item owned by that goal, and a
+supplied `attemptId` must identify that item's active attempt. Unknown,
+cross-session, terminal, or mismatched scope is rejected before credentials,
+provider execution, or child lifecycle state are created. The automatic
+`work_item.execution.start` path reuses the scope already admitted by the
+canonical work-governance transition rather than performing a second,
+independent lookup.
 
 ## Verification
 

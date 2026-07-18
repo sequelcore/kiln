@@ -45,6 +45,21 @@ the active scope across subsequent provider tool rounds. A successful
 work. Failed validation does not change scope.
 This control metadata is canonical runtime input, not a rendering hint.
 
+A managed invocation identifier is a reference, not proof. Before a
+managed-delegation attempt can start, the work-governance boundary resolves the
+identifier through the active runtime invocation service and verifies the
+parent session, goal, work item, terminal success, and substantive result
+handoff. Unknown, failed, incomplete, or scope-mismatched invocations are
+rejected. Model-supplied strings never establish execution provenance.
+
+Goal evidence is distinct from work-item evidence. Each declared goal
+requirement is satisfied by a structured `goal.evidence.record` entry that
+links a summary, optional resources, and contributing work items to the
+requirement id. After every work item and required evidence entry is complete,
+`goal.complete` performs the terminal validation and records the closeout.
+Work-item evidence with a coincidentally matching label does not silently
+satisfy a goal-level requirement.
+
 GUI, TUI, CLI, replay, and future surfaces consume the shared workflow
 projection contract. A surface may choose a card, sidebar tree, or textual
 layout, but the semantics are invariant:
@@ -394,11 +409,25 @@ Execution attempts are part of the same evidence plane:
   that state as completed local work.
 - `work_item.execution.finish` records evidence, verification gate results,
   skipped checks, and residual risk.
+- A verified single-child `managed_delegation` attempt owns its direct result
+  handoff on the attempt. It does not synthesize or require a
+  `managedOrchestration` merge policy; that policy belongs only to explicit
+  multi-child orchestration/adoption workflows.
 - Failed verification gates block completion until a later attempt records a
   passing result.
-- Skipped gates require residual-risk notes before closeout can proceed.
+- A skipped expected label accounts for that closeout expectation without
+  claiming that evidence was produced. The same label must never appear in
+  `providedEvidence`, and any skipped gate requires a residual-risk note before
+  closeout can proceed.
 
 Goal closeout checks required goal evidence across materialized work items.
+When the work item and attempt are complete but goal evidence is still missing,
+`work_item.execution.finish` succeeds with
+`work_completed_goal_closeout_pending`, exits the work-item execution scope,
+and names `goal.evidence.record` followed by `goal.complete`. Missing goal
+evidence is a subsequent closeout obligation, not a retroactive failure of the
+completed attempt. Terminal goal transitions set `currentPhase` to the terminal
+status so canonical state cannot remain `paused:*` after completion.
 Missing evidence, failed gates, or skipped checks without residual risk are
 projected as actionable closeout state through session events, resources, and
 operator surfaces. If no manual summary is supplied, runtime generates a
@@ -451,6 +480,24 @@ handoff contract fields:
 These fields are admitted as part of the managed invocation request and emitted
 in canonical session events and tool metadata. They are not authority by
 themselves; authority still comes from the managed invocation profile and route.
+They are also not identifiers by assertion: Runtime verifies `goalRunId`,
+`workItemId`, their ownership relationship, parent-session ownership, terminal
+state, and any supplied active attempt before a direct `managed_agent.invoke`
+can start. A missing goal returns `goal_not_found` with `goal.create` as the
+recovery tool; Kiln never runs a child under fabricated governed scope.
+
+The child closes its delegated work through the canonical
+`structured-execution-result-v1` contract. Direct-provider routes submit that
+contract through the runtime-internal `managed_agent.submit_handoff` tool;
+harness adapters validate their corresponding structured transport at the
+adapter boundary. Parent-facing surfaces receive the same validated result DTO
+and replay links regardless of transport.
+
+Model-facing work-governance results are bounded projections. They retain
+status, evidence/gate state, the latest attempt summary, and canonical
+`kiln://session/goals/{id}` or `kiln://session/work-items/{id}` pointers while
+omitting nested structured handoff bodies. The canonical stores, session events,
+and managed-invocation result resources retain the replayable detail.
 
 The parent remains accountable for integration and closeout. A child completion
 is not the same as task completion unless the required evidence gates are
@@ -483,10 +530,13 @@ child to produce the entire work item in a single timeout window. Intermediate
 phases return `executionPhase.completionTool = "work_item.update"` and must be
 recorded as provided evidence on the same pending work item before requesting
 the next phase. Only the final phase returns
-`executionPhase.completionTool = "work_item.execution.finish"` and is eligible
-to link the managed invocation id to a started execution attempt and close the
-item. This keeps delegated work small, replayable, and cross-surface
-observable.
+`executionPhase.completionTool = "work_item.execution.finish"`. Completion of
+that child phase returns a verified invocation id to
+`work_item.execution.start`; the start transition then creates the execution
+attempt and links the substantive handoff. No attempt id exists before that
+transition. The parent subsequently closes the persisted attempt with
+`work_item.execution.finish`. This keeps delegated work small, replayable, and
+cross-surface observable without predictive lifecycle identifiers.
 Evidence phases that depend on external UI or frontend references also carry
 `requiredToolNames` and implied route capabilities. Runtime validates those
 tools and the required `network` capability against the selected managed route
@@ -555,6 +605,10 @@ Managed invocation failures are blocking evidence. A `managed_agent.invoke`
 result with status `failed`, `denied`, `timed-out`, or `cancelled`, whether it
 was called directly by the parent or through `work_item.execution.start`, makes
 the parent turn outcome `failed`.
+When the child fails before `work_item.execution.start` has persisted an
+attempt, recovery uses `work_item.update` to record a pending `capability` pause
+requirement. It must never emit `work_item.execution.fail` or an attempt id for
+an attempt that does not exist.
 For intermediate phases, the blocking result may include
 `managedInvocationRecovery.nextTool = work_item.update`. That recovery is
 resolved only by a later successful `work_item.update` on the same work item
@@ -579,6 +633,12 @@ Persisted session metadata separates lifecycle from turn outcome:
 session may therefore have `sessionLedger.currentPhase = "completed"` because
 the host process exited cleanly, and `lastTurnOutcome = "failed"` because the
 latest governed turn left blocking evidence.
+Runtime derives that outcome from every trusted tool-evidence plane rather than
+selecting the first nonempty projection. A canonical `goal.complete` may
+reconcile an earlier, incomplete work-governance projection only when every
+observed goal is terminal and the terminal plane itself has no open governance
+state. An unresolved managed-invocation failure remains blocking across planes;
+goal closeout cannot hide it.
 
 ## Formal Verification Candidates
 

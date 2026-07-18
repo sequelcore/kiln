@@ -355,6 +355,10 @@ Authority behavior differs by surface:
 
 - authorization happens before execution
 - authorization is derived from resolved invocation effect, not annotations
+- tools with a conservative declared envelope may use a runtime-owned,
+  input-sensitive effect resolver. The resolved effect must be a valid
+  narrowing of that envelope; otherwise execution falls back to the declared
+  conservative effect.
 - destructive or unknown actions require explicit approval unless an admitted
   operator policy explicitly overrides that behavior
 - sandbox violations are denied and audited

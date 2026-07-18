@@ -179,11 +179,36 @@ Governed execution uses explicit goal and work-item contracts:
   `work_item.execution.finish` records terminal evidence. `work_item.complete`
   is reserved for standalone work and rejects goal-owned items.
 - `work_item.execution.finish` closes the attempt and fails closed when
-  evidence, verification gates, goal evidence, or residual-risk closeout is
-  missing.
+  work-item evidence, verification gates, or residual-risk closeout is missing.
+  For managed execution, the verified child handoff is bound by
+  `work_item.execution.start`; never send or reconstruct a
+  `managedInvocationResultHandoff` at finish.
+  If only goal-level evidence remains, it returns the successful
+  `work_completed_goal_closeout_pending` transition and directs the caller to
+  `goal.evidence.record`; it does not mark the completed attempt as failed.
+  Finishing the last work item does not implicitly complete its goal.
+- `goal.evidence.record` satisfies one declared goal-level evidence requirement
+  with a structured summary, resource links, and contributing work-item ids.
+  Work-item evidence with the same label is not a substitute.
+- `goal.complete` performs the terminal goal validation after every work item
+  and required goal evidence record is complete. Do not recreate a paused goal
+  to bypass missing evidence; record the missing evidence and close the same
+  goal id. Successful completion also makes the goal phase terminal rather than
+  leaving a stale `paused:goal-closeout` phase.
+
+Tool responses expose bounded work-item and attempt projections plus canonical
+resource URIs. Read the resource when full replay detail is needed; do not ask
+the model-facing tool output to repeat structured child transcripts or handoff
+bodies.
 
 Agents should not fabricate `goalRunId` values. They must call `goal.create`
 after creating the relevant work items and before starting execution.
+`managed_agent.invoke` validates supplied governed identifiers against the
+session stores before launching a provider. The goal must be active and owned
+by the current runtime session; the work item must be open and belong to that
+goal; any supplied attempt must be the active attempt for the same pair. Treat
+`goal_not_found`, `work_item_not_found`, and scope-mismatch results as required
+governance recovery, not as provider failures.
 When an operator enables **Governed task** in the GUI, the outbound frame carries
 a typed required work-item count. Until exactly that many distinct work items and
 their linked operator-direct goal exist in canonical tool results, the runtime
@@ -193,6 +218,9 @@ After a scout or local read-only diagnosis, an open routed work item is still
 unfinished. The next governed step is `goal.create` when no goal exists, then
 `work_item.execution.start`; parent agents must not report a generic read-only
 sandbox block when a write-capable managed route is already selected.
+After the final work-item attempt finishes, the next governed steps are
+`goal.evidence.record` for each outstanding declared requirement and then
+`goal.complete`.
 When `work_item.execution.start` returns or auto-starts a managed invocation,
 keep the selected route identity intact. Do not recover by switching from the
 work item's route to an unrelated read-only route unless an explicit fallback
@@ -219,8 +247,10 @@ child is producing intermediate evidence only; record that phase's
 `work_item.execution.start` again for the next phase. Do not call
 `work_item.execution.finish` until the generated phase is final. If
 `executionPhase.completionTool` is `work_item.execution.finish`,
-link the returned managed invocation id with `work_item.execution.start` and
-then finish the attempt with the final evidence, checks, and residual risk.
+call `work_item.execution.start` with the returned verified managed invocation
+id. That transition creates and links the canonical attempt; only then finish
+the attempt with the final evidence, checks, and residual risk. Never predict or
+copy an attempt id into the pre-start managed invocation request.
 If a managed child fails before starting an intermediate phase but the parent
 collects that evidence locally, follow the runtime `recovery` object exactly:
 call `work_item.update` with the supplied `workItemUpdateInputTemplate`, then
@@ -229,13 +259,18 @@ required summary, provided evidence, and verification gate placeholders; replace
 only the placeholders with real evidence. Do not end the turn with local
 research prose while the phase evidence remains unrecorded. Writing the JSON
 shape in the assistant message is not recovery; only the actual tool call
-changes governed state. Intermediate evidence phases are not hidden auto-starts:
-the parent receives the hydrated `managed_agent.invoke` request and must invoke
-the child explicitly. Treat that object as exact tool input. Do not add
+changes governed state. Attached Runtime surfaces may execute the hydrated
+managed invocation atomically from `work_item.execution.start`; direct callers
+may execute the returned `managed_agent.invoke` request explicitly. Both paths
+use the same route, authority, handoff, and invocation-id contract. Treat that
+object as exact tool input. Do not add
 `agentProfile` when it is absent, do not replace the route with a guessed
 profile, and do not paste the request as assistant text. If the runtime attaches
 `agentProfile` because exactly one configured profile owns the route, keep that
 value unchanged.
+If invocation fails before a work-item attempt exists, use the returned blocked
+`work_item.update` template. Do not call `work_item.execution.fail`; there is no
+attempt to fail at that point.
 When the generated request includes `requiredToolNames`, keep them intact in
 `managed_agent.invoke`. A route that cannot provide those tools is not a valid
 fallback for that phase; select a capable configured route or let runtime fail
