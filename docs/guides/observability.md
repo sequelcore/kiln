@@ -144,6 +144,41 @@ const composite = new CompositeEventStore([
 
 The `CostTracker` accumulates token usage keyed by `role:model` tuple. This ensures accurate cost attribution when a role switches models mid-session (e.g., via model routing).
 
+Provider billing mode comes from the canonical direct-provider execution
+profile. Subscription and free routes therefore remain non-metered even when a
+model has no entry in the metered pricing table. A metered route without known
+pricing emits `costEvidence.kind: "unknown"` and `comparable: false` in its
+`cost_update`; it does not write a repeated terminal warning.
+
+## Runtime Trace Output
+
+Runtime request traces use structured records with observation time, severity,
+trace ID, component, message, and attributes. The process sink writes each
+record atomically with the platform line ending so Windows terminal wrapping
+cannot carry cursor position into a later record.
+
+Normal operator commands suppress routine `info` traces. Set the process
+environment only when runtime diagnostics are needed:
+
+```powershell
+$env:KILN_LOG_LEVEL = "info"
+kiln gui
+```
+
+Accepted levels are `info`, `warn`, `error`, and `silent`; the default is
+`warn`. Runtime trace records use the compact human format by default. For
+machine ingestion, select JSON Lines:
+
+```powershell
+$env:KILN_LOG_FORMAT = "json"
+kiln gui
+```
+
+`KILN_LOG_FORMAT` changes runtime trace records only. CLI startup and operator
+guidance remain human-facing output. Canonical execution telemetry continues to
+flow through `EventBus`, `EventStore`, OTel, and Prometheus rather than through
+the terminal trace sink.
+
 ## Lifecycle Attribution
 
 Runtime execution appends `lifecycle_attribution_recorded` session events after

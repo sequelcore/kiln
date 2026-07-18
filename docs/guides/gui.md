@@ -541,6 +541,10 @@ See `docs/architecture/session-model.md` for the canonical rules.
 ## Notes
 
 - `kiln gui --no-open` is useful for debugging or when you want to connect manually to the served URL.
+- Normal startup prints only operator-facing status and warning-or-higher
+  runtime traces. Use `KILN_LOG_LEVEL=info` temporarily when diagnosing
+  per-request runtime behavior; use `KILN_LOG_FORMAT=json` when a log collector
+  needs JSON Lines trace records.
 - The GUI still talks to Kiln through the local gateway; there is no parallel control plane.
 - Closing the managed GUI window is the expected Phase 1 shutdown path for the GUI surface.
 - GUI parity status lives in `docs/guides/gui-parity.md`; the manual validation

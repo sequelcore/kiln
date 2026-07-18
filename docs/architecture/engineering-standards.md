@@ -77,6 +77,27 @@ or point here, but architectural and coding doctrine belongs in
 - A model-callable tool must not grant itself authority. Authority comes from
   runtime policy, configured routes, and approval gates.
 
+## Runtime Diagnostics And Terminal Output
+
+- Runtime state must use canonical events or evidence contracts. Do not print a
+  warning for a recoverable state that is already represented by an event such
+  as `cost_update`.
+- Provider billing defaults have one owner in the direct-provider execution
+  profiles. Routing, cost tracking, wrappers, and operator surfaces consume
+  that policy instead of maintaining provider-name conditionals.
+- Runtime traces are structured records containing observation time, severity,
+  trace identity, component, message, and attributes. Trace producers write
+  through a sink; they do not call the global `console`.
+- Process-backed sinks emit one complete record per write, use the platform
+  line ending, send routine information to stdout, and send warnings or errors
+  to stderr. JSON mode is JSON Lines, not JSON embedded in human prose.
+- Normal operator commands show actionable status rather than internal
+  per-request traces. Diagnostic verbosity is explicit and must not change
+  runtime behavior.
+- CLI commands own their human-facing startup, warning, and failure prose
+  through an output adapter so tests and embedding surfaces do not have to
+  intercept global process state.
+
 ## Tests And Verification
 
 - Behavior changes need focused tests at the owning boundary.
