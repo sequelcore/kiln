@@ -19,6 +19,7 @@ import {
   operatorIdentityInitials,
   projectAgentProfileIdentity,
   projectManagedAgentIdentity,
+  type GuiSessionTurnOutcome,
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
@@ -492,6 +493,7 @@ function readDate(value: unknown): Date | undefined {
 export function handleCompleted(
   ctx: HandlerContext,
   totalUsd: number,
+  outcome: GuiSessionTurnOutcome,
   inputTokens: number,
   outputTokens: number,
   runtimeContinuity: { strategy: string; feedbackLabel?: string } | undefined,
@@ -509,7 +511,7 @@ export function handleCompleted(
   // (subscription sessions report 0 from done frame; prefer accumulated cost_update values)
   if (inputTokens > 0) update(ctx.state, "inputTokens", inputTokens);
   if (outputTokens > 0) update(ctx.state, "outputTokens", outputTokens);
-  update(ctx.state, "status", "idle");
+  update(ctx.state, "status", outcome === "failed" ? "error" : "idle");
   update(ctx.state, "currentActivity", { phase: "" });
   update(ctx.state, "thinkingVisible", false);
   update(ctx.state, "thinking", "");
@@ -727,6 +729,7 @@ export async function sendMessage(
           handleCompleted(
             ctx,
             event.totalUsd,
+            event.outcome,
             event.inputTokens ?? 0,
             event.outputTokens ?? 0,
             event.runtimeContinuity,

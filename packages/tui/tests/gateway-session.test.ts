@@ -292,6 +292,7 @@ describe("GatewaySession canonical session events", () => {
         { type: "text", text: "spoken answer" },
         { type: "audio", mimeType: "audio/mpeg", data: "AQID", artifactUri: "kiln://artifacts/voice-synthesis/artifact_1/content" },
       ],
+      outcome: "completed",
       inputTokens: 3,
       outputTokens: 4,
     }));
@@ -343,7 +344,8 @@ describe("GatewaySession canonical session events", () => {
         },
       },
     }));
-    ws.simulateMessage(JSON.stringify({ type: "done", content: "resumed", inputTokens: 1, outputTokens: 1 }));
+    ws.simulateMessage(JSON.stringify({ type: "done", content: "resumed", outcome: "completed",
+                                                                          inputTokens: 1, outputTokens: 1 }));
 
     await collect;
     expect(events).toContainEqual(expect.objectContaining({
@@ -481,6 +483,7 @@ describe("GatewaySession canonical session events", () => {
     ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "done",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
       routedProvider: "codex-oauth",
@@ -618,6 +621,7 @@ describe("GatewaySession canonical session events", () => {
     ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "done",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
     }));
@@ -718,6 +722,7 @@ describe("GatewaySession canonical session events", () => {
     ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "done",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
     }));
@@ -844,6 +849,7 @@ describe("GatewaySession canonical session events", () => {
     ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "done",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
       routedProvider: "codex-oauth",
@@ -944,6 +950,7 @@ describe("GatewaySession canonical session events", () => {
     ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "done",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
     }));
@@ -1037,6 +1044,7 @@ describe("GatewaySession canonical session events", () => {
     ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "done",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
     }));
@@ -1097,6 +1105,7 @@ describe("GatewaySession execution modes", () => {
     ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
     }));
@@ -1128,6 +1137,7 @@ describe("GatewaySession execution modes", () => {
     ws.simulateMessage(JSON.stringify({
       type: "done",
       content: "",
+      outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
     }));

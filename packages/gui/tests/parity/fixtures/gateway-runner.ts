@@ -471,7 +471,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
     }
 
     yield { type: "cost_update", usd: 0.0104, inputTokens: 21, outputTokens: 42 };
-    yield { type: "completed", totalUsd: 0.0104, durationMs: 220, isError: false, isPreflightCrash: false };
+    yield { type: "completed", totalUsd: 0.0104, durationMs: 220, outcome: "completed", isPreflightCrash: false };
 
     sessionSummaries.unshift({
       id: `generated-${Date.now()}`,

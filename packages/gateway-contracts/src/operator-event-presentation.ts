@@ -92,6 +92,13 @@ export interface ToolResultGoalEvidenceRequirementPresentation {
   readonly required: boolean;
 }
 
+export interface ToolResultGoalEvidencePresentation {
+  readonly requirementId: string;
+  readonly summary: string;
+  readonly resourceUris: readonly string[];
+  readonly workItemIds: readonly string[];
+}
+
 export interface ToolResultGoalPresentation {
   readonly id: string;
   readonly objective: string;
@@ -103,6 +110,7 @@ export interface ToolResultGoalPresentation {
   readonly escalationPolicy?: string;
   readonly workflowProfile?: string;
   readonly evidenceRequirements: readonly ToolResultGoalEvidenceRequirementPresentation[];
+  readonly evidence: readonly ToolResultGoalEvidencePresentation[];
 }
 
 export interface ToolResultPreview {
@@ -1312,7 +1320,9 @@ function projectGoalToolPresentation(
   output: string | undefined,
   metadata: Record<string, unknown> | undefined,
 ): ToolResultPresentation | undefined {
-  if (toolName !== "goal.create") return undefined;
+  if (toolName !== "goal.create" && toolName !== "goal.evidence.record" && toolName !== "goal.complete") {
+    return undefined;
+  }
   const record = parseOutputRecord(output);
   const goal = asRecord(record?.goal) ?? asRecord(metadata?.goal);
   const id = readString(goal?.id) ?? readString(metadata?.id);
@@ -1332,6 +1342,7 @@ function projectGoalToolPresentation(
   const workflowProfile = readString(routePolicy?.workflowProfile) ?? undefined;
   const workItemIds = readStringList(goal.workItemIds);
   const evidenceRequirements = readGoalEvidenceRequirements(goal.evidenceRequirements);
+  const evidence = readGoalEvidence(goal.evidence);
   const fields = [
     field("Goal", id),
     field("Status", status),
@@ -1341,6 +1352,7 @@ function projectGoalToolPresentation(
     field("Escalation", escalationPolicy),
     field("Workflow", workflowProfile),
     field("Work items", workItemIds.length),
+    field("Goal evidence", `${evidence.length}/${evidenceRequirements.filter((requirement) => requirement.required).length}`),
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "goal",
@@ -1363,9 +1375,27 @@ function projectGoalToolPresentation(
       ...(escalationPolicy ? { escalationPolicy } : {}),
       ...(workflowProfile ? { workflowProfile } : {}),
       evidenceRequirements,
+      evidence,
     },
     raw: { available: false, reason: "Canonical goal state is rendered inline" },
   };
+}
+
+function readGoalEvidence(value: unknown): readonly ToolResultGoalEvidencePresentation[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const record = asRecord(entry);
+    const requirementId = readString(record?.requirementId);
+    const summary = readString(record?.summary);
+    return requirementId && summary
+      ? [{
+          requirementId,
+          summary,
+          resourceUris: readStringList(record?.resourceUris),
+          workItemIds: readStringList(record?.workItemIds),
+        }]
+      : [];
+  });
 }
 
 function projectFailedToolPresentation(

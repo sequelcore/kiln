@@ -1028,6 +1028,7 @@ export type GuiInboundFrame =
       };
       inputTokens: number;
       outputTokens: number;
+      outcome: GuiSessionTurnOutcome;
       routedProvider?: string;
       routedModel?: string;
       routingRationale?: GuiModelRoutingRationale;

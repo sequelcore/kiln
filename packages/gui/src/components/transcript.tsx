@@ -1385,7 +1385,7 @@ const STANDALONE_TOOL_OUTPUTS = new Set<ToolResultOutputKind>([
 
 function isGovernanceToolEvent(entry: TimelineEventEntry): boolean {
   const toolName = toolEventName(entry);
-  return toolName === "goal.create"
+  return toolName.startsWith("goal.")
     || toolName.startsWith("work_item.")
     || toolName.startsWith("managed_agent.")
     || toolName.startsWith("task_");

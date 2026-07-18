@@ -556,6 +556,7 @@ describe("session-store provider selection", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "codex-live-session",
+      outcome: "completed",
       content: "",
       inputTokens: 1,
       outputTokens: 1,
@@ -1713,6 +1714,7 @@ describe("session-store provider selection", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
+      outcome: "completed",
       content: "",
       inputTokens: 1,
       outputTokens: 2,
@@ -1793,6 +1795,7 @@ describe("session-store provider selection", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
+      outcome: "completed",
       content: "",
       inputTokens: 1,
       outputTokens: 1,
@@ -1833,6 +1836,7 @@ describe("session-store provider selection", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
+      outcome: "completed",
       content: "done",
       inputTokens: 1,
       outputTokens: 1,

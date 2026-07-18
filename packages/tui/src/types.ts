@@ -6,6 +6,7 @@
 import type {
   OperatorEventSurface,
   OperatorExecutionMode,
+  GuiSessionTurnOutcome,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
   ToolResultResourceLinkPresentation,
@@ -26,7 +27,7 @@ export type SessionEvent =
   | { type: "tool_result"; toolName: string; toolCallId?: string; output: string; sessionId?: string; turnId?: string }
   | { type: "file_changed"; path: string; changeType: "created" | "modified" | "deleted"; linesAdded?: number; linesRemoved?: number; sessionId?: string; turnId?: string }
   | { type: "cost_update"; usd: number; sessionId?: string; turnId?: string }
-  | { type: "completed"; totalUsd: number; routedProvider?: string; routedModel?: string }
+  | { type: "completed"; totalUsd: number; outcome: GuiSessionTurnOutcome; routedProvider?: string; routedModel?: string }
   | { type: "error"; message: string }
   | { type: "thinking" }
   | { type: "activity"; activity: string; toolName?: string; toolCallId?: string; stream?: "stdout" | "stderr"; chunkIndex?: number; output?: string; usd?: number; input?: unknown; details?: string; metadata?: Record<string, unknown>; resourceLinks?: readonly ToolResultResourceLinkPresentation[]; toolUsage?: unknown; sessionId?: string; turnId?: string; approvalId?: string; surfaces?: readonly OperatorEventSurface[]; toolPresentation?: ToolResultPresentation; sessionEvent?: OperatorSessionEvent };
@@ -45,6 +46,7 @@ export type SessionEventInternal =
   | {
       type: "completed";
       totalUsd: number;
+      outcome: GuiSessionTurnOutcome;
       inputTokens?: number;
       outputTokens?: number;
       routedProvider?: string;

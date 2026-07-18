@@ -67,6 +67,7 @@ export type TuiInboundFrame =
       parts?: unknown[];
       inputTokens: number;
       outputTokens: number;
+      outcome: "completed" | "failed" | "cancelled" | "paused";
       routedProvider?: string;
       routedModel?: string;
       runtimeContinuity?: {

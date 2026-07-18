@@ -103,6 +103,86 @@ describe("workflow activity projection", () => {
     ]);
   });
 
+  it("projects explicit goal evidence updates into the same goal container", () => {
+    const projection = projectWorkflowActivity([
+      event(1, "tool_call_completed", {
+        toolCallId: "goal-create-1",
+        toolName: "goal.create",
+        metadata: {
+          kind: "goal",
+          operation: "create",
+          goal: {
+            id: "goal-1",
+            objective: "Verify release",
+            status: "active",
+            workItemIds: ["work-1"],
+            evidenceRequirements: [
+              { id: "release-contract", description: "Verify release contract.", required: true },
+            ],
+            evidence: [],
+          },
+        },
+        status: { state: "succeeded" },
+      }),
+      event(2, "tool_call_completed", {
+        toolCallId: "work-finish-1",
+        toolName: "work_item.execution.finish",
+        metadata: {
+          kind: "work_item",
+          operation: "execution_finished",
+          item: workItem("work-1", "completed", ["tests"]),
+          goal: {
+            id: "goal-1",
+            objective: "Verify release",
+            status: "active",
+            workItemIds: ["work-1"],
+            evidenceRequirements: [
+              { id: "release-contract", description: "Verify release contract.", required: true },
+            ],
+            evidence: [],
+          },
+        },
+        status: { state: "failed" },
+      }),
+      event(3, "tool_call_completed", {
+        toolCallId: "goal-evidence-1",
+        toolName: "goal.evidence.record",
+        metadata: {
+          kind: "goal",
+          operation: "record_evidence",
+          goal: {
+            id: "goal-1",
+            objective: "Verify release",
+            status: "active",
+            workItemIds: ["work-1"],
+            evidenceRequirements: [
+              { id: "release-contract", description: "Verify release contract.", required: true },
+            ],
+            evidence: [{
+              requirementId: "release-contract",
+              summary: "Package surface verified.",
+              resourceUris: ["kiln://artifacts/release/contract"],
+              workItemIds: ["work-1"],
+            }],
+          },
+        },
+        status: { state: "succeeded" },
+      }),
+    ]);
+
+    expect(projection.goals).toHaveLength(1);
+    expect(projection.goals[0]).toMatchObject({
+      status: "blocked",
+      statusReason: "Goal closeout is missing",
+      goal: {
+        evidence: [{
+          requirementId: "release-contract",
+          summary: "Package surface verified.",
+        }],
+      },
+    });
+  });
+
   it("replaces the active goal snapshot with the terminal execution result", () => {
     const projection = projectWorkflowActivity([
       event(1, "tool_call_completed", {

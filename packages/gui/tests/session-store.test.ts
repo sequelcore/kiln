@@ -196,6 +196,7 @@ describe("session-store", () => {
       type: "done",
       kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
+      outcome: "completed",
       content: "spoken answer",
       parts: [
         { type: "text", text: "spoken answer" },
@@ -223,6 +224,7 @@ describe("session-store", () => {
       type: "done",
       kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
+      outcome: "completed",
       content: "Generate audio later.",
       parts: [{ type: "text", text: "Generate audio later." }],
       inputTokens: 3,
@@ -248,6 +250,7 @@ describe("session-store", () => {
       type: "done",
       kilnSessionId: "session-live",
       sourceMessageId: "runtime-message-1",
+      outcome: "completed",
       content: "Generate audio later.",
       parts: [{ type: "text", text: "Generate audio later." }],
       inputTokens: 3,
@@ -349,6 +352,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
+      outcome: "completed",
       content: "Sure.",
       admittedInput: { content: "[Voice note transcription]: Can you summarize this?" },
       inputTokens: 3,
@@ -516,6 +520,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
+      outcome: "completed",
       content: "Created live_test_visibility.txt.",
       inputTokens: 1,
       outputTokens: 1,
@@ -580,6 +585,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
+      outcome: "completed",
       content: "",
       inputTokens: 1,
       outputTokens: 1,
@@ -597,6 +603,24 @@ describe("session-store", () => {
     });
     expect(state.routedProvider).toBe("claude");
     expect(state.routedModel).toBe("sonnet");
+  });
+
+  it("presents a paused terminal outcome without misreporting success", () => {
+    useSessionStore.getState().onDone({
+      type: "done",
+      kilnSessionId: "session-live",
+      outcome: "paused",
+      content: "Waiting for operator input.",
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+
+    expect(useSessionStore.getState().timelineEntries.at(-1)).toMatchObject({
+      eventKind: "turn_completed",
+      title: "Turn paused",
+      tone: "warning",
+      details: expect.objectContaining({ outcome: "paused" }),
+    });
   });
 
   it("ignores late frames from the detached live session after New Session clears the UI", () => {
@@ -637,6 +661,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "old-live-session",
+      outcome: "completed",
       content: "late stale completion",
       inputTokens: 1,
       outputTokens: 1,
@@ -675,6 +700,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "new-live-session",
+      outcome: "completed",
       content: "",
       inputTokens: 1,
       outputTokens: 1,
@@ -2311,6 +2337,7 @@ describe("session-store", () => {
     useSessionStore.getState().onDone({
       type: "done",
       kilnSessionId: "session-live",
+      outcome: "completed",
       content: "done",
       inputTokens: 250,
       outputTokens: 75,
@@ -2367,7 +2394,7 @@ describe("session-store", () => {
     }));
   });
 
-  it("renders cancelled turn completion events with error tone", () => {
+  it("renders cancelled turn completion events with neutral cancellation semantics", () => {
     useSessionStore.getState().onSessionEvent({
       eventId: "evt-turn-cancelled",
       kilnSessionId: "session-live",
@@ -2384,8 +2411,9 @@ describe("session-store", () => {
     expect(state.timelineEntries).toContainEqual(expect.objectContaining({
       type: "event",
       eventKind: "turn_completed",
+      title: "Turn cancelled",
       summary: "cancelled",
-      tone: "error",
+      tone: "info",
     }));
   });
 

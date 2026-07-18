@@ -190,6 +190,21 @@ function goalFromRecord(record: Record<string, unknown>): ToolResultGoalPresenta
             : [];
         })
       : [],
+    evidence: Array.isArray(record.evidence)
+      ? record.evidence.flatMap((entry) => {
+          const evidence = asRecord(entry);
+          const requirementId = readString(evidence?.requirementId);
+          const summary = readString(evidence?.summary);
+          return requirementId && summary
+            ? [{
+                requirementId,
+                summary,
+                resourceUris: readStrings(evidence?.resourceUris),
+                workItemIds: readStrings(evidence?.workItemIds),
+              }]
+            : [];
+        })
+      : [],
   };
 }
 
@@ -260,7 +275,16 @@ function projectedGoalStatus(
     && workItems.length > 0
     && workItems.every((entry) => normalizeStatus(entry.item.status) === "completed")
   ) {
-    return { status: "blocked", statusReason: "Goal closeout is missing" };
+    const recorded = new Set(goal.evidence.map((evidence) => evidence.requirementId));
+    const missing = goal.evidenceRequirements
+      .filter((requirement) => requirement.required && !recorded.has(requirement.id))
+      .map((requirement) => requirement.id);
+    return {
+      status: "blocked",
+      statusReason: missing.length > 0
+        ? `Missing goal evidence: ${missing.join(", ")}`
+        : "Goal closeout is missing",
+    };
   }
   return { status };
 }

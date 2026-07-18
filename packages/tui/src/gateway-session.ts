@@ -589,6 +589,7 @@ export class GatewaySession implements SessionLike {
       this.push({
         type: "completed",
         totalUsd: 0,
+        outcome: frame.outcome,
         inputTokens: frame.inputTokens,
         outputTokens: frame.outputTokens,
         routedProvider: frame.routedProvider,

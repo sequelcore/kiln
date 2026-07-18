@@ -384,11 +384,19 @@ function toolEntryStatusFromPresentation(value: unknown, tone: TimelineEventEntr
   return toolEntryStatus(value);
 }
 
-function turnCompletedTone(outcome: unknown): TimelineEventEntry["tone"] {
-  const normalized = readString(outcome);
-  return normalized === "failed" || normalized === "cancelled" || normalized === "timed_out" || normalized === "error"
-    ? "error"
-    : "success";
+function turnOutcomePresentation(outcome: unknown): Pick<TimelineEventEntry, "title" | "tone"> {
+  switch (readString(outcome)) {
+    case "completed":
+      return { title: "Turn completed", tone: "success" };
+    case "failed":
+      return { title: "Turn failed", tone: "error" };
+    case "paused":
+      return { title: "Turn paused", tone: "warning" };
+    case "cancelled":
+      return { title: "Turn cancelled", tone: "info" };
+    default:
+      return { title: "Invalid turn outcome", tone: "error" };
+  }
 }
 
 function approvalIdFromDetails(details: unknown): string | null {
@@ -1030,6 +1038,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     }
 
     if (event.kind === "turn_completed") {
+      const outcomePresentation = turnOutcomePresentation(payload.outcome);
       const routingRationale = isObjectRecord(payload.routingRationale) ? payload.routingRationale : null;
       lastRoutedProvider = readString(payload.routedProvider)
         ?? readString(routingRationale?.selectedProvider)
@@ -1045,9 +1054,9 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
-        title: "Turn completed",
+        title: outcomePresentation.title,
         summary: readString(payload.outcome) ?? undefined,
-        tone: turnCompletedTone(payload.outcome),
+        tone: outcomePresentation.tone,
         details: payload,
       });
       continue;
@@ -2638,6 +2647,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     if (event.kind === "turn_completed") {
+      const outcomePresentation = turnOutcomePresentation(payload.outcome);
       const current = get();
       const routingRationale = isObjectRecord(payload.routingRationale) ? payload.routingRationale : null;
       const routedProvider = readString(payload.routedProvider)
@@ -2659,9 +2669,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             createdAt: event.timestamp,
             sequence: event.sequence,
             ...timelineTurnId(event),
-            title: "Turn completed",
+            title: outcomePresentation.title,
             summary: readString(payload.outcome) ?? undefined,
-            tone: turnCompletedTone(payload.outcome),
+            tone: outcomePresentation.tone,
             details: payload,
           },
         ],
@@ -2847,6 +2857,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const finalizedModel = frame.routedModel ?? state.respondingModel ?? state.activeModel ?? undefined;
     const responseParts = frame.parts && frame.parts.length > 0 ? frame.parts : undefined;
     const voiceSynthesisStatus = responseParts && hasAudioPart(responseParts) ? "ready" as const : "idle" as const;
+    const outcomePresentation = turnOutcomePresentation(frame.outcome);
 
     let nextInputTokens = state.inputTokens;
     let nextOutputTokens = state.outputTokens;
@@ -2920,10 +2931,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         type: "event",
         eventKind: "turn_completed",
         createdAt: nowIso(),
-        title: "Turn completed",
+        title: outcomePresentation.title,
         summary: finalizedProvider ? [finalizedProvider, finalizedModel].filter(Boolean).join(" · ") : undefined,
-        tone: "success",
+        tone: outcomePresentation.tone,
         details: {
+          outcome: frame.outcome,
           routedProvider: finalizedProvider,
           routedModel: finalizedModel,
           routingRationale: frame.routingRationale,

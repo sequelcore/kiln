@@ -123,6 +123,35 @@ describe("GuiWsClient", () => {
   });
 
   describe("canonical session events", () => {
+    it("requires and preserves the canonical outcome on done frames", () => {
+      client = createClient();
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1]!;
+
+      wsInstance.simulateMessage(JSON.stringify({
+        type: "done",
+        kilnSessionId: "session-1",
+        content: "Paused for operator input.",
+        inputTokens: 12,
+        outputTokens: 4,
+        outcome: "paused",
+      }));
+      expect(onFrame).toHaveBeenLastCalledWith(expect.objectContaining({
+        type: "done",
+        outcome: "paused",
+      }));
+
+      onFrame.mockClear();
+      wsInstance.simulateMessage(JSON.stringify({
+        type: "done",
+        kilnSessionId: "session-1",
+        content: "Ambiguous terminal frame.",
+        inputTokens: 12,
+        outputTokens: 4,
+      }));
+      expect(onFrame).not.toHaveBeenCalled();
+    });
+
     it("accepts live context-usage evidence instead of dropping it during frame validation", () => {
       client = createClient();
       client.connect();
@@ -1115,6 +1144,7 @@ describe("GuiWsClient", () => {
             content: "completed",
             inputTokens: 100,
             outputTokens: 50,
+            outcome: "completed",
             routingRationale: {
               selectedProvider: "codex-oauth",
               selectedModel: "gpt-5.4-mini",
@@ -1151,6 +1181,7 @@ describe("GuiWsClient", () => {
             content: "completed",
             inputTokens: 100,
             outputTokens: 50,
+            outcome: "completed",
             routingRationale: {
               selectedProvider: "codex-oauth",
               selectedModel: "gpt-5.4-mini",

@@ -599,6 +599,7 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     admittedInput: z.object({ content: z.string() }).optional(),
     inputTokens: z.number(),
     outputTokens: z.number(),
+    outcome: z.enum(["completed", "failed", "cancelled", "paused"]),
     routedProvider: z.string().optional(),
     routedModel: z.string().optional(),
     routingRationale: GuiModelRoutingRationaleSchema.optional(),
