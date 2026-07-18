@@ -53,6 +53,30 @@ describe("execution identity helpers", () => {
     });
   });
 
+  it.each([
+    ["opencode-go", "deepseek-v4-flash", "subscription"],
+    ["opencode-zen", "deepseek-v4-pro", "metered"],
+    ["lmstudio", "local-model", "free"],
+  ] as const)("uses the canonical %s provider billing policy", (provider, model, billingMode) => {
+    expect(resolveExecutionIdentity({
+      configuredProvider: provider,
+      configuredModel: model,
+    })).toMatchObject({
+      provider,
+      model,
+      billingMode,
+    });
+  });
+
+  it("does not let a model-name suffix override a subscription provider contract", () => {
+    expect(resolveExecutionIdentity({
+      configuredProvider: "opencode-go",
+      configuredModel: "historical-model-free",
+    })).toMatchObject({
+      billingMode: "subscription",
+    });
+  });
+
   it("returns undefined when no provider/model is known", () => {
     expect(resolveExecutionIdentity({})).toBeUndefined();
   });

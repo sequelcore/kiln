@@ -5,8 +5,8 @@ import {
   KilnError,
   appendExecutionIdentity,
   type ContentPart,
-  getDirectProviderExecutionProfile,
   isRetryable as isCredentialOutcomeRetryable,
+  resolveProviderDefaultBillingMode,
   resolveExecutionIdentity,
   textPart,
   type AgentMessage,
@@ -86,20 +86,6 @@ const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
   ollama: 8,
   lmstudio: 9,
 };
-
-function getDefaultBillingMode(
-  provider: ProviderSessionConfig["provider"],
-): "metered" | "free" | "subscription" {
-  const profile = getDirectProviderExecutionProfile(provider);
-  if (
-    profile?.defaultBillingMode === "metered"
-    || profile?.defaultBillingMode === "free"
-    || profile?.defaultBillingMode === "subscription"
-  ) {
-    return profile.defaultBillingMode;
-  }
-  return provider === "ollama" || provider === "lmstudio" ? "free" : "metered";
-}
 
 function filterCapabilityMap(
   capabilities: ReadonlyMap<string, Capability>,
@@ -398,7 +384,7 @@ export class ProviderSession implements IKilnSession {
       resolveExecutionIdentity({
         configuredProvider: this.config.provider,
         configuredModel: this.resolvedModel,
-        configuredBillingMode: getDefaultBillingMode(this.config.provider),
+        configuredBillingMode: resolveProviderDefaultBillingMode(this.config.provider),
       }),
     );
     return { systemPrompt, userPrompt };
@@ -498,7 +484,7 @@ export class ProviderSession implements IKilnSession {
           provider: this.config.provider,
           model: this.resolvedModel,
           canonicalModel: this.resolvedModel,
-          billingMode: getDefaultBillingMode(this.config.provider),
+          billingMode: resolveProviderDefaultBillingMode(this.config.provider),
           inputTokens,
           outputTokens,
         };
@@ -514,7 +500,7 @@ export class ProviderSession implements IKilnSession {
       provider: this.config.provider,
       model: this.resolvedModel,
       canonicalModel: this.resolvedModel,
-      billingMode: getDefaultBillingMode(this.config.provider),
+      billingMode: resolveProviderDefaultBillingMode(this.config.provider),
     };
     yield { type: "completed", totalUsd: 0, durationMs: Date.now() - startedAt, outcome, isPreflightCrash: false };
   }
@@ -810,7 +796,7 @@ export class ProviderSession implements IKilnSession {
     const executionIdentity = resolveExecutionIdentity({
       configuredProvider: this.config.provider,
       configuredModel: this.resolvedModel,
-      configuredBillingMode: getDefaultBillingMode(this.config.provider),
+      configuredBillingMode: resolveProviderDefaultBillingMode(this.config.provider),
       routedProvider: result.routingDecision?.provider,
       routedModel: result.routingDecision?.model,
       routedCanonicalModel: result.routingDecision?.canonicalModel,

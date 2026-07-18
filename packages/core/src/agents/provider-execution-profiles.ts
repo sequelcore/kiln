@@ -1,6 +1,11 @@
-import type { ReasoningEffort } from "./index.js";
-import type { ExecutionBillingMode } from "./execution-identity.js";
+import type { ReasoningEffort } from "./phase-aware-route-policy.js";
 import { ModelCapabilityRegistry } from "./model-capability-registry.js";
+
+export type ExecutionBillingMode =
+  | "metered"
+  | "subscription"
+  | "free"
+  | "unknown";
 
 export type DirectProviderId =
   | "codex-oauth"
@@ -122,6 +127,12 @@ export function getDirectProviderExecutionProfile(
 ): DirectProviderExecutionProfile | undefined {
   if (!isDirectProviderId(provider)) return undefined;
   return DIRECT_PROVIDER_EXECUTION_PROFILES.get(provider);
+}
+
+export function resolveProviderDefaultBillingMode(
+  provider: string | undefined,
+): ExecutionBillingMode {
+  return getDirectProviderExecutionProfile(provider)?.defaultBillingMode ?? "unknown";
 }
 
 export function resolveDirectProviderExecutionProfile(options: {

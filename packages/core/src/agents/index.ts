@@ -220,6 +220,7 @@ export {
   isDirectProviderId,
   listDirectProviderExecutionProfiles,
   getDirectProviderExecutionProfile,
+  resolveProviderDefaultBillingMode,
   resolveDirectProviderExecutionProfile,
 } from "./provider-execution-profiles.js";
 export { scoreComplexity } from "./complexity-scorer.js";

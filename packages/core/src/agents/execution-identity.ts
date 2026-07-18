@@ -1,8 +1,9 @@
-export type ExecutionBillingMode =
-  | "metered"
-  | "subscription"
-  | "free"
-  | "unknown";
+import {
+  resolveProviderDefaultBillingMode,
+  type ExecutionBillingMode,
+} from "./provider-execution-profiles.js";
+
+export type { ExecutionBillingMode } from "./provider-execution-profiles.js";
 
 export interface ExecutionIdentity {
   readonly source: "configured" | "runtime-routed";
@@ -55,13 +56,10 @@ function inferBillingMode(
   const normalizedProvider = normalize(provider)?.toLowerCase();
   const normalizedModel = normalize(model)?.toLowerCase();
   const normalizedCanonicalModel = normalize(canonicalModel)?.toLowerCase();
+  const providerBillingMode = resolveProviderDefaultBillingMode(normalizedProvider);
 
-  if (normalizedProvider === "codex-oauth") {
-    return "subscription";
-  }
-
-  if (normalizedProvider === "ollama") {
-    return "free";
+  if (providerBillingMode === "subscription" || providerBillingMode === "free") {
+    return providerBillingMode;
   }
 
   const looksFree =
@@ -73,16 +71,7 @@ function inferBillingMode(
     return "free";
   }
 
-  if (
-    normalizedProvider === "anthropic" ||
-    normalizedProvider === "openai" ||
-    normalizedProvider === "deepseek" ||
-    normalizedProvider === "openrouter"
-  ) {
-    return "metered";
-  }
-
-  return "unknown";
+  return providerBillingMode;
 }
 
 export function resolveExecutionIdentity(

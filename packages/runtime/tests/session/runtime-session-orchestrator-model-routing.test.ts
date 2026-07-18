@@ -1483,6 +1483,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
         comparable: false,
       },
     });
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it("routingDecision is included in OrchestrateResult", async () => {

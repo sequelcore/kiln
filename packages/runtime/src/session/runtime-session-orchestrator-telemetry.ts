@@ -182,7 +182,6 @@ export interface ProviderRequestCachePartitionInput {
 
 export class RuntimeSessionExecutionTelemetry {
   private executionIdentity: ExecutionIdentity | undefined;
-  private warnedMissingModel = false;
   private readonly providerRequests: ProviderRequestEvidence[] = [];
 
   private totals: OrchestratorUsageSnapshot = {
@@ -352,10 +351,6 @@ export class RuntimeSessionExecutionTelemetry {
 
   private get resolvedPricing(): ModelPricing | undefined {
     if (!this.executionIdentity) {
-      if (!this.warnedMissingModel) {
-        console.warn("[RuntimeSessionOrchestrator] No resolved model available for cost tracking; cost will be $0 until routing/model selection is known.");
-        this.warnedMissingModel = true;
-      }
       return undefined;
     }
     if (
@@ -364,12 +359,7 @@ export class RuntimeSessionExecutionTelemetry {
     ) {
       return undefined;
     }
-    const pricing = resolveExecutionPricing(this.executionIdentity);
-    if (!pricing) {
-      const resolvedModel = this.executionIdentity.canonicalModel ?? this.executionIdentity.model ?? "unknown";
-      console.warn(`[RuntimeSessionOrchestrator] No metered pricing found for execution model "${resolvedModel}" -- cost will be $0 until billing metadata or pricing is known.`);
-    }
-    return pricing;
+    return resolveExecutionPricing(this.executionIdentity);
   }
 }
 
