@@ -137,7 +137,7 @@ type StoreActivityFrame = {
 
 const PLAN_MODE_KEY = "kiln.gui.planMode";
 const CONTINUATION_TARGET_KEY = "kiln.gui.continuationTarget";
-const PROVIDER_SELECTION_KEY = "kiln.gui.providerSelection";
+const PROVIDER_SELECTION_KEY = "kiln.gui.providerSelection:v1";
 const CLEAR_TIMEOUT_MS = 5_000;
 const PROVIDER_SWITCH_TIMEOUT_MS = 5_000;
 const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
@@ -1759,6 +1759,11 @@ interface SessionStoreState {
   readonly currentTurnTrackedOutputTokens: number;
   readonly clearPending: boolean;
   readonly turnCancelPending: boolean;
+  readonly goalControlPending: {
+    readonly requestId: string;
+    readonly goalRunId: string;
+    readonly action: "pause" | "resume" | "update_objective" | "cancel";
+  } | null;
   readonly providerSwitching: boolean;
   readonly providerSwitchTarget: ProviderSwitchTarget | null;
   readonly providerAuthenticating: boolean;
@@ -1800,6 +1805,7 @@ interface SessionStoreActions {
   onActivity: (frame: StoreActivityFrame) => void;
   onDone: (frame: Extract<GuiInboundFrame, { type: "done" }>) => void;
   onTurnCancelResult: (frame: Extract<GuiInboundFrame, { type: "turn_cancel_result" }>) => void;
+  onGoalControlResult: (frame: Extract<GuiInboundFrame, { type: "goal_control_result" }>) => void;
   onVoiceSynthesisCompleted: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_completed" }>) => void;
   onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
@@ -1827,6 +1833,12 @@ interface SessionStoreActions {
   requestVoiceSynthesis: (messageId: string) => boolean;
   sendClear: () => boolean;
   cancelActiveTurn: () => boolean;
+  controlGoal: (input: {
+    readonly goalRunId: string;
+    readonly action: "pause" | "resume" | "update_objective" | "cancel";
+    readonly objective?: string;
+    readonly reason?: string;
+  }) => boolean;
   setPlanMode: (enabled: boolean, options?: { readonly gatewayTargetId?: string }) => void;
   setContinuation: (sessionId: string | null) => void;
   disconnect: () => void;
@@ -1892,6 +1904,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   currentTurnTrackedOutputTokens: 0,
   clearPending: false,
   turnCancelPending: false,
+  goalControlPending: null,
   providerSwitching: false,
   providerSwitchTarget: null,
   providerAuthenticating: false,
@@ -3064,6 +3077,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingModel: null,
       clearPending: false,
       turnCancelPending: false,
+      goalControlPending: null,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,
@@ -3114,6 +3128,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       currentTurnTrackedOutputTokens: 0,
       clearPending: false,
       turnCancelPending: false,
+      goalControlPending: null,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,
@@ -3560,6 +3575,40 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     return true;
   },
 
+  controlGoal: (input) => {
+    const state = get();
+    if (!state.outboundSend || state.goalControlPending) {
+      return false;
+    }
+    const requestId = createMessageId();
+    state.outboundSend({
+      type: "goal_control",
+      requestId,
+      goalRunId: input.goalRunId,
+      action: input.action,
+      ...(input.objective ? { objective: input.objective } : {}),
+      ...(input.reason ? { reason: input.reason } : {}),
+    });
+    set({
+      goalControlPending: {
+        requestId,
+        goalRunId: input.goalRunId,
+        action: input.action,
+      },
+      errorBanner: null,
+    });
+    return true;
+  },
+
+  onGoalControlResult: (frame) => {
+    const pending = get().goalControlPending;
+    if (!pending || pending.requestId !== frame.requestId) return;
+    set({
+      goalControlPending: null,
+      ...(frame.status === "failed" ? { errorBanner: frame.reason ?? "Goal control failed." } : {}),
+    });
+  },
+
   sendClear: () => {
     const state = get();
     if (!state.outboundSend || state.clearPending) {
@@ -3640,6 +3689,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       respondingModel: null,
       clearPending: false,
       turnCancelPending: false,
+      goalControlPending: null,
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,

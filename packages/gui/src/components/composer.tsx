@@ -9,10 +9,11 @@ import {
   voiceInputDisplayText,
 } from "@kilnai/gateway-contracts/voice-input-parts";
 import type { ActivityPhase, SessionStatus } from "../lib/session-store.js";
-import type { ContextUsageProjection } from "@kilnai/gateway-contracts";
+import type { ContextUsageProjection, WorkflowGoalActivity } from "@kilnai/gateway-contracts";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { ComposerLeadingActions, ComposerTrailingActions } from "./composer-actions.js";
 import { ComposerFrame, type ComposerCommandMenuState } from "./composer-frame.js";
+import { ActiveGoalDock } from "./active-goal-dock.js";
 
 interface ComposerProps {
   readonly status: SessionStatus;
@@ -23,6 +24,14 @@ interface ComposerProps {
   readonly governedWorkItemCount: number | null;
   readonly continuityHint: ComposerContinuityHint;
   readonly contextUsage?: ContextUsageProjection | null;
+  readonly foregroundGoal?: WorkflowGoalActivity;
+  readonly onGoalControl?: (input: {
+    readonly goalRunId: string;
+    readonly action: "pause" | "resume" | "update_objective" | "cancel";
+    readonly objective?: string;
+    readonly reason?: string;
+  }) => boolean;
+  readonly pendingGoalAction?: "pause" | "resume" | "update_objective" | "cancel";
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
   readonly authorityControl?: ReactNode;
@@ -67,6 +76,8 @@ export function Composer(props: ComposerProps) {
         ...(props.activityDetails ? { details: props.activityDetails } : {}),
       }
     : undefined;
+  const foregroundGoal = props.foregroundGoal;
+
 
   function handleDraftChange(value: string): void {
     if (value.trim() === "/") {
@@ -245,6 +256,30 @@ export function Composer(props: ComposerProps) {
       contextUsage={props.contextUsage}
       status={props.status}
       activity={activity}
+      activeGoal={foregroundGoal ? (
+        <ActiveGoalDock
+          activity={foregroundGoal}
+          pendingAction={props.pendingGoalAction === "update_objective" ? "edit" : props.pendingGoalAction}
+          onPause={props.onGoalControl ? () => props.onGoalControl?.({
+            goalRunId: foregroundGoal.goal.id,
+            action: "pause",
+          }) : undefined}
+          onResume={props.onGoalControl ? () => props.onGoalControl?.({
+            goalRunId: foregroundGoal.goal.id,
+            action: "resume",
+          }) : undefined}
+          onUpdateObjective={props.onGoalControl ? (objective) => props.onGoalControl?.({
+            goalRunId: foregroundGoal.goal.id,
+            action: "update_objective",
+            objective,
+          }) ?? false : undefined}
+          onCancel={props.onGoalControl ? () => props.onGoalControl?.({
+            goalRunId: foregroundGoal.goal.id,
+            action: "cancel",
+            reason: "Operator cancelled the goal from the active goal dock.",
+          }) ?? false : undefined}
+        />
+      ) : null}
       providerControl={props.providerControl}
       reasoningControl={props.reasoningControl}
       authorityControl={props.authorityControl}

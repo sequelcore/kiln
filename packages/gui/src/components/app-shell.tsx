@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   OPERATOR_THEME_LABELS,
@@ -85,15 +93,124 @@ const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
 
 const GUI_COCKPIT_INSTANCE_ID = "local-gui";
 
+interface CommandSurfaceState {
+  readonly paletteOpen: boolean;
+  readonly paletteMode: "root" | "theme";
+  readonly paletteQuery: string;
+  readonly composerOpen: boolean;
+  readonly composerQuery: string;
+}
+
+type CommandSurfaceAction =
+  | { readonly type: "close-all" }
+  | { readonly type: "close-composer" }
+  | { readonly type: "close-palette" }
+  | { readonly type: "open-composer" }
+  | { readonly type: "open-palette" }
+  | { readonly type: "set-composer-query"; readonly query: string }
+  | { readonly type: "set-palette-mode"; readonly mode: "root" | "theme" }
+  | { readonly type: "set-palette-open"; readonly open: boolean }
+  | { readonly type: "set-palette-query"; readonly query: string };
+
+const INITIAL_COMMAND_SURFACE_STATE: CommandSurfaceState = {
+  paletteOpen: false,
+  paletteMode: "root",
+  paletteQuery: "",
+  composerOpen: false,
+  composerQuery: "",
+};
+
+function reduceCommandSurfaces(
+  state: CommandSurfaceState,
+  action: CommandSurfaceAction,
+): CommandSurfaceState {
+  switch (action.type) {
+    case "close-all":
+      return INITIAL_COMMAND_SURFACE_STATE;
+    case "close-composer":
+      return {
+        ...state,
+        composerOpen: false,
+        composerQuery: "",
+      };
+    case "close-palette":
+      return {
+        ...state,
+        paletteOpen: false,
+        paletteMode: "root",
+        paletteQuery: "",
+      };
+    case "open-composer":
+      return {
+        ...state,
+        paletteOpen: false,
+        paletteQuery: "",
+        composerOpen: true,
+        composerQuery: "",
+      };
+    case "open-palette":
+      return {
+        ...state,
+        paletteOpen: true,
+        paletteMode: "root",
+        paletteQuery: "",
+        composerOpen: false,
+        composerQuery: "",
+      };
+    case "set-composer-query":
+      return {
+        ...state,
+        composerQuery: action.query,
+      };
+    case "set-palette-mode":
+      return {
+        ...state,
+        paletteMode: action.mode,
+      };
+    case "set-palette-open":
+      return {
+        ...state,
+        paletteOpen: action.open,
+      };
+    case "set-palette-query":
+      return {
+        ...state,
+        paletteQuery: action.query,
+      };
+  }
+}
+
 export function AppShell() {
+  return useAppShellRuntimeView();
+}
+
+function useAppShellRuntimeView() {
   const [gatewayReady, setGatewayReady] = useState(false);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
   const [gatewayAttempt, setGatewayAttempt] = useState(0);
-  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-  const [paletteMode, setPaletteMode] = useState<"root" | "theme">("root");
-  const [paletteQuery, setPaletteQuery] = useState("");
-  const [composerCommandOpen, setComposerCommandOpen] = useState(false);
-  const [composerCommandQuery, setComposerCommandQuery] = useState("");
+  const [commandSurfaces, dispatchCommandSurface] = useReducer(
+    reduceCommandSurfaces,
+    INITIAL_COMMAND_SURFACE_STATE,
+  );
+  const {
+    paletteOpen: isPaletteOpen,
+    paletteMode,
+    paletteQuery,
+    composerOpen: composerCommandOpen,
+    composerQuery: composerCommandQuery,
+  } = commandSurfaces;
+  const setPaletteMode = (mode: "root" | "theme") => {
+    dispatchCommandSurface({ type: "set-palette-mode", mode });
+  };
+  const setPaletteQuery = (query: string) => {
+    dispatchCommandSurface({ type: "set-palette-query", query });
+  };
+  const setPaletteOpen = (open: boolean) => {
+    dispatchCommandSurface({ type: "set-palette-open", open });
+  };
+  const setComposerCommandQuery = (query: string) => {
+    dispatchCommandSurface({ type: "set-composer-query", query });
+  };
   const [governedWorkItemCount, setGovernedWorkItemCount] = useState<number | null>(null);
   const [isProviderPickerOpen, setIsProviderPickerOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_LAYOUT_QUERY).matches);
@@ -223,6 +340,9 @@ export function AppShell() {
   const sendApprovalResponse = useSessionStore((state) => state.sendApprovalResponse);
   const sendMessage = useSessionStore((state) => state.sendMessage);
   const cancelActiveTurn = useSessionStore((state) => state.cancelActiveTurn);
+  const controlGoal = useSessionStore((state) => state.controlGoal);
+  const goalControlPending = useSessionStore((state) => state.goalControlPending);
+  const onGoalControlResult = useSessionStore((state) => state.onGoalControlResult);
   const turnCancelPending = useSessionStore((state) => state.turnCancelPending);
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
@@ -267,6 +387,9 @@ export function AppShell() {
     () => buildComposerContinuityHint(sessionContinuity),
     [sessionContinuity],
   );
+  const foregroundGoalIsLive = liveSessionId !== null
+    && (selectedSessionId === null || selectedSessionId === liveSessionId)
+    && !detachedSessionIds.includes(liveSessionId);
   const localOperatorWorkspaceState = useMemo(() => {
     const projectedAt = new Date().toISOString();
     const operatorEvents = normalizeManagedAgentOperatorEvents(sessionEvents, {
@@ -340,14 +463,11 @@ export function AppShell() {
   }, [activeModelCapabilities?.defaultReasoningEffort, reasoningEffort, reasoningEffortOptions]);
 
   const closePalette = () => {
-    setIsPaletteOpen(false);
-    setPaletteMode("root");
-    setPaletteQuery("");
+    dispatchCommandSurface({ type: "close-palette" });
   };
 
   const closeComposerCommands = () => {
-    setComposerCommandOpen(false);
-    setComposerCommandQuery("");
+    dispatchCommandSurface({ type: "close-composer" });
   };
 
   useEffect(() => {
@@ -401,16 +521,10 @@ export function AppShell() {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         if (isPaletteOpen) {
-          setIsPaletteOpen(false);
-          setPaletteMode("root");
-          setPaletteQuery("");
+          dispatchCommandSurface({ type: "close-palette" });
           return;
         }
-        setComposerCommandOpen(false);
-        setComposerCommandQuery("");
-        setPaletteMode("root");
-        setPaletteQuery("");
-        setIsPaletteOpen(true);
+        dispatchCommandSurface({ type: "open-palette" });
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
@@ -461,11 +575,7 @@ export function AppShell() {
         setWorkbenchSurface("agents");
       }
       if (event.key === "Escape") {
-        setIsPaletteOpen(false);
-        setPaletteMode("root");
-        setPaletteQuery("");
-        setComposerCommandOpen(false);
-        setComposerCommandQuery("");
+        dispatchCommandSurface({ type: "close-all" });
         setDrawerOpen(false);
         setIsProviderPickerOpen(false);
       }
@@ -503,6 +613,7 @@ export function AppShell() {
       onSessionEvent,
       onDone,
       onTurnCancelResult,
+      onGoalControlResult,
       onVoiceSynthesisCompleted,
       onVoiceSynthesisFailed,
       onError,
@@ -570,7 +681,7 @@ export function AppShell() {
   });
 
   const dashboardQuery = useQuery({
-    queryKey: ["gui", "dashboard", gatewayReady ? "ready" : "waiting"],
+    queryKey: ["gui", "dashboard", gatewayReady ? "ready" : "waiting", turnCounter],
     queryFn: async () => gatewayClient.loadDashboard(),
     enabled: gatewayReady,
     refetchInterval: 2_000,
@@ -612,13 +723,6 @@ export function AppShell() {
       setSetupActionInFlight(null);
     }
   };
-
-  useEffect(() => {
-    if (!gatewayReady || turnCounter === 0) {
-      return;
-    }
-    void dashboardQuery.refetch();
-  }, [dashboardQuery, gatewayReady, turnCounter]);
 
   useEffect(() => {
     if (sessionsQuery.data) {
@@ -809,7 +913,7 @@ export function AppShell() {
     startNewSession,
     setPaletteMode,
     setPaletteQuery,
-    setPaletteOpen: setIsPaletteOpen,
+    setPaletteOpen,
     setProviderPickerOpen: setIsProviderPickerOpen,
     reasoningEffortOptions,
     resolvedReasoningEffort,
@@ -1090,6 +1194,11 @@ export function AppShell() {
               governedWorkItemCount,
               continuityHint: composerContinuityHint,
               contextUsage,
+              foregroundGoal: workflowActivity.foregroundGoal,
+              onGoalControl: foregroundGoalIsLive ? controlGoal : undefined,
+              pendingGoalAction: goalControlPending?.goalRunId === workflowActivity.foregroundGoal?.goal.id
+                ? goalControlPending?.action
+                : undefined,
               providerControl: (
                 <ProviderStatus
                   compact
@@ -1163,10 +1272,7 @@ export function AppShell() {
                     closeComposerCommands();
                     return;
                   }
-                  setPaletteQuery("");
-                  setIsPaletteOpen(false);
-                  setComposerCommandQuery("");
-                  setComposerCommandOpen(true);
+                  dispatchCommandSurface({ type: "open-composer" });
                 },
               },
             }}

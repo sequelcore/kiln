@@ -14,6 +14,7 @@ interface AppShellFrameHandlerInput {
   readonly onSessionEvent: (event: Extract<GuiInboundFrame, { type: "session_event" }>["event"]) => void;
   readonly onDone: (frame: Extract<GuiInboundFrame, { type: "done" }>) => void;
   readonly onTurnCancelResult: (frame: Extract<GuiInboundFrame, { type: "turn_cancel_result" }>) => void;
+  readonly onGoalControlResult: (frame: Extract<GuiInboundFrame, { type: "goal_control_result" }>) => void;
   readonly onVoiceSynthesisCompleted: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_completed" }>) => void;
   readonly onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   readonly onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
@@ -91,6 +92,9 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
         return;
       case "turn_cancel_result":
         input.onTurnCancelResult(frame);
+        return;
+      case "goal_control_result":
+        input.onGoalControlResult(frame);
         return;
       case "voice_synthesis_completed":
         input.onVoiceSynthesisCompleted(frame);

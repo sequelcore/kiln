@@ -108,6 +108,7 @@ export function ComposerFrame(props: {
   readonly contextUsage?: ContextUsageProjection | null;
   readonly status: SessionStatus;
   readonly activity?: ComposerActivity;
+  readonly activeGoal?: ReactNode;
   readonly providerControl?: ReactNode;
   readonly reasoningControl?: ReactNode;
   readonly authorityControl?: ReactNode;
@@ -146,6 +147,7 @@ export function ComposerFrame(props: {
           onExecute={props.commandMenu.onExecute}
           onOpenChange={props.commandMenu.onOpenChange}
         />
+        {props.activeGoal}
         <label className="sr-only" htmlFor="composer-input">
           Message
         </label>

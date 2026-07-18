@@ -411,6 +411,29 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(latestPaletteProps()?.open).toBe(false);
   });
 
+  it("keys dashboard reads by the completed turn instead of refetching from an effect", async () => {
+    const initialTurnCounter = useSessionStore.getState().turnCounter;
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(useQueryMock).toHaveBeenCalledWith(expect.objectContaining({
+        queryKey: ["gui", "dashboard", "ready", initialTurnCounter],
+      }));
+    });
+    dashboardRefetchMock.mockClear();
+
+    act(() => {
+      useSessionStore.setState({ turnCounter: initialTurnCounter + 1 });
+    });
+
+    await waitFor(() => {
+      expect(useQueryMock).toHaveBeenCalledWith(expect.objectContaining({
+        queryKey: ["gui", "dashboard", "ready", initialTurnCounter + 1],
+      }));
+    });
+    expect(dashboardRefetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps session telemetry out of the primary chat chrome", async () => {
     render(<AppShell />);
 

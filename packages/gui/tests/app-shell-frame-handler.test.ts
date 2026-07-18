@@ -28,6 +28,7 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     onWelcome: vi.fn(),
     onSessionEvent: vi.fn(),
     onDone: vi.fn(),
+    onGoalControlResult: vi.fn(),
     onVoiceSynthesisCompleted: vi.fn(),
     onVoiceSynthesisFailed: vi.fn(),
     onError: vi.fn(),
@@ -141,6 +142,26 @@ describe("createAppShellFrameHandler", () => {
 
     expect(input.setErrorBanner).toHaveBeenCalledWith("Child already exited");
     expect(input.clearErrorBanner).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces rejected goal controls without mutating transcript state", () => {
+    const input = createInput();
+    const handleFrame = createAppShellFrameHandler(input);
+
+    handleFrame({
+      type: "goal_control_result",
+      requestId: "goal-control-1",
+      goalRunId: "goal-1",
+      action: "pause",
+      status: "failed",
+      reason: "Goal is already terminal.",
+    });
+
+    expect(input.onGoalControlResult).toHaveBeenCalledWith(expect.objectContaining({
+      status: "failed",
+      reason: "Goal is already terminal.",
+    }));
+    expect(input.onSessionEvent).not.toHaveBeenCalled();
   });
 
   it("routes memory invalidation and thinking frames to their focused state updates", () => {

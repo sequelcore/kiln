@@ -2485,6 +2485,22 @@ describe("session-store", () => {
     expect(useSessionStore.getState().turnCancelPending).toBe(true);
   });
 
+  it("sends typed goal controls independently from turn cancellation", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+
+    expect(useSessionStore.getState().controlGoal({
+      goalRunId: "goal-1",
+      action: "pause",
+    })).toBe(true);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: "goal_control",
+      goalRunId: "goal-1",
+      action: "pause",
+    }));
+    expect(useSessionStore.getState().turnCancelPending).toBe(false);
+  });
+
   it("returns to ready when cancellation finds no active gateway turn", () => {
     useSessionStore.setState({ status: "running", turnCancelPending: true });
 

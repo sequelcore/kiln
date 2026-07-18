@@ -37,6 +37,14 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     requestId: z.string().trim().min(1),
     reason: z.string().trim().min(1).optional(),
   }),
+  z.object({
+    type: z.literal("goal_control"),
+    requestId: z.string().trim().min(1),
+    goalRunId: z.string().trim().min(1),
+    action: z.enum(["pause", "resume", "update_objective", "cancel"]),
+    objective: z.string().trim().min(1).optional(),
+    reason: z.string().trim().min(1).optional(),
+  }),
   z.object({ type: z.literal("clear") }),
   z.object({ type: z.literal("refresh_providers") }),
   z.object({
@@ -507,6 +515,14 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     status: z.enum(["accepted", "not_active", "failed"]),
     reason: z.string().optional(),
     kilnSessionId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("goal_control_result"),
+    requestId: z.string().trim().min(1),
+    goalRunId: z.string().trim().min(1),
+    action: z.enum(["pause", "resume", "update_objective", "cancel"]),
+    status: z.enum(["accepted", "failed"]),
+    reason: z.string().optional(),
   }),
   z.object({
     type: z.literal("operator_theme_set"),

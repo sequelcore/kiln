@@ -90,6 +90,61 @@ describe("Composer", () => {
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "dark");
   });
 
+  it("keeps the foreground goal beside the composer with accessible progress and controls", async () => {
+    const onGoalControl = vi.fn(() => true);
+    renderComposer({
+      foregroundGoal: {
+        goal: {
+          id: "goal-1",
+          objective: "Repair the governed runtime lifecycle.",
+          status: "active",
+          activeDurationMs: 65_000,
+          activeSince: new Date().toISOString(),
+          workItemIds: ["work-1"],
+          evidenceRequirements: [],
+          evidence: [],
+        },
+        status: "in_progress",
+        workItems: [{
+          item: {
+            id: "work-1",
+            summary: "Verify canonical session events.",
+            status: "in_progress",
+            evidence: [],
+            nextTools: [],
+            pauseRequirements: [],
+          },
+          attempts: [],
+          toolCalls: [],
+          firstSequence: 1,
+          lastSequence: 1,
+        }],
+        toolCalls: [],
+        fileChanges: [],
+        firstSequence: 1,
+        lastSequence: 1,
+      },
+      onGoalControl,
+    });
+
+    expect(screen.getByText("Goal in progress")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /open goal progress/i }));
+    expect(await screen.findByText("Verify canonical session events.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause goal" }));
+    expect(onGoalControl).toHaveBeenCalledWith({ goalRunId: "goal-1", action: "pause" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit goal objective" }));
+    const objective = await screen.findByRole("textbox", { name: "Goal objective" });
+    fireEvent.change(objective, { target: { value: "Revised lifecycle objective." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save objective" }));
+    expect(onGoalControl).toHaveBeenCalledWith({
+      goalRunId: "goal-1",
+      action: "update_objective",
+      objective: "Revised lifecycle objective.",
+    });
+  });
+
   it("uses the active Kiln light theme instead of the operating-system preference", () => {
     useUiStore.getState().setTheme("kiln-light");
 

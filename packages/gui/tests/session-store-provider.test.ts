@@ -214,7 +214,7 @@ describe("session-store provider selection", () => {
 
   it("welcome does not restore a stored selection that canonical discovery marks ineligible", () => {
     const send = vi.fn();
-    localStorage.setItem("kiln.gui.providerSelection", JSON.stringify({
+    localStorage.setItem("kiln.gui.providerSelection:v1", JSON.stringify({
       provider: "openai",
       model: "gpt-5",
     }));
@@ -724,7 +724,7 @@ describe("session-store provider selection", () => {
 
   it("restores the last valid GUI provider selection after welcome when runtime has no active selection", () => {
     const send = vi.fn();
-    localStorage.setItem("kiln.gui.providerSelection", JSON.stringify({
+    localStorage.setItem("kiln.gui.providerSelection:v1", JSON.stringify({
       provider: "codex-oauth",
       model: "gpt-5.5",
     }));
@@ -758,9 +758,37 @@ describe("session-store provider selection", () => {
     expect(useSessionStore.getState().providerSwitching).toBe(true);
   });
 
-  it("restores the last valid GUI provider selection over the startup default", () => {
+  it("ignores provider selections written under an obsolete storage schema", () => {
     const send = vi.fn();
     localStorage.setItem("kiln.gui.providerSelection", JSON.stringify({
+      provider: "codex-oauth",
+      model: "gpt-5.5",
+    }));
+    useSessionStore.getState().setSender(send);
+
+    useSessionStore.getState().onWelcome({
+      type: "welcome",
+      providers: [{
+        id: "codex-oauth",
+        label: "Codex OAuth",
+        group: "direct-api",
+        free: false,
+        available: true,
+        models: ["gpt-5.5"],
+      }],
+      models: {
+        "codex-oauth": ["gpt-5.5"],
+      },
+      providerModelDiscovery: defaultProviderModelDiscovery(),
+      executionMode: "execute",
+    });
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("restores the last valid GUI provider selection over the startup default", () => {
+    const send = vi.fn();
+    localStorage.setItem("kiln.gui.providerSelection:v1", JSON.stringify({
       provider: "codex-oauth",
       model: "gpt-5.5",
     }));
@@ -807,7 +835,7 @@ describe("session-store provider selection", () => {
 
   it("restores the last valid GUI provider selection after provider refresh advertises it", () => {
     const send = vi.fn();
-    localStorage.setItem("kiln.gui.providerSelection", JSON.stringify({
+    localStorage.setItem("kiln.gui.providerSelection:v1", JSON.stringify({
       provider: "codex-oauth",
       model: "gpt-5.5",
     }));
@@ -865,7 +893,7 @@ describe("session-store provider selection", () => {
       requestId: lastProviderRequestId(send),
     });
 
-    expect(localStorage.getItem("kiln.gui.providerSelection")).toBe(JSON.stringify({
+    expect(localStorage.getItem("kiln.gui.providerSelection:v1")).toBe(JSON.stringify({
       provider: "openai",
       model: "gpt-5",
     }));
