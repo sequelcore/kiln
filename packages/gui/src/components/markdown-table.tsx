@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface MarkdownTableProps {
   readonly children: ReactNode;
@@ -8,16 +9,16 @@ interface MarkdownTableProps {
 
 export function MarkdownTable(props: MarkdownTableProps) {
   return (
-    <div
+    <ScrollArea
       aria-label="Scrollable markdown table"
+      className="my-3 max-w-full rounded-md border border-border/70"
       data-markdown-table-scroll=""
-      tabIndex={0}
-      className="my-3 max-w-full overflow-x-auto rounded-md border border-border/70 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      orientation="horizontal"
     >
       <table className={cn("w-max min-w-full table-auto border-collapse text-left text-sm", props.className)}>
         {props.children}
       </table>
-    </div>
+    </ScrollArea>
   );
 }
 

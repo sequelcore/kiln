@@ -49,9 +49,9 @@ describe("MessageRow", () => {
     const table = screen.getByRole("table");
     expect(table).toHaveClass("border-collapse");
     expect(table).toHaveClass("min-w-full", "w-max");
-    expect(table.parentElement).toHaveAttribute("data-markdown-table-scroll");
-    expect(table.parentElement).toHaveClass("overflow-x-auto");
-    expect(table.parentElement).toHaveAttribute("tabindex", "0");
+    const scrollArea = table.closest('[data-markdown-table-scroll]');
+    expect(scrollArea).toHaveClass("max-w-full");
+    expect(scrollArea?.querySelector('[data-slot="scroll-area-viewport"]')).not.toBeNull();
     expect(screen.getByRole("columnheader", { name: "Surface" })).toHaveClass("bg-background-element");
     expect(screen.getByRole("cell", { name: "fixed" })).toBeInTheDocument();
     expect(container.querySelector(".markdown-body")).not.toBeNull();
@@ -75,7 +75,10 @@ describe("MessageRow", () => {
     );
 
     const table = screen.getByRole("table");
-    expect(table.parentElement).toHaveAttribute("aria-label", "Scrollable markdown table");
+    expect(table.closest('[data-markdown-table-scroll]')).toHaveAttribute(
+      "aria-label",
+      "Scrollable markdown table",
+    );
     expect(table).toHaveClass("w-max", "min-w-full", "table-auto");
     expect(screen.getByRole("columnheader", { name: "Current session status / omission reason" })).toHaveClass("min-w-36");
     expect(screen.getByRole("cell", { name: /C:\\Users\\ExampleUser/ })).toHaveClass("min-w-40");
