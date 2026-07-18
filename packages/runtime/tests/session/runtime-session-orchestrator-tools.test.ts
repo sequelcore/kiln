@@ -406,6 +406,105 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
     );
   });
 
+  it("resolves managed recovery when verification evidence is explicitly skipped with residual risk", async () => {
+    const provider: ProviderAdapter = {
+      name: "mock",
+      createMessage: vi.fn()
+        .mockResolvedValueOnce({
+          parts: textParts("starting verification"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [{ id: "tc-managed", name: "managed_agent.invoke", input: { workItemId: "work-1" } }],
+          stopReason: "tool_use",
+        })
+        .mockResolvedValueOnce({
+          parts: textParts("recording governed skips"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [{
+            id: "tc-update",
+            name: "work_item.update",
+            input: {
+              id: "work-1",
+              skippedVerificationGates: ["tests", "typecheck"],
+              residualRisk: "No behavior changed; executable verification was not run.",
+            },
+          }],
+          stopReason: "tool_use",
+        })
+        .mockResolvedValueOnce({
+          parts: textParts("Verification disposition recorded."),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [],
+          stopReason: "end_turn",
+        }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const managedInvoke = vi.fn().mockResolvedValue({
+      output: "Managed route cannot execute bash.",
+      isError: true,
+      metadata: {
+        toolName: "managed_agent.invoke",
+        kind: "managed-invocation",
+        status: "unavailable",
+        managedInvocationRecovery: {
+          status: "phase_evidence_required",
+          nextTool: "work_item.update",
+          workItemId: "work-1",
+          evidenceToRecord: ["tests", "typecheck"],
+        },
+      },
+    });
+    const item = {
+      id: "work-1",
+      status: "pending",
+      providedEvidence: [],
+      skippedVerificationGates: ["tests", "typecheck"],
+      verificationGateResults: [
+        { gate: "tests", status: "skipped" },
+        { gate: "typecheck", status: "skipped" },
+      ],
+      residualRisk: "No behavior changed; executable verification was not run.",
+    };
+    const workItemUpdate = vi.fn().mockResolvedValue({
+      output: JSON.stringify({ item }),
+      isError: false,
+      metadata: {
+        toolName: "work_item.update",
+        kind: "work_item",
+        operation: "update",
+        id: "work-1",
+        item,
+      },
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [
+        { name: "managed_agent.invoke", description: "Managed child invocation", inputSchema: {}, tags: new Set() },
+        { name: "work_item.update", description: "Update governed work item", inputSchema: {}, tags: new Set() },
+      ],
+      builtinTools: new Map([
+        ["managed_agent.invoke", managedInvoke],
+        ["work_item.update", workItemUpdate],
+      ]),
+      eventBus: new EventBus(100),
+      executionEnvelope: { toolRounds: { max: 4 } },
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("inspect without changes"));
+
+    expect(result.parts).toEqual(textParts("Verification disposition recorded."));
+    expect(provider.createMessage).toHaveBeenCalledTimes(3);
+    expect(workItemUpdate).toHaveBeenCalledTimes(1);
+  });
+
   it("does not allow a final assistant response while managed invocation phase completion needs a work item update", async () => {
     const provider: ProviderAdapter = {
       name: "mock",

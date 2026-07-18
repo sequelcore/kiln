@@ -203,6 +203,31 @@ describe("plan state store", () => {
     expect(lowRiskReady.issues).toEqual([]);
   });
 
+  it("accepts a read-only architecture review without architecture-change controls", () => {
+    const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
+
+    const review = store.submitPlan(baseInput({
+      workGovernanceRecommendation: {
+        posture: "orchestrate",
+        rationale: "Inspect boundaries without changing repository state.",
+        workflowProfile: "architecture-review",
+      },
+      proposedWorkItems: [{
+        id: "wi-1",
+        summary: "Review dependency direction and report residual risk.",
+        workflowProfile: "architecture-review",
+        risk: "medium",
+        expectedEvidence: ["architecture/DDD review"],
+        verificationGates: ["residual-risk closeout"],
+        dependencies: [],
+      }],
+    }));
+
+    expect(review.status).toBe("ready_for_approval");
+    expect(review.workGovernanceRecommendation.workflowProfile).toBe("architecture-review");
+    expect(review.proposedWorkItems[0]?.workflowProfile).toBe("architecture-review");
+  });
+
   it("revisions and rejection keep one plan id without duplication", () => {
     const store = new PlanStateStore({ now: () => 1_800_000_000_000 });
     const first = store.submitPlan(baseInput());

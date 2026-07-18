@@ -7,6 +7,7 @@ import type {
 export type WorkGovernanceWorkflowProfileId =
   | "small-fix"
   | "bug-diagnosis"
+  | "architecture-review"
   | "architecture-change"
   | "ui-change"
   | "managed-agent-change"
@@ -43,6 +44,10 @@ const PROFILE_EVIDENCE_GATE_MATRIX: Record<
     tests: ["failing test or reproduction before fix", "focused regression test"],
     typecheck: ["typecheck/build"],
     "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
+  },
+  "architecture-review": {
+    "managed-agent-review": ["architecture/DDD review"],
+    "residual-risk": ["residual-risk closeout when uncertainty or risk remains"],
   },
   "architecture-change": {
     "managed-agent-review": ["architecture/DDD review"],
@@ -106,6 +111,16 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     defaultAuthorityProfile: "foundation-propose-writes",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
     verificationGates: ["failing test or reproduction before fix", "focused regression test", "typecheck/build"],
+  },
+  {
+    id: "architecture-review",
+    description: "Read-only architecture inspection, boundary review, or risk analysis without implementation work.",
+    triggers: ["architecture"],
+    minimumRisk: "medium",
+    recommendedAgentProfiles: ["scout", "architect", "ddd-validator", "reviewer"],
+    defaultAuthorityProfile: "foundation-readonly-plan",
+    requiredEvidence: ["surface-map", "risk-hypothesis", "managed-agent-review", "residual-risk"],
+    verificationGates: ["architecture/DDD review", "residual-risk closeout when uncertainty or risk remains"],
   },
   {
     id: "architecture-change",
@@ -217,9 +232,11 @@ export function verificationGatesForWorkflowProfile(
 export function chooseWorkflowProfile(
   triggers: readonly KilnWorkGovernanceTrigger[],
   risk: KilnWorkGovernanceRisk | undefined,
+  options: { readonly readOnlyArchitectureReview?: boolean } = {},
 ): WorkGovernanceWorkflowProfile {
   if (triggers.includes("formal-proof-candidate")) return requiredProfile("formal-proof-candidate");
   if (triggers.includes("managed-agents") || triggers.includes("provider-routing") || triggers.includes("runtime")) return requiredProfile("managed-agent-change");
+  if (triggers.includes("architecture") && options.readOnlyArchitectureReview) return requiredProfile("architecture-review");
   if (triggers.includes("architecture")) return requiredProfile("architecture-change");
   if (triggers.includes("ui")) return requiredProfile("ui-change");
   if (triggers.includes("config")) return requiredProfile("config-change");

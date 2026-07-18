@@ -543,6 +543,7 @@ function readWorkflowProfile(value: unknown): WorkflowProfile {
   if (
     value === "small-fix"
     || value === "bug-diagnosis"
+    || value === "architecture-review"
     || value === "architecture-change"
     || value === "ui-change"
     || value === "managed-agent-change"

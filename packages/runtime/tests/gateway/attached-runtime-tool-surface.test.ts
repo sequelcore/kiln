@@ -7,6 +7,7 @@ import type {
   DevTool,
   ManagedAgentAdapterDescriptor,
   ManagedAgentInvocationRequest,
+  ManagedAgentResultHandoff,
   ToolInput,
   ToolResult,
 } from "@kilnai/core";
@@ -28,6 +29,7 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { buildManagedInvocationPhaseCompletion } from "../../src/agents/managed-invocation/phase-recovery.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
@@ -207,13 +209,22 @@ function makeManagedAdapter(summary = "Managed child completed governed work."):
             failures: [],
             approvalRequirements: [],
             residualRisks: [],
-            verificationResults: [{
-              requirementId: "governed-work-handoff",
-              method: "deterministic",
-              status: "passed",
-              summary: "The governed work handoff is present.",
-              evidenceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
-            }],
+            verificationResults: [
+              ...(request.input.handoff?.expectedEvidence ?? ["governed-work-handoff"]).map((requirementId) => ({
+                requirementId,
+                method: "deterministic" as const,
+                status: "passed" as const,
+                summary: `Verified ${requirementId}.`,
+                evidenceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
+              })),
+              {
+                requirementId: "later-phase-check",
+                method: "deterministic",
+                status: "skipped",
+                summary: "Not part of this phase.",
+                evidenceUris: [],
+              },
+            ],
           },
         },
       })),
@@ -328,6 +339,57 @@ function makeManagedExecutionStartTool(
 }
 
 describe("attached runtime builtin tool surface", () => {
+  it("records expected skipped evidence as a skip while ignoring unrelated phase results", () => {
+    const handoff: ManagedAgentResultHandoff = {
+      summary: "Verification could not run in the read-only environment.",
+      resourceUris: ["kiln://managed-invocations/invocation-1/handoff"],
+      memoryWriteProposalUris: [],
+      structuredResult: {
+        version: "structured-execution-result-v1",
+        status: "completed",
+        summary: "Verification could not run in the read-only environment.",
+        limitations: [],
+        operatorDecisions: [],
+        evidence: [],
+        citations: [],
+        warnings: [],
+        failures: [],
+        approvalRequirements: [],
+        residualRisks: ["Tests remain unexecuted."],
+        verificationResults: [{
+          requirementId: "tests",
+          method: "deterministic",
+          status: "skipped",
+          summary: "The read-only child could not execute tests.",
+          evidenceUris: [],
+        }, {
+          requirementId: "surface-map",
+          method: "deterministic",
+          status: "passed",
+          summary: "A prior phase already produced the surface map.",
+          evidenceUris: [],
+        }],
+      },
+    };
+
+    const completion = buildManagedInvocationPhaseCompletion({
+      goalRunId: "goal-1",
+      workItemId: "work-1",
+      summary: "Run verification.",
+      executionPhase: {
+        expectedEvidence: ["tests"],
+        completionTool: "work_item.update",
+      },
+    }, handoff, "invocation-1");
+
+    expect(completion?.workItemUpdateInputTemplate).toMatchObject({
+      providedEvidence: [],
+      skippedVerificationGates: ["tests"],
+      verificationGateResults: [{ gate: "tests", status: "skipped" }],
+      residualRisk: "Tests remain unexecuted.",
+    });
+  });
+
   it("rejects managed invocation scopes that do not exist in the session governance stores", async () => {
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
@@ -412,6 +474,25 @@ describe("attached runtime builtin tool surface", () => {
     }, context) as { readonly isError: boolean };
 
     expect(admitted.isError).toBe(false);
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+
+    const excessiveAuthority = await invoke?.({
+      profile: "foundation-apply-approved-writes",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode" },
+      requestedAuthority: "audited",
+      task: "Modify the repository.",
+      goalRunId: "goal-real",
+      workItemId: "work-real",
+    }, context) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+
+    expect(excessiveAuthority).toMatchObject({
+      isError: true,
+      metadata: {
+        errorCode: "goal_authority_exceeded",
+        status: "denied",
+      },
+    });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
@@ -1891,6 +1972,133 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
+  it("owns validated managed phase progression and attempt closeout inside the runtime", async () => {
+    let phase: "diagnosis" | "closeout" = "diagnosis";
+    const startCalls: ToolInput[] = [];
+    const updateCalls: ToolInput[] = [];
+    const finishCalls: ToolInput[] = [];
+    const tool = (
+      name: string,
+      execute: DevTool["execute"],
+    ): DevTool => ({
+      name,
+      description: `Test ${name}.`,
+      inputSchema: { type: "object", properties: {} },
+      effectEnvelope: RUNTIME_LOCAL_MUTATION_EFFECT,
+      execute,
+    });
+    const startTool = tool("work_item.execution.start", async (toolInput) => {
+      startCalls.push(toolInput);
+      const invocationId = typeof toolInput.input.managedInvocationId === "string"
+        ? toolInput.input.managedInvocationId
+        : undefined;
+      if (invocationId) {
+        return {
+          output: JSON.stringify({ status: "started", attempt: { id: "attempt-1", managedInvocationId: invocationId } }),
+          metadata: { attempt: { id: "attempt-1", managedInvocationId: invocationId } },
+          isError: false,
+        };
+      }
+      const expectedEvidence = phase === "diagnosis" ? ["surface-map"] : ["managed-agent-review"];
+      return {
+        output: JSON.stringify({
+          status: "paused",
+          nextTool: "managed_agent.invoke",
+          managedInvocationRequest: {
+            profile: "foundation-readonly-plan",
+            routeId: "opencode-readonly",
+            requestedAuthority: "read_only",
+            task: `Run ${phase}.`,
+            summary: `Run ${phase}.`,
+            goalRunId: "goal-managed",
+            workItemId: "work-managed",
+            expectedEvidence,
+            requiredResultFields: ["summary", "evidence", "checks"],
+            doneCriteria: ["Return structured phase evidence."],
+            residualRiskRequired: false,
+            executionPhase: {
+              id: phase,
+              expectedEvidence,
+              completionTool: phase === "diagnosis" ? "work_item.update" : "work_item.execution.finish",
+            },
+          },
+        }),
+        isError: true,
+      };
+    });
+    const updateTool = tool("work_item.update", async (toolInput) => {
+      updateCalls.push(toolInput);
+      phase = "closeout";
+      return { output: JSON.stringify({ status: "pending" }), isError: false };
+    });
+    const finishTool = tool("work_item.execution.finish", async (toolInput) => {
+      finishCalls.push(toolInput);
+      return {
+        output: JSON.stringify({ status: "completed", attempt: { id: "attempt-1", status: "completed" } }),
+        metadata: { operation: "execution_finished", attempt: { id: "attempt-1", status: "completed" } },
+        isError: false,
+      };
+    });
+    const adapter = makeManagedAdapter();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [startTool, updateTool, finishTool],
+      }),
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-readonly",
+          routeSource: "explicit-managed-route",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:opencode:readonly",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read", "grep", "glob"],
+              workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
+              timeoutMs: 120000,
+              credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
+              memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
+            },
+          },
+        }],
+      },
+    });
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "tool-call-lifecycle", name: "work_item.execution.start", input: {} },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+    }, context) as { readonly isError: boolean; readonly metadata?: Record<string, unknown> };
+
+    expect(result, result.output).toMatchObject({ isError: false });
+    expect(adapter.invoke).toHaveBeenCalledTimes(2);
+    const invocationIds = (adapter.invoke as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0].request.invocationId);
+    expect(new Set(invocationIds).size).toBe(2);
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.input).toMatchObject({ providedEvidence: ["surface-map"] });
+    expect(startCalls.at(-1)?.input).toMatchObject({ managedInvocationId: invocationIds[1] });
+    expect(finishCalls).toHaveLength(1);
+    expect(finishCalls[0]?.input).toMatchObject({
+      goalRunId: "goal-managed",
+      workItemId: "work-managed",
+      attemptId: "attempt-1",
+      providedEvidence: ["managed-agent-review"],
+    });
+    expect(result.metadata).toMatchObject({
+      operation: "execution_finished",
+      managedInvocationAutoCompleted: true,
+      managedInvocations: [
+        { invocationId: invocationIds[0] },
+        { invocationId: invocationIds[1] },
+      ],
+    });
+  });
+
   it("does not attach an agent profile when a paused route-owned request forbids it", async () => {
     const startTool = makeManagedExecutionStartTool({
       profile: "foundation-readonly-plan",
@@ -2369,7 +2577,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     });
   });
 
-  it("hydrates route-owned provider and authority when the paused request carries an incompatible profile hint", async () => {
+  it("fails closed instead of upgrading authority when an exact route does not support the requested profile", async () => {
     const startTool = makeManagedExecutionStartTool({
       profile: "foundation-readonly-plan",
       routeId: "opencode-go-frontend-approved-write",
@@ -2478,18 +2686,14 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       readonly metadata?: Record<string, unknown>;
     };
 
-    expect(result.isError).toBe(false);
-    expect(adapter.invoke).toHaveBeenCalledTimes(1);
-    expect((adapter.invoke as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].request).toMatchObject({
-      profile: "foundation-apply-approved-writes",
-      requestedAuthority: "audited",
-      providerRoute: {
-        providerId: "opencode-go",
-        model: "kimi-k2.6",
+    expect(result.isError).toBe(true);
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(startTool.calls).toHaveLength(1);
+    expect(result.metadata).toMatchObject({
+      operation: "managed_invocation_failed",
+      managedInvocation: {
+        status: "failed",
       },
-    });
-    expect(startTool.calls[1]?.input).toMatchObject({
-      managedInvocationId: expect.stringContaining("managed-session-parent-1-tool-call-start-managed-invocation"),
     });
   });
 

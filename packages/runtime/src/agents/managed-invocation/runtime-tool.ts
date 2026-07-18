@@ -65,7 +65,6 @@ import type {
   ManagedAgentRuntimeInvocationTerminalNotification,
 } from "./index.js";
 import {
-  appendManagedInvocationSessionEvents,
   appendManagedInvocationRuntimeFailureSessionEvent,
   appendManagedInvocationStartSessionEvents,
   appendManagedInvocationTerminalSessionEvent,
@@ -172,6 +171,8 @@ export interface ManagedInvocationToolAttachment {
 export interface ManagedInvocationGovernedScopeAdmissionInput {
   readonly parentSessionId: string;
   readonly goalRunId: string;
+  readonly profile: ManagedAgentAdmissionProfile;
+  readonly requestedAuthority: ManagedAgentRequestedAuthority;
   readonly workItemId?: string;
   readonly attemptId?: string;
 }
@@ -470,10 +471,20 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
             items: { type: "string" },
             description: "Evidence this child phase must produce before the parent can advance.",
           },
+          verificationRequirementIds: {
+            type: "array",
+            items: { type: "string" },
+            description: "Exact requirement ids that must each have one structured verification result. Final phases include unaccounted closeout gates.",
+          },
           requiredToolNames: {
             type: "array",
             items: { type: "string" },
             description: "Tool names required for this child phase.",
+          },
+          taskAffinity: {
+            type: "array",
+            items: { type: "string" },
+            description: "Configured task-suitability dimensions used only after capability filtering to select a unique route.",
           },
           remainingEvidenceAfterPhase: {
             type: "array",
@@ -1132,11 +1143,17 @@ async function prepareManagedInvocationRequest(
   if (!parsed.ok) {
     return { ok: false, result: errorResult(parsed.error, {}, toolName) };
   }
+  const requestedAuthority = resolveManagedInvocationRequestedAuthority(
+    parsed.input.requestedAuthority,
+    context.effectiveTurnAuthority?.requestedAuthority,
+  );
 
   if (scopeAdmission === "required" && parsed.input.goalRunId) {
     const admission = attachment.governedScopeAdmission?.({
       parentSessionId: context.session.id,
       goalRunId: parsed.input.goalRunId,
+      profile: parsed.input.profile,
+      requestedAuthority,
       ...(parsed.input.workItemId ? { workItemId: parsed.input.workItemId } : {}),
       ...(parsed.input.attemptId ? { attemptId: parsed.input.attemptId } : {}),
     });
@@ -1360,10 +1377,6 @@ async function prepareManagedInvocationRequest(
     };
   }
 
-  const requestedAuthority = resolveManagedInvocationRequestedAuthority(
-    parsed.input.requestedAuthority,
-    context.effectiveTurnAuthority?.requestedAuthority,
-  );
   const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.input.profile, toolName);
   if (!authorityAdmission.ok) {
     return {
@@ -1661,7 +1674,7 @@ async function executeManagedInvocationTool(
   const { prepared } = preparedResult;
 
   const startedAt = Date.now();
-  const invocationResult = await service.invoke(
+  const startResult = await service.start(
     prepared.request,
     prepared.route.adapter,
     prepared.capabilitySnapshotInput,
@@ -1669,24 +1682,15 @@ async function executeManagedInvocationTool(
       ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
     },
   );
-  const durationMs = Date.now() - startedAt;
-  const result = invocationResult.status === "completed"
-    ? {
-        ...invocationResult,
-        record: projectManagedInvocationRecordResources(invocationResult.record, { artifactStore: options.artifactStore }),
-      }
-    : invocationResult;
-  const events = appendManagedInvocationSessionEvents({
-    session: prepared.context.session,
+  const startEvents = await appendAndPublishManagedInvocationStartSessionEvents({
+    options,
+    context: prepared.context,
     request: prepared.request,
-    decision: result.decision,
-    ...(result.status === "completed" ? { record: result.record, durationMs } : {}),
+    decision: startResult.decision,
   });
-  await publishManagedInvocationSessionEvents(options, prepared.context, events);
-
-  if (result.status === "denied") {
+  if (startResult.status === "denied") {
     return {
-      output: `Managed invocation denied: ${result.decision.reason}`,
+      output: `Managed invocation denied: ${startResult.decision.reason}`,
       isError: true,
       metadata: {
         toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -1706,16 +1710,16 @@ async function executeManagedInvocationTool(
         authorityProfileId: prepared.request.authority.authorityProfileId,
         context: prepared.request.input.context,
         ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
-        missingCapabilities: result.decision.missingCapabilities,
-        ...(result.decision.resourceLease
+        missingCapabilities: startResult.decision.missingCapabilities,
+        ...(startResult.decision.resourceLease
           ? {
               resourceLease: projectManagedInvocationResourceLeaseResources(
-                result.decision.resourceLease,
+                startResult.decision.resourceLease,
                 projectManagedInvocationPublicResourceUri,
               ),
             }
           : {}),
-        sessionEventIds: events.map((event) => event.eventId),
+        sessionEventIds: startEvents.map((event) => event.eventId),
         presentationIntent: buildManagedInvocationPresentationIntent({
           sourceToolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
           routeId: prepared.route.routeId,
@@ -1726,11 +1730,28 @@ async function executeManagedInvocationTool(
           contextMode: prepared.parsed.contextMode,
           status: "denied",
           substantiveEvidence: false,
-          failureReason: result.decision.reason,
+          failureReason: startResult.decision.reason,
         }),
       },
     };
   }
+  const invocationResult = await service.join(startResult.snapshot.invocationId);
+  if (invocationResult.status !== "completed") {
+    throw new Error("Admitted managed invocation returned a denied terminal result.");
+  }
+  const durationMs = Date.now() - startedAt;
+  const terminalEvents = await appendAndPublishManagedInvocationTerminalSessionEvent({
+    options,
+    context: prepared.context,
+    request: prepared.request,
+    record: invocationResult.record,
+    durationMs,
+  });
+  const result = {
+    ...invocationResult,
+    record: projectManagedInvocationRecordResources(invocationResult.record, { artifactStore: options.artifactStore }),
+  };
+  const events = [...startEvents, ...terminalEvents];
 
   const terminalSnapshot = service.status(prepared.request.invocationId);
   return terminalManagedInvocationResult({

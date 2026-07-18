@@ -285,12 +285,14 @@ include a complete `workItemUpdateInputTemplate` rather than only an evidence
 name. The template is not evidence; placeholder source URLs, artifact URIs, or
 summaries must be replaced with real qualifying evidence before calling
 `work_item.update`.
-The same state transition applies when the managed child succeeds. A successful
-intermediate `managed_agent.invoke` returns a phase-completion envelope rather
-than completing work governance by itself. The parent must inspect the readable
-managed handoff resources when needed, call `work_item.update` with the supplied
-same-work-item template after replacing placeholders with real evidence, and
-then call `work_item.execution.start` again for the next phase.
+The successful state transition is runtime-owned. A successful intermediate
+`managed_agent.invoke` must return one structured verification result for every
+phase evidence label, using that exact label as `requirementId`. Runtime records
+passed labels as `providedEvidence`, records genuinely unexecuted labels as
+`skippedVerificationGates`, requires residual risk for every skip, and requests
+the next phase on the same work item. The parent never transports phase evidence
+or invocation ids on the happy path. Failed, inconclusive, missing, or
+unapproved results remain explicit recovery contracts and fail closed.
 
 Each runtime provider call carries an `effectiveTurnAuthority` snapshot in its
 per-call tool config. The snapshot is projected from the final admitted tool
@@ -378,6 +380,14 @@ discriminated:
 Every goal also records its authority envelope, route policy, required evidence,
 and linked work item ids. That binding makes the run reconstructable from session
 evidence instead of relying on assistant text or surface-local UI state.
+The goal authority envelope is a ceiling for every generated managed request.
+Work-item profiles and route repair may narrow that ceiling but never widen it.
+A read-only goal therefore remains read-only even when an exact configured
+route supports only write-capable profiles; that route is incompatible and
+runtime must select a uniquely compatible read-only route or fail closed.
+Governed-scope admission rechecks the effective managed profile and requested
+authority for direct `managed_agent.invoke` calls, so bypassing the generated
+request cannot escape the same goal ceiling.
 
 Goal route policy has one owner at a time. `managedAgentProfile` means the
 agent profile owns child route selection through its configured route hints.
@@ -420,6 +430,13 @@ Execution attempts are part of the same evidence plane:
   `providedEvidence`, and any skipped gate requires a residual-risk note before
   closeout can proceed.
 
+Provided evidence and governed skips share one canonical accounting rule across
+phase selection, recovery, completion, and replay. `providedEvidence` means the
+artifact or proof exists. `skippedVerificationGates` and gate results with
+`status = skipped` mean the obligation was explicitly not executed. A passing
+custom gate is not silently promoted into provided evidence unless the work
+item records that evidence label separately.
+
 Goal closeout checks required goal evidence across materialized work items.
 When the work item and attempt are complete but goal evidence is still missing,
 `work_item.execution.finish` succeeds with
@@ -428,6 +445,11 @@ and names `goal.evidence.record` followed by `goal.complete`. Missing goal
 evidence is a subsequent closeout obligation, not a retroactive failure of the
 completed attempt. Terminal goal transitions set `currentPhase` to the terminal
 status so canonical state cannot remain `paused:*` after completion.
+After a goal reaches `completed`, `failed`, or `cancelled`, its work items are
+immutable through the generic update tool. Goal-bound completion and
+cancellation also remain owned by the execution lifecycle rather than
+`work_item.update`. This prevents a late recovery payload from reopening or
+rewriting terminal governed state.
 Missing evidence, failed gates, or skipped checks without residual risk are
 projected as actionable closeout state through session events, resources, and
 operator surfaces. If no manual summary is supplied, runtime generates a
@@ -441,6 +463,7 @@ Kiln ships canonical workflow profiles for common work shapes:
 | --- | --- |
 | `small-fix` | Local, low-risk work inside the direct-execution envelope. |
 | `bug-diagnosis` | Surface map, hypothesis, failing proof, minimal fix, verification loop. |
+| `architecture-review` | Read-only boundary, dependency, or architecture inspection without implementation work. |
 | `architecture-change` | Bounded-context, contract, or long-term design impact. |
 | `ui-change` | Operator-facing or browser-facing behavior requiring visual-reference research before planning and browser QA before closeout. |
 | `managed-agent-change` | Managed invocation, provider route, evidence, replay, or child handoff changes. |
@@ -534,9 +557,15 @@ the next phase. Only the final phase returns
 that child phase returns a verified invocation id to
 `work_item.execution.start`; the start transition then creates the execution
 attempt and links the substantive handoff. No attempt id exists before that
-transition. The parent subsequently closes the persisted attempt with
-`work_item.execution.finish`. This keeps delegated work small, replayable, and
-cross-surface observable without predictive lifecycle identifiers.
+transition. An attached runtime surface with the finish capability then closes
+the persisted attempt with `work_item.execution.finish`; a surface without that
+capability exposes a pause instead of claiming completion. This keeps delegated
+work small, replayable, and cross-surface observable without predictive
+lifecycle identifiers.
+The final phase also receives `verificationRequirementIds`: its evidence labels
+plus every still-unaccounted work-item verification gate. It must return exactly
+one structured passed or skipped result per id, so final handoff validation and
+work-item closeout cannot disagree about hidden gates.
 Evidence phases that depend on external UI or frontend references also carry
 `requiredToolNames` and implied route capabilities. Runtime validates those
 tools and the required `network` capability against the selected managed route
@@ -578,17 +607,21 @@ Managed-delegation work items do not start until the execution attempt is linked
 to a recorded managed invocation id. If that id is missing,
 `work_item.execution.start` pauses with an actionable `managed_agent.invoke`
 request internally. Attached runtime surfaces hydrate and execute that request
-before returning to the parent. For a final phase, the runtime resumes the same
-work item with the recorded invocation id. For an intermediate phase, it returns
-the invocation id and child handoff with `nextTool=work_item.update`; the parent
-records that evidence before requesting the next phase. The parent must not
-spawn a second child or add a guessed profile. Runtime surfaces may attach a
+before returning to the parent. For every validated intermediate phase, runtime
+records the structured evidence disposition and selects the next phase. For the
+final phase, runtime links the recorded invocation id to a new attempt and
+closes that attempt with the validated handoff. Each phase receives a distinct
+invocation id. The parent must not spawn a second child, copy invocation ids, or
+add a guessed profile. Runtime surfaces may attach a
 profile only when a single configured agent profile explicitly owns the same
 route id.
 Each generated phase carries `taskAffinity` in addition to required tools.
 Route selection uses configured `taskSuitability` only after capability
 filtering and only when it produces one unique winner. Ambiguous ties fail
 closed instead of becoming provider-order fallback.
+Canonical artifact content URIs recorded by earlier phase verification results
+are included in later phase resources. This reuses bounded evidence without
+copying whole transcripts or depending on provider-native conversation state.
 The generated managed invocation request treats the work item route and
 authority profile as governed state, not as model-owned hints. Caller-supplied
 `managedProfile` or `requestedAuthority` values may narrow a route only when
@@ -612,16 +645,17 @@ an attempt that does not exist.
 For intermediate phases, the blocking result may include
 `managedInvocationRecovery.nextTool = work_item.update`. That recovery is
 resolved only by a later successful `work_item.update` on the same work item
-whose `providedEvidence` contains every required phase evidence label.
+that accounts for every required phase evidence label as produced evidence or
+as an explicit skipped verification with residual risk.
 Recording the recovery in assistant text, submitting a plan, or continuing with
 local read-only inspection without the update keeps the turn failed.
-Successful intermediate child completion follows the same rule. A
-`managed_agent.invoke` result with `managedInvocationPhaseCompletion` or
-`phaseCompletion` and `nextTool = work_item.update` is still unresolved until a
-later successful `work_item.update` records every required phase evidence label
-on the same work item. The parent must never paste the update payload,
-`providedEvidence`, or `verificationGateResults` into assistant text as a
-substitute for the tool call.
+Successful intermediate child completion is consumed internally by attached
+runtime surfaces. `managedInvocationPhaseCompletion` is an internal validated
+transition, not an instruction for the parent. Surfaces that intentionally omit
+work-governance mutation tools expose the transition as a capability pause;
+they cannot silently claim progress. The parent must never paste an update
+payload, `providedEvidence`, or `verificationGateResults` into assistant text as
+a substitute for runtime state.
 Surfaces must not project a completed turn when required managed-agent evidence
 failed or never materialized.
 The same rule applies when the latest work-governance tool result is an

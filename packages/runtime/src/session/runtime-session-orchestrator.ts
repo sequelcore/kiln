@@ -10,6 +10,7 @@ import type {
   ConversationToolResultProjectionPolicy,
 } from "@kilnai/core";
 import {
+  accountedWorkItemEvidence,
   extractText,
   getInvalidToolInputDetails,
   KilnError,
@@ -1379,14 +1380,26 @@ function resolvesManagedInvocationTransition(
   if (!snapshot || snapshot.id !== pending.workItemId) {
     return false;
   }
+  const itemStatus = readText(snapshot.item.status);
+  if (itemStatus === "completed" || itemStatus === "cancelled") {
+    return true;
+  }
   if (readText(execution.input?.status) === "blocked" || readText(snapshot.item.status) === "blocked") {
     return resolvesBlockedManagedInvocationTransition(snapshot.item, pending);
   }
   if (pending.evidenceToRecord.length === 0) {
     return false;
   }
-  const providedEvidence = readTextArray(snapshot.item.providedEvidence);
-  return pending.evidenceToRecord.every((evidence) => providedEvidence.includes(evidence));
+  const accountedEvidence = new Set(accountedWorkItemEvidence({
+    providedEvidence: readTextArray(snapshot.item.providedEvidence),
+    skippedVerificationGates: readTextArray(snapshot.item.skippedVerificationGates),
+    verificationGateResults: readRecordArray(snapshot.item.verificationGateResults).flatMap((result) => {
+      const gate = readText(result.gate);
+      const status = readText(result.status);
+      return gate && status ? [{ gate, status }] : [];
+    }),
+  }));
+  return pending.evidenceToRecord.every((evidence) => accountedEvidence.has(evidence));
 }
 
 function resolvesManagedInvocationExecutionTransition(

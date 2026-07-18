@@ -182,13 +182,13 @@ function makeAdapterWithHandoff(
             failures: [],
             approvalRequirements: [],
             residualRisks: ["Live deployment was not exercised."],
-            verificationResults: [{
-              requirementId: "review",
-              method: "deterministic",
-              status: "passed",
-              summary: "Review evidence is present.",
+            verificationResults: (request.input.handoff?.expectedEvidence ?? ["review"]).map((requirementId) => ({
+              requirementId,
+              method: "deterministic" as const,
+              status: "passed" as const,
+              summary: `${requirementId} evidence is present.`,
               evidenceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
-            }],
+            })),
             ...structuredResultOverrides,
           },
           verificationUsage: {
@@ -3527,6 +3527,17 @@ describe("managed invocation runtime tool", () => {
         readonly expectedEvidence?: {
           readonly items?: { readonly type?: string };
         };
+        readonly executionPhase?: {
+          readonly properties?: {
+            readonly verificationRequirementIds?: {
+              readonly items?: { readonly type?: string };
+            };
+            readonly taskAffinity?: {
+              readonly items?: { readonly type?: string };
+            };
+            readonly instruction?: { readonly type?: string };
+          };
+        };
         readonly agentProfile?: { readonly enum?: readonly string[] };
         readonly skills?: {
           readonly items?: { readonly enum?: readonly string[] };
@@ -3589,6 +3600,9 @@ describe("managed invocation runtime tool", () => {
       "destructive",
     ]);
     expect(schema.properties?.expectedEvidence?.items?.type).toBe("string");
+    expect(schema.properties?.executionPhase?.properties?.verificationRequirementIds?.items?.type).toBe("string");
+    expect(schema.properties?.executionPhase?.properties?.taskAffinity?.items?.type).toBe("string");
+    expect(schema.properties?.executionPhase?.properties?.instruction?.type).toBe("string");
     expect(schema.properties?.skills?.items?.enum).toEqual(["test-generator", "repo-review"]);
   });
 
@@ -3894,7 +3908,9 @@ describe("managed invocation runtime tool", () => {
     expect(session.sessionEvents[0]).toMatchObject({
       requestedAuthority: "read_only",
     });
-    expect(sessionEventSink.publish).toHaveBeenCalledWith(session.sessionEvents, context);
+    expect(sessionEventSink.publish).toHaveBeenCalledTimes(2);
+    expect(sessionEventSink.publish).toHaveBeenNthCalledWith(1, session.sessionEvents.slice(0, 2), context);
+    expect(sessionEventSink.publish).toHaveBeenNthCalledWith(2, [session.sessionEvents[2]], context);
     expect(session.sessionEvents[2]).toMatchObject({
       requestedAuthority: "read_only",
       handoffContract: {
@@ -4290,6 +4306,78 @@ describe("managed invocation runtime tool", () => {
       status: "phase_completed_by_child",
       nextTool: "work_item.execution.start",
       workItemId: "work-final",
+    });
+  });
+
+  it("validates final closeout gates even when no phase evidence remains", async () => {
+    const surface = makeSurface(makeAdapterWithHandoff(
+      "Managed review completed with a structured closeout result.",
+      {},
+      {
+        verificationResults: [{
+          requirementId: "review child handoff",
+          method: "deterministic",
+          status: "passed",
+          summary: "The child handoff was reviewed.",
+          evidenceUris: ["kiln://managed-invocations/test/transcript"],
+        }],
+      },
+    ));
+    const session = makeSession();
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      requestedAuthority: "read_only",
+      task: "Validate the final closeout gate.",
+      summary: "Validate the final closeout gate.",
+      goalRunId: "goal-final-gate",
+      workItemId: "work-final-gate",
+      executionPhase: {
+        id: "managed-review-closeout",
+        expectedEvidence: [],
+        verificationRequirementIds: ["review child handoff"],
+        completionTool: "work_item.execution.finish",
+        finalPhase: true,
+        autoStartAllowed: true,
+      },
+    }, {
+      session,
+      toolCall: {
+        id: "tool-call-final-closeout-gate",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    }) as {
+      readonly output: string;
+      readonly isError: boolean;
+    };
+    const output = JSON.parse(result.output) as {
+      readonly phaseCompletion?: {
+        readonly workItemExecutionFinishInputTemplate?: {
+          readonly providedEvidence?: readonly string[];
+          readonly verificationGateResults?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(result.isError).toBe(false);
+    expect(output.phaseCompletion?.workItemExecutionFinishInputTemplate).toEqual({
+      goalRunId: "goal-final-gate",
+      workItemId: "work-final-gate",
+      providedEvidence: [],
+      skippedVerificationGates: [],
+      verificationGateResults: [{
+        gate: "review child handoff",
+        status: "passed",
+        summary: "The child handoff was reviewed.",
+        evidence: ["kiln://managed-agents/invocations/test/transcript"],
+      }],
+      residualRisk: "Live deployment was not exercised.",
+      summary: "Managed review completed with a structured closeout result.",
     });
   });
 
@@ -5894,6 +5982,7 @@ describe("managed invocation runtime tool", () => {
       goalRunId: "goal-ui",
       workItemId: "work-ui",
       attemptId: "goal-ui:work-ui:attempt:1",
+      expectedEvidence: ["visual-reference-research"],
       executionPhase: {
         id: "visual-reference-research",
         expectedEvidence: ["visual-reference-research"],
@@ -6005,6 +6094,7 @@ describe("managed invocation runtime tool", () => {
       goalRunId: "goal-ui",
       workItemId: "work-ui",
       attemptId: "goal-ui:work-ui:attempt:1",
+      expectedEvidence: ["visual-reference-research"],
       executionPhase: {
         id: "visual-reference-research",
         expectedEvidence: ["visual-reference-research"],
@@ -6033,7 +6123,7 @@ describe("managed invocation runtime tool", () => {
       };
     };
 
-    expect(result.isError).toBe(false);
+    expect(result.isError, result.output).toBe(false);
     expect(JSON.parse(result.output)).toMatchObject({
       status: "completed",
       routeId: "opencode-readonly",

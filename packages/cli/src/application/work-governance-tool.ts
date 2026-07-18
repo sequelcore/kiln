@@ -17,6 +17,7 @@ import type {
   VerificationGateResult,
 } from "@kilnai/core";
 import {
+  accountedWorkItemEvidence,
   containsFrontendReferenceEvidence,
   completeGoalExecution,
   failGoalExecutionAttempt,
@@ -24,6 +25,7 @@ import {
   goalToolMetadata,
   GoalRunStore,
   isCanonicalArtifactContentUri,
+  isTerminalGoalStatus,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
   projectManagedOrchestrationAdoptionGate,
   projectManagedOrchestrationResultHandoff,
@@ -163,12 +165,13 @@ type ManagedInvocationPhaseId =
 interface ManagedInvocationPhase {
   readonly id: ManagedInvocationPhaseId;
   readonly expectedEvidence: readonly KilnWorkGovernanceEvidence[];
+  readonly verificationRequirementIds: readonly string[];
   readonly requiredToolNames: readonly string[];
   readonly taskAffinity: readonly ModelTaskSuitabilityTask[];
   readonly remainingEvidenceAfterPhase: readonly KilnWorkGovernanceEvidence[];
   readonly finalPhase: boolean;
   readonly completionTool: "work_item.update" | "work_item.execution.finish";
-  readonly completionInstruction: string;
+  readonly instruction: string;
 }
 
 export function createWorkGovernanceTools(
@@ -185,7 +188,7 @@ export function createWorkGovernanceTools(
   return [
     new WorkGovernanceAssessTool(config),
     new WorkProfileListTool(),
-    new WorkItemUpdateTool(config, store),
+    new WorkItemUpdateTool(config, store, goalRunStore),
     new WorkItemListTool(store),
     new WorkItemCompleteTool(store),
     new GoalCreateTool(goalRunStore, store, options.ownerSessionId),
@@ -397,6 +400,11 @@ export class WorkItemUpdateTool implements DevTool {
         items: { type: "string", enum: EVIDENCE },
         description: "Optional evidence already produced.",
       },
+      skippedVerificationGates: {
+        type: "array",
+        items: { type: "string" },
+        description: "Expected evidence or verification labels intentionally skipped. Skips require residual-risk closeout and are never recorded as produced evidence.",
+      },
       verificationGates: {
         type: "array",
         items: { type: "string" },
@@ -457,6 +465,7 @@ export class WorkItemUpdateTool implements DevTool {
   constructor(
     private readonly config: KilnWorkGovernanceConfig | undefined,
     private readonly store: WorkItemStore,
+    private readonly goalRunStore: GoalRunStore,
   ) {}
 
   async execute(input: ToolInput): Promise<ToolResult> {
@@ -483,10 +492,62 @@ export class WorkItemUpdateTool implements DevTool {
       };
     }
 
-    const triggers = readTriggers(input.input.triggers);
-    const risk = isRisk(input.input.risk) ? input.input.risk : undefined;
-    const explicitProfile = readText(input.input.workflowProfile);
-    const workflowProfile = explicitProfile ? findWorkflowProfile(explicitProfile) : chooseWorkflowProfile(triggers, risk);
+    let workClassification: WorkClassificationInput | undefined;
+    let workClassificationProvenance: WorkClassificationProvenanceInput | undefined;
+    try {
+      workClassification = readWorkClassificationInput(input.input.workClassification);
+      workClassificationProvenance = readWorkClassificationProvenanceInput(
+        input.input.workClassificationProvenance,
+      );
+    } catch (error) {
+      return {
+        output: `Invalid input: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true,
+      };
+    }
+    const readOnlyArchitectureReview = isReadOnlyArchitectureReview(workClassification);
+    const existing = this.store.get(id);
+    if (existing?.goalRunId) {
+      const goal = this.goalRunStore.get(existing.goalRunId);
+      const requestedStatus = readStatus(input.input.status);
+      const terminalReason = goal && isTerminalGoalStatus(goal.status)
+        ? `Goal ${goal.id} is terminal (${goal.status}); its work items are immutable.`
+        : existing.status === "completed" || existing.status === "cancelled"
+          ? `Goal-bound work item ${existing.id} is terminal (${existing.status}) and cannot be updated.`
+          : requestedStatus === "completed" || requestedStatus === "cancelled"
+            ? `Goal-bound work item ${existing.id} must transition to ${requestedStatus} through its execution lifecycle.`
+          : undefined;
+      if (terminalReason) {
+        return {
+          output: terminalReason,
+          metadata: workItemToolMetadata("work_item.update", {
+            operation: "update",
+            id: existing.id,
+            status: existing.status,
+            item: existing,
+            errorCode: "invalid_input",
+          }),
+          isError: true,
+        };
+      }
+    }
+    const triggers = input.input.triggers === undefined
+      ? existing?.triggers.filter(isTrigger) ?? []
+      : readTriggers(input.input.triggers);
+    const risk = isRisk(input.input.risk)
+      ? input.input.risk
+      : isRisk(existing?.risk)
+        ? existing.risk
+        : undefined;
+    const requestedProfile = readText(input.input.workflowProfile);
+    const explicitProfile = requestedProfile === "architecture-change" && readOnlyArchitectureReview
+      ? "architecture-review"
+      : requestedProfile;
+    const workflowProfile = explicitProfile
+      ? findWorkflowProfile(explicitProfile)
+      : existing
+        ? findWorkflowProfile(existing.workflowProfile)
+        : chooseWorkflowProfile(triggers, risk, { readOnlyArchitectureReview });
     if (!workflowProfile) {
       return { output: `Invalid input: unknown workflowProfile "${explicitProfile}"`, isError: true };
     }
@@ -499,20 +560,31 @@ export class WorkItemUpdateTool implements DevTool {
     const expectedEvidence = uniqueEvidence([
       ...requiredEvidenceForWorkflowProfile(workflowProfile),
       ...assessment.requiredEvidence,
+      ...(existing?.expectedEvidence.filter(isEvidence) ?? []),
       ...readEvidence(input.input.expectedEvidence),
     ]);
     const verificationGates = uniqueText([
       ...verificationGatesForWorkflowProfile(workflowProfile),
+      ...(existing?.verificationGates ?? []),
       ...readTextArray(input.input.verificationGates),
     ]);
-    const existing = id ? this.store.get(id) : undefined;
-    const routeId = readText(input.input.routeId);
-    const authorityProfile = readText(input.input.authorityProfile) ?? workflowProfile.defaultAuthorityProfile;
+    const routeId = readText(input.input.routeId) ?? existing?.routeId;
+    const authorityProfile = readText(input.input.authorityProfile) ?? existing?.authorityProfile ?? workflowProfile.defaultAuthorityProfile;
     const phaseRoutes = readTextRecord(input.input.phaseRoutes) ?? existing?.phaseRoutes;
     const referenceRootsInput = readTextArray(input.input.referenceRoots);
     const referenceRoots = referenceRootsInput.length > 0 ? referenceRootsInput : existing?.referenceRoots;
-    const providedEvidence = readEvidence(input.input.providedEvidence);
-    const verificationGateResults = readVerificationGateResults(input.input.verificationGateResults);
+    const providedEvidence = uniqueEvidence([
+      ...(existing?.providedEvidence.filter(isEvidence) ?? []),
+      ...readEvidence(input.input.providedEvidence),
+    ]);
+    const skippedVerificationGates = uniqueText([
+      ...(existing?.skippedVerificationGates ?? []),
+      ...readTextArray(input.input.skippedVerificationGates),
+    ]);
+    const verificationGateResults = mergeGateResults(
+      existing?.verificationGateResults ?? [],
+      readVerificationGateResults(input.input.verificationGateResults),
+    );
     const visualEvidence = validateVisualReferenceEvidence({
       providedEvidence,
       verificationGateResults,
@@ -555,25 +627,23 @@ export class WorkItemUpdateTool implements DevTool {
         isError: true,
       };
     }
-    const pauseRequirements = readPauseRequirements(input.input.pauseRequirements);
+    const pauseRequirements = input.input.pauseRequirements === undefined
+      ? { ok: true as const, requirements: existing?.pauseRequirements ?? [] }
+      : readPauseRequirements(input.input.pauseRequirements);
     if (!pauseRequirements.ok) {
       return { output: `Invalid input: ${pauseRequirements.message}`, isError: true };
     }
     let item: WorkItem;
     try {
-      const workClassification = readWorkClassificationInput(input.input.workClassification);
-      const workClassificationProvenance = readWorkClassificationProvenanceInput(
-        input.input.workClassificationProvenance,
-      );
       item = this.store.upsert({
         id,
         summary,
-        status: readStatus(input.input.status),
+        status: readStatus(input.input.status) ?? existing?.status,
         workflowProfile: workflowProfile.id,
         risk,
         triggers,
-        surface: readText(input.input.surface),
-        assignedAgentProfile: readText(input.input.assignedAgentProfile),
+        surface: readText(input.input.surface) ?? existing?.surface,
+        assignedAgentProfile: readText(input.input.assignedAgentProfile) ?? existing?.assignedAgentProfile,
         routeId,
         phaseRoutes,
         referenceRoots,
@@ -581,9 +651,12 @@ export class WorkItemUpdateTool implements DevTool {
         expectedEvidence,
         providedEvidence,
         verificationGates,
+        skippedVerificationGates,
         verificationGateResults,
-        dependencies: readTextArray(input.input.dependencies),
-        residualRisk: readText(input.input.residualRisk),
+        dependencies: input.input.dependencies === undefined
+          ? existing?.dependencies ?? []
+          : readTextArray(input.input.dependencies),
+        residualRisk: readText(input.input.residualRisk) ?? existing?.residualRisk,
         pauseRequirements: pauseRequirements.requirements,
         ...(workClassification ? { workClassification } : {}),
         ...(workClassificationProvenance ? { workClassificationProvenance } : {}),
@@ -1759,17 +1832,25 @@ function buildManagedInvocationRequest(
     : readText(input.managedModel);
   const reasoningEffort = readText(input.managedReasoningEffort)
     ?? step.workItem.routingRecommendation?.reasoningEffort;
-  const resourceUris = readTextArray(input.managedResourceUris) ?? [];
+  const resourceUris = uniqueText([
+    ...readTextArray(input.managedResourceUris),
+    ...step.workItem.verificationGateResults
+      .flatMap((result) => result.evidence ?? [])
+      .filter(isCanonicalArtifactContentUri),
+  ]);
   if (resourceUris.some((uri) => !isCanonicalArtifactContentUri(uri))) {
     throw new Error("managedResourceUris must contain only canonical kiln://artifacts/<namespace>/<id>/content URIs.");
   }
   const expectedEvidence = phase.expectedEvidence;
   const residualRiskRequired = expectedEvidence.includes("residual-risk");
-  const profile = phaseRequiresReadOnlyVisualResearch
+  const configuredProfile = phaseRequiresReadOnlyVisualResearch
     ? "foundation-readonly-plan"
     : readManagedInvocationProfile(step.workItem.authorityProfile)
     ?? readManagedInvocationProfile(input.managedProfile)
     ?? "foundation-readonly-plan";
+  const profile = goal.authorityEnvelope.maximumAuthority === "read_only"
+    ? "foundation-readonly-plan"
+    : configuredProfile;
   const request: Record<string, unknown> = {
     profile,
     ...(routeId ? { routeId } : {}),
@@ -1796,13 +1877,14 @@ function buildManagedInvocationRequest(
     executionPhase: {
       id: phase.id,
       expectedEvidence: phase.expectedEvidence,
+      verificationRequirementIds: phase.verificationRequirementIds,
       requiredToolNames: phase.requiredToolNames,
       taskAffinity: phase.taskAffinity,
       remainingEvidenceAfterPhase: phase.remainingEvidenceAfterPhase,
       finalPhase: phase.finalPhase,
       completionTool: phase.completionTool,
       autoStartAllowed: phase.completionTool === "work_item.execution.finish",
-      completionInstruction: phase.completionInstruction,
+      instruction: phase.instruction,
     },
     expectedEvidence,
     ...(phase.requiredToolNames.length > 0 ? { requiredToolNames: phase.requiredToolNames } : {}),
@@ -1810,7 +1892,7 @@ function buildManagedInvocationRequest(
       ? { requiredReadPaths: step.workItem.referenceRoots }
       : {}),
     requiredResultFields: managedInvocationResultFields(expectedEvidence),
-    doneCriteria: managedInvocationDoneCriteria(step, phase),
+    doneCriteria: managedInvocationDoneCriteria(phase),
     residualRiskRequired,
     outputVerbosity: "concise",
   };
@@ -1832,38 +1914,52 @@ function resolveManagedInvocationAuthority(
   input: Record<string, unknown>,
   goal: GoalRun,
 ): ManagedInvocationAuthority {
-  if (profile === "foundation-readonly-plan") {
+  if (
+    goal.authorityEnvelope.maximumAuthority === "read_only"
+    || profile === "foundation-readonly-plan"
+  ) {
     return "read_only";
   }
   const requestedAuthority = readManagedInvocationAuthority(input.requestedAuthority);
-  if (requestedAuthority && requestedAuthority !== "read_only") {
-    return requestedAuthority;
+  if (
+    requestedAuthority === "audited"
+    && goal.authorityEnvelope.maximumAuthority === "destructive"
+  ) {
+    return "audited";
   }
-  if (goal.authorityEnvelope.maximumAuthority !== "read_only") {
-    return goal.authorityEnvelope.maximumAuthority;
-  }
-  return "audited";
+  return goal.authorityEnvelope.maximumAuthority;
 }
 
 function resolveManagedInvocationPhase(step: ReadyGoalExecutionStep): ManagedInvocationPhase {
+  const accountedEvidence = new Set(accountedWorkItemEvidence(step.workItem));
   const missingEvidence = step.requiredEvidence
     .filter((evidence): evidence is KilnWorkGovernanceEvidence => isEvidence(evidence))
-    .filter((evidence) => !step.workItem.providedEvidence.includes(evidence));
+    .filter((evidence) => !accountedEvidence.has(evidence));
   const targetEvidence = firstMatchingPhaseEvidence(missingEvidence);
   const phaseId = phaseIdForEvidence(targetEvidence);
   const remainingEvidenceAfterPhase = missingEvidence.filter((evidence) => !targetEvidence.includes(evidence));
   const finalPhase = remainingEvidenceAfterPhase.length === 0;
+  const accountedGates = new Set([
+    ...step.workItem.skippedVerificationGates,
+    ...step.workItem.verificationGateResults
+      .filter((result) => result.status === "passed" || result.status === "skipped")
+      .map((result) => result.gate),
+  ]);
+  const remainingVerificationGates = finalPhase
+    ? step.workItem.verificationGates.filter((gate) => !accountedGates.has(gate))
+    : [];
   return {
     id: phaseId,
     expectedEvidence: targetEvidence,
+    verificationRequirementIds: uniqueText([...targetEvidence, ...remainingVerificationGates]),
     requiredToolNames: requiredToolNamesForPhaseEvidence(targetEvidence),
     taskAffinity: taskAffinityForPhase(phaseId),
     remainingEvidenceAfterPhase,
     finalPhase,
     completionTool: finalPhase ? "work_item.execution.finish" : "work_item.update",
-    completionInstruction: finalPhase
-      ? "This is the final evidence phase. After managed invocation returns, link the invocation id with work_item.execution.start and close it with work_item.execution.finish."
-      : "This is an intermediate evidence phase. After managed invocation returns, record only this phase evidence with work_item.update on the same pending work item, then call work_item.execution.start again for the next phase.",
+    instruction: finalPhase
+      ? "This is the final evidence phase. Kiln will attach invocation provenance and close the execution attempt after validating the structured handoff."
+      : "This is an intermediate evidence phase. Kiln will record the validated phase result and advance the same work item automatically.",
   };
 }
 
@@ -1937,6 +2033,8 @@ function formatManagedInvocationTask(
   step: ReadyGoalExecutionStep,
   phase = resolveManagedInvocationPhase(step),
 ): string {
+  const remainingVerificationGates = phase.verificationRequirementIds
+    .filter((requirementId) => !phase.expectedEvidence.some((evidence) => evidence === requirementId));
   const lines = [
     step.workItem.summary,
     `Goal: ${goal.objective}`,
@@ -1945,6 +2043,9 @@ function formatManagedInvocationTask(
   ];
   if (phase.expectedEvidence.length > 0) {
     lines.push(`Produce only this phase evidence: ${phase.expectedEvidence.join(", ")}.`);
+  }
+  if (phase.verificationRequirementIds.length > 0) {
+    lines.push(`verificationResults must contain exactly one result for every required evidence or closeout gate, using these exact requirementId values: ${phase.verificationRequirementIds.join(", ")}. Mark genuinely unexecuted checks skipped, never passed, and describe every skip in residualRisks.`);
   }
   if (phase.id === "visual-reference-research") {
     lines.push("Use read-only frontend-reference research authority. Prefer running-product UI captures when available. If the reference repository has no public screenshots, inspect the frontend implementation itself and produce code-backed evidence: component structure, layout/navigation model, spacing/typography/density, panels, work surfaces, composer-like interactions, status areas, and relevant frontend file paths. Local reference repositories are valid only when evidence cites concrete source paths and extracted UI principles. Repository chrome, stars/forks/issues, and raw file listings alone do not count.");
@@ -1959,10 +2060,10 @@ function formatManagedInvocationTask(
   if (phase.remainingEvidenceAfterPhase.length > 0) {
     lines.push(`Do not expand into later phases. Remaining evidence after this phase: ${phase.remainingEvidenceAfterPhase.join(", ")}.`);
   }
-  if (step.workItem.verificationGates.length > 0) {
-    lines.push(`Work item verification gates for final closeout: ${step.workItem.verificationGates.join("; ")}.`);
+  if (remainingVerificationGates.length > 0) {
+    lines.push(`Remaining work item verification gates for final closeout: ${remainingVerificationGates.join("; ")}.`);
   }
-  lines.push(phase.completionInstruction);
+  lines.push(phase.instruction);
   lines.push("Return exactly one structured-execution-result-v1 JSON object with status, summary, limitations, operatorDecisions, evidence, citations, warnings, failures, approvalRequirements, residualRisks, and verificationResults. Include uncertainty when requested. Do not infer verification success from prose or include scratch notes, private planning text, or tool-output housekeeping.");
   return lines.join("\n");
 }
@@ -1976,14 +2077,16 @@ function managedInvocationResultFields(expectedEvidence: readonly string[]): rea
   ]);
 }
 
-function managedInvocationDoneCriteria(step: ReadyGoalExecutionStep, phase: ManagedInvocationPhase): readonly string[] {
+function managedInvocationDoneCriteria(phase: ManagedInvocationPhase): readonly string[] {
+  const remainingVerificationGates = phase.verificationRequirementIds
+    .filter((requirementId) => !phase.expectedEvidence.some((evidence) => evidence === requirementId));
   return uniqueText([
-    ...(phase.finalPhase ? step.workItem.verificationGates : []),
+    ...(phase.finalPhase ? remainingVerificationGates : []),
     ...(phase.expectedEvidence.length > 0
       ? [`Produce phase evidence: ${phase.expectedEvidence.join(", ")}.`]
       : []),
     ...(phase.remainingEvidenceAfterPhase.length > 0
-      ? [`Stop after phase ${phase.id}; record evidence with ${phase.completionTool} before requesting the next phase.`]
+      ? [`Stop after phase ${phase.id}; Kiln owns the validated transition to the next phase.`]
       : []),
     ...(phase.expectedEvidence.includes("residual-risk")
       ? ["Document residual risk before closeout."]
@@ -2242,6 +2345,15 @@ function taskAffinityForPhase(phase: ManagedInvocationPhaseId): readonly ModelTa
     case "implementation-verification":
       return ["test-writing"];
   }
+}
+
+function mergeGateResults(
+  existing: readonly VerificationGateResult[],
+  incoming: readonly VerificationGateResult[],
+): readonly VerificationGateResult[] {
+  const byGate = new Map(existing.map((result) => [result.gate, result] as const));
+  for (const result of incoming) byGate.set(result.gate, result);
+  return [...byGate.values()];
 }
 
 export class GoalEvidenceRecordTool implements DevTool {
@@ -2547,6 +2659,18 @@ function readWorkClassificationInput(value: unknown): WorkClassificationInput | 
     ...(Array.isArray(record.effects) ? { effects: readTextArray(record.effects) } : {}),
     ...(Array.isArray(record.modes) ? { modes: readTextArray(record.modes) } : {}),
   };
+}
+
+function isReadOnlyArchitectureReview(
+  classification: WorkClassificationInput | undefined,
+): boolean {
+  if (!classification) {
+    return false;
+  }
+  const effects = classification.effects ?? [];
+  const intents = classification.intents ?? [];
+  return effects.includes("read-only")
+    && (intents.includes("analyze") || intents.includes("review"));
 }
 
 function readWorkClassificationProvenanceInput(

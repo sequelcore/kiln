@@ -170,6 +170,93 @@ describe("work-governance-tool", () => {
     expect(schema.required).toEqual(expect.arrayContaining(["id", "summary"]));
   });
 
+  it("preserves work classification while recording phase evidence and explicit skips", async () => {
+    const tools = createWorkGovernanceTools(policy);
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "managed-phase-state",
+        summary: "Repair managed lifecycle progression.",
+        workflowProfile: "managed-agent-change",
+        risk: "high",
+        triggers: ["managed-agents", "runtime", "cross-surface"],
+        routeId: "codex-runtime",
+        authorityProfile: "foundation-readonly-plan",
+      },
+    });
+
+    const updated = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "managed-phase-state",
+        summary: "Repair managed lifecycle progression.",
+        providedEvidence: ["surface-map"],
+        skippedVerificationGates: ["tests"],
+        verificationGateResults: [{
+          gate: "tests",
+          status: "skipped",
+          summary: "Test execution was unavailable in the delegated read-only phase.",
+        }],
+        residualRisk: "Tests remain unexecuted and must be run before release.",
+      },
+    });
+    const output = JSON.parse(updated?.output ?? "{}") as { readonly item: Record<string, unknown> };
+
+    expect(updated?.isError).toBe(false);
+    expect(output.item).toMatchObject({
+      workflowProfile: "managed-agent-change",
+      risk: "high",
+      triggers: ["managed-agents", "runtime", "cross-surface"],
+      routeId: "codex-runtime",
+      authorityProfile: "foundation-readonly-plan",
+      providedEvidence: ["surface-map"],
+      skippedVerificationGates: ["tests"],
+      residualRisk: "Tests remain unexecuted and must be run before release.",
+    });
+  });
+
+  it("uses architecture review semantics for read-only analysis instead of implementation gates", async () => {
+    const updateTool = createWorkGovernanceTools(policy)
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const result = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "architecture-readonly-review",
+        summary: "Inspect package boundaries and report architecture risks.",
+        workflowProfile: "architecture-change",
+        risk: "medium",
+        triggers: ["architecture", "multi-file"],
+        authorityProfile: "foundation-readonly-plan",
+        workClassification: {
+          intents: ["analyze", "review"],
+          artifacts: ["code"],
+          domains: ["software"],
+          effects: ["read-only"],
+          modes: ["critique"],
+        },
+        workClassificationProvenance: {
+          sourceKind: "plan-work-item",
+          sourceId: "architecture-readonly-review",
+        },
+      },
+    });
+    const output = JSON.parse(result?.output ?? "{}") as {
+      readonly item?: {
+        readonly workflowProfile?: string;
+        readonly expectedEvidence?: readonly string[];
+        readonly verificationGates?: readonly string[];
+      };
+    };
+
+    expect(result?.isError).toBe(false);
+    expect(output.item?.workflowProfile).toBe("architecture-review");
+    expect(output.item?.expectedEvidence).not.toContain("tests");
+    expect(output.item?.expectedEvidence).not.toContain("typecheck");
+    expect(output.item?.verificationGates).toContain("architecture/DDD review");
+  });
+
   it("materializes visual reference research before browser QA for UI work", async () => {
     const tools = createWorkGovernanceTools(policy);
     const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
@@ -2191,7 +2278,13 @@ describe("work-governance-tool", () => {
       workflowProfile: "managed-agent-change",
       triggers: ["managed-agents"],
       expectedEvidence: ["managed-agent-review"],
-      verificationGates: ["review child handoff"],
+      verificationGates: ["review child handoff", "prior inspection"],
+      verificationGateResults: [{
+        gate: "prior inspection",
+        status: "passed",
+        summary: "The prior inspection artifact is reusable.",
+        evidence: ["kiln://artifacts/work-managed/prior-inspection/content"],
+      }],
       goalRunId: "goal-managed",
       routeId: "opencode-readonly",
       assignedAgentProfile: "coder",
@@ -2308,13 +2401,17 @@ describe("work-governance-tool", () => {
       requestedAuthority: "audited",
       summary: "Execute delegated work.",
       contextMode: "resources",
-      resourceUris: ["kiln://artifacts/work-managed/context/content"],
+      resourceUris: [
+        "kiln://artifacts/work-managed/context/content",
+        "kiln://artifacts/work-managed/prior-inspection/content",
+      ],
       workItemId: "work-managed",
       agentProfile: "coder",
       roleIntent: "Execute governed work item work-managed for goal goal-managed.",
       executionPhase: {
         id: "managed-review-closeout",
         expectedEvidence: ["managed-agent-review"],
+        verificationRequirementIds: ["managed-agent-review", "review child handoff"],
         requiredToolNames: [],
         remainingEvidenceAfterPhase: [],
         finalPhase: true,
@@ -2334,6 +2431,10 @@ describe("work-governance-tool", () => {
     });
     expect(missingInvocationOutput.managedInvocationRequest).not.toHaveProperty("attemptId");
     expect(missingInvocationOutput.managedInvocationRequest?.task).toContain("Execute delegated work.");
+    expect(missingInvocationOutput.managedInvocationRequest?.task).toContain(
+      "managed-agent-review, review child handoff",
+    );
+    expect(missingInvocationOutput.managedInvocationRequest?.task).not.toContain("prior inspection");
     expect(workItemStore.get(item.id)?.status).toBe("pending");
 
     const rejectedTranscriptContext = await startTool?.execute({
@@ -2572,7 +2673,7 @@ describe("work-governance-tool", () => {
     ]);
     expect(output.managedInvocationRequest?.doneCriteria).toEqual([
       "Produce phase evidence: visual-reference-research.",
-      "Stop after phase visual-reference-research; record evidence with work_item.update before requesting the next phase.",
+      "Stop after phase visual-reference-research; Kiln owns the validated transition to the next phase.",
     ]);
     expect(output.managedInvocationRequest?.task).toContain("Produce only this phase evidence: visual-reference-research.");
     expect(output.managedInvocationRequest?.task).toContain("Use read-only frontend-reference research authority.");
@@ -2640,6 +2741,73 @@ describe("work-governance-tool", () => {
       profile: "foundation-apply-approved-writes",
       requestedAuthority: "audited",
       routeId: "opencode-go-frontend-approved-write",
+    });
+
+    const excessiveAuthority = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+        requestedAuthority: "destructive",
+      },
+    });
+    const excessiveOutput = JSON.parse(excessiveAuthority?.output ?? "{}") as {
+      readonly managedInvocationRequest?: {
+        readonly requestedAuthority?: string;
+      };
+    };
+    expect(excessiveOutput.managedInvocationRequest?.requestedAuthority).toBe("audited");
+  });
+
+  it("clamps a write-capable work item to the owning goal read-only authority ceiling", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-readonly-ceiling",
+      summary: "Inspect delegated work without mutations.",
+      workflowProfile: "architecture-change",
+      triggers: ["architecture"],
+      expectedEvidence: ["surface-map"],
+      verificationGates: [],
+      goalRunId: "goal-readonly-ceiling",
+      routeId: "codex-oauth-critical-approved-write",
+      assignedAgentProfile: "scout",
+      authorityProfile: "foundation-apply-approved-writes",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-readonly-ceiling",
+      objective: "Inspect the repository without mutations.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        reason: "The operator requested read-only inspection.",
+      },
+      routePolicy: { workflowProfile: "architecture-change" },
+      evidenceRequirements: [],
+    });
+    const startTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.execution.start");
+
+    const result = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: {
+        goalRunId: goal.id,
+        governanceRecommendation: "orchestrate",
+      },
+    });
+    const output = JSON.parse(result?.output ?? "{}") as {
+      readonly managedInvocationRequest?: {
+        readonly profile?: string;
+        readonly requestedAuthority?: string;
+      };
+    };
+
+    expect(output.managedInvocationRequest).toMatchObject({
+      profile: "foundation-readonly-plan",
+      requestedAuthority: "read_only",
     });
   });
 
@@ -2745,6 +2913,52 @@ describe("work-governance-tool", () => {
     });
     expect(workItemStore.get(item.id)?.status).toBe("pending");
     expect(goalRunStore.get("goal-direct-closeout")?.status).toBe("active");
+  });
+
+  it("rejects updates to work items owned by terminal goals", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-terminal-goal",
+      summary: "Completed governed work.",
+      status: "completed",
+      workflowProfile: "small-fix",
+      triggers: [],
+      expectedEvidence: [],
+      verificationGates: [],
+      goalRunId: "goal-terminal",
+    });
+    goalRunStore.create({
+      id: "goal-terminal",
+      objective: "Complete governed work.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        reason: "Read-only goal.",
+      },
+      routePolicy: { workflowProfile: "small-fix" },
+      evidenceRequirements: [],
+    });
+    goalRunStore.complete({ id: "goal-terminal", closeoutSummary: "Done." });
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const result = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: item.id,
+        summary: "Attempt to reopen terminal work.",
+        status: "pending",
+      },
+    });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.output).toContain("terminal");
+    expect(workItemStore.get(item.id)?.status).toBe("completed");
+    expect(workItemStore.get(item.id)?.summary).toBe("Completed governed work.");
   });
 
   it("rejects new goals that reuse owned or terminal work items", async () => {

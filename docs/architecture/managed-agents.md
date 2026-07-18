@@ -614,15 +614,20 @@ missing evidence locally or through a retry route, call `work_item.update` with
 the supplied template after replacing placeholders with real evidence, then
 call `work_item.execution.start` again. A parent must not treat timeout prose,
 local inspection, or a plan submission as recovery unless a later
-`work_item.update` records the required phase evidence.
+`work_item.update` accounts for every required phase label as produced evidence
+or as an explicit skipped verification with residual risk.
 When the child completes the same intermediate phase successfully, the
 `managed_agent.invoke` result must not collapse to a generic success string.
 It must return a structured phase-completion envelope with the managed
-`resultHandoff`, readable `sourceResourceUris`, the next governed tool
-`work_item.update`, a complete `workItemUpdateInputTemplate`, and the follow-up
-`work_item.execution.start` call. A completed child handoff is still not a
-recorded work-governance phase until the parent records the phase evidence on
-the same work item.
+`resultHandoff`, readable `sourceResourceUris`, and exactly one verification
+result per `executionPhase.verificationRequirementIds` entry. That set contains
+the expected phase evidence and, on the final phase, every unaccounted closeout
+gate. Attached runtime surfaces consume the envelope internally: they record
+passed and skipped evidence with distinct semantics, preserve the work item's
+configuration, and request the next phase.
+The parent does not transport evidence or invocation ids on the successful
+path. A tool surface without work-governance mutation capability exposes the
+transition as a capability pause instead of claiming that it was recorded.
 The phase-completion envelope is valid only when the handoff is substantive for
 the expected evidence. A generic adapter summary such as "managed invocation
 completed" is not evidence. For visual-reference phases, the handoff must point
@@ -737,12 +742,13 @@ a configured `routeId`, attached runtime surfaces hydrate the effective
 `providerRoute` from the route catalog before calling `managed_agent.invoke`.
 That request must not be reported as missing `providerRoute.providerId`; the
 route id is the credential/provider ownership handle in that flow.
-If a paused request also carries a stale or caller-supplied profile hint that is
-not supported by the selected route, the exact `routeId` remains the stronger
-identity signal. A single-profile route may replace the incompatible hint with
-its configured profile and normalize `read_only` authority to audited authority
-for write-capable routes. Multi-profile routes still fail closed when the route
-cannot determine the intended authority profile.
+An exact `routeId` does not override the requested authority profile. Runtime
+hydrates that route only when it supports the requested profile. Otherwise it
+may repair the request to one uniquely compatible route that preserves the
+profile and required tools; if no unique compatible route exists, admission
+fails closed. Route repair never promotes `read_only` to `audited`, substitutes
+a write-capable profile, or treats a single-profile route as permission to
+widen authority.
 
 The model-facing `managed_agent.invoke` schema is narrowed from the admitted
 route and agent catalogs. `agentProfile` is limited to configured profile ids
@@ -781,10 +787,13 @@ forking and is rejected by the current CLI-owned resolver.
 The tool is classified as approval-gated authority. A GUI/TUI/CLI parent turn
 must pass the normal tool authority path before the child can be spawned. Once
 approved, the tool calls `RuntimeManagedAgentInvocationService`, appends
-`agent_invocation_requested`, `agent_invocation_started`, and terminal
-`agent_invocation_*` events to the parent runtime session, streams those
-canonical events through any configured `ManagedInvocationSessionEventSink`, and
-returns only the bounded child result handoff plus resource pointers. A
+`agent_invocation_requested` and `agent_invocation_started` before waiting for
+the child, streams those events through any configured
+`ManagedInvocationSessionEventSink`, and publishes the terminal
+`agent_invocation_*` event after join. The blocking tool therefore exposes
+admitted lifecycle progress while it is running instead of publishing all
+events after completion. It returns only the bounded child result handoff plus
+resource pointers. A
 nonblocking `managed_agent.start` registers a runtime terminal observer before
 returning; if the background child finishes without a later join, cancel, or GUI
 control, the observer appends and publishes the same canonical terminal event.
@@ -926,6 +935,11 @@ live resource plane after managed invocation resources are attached. If a
 surface lacks a resource reader, the governed context falls back to the admitted
 resource URI list rather than silently granting filesystem or private adapter
 access.
+For phased work items, runtime also admits canonical artifact content URIs from
+earlier verification results on that same item. Later children can therefore
+reuse bounded prior evidence through the shared resource plane; local file
+paths, arbitrary URIs, full transcript copying, and provider-native thread ids
+are not accepted as substitutes.
 Because `contextMode: "resources"` hydrates parent-admitted resources before
 child execution, parent agents must not add `resource_read` to
 `requiredToolNames` merely to read those resources. `requiredToolNames` names
@@ -1052,9 +1066,12 @@ model, authority, required tools, context, and child profile before invoking the
 adapter. A successful child returns one parent-facing envelope with
 `operation=managed_intermediate_phase_completed`, the canonical
 `managedInvocationId`, the bounded child handoff, and
-`nextTool=work_item.update`. The parent owns interpretation and evidence
-recording, but it does not own child creation or lifecycle sequencing. True
-route, provider, child, or recovery failures still return failed metadata.
+`nextTool=work_item.update`. Attached runtime surfaces validate and consume that
+envelope, record its structured evidence, and advance the same work item. The
+parent owns neither successful phase evidence transport nor child lifecycle
+sequencing. A surface without the required mutation tool exposes the transition
+as a capability pause. True route, provider, child, or recovery failures still
+return failed metadata.
 Before starting the child, attached runtime surfaces verify that the selected
 route can provide the phase `requiredToolNames`. If the requested phase route
 lacks required tools and one uniquely compatible route exists, including a
@@ -1081,6 +1098,11 @@ independent closeout boundary. The parent records each declared requirement
 through `goal.evidence.record` and then calls `goal.complete`. Recreating the
 goal, copying work-item evidence labels, or emitting a prose summary cannot
 close that boundary.
+For a final managed phase, `executionPhase.verificationRequirementIds` is the
+union of the phase evidence labels and every still-unaccounted work-item
+verification gate. The child must return exactly one passed or skipped result
+for each id. Runtime records those results structurally; arbitrary closeout
+gates cannot remain invisible to the final child contract.
 The same fail-closed rule applies to successful intermediate children. A
 `managed_agent.invoke` result carrying `managedInvocationPhaseCompletion` or
 `phaseCompletion` is unresolved until a later successful `work_item.update`
@@ -1235,7 +1257,10 @@ Managed invocation scope is admitted before provider execution. A supplied
 supplied `workItemId` must identify an open item owned by that goal, and a
 supplied `attemptId` must identify that item's active attempt. Unknown,
 cross-session, terminal, or mismatched scope is rejected before credentials,
-provider execution, or child lifecycle state are created. The automatic
+provider execution, or child lifecycle state are created. Scope admission also
+checks the effective managed profile and requested authority against the goal
+authority envelope, so a direct tool call cannot widen a read-only or audited
+goal. The automatic
 `work_item.execution.start` path reuses the scope already admitted by the
 canonical work-governance transition rather than performing a second,
 independent lookup.

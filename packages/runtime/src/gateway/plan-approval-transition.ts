@@ -299,6 +299,7 @@ function isHighControlWorkflowProfile(value: string): boolean {
 function isWorkflowProfile(value: string): value is PlanSubmissionInput["workGovernanceRecommendation"]["workflowProfile"] {
   return value === "small-fix"
     || value === "bug-diagnosis"
+    || value === "architecture-review"
     || value === "architecture-change"
     || value === "ui-change"
     || value === "managed-agent-change"

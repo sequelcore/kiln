@@ -39,15 +39,17 @@ export function buildManagedInvocationPhaseCompletion(
   resultHandoff: ManagedAgentResultHandoff | undefined,
   invocationId: string,
 ): Record<string, unknown> | undefined {
-  if (!hasSubstantivePhaseHandoff(request, resultHandoff)) {
+  const evidenceDisposition = resolvePhaseEvidenceDisposition(request, resultHandoff);
+  if (!evidenceDisposition) {
     return undefined;
   }
   return buildManagedInvocationPhaseAction(request, {
     status: "phase_completed_by_child",
-    reason: "Managed child completed an intermediate execution phase. Record the phase evidence on the same work item before replying or starting the next phase.",
+    reason: "Managed child completed a validated execution phase. Runtime owns evidence recording and progression on the same work item.",
     includeResultResources: true,
     resultHandoff,
     invocationId,
+    evidenceDisposition,
   });
 }
 
@@ -55,7 +57,7 @@ export function buildManagedInvocationPhaseHandoffRecovery(
   request: Record<string, unknown> | undefined,
   resultHandoff: ManagedAgentResultHandoff | undefined,
 ): Record<string, unknown> | undefined {
-  if (hasSubstantivePhaseHandoff(request, resultHandoff)) {
+  if (resolvePhaseEvidenceDisposition(request, resultHandoff)) {
     return undefined;
   }
   return buildManagedInvocationPhaseAction(request, {
@@ -76,6 +78,7 @@ function buildManagedInvocationPhaseAction(
     readonly resultHandoff?: ManagedAgentResultHandoff;
     readonly failureReason?: WorkItemExecutionFailureReason;
     readonly invocationId?: string;
+    readonly evidenceDisposition?: PhaseEvidenceDisposition;
   },
 ): Record<string, unknown> | undefined {
   const phase = readRecord(request?.executionPhase);
@@ -90,7 +93,11 @@ function buildManagedInvocationPhaseAction(
   const workItemId = readText(request.workItemId);
   const goalRunId = readText(request.goalRunId);
   const evidenceToRecord = readTextArray(phase.expectedEvidence);
-  if (!workItemId || evidenceToRecord.length === 0) {
+  const verificationRequirementIds = readTextArray(phase.verificationRequirementIds);
+  if (
+    !workItemId
+    || (evidenceToRecord.length === 0 && verificationRequirementIds.length === 0)
+  ) {
     return undefined;
   }
   const summary = readText(request.summary)
@@ -106,6 +113,10 @@ function buildManagedInvocationPhaseAction(
   const sourceResourceUris = options.includeResultResources
     ? options.resultHandoff?.resourceUris.filter((uri) => readText(uri) !== undefined) ?? []
     : [];
+  const providedEvidence = options.evidenceDisposition?.providedEvidence ?? [];
+  const skippedVerificationGates = options.evidenceDisposition?.skippedVerificationGates ?? [];
+  const verificationGateResults = options.evidenceDisposition?.verificationGateResults ?? [];
+  const residualRisk = options.evidenceDisposition?.residualRisk;
   if (completionTool === "work_item.execution.finish") {
     if (options.status === "phase_evidence_required") {
       return {
@@ -161,6 +172,15 @@ function buildManagedInvocationPhaseAction(
         workItemId,
         managedInvocationId: options.invocationId,
       },
+      workItemExecutionFinishInputTemplate: {
+        goalRunId,
+        workItemId,
+        providedEvidence,
+        skippedVerificationGates,
+        verificationGateResults,
+        ...(residualRisk ? { residualRisk } : {}),
+        summary: options.resultHandoff?.summary ?? summary,
+      },
       ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
     };
   }
@@ -183,8 +203,11 @@ function buildManagedInvocationPhaseAction(
     workItemUpdateInputTemplate: {
       id: workItemId,
       summary,
-      providedEvidence: evidenceToRecord,
-      ...(visualReferenceRecovery?.verificationGateResults
+      providedEvidence,
+      skippedVerificationGates,
+      verificationGateResults,
+      ...(residualRisk ? { residualRisk } : {}),
+      ...(options.status === "phase_evidence_required" && visualReferenceRecovery?.verificationGateResults
         ? { verificationGateResults: visualReferenceRecovery.verificationGateResults }
         : {}),
     },
@@ -205,15 +228,27 @@ function buildManagedInvocationPhaseAction(
         }
       : {}),
     thenTool: "work_item.execution.start",
-    then: "After work_item.update records the phase evidence, call work_item.execution.start again for the next phase.",
+    then: "Attached runtime surfaces record this transition and request the next phase automatically. Tool surfaces without mutation capability must expose this transition as a pause.",
     ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
   };
 }
 
-function hasSubstantivePhaseHandoff(
+interface PhaseEvidenceDisposition {
+  readonly providedEvidence: readonly string[];
+  readonly skippedVerificationGates: readonly string[];
+  readonly verificationGateResults: readonly {
+    readonly gate: string;
+    readonly status: "passed" | "failed" | "skipped";
+    readonly summary?: string;
+    readonly evidence?: readonly string[];
+  }[];
+  readonly residualRisk?: string;
+}
+
+function resolvePhaseEvidenceDisposition(
   request: Record<string, unknown> | undefined,
   resultHandoff: ManagedAgentResultHandoff | undefined,
-): boolean {
+): PhaseEvidenceDisposition | undefined {
   const phase = readRecord(request?.executionPhase);
   const completionTool = readText(phase?.completionTool);
   if (
@@ -221,28 +256,28 @@ function hasSubstantivePhaseHandoff(
     || !phase
     || (completionTool !== "work_item.update" && completionTool !== "work_item.execution.finish")
   ) {
-    return true;
+    return { providedEvidence: [], skippedVerificationGates: [], verificationGateResults: [] };
   }
   const evidenceToRecord = readTextArray(phase.expectedEvidence);
-  if (evidenceToRecord.length === 0) {
-    return true;
+  const verificationRequirementIds = readTextArray(phase.verificationRequirementIds);
+  if (evidenceToRecord.length === 0 && verificationRequirementIds.length === 0) {
+    return { providedEvidence: [], skippedVerificationGates: [], verificationGateResults: [] };
   }
   const summary = resultHandoff?.summary.trim() ?? "";
   const resourceUris = resultHandoff?.resourceUris ?? [];
   if (summary.length === 0 || resourceUris.length === 0) {
-    return false;
+    return undefined;
   }
   const structuredResult = resultHandoff?.structuredResult;
   if (structuredResult) {
     if (structuredResult.status !== "completed") {
-      return false;
+      return undefined;
     }
     if (structuredResult.approvalRequirements.some((requirement) => requirement.status !== "approved")) {
-      return false;
+      return undefined;
     }
-    if (structuredResult.verificationResults.some((result) => result.status !== "passed")) {
-      return false;
-    }
+  } else {
+    return undefined;
   }
   const normalized = summary.toLowerCase();
   if (
@@ -250,12 +285,51 @@ function hasSubstantivePhaseHandoff(
     || normalized === "managed invocation completed."
     || normalized.startsWith("direct provider managed invocation finished without final handoff text.")
   ) {
-    return false;
+    return undefined;
   }
   if (evidenceToRecord.includes(VISUAL_REFERENCE_PHASE_ID)) {
-    return containsFrontendReferenceEvidence(summary);
+    if (!containsFrontendReferenceEvidence(summary)) return undefined;
   }
-  return true;
+  const requiredResultIds = verificationRequirementIds.length > 0
+    ? verificationRequirementIds
+    : evidenceToRecord;
+  const expectedResults = requiredResultIds.map((requirementId) => ({
+    requirementId,
+    results: structuredResult.verificationResults.filter((result) => result.requirementId === requirementId),
+  }));
+  if (expectedResults.some(({ results }) => results.length !== 1)) {
+    return undefined;
+  }
+  const resolvedExpectedResults = expectedResults.map(({ requirementId, results }) => ({
+    requirementId,
+    result: results[0]!,
+  }));
+  if (resolvedExpectedResults.some(({ result }) => result.status === "failed" || result.status === "inconclusive")) {
+    return undefined;
+  }
+  const skippedVerificationGates = resolvedExpectedResults
+    .filter(({ result }) => result?.status === "skipped")
+    .map(({ requirementId }) => requirementId);
+  const residualRisk = structuredResult.residualRisks.join(" ").trim();
+  if (skippedVerificationGates.length > 0 && residualRisk.length === 0) {
+    return undefined;
+  }
+  return {
+    providedEvidence: resolvedExpectedResults
+      .filter(({ requirementId, result }) =>
+        result?.status === "passed" && evidenceToRecord.includes(requirementId))
+      .map(({ requirementId }) => requirementId),
+    skippedVerificationGates,
+    verificationGateResults: resolvedExpectedResults.map(({ requirementId, result }) => ({
+      gate: requirementId,
+      status: result!.status as "passed" | "failed" | "skipped",
+      ...(result!.summary || requirementId === VISUAL_REFERENCE_PHASE_ID
+        ? { summary: [requirementId === VISUAL_REFERENCE_PHASE_ID ? summary : "", result!.summary ?? ""].filter(Boolean).join(" ") }
+        : {}),
+      ...(result!.evidenceUris.length > 0 ? { evidence: result!.evidenceUris } : {}),
+    })),
+    ...(residualRisk ? { residualRisk } : {}),
+  };
 }
 
 function visualReferenceRecoveryContract(requiredReadPaths: readonly string[]): {

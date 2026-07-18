@@ -13,6 +13,7 @@ import type { ConstitutionSnapshot } from "./specification-state-store.js";
 export type WorkflowProfile =
   | "small-fix"
   | "bug-diagnosis"
+  | "architecture-review"
   | "architecture-change"
   | "ui-change"
   | "managed-agent-change"
@@ -220,6 +221,7 @@ export interface PlanSubmissionInput {
 const WORKFLOW_PROFILES: readonly WorkflowProfile[] = [
   "small-fix",
   "bug-diagnosis",
+  "architecture-review",
   "architecture-change",
   "ui-change",
   "managed-agent-change",

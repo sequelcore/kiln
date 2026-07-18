@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { WorkItemStore, type WorkItemUpsertInput } from "../../src/work-governance/index.js";
+import {
+  accountedWorkItemEvidence,
+  WorkItemStore,
+  type WorkItemUpsertInput,
+} from "../../src/work-governance/index.js";
 
 describe("WorkItemStore work classification", () => {
   it("normalizes and preserves paired classification with plan work-item provenance", () => {
@@ -66,6 +70,17 @@ describe("WorkItemStore work classification", () => {
 });
 
 describe("WorkItemStore evidence consistency", () => {
+  it("projects provided evidence and governed skips through one canonical accounting rule", () => {
+    expect(accountedWorkItemEvidence({
+      providedEvidence: ["surface-map"],
+      skippedVerificationGates: ["tests"],
+      verificationGateResults: [
+        { gate: "typecheck", status: "skipped", summary: "Not executable in the read-only review." },
+        { gate: "review", status: "passed", summary: "Review completed." },
+      ],
+    })).toEqual(["surface-map", "tests", "typecheck"]);
+  });
+
   it("rejects evidence that is simultaneously claimed as provided and skipped", () => {
     const store = new WorkItemStore();
 
@@ -124,6 +139,24 @@ describe("WorkItemStore evidence consistency", () => {
     });
   });
 
+});
+
+describe("WorkItemStore terminal state", () => {
+  it("rejects reopening a terminal work item through upsert", () => {
+    const store = new WorkItemStore();
+    const completed = store.upsert(workItemInput({
+      id: "completed-work",
+      status: "completed",
+      providedEvidence: ["tests"],
+      verificationGates: [],
+    }));
+
+    expect(() => store.upsert({
+      ...completed,
+      status: "pending",
+    })).toThrow("Terminal work item 'completed-work' cannot transition from completed to pending");
+    expect(store.get("completed-work")?.status).toBe("completed");
+  });
 });
 
 function workItemInput(overrides: Partial<WorkItemUpsertInput> = {}): WorkItemUpsertInput {

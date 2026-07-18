@@ -209,6 +209,7 @@ const SUBMIT_PLAN_TOOL: ToolDefinition = {
             enum: [
               "small-fix",
               "bug-diagnosis",
+              "architecture-review",
               "architecture-change",
               "ui-change",
               "managed-agent-change",
@@ -233,6 +234,7 @@ const SUBMIT_PLAN_TOOL: ToolDefinition = {
               enum: [
                 "small-fix",
                 "bug-diagnosis",
+                "architecture-review",
                 "architecture-change",
                 "ui-change",
                 "managed-agent-change",
@@ -536,11 +538,15 @@ export function createAttachedRuntimeBuiltinToolSurface(
       callBuiltinTools.set(toolName, executor);
     }
     const workItemExecutionStart = callBuiltinTools.get(WORK_ITEM_EXECUTION_START_TOOL_NAME);
+    const workItemUpdate = callBuiltinTools.get("work_item.update");
+    const workItemExecutionFinish = callBuiltinTools.get("work_item.execution.finish");
     if (workItemExecutionStart && managedInvocationExecutor) {
       callBuiltinTools.set(
         WORK_ITEM_EXECUTION_START_TOOL_NAME,
         createManagedDelegationWorkItemStartExecutor(
           workItemExecutionStart,
+          workItemUpdate,
+          workItemExecutionFinish,
           createManagedInvocationToolExecutor(
             managedInvocation,
             managedInvocationService,
@@ -646,6 +652,29 @@ function createManagedInvocationGovernedScopeAdmission(
         admitted: false,
         code: "goal_not_active",
         message: `Goal ${goal.id} is ${goal.status}; managed invocation requires an active goal.`,
+      };
+    }
+    if (
+      goal.authorityEnvelope.maximumAuthority === "read_only"
+      && (
+        input.profile !== "foundation-readonly-plan"
+        || (input.requestedAuthority !== "read_only" && input.requestedAuthority !== "auto")
+      )
+    ) {
+      return {
+        admitted: false,
+        code: "goal_authority_exceeded",
+        message: `Goal ${goal.id} is limited to read_only managed authority.`,
+      };
+    }
+    if (
+      goal.authorityEnvelope.maximumAuthority === "audited"
+      && input.requestedAuthority === "destructive"
+    ) {
+      return {
+        admitted: false,
+        code: "goal_authority_exceeded",
+        message: `Goal ${goal.id} is limited to audited managed authority.`,
       };
     }
     if (!input.workItemId) {
@@ -782,165 +811,157 @@ function createSessionAwareGoalCreateExecutor(goalCreateExecutor: RuntimeBuiltin
 
 function createManagedDelegationWorkItemStartExecutor(
   startExecutor: RuntimeBuiltinToolExecutor,
+  updateExecutor: RuntimeBuiltinToolExecutor | undefined,
+  finishExecutor: RuntimeBuiltinToolExecutor | undefined,
   managedInvocationExecutor: RuntimeBuiltinToolExecutor,
   managedInvocationOptions: ManagedInvocationToolOptions,
 ): RuntimeBuiltinToolExecutor {
   return async (input, context) => {
-    const initialResult = await startExecutor(input, context);
-    const managedPause = parseManagedDelegationPause(initialResult);
-    if (!managedPause) {
-      return initialResult;
-    }
+    const managedInvocations: Record<string, unknown>[] = [];
+    const visitedPhaseIds = new Set<string>();
+    let phaseIndex = 0;
+    while (true) {
+      const initialResult = await startExecutor(input, context);
+      const managedPause = parseManagedDelegationPause(initialResult);
+      if (!managedPause) return initialResult;
 
-    const preparedRequest = prepareManagedInvocationRequest(managedPause.request, managedInvocationOptions);
-    const managedRequest = preparedRequest.request;
-    const managedContext = context
-      ? {
-        ...context,
-        toolCall: {
-          ...context.toolCall,
-          id: `${context.toolCall.id}:managed-invocation`,
-          name: MANAGED_AGENT_INVOKE_TOOL.name,
-          input: managedRequest,
+      const preparedRequest = prepareManagedInvocationRequest(managedPause.request, managedInvocationOptions);
+      const managedRequest = preparedRequest.request;
+      const phaseId = readTextFromUnknown(readRecord(managedRequest.executionPhase)?.id);
+      if (phaseId && visitedPhaseIds.has(phaseId)) {
+        return {
+          output: `Managed delegation repeated phase ${phaseId} without advancing governed state.`,
+          isError: true,
+          metadata: { errorCode: "managed_phase_progress_stalled", phaseId, managedInvocations },
+        };
+      }
+      if (phaseId) visitedPhaseIds.add(phaseId);
+      phaseIndex += 1;
+      const managedContext = context
+        ? {
+          ...context,
+          toolCall: {
+            ...context.toolCall,
+            id: `${context.toolCall.id}:managed-invocation:${phaseIndex}`,
+            name: MANAGED_AGENT_INVOKE_TOOL.name,
+            input: managedRequest,
+          },
+        } satisfies RuntimeBuiltinToolExecutionContext
+        : undefined;
+      const managedResult = await managedInvocationExecutor(managedRequest, managedContext);
+      const managedEnvelope = readRuntimeToolResultEnvelope(managedResult);
+      if (!managedEnvelope || managedEnvelope.isError) {
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation failed before work item execution could start.");
+      }
+      const managedInvocationId = readTextFromUnknown(managedEnvelope.metadata?.invocationId);
+      if (!managedInvocationId) {
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.");
+      }
+      managedInvocations.push({
+        invocationId: managedInvocationId,
+        ...(readTextFromUnknown(managedEnvelope.metadata?.status)
+          ? { status: readTextFromUnknown(managedEnvelope.metadata?.status) }
+          : {}),
+        ...(readTextFromUnknown(managedEnvelope.metadata?.routeId)
+          ? { routeId: readTextFromUnknown(managedEnvelope.metadata?.routeId) }
+          : {}),
+      });
+      const phaseCompletion = readRecord(managedEnvelope.metadata?.managedInvocationPhaseCompletion);
+      const completionTool = readTextFromUnknown(readRecord(managedRequest.executionPhase)?.completionTool);
+      if (!phaseCompletion) {
+        if (!completionTool) {
+          const resumedEnvelope = readRuntimeToolResultEnvelope(await startExecutor({ ...input, managedInvocationId }, context));
+          if (!resumedEnvelope) return initialResult;
+          return {
+            ...resumedEnvelope,
+            metadata: {
+              ...(resumedEnvelope.metadata ?? {}),
+              managedInvocationAutoStarted: true,
+              managedInvocationId,
+              managedInvocations,
+              ...(managedEnvelope.metadata ? { managedInvocation: managedEnvelope.metadata } : {}),
+            },
+          };
+        }
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without a validated phase transition.");
+      }
+
+      if (completionTool === "work_item.update") {
+        const updateInput = readRecord(phaseCompletion.workItemUpdateInputTemplate);
+        if (!updateInput) {
+          return managedDelegationPausedResult(initialResult, managedEnvelope, "Validated intermediate phase did not provide a work-item transition.");
+        }
+        if (!updateExecutor) {
+          return managedPhaseTransitionRequiredResult(
+            initialResult,
+            managedRequest,
+            managedEnvelope,
+            managedInvocationId,
+            preparedRequest.metadata,
+          );
+        }
+        const updateResult = readRuntimeToolResultEnvelope(await updateExecutor(updateInput, context));
+        if (!updateResult || updateResult.isError) return updateResult ?? initialResult;
+        continue;
+      }
+
+      const resumedEnvelope = readRuntimeToolResultEnvelope(await startExecutor({ ...input, managedInvocationId }, context));
+      if (!resumedEnvelope || resumedEnvelope.isError) return resumedEnvelope ?? initialResult;
+      const resumedOutput = parseJsonRecord(resumedEnvelope.output);
+      const attemptId = readTextFromUnknown(readRecord(resumedOutput?.attempt)?.id)
+        ?? readTextFromUnknown(readRecord(resumedEnvelope.metadata?.attempt)?.id);
+      const finishTemplate = readRecord(phaseCompletion.workItemExecutionFinishInputTemplate);
+      if (!attemptId || !finishTemplate || !finishExecutor) {
+        return managedDelegationPausedResult(resumedEnvelope, managedEnvelope, "Validated final phase could not be attached to an execution attempt.");
+      }
+      const finishedEnvelope = readRuntimeToolResultEnvelope(await finishExecutor({
+        ...finishTemplate,
+        attemptId,
+      }, context));
+      if (!finishedEnvelope) return resumedEnvelope;
+      return {
+        ...finishedEnvelope,
+        metadata: {
+          ...(finishedEnvelope.metadata ?? {}),
+          managedInvocationAutoCompleted: true,
+          managedInvocationId,
+          managedInvocations,
         },
-      } satisfies RuntimeBuiltinToolExecutionContext
-      : undefined;
-    const managedResult = await managedInvocationExecutor(managedRequest, managedContext);
-    const managedEnvelope = readRuntimeToolResultEnvelope(managedResult);
-    if (!managedEnvelope || managedEnvelope.isError) {
-      return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation failed before work item execution could start.");
+      };
     }
-
-    const managedInvocationId = readTextFromUnknown(managedEnvelope.metadata?.invocationId);
-    if (!managedInvocationId) {
-      return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.");
-    }
-
-    const completionTool = readTextFromUnknown(readRecord(managedRequest.executionPhase)?.completionTool);
-    if (completionTool === "work_item.update") {
-      return managedIntermediatePhaseCompletedResult(
-        initialResult,
-        managedRequest,
-        managedEnvelope,
-        managedInvocationId,
-        preparedRequest.metadata,
-      );
-    }
-
-    const resumedResult = await startExecutor({
-      ...input,
-      managedInvocationId,
-    }, context);
-    const resumedEnvelope = readRuntimeToolResultEnvelope(resumedResult);
-    if (!resumedEnvelope) {
-      return resumedResult;
-    }
-    return {
-      ...resumedEnvelope,
-      metadata: {
-        ...(resumedEnvelope.metadata ?? {}),
-        managedInvocationAutoStarted: true,
-        managedInvocationId,
-        ...(managedEnvelope.metadata ? { managedInvocation: managedEnvelope.metadata } : {}),
-      },
-    };
   };
 }
 
-function managedIntermediatePhaseCompletedResult(
+function managedPhaseTransitionRequiredResult(
   initialResult: unknown,
   managedRequest: Record<string, unknown>,
   managedResult: RuntimeToolResultEnvelope,
   managedInvocationId: string,
-  requestMetadata: Record<string, unknown> | undefined = undefined,
+  requestMetadata: Record<string, unknown> | undefined,
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
   const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
-  const managedOutput = projectManagedIntermediateOutput(
-    parseJsonRecord(managedResult.output) ?? managedResult.output,
-  );
-  const output = {
-    ...(initialOutput ?? {}),
-    status: "paused",
-    reason: "Managed child completed the intermediate evidence phase.",
-    nextTool: "work_item.update",
-    managedInvocationId,
-    managedInvocation: managedOutput,
-    managedInvocationRequest: managedRequest,
-  };
+  const managedOutput = parseJsonRecord(managedResult.output);
   return {
-    output: JSON.stringify(output, null, 2),
+    output: JSON.stringify({
+      ...(initialOutput ?? {}),
+      status: "paused",
+      reason: "Managed child completed the intermediate evidence phase; this tool surface does not expose the work-item transition capability.",
+      nextTool: "work_item.update",
+      managedInvocationId,
+      ...(managedOutput ? { managedInvocation: managedOutput } : {}),
+      managedInvocationRequest: managedRequest,
+    }, null, 2),
     isError: false,
     metadata: {
       ...(initialEnvelope?.metadata ?? {}),
-      toolName: WORK_ITEM_EXECUTION_START_TOOL_NAME,
       operation: "managed_intermediate_phase_completed",
       managedInvocationAutoStarted: true,
       managedInvocationId,
       ...(managedResult.metadata ? { managedInvocation: managedResult.metadata } : {}),
       ...(requestMetadata ?? {}),
     },
-    ...(managedResult.resourceLinks !== undefined ? { resourceLinks: managedResult.resourceLinks } : {}),
-    ...(managedResult.content !== undefined ? { content: managedResult.content } : {}),
   };
-}
-
-function projectManagedIntermediateOutput(value: unknown): unknown {
-  const record = readRecord(value);
-  if (!record) {
-    return value;
-  }
-  const resultHandoff = readRecord(record.resultHandoff);
-  const structuredResult = readRecord(resultHandoff?.structuredResult);
-  return {
-    ...pickDefined(record, [
-      "status",
-      "summary",
-      "invocationId",
-      "routeId",
-      "routeSource",
-      "parentSessionId",
-      "parentTurnId",
-      "childSessionId",
-      "childTurnId",
-      "phaseCompletion",
-      "recovery",
-    ]),
-    ...(resultHandoff
-      ? {
-          resultHandoff: {
-            ...pickDefined(resultHandoff, ["summary", "resourceUris", "memoryWriteProposalUris"]),
-            ...(structuredResult
-              ? {
-                  structuredResult: pickDefined(structuredResult, [
-                    "version",
-                    "status",
-                    "summary",
-                    "uncertainty",
-                    "limitations",
-                    "operatorDecisions",
-                    "warnings",
-                    "failures",
-                    "approvalRequirements",
-                    "residualRisks",
-                    "verificationResults",
-                    "verbosity",
-                  ]),
-                }
-              : {}),
-          },
-        }
-      : {}),
-  };
-}
-
-function pickDefined(
-  record: Record<string, unknown>,
-  keys: readonly string[],
-): Record<string, unknown> {
-  return Object.fromEntries(keys.flatMap((key) => (
-    record[key] === undefined ? [] : [[key, record[key]]]
-  )));
 }
 
 function prepareManagedInvocationRequest(
@@ -967,13 +988,11 @@ function hydrateManagedInvocationRequest(
   const exactRoute = routeId
     ? options.routes.find((route) => route.routeId === routeId)
     : undefined;
-  if (exactRoute) {
-    const profile = resolveManagedInvocationRouteProfile(exactRoute.profiles, requestedProfile);
+  if (exactRoute?.profiles[requestedProfile] !== undefined) {
     return {
       ...request,
       routeId: exactRoute.routeId,
-      profile,
-      requestedAuthority: normalizeManagedInvocationRequestedAuthority(request.requestedAuthority, profile),
+      profile: requestedProfile,
       providerRoute: {
         ...providerRouteInputProjection(providerRoute, forbiddenInputFields),
         providerId: exactRoute.providerId,
@@ -1123,29 +1142,6 @@ function routeSupportsRequiredTools(
   }
   const allowedTools = new Set(routeProfile.allowedToolNames);
   return requiredToolNames.every((toolName) => allowedTools.has(toolName));
-}
-
-function resolveManagedInvocationRouteProfile(
-  profiles: ManagedInvocationToolOptions["routes"][number]["profiles"],
-  requestedProfile: ManagedAgentAdmissionProfile,
-): ManagedAgentAdmissionProfile {
-  if (profiles[requestedProfile] !== undefined) {
-    return requestedProfile;
-  }
-  const availableProfiles = Object.keys(profiles) as ManagedAgentAdmissionProfile[];
-  return availableProfiles.length === 1 ? availableProfiles[0]! : requestedProfile;
-}
-
-function normalizeManagedInvocationRequestedAuthority(
-  requestedAuthority: unknown,
-  profile: ManagedAgentAdmissionProfile,
-): unknown {
-  if (profile === "foundation-readonly-plan") {
-    return "read_only";
-  }
-  return requestedAuthority === "read_only" || requestedAuthority === undefined
-    ? "audited"
-    : requestedAuthority;
 }
 
 function parseManagedDelegationPause(result: unknown): { readonly request: Record<string, unknown> } | undefined {
@@ -2129,6 +2125,7 @@ function asWorkflowProfile(value: unknown): WorkflowProfile | undefined {
   if (
     value === "small-fix"
     || value === "bug-diagnosis"
+    || value === "architecture-review"
     || value === "architecture-change"
     || value === "ui-change"
     || value === "managed-agent-change"

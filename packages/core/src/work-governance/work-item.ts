@@ -370,6 +370,16 @@ export class WorkItemStore {
     const now = this.now();
     const existing = input.id ? this.items.get(input.id) : undefined;
     const id = input.id ?? `work-${this.sequence + 1}`;
+    if (
+      existing
+      && (existing.status === "completed" || existing.status === "cancelled")
+      && input.status !== undefined
+      && input.status !== existing.status
+    ) {
+      throw new Error(
+        `Terminal work item '${existing.id}' cannot transition from ${existing.status} to ${input.status}.`,
+      );
+    }
     const sourceFeedbackId = input.sourceFeedbackId ?? existing?.sourceFeedbackId;
     const feedbackRepair = normalizeFeedbackRepairSource(input.feedbackRepair ?? existing?.feedbackRepair);
     if (feedbackRepair && !sourceFeedbackId) {
@@ -913,6 +923,23 @@ function tryNormalizeReplayedWorkItem(item: WorkItem): WorkItem | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function accountedWorkItemEvidence(input: {
+  readonly providedEvidence?: readonly string[];
+  readonly skippedVerificationGates?: readonly string[];
+  readonly verificationGateResults?: readonly {
+    readonly gate: string;
+    readonly status: string;
+  }[];
+}): readonly string[] {
+  return unique([
+    ...(input.providedEvidence ?? []),
+    ...(input.skippedVerificationGates ?? []),
+    ...(input.verificationGateResults ?? [])
+      .filter((result) => result.status === "skipped")
+      .map((result) => result.gate),
+  ]);
 }
 
 function unique<T extends string>(values: readonly T[]): readonly T[] {
