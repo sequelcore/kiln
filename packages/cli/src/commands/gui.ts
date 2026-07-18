@@ -68,6 +68,10 @@ import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
 import { loadSessionSummaries, toProviderLabel } from "./gui-session-summaries.js";
 import { createGuiDevServerOutput } from "./gui-dev-server-output.js";
 import {
+  createGuiCommandOutput,
+  type GuiCommandOutput,
+} from "./gui-command-output.js";
+import {
   persistGuiProviderSelectionPreference,
   resolveGuiProviderSelectionPreference,
 } from "../application/operator-provider-preferences.js";
@@ -97,7 +101,14 @@ export interface GuiFlags {
   readonly plan?: boolean;
 }
 
-export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {}): Promise<void> {
+export async function guiCommand(
+  appConfig: KilnAppConfig,
+  flags: GuiFlags = {},
+  output: GuiCommandOutput = createGuiCommandOutput({
+    stdout: process.stdout,
+    stderr: process.stderr,
+  }),
+): Promise<void> {
   const startupProfiler = createStartupProfiler("gui");
   startupProfiler.mark("command-entered");
   const cwd = resolveProjectRoot({ explicitPath: flags.cwd }).rootPath;
@@ -115,7 +126,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   );
   const themePreference = resolveGuiThemePreference(flags.theme, globalConfig);
   if (flags.connect) {
-    await guiAttachCommand(flags.connect, themePreference, flags);
+    await guiAttachCommand(flags.connect, themePreference, flags, output);
     return;
   }
 
@@ -194,7 +205,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
         return managedRouteGlobalConfig;
       },
       onRefreshError: (error) => {
-        console.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+        output.warn(`Managed invocation provider discovery failed: ${error instanceof Error ? error.message : String(error)}`);
       },
     });
   startupProfiler.mark("managed-invocation-staged", {
@@ -211,7 +222,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   const operatorVoice = await resolveOperatorVoiceRuntime(globalConfig);
   startupProfiler.mark("voice-runtime-ready");
   for (const warning of operatorVoice.warnings) {
-    console.warn(warning);
+    output.warn(warning);
   }
   const sessionManager = await makeMultiProviderSessionFactory(
     provider,
@@ -303,7 +314,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
   let viteDevChild: ChildProcess | undefined;
   if (mode === "dev") {
     startupProfiler.mark("gui-vite-start-requested", { port: guiPort });
-    viteDevChild = spawnGuiDevServer(cwd, guiPort, gateway.port);
+    viteDevChild = spawnGuiDevServer(cwd, guiPort, gateway.port, output);
   }
 
   const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
@@ -313,7 +324,7 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     themePreference,
     gateway.operatorTerminalCapability,
   );
-  printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl });
+  printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl }, output);
   startupProfiler.mark("startup-banner-printed", { mode });
 
   let guiWindow: GuiWindowSession | undefined;
@@ -322,11 +333,11 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
       startupProfiler.mark("browser-launch-requested");
       guiWindow = launchGuiWindow(guiUrl);
       startupProfiler.mark("browser-launched");
-      console.log(`GUI window host: ${guiWindow.browserLabel}`);
+      output.info(`GUI window host: ${guiWindow.browserLabel}`);
     }
   } catch (error) {
     if (viteDevChild) {
-      await stopChildProcess(viteDevChild, "gui-dev");
+      await stopChildProcess(viteDevChild, "gui-dev", output);
     }
     gateway.shutdown();
     throw error;
@@ -336,16 +347,17 @@ export async function guiCommand(appConfig: KilnAppConfig, flags: GuiFlags = {})
     managedWindowShutdownMonitor.dispose();
     guiWindow?.close();
     if (viteDevChild) {
-      await stopChildProcess(viteDevChild, "gui-dev");
+      await stopChildProcess(viteDevChild, "gui-dev", output);
     }
     gateway.shutdown();
-  }, guiWindow, guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined);
+  }, output, guiWindow, guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined);
 }
 
 async function guiAttachCommand(
   connectUrl: string,
   themePreference: ReturnType<typeof resolveGuiThemePreference>,
   flags: GuiFlags,
+  output: GuiCommandOutput,
 ): Promise<void> {
   const guiUrl = buildGuiAttachUrl(connectUrl, themePreference);
   const gatewayUrl = new URL(guiUrl).origin;
@@ -354,15 +366,15 @@ async function guiAttachCommand(
     gatewayUrl: `${gatewayUrl}/gui/`,
     guiUrl,
     apiUrl: `${gatewayUrl}/gui/api/dashboard`,
-  });
+  }, output);
 
   let guiWindow: GuiWindowSession | undefined;
   if (flags.open ?? true) {
     guiWindow = launchGuiWindow(guiUrl);
-    console.log(`GUI window host: ${guiWindow.browserLabel}`);
+    output.info(`GUI window host: ${guiWindow.browserLabel}`);
     await waitForShutdown(() => {
       guiWindow?.close();
-    }, guiWindow);
+    }, output, guiWindow);
   }
 }
 
@@ -596,7 +608,12 @@ function resolveGuiMode(_cwd: string, explicitMode: GuiFlags["mode"]): "dev" | "
   return "prod";
 }
 
-function spawnGuiDevServer(cwd: string, guiPort: number, gatewayPort: number): ChildProcess {
+function spawnGuiDevServer(
+  cwd: string,
+  guiPort: number,
+  gatewayPort: number,
+  output: GuiCommandOutput,
+): ChildProcess {
   const guiWorkspacePath = join(cwd, "packages", "gui");
   if (!existsSync(join(guiWorkspacePath, "package.json"))) {
     throw new Error(`GUI workspace not found at ${guiWorkspacePath}`);
@@ -621,13 +638,17 @@ function spawnGuiDevServer(cwd: string, guiPort: number, gatewayPort: number): C
   child.stdout.on("data", devOutput.writeStdout);
   child.stderr.on("data", devOutput.writeStderr);
   child.on("error", (error) => {
-    console.error(`Dev server: failed to start: ${error.message}`);
+    output.error(`Dev server failed to start: ${error.message}`);
   });
 
   return child;
 }
 
-async function stopChildProcess(child: ChildProcess, label: string): Promise<void> {
+async function stopChildProcess(
+  child: ChildProcess,
+  label: string,
+  output: GuiCommandOutput,
+): Promise<void> {
   if (child.exitCode !== null) {
     return;
   }
@@ -646,15 +667,18 @@ async function stopChildProcess(child: ChildProcess, label: string): Promise<voi
       child.kill("SIGTERM");
     }
   });
-  console.log(`[${label}] stopped`);
+  output.info(`[${label}] stopped`);
 }
 
-function printStartupBanner(input: { mode: "dev" | "prod" | "attach"; gatewayUrl: string; guiUrl: string; apiUrl: string }): void {
-  console.log("Kiln GUI");
-  console.log(`Mode: ${input.mode}`);
-  console.log(`Gateway URL: ${input.gatewayUrl}`);
-  console.log(`GUI URL: ${input.guiUrl}`);
-  console.log(`Dashboard API: ${input.apiUrl}`);
+function printStartupBanner(
+  input: { mode: "dev" | "prod" | "attach"; gatewayUrl: string; guiUrl: string; apiUrl: string },
+  output: GuiCommandOutput,
+): void {
+  output.info("Kiln GUI");
+  output.info(`Mode: ${input.mode}`);
+  output.info(`Gateway URL: ${input.gatewayUrl}`);
+  output.info(`GUI URL: ${input.guiUrl}`);
+  output.info(`Dashboard API: ${input.apiUrl}`);
 }
 
 async function readTelemetrySnapshot(): Promise<GuiDashboardSnapshot["telemetry"]> {
@@ -683,6 +707,7 @@ async function readTelemetrySnapshot(): Promise<GuiDashboardSnapshot["telemetry"
 
 async function waitForShutdown(
   onShutdown: () => Promise<void> | void,
+  output: GuiCommandOutput,
   guiWindow?: GuiWindowSession,
   managedWindowDisconnect?: Promise<void>,
 ): Promise<void> {
@@ -696,7 +721,7 @@ async function waitForShutdown(
       process.off("SIGINT", shutdown);
       process.off("SIGTERM", shutdown);
       guiWindow?.whenClosed.catch((error) => {
-        console.error(`GUI window exited unexpectedly: ${error instanceof Error ? error.message : String(error)}`);
+        output.error(`GUI window exited unexpectedly: ${error instanceof Error ? error.message : String(error)}`);
       });
       Promise.resolve(onShutdown()).finally(resolve);
     };
@@ -705,7 +730,7 @@ async function waitForShutdown(
     process.on("SIGTERM", shutdown);
     void managedWindowDisconnect?.then(shutdown);
     void guiWindow?.whenClosed.then(shutdown, (error) => {
-      console.error(`Could not launch GUI window: ${error instanceof Error ? error.message : String(error)}`);
+      output.error(`Could not launch GUI window: ${error instanceof Error ? error.message : String(error)}`);
       shutdown();
     });
   });
