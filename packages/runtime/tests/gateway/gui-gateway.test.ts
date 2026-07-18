@@ -7781,4 +7781,90 @@ describe("resolveGuiProviderSwitch", () => {
       rmSync(distDir, { recursive: true, force: true });
     }
   });
+
+  it("routes goal controls through the canonical controller and streams the resulting event", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({ port: port ?? 4810, stop })),
+    });
+    const control = vi.fn().mockResolvedValue({
+      eventId: "goal-event-1",
+      kilnSessionId: "session-1",
+      sequence: 3,
+      timestamp: new Date("2026-07-18T20:00:00.000Z"),
+      kind: "goal.updated",
+      source: { actor: "user", surface: "gui", component: "goal-control" },
+      goal: {
+        id: "goal-1",
+        objective: "Repair lifecycle.",
+        ownerSessionId: "session-1",
+        source: { kind: "operator_direct", turnId: "turn-1" },
+        status: "paused",
+        workItemIds: [],
+        authorityEnvelope: { maximumAuthority: "audited", escalationPolicy: "approval_required", reason: "Test." },
+        routePolicy: { workflowProfile: "small-fix" },
+        evidenceRequirements: [],
+        evidence: [],
+        currentPhase: "operator_paused",
+        activeDurationMs: 5_000,
+        createdAt: "2026-07-18T19:59:55.000Z",
+        updatedAt: "2026-07-18T20:00:00.000Z",
+        sequence: 2,
+      },
+      changedFields: ["status"],
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({}) as never,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+        goalController: { control },
+      });
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "goal_control",
+            requestId: "goal-control-1",
+            goalRunId: "goal-1",
+            action: "pause",
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(control).toHaveBeenCalledWith({
+        goalRunId: "goal-1",
+        action: "pause",
+        requestedBy: "operator-1",
+      });
+      const frames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string));
+      expect(frames).toContainEqual({
+        type: "goal_control_result",
+        requestId: "goal-control-1",
+        goalRunId: "goal-1",
+        action: "pause",
+        status: "accepted",
+      });
+      expect(frames).toContainEqual(expect.objectContaining({
+        type: "session_event",
+        event: expect.objectContaining({ eventId: "goal-event-1", kind: "goal.updated" }),
+      }));
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -8,6 +8,7 @@ import {
 } from "./support/artifacts/context-artifact-summary.js";
 import type { ToolExecutionSummary } from "./runtime-session-orchestrator.js";
 import type { RuntimeSession } from "./runtime-session.js";
+import type { SessionExecutionScope } from "@kilnai/core";
 
 interface RuntimeTurnRoutingDecision {
   readonly provider: string;
@@ -22,6 +23,8 @@ export interface RuntimeTurnFileChange {
   readonly linesRemoved?: number;
   readonly diffPreview?: string;
   readonly diffTruncated?: boolean;
+  readonly toolCallId?: string;
+  readonly executionScope?: SessionExecutionScope;
 }
 
 export interface RuntimeTurnApprovalTransition {

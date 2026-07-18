@@ -28,6 +28,16 @@ export interface WorkflowExecutionAttemptActivity {
   readonly toolCalls: readonly WorkflowToolCallActivity[];
 }
 
+export interface WorkflowFileChangeActivity {
+  readonly path: string;
+  readonly changeType?: string;
+  readonly linesAdded?: number;
+  readonly linesRemoved?: number;
+  readonly diffPreview?: string;
+  readonly diffTruncated?: boolean;
+  readonly sequence: number;
+}
+
 export interface WorkflowWorkItemActivity {
   readonly item: ToolResultWorkItemPresentation;
   readonly goalRunId?: string;
@@ -43,12 +53,14 @@ export interface WorkflowGoalActivity {
   readonly statusReason?: string;
   readonly workItems: readonly WorkflowWorkItemActivity[];
   readonly toolCalls: readonly WorkflowToolCallActivity[];
+  readonly fileChanges: readonly WorkflowFileChangeActivity[];
   readonly firstSequence: number;
   readonly lastSequence: number;
 }
 
 export interface WorkflowActivityProjection {
   readonly goals: readonly WorkflowGoalActivity[];
+  readonly foregroundGoal?: WorkflowGoalActivity;
   readonly standaloneWorkItems: readonly WorkflowWorkItemActivity[];
   readonly unscopedToolCalls: readonly WorkflowToolCallActivity[];
   readonly consumedEventIds: readonly string[];
@@ -108,6 +120,10 @@ function readStrings(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : [];
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function normalizeStatus(value: unknown): ToolResultTaskStatus {
@@ -180,6 +196,10 @@ function goalFromRecord(record: Record<string, unknown>): ToolResultGoalPresenta
     ...(readString(authorityEnvelope?.maximumAuthority) ? { authority: readString(authorityEnvelope?.maximumAuthority) } : {}),
     ...(readString(authorityEnvelope?.escalationPolicy) ? { escalationPolicy: readString(authorityEnvelope?.escalationPolicy) } : {}),
     ...(readString(routePolicy?.workflowProfile) ? { workflowProfile: readString(routePolicy?.workflowProfile) } : {}),
+    ...(readString(record.createdAt) ? { createdAt: readString(record.createdAt) } : {}),
+    ...(readString(record.updatedAt) ? { updatedAt: readString(record.updatedAt) } : {}),
+    ...(readNumber(record.activeDurationMs) !== undefined ? { activeDurationMs: readNumber(record.activeDurationMs) } : {}),
+    ...(readString(record.activeSince) ? { activeSince: readString(record.activeSince) } : {}),
     evidenceRequirements: Array.isArray(record.evidenceRequirements)
       ? record.evidenceRequirements.flatMap((entry) => {
           const requirement = asRecord(entry);
@@ -457,6 +477,27 @@ export function projectWorkflowActivity(
     lastSequence: item.lastSequence,
   });
 
+  const fileChangesByGoal = new Map<string, WorkflowFileChangeActivity[]>();
+  for (const event of events) {
+    if (event.kind !== "file_changed" || !event.executionScope?.goalRunId) continue;
+    const change = asRecord(event.payload.change);
+    const path = readString(change?.path);
+    if (!path) continue;
+    const fileChange: WorkflowFileChangeActivity = {
+      path,
+      ...(readString(change?.changeType) ? { changeType: readString(change?.changeType) } : {}),
+      ...(readNumber(change?.linesAdded) !== undefined ? { linesAdded: readNumber(change?.linesAdded) } : {}),
+      ...(readNumber(change?.linesRemoved) !== undefined ? { linesRemoved: readNumber(change?.linesRemoved) } : {}),
+      ...(readString(change?.diffPreview) ? { diffPreview: readString(change?.diffPreview) } : {}),
+      ...(typeof change?.diffTruncated === "boolean" ? { diffTruncated: change.diffTruncated } : {}),
+      sequence: event.sequence,
+    };
+    const goalChanges = fileChangesByGoal.get(event.executionScope.goalRunId) ?? [];
+    goalChanges.push(fileChange);
+    fileChangesByGoal.set(event.executionScope.goalRunId, goalChanges);
+    consumedEventIds.add(event.eventId);
+  }
+
   const claimedWorkItemIds = new Set<string>();
   const projectedGoals = [...goals.values()]
     .sort((left, right) => left.firstSequence - right.firstSequence)
@@ -479,6 +520,7 @@ export function projectWorkflowActivity(
         ...projectedGoalStatus(goal.goal, projectedItems),
         workItems: projectedItems,
         toolCalls: goal.toolCallIds.flatMap((id) => tools.get(id) ? [freezeToolCall(tools.get(id)!)] : []),
+        fileChanges: fileChangesByGoal.get(goal.goal.id) ?? [],
         firstSequence: Math.min(goal.firstSequence, ...sequences),
         lastSequence: Math.max(goal.lastSequence, ...sequences),
       };
@@ -501,9 +543,13 @@ export function projectWorkflowActivity(
     .filter((tool) => !structuredToolCallIds.has(tool.toolCallId) && !scopedToolCallIds.has(tool.toolCallId))
     .map(freezeToolCall)
     .sort((left, right) => left.firstSequence - right.firstSequence);
+  const foregroundGoal = [...projectedGoals].reverse().find(
+    ({ goal }) => goal.status === "active" || goal.status === "paused",
+  );
 
   return {
     goals: projectedGoals,
+    ...(foregroundGoal ? { foregroundGoal } : {}),
     standaloneWorkItems,
     unscopedToolCalls,
     consumedEventIds: events.filter((event) => consumedEventIds.has(event.eventId)).map((event) => event.eventId),

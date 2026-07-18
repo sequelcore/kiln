@@ -2706,10 +2706,12 @@ describe("processAdmittedTurn", () => {
         outcome: "completed",
         queued: false,
         toolExecutions: [{
+          toolCallId: "write-1",
           toolName: "write",
           durationMs: 12,
           success: true,
           resultSummary: "Wrote file",
+          executionScope: { kind: "work_item", goalRunId: "goal-1", workItemId: "work-1" },
           fileChanges: [{ path: "C:/workspace/src/demo.txt", changeType: "modified" }],
         }],
       } satisfies OrchestrateResult),
@@ -2723,6 +2725,12 @@ describe("processAdmittedTurn", () => {
     expect(result.ok).toBe(true);
     const artifacts = (session as unknown as { exactArtifacts: string[] }).exactArtifacts;
     expect(artifacts).toContain("File changed: C:/workspace/src/demo.txt");
+    const ledger = (session as unknown as { sessionEvents: Array<Record<string, unknown>> }).sessionEvents;
+    expect(ledger).toContainEqual(expect.objectContaining({
+      kind: "file_changed",
+      toolCallId: "write-1",
+      executionScope: { kind: "work_item", goalRunId: "goal-1", workItemId: "work-1" },
+    }));
   });
 
   it("records an authority audit error when read-only turns report file changes", async () => {

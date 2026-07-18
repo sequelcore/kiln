@@ -677,6 +677,7 @@ export class RuntimeSessionToolExecutor {
           }
         }
 
+        const executionScopeForResult = this.currentExecutionScope;
         this.emitToolResult(
           session.id,
           normalizedToolCall.id,
@@ -713,6 +714,7 @@ export class RuntimeSessionToolExecutor {
           success,
           output: sanitized.resultValue,
           resultSummary,
+          ...(executionScopeForResult ? { executionScope: executionScopeForResult } : {}),
           fileChanges,
         });
 

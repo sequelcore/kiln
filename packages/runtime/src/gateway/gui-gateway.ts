@@ -85,6 +85,7 @@ import {
   type GuiBrowserSessionState,
   type GuiInboundFrame,
   type GuiManagedAgentControlAction,
+  type GuiGoalControlAction,
   type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
@@ -151,6 +152,17 @@ export interface StartGuiGatewayOptions {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
   readonly operatorTerminalAdapter?: OperatorPtyAdapter;
+  readonly goalController?: GuiGoalController;
+}
+
+export interface GuiGoalController {
+  control(input: {
+    readonly goalRunId: string;
+    readonly action: GuiGoalControlAction;
+    readonly objective?: string;
+    readonly reason?: string;
+    readonly requestedBy: string;
+  }): Promise<CanonicalSessionEvent>;
 }
 
 export interface OperatorProviderPreference {
@@ -655,6 +667,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       updateProviderPreference: options.updateProviderPreference,
       operatorTerminalCapability,
       operatorTerminalService,
+      goalController: options.goalController,
       onReady: (url) => {
         operatorWsUrl = url;
       },
@@ -817,6 +830,7 @@ function wireOperatorTransport(
     onSocketClose?: () => void;
     operatorTerminalCapability?: string;
     operatorTerminalService?: OperatorTerminalService;
+    goalController?: GuiGoalController;
   },
 ): void {
   const providerLabel = input.transport.sessionManager.getProvider();
@@ -1183,6 +1197,46 @@ function wireOperatorTransport(
                 requestId,
                 status: "accepted",
               } satisfies GuiInboundFrame));
+              return;
+            }
+
+            if (frame.type === "goal_control") {
+              const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
+              const goalRunId = typeof frame.goalRunId === "string" ? frame.goalRunId.trim() : "";
+              const action = frame.action;
+              const respond = (status: "accepted" | "failed", reason?: string): void => {
+                ws.send(JSON.stringify({
+                  type: "goal_control_result",
+                  requestId,
+                  goalRunId,
+                  action,
+                  status,
+                  ...(reason ? { reason } : {}),
+                } satisfies GuiInboundFrame));
+              };
+              if (!requestId || !goalRunId || !input.goalController) {
+                respond("failed", input.goalController
+                  ? "Goal control requires requestId and goalRunId."
+                  : "Goal control is unavailable on this gateway.");
+                return;
+              }
+              try {
+                const event = await input.goalController.control({
+                  goalRunId,
+                  action,
+                  ...(typeof frame.objective === "string" ? { objective: frame.objective } : {}),
+                  ...(typeof frame.reason === "string" ? { reason: frame.reason } : {}),
+                  requestedBy: userId,
+                });
+                ws.send(JSON.stringify(toOperatorSessionEventFrame(event, {
+                  eventId: event.eventId,
+                  sequence: event.sequence,
+                  instanceId: GUI_OPERATOR_COCKPIT_INSTANCE_ID,
+                })));
+                respond("accepted");
+              } catch (error) {
+                respond("failed", error instanceof Error ? error.message : "Goal control failed.");
+              }
               return;
             }
 

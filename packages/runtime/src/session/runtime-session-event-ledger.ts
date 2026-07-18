@@ -524,6 +524,8 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       sequence: nextSequence(),
       kind: "file_changed",
       turnId,
+      ...(fileChange.toolCallId ? { toolCallId: fileChange.toolCallId } : {}),
+      ...(fileChange.executionScope ? { executionScope: fileChange.executionScope } : {}),
       change: {
         changeType: mapFileChangeType(fileChange.changeType),
         path: fileChange.path,

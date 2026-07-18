@@ -2304,7 +2304,13 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
     capturedRuntimeEvents,
     externalTurnCapture?.toolCompletions,
   );
-  const fileChanges = turnToolExecutions?.flatMap((exec) => exec.fileChanges ?? []);
+  const fileChanges = turnToolExecutions?.flatMap((execution) => (
+    execution.fileChanges?.map((change) => ({
+      ...change,
+      ...(execution.toolCallId ? { toolCallId: execution.toolCallId } : {}),
+      ...(execution.executionScope ? { executionScope: execution.executionScope } : {}),
+    })) ?? []
+  ));
   const mergedFileChanges = dedupeByStableKey([
     ...(fileChanges ?? []),
     ...(externalTurnCapture?.fileChanges ?? []),

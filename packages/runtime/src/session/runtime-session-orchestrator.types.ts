@@ -171,6 +171,7 @@ export interface ToolExecutionSummary {
   readonly success: boolean;
   readonly output?: string;
   readonly resultSummary: string;
+  readonly executionScope?: SessionExecutionScope;
   readonly fileChanges?: readonly {
     readonly path: string;
     readonly changeType: "created" | "modified" | "deleted";

@@ -938,6 +938,26 @@ export interface OperatorTerminalErrorFrame {
   readonly terminalId?: string;
 }
 
+export type GuiGoalControlAction = "pause" | "resume" | "update_objective" | "cancel";
+
+export interface GuiGoalControlFrame {
+  readonly type: "goal_control";
+  readonly requestId: string;
+  readonly goalRunId: string;
+  readonly action: GuiGoalControlAction;
+  readonly objective?: string;
+  readonly reason?: string;
+}
+
+export interface GuiGoalControlResultFrame {
+  readonly type: "goal_control_result";
+  readonly requestId: string;
+  readonly goalRunId: string;
+  readonly action: GuiGoalControlAction;
+  readonly status: "accepted" | "failed";
+  readonly reason?: string;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -983,6 +1003,7 @@ export type GuiOutboundFrame =
   | OperatorTerminalWriteFrame
   | OperatorTerminalResizeFrame
   | OperatorTerminalCloseFrame
+  | GuiGoalControlFrame
   | { type: "approve"; approvalId: string; gatewayTargetId?: string }
   | { type: "reject"; reason: string; approvalId: string; gatewayTargetId?: string }
   | {
@@ -1016,6 +1037,7 @@ export type GuiInboundFrame =
   | OperatorTerminalExitedFrame
   | OperatorTerminalErrorFrame
   | GuiManagedAgentControlResultFrame
+  | GuiGoalControlResultFrame
   | GuiMemoryLatticeInvalidatedFrame
   | {
       type: "done";

@@ -109,6 +109,10 @@ export interface ToolResultGoalPresentation {
   readonly authority?: string;
   readonly escalationPolicy?: string;
   readonly workflowProfile?: string;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+  readonly activeDurationMs?: number;
+  readonly activeSince?: string;
   readonly evidenceRequirements: readonly ToolResultGoalEvidenceRequirementPresentation[];
   readonly evidence: readonly ToolResultGoalEvidencePresentation[];
 }
@@ -1340,6 +1344,10 @@ function projectGoalToolPresentation(
   const authority = readString(authorityEnvelope?.maximumAuthority) ?? undefined;
   const escalationPolicy = readString(authorityEnvelope?.escalationPolicy) ?? undefined;
   const workflowProfile = readString(routePolicy?.workflowProfile) ?? undefined;
+  const createdAt = readString(goal.createdAt) ?? undefined;
+  const updatedAt = readString(goal.updatedAt) ?? undefined;
+  const activeDurationMs = readNumber(goal.activeDurationMs) ?? undefined;
+  const activeSince = readString(goal.activeSince) ?? undefined;
   const workItemIds = readStringList(goal.workItemIds);
   const evidenceRequirements = readGoalEvidenceRequirements(goal.evidenceRequirements);
   const evidence = readGoalEvidence(goal.evidence);
@@ -1374,6 +1382,10 @@ function projectGoalToolPresentation(
       ...(authority ? { authority } : {}),
       ...(escalationPolicy ? { escalationPolicy } : {}),
       ...(workflowProfile ? { workflowProfile } : {}),
+      ...(createdAt ? { createdAt } : {}),
+      ...(updatedAt ? { updatedAt } : {}),
+      ...(activeDurationMs !== undefined ? { activeDurationMs } : {}),
+      ...(activeSince ? { activeSince } : {}),
       evidenceRequirements,
       evidence,
     },

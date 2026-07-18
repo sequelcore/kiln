@@ -60,6 +60,10 @@ describe("workflow activity projection", () => {
             id: "goal-1",
             objective: "Inspect the GUI",
             status: "active",
+            createdAt: "2026-07-15T18:13:03.000Z",
+            updatedAt: "2026-07-15T18:13:03.000Z",
+            activeDurationMs: 0,
+            activeSince: "2026-07-15T18:13:03.000Z",
             workItemIds: ["work-1"],
             evidenceRequirements: [],
           },
@@ -77,15 +81,30 @@ describe("workflow activity projection", () => {
         },
         status: { state: "succeeded" },
       }),
+      {
+        ...event(5, "file_changed", {
+          change: { changeType: "updated", path: "packages/gui/src/app.tsx", linesAdded: 12, linesRemoved: 3 },
+        }),
+        executionScope: { kind: "work_item", goalRunId: "goal-1", workItemId: "work-1" },
+      },
     ]);
 
     expect(projection.goals).toHaveLength(1);
+    expect(projection.foregroundGoal?.goal.id).toBe("goal-1");
+    expect(projection.foregroundGoal?.goal.activeSince).toBe("2026-07-15T18:13:03.000Z");
     expect(projection.goals[0]?.goal.id).toBe("goal-1");
     expect(projection.goals[0]).toMatchObject({
       status: "blocked",
       statusReason: "Goal closeout is missing",
     });
     expect(projection.goals[0]?.workItems).toHaveLength(1);
+    expect(projection.goals[0]?.fileChanges).toEqual([{
+      changeType: "updated",
+      path: "packages/gui/src/app.tsx",
+      linesAdded: 12,
+      linesRemoved: 3,
+      sequence: 5,
+    }]);
     expect(projection.goals[0]?.workItems[0]?.item).toMatchObject({
       id: "work-1",
       status: "completed",
@@ -100,6 +119,7 @@ describe("workflow activity projection", () => {
       "event-2",
       "event-3",
       "event-4",
+      "event-5",
     ]);
   });
 
