@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   projectManagedAgentIdentity,
   type OperatorEventDetailItem,
@@ -6,8 +6,11 @@ import {
 } from "@kilnai/gateway-contracts";
 import type { TimelineEventEntry, TimelineEntry } from "../lib/session-store.js";
 import { isActivityTimelineEntry } from "../lib/timeline-visibility.js";
-import { OperatorAvatar } from "./operator-avatar.js";
-import type { OperatorAvatarState } from "./operator-avatar.js";
+import {
+  OperatorIdentityMark,
+  OperatorStatusIndicator,
+  type OperatorStatus,
+} from "./operator-identity-mark.js";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ToolEvidence } from "./transcript.js";
@@ -51,7 +54,7 @@ function identityForEvent(entry: TimelineEventEntry): OperatorIdentityProjection
     : null;
 }
 
-function avatarStateForTone(tone: TimelineEventEntry["tone"]): OperatorAvatarState {
+function operatorStatusForTone(tone: TimelineEventEntry["tone"]): OperatorStatus {
   if (tone === "running") return "running";
   if (tone === "success") return "success";
   if (tone === "warning") return "warning";
@@ -82,19 +85,6 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
   const selectedEvent = events.find((entry) => activityKey(entry) === selectedKey) ?? events[0] ?? null;
   const selectedDetails = selectedEvent?.presentationDetails ?? [];
   const selectedIdentity = selectedEvent ? identityForEvent(selectedEvent) : null;
-
-  useEffect(() => {
-    if (events.length === 0) {
-      if (selectedKey !== null) {
-        setSelectedKey(null);
-      }
-      return;
-    }
-    const stillExists = selectedKey ? events.some((entry) => activityKey(entry) === selectedKey) : false;
-    if (!stillExists) {
-      setSelectedKey(activityKey(events[0]!));
-    }
-  }, [events, selectedKey]);
 
   return (
     <section
@@ -128,10 +118,9 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
                       )}
                     >
                       {identity ? (
-                        <OperatorAvatar
+                        <OperatorIdentityMark
                           identity={identity}
                           size="sm"
-                          state={avatarStateForTone(entry.tone)}
                           className="row-span-2 mt-0.5"
                         />
                       ) : <span />}
@@ -139,6 +128,7 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
                         <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-5 text-foreground">
                           {entry.title}
                         </span>
+                        <OperatorStatusIndicator state={operatorStatusForTone(entry.tone)} />
                         <Badge variant={entry.tone === "error" ? "destructive" : "outline"} className="shrink-0">
                           {compactKind(entry.eventKind)}
                         </Badge>
@@ -165,14 +155,15 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
             <section aria-label="Selected activity detail" className="flex flex-col gap-3">
               <div className="flex min-w-0 items-start gap-3">
                 {selectedIdentity ? (
-                  <OperatorAvatar
+                  <OperatorIdentityMark
                     identity={selectedIdentity}
-                    state={avatarStateForTone(selectedEvent.tone)}
-                    motion={selectedEvent.tone === "running" ? "subtle" : "none"}
                   />
                 ) : null}
                 <div className="min-w-0">
-                  <p className="text-sm font-medium leading-6 text-foreground">{selectedEvent.title}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium leading-6 text-foreground">{selectedEvent.title}</p>
+                    <OperatorStatusIndicator state={operatorStatusForTone(selectedEvent.tone)} showLabel />
+                  </div>
                   {selectedEvent.summary ? (
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">{selectedEvent.summary}</p>
                   ) : null}

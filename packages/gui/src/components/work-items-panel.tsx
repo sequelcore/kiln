@@ -1,7 +1,6 @@
 import { projectAgentProfileIdentity, type OperatorCockpitActionTarget } from "@kilnai/gateway-contracts";
 import type { WorkItemEntry } from "../lib/session-store.js";
-import { OperatorAvatar } from "./operator-avatar.js";
-import type { OperatorAvatarState } from "./operator-avatar.js";
+import { OperatorIdentityMark } from "./operator-identity-mark.js";
 import { ExternalLink } from "lucide-react";
 import { BorderBeam } from "border-beam";
 import { Badge } from "@/components/ui/badge";
@@ -25,14 +24,6 @@ function taskStatus(status: string): TaskStatus {
 function evidenceLabel(item: WorkItemEntry): string {
   if (item.expectedEvidence.length === 0) return "No evidence gates";
   return `${item.providedEvidence.length} of ${item.expectedEvidence.length} evidence`;
-}
-
-function avatarStateForStatus(status: string): OperatorAvatarState {
-  if (status === "in_progress") return "running";
-  if (status === "completed") return "success";
-  if (status === "blocked") return "warning";
-  if (status === "cancelled") return "error";
-  return "idle";
 }
 
 function latestAttempt(item: WorkItemEntry) {
@@ -90,10 +81,9 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
                   status={status}
                   description={evidenceLabel(item)}
                   leading={identity ? (
-                    <OperatorAvatar
+                    <OperatorIdentityMark
                       identity={identity}
                       size="sm"
-                      state={avatarStateForStatus(item.status)}
                     />
                   ) : undefined}
                 />

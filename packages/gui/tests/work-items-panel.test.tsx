@@ -9,7 +9,7 @@ describe("WorkItemsPanel", () => {
     useUiStore.getState().setTheme("kiln-dark");
   });
 
-  it("renders assigned agent profiles with deterministic avatars", () => {
+  it("renders assigned agent profiles with stable identity marks", () => {
     const items: WorkItemEntry[] = [
       {
         id: "work-1",
@@ -31,7 +31,8 @@ describe("WorkItemsPanel", () => {
     const task = screen.getByText("Review managed agent surface parity").closest('[data-slot="ai-task"]');
     expect(task).toHaveAttribute("data-status", "in_progress");
     expect(screen.getByRole("button", { name: /Review managed agent surface parity.*In progress.*0 of 1 evidence/u })).toBeInTheDocument();
-    expect(screen.getByLabelText("react-ts-reviewer avatar")).toHaveAttribute("data-avatar-state", "running");
+    expect(screen.getByLabelText("react-ts-reviewer identity")).toHaveTextContent("RT");
+    expect(screen.getByLabelText("react-ts-reviewer identity")).toHaveAttribute("data-identity-kind", "agent_profile");
     expect(screen.getByText(/react-ts-reviewer/u)).toBeInTheDocument();
     expect(screen.getByText("/workspace/references/cloned")).toBeInTheDocument();
 

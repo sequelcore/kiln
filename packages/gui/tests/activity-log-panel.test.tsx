@@ -89,7 +89,7 @@ describe("ActivityLogPanel", () => {
     expect(detail).not.toHaveTextContent("{");
   });
 
-  it("renders managed-agent identity avatars from canonical invocation payloads", () => {
+  it("renders stable managed-agent identity marks and separate statuses from canonical payloads", () => {
     const entries: TimelineEntry[] = [
       {
         id: "timeline:event:agent",
@@ -125,10 +125,13 @@ describe("ActivityLogPanel", () => {
 
     render(<ActivityLogPanel entries={entries} />);
 
-    const avatars = screen.getAllByLabelText("Piama avatar");
-    expect(avatars).toHaveLength(2);
-    expect(avatars[0]).toHaveAttribute("data-avatar-state", "success");
+    const identities = screen.getAllByLabelText("Piama identity");
+    expect(identities).toHaveLength(2);
+    expect(identities[0]).toHaveTextContent("PI");
+    expect(identities[0]).toHaveAttribute("data-identity-kind", "agent");
+    expect(screen.getAllByLabelText("Success status")).toHaveLength(2);
   });
+
   it("renders the same canonical tool evidence used by the transcript", () => {
     const entries: TimelineEntry[] = [{
       id: "timeline:event:search",

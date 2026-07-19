@@ -66,7 +66,6 @@ function guiManualChunks(id: string): string | undefined {
   if (
     normalized.includes("/react-file-icon/")
     || normalized.includes("/react-json-view-lite/")
-    || normalized.includes("/facehash/")
   ) {
     return "vendor-inspectors";
   }

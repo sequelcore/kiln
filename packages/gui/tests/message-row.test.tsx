@@ -84,7 +84,7 @@ describe("MessageRow", () => {
     expect(screen.getByRole("cell", { name: /C:\\Users\\ExampleUser/ })).toHaveClass("min-w-40");
   });
 
-  it("keeps assistant identity and markdown content from clipping each other", () => {
+  it("keeps assistant metadata and markdown content aligned without a redundant avatar column", () => {
     const { container } = render(
       <MessageRow
         message={{
@@ -100,11 +100,9 @@ describe("MessageRow", () => {
       />,
     );
 
-    const avatar = container.querySelector('[data-slot="message-avatar"]');
     const header = container.querySelector('[data-slot="message-header"]');
     const bubbleContent = container.querySelector('[data-slot="bubble-content"]');
-    expect(avatar).toHaveClass("self-start");
-    expect(avatar?.className).not.toContain("-translate-y-8");
+    expect(container.querySelector('[data-slot="message-avatar"]')).toBeNull();
     expect(header).toHaveClass("min-h-5", "leading-5");
     expect(bubbleContent).toHaveClass("group-data-[variant=ghost]/bubble:overflow-visible");
     expect(screen.getByText("Mi team de agentes configurado en Kiln para esta sesión es:")).toBeInTheDocument();

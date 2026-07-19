@@ -19,15 +19,12 @@ import type { ReactNode } from "react";
 import { FileAudio, Loader2, Volume2 } from "lucide-react";
 import {
   getGuiProviderMetadata,
-  projectMessageIdentity,
   projectVoiceAudioOutputParts,
   type VoiceAudioOutputProjection,
 } from "@kilnai/gateway-contracts";
 import type { Message } from "../lib/session-store.js";
-import { getStableUserId } from "../lib/stable-user-id.js";
 import { useSessionStore } from "../lib/session-store.js";
 import { MarkdownTable, MarkdownTableCell, MarkdownTableHeadCell } from "./markdown-table.js";
-import { OperatorAvatar } from "./operator-avatar.js";
 import {
   Attachment,
   AttachmentAction,
@@ -43,7 +40,6 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button } from "@/components/ui/button";
 import {
   Message as ConversationMessage,
-  MessageAvatar,
   MessageContent,
   MessageFooter,
   MessageHeader,
@@ -356,21 +352,9 @@ export function MessageRow(props: MessageRowProps) {
   const isOperational = message.role === "tool" || message.role === "error";
   const voiceAudioParts = isAssistant ? projectVoiceAudioOutputParts(message.parts ?? []) : [];
   const captionTrackSrc = createAudioCaptionTrackSrc(message.content);
-  const identity = projectMessageIdentity({
-    role: message.role,
-    provider: assistantProvider,
-    model: assistantModel,
-    userId: isUser ? getStableUserId() : null,
-  });
-  const avatarState = message.role === "error" ? "error" : message.streaming ? "running" : "idle";
-  const avatarMotion = message.streaming && isAssistant ? "subtle" : "none";
-
   return (
     <TranscriptSurface data-role={message.role} kind="message">
       <ConversationMessage align={isUser ? "end" : "start"}>
-        <MessageAvatar className="self-start overflow-visible rounded-none bg-transparent">
-          <OperatorAvatar identity={identity} state={avatarState} motion={avatarMotion} />
-        </MessageAvatar>
         <MessageContent className={cn(isUser ? "items-end" : "items-start")}>
           <MessageHeader className={cn("gap-2 px-0", isUser ? "sr-only" : "")}>
             <span>{label}</span>

@@ -484,9 +484,7 @@ describe("Transcript", () => {
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
     expect(rows[2]).toHaveAttribute("data-role", "error");
-    expect(screen.getByLabelText("User avatar")).toBeInTheDocument();
-    expect(screen.getByLabelText("Assistant avatar")).toBeInTheDocument();
-    expect(screen.getByLabelText("Error avatar")).toHaveAttribute("data-avatar-state", "error");
+    expect(document.querySelector('[data-slot="message-avatar"]')).toBeNull();
   });
 
   it("loads assistant audio artifact previews through the transcript resource loader", async () => {
@@ -1862,7 +1860,7 @@ describe("Transcript", () => {
     expect(screen.queryByText("Code preview")).not.toBeInTheDocument();
   });
 
-  it("uses incremental content and avatar state without a cursor decoration", () => {
+  it("uses incremental content without avatar or cursor decoration", () => {
     render(
       <Transcript
         entries={[
@@ -1871,8 +1869,8 @@ describe("Transcript", () => {
       />,
     );
     expect(screen.queryByLabelText("Streaming")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-state", "running");
-    expect(screen.getByLabelText("Assistant avatar")).toHaveAttribute("data-avatar-motion", "subtle");
+    expect(document.querySelector('[data-slot="message-avatar"]')).toBeNull();
+    expect(screen.getByText("streaming...")).toBeInTheDocument();
   });
 
   it("renders assistant messages in the official lightweight bubble primitive", () => {

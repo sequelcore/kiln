@@ -75,8 +75,9 @@ roadmap retains them only as context for the remaining release blockers.
 - Added maintained JSON inspection through `react-json-view-lite` and a static
   hierarchical renderer for directory-tree output. Invalid JSON retains a
   readable fallback.
-- Added deterministic Facehash-based operator avatars and corrected transcript
-  row geometry so identity metadata is not vertically clipped.
+- Added deterministic operator identity marks for agent-bearing surfaces,
+  separated runtime status from identity, and removed redundant transcript
+  avatars so metadata and content retain the full row width.
 - Added file-type-aware workspace icons through `react-file-icon`, isolated
   behind `WorkspaceFileIcon`; directories retain Lucide folder semantics and
   unknown files retain a deterministic fallback.
