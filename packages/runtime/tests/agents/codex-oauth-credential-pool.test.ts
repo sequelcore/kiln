@@ -19,6 +19,14 @@ function token(overrides: Partial<CodexOAuthTokenFile> = {}): CodexOAuthTokenFil
   };
 }
 
+function accountToken(accountId: string, overrides: Partial<CodexOAuthTokenFile> = {}): CodexOAuthTokenFile {
+  const payload = Buffer.from(JSON.stringify({
+    exp: 4_070_908_800,
+    "https://api.openai.com/auth": { chatgpt_account_id: accountId },
+  })).toString("base64url");
+  return token({ access_token: `header.${payload}.signature`, ...overrides });
+}
+
 function makeOptions(): CreateMessageOptions {
   return {
     system: "system",
@@ -91,6 +99,41 @@ describe("CodexOAuthCredentialPoolService", () => {
     }]);
     expect(JSON.stringify(status)).not.toContain("access-work");
     expect(JSON.stringify(status)).not.toContain("refresh-work");
+  });
+
+  it("relinks the same ChatGPT account into one stable credential and removes rotated predecessors", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await mkdir(join(rootDir, "codex-oauth"), { recursive: true });
+    await writeFile(
+      join(rootDir, "codex-oauth", "account-1712345678901.json"),
+      JSON.stringify(accountToken("account-a", { refresh_token: "old-refresh" })),
+      "utf8",
+    );
+    await service.recordAuthenticationFailure("account-1712345678901");
+
+    await service.linkCredential({
+      tokenFile: accountToken("account-a", { refresh_token: "new-refresh" }),
+    });
+
+    const status = await service.listStatus();
+    expect(status).toEqual([expect.objectContaining({
+      id: expect.stringMatching(/^account-[a-f0-9]{16}$/),
+      status: "valid",
+      health: undefined,
+    })]);
+    const raw = JSON.parse(await readFile(join(rootDir, "codex-oauth", `${status[0]!.id}.json`), "utf8"));
+    expect(raw.refresh_token).toBe("new-refresh");
+  });
+
+  it("keeps distinct ChatGPT accounts as distinct pooled credentials", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+
+    await service.linkCredential({ tokenFile: accountToken("account-a") });
+    await service.linkCredential({ tokenFile: accountToken("account-b") });
+
+    const status = await service.listStatus();
+    expect(status).toHaveLength(2);
+    expect(new Set(status.map((entry) => entry.id)).size).toBe(2);
   });
 
   it("ignores unrelated singleton files and only reads directory credentials", async () => {

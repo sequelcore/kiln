@@ -10,6 +10,7 @@ import {
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import type {
   GuiInboundFrame,
+  GuiProviderAuthBrowserStarted,
   GuiProviderAuthDeviceCodeStarted,
   GuiProviderAuthMethod,
 } from "@kilnai/gateway-contracts";
@@ -20,6 +21,7 @@ export interface ProviderAuthRequest {
   readonly apiKey?: unknown;
   readonly tier?: unknown;
   readonly credentialId?: unknown;
+  readonly flow?: unknown;
 }
 
 export interface ProviderAuthStartResult {
@@ -27,7 +29,7 @@ export interface ProviderAuthStartResult {
   readonly provider: string;
   readonly requestId: string;
   readonly method: GuiProviderAuthMethod;
-  readonly started?: GuiProviderAuthDeviceCodeStarted;
+  readonly started?: GuiProviderAuthBrowserStarted | GuiProviderAuthDeviceCodeStarted;
   complete(): Promise<void>;
 }
 
@@ -82,7 +84,39 @@ export async function startProviderAuthRequest(
   }
 
   if (metadata.authMethod === "device_code") {
+    if (request.flow !== undefined && request.flow !== "browser" && request.flow !== "device_code") {
+      return { ok: false, provider, requestId, error: `Invalid Codex OAuth flow '${String(request.flow)}'` };
+    }
     const auth = new CodexOAuthAuth();
+    if (request.flow === "browser") {
+      const authorization = await auth.startBrowserAuthorization();
+      providerAuthDebug("browser auth started", {
+        provider,
+        requestId,
+      });
+      return {
+        ok: true,
+        provider,
+        requestId,
+        method: "browser_oauth",
+        started: {
+          type: "provider_auth_started",
+          provider,
+          requestId,
+          method: "browser_oauth",
+          authorizationUri: authorization.authorizationUri,
+          message: "Complete Codex sign-in in the browser, then return to Kiln.",
+        },
+        complete: async () => {
+          const tokenFile = await authorization.complete();
+          await new CodexOAuthCredentialPoolService().linkCredential({ tokenFile });
+          providerAuthDebug("browser auth completion saved token", {
+            provider,
+            requestId,
+          });
+        },
+      };
+    }
     const authorization = await auth.startDeviceAuthorization();
     providerAuthDebug("device-code auth started", {
       provider,

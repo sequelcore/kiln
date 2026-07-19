@@ -53,8 +53,23 @@ All providers:
 kiln auth status
 ```
 
-`kiln auth codex login` starts the provider authorization flow and stores the
-result under `~/.kiln/auth/codex-oauth/`.
+`kiln auth codex login` starts the device-code authorization flow for terminal
+and headless use. The GUI uses the normal browser OAuth flow with PKCE and a
+temporary loopback callback instead. Both flows store the result under
+`~/.kiln/auth/codex-oauth/`; provider credentials never pass through the GUI
+URL or transcript.
+
+Relinking the same ChatGPT account replaces that account's existing credential
+and clears its stale health state. Kiln derives a non-secret, stable credential
+identifier from the authenticated account claim. Different ChatGPT accounts
+remain separate pool entries. This prevents repeated sign-ins from accumulating
+timestamp-named rejected tokens while preserving intentional multi-account use.
+
+The browser path follows Codex's standard local sign-in contract. Device-code
+authorization remains the explicit fallback for CLI/TUI and remote or headless
+environments; it is not the GUI default. If an OAuth endpoint returns HTML or
+another non-JSON payload, Kiln reports a provider-boundary authentication error
+without exposing the response body or a raw `JSON.parse` exception.
 
 `kiln auth opencode link` stores an OpenCode API key under
 `~/.kiln/auth/opencode/`. Without `--key`, Kiln first tries to import the key

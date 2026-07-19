@@ -10,6 +10,7 @@ import type {
   ProviderAdapter,
   ContentPart,
   ToolDefinition,
+  ToolChoiceOption,
   ReasoningEffort,
   ToolCall,
   ManagedAgentAdmissionProfile,
@@ -327,6 +328,7 @@ export interface PerCallToolConfig {
   readonly abortSignal?: AbortSignal;
   readonly tenantId?: string;
   readonly additionalTools?: readonly ToolDefinition[];
+  readonly initialToolChoice?: ToolChoiceOption;
   readonly perCallCapabilities?: ReadonlyMap<string, Capability>;
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   readonly toolCallMetadata?: ReadonlyMap<string, RuntimeToolCallMetadataResolver>;

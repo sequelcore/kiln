@@ -512,7 +512,7 @@ async function invokeManagedMultimodalDelegation(input: {
           "Structured summary grounded in the provided artifact URIs.",
           "Uncertainty and limitations for the delegated multimodal analysis.",
         ],
-        requiredResultFields: ["summary", "artifactUris", "uncertainty", "limitations"],
+        requiredResultFields: ["summary", "resourceUris", "uncertainty", "limitations"],
         doneCriteria: [
           "Use only admitted resource URIs and configured child authority.",
           "Return a bounded handoff suitable for the parent session.",
@@ -673,7 +673,7 @@ function buildManagedMultimodalDelegationPrompt(
     "Artifacts:",
     ...artifactLines,
     "",
-    "Return a bounded structured handoff with summary, artifactUris, uncertainty, and limitations. Do not request authority beyond the admitted route.",
+    "Return a bounded structured handoff with summary, resourceUris, uncertainty, and limitations. Do not request authority beyond the admitted route.",
   ].join("\n");
 }
 

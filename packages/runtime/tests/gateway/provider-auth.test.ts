@@ -3,18 +3,21 @@ import { startProviderAuthRequest } from "../../src/gateway/provider-auth.js";
 
 const coreMocks = vi.hoisted(() => {
   const startDeviceAuthorization = vi.fn();
+  const startBrowserAuthorization = vi.fn();
   const pollForAuthorization = vi.fn();
   const linkCodexCredential = vi.fn();
   const linkOpenCodeCredential = vi.fn();
 
   return {
     startDeviceAuthorization,
+    startBrowserAuthorization,
     pollForAuthorization,
     linkCodexCredential,
     linkOpenCodeCredential,
     CodexOAuthAuth: vi.fn(function CodexOAuthAuth() {
       return {
         startDeviceAuthorization,
+        startBrowserAuthorization,
         pollForAuthorization,
       };
     }),
@@ -43,6 +46,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-04-28T20:00:00.000Z"));
   coreMocks.startDeviceAuthorization.mockReset();
+  coreMocks.startBrowserAuthorization.mockReset();
   coreMocks.pollForAuthorization.mockReset();
   coreMocks.linkCodexCredential.mockReset();
   coreMocks.linkOpenCodeCredential.mockReset();
@@ -100,6 +104,61 @@ describe("startProviderAuthRequest", () => {
         client_id: "client-id",
       },
     });
+  });
+
+  it("starts Codex browser authentication for GUI callers and saves the completed token", async () => {
+    const complete = vi.fn().mockResolvedValue({
+      access_token: "browser-access-token",
+      refresh_token: "browser-refresh-token",
+      expires_at: "2026-05-08T20:00:00.000Z",
+      client_id: "client-id",
+    });
+    coreMocks.startBrowserAuthorization.mockResolvedValueOnce({
+      authorizationUri: "https://auth.openai.com/oauth/authorize?state=redacted",
+      complete,
+      cancel: vi.fn(),
+    });
+
+    const auth = await startProviderAuthRequest({
+      provider: "codex-oauth",
+      requestId: "provider-auth-browser-1",
+      flow: "browser",
+    });
+
+    expect(auth.ok).toBe(true);
+    if (!auth.ok) throw new Error(auth.error);
+    expect(auth.started).toEqual({
+      type: "provider_auth_started",
+      provider: "codex-oauth",
+      requestId: "provider-auth-browser-1",
+      method: "browser_oauth",
+      authorizationUri: "https://auth.openai.com/oauth/authorize?state=redacted",
+      message: "Complete Codex sign-in in the browser, then return to Kiln.",
+    });
+
+    await auth.complete();
+
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(coreMocks.startDeviceAuthorization).not.toHaveBeenCalled();
+    expect(coreMocks.linkCodexCredential).toHaveBeenCalledWith({
+      tokenFile: expect.objectContaining({ access_token: "browser-access-token" }),
+    });
+  });
+
+  it("rejects an unknown Codex OAuth flow at the gateway boundary", async () => {
+    const auth = await startProviderAuthRequest({
+      provider: "codex-oauth",
+      requestId: "provider-auth-invalid-flow",
+      flow: "implicit",
+    });
+
+    expect(auth).toEqual({
+      ok: false,
+      provider: "codex-oauth",
+      requestId: "provider-auth-invalid-flow",
+      error: "Invalid Codex OAuth flow 'implicit'",
+    });
+    expect(coreMocks.CodexOAuthAuth).not.toHaveBeenCalled();
   });
 
   it("saves OpenCode API-key authentication using provider metadata tier", async () => {

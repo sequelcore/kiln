@@ -381,6 +381,9 @@ export class RuntimeSessionOrchestrator {
         system: routing.invocationSystem,
         messages: conversationProjection.messages,
         tools: toolsForRound,
+        ...(round === 0 && perCallConfig?.initialToolChoice
+          ? { toolChoice: perCallConfig.initialToolChoice }
+          : {}),
         maxTokens: this.deps.maxTokens,
         reasoningEffort: perCallConfig?.reasoningEffort,
         signal: perCallConfig?.abortSignal,

@@ -3800,7 +3800,7 @@ describe("managed invocation runtime tool", () => {
       goalRunId: "goal-run-test",
       roleIntent: "Architecture review before implementation.",
       expectedEvidence: ["surface-map", "managed-agent-review", "residual-risk"],
-      requiredResultFields: ["summary", "evidence", "residualRisk"],
+      requiredResultFields: ["summary", "evidence", "residualRisks"],
       doneCriteria: ["Report the top contract risk and cite evidence."],
       residualRiskRequired: true,
       outputVerbosity: "concise",
@@ -3841,7 +3841,7 @@ describe("managed invocation runtime tool", () => {
           workItemId: "work-42",
           roleIntent: "Architecture review before implementation.",
           expectedEvidence: ["surface-map", "managed-agent-review", "residual-risk"],
-          requiredResultFields: ["summary", "evidence", "residualRisk"],
+          requiredResultFields: ["summary", "evidence", "residualRisks"],
           doneCriteria: ["Report the top contract risk and cite evidence."],
           residualRiskRequired: true,
           outputVerbosity: "concise",
@@ -4652,6 +4652,9 @@ describe("managed invocation runtime tool", () => {
         readonly workItemId?: string;
         readonly requiredReadPaths?: readonly string[];
         readonly localRecoveryInstructions?: readonly string[];
+        readonly workItemUpdateInputTemplate?: {
+          readonly verificationGateResults?: readonly Record<string, unknown>[];
+        };
       };
       readonly phaseCompletion?: Record<string, unknown>;
     };
@@ -4681,6 +4684,8 @@ describe("managed invocation runtime tool", () => {
       "A raw file listing or analysis of only the current project does not satisfy a reference-root visual phase.",
     );
     expect(output.recovery?.localRecoveryInstructions?.join("\n")).not.toContain("vLLM Studio");
+    expect(output.recovery?.workItemUpdateInputTemplate?.verificationGateResults).toEqual([]);
+    expect(JSON.stringify(output.recovery)).not.toContain("\"status\":\"passed\"");
     expect(output.recovery?.reason).toContain("no-handoff");
     expect(result.metadata.status).toBe("handoff_not_substantive");
     expect(result.metadata.managedInvocationPhaseCompletion).toBeUndefined();

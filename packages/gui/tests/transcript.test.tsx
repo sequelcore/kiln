@@ -114,7 +114,12 @@ describe("Transcript", () => {
       tone: "success",
     }));
 
-    render(<Transcript entries={lifecycleEntries} workflowActivity={workflowActivity} />);
+    render(
+      <Transcript
+        entries={lifecycleEntries}
+        workflowActivity={{ ...workflowActivity, foregroundGoal: undefined }}
+      />,
+    );
 
     expect(document.querySelectorAll('[data-role="workflow-activity"]')).toHaveLength(1);
     expect(document.querySelectorAll('[data-role="tool-event"]')).toHaveLength(0);
@@ -129,6 +134,34 @@ describe("Transcript", () => {
     expect(screen.getByText(/Read transcript\.tsx/u)).toBeVisible();
     expect(document.querySelector('[data-role="workflow-activity"]')?.closest('[data-slot="transcript-operational-content"]'))
       .toHaveClass("min-w-0", "max-w-[min(42rem,94%)]", "flex-1", "pl-5", "sm:pl-8");
+  });
+
+  it("does not duplicate the foreground goal owned by the composer dock in the transcript", () => {
+    const goal = {
+      goal: {
+        id: "goal-1",
+        objective: "Repair managed invocation lifecycle",
+        status: "active" as const,
+        workItemIds: [],
+        evidenceRequirements: [],
+      },
+      workItems: [],
+      unscopedToolCalls: [],
+      firstSequence: 1,
+      lastSequence: 1,
+    };
+    const workflowActivity: WorkflowActivityProjection = {
+      goals: [goal],
+      foregroundGoal: goal,
+      standaloneWorkItems: [],
+      unscopedToolCalls: [],
+      consumedEventIds: [],
+    };
+
+    render(<Transcript entries={[]} workflowActivity={workflowActivity} />);
+
+    expect(screen.queryByText("Repair managed invocation lifecycle")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-role="workflow-activity"]')).not.toBeInTheDocument();
   });
 
   it("keeps an optimistic user message before the workflow events it triggered", () => {

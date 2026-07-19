@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderPicker } from "../src/components/provider-picker.js";
-import type { ProviderDescriptor } from "../src/lib/session-store.js";
+import type { ProviderAuthDetails, ProviderDescriptor } from "../src/lib/session-store.js";
 
 const baseProviders: ProviderDescriptor[] = [
   {
@@ -41,7 +41,7 @@ function renderPickerHarness(options?: {
   providerAuthenticating?: boolean;
   providerAuthProvider?: string | null;
   providerAuthMessage?: string | null;
-  providerAuthDetails?: { verificationUri: string; userCode: string } | null;
+  providerAuthDetails?: ProviderAuthDetails | null;
 }) {
   const onSwitchProvider = options?.onSwitchProvider ?? vi.fn();
 
@@ -150,6 +150,7 @@ describe("ProviderPicker", () => {
       providerAuthProvider: "codex-oauth",
       providerAuthMessage: "Complete Codex sign-in in the browser, then return to Kiln.",
       providerAuthDetails: {
+        method: "device_code",
         verificationUri: "https://chatgpt.com/activate",
         userCode: "ABCD-EFGH",
       },
@@ -163,6 +164,29 @@ describe("ProviderPicker", () => {
       expect(writeText).toHaveBeenCalledWith("https://chatgpt.com/activate");
     });
     expect(screen.getByText("Link copied.")).toBeInTheDocument();
+  });
+
+  it("renders browser OAuth as one secure sign-in action without a device code", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPickerHarness({
+      providerAuthenticating: true,
+      providerAuthProvider: "codex-oauth",
+      providerAuthMessage: "Complete Codex sign-in in the browser, then return to Kiln.",
+      providerAuthDetails: {
+        method: "browser_oauth",
+        authorizationUri: "https://auth.openai.com/oauth/authorize?state=test",
+      },
+    });
+
+    expect(screen.queryByText("Code")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy code" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open secure sign-in" }));
+    expect(open).toHaveBeenCalledWith(
+      "https://auth.openai.com/oauth/authorize?state=test",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    open.mockRestore();
   });
 
   it("selects authenticatable providers without starting auth until Authenticate is pressed", async () => {

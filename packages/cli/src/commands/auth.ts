@@ -69,12 +69,13 @@ async function runCodexLogin(): Promise<void> {
   const authRequest = await startProviderAuthRequest({
     provider: "codex-oauth",
     requestId: `cli-auth:${Date.now()}`,
+    flow: "device_code",
   });
   if (!authRequest.ok) {
     console.log(authRequest.error);
     return;
   }
-  if (authRequest.started) {
+  if (authRequest.started?.method === "device_code") {
     console.log("Prerequisite: Enable device code auth in ChatGPT Settings > Security.");
     console.log("");
     console.log(`  1. Visit: ${authRequest.started.verificationUri}`);

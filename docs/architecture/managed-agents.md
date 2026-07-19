@@ -534,6 +534,11 @@ turn just because the failure was captured through a different surface.
 Direct-provider children that exhaust their tool-round budget or fail their
 bounded no-tool finalization are terminal failures, not successful empty
 handoffs. Their transcript and child-execution resources remain replayable.
+Result-handoff validation is lifecycle-aware: only a canonical `completed`
+record is required to satisfy the successful handoff fields. `timed_out`,
+`failed`, `cancelled`, and `stale` records retain their exact terminal state,
+diagnostics, and replay resources; a missing successful field must never mask
+one of those states as a schema exception.
 An explicit `managed_agent.cancel` call is different from a failed child
 handoff: when cancellation reaches the canonical `cancelled` lifecycle and
 terminal evidence is recorded, the cancel control result is accepted even
@@ -1080,9 +1085,10 @@ structured `managedInvocationRouteRepair` metadata; otherwise the runtime fails
 closed rather than starting an impossible child. If a
 managed child failure later returns recovery guidance, the envelope includes a complete
 `workItemUpdateInputTemplate`, including the required work item summary,
-evidence-to-record, and phase-specific verification gate placeholders. Parent
-agents must execute that tool call only after local recovery evidence is
-actually collected; prose that describes the template is not recovery.
+evidence-to-record, and only verification results already supported by
+canonical evidence. Recovery never emits pre-passed placeholders. Parent agents
+must execute that tool call only after local recovery evidence is actually
+collected; prose that describes the template is not recovery.
 Pre-start failure recovery never fabricates the deterministic id that a future
 attempt would receive. It returns a blocked `work_item.update` template with a
 pending `capability` requirement. A successful final child instead returns
@@ -1241,7 +1247,10 @@ transport differs without changing the contract:
 
 - direct-provider children receive the runtime-internal
   `managed_agent.submit_handoff` tool and must call it exactly once; Runtime
-  validates and captures the tool input before accepting completion
+  advertises that tool with strict schema semantics, validates and captures the
+  tool input before accepting completion, and performs one restricted,
+  forced-tool finalization round when the child otherwise stops without
+  submitting it
 - CLI harness adapters require one exact structured result and validate it at
   the harness boundary
 - remote harness transports return the structured result in the typed managed
@@ -1250,7 +1259,13 @@ transport differs without changing the contract:
 The submission tool is child-internal. It is not projected onto the parent,
 GUI, TUI, or CLI tool surface and grants no workspace or network authority.
 Runtime does not recover missing fields from assistant prose and does not
-synthesize successful verification evidence.
+synthesize successful verification evidence. If the restricted finalization
+round still produces no valid handoff, the adapter returns a replayable
+`failed` record rather than throwing away the managed lifecycle through a
+generic parent tool-call exception. Canonical result field names are
+`summary`, `resourceUris`, `evidence`, `verificationResults`, `uncertainty`,
+`limitations`, `warnings`, `approvalRequirements`, and `residualRisks`;
+deprecated aliases are rejected at admission.
 
 Managed invocation scope is admitted before provider execution. A supplied
 `goalRunId` must identify an active goal owned by the parent runtime session. A
@@ -1304,3 +1319,16 @@ process. `KILN_LIVE_MANAGED_AGENT_TESTS=0` remains an explicit disable. The
 root live command fails when no explicit or detected live provider is admitted,
 because an all-skipped live suite is missing evidence rather than a successful
 proof. Live provider checks must never run as part of normal deterministic CI.
+
+## External Contract Basis
+
+- [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling)
+  defines strict schemas and forced tool selection while distinguishing schema
+  conformance from task completion.
+- [Anthropic strict tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use)
+  defines strict input validation and explicit tool choice for Claude routes.
+- [MCP tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+  keeps asynchronous lifecycle state separate from result retrieval.
+- [Temporal workflow execution](https://docs.temporal.io/workflow-execution)
+  provides the durable-execution precedent that a replaceable operator client
+  must not own or erase runtime progress.

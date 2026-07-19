@@ -515,6 +515,10 @@ contract through the runtime-internal `managed_agent.submit_handoff` tool;
 harness adapters validate their corresponding structured transport at the
 adapter boundary. Parent-facing surfaces receive the same validated result DTO
 and replay links regardless of transport.
+`requiredResultFields` accepts canonical DTO fields only:
+`summary`, `resourceUris`, `evidence`, `verificationResults`, `uncertainty`,
+`limitations`, `warnings`, `approvalRequirements`, and `residualRisks`.
+Transport-era aliases are invalid input rather than compatibility behavior.
 
 Model-facing work-governance results are bounded projections. They retain
 status, evidence/gate state, the latest attempt summary, and canonical

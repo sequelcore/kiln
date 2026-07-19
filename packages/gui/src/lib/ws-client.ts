@@ -507,7 +507,7 @@ const GuiSessionEventSchema = z.object({
 });
 
 /** Schema for GuiInboundFrame validation. */
-const GuiInboundFrameSchema = z.discriminatedUnion("type", [
+const GuiInboundFrameSchema = z.union([
   z.object({ type: z.literal("thinking") }),
   z.object({
     type: z.literal("turn_cancel_result"),
@@ -672,8 +672,16 @@ const GuiInboundFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("provider_auth_started"),
     provider: z.string(),
     requestId: z.string().trim().min(1),
+    method: z.literal("browser_oauth"),
+    authorizationUri: z.string().url(),
+    message: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("provider_auth_started"),
+    provider: z.string(),
+    requestId: z.string().trim().min(1),
     method: z.literal("device_code"),
-    verificationUri: z.string(),
+    verificationUri: z.string().url(),
     userCode: z.string(),
     message: z.string().optional(),
   }),

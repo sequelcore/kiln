@@ -315,17 +315,54 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           session: childSession,
         }),
       });
-      const result = await orchestrator.processMessage(
-        childSession,
-        textParts(appendManagedResultHandoffContract(
-          request.input.prompt ?? request.input.summary,
-          request,
-          "submission-tool",
-        )),
-        governedResourceContext,
-        builtinTools,
-        perCallConfig,
-      ).finally(unsubscribeProgress);
+      let result: OrchestrateResult;
+      try {
+        const executionResult = await orchestrator.processMessage(
+          childSession,
+          textParts(appendManagedResultHandoffContract(
+            request.input.prompt ?? request.input.summary,
+            request,
+            "submission-tool",
+          )),
+          governedResourceContext,
+          builtinTools,
+          perCallConfig,
+        );
+        if (!handoffSubmission || handoffSubmission.result()) {
+          result = executionResult;
+        } else {
+          const handoffCapability = capabilityMap.get(MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME);
+          const handoffAuthority = toolAuthority.get(MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME);
+          const finalizationResult = await new RuntimeSessionOrchestrator(deps).processMessage(
+            childSession,
+            textParts([
+              "Finalize this managed invocation now.",
+              `Call ${MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME} exactly once with the completed structured result.`,
+              "Do not perform more repository work and do not answer with prose instead of the tool call.",
+            ].join("\n")),
+            undefined,
+            builtinTools,
+            {
+              ...perCallConfig,
+              toolAllowlist: new Set([MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME]),
+              additionalTools: [handoffSubmission.tool],
+              perCallCapabilities: handoffCapability
+                ? new Map([[MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME, handoffCapability]])
+                : undefined,
+              toolAuthority: handoffAuthority
+                ? new Map([[MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME, handoffAuthority]])
+                : undefined,
+              initialToolChoice: {
+                type: "tool",
+                name: MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME,
+              },
+            },
+          );
+          result = mergeManagedChildResults(executionResult, finalizationResult);
+        }
+      } finally {
+        unsubscribeProgress();
+      }
       const resultText = extractText(result.parts);
       const replayResource = resultReplayResource(request.invocationId, resultText);
       const childExecutionResource = childExecutionReplayResource(request.invocationId, result, resultText);
@@ -341,12 +378,23 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       const replayResources = [replayResource, childExecutionResource]
         .filter((resource): resource is ManagedAgentReplayResource => resource !== undefined);
 
+      const missingRequiredHandoff = handoffSubmission !== undefined && structuredResult === undefined;
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
-        lifecycleState: lifecycleStateForDirectChildStopReason(result.stopReason),
+        lifecycleState: missingRequiredHandoff
+          ? "failed"
+          : lifecycleStateForDirectChildStopReason(result.stopReason),
         childSessionId,
         childTurnId,
         transcript: transcriptPointer(request.invocationId),
+        ...(missingRequiredHandoff
+          ? {
+              diagnostics: [{
+                uri: childExecutionResource?.uri ?? managedInvocationUri(request.invocationId, "transcript"),
+                kind: "failure" as const,
+              }],
+            }
+          : {}),
         usage: {
           source: "runtime",
           tokenClasses: [
@@ -449,6 +497,7 @@ function createManagedHandoffSubmission(): {
     name: MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME,
     description: "Submit the single canonical structured result for this managed child invocation. Call exactly once after the work and its verification are complete.",
     inputSchema: STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
+    strict: true,
     tags: new Set(["managed-agent", "handoff", "runtime-control"]),
   };
   return {
@@ -761,6 +810,27 @@ function isNoHandoffStopReason(stopReason: string | undefined): boolean {
 
 function lifecycleStateForDirectChildStopReason(stopReason: string | undefined): "completed" | "failed" {
   return isFailedDirectChildStopReason(stopReason) ? "failed" : "completed";
+}
+
+function mergeManagedChildResults(
+  execution: OrchestrateResult,
+  finalization: OrchestrateResult,
+): OrchestrateResult {
+  return {
+    ...finalization,
+    inputTokens: execution.inputTokens + finalization.inputTokens,
+    outputTokens: execution.outputTokens + finalization.outputTokens,
+    cacheReadTokens: execution.cacheReadTokens + finalization.cacheReadTokens,
+    cacheWriteTokens: execution.cacheWriteTokens + finalization.cacheWriteTokens,
+    providerRequests: [
+      ...(execution.providerRequests ?? []),
+      ...(finalization.providerRequests ?? []),
+    ],
+    toolExecutions: [
+      ...(execution.toolExecutions ?? []),
+      ...(finalization.toolExecutions ?? []),
+    ],
+  };
 }
 
 function isFailedDirectChildStopReason(stopReason: string | undefined): boolean {

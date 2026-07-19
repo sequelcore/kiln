@@ -141,6 +141,7 @@ export type {
   GuiProviderAuthState,
   GuiProviderCatalogStatus,
   GuiProviderAuthMethod,
+  GuiProviderAuthBrowserStarted,
   GuiProviderAuthDeviceCodeStarted,
   GuiProviderAuthCompleted,
   GuiProviderAuthFailed,

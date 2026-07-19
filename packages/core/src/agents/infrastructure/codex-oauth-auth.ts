@@ -1,4 +1,6 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { KilnError } from "../../engine/errors.js";
@@ -10,6 +12,10 @@ const DEVICE_CALLBACK_URI = "https://auth.openai.com/deviceauth/callback";
 const DEFAULT_TOKEN_PATH = join(homedir(), ".kiln", "auth", "codex-oauth.json");
 const AUTO_REFRESH_BUFFER_SECONDS = 120;
 const POLL_TIMEOUT_MS = 15 * 60 * 1000;
+const BROWSER_AUTHORIZATION_TIMEOUT_MS = 15 * 60 * 1000;
+const BROWSER_CALLBACK_PORTS = [1455, 1457] as const;
+const BROWSER_CALLBACK_PATH = "/auth/callback";
+const OAUTH_SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke";
 
 function providerAuthDebug(message: string, context?: Record<string, unknown>): void {
   if (!/^(1|true|yes)$/i.test(process.env.KILN_PROVIDER_AUTH_DEBUG?.trim() ?? "")) {
@@ -61,13 +67,130 @@ export interface PollAuthorizationParams {
 
 export interface CodexOAuthAuthOptions {
   readonly tokenPath?: string;
+  readonly browserCallbackPorts?: readonly number[];
+  readonly browserAuthorizationTimeoutMs?: number;
+}
+
+export interface BrowserAuthorizationResult {
+  readonly authorizationUri: string;
+  complete(): Promise<CodexOAuthTokenFile>;
+  cancel(): void;
 }
 
 export class CodexOAuthAuth {
   private readonly tokenPath: string;
+  private readonly browserCallbackPorts: readonly number[];
+  private readonly browserAuthorizationTimeoutMs: number;
 
   constructor(options: CodexOAuthAuthOptions = {}) {
     this.tokenPath = options.tokenPath ?? DEFAULT_TOKEN_PATH;
+    this.browserCallbackPorts = options.browserCallbackPorts ?? BROWSER_CALLBACK_PORTS;
+    this.browserAuthorizationTimeoutMs = options.browserAuthorizationTimeoutMs ?? BROWSER_AUTHORIZATION_TIMEOUT_MS;
+  }
+
+  async startBrowserAuthorization(): Promise<BrowserAuthorizationResult> {
+    const codeVerifier = randomBytes(64).toString("base64url");
+    const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+    const state = randomBytes(32).toString("base64url");
+    let redirectUri = "";
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let resolveCompletion!: (token: CodexOAuthTokenFile) => void;
+    let rejectCompletion!: (error: unknown) => void;
+    const completion = new Promise<CodexOAuthTokenFile>((resolve, reject) => {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+    let settle!: (token?: CodexOAuthTokenFile, error?: unknown) => void;
+
+    const server = createServer((request, response) => {
+      void (async () => {
+        const requestUrl = new URL(request.url ?? "/", redirectUri || "http://localhost");
+        if (request.method !== "GET" || requestUrl.pathname !== BROWSER_CALLBACK_PATH) {
+          this.respondToBrowser(response, 404, "Not found");
+          return;
+        }
+        if (requestUrl.searchParams.get("state") !== state) {
+          const error = this.authError("Codex OAuth callback state did not match", {
+            callbackPath: BROWSER_CALLBACK_PATH,
+          });
+          this.respondToBrowser(response, 400, "Sign-in could not be verified. Return to Kiln and retry.");
+          settle(undefined, error);
+          return;
+        }
+        const oauthError = requestUrl.searchParams.get("error");
+        if (oauthError) {
+          const error = this.authError("Codex OAuth browser authorization was rejected", {
+            error: oauthError,
+            errorDescription: requestUrl.searchParams.get("error_description") ?? undefined,
+          });
+          this.respondToBrowser(response, 400, "Sign-in was not completed. Return to Kiln and retry.");
+          settle(undefined, error);
+          return;
+        }
+        const authorizationCode = requestUrl.searchParams.get("code")?.trim();
+        if (!authorizationCode) {
+          const error = this.authError("Codex OAuth callback did not include an authorization code", {
+            callbackPath: BROWSER_CALLBACK_PATH,
+          });
+          this.respondToBrowser(response, 400, "Sign-in did not return an authorization code. Return to Kiln and retry.");
+          settle(undefined, error);
+          return;
+        }
+        try {
+          const token = await this.exchangeAuthorizationCode(authorizationCode, codeVerifier, redirectUri);
+          this.respondToBrowser(response, 200, "Sign-in complete. You can close this window and return to Kiln.");
+          settle(token);
+        } catch (error) {
+          this.respondToBrowser(response, 502, "Sign-in completed, but Kiln could not exchange the authorization code. Return to Kiln and retry.");
+          settle(undefined, error);
+        }
+      })();
+    });
+
+    const closeServer = (): void => {
+      if (timeout) clearTimeout(timeout);
+      server.close();
+    };
+    settle = (token?: CodexOAuthTokenFile, error?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      closeServer();
+      if (token) resolveCompletion(token);
+      else rejectCompletion(error ?? this.authError("Codex OAuth browser authorization failed", {}));
+    };
+
+    const port = await this.listenOnFirstAvailablePort(server);
+    redirectUri = `http://localhost:${port}${BROWSER_CALLBACK_PATH}`;
+    const authorizationUri = new URL(`${AUTH_BASE}/oauth/authorize`);
+    authorizationUri.search = new URLSearchParams({
+      response_type: "code",
+      client_id: CLIENT_ID,
+      redirect_uri: redirectUri,
+      scope: OAUTH_SCOPE,
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
+      id_token_add_organizations: "true",
+      codex_cli_simplified_flow: "true",
+      state,
+      originator: "kiln",
+    }).toString();
+    timeout = setTimeout(() => {
+      settle(undefined, this.authError("Codex OAuth browser authorization timed out", {
+        timeoutMs: this.browserAuthorizationTimeoutMs,
+      }));
+    }, this.browserAuthorizationTimeoutMs);
+    timeout.unref?.();
+
+    providerAuthDebug("browser authorization started", {
+      callbackPort: port,
+      timeoutMs: this.browserAuthorizationTimeoutMs,
+    });
+    return {
+      authorizationUri: authorizationUri.toString(),
+      complete: () => completion,
+      cancel: () => settle(undefined, this.authError("Codex OAuth browser authorization was cancelled", {})),
+    };
   }
 
   async startDeviceAuthorization(): Promise<DeviceAuthorizationResult> {
@@ -286,11 +409,12 @@ export class CodexOAuthAuth {
   private async exchangeAuthorizationCode(
     code: string,
     codeVerifier: string,
+    redirectUri = DEVICE_CALLBACK_URI,
   ): Promise<CodexOAuthTokenFile> {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: DEVICE_CALLBACK_URI,
+      redirect_uri: redirectUri,
       client_id: CLIENT_ID,
       code_verifier: codeVerifier,
     });
@@ -411,7 +535,56 @@ export class CodexOAuthAuth {
   }
 
   private async parseJson<T>(response: Response): Promise<T> {
-    return await response.json() as T;
+    const body = await response.text();
+    try {
+      return JSON.parse(body) as T;
+    } catch (cause) {
+      throw this.authError("Codex OAuth endpoint returned a non-JSON response", {
+        status: response.status,
+        contentType: response.headers.get("content-type") ?? undefined,
+        bodyLength: body.length,
+      }, cause);
+    }
+  }
+
+  private async listenOnFirstAvailablePort(server: Server): Promise<number> {
+    let lastError: unknown;
+    for (const port of this.browserCallbackPorts) {
+      try {
+        return await new Promise<number>((resolve, reject) => {
+          const onError = (error: unknown): void => {
+            server.off("listening", onListening);
+            reject(error);
+          };
+          const onListening = (): void => {
+            server.off("error", onError);
+            const address = server.address();
+            if (!address || typeof address === "string") {
+              reject(new Error("Unable to resolve Codex OAuth callback port"));
+              return;
+            }
+            resolve(address.port);
+          };
+          server.once("error", onError);
+          server.once("listening", onListening);
+          server.listen(port, "127.0.0.1");
+        });
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw this.authError("Unable to start the Codex OAuth browser callback", {
+      callbackPorts: this.browserCallbackPorts,
+    }, lastError);
+  }
+
+  private respondToBrowser(response: ServerResponse, status: number, message: string): void {
+    response.writeHead(status, {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/html; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+    });
+    response.end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Kiln sign-in</title><body><main><h1>${message}</h1></main></body></html>`);
   }
 
   private sleep(ms: number): Promise<void> {

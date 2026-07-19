@@ -7782,6 +7782,93 @@ describe("resolveGuiProviderSwitch", () => {
     }
   });
 
+  it("keeps runtime execution alive when the replaceable GUI operator surface disconnects", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const resolveGuiOperatorDiscoverySpy = vi
+      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({ port: port ?? 4810, stop })),
+    });
+    let completeTurn!: () => void;
+    const turnCompletion = new Promise<void>((resolve) => {
+      completeTurn = resolve;
+    });
+    let observedSignal: AbortSignal | undefined;
+    vi.mocked(processAdmittedTurn).mockImplementation(async (input) => {
+      observedSignal = input.perCallConfig?.abortSignal;
+      await turnCompletion;
+      return {
+        ok: true,
+        result: {
+          parts: textParts("Completed while the operator surface was detached."),
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          queued: false,
+          sessionId: "session-detached",
+          sessionMode: "mode-a",
+          traceId: "trace-detached",
+          outcome: "completed",
+        },
+      } as never;
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({}) as never,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "openai",
+            setProvider: vi.fn(),
+            getModel: () => GPT4O,
+            setModel: vi.fn(),
+          },
+        },
+      });
+      await waitForCondition(
+        () => gateway?.operatorModels?.openai?.includes(GPT4O) ?? false,
+        "Expected GUI provider models before disconnect test.",
+      );
+      const { handlers, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      const activeMessage = handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
+        wsCtx,
+      );
+      await waitForCondition(() => observedSignal !== undefined, "Expected active GUI turn.");
+
+      handlers.onClose!(new Event("close") as unknown as CloseEvent, wsCtx);
+
+      expect(observedSignal?.aborted).toBe(false);
+      const reconnect = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await reconnect.handlers.onOpen!(new Event("open"), reconnect.wsCtx);
+      await reconnect.handlers.onMessage!(
+        new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "duplicate task" }) }),
+        reconnect.wsCtx,
+      );
+      expect(reconnect.mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
+        type: "error",
+        message: "A GUI turn is already active. Cancel it before starting another turn.",
+      });
+      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
+      completeTurn();
+      await activeMessage;
+      expect(observedSignal?.aborted).toBe(false);
+    } finally {
+      vi.mocked(processAdmittedTurn).mockReset();
+      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("routes goal controls through the canonical controller and streams the resulting event", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

@@ -556,7 +556,7 @@ bun run --cwd packages/runtime test tests/gateway/stt-factory.test.ts tests/gate
 bun run --cwd packages/gateway-contracts test tests/voice-input-parts.test.ts
 bun run --cwd packages/gateway-contracts test tests/voice-output-parts.test.ts
 bun run --cwd packages/runtime test tests/gateway/gui-frame-parts.test.ts
-bun run --cwd packages/gui test:run tests/composer.test.tsx tests/message-row.test.tsx tests/session-store.test.ts
+bun run --cwd packages/gui test tests/composer.test.tsx tests/message-row.test.tsx tests/session-store.test.ts
 bun run --cwd packages/widget test tests/widget.test.ts tests/ws-client.test.ts
 bun run --cwd packages/tui test tests/gateway-session.test.ts
 bun run --cwd packages/native test tests/native-boundary.test.ts

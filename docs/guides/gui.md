@@ -474,6 +474,12 @@ object-shaped `supported_reasoning_levels` response returned by ChatGPT-backed
 Codex models. Do not add a static reasoning fallback in the GUI; if discovery
 does not advertise levels, the control must stay hidden.
 
+Codex authentication from the provider picker uses browser OAuth with PKCE and
+a short-lived loopback callback owned by the Kiln runtime. The picker exposes
+the provider authorization URL but never displays or transports access or
+refresh tokens. Device-code login is reserved for CLI/TUI and headless use; the
+GUI must not project it as its default browser sign-in path.
+
 ## Session Model
 
 The GUI session rail shows canonical Kiln sessions. It is not filtered by the

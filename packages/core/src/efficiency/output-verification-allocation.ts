@@ -169,22 +169,22 @@ export function defineStructuredExecutionResult(input: StructuredExecutionResult
     version: input.version,
     status: requireMember(input.status, ["completed", "blocked", "failed", "cancelled"], "status"),
     summary: requireText(input.summary, "Structured execution result summary is required."),
-    ...(input.details !== undefined ? { details: requireText(input.details, "Structured execution result details are required.") } : {}),
-    ...(input.uncertainty !== undefined
+    ...(input.details != null ? { details: requireText(input.details, "Structured execution result details are required.") } : {}),
+    ...(input.uncertainty != null
       ? { uncertainty: requireNormalizedValue(input.uncertainty, "Structured execution uncertainty") }
       : {}),
     limitations: input.limitations.map((limitation) => requireText(limitation, "Structured execution limitation is required.")),
     operatorDecisions: input.operatorDecisions.map((decision) => ({
       id: requireText(decision.id, "Structured execution decision id is required."),
       summary: requireText(decision.summary, "Structured execution decision summary is required."),
-      ...(decision.rationale !== undefined
+      ...(decision.rationale != null
         ? { rationale: requireText(decision.rationale, "Structured execution decision rationale is required.") }
         : {}),
     })),
     evidence: input.evidence.map((evidence) => ({
       uri: requireText(evidence.uri, "Structured execution evidence uri is required."),
       kind: requireMember(evidence.kind, ["artifact", "citation", "diagnostic", "verification"], "evidence kind"),
-      ...(evidence.label !== undefined ? { label: requireText(evidence.label, "Structured execution evidence label is required.") } : {}),
+      ...(evidence.label != null ? { label: requireText(evidence.label, "Structured execution evidence label is required.") } : {}),
     })),
     citations: input.citations.map((citation) => ({
       uri: requireText(citation.uri, "Structured execution citation uri is required."),

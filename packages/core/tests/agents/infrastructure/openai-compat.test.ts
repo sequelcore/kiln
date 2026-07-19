@@ -222,6 +222,29 @@ describe("OpenAIAdapter", () => {
     ]);
   });
 
+  it("projects strict tool contracts only when the tool explicitly requires them", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await adapter.createMessage(makeOptions({
+      tools: [{ ...makeToolDef("submit_handoff"), strict: true }],
+    }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
+    expect(body.tools[0].function).toMatchObject({
+      name: "submit_handoff",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: ["string", "null"] },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    });
+  });
+
   it("serializes prior tool use and tool result messages for follow-up calls", async () => {
     const mockFetch = mockFetchResponse(makeOpenAIResponse());
     vi.stubGlobal("fetch", mockFetch);

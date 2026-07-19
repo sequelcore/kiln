@@ -606,7 +606,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
       input: {
         summary: "Inspect the contract",
         handoff: {
-          requiredResultFields: ["summary", "evidence", "checks", "uncertainty", "limitations"],
+          requiredResultFields: ["summary", "evidence", "verificationResults", "uncertainty", "limitations"],
           residualRiskRequired: true,
           outputVerbosity: "concise",
         },
@@ -707,6 +707,49 @@ describe("RuntimeManagedAgentInvocationService", () => {
         tokens: 50,
       }),
     ]));
+  });
+
+  it("preserves a timed-out terminal record instead of misclassifying it as a handoff schema failure", async () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      input: {
+        summary: "Inspect the contract",
+        handoff: {
+          requiredResultFields: ["summary", "verificationResults", "residualRisks"],
+          residualRiskRequired: true,
+        },
+      },
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => defineManagedAgentInvocationRecord({
+        ...makeReadonlyRecordForRequest(request, admission.capabilitySnapshot),
+        lifecycleState: "timed_out",
+        diagnostics: [{
+          uri: "kiln://artifacts/invocation-1/timeout",
+          kind: "timeout",
+        }],
+        resultHandoff: {
+          summary: "Managed invocation timed out before a completed handoff was produced.",
+          resourceUris: ["kiln://artifacts/invocation-1/timeout"],
+          memoryWriteProposalUris: [],
+        },
+      })),
+    };
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const result = await service.invoke(request, adapter, makeSnapshotInput());
+
+    expect(result).toMatchObject({
+      status: "completed",
+      record: {
+        lifecycleState: "timed_out",
+        diagnostics: [{ kind: "timeout" }],
+        resultHandoff: {
+          summary: "Managed invocation timed out before a completed handoff was produced.",
+        },
+      },
+    });
   });
 
   it("starts an admitted invocation without waiting for the adapter terminal record", async () => {

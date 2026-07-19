@@ -101,6 +101,7 @@ export interface ToolDefinition {
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
   readonly outputSchema?: Record<string, unknown>;
+  readonly strict?: true;
   readonly tags: ReadonlySet<string>;
 }
 
@@ -157,6 +158,7 @@ export { CodexOAuthAuth } from "./infrastructure/codex-oauth-auth.js";
 export { CODEX_DEVICE_VERIFICATION_URI } from "./infrastructure/codex-oauth-auth.js";
 export { CodexOAuthAdapter } from "./infrastructure/codex-oauth.js";
 export type {
+  BrowserAuthorizationResult,
   CodexOAuthAuthOptions,
   CodexOAuthTokenFile,
   DeviceAuthorizationResult,

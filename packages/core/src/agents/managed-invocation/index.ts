@@ -156,11 +156,22 @@ export interface ManagedAgentInvocationHandoffContract {
   readonly workItemId?: string;
   readonly roleIntent?: string;
   readonly expectedEvidence?: readonly string[];
-  readonly requiredResultFields?: readonly string[];
+  readonly requiredResultFields?: readonly ManagedAgentResultField[];
   readonly doneCriteria?: readonly string[];
   readonly residualRiskRequired?: boolean;
   readonly outputVerbosity?: AssistantOutputVerbosity;
 }
+
+export type ManagedAgentResultField =
+  | "summary"
+  | "resourceUris"
+  | "evidence"
+  | "verificationResults"
+  | "uncertainty"
+  | "limitations"
+  | "warnings"
+  | "approvalRequirements"
+  | "residualRisks";
 
 export type ManagedAgentInvocationContextMode = "isolated" | "resources" | "fork";
 
@@ -549,12 +560,13 @@ export interface ManagedAgentResultHandoff {
 
 export function assertManagedAgentResultHandoffContract(
   contract: ManagedAgentInvocationHandoffContract | undefined,
-  handoff: ManagedAgentResultHandoff | undefined,
+  record: ManagedAgentInvocationRecord,
 ): void {
-  if (!contract) return;
+  if (!contract || record.lifecycleState !== "completed") return;
+  const handoff = record.resultHandoff;
   if (!handoff) throw new Error("Managed invocation required result handoff is missing.");
   const missing = (contract.requiredResultFields ?? []).flatMap((field) =>
-    hasManagedResultField(field, handoff) ? [] : [canonicalManagedResultField(field)]);
+    hasManagedResultField(field, handoff) ? [] : [field]);
   if (contract.residualRiskRequired === true && (handoff.structuredResult?.residualRisks.length ?? 0) === 0) {
     missing.push("residualRisks");
   }
@@ -563,27 +575,18 @@ export function assertManagedAgentResultHandoffContract(
   }
 }
 
-function canonicalManagedResultField(field: string): string {
-  const normalized = field.trim();
-  if (normalized === "residualRisk") return "residualRisks";
-  if (normalized === "checks") return "verificationResults";
-  if (normalized === "artifactUris") return "resourceUris";
-  return normalized;
-}
-
-function hasManagedResultField(field: string, handoff: ManagedAgentResultHandoff): boolean {
-  const normalized = field.trim();
-  if (normalized === "summary") return handoff.summary.trim().length > 0;
-  if (normalized === "resourceUris" || normalized === "artifactUris") return handoff.resourceUris.length > 0;
-  if (normalized === "evidence") return (handoff.structuredResult?.evidence.length ?? handoff.resourceUris.length) > 0;
-  if (normalized === "checks" || normalized === "verificationResults") {
+function hasManagedResultField(field: ManagedAgentResultField, handoff: ManagedAgentResultHandoff): boolean {
+  if (field === "summary") return handoff.summary.trim().length > 0;
+  if (field === "resourceUris") return handoff.resourceUris.length > 0;
+  if (field === "evidence") return (handoff.structuredResult?.evidence.length ?? handoff.resourceUris.length) > 0;
+  if (field === "verificationResults") {
     return (handoff.structuredResult?.verificationResults.length ?? 0) > 0;
   }
-  if (normalized === "uncertainty") return handoff.structuredResult?.uncertainty !== undefined;
-  if (normalized === "limitations") return handoff.structuredResult !== undefined;
-  if (normalized === "warnings") return handoff.structuredResult !== undefined;
-  if (normalized === "approvalRequirements") return handoff.structuredResult !== undefined;
-  if (normalized === "residualRisks" || normalized === "residualRisk") {
+  if (field === "uncertainty") return handoff.structuredResult?.uncertainty !== undefined;
+  if (field === "limitations") return handoff.structuredResult !== undefined;
+  if (field === "warnings") return handoff.structuredResult !== undefined;
+  if (field === "approvalRequirements") return handoff.structuredResult !== undefined;
+  if (field === "residualRisks") {
     return (handoff.structuredResult?.residualRisks.length ?? 0) > 0;
   }
   return false;
@@ -1631,13 +1634,32 @@ function requireHandoffContract(input: ManagedAgentInvocationHandoffContract): M
     ...(input.workItemId !== undefined ? { workItemId: requireText(input.workItemId, "Managed invocation handoff work item id is required") } : {}),
     ...(input.roleIntent !== undefined ? { roleIntent: requireText(input.roleIntent, "Managed invocation handoff role intent is required") } : {}),
     ...(input.expectedEvidence !== undefined ? { expectedEvidence: input.expectedEvidence.map((evidence) => requireText(evidence, "Managed invocation handoff evidence is required")) } : {}),
-    ...(input.requiredResultFields !== undefined ? { requiredResultFields: input.requiredResultFields.map((field) => requireText(field, "Managed invocation handoff result field is required")) } : {}),
+    ...(input.requiredResultFields !== undefined
+      ? { requiredResultFields: input.requiredResultFields.map(requireManagedResultField) }
+      : {}),
     ...(input.doneCriteria !== undefined ? { doneCriteria: input.doneCriteria.map((criterion) => requireText(criterion, "Managed invocation handoff done criterion is required")) } : {}),
     ...(input.residualRiskRequired !== undefined ? { residualRiskRequired: input.residualRiskRequired === true } : {}),
     ...(input.outputVerbosity !== undefined
       ? { outputVerbosity: requireAssistantOutputVerbosity(input.outputVerbosity) }
       : {}),
   };
+}
+
+function requireManagedResultField(field: ManagedAgentResultField): ManagedAgentResultField {
+  if (
+    field === "summary"
+    || field === "resourceUris"
+    || field === "evidence"
+    || field === "verificationResults"
+    || field === "uncertainty"
+    || field === "limitations"
+    || field === "warnings"
+    || field === "approvalRequirements"
+    || field === "residualRisks"
+  ) {
+    return field;
+  }
+  throw new Error(`Unsupported managed invocation handoff result field: ${String(field)}`);
 }
 
 function requireAssistantOutputVerbosity(input: AssistantOutputVerbosity): AssistantOutputVerbosity {

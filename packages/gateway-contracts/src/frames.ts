@@ -269,7 +269,16 @@ export interface GuiProviderModelDiscoveryProjection {
   readonly entries: readonly GuiProviderModelRouteEntry[];
 }
 
-export type GuiProviderAuthMethod = "device_code" | "api_key";
+export type GuiProviderAuthMethod = "browser_oauth" | "device_code" | "api_key";
+
+export interface GuiProviderAuthBrowserStarted {
+  readonly type: "provider_auth_started";
+  readonly provider: string;
+  readonly requestId: string;
+  readonly method: "browser_oauth";
+  readonly authorizationUri: string;
+  readonly message?: string;
+}
 
 export interface GuiProviderAuthDeviceCodeStarted {
   readonly type: "provider_auth_started";
@@ -992,6 +1001,7 @@ export type GuiOutboundFrame =
       requestId: string;
       apiKey?: string;
       tier?: "go" | "zen";
+      flow?: "browser" | "device_code";
     }
   | { type: "provider"; provider: string; model?: string; requestId: string }
   | OperatorThemeSetResultFrame
@@ -1103,6 +1113,7 @@ export type GuiInboundFrame =
         planHash?: string;
       }
     | { type: "cleared" }
+    | GuiProviderAuthBrowserStarted
     | GuiProviderAuthDeviceCodeStarted
     | GuiProviderAuthCompleted
     | GuiProviderAuthFailed

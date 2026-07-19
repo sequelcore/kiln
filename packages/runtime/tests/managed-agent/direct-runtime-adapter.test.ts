@@ -193,7 +193,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         handoff: {
           roleIntent: "verifier",
           expectedEvidence: ["result-handoff"],
-          requiredResultFields: ["summary", "evidence", "checks"],
+          requiredResultFields: ["summary", "evidence", "verificationResults"],
           doneCriteria: ["Return the verified heading."],
           residualRiskRequired: true,
         },
@@ -215,11 +215,112 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(JSON.stringify(firstProviderCall)).toContain("residualRisks");
     expect(firstProviderCall.tools).toContainEqual(expect.objectContaining({
       name: "managed_agent.submit_handoff",
+      strict: true,
       inputSchema: expect.objectContaining({
         type: "object",
         additionalProperties: false,
       }),
     }));
+  });
+
+  it("runs one forced finalization round when the child finishes without submitting its handoff", async () => {
+    const structuredResult = {
+      version: "structured-execution-result-v1",
+      status: "completed",
+      summary: "README heading verified.",
+      limitations: [],
+      operatorDecisions: [],
+      evidence: [{ uri: "kiln://managed-invocations/inv-direct-1/readme", kind: "artifact" }],
+      citations: [],
+      warnings: [],
+      failures: [],
+      approvalRequirements: [],
+      residualRisks: ["Only the requested heading was verified."],
+      verificationResults: [{
+        requirementId: "readme-heading",
+        method: "deterministic",
+        status: "passed",
+        summary: "The heading was read from README.md.",
+        evidenceUris: ["kiln://managed-invocations/inv-direct-1/readme"],
+      }],
+    } as const;
+    const provider = providerWithResponses([
+      response("The inspection is complete."),
+      response("", [{
+        id: "handoff-finalization",
+        name: "managed_agent.submit_handoff",
+        input: structuredResult,
+      }]),
+      response("Handoff submitted."),
+    ]);
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", vi.fn(async () => "# Kiln")]]),
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
+      input: {
+        summary: "Verify the README heading.",
+        handoff: {
+          requiredResultFields: ["summary", "evidence", "verificationResults", "residualRisks"],
+          residualRiskRequired: true,
+        },
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("expected completed");
+    expect(result.record.lifecycleState).toBe("completed");
+    expect(result.record.resultHandoff?.structuredResult).toMatchObject({
+      summary: "README heading verified.",
+    });
+    expect(result.record.usage?.tokenClasses).toEqual(expect.arrayContaining([
+      { name: "input", value: 30 },
+      { name: "output", value: 15 },
+    ]));
+    expect(provider.createMessage).toHaveBeenCalledTimes(3);
+    expect((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0]).toMatchObject({
+      tools: [expect.objectContaining({ name: "managed_agent.submit_handoff", strict: true })],
+      toolChoice: { type: "tool", name: "managed_agent.submit_handoff" },
+    });
+    expect((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[2]?.[0].toolChoice).toBeUndefined();
+  });
+
+  it("returns a replayable failed record when forced finalization still produces no handoff", async () => {
+    const provider = providerWithResponses([
+      response("The inspection is complete."),
+      response("I forgot to call the required handoff tool."),
+    ]);
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", vi.fn(async () => "# Kiln")]]),
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
+      input: {
+        summary: "Verify the README heading.",
+        handoff: {
+          requiredResultFields: ["summary", "verificationResults"],
+        },
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("expected terminal invocation");
+    expect(result.record).toMatchObject({
+      lifecycleState: "failed",
+      diagnostics: [{ kind: "failure" }],
+      resultHandoff: {
+        summary: "I forgot to call the required handoff tool.",
+      },
+    });
+    expect(provider.createMessage).toHaveBeenCalledTimes(2);
   });
 
   it("runs a child RuntimeSessionOrchestrator and returns the shared managed invocation record shape", async () => {

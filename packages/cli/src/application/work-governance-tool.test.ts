@@ -2425,7 +2425,7 @@ describe("work-governance-tool", () => {
         effects: ["write-artifact"],
         modes: ["coauthor"],
       },
-      requiredResultFields: ["summary", "evidence", "checks"],
+      requiredResultFields: ["summary", "evidence", "verificationResults"],
       doneCriteria: ["review child handoff", "Produce phase evidence: managed-agent-review."],
       residualRiskRequired: false,
     });

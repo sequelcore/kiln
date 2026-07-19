@@ -270,7 +270,7 @@ function makeManagedExecutionStartTool(
     summary: "Execute governed managed work.",
     workItemId: "work-managed",
     expectedEvidence: ["managed-agent-review"],
-    requiredResultFields: ["summary", "evidence", "checks"],
+    requiredResultFields: ["summary", "evidence", "verificationResults"],
     doneCriteria: ["Return a bounded handoff."],
     residualRiskRequired: false,
   },
@@ -1716,7 +1716,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         handoff: {
           workItemId: "work-managed",
           expectedEvidence: ["managed-agent-review"],
-          requiredResultFields: ["summary", "evidence", "checks"],
+          requiredResultFields: ["summary", "evidence", "verificationResults"],
           doneCriteria: ["Return a bounded handoff."],
           residualRiskRequired: false,
         },
@@ -1743,7 +1743,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       summary: "Collect visual reference research before UI implementation.",
       workItemId: "work-managed",
       expectedEvidence: ["visual-reference-research"],
-      requiredResultFields: ["summary", "evidence", "checks"],
+      requiredResultFields: ["summary", "evidence", "verificationResults"],
       doneCriteria: ["Return a bounded handoff."],
       residualRiskRequired: false,
       executionPhase: {
@@ -1877,7 +1877,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       workItemId: "work-managed",
       requiredToolNames: ["bash"],
       expectedEvidence: ["tests", "typecheck"],
-      requiredResultFields: ["summary", "evidence", "checks"],
+      requiredResultFields: ["summary", "evidence", "verificationResults"],
       doneCriteria: ["Return command evidence."],
       residualRiskRequired: false,
       executionPhase: {
@@ -2013,7 +2013,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             goalRunId: "goal-managed",
             workItemId: "work-managed",
             expectedEvidence,
-            requiredResultFields: ["summary", "evidence", "checks"],
+            requiredResultFields: ["summary", "evidence", "verificationResults"],
             doneCriteria: ["Return structured phase evidence."],
             residualRiskRequired: false,
             executionPhase: {
@@ -2114,7 +2114,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       workItemId: "work-managed",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read", "glob", "grep"],
-      requiredResultFields: ["summary", "evidence", "checks"],
+      requiredResultFields: ["summary", "evidence", "verificationResults"],
       doneCriteria: ["Return a bounded handoff."],
       residualRiskRequired: false,
       executionPhase: {
@@ -2219,7 +2219,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       workItemId: "work-managed",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["read", "glob", "grep"],
-      requiredResultFields: ["summary", "evidence", "checks"],
+      requiredResultFields: ["summary", "evidence", "verificationResults"],
       doneCriteria: ["Return a bounded handoff."],
       residualRiskRequired: false,
       executionPhase: {
@@ -2304,7 +2304,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       workItemId: "work-managed",
       expectedEvidence: ["visual-reference-research"],
       requiredToolNames: ["web_search", "browser_session_start"],
-      requiredResultFields: ["summary", "evidence", "checks"],
+      requiredResultFields: ["summary", "evidence", "verificationResults"],
       doneCriteria: ["Return a bounded handoff."],
       residualRiskRequired: false,
       executionPhase: {
@@ -2586,7 +2586,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       summary: "Execute governed frontend work.",
       workItemId: "work-managed",
       expectedEvidence: ["managed-agent-review"],
-      requiredResultFields: ["summary", "evidence", "checks"],
+      requiredResultFields: ["summary", "evidence", "verificationResults"],
       doneCriteria: ["Return a bounded handoff."],
       residualRiskRequired: false,
     });

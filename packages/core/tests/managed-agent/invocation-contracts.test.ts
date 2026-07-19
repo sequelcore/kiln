@@ -787,18 +787,54 @@ describe("managed agent invocation contracts", () => {
       },
     }).resultHandoff;
 
+    const completedRecord = defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      resultHandoff: handoff,
+    });
     expect(() => assertManagedAgentResultHandoffContract({
-      requiredResultFields: ["summary", "evidence", "checks", "uncertainty", "limitations"],
+      requiredResultFields: ["summary", "evidence", "verificationResults", "uncertainty", "limitations"],
       residualRiskRequired: true,
       outputVerbosity: "concise",
-    }, handoff)).not.toThrow();
+    }, completedRecord)).not.toThrow();
     expect(() => assertManagedAgentResultHandoffContract({
-      requiredResultFields: ["checks"],
-    }, {
-      summary: "Only prose was returned.",
-      resourceUris: ["kiln://artifacts/invocation-1/result"],
-      memoryWriteProposalUris: [],
-    })).toThrow("missing required structured fields: verificationResults");
+      requiredResultFields: ["verificationResults"],
+    }, defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      resultHandoff: {
+        summary: "Only prose was returned.",
+        resourceUris: ["kiln://artifacts/invocation-1/result"],
+        memoryWriteProposalUris: [],
+      },
+    }))).toThrow("missing required structured fields: verificationResults");
+  });
+
+  it("preserves non-completed terminal records without applying the successful handoff contract", () => {
+    const timedOutRecord = defineManagedAgentInvocationRecord({
+      ...makeCompletedRecordInput(),
+      lifecycleState: "timed_out",
+      resultHandoff: {
+        summary: "Managed child timed out before submitting its result.",
+        resourceUris: ["kiln://artifacts/invocation-1/timeout"],
+        memoryWriteProposalUris: [],
+      },
+    });
+
+    expect(() => assertManagedAgentResultHandoffContract({
+      requiredResultFields: ["verificationResults", "residualRisks"],
+      residualRiskRequired: true,
+    }, timedOutRecord)).not.toThrow();
+  });
+
+  it("rejects non-canonical managed result field aliases at the request boundary", () => {
+    expect(() => defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      input: {
+        summary: "Inspect the contract.",
+        handoff: {
+          requiredResultFields: ["checks"] as never,
+        },
+      },
+    })).toThrow("Unsupported managed invocation handoff result field: checks");
   });
 
   it("preserves full replay resources without adding unbounded content to lifecycle evidence", () => {

@@ -43,7 +43,7 @@ const commands: readonly HarnessTestCommand[] = [
       "run",
       "--cwd",
       "packages/gui",
-      "test:run",
+      "test",
       "tests/managed-agent-cockpit-panel.test.tsx",
       "tests/ws-client.test.ts",
       "tests/session-store.test.ts",

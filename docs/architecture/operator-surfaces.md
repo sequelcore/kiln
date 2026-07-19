@@ -131,10 +131,21 @@ GUI projects the foreground goal into a compact dock adjacent to the composer.
 The dock exposes the canonical objective, active elapsed time, work-item
 progress, attributed file changes, and pause/resume/edit/cancel controls. Its
 structured detail must be available by keyboard and click; hover may preview but
-cannot be the only access path. The durable goal and tool history remains in the
-transcript. CLI exposes the same lifecycle through `kiln goal pause`, `resume`,
-`edit`, and `cancel`; terminal projections may be less visual but must preserve
-the same state and event semantics.
+cannot be the only access path. While the goal is foreground and non-terminal,
+the transcript does not duplicate its full mutable work card. The transcript
+retains compact lifecycle/tool/error history and renders the durable goal
+summary after the goal becomes terminal; the Work surface remains the complete
+current-state view. CLI exposes the same lifecycle through `kiln goal pause`,
+`resume`, `edit`, and `cancel`; terminal projections may be less visual but must
+preserve the same state and event semantics.
+
+Operator transport attachment is not execution ownership. Closing or losing a
+GUI WebSocket detaches that replaceable view but does not cancel the active
+runtime turn or its managed children. A reconnect for the same operator
+identity observes the existing active turn and cannot start a concurrent
+duplicate. Explicit turn, goal, or managed-child cancellation remains the only
+operator cancellation boundary; process shutdown and crash recovery use their
+own runtime lifecycle semantics.
 
 Operator identity display follows the same rule. Agent, sub-agent, operator,
 assistant, provider, tool, and system identities must be projected from

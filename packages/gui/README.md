@@ -22,7 +22,7 @@ bun run dev          # Vite dev server on http://localhost:5183
 bun run build        # Production bundle → dist/
 bun run typecheck    # TypeScript check
 bun run lint         # ESLint
-bun run test:run     # Vitest unit/component tests (single run)
+bun run test         # Vitest unit/component tests (single run)
 ```
 
 ## Design system

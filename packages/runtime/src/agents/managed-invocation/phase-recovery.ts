@@ -6,11 +6,13 @@ export const VISUAL_REFERENCE_PHASE_ID = "visual-reference-research";
 export function buildManagedInvocationPhaseRecovery(
   request: Record<string, unknown> | undefined,
   failureReason: WorkItemExecutionFailureReason = "failed",
+  resultHandoff?: ManagedAgentResultHandoff,
 ): Record<string, unknown> | undefined {
   return buildManagedInvocationPhaseAction(request, {
     status: "phase_evidence_required",
-    reason: "Managed child failed before recording an intermediate execution phase. If the parent completes this evidence locally, it must record the phase before replying or starting the next phase.",
-    includeResultResources: false,
+    reason: `Managed child ${failureReason.replace("_", " ")} before recording an intermediate execution phase. If the parent completes this evidence locally, it must record the phase before replying or starting the next phase.`,
+    includeResultResources: resultHandoff !== undefined,
+    ...(resultHandoff ? { resultHandoff } : {}),
     failureReason,
   });
 }
@@ -207,9 +209,6 @@ function buildManagedInvocationPhaseAction(
       skippedVerificationGates,
       verificationGateResults,
       ...(residualRisk ? { residualRisk } : {}),
-      ...(options.status === "phase_evidence_required" && visualReferenceRecovery?.verificationGateResults
-        ? { verificationGateResults: visualReferenceRecovery.verificationGateResults }
-        : {}),
     },
     ...(options.status === "phase_evidence_required"
       ? {
@@ -337,7 +336,6 @@ function visualReferenceRecoveryContract(requiredReadPaths: readonly string[]): 
   readonly validEvidence: readonly string[];
   readonly invalidEvidence: readonly string[];
   readonly localRecoveryInstructions: readonly string[];
-  readonly verificationGateResults: readonly Record<string, unknown>[];
 } {
   return {
     ...(requiredReadPaths.length > 0 ? { requiredReadPaths } : {}),
@@ -368,15 +366,6 @@ function visualReferenceRecoveryContract(requiredReadPaths: readonly string[]): 
       "Only call work_item.update after the frontend-reference gate has passed with qualifying UI capture or code-backed frontend implementation evidence.",
       "If sourceResourceUris and local inspection still do not produce qualifying evidence, use blockedWorkItemUpdateInputTemplate instead of recording providedEvidence.",
     ],
-    verificationGateResults: [{
-      gate: "visual-reference-research: frontend-reference evidence before planning; running-product UI captures when available, or code-backed frontend implementation evidence when screenshots are unavailable; repository chrome, stars/forks/issues, and raw file listings alone do not count",
-      status: "passed",
-      summary: "<summarize qualifying frontend-reference evidence, source URLs or local source paths, relevant frontend file paths, and reusable design principles>",
-      evidence: [
-        "<source URL or local source path showing product UI capture or frontend implementation source>",
-        "<relevant frontend file path or kiln:// artifact URI>",
-      ],
-    }],
   };
 }
 

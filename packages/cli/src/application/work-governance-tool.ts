@@ -2,6 +2,7 @@ import type {
   ActionEffectEnvelope,
   DevTool,
   ManagedInvocationExecutionProof,
+  ManagedAgentResultField,
   ModelTaskSuitabilityTask,
   ToolInput,
   ToolResult,
@@ -2068,13 +2069,13 @@ function formatManagedInvocationTask(
   return lines.join("\n");
 }
 
-function managedInvocationResultFields(expectedEvidence: readonly string[]): readonly string[] {
-  return uniqueText([
+function managedInvocationResultFields(expectedEvidence: readonly string[]): readonly ManagedAgentResultField[] {
+  return [
     "summary",
     "evidence",
-    "checks",
-    ...(expectedEvidence.includes("residual-risk") ? ["residualRisk"] : []),
-  ]);
+    "verificationResults",
+    ...(expectedEvidence.includes("residual-risk") ? ["residualRisks" as const] : []),
+  ];
 }
 
 function managedInvocationDoneCriteria(phase: ManagedInvocationPhase): readonly string[] {

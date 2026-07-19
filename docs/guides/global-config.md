@@ -857,7 +857,7 @@ they are fallback execution surfaces rather than the preferred economic route.
 | `deepseek` | DeepSeek API. Requires `DEEPSEEK_API_KEY` or `~/.kiln/auth/deepseek/`. |
 | `openrouter` | OpenRouter aggregation gateway. Requires `OPENROUTER_API_KEY` or `~/.kiln/auth/openrouter/`. |
 | `ollama` | Ollama local inference. No key required; configure endpoint in `~/.kiln/auth/ollama/`. |
-| `codex-oauth` | OpenAI Codex via ChatGPT Plus device-code OAuth. Manage with `kiln auth codex login`, `kiln auth codex status`, and `kiln auth codex logout`. |
+| `codex-oauth` | OpenAI Codex via a ChatGPT subscription. The GUI uses browser OAuth; `kiln auth codex login` uses device-code OAuth for terminal/headless operation. Inspect or remove credentials with `kiln auth codex status` and `kiln auth codex logout`. |
 | `opencode-go` | OpenCode Go subscription — flat-rate access to Go-tier models. Manage with `kiln auth opencode link --tier go`, `kiln auth opencode status --tier go`, and `kiln auth opencode logout --tier go`. |
 | `opencode-zen` | OpenCode Zen gateway — credit-backed access to Zen-tier models. Manage with `kiln auth opencode link --tier zen`, `kiln auth opencode status --tier zen`, and `kiln auth opencode logout --tier zen`. |
 

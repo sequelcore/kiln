@@ -393,6 +393,9 @@ context also carries the explicit handoff contract from the parent work item:
 `doneCriteria`, and `residualRiskRequired`. These fields make the child task
 traceable and reviewable, but they do not grant tools, credentials, write
 access, or authority profile changes.
+The result field list uses the canonical structured handoff vocabulary; context
+projection does not translate legacy aliases or infer missing successful fields
+from prose.
 
 If the work item has durable work classification, the generated managed
 invocation request includes that classification. The context resolver may then

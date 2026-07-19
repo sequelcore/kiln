@@ -93,6 +93,14 @@ that avoids redundant wrapping. OpenCode stores tiered API-key files under
 `~/.kiln/auth/opencode/`. Codex OAuth stores token files under
 `~/.kiln/auth/codex-oauth/`.
 
+Codex OAuth credential identity is account-stable. When the authenticated token
+contains a ChatGPT account claim, the pool hashes that claim into the local
+credential ID; relinking the same account replaces the old token and
+resets its health record. A token without an account claim uses the canonical
+`primary` identity. The pool does not preserve aliases for the same account because
+they create redundant rotation candidates and retain stale authentication
+failures.
+
 Credential status projection is diagnostic, not the execution pool itself.
 Provider services may keep expired or malformed entries visible as `expired` or
 `invalid` status so operators can clean them up, but runtime pool admission must

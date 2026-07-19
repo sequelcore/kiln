@@ -151,6 +151,7 @@ export class AnthropicAdapter implements ProviderAdapter {
         name: tool.name,
         description: tool.description,
         input_schema: tool.inputSchema as Anthropic.Messages.Tool.InputSchema,
+        ...(tool.strict === true ? { strict: true } : {}),
       }));
     }
 

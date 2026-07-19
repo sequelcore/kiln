@@ -1591,7 +1591,7 @@ export class RuntimeManagedAgentInvocationService {
         ...(canonicalRecord.resultHandoff ? { resultHandoff: canonicalRecord.resultHandoff } : {}),
       }),
     });
-    assertManagedAgentResultHandoffContract(input.request.input.handoff, attributedRecord.resultHandoff);
+    assertManagedAgentResultHandoffContract(input.request.input.handoff, attributedRecord);
     this.assertRecordWithinAdmission(attributedRecord, input.request, admission);
     return attributedRecord;
   }

@@ -361,6 +361,22 @@ describe("session-store provider selection", () => {
     ]);
   });
 
+  it("requests browser OAuth for Codex authentication", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+
+    const accepted = useSessionStore.getState().authenticateProvider("codex-oauth");
+    const requestId = lastProviderAuthRequestId(send);
+
+    expect(accepted).toBe(true);
+    expect(send).toHaveBeenCalledWith({
+      type: "provider_auth",
+      provider: "codex-oauth",
+      requestId,
+      flow: "browser",
+    });
+  });
+
   it("switchProvider accepts available model-less Claude with an empty canonical model projection", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);

@@ -1718,10 +1718,16 @@ interface ProviderAuthTarget {
   readonly requestId: string;
 }
 
-export interface ProviderAuthDetails {
-  readonly verificationUri: string;
-  readonly userCode: string;
-}
+export type ProviderAuthDetails =
+  | {
+      readonly method: "browser_oauth";
+      readonly authorizationUri: string;
+    }
+  | {
+      readonly method: "device_code";
+      readonly verificationUri: string;
+      readonly userCode: string;
+    };
 
 export type RouteMode = "user" | "auto" | "responding";
 
@@ -3206,16 +3212,23 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       provider: frame.provider,
       requestId: frame.requestId,
       method: frame.method,
-      verificationUri: frame.verificationUri,
-      hasUserCode: frame.userCode.trim().length > 0,
+      ...(frame.method === "browser_oauth"
+        ? { authorizationUri: frame.authorizationUri }
+        : {
+            verificationUri: frame.verificationUri,
+            hasUserCode: frame.userCode.trim().length > 0,
+          }),
       message: frame.message,
     });
     set({
       providerAuthMessage: frame.message ?? "Complete provider sign-in, then return to Kiln.",
-      providerAuthDetails: {
-        verificationUri: frame.verificationUri,
-        userCode: frame.userCode,
-      },
+      providerAuthDetails: frame.method === "browser_oauth"
+        ? { method: "browser_oauth", authorizationUri: frame.authorizationUri }
+        : {
+            method: "device_code",
+            verificationUri: frame.verificationUri,
+            userCode: frame.userCode,
+          },
       errorBanner: null,
     });
   },
@@ -3438,6 +3451,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         type: "provider_auth",
         provider,
         requestId,
+        ...(provider === "codex-oauth" ? { flow: "browser" as const } : {}),
         ...(options.apiKey ? { apiKey: options.apiKey } : {}),
         ...(options.tier ? { tier: options.tier } : {}),
       });

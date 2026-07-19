@@ -723,50 +723,66 @@ export function ProviderPicker(props: ProviderPickerProps) {
                 <p className="text-xs text-[var(--color-text-muted)]">{props.providerAuthMessage}</p>
               ) : null}
             </div>
-            <div className="grid gap-2 text-xs">
-              <div className="grid gap-1">
-                <span className="text-[var(--color-text-muted)]">Link</span>
-                <code className="select-all break-all rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-[var(--color-text)]">
-                  {props.providerAuthDetails.verificationUri}
-                </code>
+            {props.providerAuthDetails.method === "device_code" ? (
+              <div className="grid gap-2 text-xs">
+                <div className="grid gap-1">
+                  <span className="text-[var(--color-text-muted)]">Link</span>
+                  <code className="select-all break-all rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-[var(--color-text)]">
+                    {props.providerAuthDetails.verificationUri}
+                  </code>
+                </div>
+                <div className="grid gap-1">
+                  <span className="text-[var(--color-text-muted)]">Code</span>
+                  <code className="select-all rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-lg tracking-wide text-[var(--color-text)]">
+                    {props.providerAuthDetails.userCode}
+                  </code>
+                </div>
               </div>
-              <div className="grid gap-1">
-                <span className="text-[var(--color-text-muted)]">Code</span>
-                <code className="select-all rounded border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1 text-lg tracking-wide text-[var(--color-text)]">
-                  {props.providerAuthDetails.userCode}
-                </code>
-              </div>
-            </div>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => window.open(props.providerAuthDetails?.verificationUri, "_blank", "noopener,noreferrer")}
+                onClick={() => {
+                  const details = props.providerAuthDetails;
+                  if (!details) return;
+                  window.open(
+                    details.method === "browser_oauth" ? details.authorizationUri : details.verificationUri,
+                    "_blank",
+                    "noopener,noreferrer",
+                  );
+                }}
                 className="rounded border border-[var(--color-border-active)] bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
               >
-                Open link
+                {props.providerAuthDetails.method === "browser_oauth" ? "Open secure sign-in" : "Open link"}
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  if (props.providerAuthDetails) {
-                    void copyText(props.providerAuthDetails.verificationUri, "Link");
-                  }
+                  const details = props.providerAuthDetails;
+                  if (!details) return;
+                  void copyText(
+                    details.method === "browser_oauth" ? details.authorizationUri : details.verificationUri,
+                    "Link",
+                  );
                 }}
                 className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
               >
                 Copy link
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (props.providerAuthDetails) {
-                    void copyText(props.providerAuthDetails.userCode, "Code");
-                  }
-                }}
-                className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
-              >
-                Copy code
-              </button>
+              {props.providerAuthDetails.method === "device_code" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const details = props.providerAuthDetails;
+                    if (details?.method === "device_code") {
+                      void copyText(details.userCode, "Code");
+                    }
+                  }}
+                  className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-active)]"
+                >
+                  Copy code
+                </button>
+              ) : null}
             </div>
             {copyNotice ? (
               <p className="text-xs text-[var(--color-text-muted)]">{copyNotice}</p>

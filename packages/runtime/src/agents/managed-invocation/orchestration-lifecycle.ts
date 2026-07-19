@@ -567,7 +567,7 @@ function buildOrchestrationChildInvocationRequest(input: {
       handoff: {
         roleIntent: input.roleIntent,
         expectedEvidence: input.orchestrationRequest.expectedEvidence.map((evidence) => evidence.kind),
-        requiredResultFields: ["summary", "evidence", "checks"],
+        requiredResultFields: ["summary", "evidence", "verificationResults"],
         doneCriteria: [
           "Return a bounded result handoff for parent comparison.",
           "Do not mutate outside the managed isolated worktree.",

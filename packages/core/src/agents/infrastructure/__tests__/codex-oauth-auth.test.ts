@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { get } from "node:http";
 import { KilnError } from "../../../engine/errors.js";
 
 type CodexOAuthTokenFile = {
@@ -77,6 +78,19 @@ async function createAuth(tokenPath = "/tmp/codex-oauth.json") {
   return new CodexOAuthAuth({ tokenPath });
 }
 
+function requestLoopback(url: string): Promise<{ readonly status: number; readonly body: string }> {
+  return new Promise((resolve, reject) => {
+    get(url, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      response.on("end", () => resolve({
+        status: response.statusCode ?? 0,
+        body: Buffer.concat(chunks).toString("utf8"),
+      }));
+    }).on("error", reject);
+  });
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-04-09T00:00:00.000Z"));
@@ -145,6 +159,94 @@ describe("CodexOAuthAuth", () => {
       const auth = await createAuth();
 
       await expect(auth.startDeviceAuthorization()).rejects.toBeInstanceOf(KilnError);
+    });
+
+    it("wraps an HTML auth response as a provider boundary failure instead of leaking JSON.parse", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        headers: new Headers({ "content-type": "text/html; charset=utf-8" }),
+        text: vi.fn().mockResolvedValue("<!DOCTYPE html><html><body>upstream failure</body></html>"),
+      } as unknown as Response);
+
+      const auth = await createAuth();
+
+      await expect(auth.startDeviceAuthorization()).rejects.toMatchObject({
+        code: "PROVIDER_AUTH_FAILED",
+        message: "Codex OAuth endpoint returned a non-JSON response",
+        context: expect.objectContaining({
+          status: 502,
+          contentType: "text/html; charset=utf-8",
+        }),
+      });
+    });
+  });
+
+  describe("startBrowserAuthorization", () => {
+    it("uses the Codex browser OAuth contract with PKCE and exchanges the loopback callback", async () => {
+      vi.useRealTimers();
+      mockFetch.mockResolvedValueOnce(jsonResponse(200, {
+        id_token: jwtWithExp(1_800_100_000),
+        access_token: jwtWithExp(1_800_000_000),
+        refresh_token: "browser-refresh-token",
+      }));
+      const { CodexOAuthAuth } = await loadModule();
+      const auth = new CodexOAuthAuth({
+        tokenPath: "/tmp/browser-auth.json",
+        browserCallbackPorts: [0],
+        browserAuthorizationTimeoutMs: 10_000,
+      });
+
+      const authorization = await auth.startBrowserAuthorization();
+      const authorizationUri = new URL(authorization.authorizationUri);
+      const redirectUri = authorizationUri.searchParams.get("redirect_uri");
+      const state = authorizationUri.searchParams.get("state");
+
+      expect(authorizationUri.origin).toBe("https://auth.openai.com");
+      expect(authorizationUri.pathname).toBe("/oauth/authorize");
+      expect(authorizationUri.searchParams.get("response_type")).toBe("code");
+      expect(authorizationUri.searchParams.get("code_challenge_method")).toBe("S256");
+      expect(authorizationUri.searchParams.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(authorizationUri.searchParams.get("scope")).toContain("offline_access");
+      expect(redirectUri).toMatch(/^http:\/\/localhost:\d+\/auth\/callback$/);
+      expect(state).toBeTruthy();
+
+      const callback = await requestLoopback(`${redirectUri}?code=browser-code&state=${encodeURIComponent(state!)}`);
+      const token = await authorization.complete();
+
+      expect(callback.status).toBe(200);
+      expect(callback.body).toContain("Sign-in complete");
+      expect(token.refresh_token).toBe("browser-refresh-token");
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [exchangeUrl, exchangeInit] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(exchangeUrl).toBe("https://auth.openai.com/oauth/token");
+      const exchangeBody = String(exchangeInit.body);
+      expect(exchangeBody).toContain("grant_type=authorization_code");
+      expect(exchangeBody).toContain("code=browser-code");
+      expect(exchangeBody).toContain(`redirect_uri=${encodeURIComponent(redirectUri!)}`);
+      expect(exchangeBody).toMatch(/code_verifier=[A-Za-z0-9_-]{86}/);
+    });
+
+    it("rejects a loopback callback whose state does not match", async () => {
+      vi.useRealTimers();
+      const { CodexOAuthAuth } = await loadModule();
+      const auth = new CodexOAuthAuth({
+        tokenPath: "/tmp/browser-auth.json",
+        browserCallbackPorts: [0],
+        browserAuthorizationTimeoutMs: 10_000,
+      });
+
+      const authorization = await auth.startBrowserAuthorization();
+      const redirectUri = new URL(authorization.authorizationUri).searchParams.get("redirect_uri")!;
+      const completion = expect(authorization.complete()).rejects.toMatchObject({
+        code: "PROVIDER_AUTH_FAILED",
+        message: "Codex OAuth callback state did not match",
+      });
+      const callback = await requestLoopback(`${redirectUri}?code=browser-code&state=wrong-state`);
+
+      expect(callback.status).toBe(400);
+      await completion;
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 

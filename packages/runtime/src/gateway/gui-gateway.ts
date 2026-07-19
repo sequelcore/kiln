@@ -847,6 +847,7 @@ function wireOperatorTransport(
   const activityStreamer = new GuiActivityStreamer(approvalRegistry, builtinToolSurface.toolCallMetadata);
   bindBrowserSessionUpdateHandler(input.builtinToolOptions, (state) => activityStreamer.forwardBrowserSessionState(state));
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
+  const activeTurns = new Map<string, ActiveGuiTurn>();
   const executor = new CliSubscriptionExecutor(
     input.transport.sessionManager.factory,
     providerLabel,
@@ -911,7 +912,6 @@ function wireOperatorTransport(
         return applyDiscovery(await input.getDiscovery(options).catch(() => []));
       };
       let operatorSocket: WSContext | null = null;
-      let activeTurn: ActiveGuiTurn | undefined;
       let unsubscribeDiscovery: (() => void) | undefined;
       const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
@@ -1002,7 +1002,7 @@ function wireOperatorTransport(
             }
 
             if (frame.type === "clear") {
-              const turnToClear = activeTurn;
+              const turnToClear = activeTurns.get(userId);
               if (turnToClear) {
                 turnToClear.controller.abort("Operator cleared the active GUI session.");
                 await turnToClear.settled;
@@ -1178,6 +1178,7 @@ function wireOperatorTransport(
               if (!requestId) {
                 return;
               }
+              const activeTurn = activeTurns.get(userId);
               if (!activeTurn) {
                 ws.send(JSON.stringify({
                   type: "turn_cancel_result",
@@ -1630,7 +1631,7 @@ function wireOperatorTransport(
 
             if (frame.type !== "message") return;
 
-            if (activeTurn) {
+            if (activeTurns.has(userId)) {
               ws.send(JSON.stringify({
                 type: "error",
                 message: "A GUI turn is already active. Cancel it before starting another turn.",
@@ -1650,7 +1651,7 @@ function wireOperatorTransport(
             if (!userContent.trim() && userParts.length === 0) return;
 
             const currentTurn = createActiveGuiTurn();
-            activeTurn = currentTurn;
+            activeTurns.set(userId, currentTurn);
             try {
             if (freshSessionRequested && continuationSessionId) {
               ws.send(JSON.stringify({
@@ -1891,8 +1892,8 @@ function wireOperatorTransport(
             } satisfies GuiInboundFrame));
             } finally {
               currentTurn.markSettled();
-              if (activeTurn === currentTurn) {
-                activeTurn = undefined;
+              if (activeTurns.get(userId) === currentTurn) {
+                activeTurns.delete(userId);
               }
             }
           } catch {
@@ -1902,7 +1903,6 @@ function wireOperatorTransport(
 
         onClose(_event: CloseEvent, ws: WSContext) {
           input.operatorTerminalService?.closeOwner(terminalOwnerId);
-          activeTurn?.controller.abort("GUI operator surface disconnected.");
           if (operatorSocket === ws) {
             operatorSocket = null;
           }

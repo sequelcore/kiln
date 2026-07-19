@@ -619,7 +619,10 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
         <TranscriptTimelineEditor intent={props.intent} />
         <ol className="mt-2 flex flex-col gap-2">
           {props.intent.items.map((item, index) => (
-            <li key={item.id ?? `${index}:${item.label}`} className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2">
+            <li
+              key={item.id ?? `${item.timestamp ?? item.order ?? "unordered"}:${item.label}:${item.summary ?? ""}`}
+              className="rounded-lg border border-border/70 bg-background/55 px-2.5 py-2"
+            >
               <div className="flex min-w-0 items-center gap-2">
                 <span className="font-mono text-[10px] text-muted-foreground">{item.timestamp ?? item.order ?? index + 1}</span>
                 {item.status ? <Badge variant="outline" className="shrink-0">{item.status}</Badge> : null}
@@ -1434,13 +1437,17 @@ function groupRoutineToolItems(
 
 function workflowRenderItems(projection?: WorkflowActivityProjection): readonly TranscriptWorkflowItem[] {
   if (!projection) return [];
+  const foregroundGoalId = projection.foregroundGoal?.goal.id;
   return [
-    ...projection.goals.map((goal): TranscriptWorkflowItem => ({
-      kind: "workflow",
-      id: `workflow:goal:${goal.goal.id}`,
-      firstSequence: goal.firstSequence,
-      goal,
-    })),
+    ...projection.goals.flatMap((goal): readonly TranscriptWorkflowItem[] =>
+      goal.goal.id === foregroundGoalId
+        ? []
+        : [{
+            kind: "workflow",
+            id: `workflow:goal:${goal.goal.id}`,
+            firstSequence: goal.firstSequence,
+            goal,
+          }]),
     ...projection.standaloneWorkItems.map((workItem): TranscriptWorkflowItem => ({
       kind: "workflow",
       id: `workflow:work-item:${workItem.item.id}`,

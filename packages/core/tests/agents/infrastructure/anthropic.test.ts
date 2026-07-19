@@ -185,6 +185,19 @@ describe("AnthropicAdapter", () => {
       ]);
     });
 
+    it("projects strict tool contracts only when the tool explicitly requires them", async () => {
+      mockCreate.mockResolvedValueOnce(makeMessageResponse());
+
+      await adapter.createMessage(makeOptions({
+        tools: [{ ...makeToolDef("submit_handoff"), strict: true }],
+      }));
+
+      expect(mockCreate.mock.calls[0]![0].tools?.[0]).toMatchObject({
+        name: "submit_handoff",
+        strict: true,
+      });
+    });
+
     it("serializes multimodal tool result payload parts inside Anthropic tool_result blocks", async () => {
       mockCreate.mockResolvedValueOnce(makeMessageResponse());
 

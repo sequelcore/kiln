@@ -32,6 +32,7 @@ import type {
   ManagedAgentInvocationHandoffContract,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAgentResultField,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
   ManagedAgentRouteSource,
@@ -290,7 +291,7 @@ interface ManagedInvocationToolInput {
   readonly expectedEvidence?: readonly string[];
   readonly requiredToolNames?: readonly string[];
   readonly requiredReadPaths?: readonly string[];
-  readonly requiredResultFields?: readonly string[];
+  readonly requiredResultFields?: readonly ManagedAgentResultField[];
   readonly doneCriteria?: readonly string[];
   readonly residualRiskRequired?: boolean;
   readonly outputVerbosity?: "concise" | "standard" | "detailed";
@@ -442,8 +443,21 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
       },
       requiredResultFields: {
         type: "array",
-        items: { type: "string" },
-        description: "Optional child result fields expected in the handoff, such as summary, evidence, checks, files, or residualRisk.",
+        items: {
+          type: "string",
+          enum: [
+            "summary",
+            "resourceUris",
+            "evidence",
+            "verificationResults",
+            "uncertainty",
+            "limitations",
+            "warnings",
+            "approvalRequirements",
+            "residualRisks",
+          ],
+        },
+        description: "Optional canonical child result fields required in a completed handoff.",
       },
       doneCriteria: {
         type: "array",
@@ -2677,6 +2691,7 @@ function terminalManagedInvocationResult(input: {
     ? buildManagedInvocationPhaseRecovery(
         input.rawInput,
         managedInvocationFailureReasonFromStatus(input.record.lifecycleState),
+        input.record.resultHandoff,
       )
     : undefined;
   const shouldValidateSubstantiveHandoff = !terminalError && input.record.lifecycleState === "completed";
@@ -3449,7 +3464,10 @@ function parseInput(
   const expectedEvidence = readTextArray(input.expectedEvidence);
   const requiredToolNames = readTextArray(input.requiredToolNames);
   const requiredReadPaths = readTextArray(input.requiredReadPaths);
-  const requiredResultFields = readTextArray(input.requiredResultFields);
+  const requiredResultFields = parseManagedResultFields(input.requiredResultFields);
+  if (!requiredResultFields.ok) {
+    return { ok: false, error: `${toolName} ${requiredResultFields.error}` };
+  }
   const doneCriteria = readTextArray(input.doneCriteria);
   const outputVerbosity = parseAssistantOutputVerbosity(input.outputVerbosity);
   if (input.outputVerbosity !== undefined && !outputVerbosity) {
@@ -3507,7 +3525,9 @@ function parseInput(
       ...(expectedEvidence && expectedEvidence.length > 0 ? { expectedEvidence } : {}),
       ...(requiredToolNames && requiredToolNames.length > 0 ? { requiredToolNames } : {}),
       ...(requiredReadPaths && requiredReadPaths.length > 0 ? { requiredReadPaths } : {}),
-      ...(requiredResultFields && requiredResultFields.length > 0 ? { requiredResultFields } : {}),
+      ...(requiredResultFields.value && requiredResultFields.value.length > 0
+        ? { requiredResultFields: requiredResultFields.value }
+        : {}),
       ...(doneCriteria && doneCriteria.length > 0 ? { doneCriteria } : {}),
       ...(typeof input.residualRiskRequired === "boolean" ? { residualRiskRequired: input.residualRiskRequired } : {}),
       ...(outputVerbosity ? { outputVerbosity } : {}),
@@ -3822,6 +3842,36 @@ function readTextArray(value: unknown): readonly string[] | undefined {
   }
   const values = unique(value.map(readText).filter((item): item is string => item !== undefined));
   return values.length > 0 ? values : undefined;
+}
+
+const MANAGED_RESULT_FIELDS = new Set<ManagedAgentResultField>([
+  "summary",
+  "resourceUris",
+  "evidence",
+  "verificationResults",
+  "uncertainty",
+  "limitations",
+  "warnings",
+  "approvalRequirements",
+  "residualRisks",
+]);
+
+function parseManagedResultFields(value: unknown):
+  | { readonly ok: true; readonly value?: readonly ManagedAgentResultField[] }
+  | { readonly ok: false; readonly error: string } {
+  const fields = readTextArray(value);
+  if (!fields) return { ok: true };
+  const unsupported = fields.filter((field) => !MANAGED_RESULT_FIELDS.has(field as ManagedAgentResultField));
+  if (unsupported.length > 0) {
+    return {
+      ok: false,
+      error: `requiredResultFields contains unsupported canonical fields: ${unsupported.join(", ")}.`,
+    };
+  }
+  return {
+    ok: true,
+    value: fields as readonly ManagedAgentResultField[],
+  };
 }
 
 function resolveManagedInvocationParentTurnId(context: RuntimeBuiltinToolExecutionContext): string {

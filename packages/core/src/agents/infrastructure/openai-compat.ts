@@ -16,6 +16,7 @@ import {
   createProviderToolNameCodec,
   type ProviderToolNameCodec,
 } from "./tool-name-codec.js";
+import { toStrictToolSchema } from "./strict-tool-schema.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -44,6 +45,7 @@ interface OpenAIToolFunction {
     readonly name: string;
     readonly description: string;
     readonly parameters: Record<string, unknown>;
+    readonly strict?: true;
   };
 }
 
@@ -366,7 +368,8 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         function: {
           name: toolNames.toProviderName(tool.name),
           description: tool.description,
-          parameters: tool.inputSchema,
+          parameters: tool.strict === true ? toStrictToolSchema(tool.inputSchema) : tool.inputSchema,
+          ...(tool.strict === true ? { strict: true as const } : {}),
         },
       }));
 

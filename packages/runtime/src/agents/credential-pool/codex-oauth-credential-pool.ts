@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -86,10 +87,21 @@ export class CodexOAuthCredentialPoolService {
   }
 
   async linkCredential(options: LinkCodexOAuthCredentialOptions): Promise<void> {
-    const id = options.id ?? `account-${Date.now()}`;
+    const accountId = readCodexOAuthAccountId(options.tokenFile.access_token);
+    const id = options.id ?? stableCodexOAuthCredentialId(accountId);
     assertSafeCredentialId(id);
     validateCodexOAuthTokenFile(options.tokenFile, this.credentialFilePath(id));
     await mkdir(this.providerDirectory(), { recursive: true });
+    if (!options.id && accountId) {
+      const existing = await this.readCredentials();
+      for (const credential of existing) {
+        if (credential.id === id || readCodexOAuthAccountId(credential.tokenFile.access_token) !== accountId) {
+          continue;
+        }
+        await unlink(credential.tokenPath);
+        await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, credential.id);
+      }
+    }
     await writeFile(this.credentialFilePath(id), `${JSON.stringify(options.tokenFile, null, 2)}\n`, "utf8");
     await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, id);
   }
@@ -292,6 +304,26 @@ export class CodexOAuthCredentialPoolService {
 
   private credentialFilePath(id: string): string {
     return join(this.providerDirectory(), `${id}.json`);
+  }
+}
+
+function stableCodexOAuthCredentialId(accountId: string | null): string {
+  if (!accountId) return "primary";
+  const digest = createHash("sha256").update(accountId).digest("hex").slice(0, 16);
+  return `account-${digest}`;
+}
+
+function readCodexOAuthAccountId(accessToken: string): string | null {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    const auth = claims["https://api.openai.com/auth"];
+    if (typeof auth !== "object" || auth === null || Array.isArray(auth)) return null;
+    const accountId = (auth as Record<string, unknown>).chatgpt_account_id;
+    return typeof accountId === "string" && accountId.trim().length > 0 ? accountId.trim() : null;
+  } catch {
+    return null;
   }
 }
 

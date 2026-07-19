@@ -75,6 +75,21 @@ describe("output and verification allocation", () => {
     })).toThrow("Completed structured results cannot contain failures, pending approvals, or failed verification");
   });
 
+  it("normalizes nullable optional fields emitted by strict tool schemas", () => {
+    const normalized = defineStructuredExecutionResult({
+      ...result(),
+      details: null,
+      uncertainty: null,
+      operatorDecisions: [{ id: "decision-1", summary: "Do not publish", rationale: null }],
+      evidence: [{ uri: "kiln://artifacts/run/proof/content", kind: "verification", label: null }],
+    } as unknown as StructuredExecutionResult);
+
+    expect(normalized).not.toHaveProperty("details");
+    expect(normalized).not.toHaveProperty("uncertainty");
+    expect(normalized.operatorDecisions[0]).not.toHaveProperty("rationale");
+    expect(normalized.evidence[0]).not.toHaveProperty("label");
+  });
+
   it("uses deterministic verification before admitting a semantic judge", () => {
     const deterministic = allocateVerificationPlan({
       effect: observeEffect,

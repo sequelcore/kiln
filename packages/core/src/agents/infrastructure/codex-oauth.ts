@@ -16,6 +16,7 @@ import {
   createProviderToolNameCodec,
   type ProviderToolNameCodec,
 } from "./tool-name-codec.js";
+import { toStrictToolSchema } from "./strict-tool-schema.js";
 import { withRetry } from "./retry.js";
 
 const RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
@@ -1599,110 +1600,4 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
     return leftKeys.every((key) => jsonValuesEqual(left[key], right[key]));
   }
   return false;
-}
-
-function toStrictToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  return transformSchemaForStrictMode(schema);
-}
-
-function transformSchemaForStrictMode(schema: Record<string, unknown>): Record<string, unknown> {
-  const typeValue = schema.type;
-
-  if (typeValue === "object") {
-    const propertyEntries = Object.entries(asSchemaMap(schema.properties));
-    const required = new Set(asStringArray(schema.required));
-    const properties = Object.fromEntries(
-      propertyEntries.map(([key, value]) => ([
-        key,
-        required.has(key)
-          ? transformSchemaForStrictMode(value)
-          : makeSchemaNullable(transformSchemaForStrictMode(value)),
-      ])),
-    );
-
-    return {
-      ...schema,
-      properties,
-      required: propertyEntries.map(([key]) => key),
-      additionalProperties: false,
-    };
-  }
-
-  if (typeValue === "array") {
-    const items = schema.items;
-    return {
-      ...schema,
-      ...(isSchemaRecord(items) ? { items: transformSchemaForStrictMode(items) } : {}),
-    };
-  }
-
-  return { ...schema };
-}
-
-function makeSchemaNullable(schema: Record<string, unknown>): Record<string, unknown> {
-  const typeValue = schema.type;
-  if (typeof typeValue === "string") {
-    return {
-      ...schema,
-      type: [typeValue, "null"],
-    };
-  }
-
-  if (Array.isArray(typeValue)) {
-    return {
-      ...schema,
-      type: typeValue.includes("null") ? typeValue : [...typeValue, "null"],
-    };
-  }
-
-  const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined;
-  if (enumValues) {
-    return {
-      ...schema,
-      type: [inferEnumType(enumValues), "null"],
-      enum: enumValues.includes(null) ? enumValues : [...enumValues, null],
-    };
-  }
-
-  return {
-    anyOf: [
-      schema,
-      { type: "null" },
-    ],
-  };
-}
-
-function inferEnumType(values: readonly unknown[]): string {
-  if (values.every((value) => typeof value === "string")) {
-    return "string";
-  }
-  if (values.every((value) => typeof value === "number")) {
-    return "number";
-  }
-  if (values.every((value) => typeof value === "boolean")) {
-    return "boolean";
-  }
-  return "string";
-}
-
-function asSchemaMap(value: unknown): Record<string, Record<string, unknown>> {
-  if (!value || typeof value !== "object") {
-    return {};
-  }
-
-  const out: Record<string, Record<string, unknown>> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (isSchemaRecord(entry)) {
-      out[key] = entry;
-    }
-  }
-  return out;
-}
-
-function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
-}
-
-function isSchemaRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
