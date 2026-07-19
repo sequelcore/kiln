@@ -1272,6 +1272,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly executionMode?: OperatorExecutionMode;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
+  readonly temporalContext?: PerCallToolConfig["temporalContext"];
 }): PerCallToolConfig {
   const requestedAuthority = resolveAttachedRuntimeRequestedAuthority(input.requestedAuthority) ?? "auto";
   const executionMode = resolvePerCallExecutionMode(input.executionMode);
@@ -1296,6 +1297,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     ...(modelOverride ? { modelOverride } : {}),
     ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.authorityContext ? { authorityContext: input.authorityContext } : {}),
+    ...(input.temporalContext ? { temporalContext: input.temporalContext } : {}),
     ...(profile && input.activeModelCapabilities?.supportedReasoningEfforts
       ? {
           modelRoutingPolicy: {

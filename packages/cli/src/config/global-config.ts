@@ -69,6 +69,7 @@ export interface KilnGlobalComponentsConfig {
 
 export interface KilnGlobalWebConfig {
   readonly searchProvider?: KilnYamlWebSearchProvider;
+  readonly searchFallbackProviders?: readonly KilnYamlWebSearchProvider[];
   readonly extractProvider?: KilnYamlWebExtractProvider;
 }
 
@@ -123,6 +124,7 @@ const IDENTITY_FIELDS = new Set([
 
 const GLOBAL_WEB_FIELDS = new Set([
   "searchProvider",
+  "searchFallbackProviders",
   "extractProvider",
 ]);
 
@@ -275,6 +277,13 @@ function validateIdentity(value: unknown): void {
   }
   validateOptionalNonEmptyString(value, "name", "identity.name");
   validateOptionalNonEmptyString(value, "timezone", "identity.timezone");
+  if (typeof value.timezone === "string") {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: value.timezone.trim() }).format();
+    } catch {
+      throw new KilnYamlError("identity.timezone must be a valid IANA time zone");
+    }
+  }
 }
 
 function validateOptionalNonEmptyString(record: Record<string, unknown>, key: string, path: string): void {
@@ -311,6 +320,16 @@ function validateGlobalWeb(value: unknown): void {
     }
   }
   validateOptionalRecord(value, "searchProvider", "web.searchProvider");
+  if (value.searchFallbackProviders !== undefined && !Array.isArray(value.searchFallbackProviders)) {
+    throw new KilnYamlError("web.searchFallbackProviders must be an array");
+  }
+  if (Array.isArray(value.searchFallbackProviders)) {
+    value.searchFallbackProviders.forEach((provider, index) => {
+      if (!isRecord(provider)) {
+        throw new KilnYamlError(`web.searchFallbackProviders[${index}] must be an object`);
+      }
+    });
+  }
   validateOptionalRecord(value, "extractProvider", "web.extractProvider");
 }
 

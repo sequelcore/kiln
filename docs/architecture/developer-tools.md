@@ -219,12 +219,22 @@ shared `web` metadata.
 - sanitizes reinjected text
 - records retrieval metadata
 
-`web_search` accepts query, domain, recency, and max-result controls through an
-injected `WebSearchProvider`. The default provider fails closed; core does not
+`web_search` accepts query, domain, recency, max-result, topic, quality,
+absolute-date, country, language, and exact-phrase controls through governed
+provider registrations. The default provider fails closed; core does not
 scrape public result pages or shell out for search. CLI configuration can adapt
 provider-specific search payloads from `http`, `searxng`, `brave`, `tavily`,
 and `exa` into the canonical ranked-source metadata shape without making
 runtime consumers provider-specific.
+
+For exact-date events, `temporalRequirement` is the semantic acceptance
+contract. Discovery defaults to the general topic so official fixtures,
+results, and stable match pages are not excluded. Publication date and recency
+fields never stand in for the event date. Insufficient semantic evidence emits
+`recoveryDirective.kind=progressive_web_research`, instructing the caller to
+broaden only agent-added constraints and then extract candidate pages. Network
+policy, operator-required domains, and the temporal requirement remain fixed.
+Runtime admits one recovery round per turn before the fail-closed refusal.
 
 `web_extract` accepts one or more HTTP(S) URLs plus format, byte, timeout, and
 verbosity controls through an injected `WebExtractProvider`. The default
@@ -245,6 +255,9 @@ configuration from runtime denial:
 - `too_many_requests`
 - `unsupported_content_type`
 - `empty_extraction`
+- `provider_capability_mismatch`
+- `provider_contract_violation`
+- `temporal_evidence_rejected`
 
 `web_search`, `web_fetch`, and `web_extract` are not the research capability.
 Governed research is a higher-level future capability documented in
@@ -296,6 +309,7 @@ Stable fields:
 - `netPolicy`
 - `allowedDomains`
 - `searchProvider`
+- `searchFallbackProviders`
 - `extractProvider`
 
 Absent configuration remains fail-closed: `web_fetch` requires explicit network
@@ -329,8 +343,9 @@ not obtain source text; it is not a successful extraction of an empty document.
 Providers that require credentials reference environment variable names through
 `apiKeyEnv`; secrets are not stored in config or emitted in diagnostics.
 
-`~/.kiln/config.yaml` may define only `web.searchProvider` and
-`web.extractProvider` as global provider defaults. It cannot define
+`~/.kiln/config.yaml` may define only `web.searchProvider`,
+`web.searchFallbackProviders`, and `web.extractProvider` as global provider
+defaults. It cannot define
 `web.enabled`, `web.netPolicy`, or `web.allowedDomains`. Effective config may
 inherit those providers, but a project must still grant web authority in
 `.kiln/kiln.yaml`.

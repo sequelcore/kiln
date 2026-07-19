@@ -267,6 +267,10 @@ describe("statusCommand", () => {
           type: "searxng",
           url: "https://searx.example.com",
         },
+        searchFallbackProviders: [{
+          type: "http",
+          url: "https://fallback.example.com/search",
+        }],
         extractProvider: {
           type: "firecrawl",
           apiKeyEnv: "FIRECRAWL_API_KEY",
@@ -283,6 +287,7 @@ describe("statusCommand", () => {
       expect(output).toContain("Network policy: documentation");
       expect(output).toContain("Allowed domains: docs.example.com");
       expect(output).toContain("Search provider: searxng");
+      expect(output).toContain("Search fallbacks: http");
       expect(output).toContain("Extract provider: firecrawl");
     } finally {
       if (previousFirecrawlKey === undefined) {

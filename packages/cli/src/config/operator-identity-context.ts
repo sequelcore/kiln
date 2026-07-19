@@ -45,6 +45,7 @@ export function withGlobalIdentityContext(
 
   return {
     ...appConfig,
+    ...(globalConfig?.identity?.timezone ? { operatorTimeZone: globalConfig.identity.timezone.trim() } : {}),
     buildSystemPrompt: appConfig.buildSystemPrompt ?? defaultBuildSystemPrompt,
     contextCandidates: [
       ...(appConfig.contextCandidates ?? []),

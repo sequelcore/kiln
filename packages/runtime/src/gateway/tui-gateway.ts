@@ -35,6 +35,8 @@ import {
   type SttAdapter,
   type TtsAdapter,
   type VoiceConfig,
+  defineTurnTemporalContext,
+  type TurnTemporalContext,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { ExecutionSessionEvent } from "@kilnai/core";
@@ -101,6 +103,8 @@ export interface TuiGatewayOptions {
   };
   /** System prompt for the TUI session. Default: "You are a helpful assistant." */
   readonly systemPrompt?: string;
+  /** IANA timezone from the operator's validated global identity. */
+  readonly operatorTimeZone?: string;
   /**
    * Optional callback invoked when the TUI sends a { type: "clear" } frame.
    * Should reset the persisted session ID so the next turn starts fresh.
@@ -253,6 +257,7 @@ export function buildTuiTurnPerCallConfig(
   reasoningEffort?: ReasoningEffort,
   executionMode: OperatorExecutionMode = "execute",
   requestedAuthority?: OperatorTurnRequestedAuthority,
+  temporalContext?: TurnTemporalContext,
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
@@ -263,6 +268,7 @@ export function buildTuiTurnPerCallConfig(
     builtinToolSurface,
     executionMode,
     requestedAuthority,
+    ...(temporalContext ? { temporalContext } : {}),
   });
 }
 
@@ -899,6 +905,12 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 reasoningEffort,
                 executionMode,
                 requestedAuthority,
+                options.operatorTimeZone
+                  ? defineTurnTemporalContext({
+                    observedAt: new Date().toISOString(),
+                    timeZone: options.operatorTimeZone,
+                  })
+                  : undefined,
               );
               result = await processAdmittedTurn({
                 orchestrator,

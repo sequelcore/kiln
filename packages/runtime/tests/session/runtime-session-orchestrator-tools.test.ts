@@ -239,6 +239,123 @@ function makeCapabilityMap(overrides?: Partial<Capability>): ReadonlyMap<string,
 }
 
 describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
+  it("forces one bounded recovery round before allowing an exact-date answer", async () => {
+    const provider: ProviderAdapter = {
+      name: "mock",
+      createMessage: vi.fn()
+        .mockResolvedValueOnce({
+          parts: textParts("searching"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [{ id: "tc-search-1", name: "web_search", input: { query: "narrow" } }],
+          stopReason: "tool_use",
+        })
+        .mockResolvedValueOnce({
+          parts: textParts("I cannot verify it."),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [],
+          stopReason: "end_turn",
+        })
+        .mockResolvedValueOnce({
+          parts: textParts("broadening"),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [{ id: "tc-search-2", name: "web_search", input: { query: "broad" } }],
+          stopReason: "tool_use",
+        })
+        .mockResolvedValueOnce({
+          parts: textParts("Verified analysis."),
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [],
+          stopReason: "end_turn",
+        }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const requirement = {
+      exactLocalDate: "2026-07-18",
+      requiredIdentityTerms: ["chivas", "toluca"],
+      eventStatus: "completed",
+      minimumIndependentSources: 2,
+    } as const;
+    const search = vi.fn()
+      .mockResolvedValueOnce({
+        output: "Insufficient evidence",
+        isError: true,
+        metadata: {
+          toolName: "web_search",
+          kind: "web",
+          operation: "search",
+          errorCode: "temporal_evidence_rejected",
+          temporalRequirement: requirement,
+          temporalEvidence: {
+            accepted: false,
+            reason: "independent_source_consensus_missing",
+            acceptedSourceIds: [],
+            rejectedSourceIds: ["https://index.example/results"],
+          },
+          recoveryDirective: {
+            kind: "progressive_web_research",
+            action: "broaden_search",
+            constraintPolicy: "relax_only_agent_added",
+            preserveTemporalRequirement: true,
+            nextActions: ["broaden_search", "extract_candidates"],
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        output: "Verified sources",
+        isError: false,
+        metadata: {
+          toolName: "web_search",
+          kind: "web",
+          operation: "search",
+          temporalRequirement: requirement,
+          temporalEvidence: {
+            accepted: true,
+            acceptedSourceIds: ["https://one.example/match", "https://two.example/match"],
+            rejectedSourceIds: [],
+          },
+        },
+      });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [{ name: "web_search", description: "Searches the web", inputSchema: {}, tags: new Set() }],
+      builtinTools: new Map([["web_search", search]]),
+      eventBus: new EventBus(100),
+      executionEnvelope: { toolRounds: { max: 4 } },
+    });
+
+    const result = await orchestrator.processMessage(
+      makeSession(),
+      textParts("Por que perdio Chivas contra Toluca el 18 de julio de 2026?"),
+      undefined,
+      undefined,
+      {
+        temporalContext: {
+          observedAt: "2026-07-20T05:34:42.733Z",
+          timeZone: "America/Tijuana",
+          localDate: "2026-07-19",
+        },
+      },
+    );
+
+    expect(result.parts).toEqual(textParts("Verified analysis."));
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(provider.createMessage).toHaveBeenCalledTimes(4);
+    expect(JSON.stringify((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[2]?.[0]))
+      .toContain("Run one broader web_search");
+  });
+
   it("does not allow a final assistant response while managed invocation recovery needs a work item state transition", async () => {
     const provider: ProviderAdapter = {
       name: "mock",

@@ -193,6 +193,60 @@ describe("operator session event frame", () => {
     expect(frame.event.payload.managedOrchestrationAdoptionGate).toBeUndefined();
   });
 
+  it("preserves web freshness evidence when replaying canonical tool results to the operator surface", () => {
+    const frame = toOperatorSessionEventFrame({
+      eventId: "evt-web-search",
+      kilnSessionId: "session-1",
+      sequence: 1,
+      timestamp: new Date("2026-07-19T04:45:46.720Z"),
+      kind: "tool_call_completed",
+      turnId: "turn-1",
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      status: "succeeded",
+      outputSummary: "Found 1 source",
+      metadata: {
+        toolName: "web_search",
+        kind: "web",
+        operation: "search",
+        freshnessRequired: true,
+        freshnessEnforcement: "enforced",
+        temporalRequirement: {
+          exactLocalDate: "2026-07-18",
+          requiredIdentityTerms: ["guadalajara", "toluca"],
+          eventStatus: "completed",
+          minimumIndependentSources: 2,
+        },
+        temporalEvidence: {
+          accepted: true,
+          acceptedSourceIds: ["https://example.com/match", "https://second.example/match"],
+          rejectedSourceIds: [],
+        },
+        retrievedAt: "2026-07-19T04:45:46.720Z",
+        sources: [{
+          title: "Match result",
+          url: "https://example.com/match",
+          publishedAt: "2026-07-18T23:00:00.000Z",
+        }],
+      },
+      source: "runtime",
+    } as CanonicalSessionEvent, {
+      eventId: "frame-web-search",
+      sequence: 2,
+    });
+
+    expect(frame.event.payload.metadata).toMatchObject({
+      freshnessRequired: true,
+      freshnessEnforcement: "enforced",
+      temporalEvidence: {
+        accepted: true,
+        acceptedSourceIds: ["https://example.com/match", "https://second.example/match"],
+      },
+      retrievedAt: "2026-07-19T04:45:46.720Z",
+      sources: [{ publishedAt: "2026-07-18T23:00:00.000Z" }],
+    });
+  });
+
   it("maps canonical context evidence through the Gateway contract without reinterpreting it", () => {
     const frame = toOperatorSessionEventFrame({
       eventId: "evt-context",

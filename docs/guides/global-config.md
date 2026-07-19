@@ -63,6 +63,7 @@ kiln config set --global skills.selection.mode auto
 | `activeInstructionProfiles` | `string[]` | Ordered canonical instruction profile ids selected for global governed prompt context. Profiles are loaded from `~/.kiln/instructions/*.md` and may be overridden by project profiles with the same id. |
 | `workGovernance` | `KilnWorkGovernanceConfig` | Default work posture, direct-execution envelope, delegation triggers, and evidence expectations projected across CLI, GUI, TUI, benchmark sessions, and repo shims. |
 | `web.searchProvider` | `KilnYamlWebSearchProvider` | Global default web search provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
+| `web.searchFallbackProviders` | `KilnYamlWebSearchProvider[]` | Ordered fallback search adapters. Capability and evidence checks govern whether each route may execute; this does not enable network access. |
 | `web.extractProvider` | `KilnYamlWebExtractProvider` | Global default web extraction provider reference. This supplies a reusable adapter and `apiKeyEnv`; it does not enable network access. |
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `skills.builtin` | `{ enabled?: boolean, include?: string[], exclude?: string[] }` | First-party built-in skill activation policy. Built-in skill content lives in Kiln core; config only admits or narrows it. |
@@ -876,8 +877,8 @@ permissions, web policy, or managed-agent routes, while MCP server definitions
 are additive so both global and project servers remain active.
 
 Web config has a stricter authority split. Global config may define
-`web.searchProvider` and `web.extractProvider` so credentials and provider
-selection are reusable across projects. It may not define `web.enabled`,
+`web.searchProvider`, `web.searchFallbackProviders`, and `web.extractProvider`
+so credentials and provider selection are reusable across projects. It may not define `web.enabled`,
 `web.netPolicy`, or `web.allowedDomains`; those authority fields belong in the
 project `.kiln/kiln.yaml`. This keeps provider capability global while every
 repo still grants its own network access explicitly.
@@ -889,6 +890,9 @@ web:
   searchProvider:
     type: tavily
     apiKeyEnv: TAVILY_API_KEY
+  searchFallbackProviders:
+    - type: brave
+      apiKeyEnv: BRAVE_API_KEY
   extractProvider:
     type: firecrawl
     apiKeyEnv: FIRECRAWL_API_KEY

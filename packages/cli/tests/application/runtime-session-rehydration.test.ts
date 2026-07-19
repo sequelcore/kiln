@@ -237,4 +237,81 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       workItemIds: ["work-1"],
     }));
   });
+
+  it("replays web freshness evidence without losing the canonical tool metadata", async () => {
+    const sessionId = "kiln-gui:_gui:user-1:1784436323974";
+    await transcriptStore.init(sessionId, {
+      kilnSessionId: sessionId,
+      provider: "codex-oauth",
+      task: "interactive",
+      startedAt: "2026-07-19T04:45:00.000Z",
+    });
+    await transcriptStore.append(sessionId, {
+      eventId: "evt-web-result",
+      kilnSessionId: sessionId,
+      sequence: 1,
+      timestamp: "2026-07-19T04:45:46.720Z",
+      kind: "tool_call_completed",
+      source: { actor: "tool", surface: "gui" },
+      payload: {
+        turnId: `${sessionId}:turn:1`,
+        toolCallId: `${sessionId}:turn:1:tool:1`,
+        toolName: "web_search",
+        status: "succeeded",
+        outputSummary: "Found 1 source",
+        metadata: {
+          toolName: "web_search",
+          kind: "web",
+          operation: "search",
+          provider: "tavily",
+          freshnessRequired: true,
+          freshnessEnforcement: "enforced",
+          temporalRequirement: {
+            exactLocalDate: "2026-07-18",
+            requiredIdentityTerms: ["guadalajara", "toluca"],
+            eventStatus: "completed",
+            minimumIndependentSources: 2,
+          },
+          temporalEvidence: {
+            accepted: true,
+            acceptedSourceIds: ["https://example.com/match", "https://second.example/match"],
+            rejectedSourceIds: [],
+          },
+          retrievedAt: "2026-07-19T04:45:46.720Z",
+          sources: [{
+            title: "Match result",
+            url: "https://example.com/match",
+            publishedAt: "2026-07-18T23:00:00.000Z",
+          }],
+        },
+      },
+    });
+
+    const session = new RuntimeSession({
+      appName: "kiln-gui",
+      tenantId: "_gui",
+      userId: "user-1",
+      sessionId,
+      systemPrompt: "test",
+    });
+    const hydrate = createTranscriptRuntimeSessionHydrator({ transcriptStore });
+    await hydrate({ sessionId, session });
+
+    const replayed = session.sessionEvents.find((event) => event.kind === "tool_call_completed");
+    expect(replayed).toBeDefined();
+    expect(replayed).toMatchObject({
+      metadata: {
+        freshnessRequired: true,
+        freshnessEnforcement: "enforced",
+        temporalEvidence: {
+          accepted: true,
+          acceptedSourceIds: ["https://example.com/match", "https://second.example/match"],
+        },
+        retrievedAt: "2026-07-19T04:45:46.720Z",
+        sources: [{
+          publishedAt: "2026-07-18T23:00:00.000Z",
+        }],
+      },
+    });
+  });
 });

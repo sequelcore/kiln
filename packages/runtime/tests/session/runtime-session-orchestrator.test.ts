@@ -114,6 +114,81 @@ describe("RuntimeSessionOrchestrator", () => {
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });
 
+    it("appends canonical turn-local time after the stable session prompt", async () => {
+      const session = makeSession("Base prompt.");
+      await orchestrator.processMessage(session, textParts("what happened today?"), undefined, undefined, {
+        temporalContext: {
+          observedAt: "2026-07-19T04:45:46.720Z",
+          timeZone: "America/Tijuana",
+          localDate: "2026-07-18",
+        },
+      });
+      const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
+      expect(callArgs.system).toContain("Base prompt.");
+      expect(callArgs.system).toContain("--- Turn Temporal Context ---");
+      expect(callArgs.system).toContain("Observed at (UTC): 2026-07-19T04:45:46.720Z");
+      expect(callArgs.system).toContain("Operator-local date: 2026-07-18 (America/Tijuana)");
+      expect(callArgs.system).toContain("Do not substitute a publication or retrieval date");
+      expect(callArgs.system).toContain("--- Progressive Exact-Date Web Research ---");
+      expect(callArgs.system).toContain("Do not copy the event date into startDate or endDate");
+      expect(callArgs.system).toContain("retry at least once with a materially broader discovery query");
+      expect(callArgs.system).toContain("Use web_extract on the strongest candidate pages");
+    });
+
+    it("fails closed instead of returning an unverified same-day event claim", async () => {
+      vi.mocked(provider.createMessage).mockResolvedValueOnce({
+        parts: textParts("Chivas perdió 0-2 hoy."),
+        inputTokens: 100,
+        outputTokens: 10,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [],
+      });
+      const result = await orchestrator.processMessage(
+        makeSession(),
+        textParts("Hoy, ¿cuál fue el resultado de Chivas vs Toluca?"),
+        undefined,
+        undefined,
+        {
+          temporalContext: {
+            observedAt: "2026-07-19T05:34:42.733Z",
+            timeZone: "America/Tijuana",
+            localDate: "2026-07-18",
+          },
+        },
+      );
+
+      expect(extractText(result.parts)).toContain("no pudo verificar");
+      expect(extractText(result.parts)).not.toContain("0-2");
+    });
+
+    it("fails closed on an unverified explicit-date event claim and names the requested date", async () => {
+      vi.mocked(provider.createMessage).mockResolvedValueOnce({
+        parts: textParts("Chivas perdio 0-2."),
+        inputTokens: 100,
+        outputTokens: 10,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [],
+      });
+      const result = await orchestrator.processMessage(
+        makeSession(),
+        textParts("Por que perdio Chivas contra Toluca el 18 de julio de 2026?"),
+        undefined,
+        undefined,
+        {
+          temporalContext: {
+            observedAt: "2026-07-20T05:34:42.733Z",
+            timeZone: "America/Tijuana",
+            localDate: "2026-07-19",
+          },
+        },
+      );
+
+      expect(extractText(result.parts)).toContain("2026-07-18");
+      expect(extractText(result.parts)).not.toContain("0-2");
+    });
+
     it("rejects unaudited governed context content", async () => {
       const session = makeSession("Base prompt.");
       await expect(orchestrator.processMessage(session, textParts("help"), { content: "raw context" }))

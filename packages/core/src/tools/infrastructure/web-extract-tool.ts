@@ -15,6 +15,10 @@ import {
 } from "./tool-helpers.js";
 import { validateWebAccess } from "./web-policy.js";
 import { formatWebExtractOutput, type WebExtractOutputPage } from "./web-result-format.js";
+import {
+  evaluateWebSearchTemporalEvidence,
+  parseTemporalEventEvidenceRequirement,
+} from "../domain/temporal-evidence.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
@@ -87,6 +91,10 @@ export class WebExtractTool implements DevTool {
     if (!maxBytesInput.ok) {
       return this.error(urlsInput.urls, maxBytesInput.message, "invalid_input", verbosityInput.value);
     }
+    const temporalRequirement = parseTemporalEventEvidenceRequirement(input.input["temporalRequirement"]);
+    if (!temporalRequirement.ok) {
+      return this.error(urlsInput.urls, temporalRequirement.message, "invalid_input", verbosityInput.value);
+    }
 
     const normalizedUrls: string[] = [];
     for (const url of urlsInput.urls) {
@@ -139,6 +147,18 @@ export class WebExtractTool implements DevTool {
         ...(page.bytesRead !== undefined ? { bytesRead: page.bytesRead } : {}),
         truncated: page.truncated,
       }));
+      const retrievedAt = response.retrievedAt ?? new Date().toISOString();
+      const temporalEvidence = temporalRequirement.value
+        ? evaluateWebSearchTemporalEvidence({
+          requirement: temporalRequirement.value,
+          retrievedAt,
+          sources: pages.map((page) => ({
+            url: page.normalizedUrl ?? page.url,
+            title: page.title,
+            snippet: page.text,
+          })),
+        })
+        : undefined;
       const outputPages: WebExtractOutputPage[] = pages.map((page) => ({
         url: page.normalizedUrl ?? page.url,
         ...(page.title ? { title: page.title } : {}),
@@ -151,12 +171,20 @@ export class WebExtractTool implements DevTool {
         urls: urlsInput.urls,
         format: formatInput.value,
         extractCount: pages.length,
-        retrievedAt: response.retrievedAt ?? new Date().toISOString(),
+        retrievedAt,
         pages: metadataPages,
         bytesRead: pages.reduce((sum, page) => sum + (page.bytesRead ?? Buffer.byteLength(page.text, "utf8")), 0),
         truncated: pages.some((page) => page.truncated),
+        ...(temporalRequirement.value ? { temporalRequirement: temporalRequirement.value } : {}),
+        ...(temporalEvidence ? { temporalEvidence } : {}),
         verbosity: verbosityInput.value,
       });
+      if (temporalEvidence && !temporalEvidence.accepted) {
+        return toErrorResult(
+          "Extracted pages do not provide independent semantic consensus for the required event date, identities, and completed status",
+          { ...metadata, errorCode: "temporal_evidence_rejected" },
+        );
+      }
       const output = { pages: outputPages };
       return {
         ...toSuccessResult(formatWebExtractOutput(output, verbosityInput.value), metadata),

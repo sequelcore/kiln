@@ -309,6 +309,7 @@ export interface KilnYamlWebConfig {
   readonly netPolicy?: KilnYamlWebNetPolicy;
   readonly allowedDomains?: readonly string[];
   readonly searchProvider?: KilnYamlWebSearchProvider;
+  readonly searchFallbackProviders?: readonly KilnYamlWebSearchProvider[];
   readonly extractProvider?: KilnYamlWebExtractProvider;
 }
 

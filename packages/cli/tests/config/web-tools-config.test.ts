@@ -47,6 +47,85 @@ describe("web tool config", () => {
     expect(options.webSearch?.networkPolicy?.canAccess("api.example.com")).toBe(false);
   });
 
+  it("projects provider-specific retrieval capabilities into neutral registrations", () => {
+    const tavily = createWebToolSurfaceOptions({
+      config: config({
+        enabled: true,
+        netPolicy: "full",
+        searchProvider: { type: "tavily", apiKeyEnv: "TAVILY_API_KEY" },
+      }),
+      projectPath: "/project",
+    });
+    const searxng = createWebToolSurfaceOptions({
+      config: config({
+        enabled: true,
+        netPolicy: "full",
+        searchProvider: { type: "searxng", url: "https://searx.example.com" },
+      }),
+      projectPath: "/project",
+    });
+
+    expect(tavily.webSearch?.searchProviders?.[0]?.capabilities).toMatchObject({
+      provider: "tavily",
+      recencyFilter: "enforced",
+      topics: ["general", "news", "finance", "research"],
+      highPrecisionSearch: true,
+    });
+    expect(searxng.webSearch?.searchProviders?.[0]?.capabilities).toMatchObject({
+      provider: "searxng",
+      recencyFilter: "unsupported",
+      topics: ["general"],
+      highPrecisionSearch: false,
+    });
+  });
+
+  it("executes configured provider fallback after a strict domain contract violation", async () => {
+    process.env.KILN_TEST_TAVILY_KEY = "tvly-test";
+    process.env.KILN_TEST_BRAVE_KEY = "brave-test";
+    try {
+      const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+        if (String(url).startsWith("https://api.tavily.com/search")) {
+          return new Response(JSON.stringify({
+            request_id: "req-tavily",
+            results: [{ url: "https://spam.example/result", title: "Mirror" }],
+          }), { status: 200 });
+        }
+        return new Response(JSON.stringify({
+          web: { results: [{ url: "https://docs.example.com/kiln", title: "Kiln docs" }] },
+        }), { status: 200 });
+      });
+      const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "full",
+          allowedDomains: ["*"],
+          searchProvider: { type: "tavily", apiKeyEnv: "KILN_TEST_TAVILY_KEY" },
+          searchFallbackProviders: [{ type: "brave", apiKeyEnv: "KILN_TEST_BRAVE_KEY" }],
+        }),
+        projectPath: "/project",
+        fetchImpl,
+      }));
+
+      const result = await surface.bridge.execute({
+        name: "web_search",
+        input: { query: "kiln docs", domains: ["docs.example.com"] },
+      });
+
+      expect(result.result.isError).toBe(false);
+      expect(result.result.metadata).toMatchObject({
+        provider: "brave",
+        providerAttempts: [
+          { providerId: "tavily-primary", outcome: "contract_rejected" },
+          { providerId: "brave-fallback-1", outcome: "accepted" },
+        ],
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      delete process.env.KILN_TEST_TAVILY_KEY;
+      delete process.env.KILN_TEST_BRAVE_KEY;
+    }
+  });
+
   it("registers the project Memory Lattice resource with shared tool surfaces", async () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-web-tools-memory-"));
     const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
@@ -446,16 +525,27 @@ describe("web tool config", () => {
           authorization: "Bearer tvly-test",
         });
         expect(JSON.parse(String(init?.body))).toMatchObject({
-          query: "kiln tools",
+          query: 'kiln tools "official result"',
           max_results: 2,
           include_domains: ["docs.example.com"],
+          topic: "general",
+          search_depth: "advanced",
+          start_date: "2026-07-18",
+          end_date: "2026-07-19",
+          country: "mexico",
+          exact_match: true,
+          include_usage: true,
         });
         return new Response(JSON.stringify({
+          request_id: "req-tavily",
+          response_time: 0.125,
+          usage: { credits: 2 },
           results: [{
             url: "https://docs.example.com/kiln",
             title: "Kiln docs",
             content: "Controlled web tools",
             published_date: "2026-05-01",
+            score: 0.94,
           }],
         }), {
           status: 200,
@@ -478,12 +568,64 @@ describe("web tool config", () => {
 
       const result = await surface.bridge.execute({
         name: "web_search",
-        input: { query: "kiln tools", domains: ["docs.example.com"], maxResults: 2 },
+        input: {
+          query: "kiln tools",
+          domains: ["docs.example.com"],
+          maxResults: 2,
+          topic: "general",
+          quality: "high",
+          startDate: "2026-07-18",
+          endDate: "2026-07-19",
+          country: "MX",
+          exactPhrases: ["official result"],
+        },
       });
 
       expect(result.result.isError).toBe(false);
       expect(result.result.output).toContain("Kiln docs");
+      expect(result.result.metadata).toMatchObject({
+        providerRequestId: "req-tavily",
+        providerDurationMs: 125,
+        providerUsage: { credits: 2 },
+        sources: [{ relevanceScore: 0.94, providerRank: 1 }],
+      });
     } finally {
+      delete process.env.KILN_TEST_TAVILY_KEY;
+    }
+  });
+
+  it("translates Tavily relative recency into documented absolute date bounds", async () => {
+    process.env.KILN_TEST_TAVILY_KEY = "tvly-test";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-19T12:00:00.000Z"));
+    try {
+      const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          start_date: "2026-07-17",
+          end_date: "2026-07-19",
+        });
+        expect(JSON.parse(String(init?.body))).not.toHaveProperty("days");
+        return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      });
+      const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "full",
+          searchProvider: { type: "tavily", apiKeyEnv: "KILN_TEST_TAVILY_KEY" },
+        }),
+        projectPath: "/project",
+        fetchImpl,
+      }));
+
+      const result = await surface.bridge.execute({
+        name: "web_search",
+        input: { query: "latest result", recencyDays: 2, freshnessRequired: true, topic: "news" },
+      });
+
+      expect(result.result.isError).toBe(false);
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
       delete process.env.KILN_TEST_TAVILY_KEY;
     }
   });
@@ -541,8 +683,13 @@ describe("web tool config", () => {
     process.env.KILN_TEST_BRAVE_KEY = "brave-test";
     try {
       const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-        expect(String(url)).toContain("https://api.search.brave.com/res/v1/web/search?");
-        expect(String(url)).toContain("q=kiln+tools+site%3Adocs.example.com");
+        const requestUrl = new URL(String(url));
+        expect(requestUrl.origin + requestUrl.pathname).toBe("https://api.search.brave.com/res/v1/news/search");
+        expect(requestUrl.searchParams.get("q")).toBe('kiln tools "official result" site:docs.example.com');
+        expect(requestUrl.searchParams.get("freshness")).toBe("2d");
+        expect(requestUrl.searchParams.get("country")).toBe("MX");
+        expect(requestUrl.searchParams.get("search_lang")).toBe("es");
+        expect(requestUrl.searchParams.get("extra_snippets")).toBe("true");
         expect(init?.headers).toMatchObject({
           "x-subscription-token": "brave-test",
         });
@@ -575,7 +722,16 @@ describe("web tool config", () => {
 
       const result = await surface.bridge.execute({
         name: "web_search",
-        input: { query: "kiln tools", domains: ["docs.example.com"] },
+        input: {
+          query: "kiln tools",
+          domains: ["docs.example.com"],
+          recencyDays: 2,
+          topic: "news",
+          quality: "high",
+          country: "MX",
+          language: "es",
+          exactPhrases: ["official result"],
+        },
       });
 
       expect(result.result.isError).toBe(false);
@@ -594,9 +750,14 @@ describe("web tool config", () => {
           "x-api-key": "exa-test",
         });
         expect(JSON.parse(String(init?.body))).toMatchObject({
-          query: "kiln tools site:docs.example.com",
+          query: "kiln tools",
+          includeDomains: ["docs.example.com"],
           numResults: 5,
-          type: "auto",
+          type: "deep-lite",
+          category: "research paper",
+          startPublishedDate: "2026-07-18T00:00:00.000Z",
+          endPublishedDate: "2026-07-19T23:59:59.999Z",
+          userLocation: "MX",
         });
         return new Response(JSON.stringify({
           results: [{
@@ -625,7 +786,15 @@ describe("web tool config", () => {
 
       const result = await surface.bridge.execute({
         name: "web_search",
-        input: { query: "kiln tools", domains: ["docs.example.com"] },
+        input: {
+          query: "kiln tools",
+          domains: ["docs.example.com"],
+          topic: "research",
+          quality: "high",
+          startDate: "2026-07-18",
+          endDate: "2026-07-19",
+          country: "MX",
+        },
       });
 
       expect(result.result.isError).toBe(false);
@@ -751,6 +920,9 @@ describe("web tool config", () => {
         searchProviderType: "searxng",
         searchProviderConfigured: true,
         searchProviderSource: "effective",
+        searchFallbackProviderTypes: [],
+        searchFallbackProvidersConfigured: false,
+        searchFallbackProviderSource: "none",
         extractProviderType: "firecrawl",
         extractProviderConfigured: true,
         extractProviderSource: "effective",

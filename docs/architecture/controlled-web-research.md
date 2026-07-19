@@ -52,11 +52,13 @@ Research is a governed loop over evidence-producing primitives.
 - `netPolicy`
 - `allowedDomains`
 - `searchProvider`
+- `searchFallbackProviders`
 - `extractProvider`
 
 Global config may provide only reusable web provider defaults:
 
 - `web.searchProvider`
+- `web.searchFallbackProviders`
 - `web.extractProvider`
 
 It may not provide authority fields such as `enabled`, `netPolicy`, or
@@ -83,6 +85,43 @@ the canonical `WebSearchProviderResponse` source shape:
 - `brave`
 - `tavily`
 - `exa`
+
+Search execution is provider-neutral and capability-aware. The caller declares
+topic, quality, freshness, date-range, country, language, exact-phrase, domain,
+and temporal-evidence requirements. Core rejects incapable providers before a
+network call, validates returned URLs against the effective domain boundary,
+and advances through `searchFallbackProviders` only for observable retrieval
+failure: capability mismatch, transport failure, contract violation, empty
+results, or rejected temporal evidence. Provider request ids, duration, usage,
+effective parameters, attempts, relevance scores, and domain postconditions are
+preserved as evidence without exposing credentials.
+
+Exact-date event research uses a bounded progressive protocol over those
+primitives:
+
+1. discover broadly with event identities and the event date;
+2. verify snippets against `temporalRequirement`;
+3. if evidence is insufficient, broaden only constraints introduced by the
+   agent while preserving operator constraints and network authority;
+4. extract the strongest candidate pages with the same temporal requirement;
+5. synthesize only after independent evidence is accepted.
+
+Publication filters are deliberately separate from event semantics.
+`startDate`, `endDate`, `recencyDays`, and `freshnessRequired` constrain or
+prove publication recency; they must not be derived automatically from the
+event date. Domain allowlists remain hard authority boundaries. When temporal
+search evidence is insufficient, Core emits a typed progressive-research
+recovery directive rather than misclassifying the provider as unavailable.
+Runtime consumes that directive once per turn: if the model tries to stop
+before accepted evidence exists, it requests one broader search round and then
+returns to the normal evidence guard. The bound prevents open-ended retries.
+
+Provider comparisons use the deterministic `web-retrieval-v1` benchmark over
+observations projected from governed search metadata, including fallback
+attempts and rejected provider URLs. It reports domain compliance, gold-URL recall,
+accept/abstain decision accuracy, source diversity, latency, and cost. Live
+provider calls remain a separately authorized data-collection step; benchmark
+scoring itself is reproducible and offline.
 
 Extraction provider adapters currently normalize provider-specific payloads
 into the canonical `WebExtractProviderResponse` page shape:

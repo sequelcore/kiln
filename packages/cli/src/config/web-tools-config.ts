@@ -5,6 +5,7 @@ import {
   SandboxPolicy,
   SqliteMemoryRepository,
   MemoryMutationService,
+  WebSearchProviderError,
   type MemoryAuthorityCaller,
   type MemoryAuthorityPolicy,
   type DefaultBuiltinToolRegistryOptions,
@@ -16,6 +17,8 @@ import {
   type WebExtractFormat,
   type WebSearchProvider,
   type WebSearchProviderResponse,
+  type WebSearchProviderCapabilities,
+  type WebSearchProviderRegistration,
   type WebSourceMetadata,
   type MemoryScope,
 } from "@kilnai/core";
@@ -84,6 +87,9 @@ export interface WebToolConfigurationDiagnostics {
   readonly searchProviderType: string;
   readonly searchProviderConfigured: boolean;
   readonly searchProviderSource: WebToolConfigurationSource;
+  readonly searchFallbackProviderTypes: readonly string[];
+  readonly searchFallbackProvidersConfigured: boolean;
+  readonly searchFallbackProviderSource: WebToolConfigurationSource;
   readonly extractProviderType: string;
   readonly extractProviderConfigured: boolean;
   readonly extractProviderSource: WebToolConfigurationSource;
@@ -132,7 +138,11 @@ export function createWebToolSurfaceOptions(
   }
 
   const networkPolicy = createWebNetworkPolicy(webConfig, input.projectPath);
-  const searchProvider = createOptionalConfiguredWebSearchProvider(webConfig.searchProvider, input.fetchImpl);
+  const searchProviders = createConfiguredWebSearchProviders(
+    webConfig.searchProvider,
+    webConfig.searchFallbackProviders,
+    input.fetchImpl,
+  );
   const extractProvider = createOptionalConfiguredWebExtractProvider(webConfig.extractProvider, input.fetchImpl);
 
   return {
@@ -146,7 +156,7 @@ export function createWebToolSurfaceOptions(
     },
     webSearch: {
       networkPolicy,
-      ...(searchProvider ? { searchProvider } : {}),
+      ...(searchProviders.length > 0 ? { searchProviders } : {}),
     },
   };
 }
@@ -162,6 +172,8 @@ export function describeWebToolConfiguration(
   let allowedDomains: readonly string[] = [];
   let searchProviderType = "none";
   let searchProviderConfigured = false;
+  let searchFallbackProviderTypes: readonly string[] = [];
+  let searchFallbackProvidersConfigured = false;
   let extractProviderType = "none";
   let extractProviderConfigured = false;
 
@@ -201,6 +213,26 @@ export function describeWebToolConfiguration(
     issues.push("web.search_provider_missing");
   }
 
+  const fallbackConfigs = webConfig?.searchFallbackProviders ?? [];
+  searchFallbackProviderTypes = fallbackConfigs.map((provider) =>
+    isRecord(provider) && typeof provider.type === "string" ? provider.type : "invalid");
+  const fallbackEnvIssues = fallbackConfigs
+    .map((provider) => missingApiKeyEnvIssue(
+      provider,
+      API_KEY_SEARCH_PROVIDER_TYPES,
+      "web.search_fallback_provider_env_missing",
+    ))
+    .filter((issue): issue is string => issue !== undefined);
+  searchFallbackProvidersConfigured = fallbackConfigs.length > 0
+    && fallbackConfigs.every(isSearchProviderConfigured)
+    && fallbackEnvIssues.length === 0;
+  const searchFallbackProviderSource = resolveOptionalConfigSource({
+    effective: webConfig?.searchFallbackProviders,
+    global: sources.globalWeb?.searchFallbackProviders,
+    project: sources.projectWeb?.searchFallbackProviders,
+  });
+  issues.push(...new Set(fallbackEnvIssues));
+
   const extractProviderConfig = webConfig?.extractProvider;
   if (isRecord(extractProviderConfig) && typeof extractProviderConfig.type === "string") {
     extractProviderType = extractProviderConfig.type;
@@ -229,11 +261,25 @@ export function describeWebToolConfiguration(
     searchProviderType,
     searchProviderConfigured,
     searchProviderSource,
+    searchFallbackProviderTypes,
+    searchFallbackProvidersConfigured,
+    searchFallbackProviderSource,
     extractProviderType,
     extractProviderConfigured,
     extractProviderSource,
     issues,
   };
+}
+
+function resolveOptionalConfigSource(input: {
+  readonly effective: unknown;
+  readonly global: unknown;
+  readonly project: unknown;
+}): WebToolConfigurationSource {
+  if (input.project !== undefined) return "project";
+  if (input.global !== undefined) return "global";
+  if (input.effective !== undefined) return "effective";
+  return "none";
 }
 
 function resolveProviderSource(input: {
@@ -538,6 +584,84 @@ function createOptionalConfiguredWebSearchProvider(
   }
 }
 
+function configuredSearchProviderCapabilities(
+  providerConfig: KilnYamlWebSearchProvider | undefined,
+): WebSearchProviderCapabilities | undefined {
+  if (!isRecord(providerConfig) || typeof providerConfig.type !== "string" || providerConfig.type === "none") {
+    return undefined;
+  }
+  const provider = providerConfig.type;
+  if (provider === "tavily") {
+    return {
+      provider,
+      recencyFilter: "enforced",
+      topics: ["general", "news", "finance", "research"],
+      absoluteDateRange: true,
+      exactMatch: true,
+      countryTargeting: true,
+      countryTargetingTopics: ["general"],
+      languageTargeting: false,
+      highPrecisionSearch: true,
+    };
+  }
+  if (provider === "brave") {
+    return {
+      provider,
+      recencyFilter: "enforced",
+      topics: ["general", "news", "research"],
+      absoluteDateRange: true,
+      exactMatch: true,
+      countryTargeting: true,
+      languageTargeting: true,
+      highPrecisionSearch: true,
+    };
+  }
+  if (provider === "exa") {
+    return {
+      provider,
+      recencyFilter: "enforced",
+      topics: ["general", "news", "finance", "research"],
+      absoluteDateRange: true,
+      exactMatch: false,
+      countryTargeting: true,
+      languageTargeting: false,
+      highPrecisionSearch: true,
+    };
+  }
+  return {
+    provider,
+    recencyFilter: "unsupported",
+    topics: ["general"],
+    absoluteDateRange: false,
+    exactMatch: false,
+    countryTargeting: false,
+    languageTargeting: false,
+    highPrecisionSearch: false,
+  };
+}
+
+function createConfiguredWebSearchProviders(
+  primary: KilnYamlWebSearchProvider | undefined,
+  fallbacks: readonly KilnYamlWebSearchProvider[] | undefined,
+  fetchImpl: FetchLike | undefined,
+): readonly WebSearchProviderRegistration<WebSearchProvider>[] {
+  const registrations: WebSearchProviderRegistration<WebSearchProvider>[] = [];
+  const configs = [primary, ...(fallbacks ?? [])];
+  configs.forEach((config, index) => {
+    const search = createOptionalConfiguredWebSearchProvider(config, fetchImpl);
+    const capabilities = configuredSearchProviderCapabilities(config);
+    if (!search || !capabilities) {
+      return;
+    }
+    registrations.push({
+      id: index === 0 ? `${capabilities.provider}-primary` : `${capabilities.provider}-fallback-${index}`,
+      search,
+      capabilities,
+    });
+  });
+  return registrations;
+}
+
 function createConfiguredWebExtractProvider(
   providerConfig: KilnYamlWebExtractProvider | undefined,
   fetchImpl: FetchLike | undefined,
@@ -599,7 +723,7 @@ function createHttpWebSearchProvider(
   const headers = normalizeHeaders(providerConfig.headers);
 
   return async (request) => {
-    const response = await fetchClient(endpoint, {
+    const requestResult = await executeWebSearchRequest("http", () => fetchClient(endpoint, {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -607,11 +731,8 @@ function createHttpWebSearchProvider(
         ...headers,
       },
       body: JSON.stringify(request),
-    });
-    if (!response.ok) {
-      throw new Error(`Web search provider returned HTTP ${response.status}`);
-    }
-    return normalizeProviderResponse(await response.json());
+    }));
+    return normalizeWebSearchExecution("http", requestResult, normalizeProviderResponse);
   };
 }
 
@@ -717,21 +838,18 @@ function createSearxngWebSearchProvider(
 
   return async (request) => {
     const endpoint = new URL("search", ensureTrailingSlash(baseUrl));
-    endpoint.searchParams.set("q", scopedQuery(request.query, request.domains));
+    endpoint.searchParams.set("q", scopedQuery(request.query, request.domains, request.exactPhrases));
     endpoint.searchParams.set("format", "json");
     endpoint.searchParams.set("language", "all");
     endpoint.searchParams.set("safesearch", "1");
-    const response = await fetchClient(endpoint, {
+    const requestResult = await executeWebSearchRequest("searxng", () => fetchClient(endpoint, {
       method: "GET",
       headers: {
         accept: "application/json",
         ...headers,
       },
-    });
-    if (!response.ok) {
-      throw new Error(`Web search provider returned HTTP ${response.status}`);
-    }
-    return normalizeSearxngResponse(await response.json());
+    }));
+    return normalizeWebSearchExecution("searxng", requestResult, normalizeSearxngResponse);
   };
 }
 
@@ -744,23 +862,25 @@ function createBraveWebSearchProvider(
   const apiKey = readRequiredEnv(providerConfig.apiKeyEnv, "web.searchProvider.apiKeyEnv");
 
   return async (request) => {
-    const url = new URL(endpoint);
-    url.searchParams.set("q", scopedQuery(request.query, request.domains));
+    const url = braveSearchEndpoint(endpoint, request.topic);
+    url.searchParams.set("q", scopedQuery(request.query, request.domains, request.exactPhrases));
     url.searchParams.set("count", String(request.maxResults));
-    if (request.recencyDays !== undefined) {
+    if (request.startDate || request.endDate) {
+      url.searchParams.set("freshness", `${request.startDate ?? "1970-01-01"}to${request.endDate ?? currentUtcDate()}`);
+    } else if (request.recencyDays !== undefined) {
       url.searchParams.set("freshness", `${request.recencyDays}d`);
     }
-    const response = await fetchClient(url, {
+    if (request.country) url.searchParams.set("country", request.country.toUpperCase());
+    if (request.language) url.searchParams.set("search_lang", request.language);
+    if (request.quality === "high") url.searchParams.set("extra_snippets", "true");
+    const requestResult = await executeWebSearchRequest("brave", () => fetchClient(url, {
       method: "GET",
       headers: {
         accept: "application/json",
         "x-subscription-token": apiKey,
       },
-    });
-    if (!response.ok) {
-      throw new Error(`Web search provider returned HTTP ${response.status}`);
-    }
-    return normalizeBraveResponse(await response.json());
+    }));
+    return normalizeWebSearchExecution("brave", requestResult, normalizeBraveResponse);
   };
 }
 
@@ -774,19 +894,24 @@ function createTavilyWebSearchProvider(
 
   return async (request) => {
     const body: Record<string, unknown> = {
-      query: request.query,
+      query: scopedQuery(request.query, [], request.exactPhrases),
       max_results: request.maxResults,
       include_answer: false,
       include_raw_content: false,
-      search_depth: "basic",
+      include_usage: true,
+      search_depth: request.quality === "high" ? "advanced" : "basic",
+      topic: request.topic === "research" ? "general" : (request.topic ?? "general"),
     };
     if (request.domains.length > 0) {
       body.include_domains = request.domains;
     }
-    if (request.recencyDays !== undefined) {
-      body.days = request.recencyDays;
-    }
-    const response = await fetchClient(endpoint, {
+    if (request.startDate) body.start_date = request.startDate;
+    else if (request.recencyDays !== undefined) body.start_date = relativeUtcDate(request.recencyDays);
+    if (request.endDate) body.end_date = request.endDate;
+    else if (request.recencyDays !== undefined) body.end_date = currentUtcDate();
+    if (request.country) body.country = toEnglishCountryName(request.country);
+    if ((request.exactPhrases?.length ?? 0) > 0) body.exact_match = true;
+    const requestResult = await executeWebSearchRequest("tavily", () => fetchClient(endpoint, {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -794,11 +919,8 @@ function createTavilyWebSearchProvider(
         "content-type": "application/json",
       },
       body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      throw new Error(`Web search provider returned HTTP ${response.status}`);
-    }
-    return normalizeTavilyResponse(await response.json());
+    }));
+    return normalizeWebSearchExecution("tavily", requestResult, normalizeTavilyResponse);
   };
 }
 
@@ -811,7 +933,20 @@ function createExaWebSearchProvider(
   const apiKey = readRequiredEnv(providerConfig.apiKeyEnv, "web.searchProvider.apiKeyEnv");
 
   return async (request) => {
-    const response = await fetchClient(endpoint, {
+    const startPublishedDate = request.startDate
+      ? `${request.startDate}T00:00:00.000Z`
+      : request.recencyDays !== undefined
+        ? new Date(Date.now() - request.recencyDays * 86_400_000).toISOString()
+        : undefined;
+    const endPublishedDate = request.endDate ? `${request.endDate}T23:59:59.999Z` : undefined;
+    const category = request.topic === "news"
+      ? "news"
+      : request.topic === "research"
+        ? "research paper"
+        : request.topic === "finance"
+          ? "financial report"
+          : undefined;
+    const requestResult = await executeWebSearchRequest("exa", () => fetchClient(endpoint, {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -819,17 +954,89 @@ function createExaWebSearchProvider(
         "x-api-key": apiKey,
       },
       body: JSON.stringify({
-        query: scopedQuery(request.query, request.domains),
-        type: "auto",
+        query: scopedQuery(request.query, [], request.exactPhrases),
+        type: request.quality === "high" ? "deep-lite" : "auto",
         numResults: request.maxResults,
+        ...(request.domains.length > 0 ? { includeDomains: request.domains } : {}),
+        ...(startPublishedDate ? { startPublishedDate } : {}),
+        ...(endPublishedDate ? { endPublishedDate } : {}),
+        ...(category ? { category } : {}),
+        ...(request.country ? { userLocation: request.country.toUpperCase() } : {}),
         contents: { highlights: true },
       }),
-    });
-    if (!response.ok) {
-      throw new Error(`Web search provider returned HTTP ${response.status}`);
-    }
-    return normalizeExaResponse(await response.json());
+    }));
+    return normalizeWebSearchExecution("exa", requestResult, normalizeExaResponse);
   };
+}
+
+interface WebSearchRequestExecution {
+  readonly response: Response;
+  readonly requestId?: string;
+  readonly durationMs: number;
+}
+
+async function executeWebSearchRequest(
+  provider: string,
+  execute: () => Promise<Response>,
+): Promise<WebSearchRequestExecution> {
+  const startedAt = performance.now();
+  let response: Response;
+  try {
+    response = await execute();
+  } catch (error) {
+    throw new WebSearchProviderError(
+      error instanceof Error ? error.message : String(error),
+      { provider, durationMs: elapsedMilliseconds(startedAt) },
+      { cause: error },
+    );
+  }
+  const durationMs = elapsedMilliseconds(startedAt);
+  const requestId = response.headers.get("x-request-id") ?? undefined;
+  if (!response.ok) {
+    throw new WebSearchProviderError(
+      `Web search provider returned HTTP ${response.status}`,
+      { provider, durationMs, status: response.status, ...(requestId ? { requestId } : {}) },
+    );
+  }
+  return { response, durationMs, ...(requestId ? { requestId } : {}) };
+}
+
+function withSearchTelemetry(
+  response: WebSearchProviderResponse,
+  execution: WebSearchRequestExecution,
+): WebSearchProviderResponse {
+  const requestId = response.requestId ?? execution.requestId;
+  return {
+    ...response,
+    ...(requestId ? { requestId } : {}),
+    durationMs: response.durationMs ?? execution.durationMs,
+  };
+}
+
+async function normalizeWebSearchExecution(
+  provider: string,
+  execution: WebSearchRequestExecution,
+  normalize: (value: unknown) => WebSearchProviderResponse,
+): Promise<WebSearchProviderResponse> {
+  try {
+    return withSearchTelemetry(normalize(await execution.response.json()), execution);
+  } catch (error) {
+    if (error instanceof WebSearchProviderError) throw error;
+    throw new WebSearchProviderError(
+      error instanceof Error ? error.message : String(error),
+      {
+        provider,
+        durationMs: execution.durationMs,
+        status: execution.response.status,
+        ...(execution.requestId ? { requestId: execution.requestId } : {}),
+      },
+      { cause: error },
+    );
+  }
+}
+
+function elapsedMilliseconds(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
 }
 
 function parseProviderEndpoint(value: string, field = "web.searchProvider.url"): string {
@@ -980,6 +1187,10 @@ function normalizeProviderResponse(value: unknown): WebSearchProviderResponse {
   return {
     ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
     ...(typeof value.retrievedAt === "string" ? { retrievedAt: value.retrievedAt } : {}),
+    ...(typeof value.requestId === "string" ? { requestId: value.requestId } : {}),
+    ...(typeof value.durationMs === "number" ? { durationMs: value.durationMs } : {}),
+    ...(isNumericRecord(value.usage) ? { usage: value.usage } : {}),
+    ...(isRecord(value.effectiveParameters) ? { effectiveParameters: value.effectiveParameters } : {}),
     sources: value.sources.map(normalizeSource),
   };
 }
@@ -1000,7 +1211,9 @@ function normalizeSearxngResponse(value: unknown): WebSearchProviderResponse {
 function normalizeBraveResponse(value: unknown): WebSearchProviderResponse {
   const results = isRecord(value) && isRecord(value.web) && Array.isArray(value.web.results)
     ? value.web.results
-    : [];
+    : isRecord(value) && Array.isArray(value.results)
+      ? value.results
+      : [];
   return {
     provider: "brave",
     sources: results.map((result) => normalizeSearchResult(result, {
@@ -1016,10 +1229,14 @@ function normalizeTavilyResponse(value: unknown): WebSearchProviderResponse {
   }
   return {
     provider: "tavily",
-    sources: value.results.map((result) => normalizeSearchResult(result, {
+    ...(typeof value.request_id === "string" ? { requestId: value.request_id } : {}),
+    ...(typeof value.response_time === "number" ? { durationMs: Math.round(value.response_time * 1000) } : {}),
+    ...(isNumericRecord(value.usage) ? { usage: value.usage } : {}),
+    ...(isRecord(value.auto_parameters) ? { effectiveParameters: value.auto_parameters } : {}),
+    sources: value.results.map((result, index) => ({ ...normalizeSearchResult(result, {
       snippetKeys: ["content", "snippet"],
       publishedAtKeys: ["published_date", "publishedDate"],
-    })),
+    }), providerRank: index + 1 })),
   };
 }
 
@@ -1029,11 +1246,19 @@ function normalizeExaResponse(value: unknown): WebSearchProviderResponse {
   }
   return {
     provider: "exa",
+    ...(typeof value.requestId === "string" ? { requestId: value.requestId } : {}),
+    ...(readExaCost(value.costDollars) !== undefined ? { usage: { costUsd: readExaCost(value.costDollars)! } } : {}),
     sources: value.results.map((result) => normalizeSearchResult(result, {
       snippetKeys: ["text", "summary", "snippet"],
       publishedAtKeys: ["publishedDate", "published_date"],
     })),
   };
+}
+
+function readExaCost(value: unknown): number | undefined {
+  return isRecord(value) && typeof value.total === "number" && Number.isFinite(value.total)
+    ? value.total
+    : undefined;
 }
 
 function normalizeExtractProviderResponse(value: unknown): WebExtractProviderResponse {
@@ -1133,6 +1358,7 @@ function normalizeSearchResult(
     ...(snippet ? { snippet } : {}),
     ...(firstString(value, options.publishedAtKeys) ? { publishedAt: firstString(value, options.publishedAtKeys) } : {}),
     ...(typeof value.source === "string" ? { source: value.source } : {}),
+    ...(typeof value.score === "number" ? { relevanceScore: value.score } : {}),
   };
 }
 
@@ -1146,11 +1372,12 @@ function firstString(value: Record<string, unknown>, keys: readonly string[]): s
   return undefined;
 }
 
-function scopedQuery(query: string, domains: readonly string[]): string {
-  if (domains.length === 0) {
-    return query;
-  }
-  return `${query} ${domains.map((domain) => `site:${domain}`).join(" ")}`;
+function scopedQuery(query: string, domains: readonly string[], exactPhrases: readonly string[] = []): string {
+  return [
+    query,
+    ...exactPhrases.map((phrase) => `"${phrase.replace(/"/g, "\\\"")}"`),
+    ...domains.map((domain) => `site:${domain}`),
+  ].join(" ");
 }
 
 function normalizeSource(value: unknown): Omit<WebSourceMetadata, "rank"> {
@@ -1163,7 +1390,40 @@ function normalizeSource(value: unknown): Omit<WebSourceMetadata, "rank"> {
     ...(typeof value.snippet === "string" ? { snippet: value.snippet } : {}),
     ...(typeof value.publishedAt === "string" ? { publishedAt: value.publishedAt } : {}),
     ...(typeof value.source === "string" ? { source: value.source } : {}),
+    ...(typeof value.relevanceScore === "number" ? { relevanceScore: value.relevanceScore } : {}),
+    ...(typeof value.providerRank === "number" ? { providerRank: value.providerRank } : {}),
   };
+}
+
+function currentUtcDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function relativeUtcDate(daysAgo: number): string {
+  return new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+}
+
+function braveSearchEndpoint(endpoint: string, topic: string | undefined): URL {
+  const url = new URL(endpoint);
+  if (topic === "news") {
+    if (!url.pathname.endsWith("/web/search")) {
+      throw new Error("Configured Brave endpoint cannot satisfy news search routing");
+    }
+    url.pathname = `${url.pathname.slice(0, -"/web/search".length)}/news/search`;
+  }
+  return url;
+}
+
+function toEnglishCountryName(countryCode: string): string {
+  const name = new Intl.DisplayNames(["en"], { type: "region" }).of(countryCode.toUpperCase());
+  if (!name || name.toUpperCase() === countryCode.toUpperCase()) {
+    throw new Error(`Unsupported country code for Tavily: ${countryCode}`);
+  }
+  return name.toLowerCase();
+}
+
+function isNumericRecord(value: unknown): value is Readonly<Record<string, number>> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "number" && Number.isFinite(entry));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,5 +1,12 @@
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemStatus } from "../../work-governance/index.js";
 import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
+import type { TemporalEventEvidenceRequirement, TemporalEvidenceDecision } from "./temporal-evidence.js";
+import type {
+  WebSearchDomainPostcondition,
+  WebSearchIntent,
+  WebSearchProviderAttempt,
+  WebSearchRecoveryDirective,
+} from "./web-search-governance.js";
 
 export type CommandToolName = "bash" | "git";
 export type FileToolName = "read" | "read_many" | "write" | "edit" | "patch";
@@ -84,7 +91,11 @@ export type WebToolErrorCode =
   | "timeout"
   | "provider_unreachable"
   | "provider_not_configured"
-  | "empty_extraction";
+  | "empty_extraction"
+  | "freshness_not_enforced"
+  | "temporal_evidence_rejected"
+  | "provider_capability_mismatch"
+  | "provider_contract_violation";
 export type SearchToolStrategy = "rg" | "fd" | "fallback";
 export type SearchRuntimeSource = "bundled" | "configured" | "system" | "unavailable";
 export type StructuredDataToolOperation = "query";
@@ -281,6 +292,8 @@ export interface WebSourceMetadata {
   readonly rank?: number;
   readonly publishedAt?: string;
   readonly source?: string;
+  readonly relevanceScore?: number;
+  readonly providerRank?: number;
 }
 
 export type WebExtractFormat = "text" | "markdown";
@@ -307,6 +320,18 @@ export interface WebToolResultMetadata<TToolName extends WebToolName = WebToolNa
   readonly urls?: readonly string[];
   readonly format?: WebExtractFormat;
   readonly recencyDays?: number;
+  readonly freshnessRequired?: boolean;
+  readonly freshnessEnforcement?: "enforced" | "not_enforced";
+  readonly temporalRequirement?: TemporalEventEvidenceRequirement;
+  readonly temporalEvidence?: TemporalEvidenceDecision;
+  readonly searchIntent?: WebSearchIntent;
+  readonly providerRequestId?: string;
+  readonly providerDurationMs?: number;
+  readonly providerUsage?: Readonly<Record<string, number>>;
+  readonly providerEffectiveParameters?: Readonly<Record<string, unknown>>;
+  readonly providerAttempts?: readonly WebSearchProviderAttempt[];
+  readonly recoveryDirective?: WebSearchRecoveryDirective;
+  readonly domainPostcondition?: WebSearchDomainPostcondition;
   readonly resultCount?: number;
   readonly extractCount?: number;
   readonly retrievedAt?: string;

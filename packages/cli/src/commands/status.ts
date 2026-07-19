@@ -191,6 +191,13 @@ function printWebStatus(
     diagnostics.searchProviderConfigured,
     diagnostics.searchProviderSource,
   )}`);
+  if (diagnostics.searchFallbackProviderTypes.length > 0) {
+    console.log(`    Search fallbacks: ${formatWebProviderStatus(
+      diagnostics.searchFallbackProviderTypes.join(" -> "),
+      diagnostics.searchFallbackProvidersConfigured,
+      diagnostics.searchFallbackProviderSource,
+    )}`);
+  }
   console.log(`    Extract provider: ${formatWebProviderStatus(
     diagnostics.extractProviderType,
     diagnostics.extractProviderConfigured,

@@ -33,6 +33,7 @@ function globalWebToKilnWeb(globalWeb: KilnGlobalConfig["web"]): KilnYamlWebConf
   }
   return {
     searchProvider: globalWeb.searchProvider,
+    searchFallbackProviders: globalWeb.searchFallbackProviders,
     extractProvider: globalWeb.extractProvider,
   };
 }

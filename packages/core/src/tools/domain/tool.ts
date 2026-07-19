@@ -31,6 +31,24 @@ const INTERACTIVE_TIMEOUT_PROPERTY = {
   "x-kiln-timeout-unit": "milliseconds",
 } as const;
 
+const TEMPORAL_EVENT_REQUIREMENT_PROPERTY = {
+  type: "object",
+  description: "Required for exact-date event claims. Demands semantic consensus from at least two independent sources.",
+  properties: {
+    exactLocalDate: { type: "string", description: "Operator-local event date in YYYY-MM-DD form." },
+    requiredIdentityTerms: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 2,
+      description: "At least two unambiguous event identity terms, such as both participants.",
+    },
+    eventStatus: { type: "string", enum: ["completed"] },
+    minimumIndependentSources: { type: "number", minimum: 2 },
+  },
+  required: ["exactLocalDate", "requiredIdentityTerms", "eventStatus", "minimumIndependentSources"],
+  additionalProperties: false,
+} as const;
+
 const COMPUTER_APPLICATION_PROPERTY = {
   type: "string",
   description: "Target application name from interactiveUse.allowedApplications. Prefer this over relying on the active window.",
@@ -440,7 +458,7 @@ export const TOOL_SCHEMAS: Record<
   },
   web_search: {
     name: "web_search",
-    description: "Search the web through the configured provider. Always pass a JSON object with query and optional domains, recencyDays, maxResults, or verbosity.",
+    description: "Search the web through the configured provider. For exact-date events, begin with broad discovery, pass temporalRequirement, broaden once if evidence is insufficient, then extract strong candidates. The tool fails closed unless independent sources agree on date, identities, and completed status. Publication freshness is not event-date evidence.",
     inputSchema: {
       type: "object",
       properties: {
@@ -452,12 +470,57 @@ export const TOOL_SCHEMAS: Record<
         domains: {
           type: "array",
           items: { type: "string" },
-          description: "Optional domain allowlist that narrows the active network policy.",
+          description: "Optional hard domain allowlist that narrows the active network policy. Use only when the operator or source-authority policy requires these domains; do not invent a discovery shortlist.",
         },
         recencyDays: {
           type: "number",
-          description: "Optional recency filter in days.",
+          description: "Optional publication-recency filter in days. This does not verify when an event occurred.",
         },
+        freshnessRequired: {
+          type: "boolean",
+          description: "When true, reject unless the provider enforces publication recency. Do not enable solely because an event date is recent; temporalRequirement verifies the event date.",
+        },
+        topic: {
+          type: "string",
+          enum: ["general", "news", "finance", "research"],
+          description: "Provider-neutral search topic. Exact-date event discovery defaults to general so fixture, result, and official pages are not excluded.",
+        },
+        quality: {
+          type: "string",
+          enum: ["balanced", "high"],
+          description: "Provider-neutral retrieval quality. High requires a provider with high-precision search.",
+        },
+        startDate: {
+          type: "string",
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+          description: "Optional inclusive publication start date in YYYY-MM-DD format. Never copy an event date here unless publication on that date is itself required.",
+        },
+        endDate: {
+          type: "string",
+          pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+          description: "Optional inclusive publication end date in YYYY-MM-DD format. Never copy an event date here unless publication on that date is itself required.",
+        },
+        country: {
+          type: "string",
+          pattern: "^[A-Za-z]{2}$",
+          description: "Optional provider-neutral country targeting code.",
+        },
+        language: {
+          type: "string",
+          description: "Optional provider-neutral language targeting code.",
+        },
+        targetingRequired: {
+          type: "boolean",
+          description: "When true, country and language targeting are hard requirements. Otherwise unsupported targeting is omitted and audited as a preference.",
+        },
+        exactPhrases: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 10,
+          description: "Optional literal phrases that the selected provider must enforce. Do not use for ordinary entity names already present in the query.",
+        },
+        temporalRequirement: TEMPORAL_EVENT_REQUIREMENT_PROPERTY,
         maxResults: {
           type: "number",
           description: "Maximum number of ranked results to return.",
@@ -496,7 +559,7 @@ export const TOOL_SCHEMAS: Record<
   },
   web_extract: {
     name: "web_extract",
-    description: "Extract readable text or markdown from one or more allowed HTTP(S) URLs through the configured provider. Always pass a JSON object with urls and optional format, maxBytes, timeout, or verbosity.",
+    description: "Extract readable text or markdown from one or more allowed HTTP(S) URLs. For exact-date event claims, pass temporalRequirement to verify full page contents from independent sources.",
     inputSchema: {
       type: "object",
       properties: {
@@ -836,6 +899,7 @@ export const TOOL_SCHEMAS: Record<
           enum: ["content", "files_with_matches", "count"],
           description: "content returns matching lines, files_with_matches returns only file paths, count returns per-file counts.",
         },
+        temporalRequirement: TEMPORAL_EVENT_REQUIREMENT_PROPERTY,
         matchMode: {
           type: "string",
           enum: ["auto", "regex", "literal"],

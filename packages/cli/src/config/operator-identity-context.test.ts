@@ -41,6 +41,7 @@ describe("operator identity context", () => {
     expect(wrapped.contextCandidates).toEqual([
       buildOperatorIdentityContextCandidate({ name: "Alex" }),
     ]);
+    expect(wrapped.operatorTimeZone).toBeUndefined();
     expect(wrapped.buildSystemPrompt?.({
       task: "test",
       domain: {
@@ -59,6 +60,17 @@ describe("operator identity context", () => {
       projectPath: "C:/repo",
     })).toBe("base prompt");
     expect(buildSystemPrompt).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the validated operator timezone as structured runtime configuration", () => {
+    const appConfig: KilnAppConfig = { createRegistry: vi.fn() };
+
+    const wrapped = withGlobalIdentityContext(appConfig, {
+      version: "1",
+      identity: { timezone: "America/Tijuana" },
+    });
+
+    expect(wrapped.operatorTimeZone).toBe("America/Tijuana");
   });
 
   it("returns the original app config when there is no identity context", () => {

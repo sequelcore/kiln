@@ -137,6 +137,7 @@ interface TuiBootstrapOptions {
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
   readonly contextArtifactCache: ContextArtifactCache;
   readonly systemPrompt: string;
+  readonly operatorTimeZone?: string;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
@@ -1005,6 +1006,7 @@ async function bootstrapGatewaySession(
     sessionManager,
     port: flags.port,
     systemPrompt,
+    operatorTimeZone: options.operatorTimeZone,
     onClear: sessionManager.onClear,
     getProviderAvailability: () => getRuntimeProviderAvailability(options.registry),
     contextArtifactCache,
@@ -1490,6 +1492,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     registry,
     contextArtifactCache,
     systemPrompt,
+    operatorTimeZone: runtimeAppConfig.operatorTimeZone,
     builtinToolOptions,
     managedInvocation: managedInvocationForGateway,
     budgetAdmission: runtimeBudgetAdmission,

@@ -684,8 +684,10 @@ standard MCP image content item; text-only consumers still receive the compact
 JSON `output`.
 
 Web metadata covers `web_search`, `web_fetch`, and `web_extract`. `web_search`
-reports provider, query, normalized domain filters, recency, result count,
-retrieval time, ranked sources, errors, and requested verbosity. `web_fetch`
+reports provider, neutral search intent, normalized domain filters, provider
+attempts, strict domain postconditions, provider request/duration/usage
+evidence, retrieval time, ranked sources and relevance scores, errors, and
+requested verbosity. `web_fetch`
 reports source URL, normalized final URL, content type, status, bytes read,
 redirect chain, truncation, errors, and requested verbosity. `web_extract`
 reports requested URLs, format, extraction provider, extracted page evidence,
@@ -758,11 +760,32 @@ web:
   searchProvider:
     type: tavily
     apiKeyEnv: TAVILY_API_KEY
+  searchFallbackProviders:
+    - type: brave
+      apiKeyEnv: BRAVE_API_KEY
+    - type: exa
+      apiKeyEnv: EXA_API_KEY
 ```
 
 Supported `searchProvider.type` values are `none`, `http`, `searxng`, `brave`,
 `tavily`, and `exa`. Providers that need credentials use `apiKeyEnv` so secrets
 stay in the environment rather than `kiln.yaml`.
+
+`searchFallbackProviders` uses the same provider shape in priority order. Kiln
+selects only providers whose declared capabilities satisfy the neutral request
+and falls through on transport failure, strict domain-contract rejection,
+empty evidence, or rejected exact-date event evidence. `web_search` supports
+`topic`, `quality`, `startDate`, `endDate`, `country`, `language`, and
+`exactPhrases`; provider adapters translate those controls without leaking
+vendor fields into model-facing contracts.
+
+Exact-date event questions should not be expressed as publication-date
+queries. Start with a general discovery query and `temporalRequirement`; do not
+copy the event date into `startDate` or `endDate`, invent a domain allowlist, or
+put ordinary entity names in `exactPhrases`. If the first result lacks semantic
+consensus, follow the typed recovery directive: retry once with a materially
+broader query while preserving operator constraints, then call `web_extract`
+on the strongest candidates with the same `temporalRequirement`.
 
 Supported `extractProvider.type` values are `none`, `http`, `tavily`, and
 `firecrawl`. `tavily` uses Tavily Extract; `firecrawl` uses Firecrawl Scrape
@@ -777,12 +800,15 @@ web:
   searchProvider:
     type: tavily
     apiKeyEnv: TAVILY_API_KEY
+  searchFallbackProviders:
+    - type: brave
+      apiKeyEnv: BRAVE_API_KEY
   extractProvider:
     type: firecrawl
     apiKeyEnv: FIRECRAWL_API_KEY
 ```
 
-Global web config only supplies adapters and credential environment variable
+Global web config only supplies adapters, fallback order, and credential environment variable
 names. It cannot enable web access or set network policy. Each project still
 has to declare `web.enabled`, `web.netPolicy`, and optional `allowedDomains` in
 `.kiln/kiln.yaml`; otherwise the effective tool surface remains fail-closed.
@@ -996,7 +1022,7 @@ Open Calculator, click #num2Button, #plusButton, #num3Button, and #equalButton, 
 | `tree` | Produce a compact bounded directory tree | `path`, `depth`, `includeFiles`, `verbosity` | `raw` output is an indented deterministic tree; `structured` is JSON entry data; `summary` is a bounded rollup; metadata includes `path`, `depth`, `includeFiles`, `entryCount`, `truncated`, `verbosity`, and ignored directories |
 | `view_image` | Read an image as model-consumable content | `path`, `detail` | `output` is compact JSON metadata; `content` includes MCP-compatible image data; metadata includes `path`, `mimeType`, `size`, dimensions, and `detail` |
 | `ocr_image` | Extract text from an image through the configured OCR backend | `path`, `language` | `output` is compact JSON text extraction data; metadata includes `path`, `mimeType`, `language`, `textLength`, and optional backend confidence/source |
-| `web_search` | Search the web through the configured provider | `query`, `domains`, `recencyDays`, `maxResults`, `verbosity` | default configuration fails closed; configured providers return ranked sources; metadata includes provider, query, domains, recency, result count, sources, errors, and `verbosity` |
+| `web_search` | Search through capability-aware provider routes | `query`, `domains`, `recencyDays`, `topic`, `quality`, `startDate`, `endDate`, `country`, `language`, `exactPhrases`, `temporalRequirement`, `maxResults`, `verbosity` | default configuration fails closed; strict domain and semantic evidence postconditions govern fallback; metadata preserves provider attempts, request telemetry, intent, ranked sources, and errors |
 | `web_fetch` | Fetch and sanitize allowed HTTP(S) text content | `url`, `maxBytes`, `timeout`, `verbosity` | default configuration requires explicit network policy; output is sanitized text, JSON, or summary; metadata includes source/final URL, status, content type, bytes read, redirect chain, truncation, errors, and `verbosity` |
 | `web_extract` | Extract readable text or markdown from allowed HTTP(S) URLs through the configured provider | `urls`, `format`, `maxBytes`, `timeout`, `verbosity` | default configuration requires explicit network policy and an extract provider; output is page text, JSON, or summary; metadata includes requested URLs, format, provider, page evidence, bytes read, truncation, errors, and `verbosity` |
 | `browser_session_start` | Start or attach an isolated browser automation session | `sessionId`, `url`, `headless`, `timeout`, `verbosity` | default configuration fails closed; configured providers return session and observation evidence; `headless:false` is rejected unless `interactiveUse.browserEnvironment` is `isolated-headed`; metadata includes target, operation, provider, session id, timeout, and artifacts |

@@ -7,6 +7,42 @@ export type {
   ToolResultResourcePayload,
 } from "./domain/tool.js";
 export { TOOL_SCHEMAS } from "./domain/tool.js";
+export type {
+  TemporalEvidenceDecision,
+  TemporalEvidenceObservation,
+  TemporalEvidenceRejectionReason,
+  TemporalEvidenceRequirement,
+  TemporalEventEvidenceRequirement,
+  TurnTemporalContext,
+  TurnTemporalContextInput,
+  WebSearchFreshnessCapability,
+  WebSearchFreshnessDecision,
+  WebSearchFreshnessRequirement,
+  WebTemporalEvidenceSource,
+} from "./domain/temporal-evidence.js";
+export {
+  defineTurnTemporalContext,
+  evaluateTemporalEvidence,
+  evaluateWebSearchTemporalEvidence,
+  parseExplicitEventLocalDate,
+  parseTemporalEventEvidenceRequirement,
+  resolveWebSearchFreshnessCapability,
+} from "./domain/temporal-evidence.js";
+export type {
+  WebSearchDomainPostcondition,
+  WebSearchIntent,
+  WebSearchProviderAttempt,
+  WebSearchProviderAttemptOutcome,
+  WebSearchProviderCapabilities,
+  WebSearchProviderRegistration,
+  WebSearchQuality,
+  WebSearchRecoveryDirective,
+  WebSearchTopic,
+} from "./domain/web-search-governance.js";
+export {
+  findUnmetWebSearchCapabilities,
+  findUnsupportedWebSearchPreferences,
+} from "./domain/web-search-governance.js";
 export { BUILTIN_TOOL_EFFECT_ENVELOPES, getBuiltinEffectEnvelope } from "./domain/tool-effect-envelopes.js";
 export { buildBuiltinInvocationEffectResolvers } from "./infrastructure/invocation-effect-resolvers.js";
 
@@ -375,11 +411,12 @@ export type {
 export { WebFetchTool } from "./infrastructure/web-fetch-tool.js";
 export type {
   WebSearchProvider,
+  WebSearchProviderFailureMetadata,
   WebSearchProviderRequest,
   WebSearchProviderResponse,
   WebSearchToolOptions,
 } from "./infrastructure/web-search-tool.js";
-export { WebSearchTool } from "./infrastructure/web-search-tool.js";
+export { WebSearchProviderError, WebSearchTool } from "./infrastructure/web-search-tool.js";
 export type { WorkspaceResourceProviderOptions } from "./infrastructure/workspace-resource-provider.js";
 export { WorkspaceResourceProvider } from "./infrastructure/workspace-resource-provider.js";
 export type { GitToolOptions } from "./infrastructure/git-tool.js";

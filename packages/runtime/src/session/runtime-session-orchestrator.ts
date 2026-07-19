@@ -43,6 +43,12 @@ import {
   RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
 } from "./runtime-session-orchestrator.types.js";
 import { buildRuntimeTurnSystemPrompt } from "./support/index.js";
+import {
+  assessRuntimeTemporalEvidence,
+  shouldRequestTemporalEvidenceRecovery,
+  temporalEvidenceRefusal,
+  temporalEvidenceRecoveryInstruction,
+} from "./support/context/runtime-temporal-evidence-guard.js";
 import type {
   OrchestratorDeps,
   OrchestrateResult,
@@ -243,7 +249,7 @@ export class RuntimeSessionOrchestrator {
 
     let escalation = this.detectPreLlmEscalation(userParts);
 
-    const system = buildRuntimeTurnSystemPrompt(session, governedContext);
+    const system = buildRuntimeTurnSystemPrompt(session, governedContext, perCallConfig?.temporalContext);
     const routing = await resolveRuntimeSessionRouting(
       this.deps,
       session,
@@ -296,6 +302,7 @@ export class RuntimeSessionOrchestrator {
     let pendingMaterializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[] = [];
 
     let managedInvocationTransitionReserveUsed = false;
+    let temporalEvidenceRecoveryRequested = false;
     for (let round = 0; this.canStartToolRound(round, managedInvocationTransitionReserveUsed, toolExecutions, executionEnvelope); round++) {
       const governedWorkProgress = readGovernedWorkMaterializationProgress(
         perCallConfig?.governedWorkRequirement,
@@ -435,10 +442,27 @@ export class RuntimeSessionOrchestrator {
           session.addUserMessage(textParts(correction));
           continue;
         }
+        const temporalEvidence = assessRuntimeTemporalEvidence({
+          userParts,
+          temporalContext: perCallConfig?.temporalContext,
+          toolExecutions,
+        });
+        if (temporalEvidence.required && shouldRequestTemporalEvidenceRecovery(
+          temporalEvidence,
+          toolExecutions,
+          temporalEvidenceRecoveryRequested,
+        )) {
+          temporalEvidenceRecoveryRequested = true;
+          session.addUserMessage(temporalEvidenceRecoveryInstruction(temporalEvidence));
+          continue;
+        }
+        const responseParts = temporalEvidence.required && !temporalEvidence.accepted
+          ? temporalEvidenceRefusal(perCallConfig!.temporalContext!, temporalEvidence.exactLocalDate)
+          : response.parts;
         return finalizeRuntimeSessionResponse({
           deps: this.deps,
           session,
-          parts: response.parts,
+          parts: responseParts,
           usage: {
             inputTokens: response.inputTokens,
             outputTokens: response.outputTokens,

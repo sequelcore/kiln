@@ -96,6 +96,26 @@ describe("TUI authority forwarding", () => {
     });
   });
 
+  it("carries canonical temporal context into TUI turns", async () => {
+    const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
+    const cfg = buildTuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      undefined,
+      {
+        observedAt: "2026-07-19T04:45:46.720Z",
+        timeZone: "America/Tijuana",
+        localDate: "2026-07-18",
+      },
+    );
+
+    expect(cfg.temporalContext?.localDate).toBe("2026-07-18");
+  });
+
   it("records explicit requested authority on execute-mode TUI turns", async () => {
     const { buildTuiTurnPerCallConfig } = await import("../../src/gateway/tui-gateway.js");
     const cfg = buildTuiTurnPerCallConfig(

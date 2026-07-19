@@ -15,6 +15,8 @@ type BaseOperatorSessionTransportOptions = Pick<
 >;
 
 export interface OperatorSessionTransportOptions extends BaseOperatorSessionTransportOptions {
+  /** IANA timezone from the operator's validated global identity. */
+  readonly operatorTimeZone?: string;
   readonly onContinueSession?: OnContinueSession;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly workingDirectory?: string;

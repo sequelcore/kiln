@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { WebExtractTool, type WebExtractProvider } from "../../../src/tools/infrastructure/web-extract-tool.js";
 import { WebFetchTool, type WebFetchClient } from "../../../src/tools/infrastructure/web-fetch-tool.js";
-import { WebSearchTool, type WebSearchProvider } from "../../../src/tools/infrastructure/web-search-tool.js";
+import {
+  WebSearchProviderError,
+  WebSearchTool,
+  type WebSearchProvider,
+} from "../../../src/tools/infrastructure/web-search-tool.js";
 import {
   normalizeWebDomain,
   normalizeWebUrl,
@@ -197,6 +201,465 @@ describe("WebFetchTool", () => {
 });
 
 describe("WebSearchTool", () => {
+  it("fails closed when a provider violates strict domain postconditions", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({
+      provider: "tavily",
+      requestId: "req-domain-violation",
+      durationMs: 42,
+      sources: [{
+        url: "https://spam.example/result",
+        title: "Unrelated mirror",
+        relevanceScore: 0.91,
+      }],
+    }));
+    const tool = new WebSearchTool({ searchProvider });
+
+    const result = await tool.execute({
+      name: "web_search",
+      input: {
+        query: "official kiln docs",
+        domains: ["docs.example.com"],
+      },
+    }, makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }));
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      errorCode: "provider_contract_violation",
+      providerRequestId: "req-domain-violation",
+      providerDurationMs: 42,
+      domainPostcondition: {
+        enforcement: "strict",
+        acceptedCount: 0,
+        rejectedCount: 1,
+        rejectedSourceIds: ["https://spam.example/result"],
+      },
+    });
+  });
+
+  it("routes to the next capable provider after semantic evidence rejection", async () => {
+    const tavily = vi.fn<WebSearchProvider>(async () => ({
+      provider: "tavily",
+      requestId: "req-tavily",
+      sources: [{
+        url: "https://schedule.example/chivas-toluca",
+        title: "Chivas vs Toluca programado para el 19 de julio de 2026",
+      }],
+    }));
+    const brave = vi.fn<WebSearchProvider>(async () => ({
+      provider: "brave",
+      requestId: "req-brave",
+      sources: [{
+        url: "https://espn.example/match",
+        title: "Chivas 1-0 Toluca, resultado final, 18 de julio de 2026",
+      }, {
+        url: "https://tudn.example/match",
+        snippet: "Resultado final del 18 de julio de 2026: Chivas 1-0 Toluca.",
+      }],
+    }));
+    const tool = new WebSearchTool({
+      searchProviders: [{
+        id: "tavily-primary",
+        search: tavily,
+        capabilities: {
+          provider: "tavily",
+          recencyFilter: "enforced",
+          topics: ["general", "news", "finance"],
+          absoluteDateRange: true,
+          exactMatch: true,
+          countryTargeting: true,
+          languageTargeting: false,
+          highPrecisionSearch: true,
+        },
+      }, {
+        id: "brave-fallback",
+        search: brave,
+        capabilities: {
+          provider: "brave",
+          recencyFilter: "enforced",
+          topics: ["general", "news"],
+          absoluteDateRange: true,
+          exactMatch: true,
+          countryTargeting: true,
+          languageTargeting: true,
+          highPrecisionSearch: true,
+        },
+      }],
+    });
+
+    const result = await tool.execute({
+      name: "web_search",
+      input: {
+        query: "Chivas Toluca resultado hoy",
+        recencyDays: 2,
+        freshnessRequired: true,
+        topic: "news",
+        quality: "high",
+        temporalRequirement: {
+          exactLocalDate: "2026-07-18",
+          requiredIdentityTerms: ["chivas", "toluca"],
+          eventStatus: "completed",
+          minimumIndependentSources: 2,
+        },
+      },
+    }, makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }));
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      provider: "brave",
+      providerRequestId: "req-brave",
+      providerAttempts: [{
+        providerId: "tavily-primary",
+        outcome: "evidence_rejected",
+      }, {
+        providerId: "brave-fallback",
+        outcome: "accepted",
+      }],
+    });
+    expect(tavily).toHaveBeenCalledOnce();
+    expect(brave).toHaveBeenCalledOnce();
+  });
+
+  it("preserves structured failure telemetry before accepting a fallback provider", async () => {
+    const primary = vi.fn<WebSearchProvider>(async () => {
+      throw new WebSearchProviderError("rate limited", {
+        provider: "tavily",
+        requestId: "req-failed",
+        durationMs: 51,
+        status: 429,
+      });
+    });
+    const fallback = vi.fn<WebSearchProvider>(async () => ({
+      provider: "brave",
+      requestId: "req-accepted",
+      durationMs: 37,
+      sources: [{ url: "https://docs.example.com/kiln", title: "Kiln docs" }],
+    }));
+    const capable = (provider: string) => ({
+      provider,
+      recencyFilter: "enforced" as const,
+      topics: ["general" as const],
+      absoluteDateRange: true,
+      exactMatch: true,
+      countryTargeting: true,
+      languageTargeting: true,
+      highPrecisionSearch: true,
+    });
+    const tool = new WebSearchTool({
+      searchProviders: [
+        { id: "primary", search: primary, capabilities: capable("tavily") },
+        { id: "fallback", search: fallback, capabilities: capable("brave") },
+      ],
+    });
+
+    const result = await tool.execute(
+      { name: "web_search", input: { query: "kiln docs", domains: ["docs.example.com"] } },
+      makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      provider: "brave",
+      providerAttempts: [
+        {
+          providerId: "primary",
+          outcome: "provider_failed",
+          requestId: "req-failed",
+          durationMs: 51,
+          providerStatus: 429,
+        },
+        { providerId: "fallback", outcome: "accepted", requestId: "req-accepted", durationMs: 37 },
+      ],
+    });
+  });
+
+  it("rejects providers that cannot satisfy required intent capabilities", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({ sources: [] }));
+    const tool = new WebSearchTool({
+      searchProviders: [{
+        id: "limited-search",
+        search: searchProvider,
+        capabilities: {
+          provider: "limited",
+          recencyFilter: "unsupported",
+          topics: ["general"],
+          absoluteDateRange: false,
+          exactMatch: false,
+          countryTargeting: false,
+          languageTargeting: false,
+          highPrecisionSearch: false,
+        },
+      }],
+    });
+
+    const result = await tool.execute({
+      name: "web_search",
+      input: {
+        query: "latest official result",
+        freshnessRequired: true,
+        recencyDays: 1,
+        topic: "news",
+        quality: "high",
+      },
+    }, makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }));
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      errorCode: "provider_capability_mismatch",
+      providerAttempts: [{
+        providerId: "limited-search",
+        outcome: "capability_rejected",
+        unmetCapabilities: expect.arrayContaining(["recency", "topic:news", "quality:high"]),
+      }],
+    });
+    expect(searchProvider).not.toHaveBeenCalled();
+  });
+
+  it("omits unsupported targeting preferences without rejecting an otherwise capable provider", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({
+      provider: "tavily",
+      sources: [{ url: "https://example.com/match", title: "Match result" }],
+    }));
+    const tool = new WebSearchTool({
+      searchProviders: [{
+        id: "tavily-primary",
+        search: searchProvider,
+        capabilities: {
+          provider: "tavily",
+          recencyFilter: "enforced",
+          topics: ["general", "news", "finance", "research"],
+          absoluteDateRange: true,
+          exactMatch: true,
+          countryTargeting: true,
+          countryTargetingTopics: ["general"],
+          languageTargeting: false,
+          highPrecisionSearch: true,
+        },
+      }],
+    });
+
+    const result = await tool.execute({
+      name: "web_search",
+      input: {
+        query: "Chivas Toluca resultado",
+        topic: "news",
+        country: "MX",
+        language: "es",
+      },
+    }, makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }));
+
+    expect(result.isError).toBe(false);
+    expect(searchProvider).toHaveBeenCalledWith({
+      query: "Chivas Toluca resultado",
+      domains: [],
+      maxResults: 5,
+      topic: "news",
+    });
+    expect(result.metadata).toMatchObject({
+      providerAttempts: [{
+        providerId: "tavily-primary",
+        outcome: "accepted",
+        omittedPreferences: ["country_targeting", "language_targeting"],
+      }],
+    });
+  });
+
+  it("rejects unsupported targeting when the caller explicitly requires it", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>();
+    const tool = new WebSearchTool({
+      searchProviders: [{
+        id: "tavily-primary",
+        search: searchProvider,
+        capabilities: {
+          provider: "tavily",
+          recencyFilter: "enforced",
+          topics: ["news"],
+          absoluteDateRange: true,
+          exactMatch: true,
+          countryTargeting: true,
+          countryTargetingTopics: ["general"],
+          languageTargeting: false,
+          highPrecisionSearch: true,
+        },
+      }],
+    });
+
+    const result = await tool.execute({
+      name: "web_search",
+      input: {
+        query: "noticias mexicanas en español",
+        topic: "news",
+        country: "MX",
+        language: "es",
+        targetingRequired: true,
+      },
+    }, makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }));
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      errorCode: "provider_capability_mismatch",
+      providerAttempts: [{
+        outcome: "capability_rejected",
+        unmetCapabilities: ["country_targeting", "language_targeting"],
+      }],
+    });
+    expect(searchProvider).not.toHaveBeenCalled();
+  });
+
+  it("rejects freshness requirements that do not define a time boundary", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({ sources: [] }));
+    const tool = new WebSearchTool({
+      searchProvider,
+      freshnessCapability: { provider: "tavily", recencyFilter: "enforced" },
+    });
+
+    const result = await tool.execute(
+      { name: "web_search", input: { query: "latest result", freshnessRequired: true } },
+      makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({ errorCode: "invalid_input" });
+    expect(result.output).toContain("freshnessRequired requires recencyDays, startDate, or endDate");
+    expect(searchProvider).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when required freshness is not enforced by the provider", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({ sources: [] }));
+    const tool = new WebSearchTool({
+      searchProvider,
+      freshnessCapability: { provider: "searxng", recencyFilter: "ignored" },
+    });
+
+    const result = await tool.execute(
+      { name: "web_search", input: { query: "score today", freshnessRequired: true, recencyDays: 1 } },
+      makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_search",
+      errorCode: "freshness_not_enforced",
+      freshnessRequired: true,
+      freshnessEnforcement: "not_enforced",
+    });
+    expect(searchProvider).not.toHaveBeenCalled();
+  });
+
+  it("records enforced required freshness in search metadata", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({ sources: [] }));
+    const tool = new WebSearchTool({
+      searchProvider,
+      freshnessCapability: { provider: "tavily", recencyFilter: "enforced" },
+    });
+
+    const result = await tool.execute(
+      { name: "web_search", input: { query: "score today", freshnessRequired: true, recencyDays: 1 } },
+      makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      toolName: "web_search",
+      freshnessRequired: true,
+      freshnessEnforcement: "enforced",
+    });
+  });
+
+  it("fails closed when temporal event evidence lacks independent semantic consensus", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({
+      provider: "tavily",
+      retrievedAt: "2026-07-19T05:34:48.312Z",
+      sources: [{
+        url: "https://www.espn.com.mx/futbol/partido/401877039",
+        title: "Guadalajara vs. Toluca (18 de Jul., 2026) Resultados en Vivo",
+        snippet: "Partido programado.",
+      }],
+    }));
+    const tool = new WebSearchTool({
+      searchProvider,
+      freshnessCapability: { provider: "tavily", recencyFilter: "enforced" },
+    });
+
+    const result = await tool.execute({
+      name: "web_search",
+      input: {
+        query: "Guadalajara Toluca resultado hoy",
+        freshnessRequired: true,
+        recencyDays: 2,
+        temporalRequirement: {
+          exactLocalDate: "2026-07-18",
+          requiredIdentityTerms: ["guadalajara", "toluca"],
+          eventStatus: "completed",
+          minimumIndependentSources: 2,
+        },
+      },
+    }, makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }));
+
+    expect(result.isError).toBe(true);
+    expect(result.metadata).toMatchObject({
+      errorCode: "temporal_evidence_rejected",
+      temporalEvidence: {
+        accepted: false,
+        reason: "independent_source_consensus_missing",
+      },
+      recoveryDirective: {
+        kind: "progressive_web_research",
+        action: "broaden_search",
+        constraintPolicy: "relax_only_agent_added",
+        preserveTemporalRequirement: true,
+        nextActions: ["broaden_search", "extract_candidates"],
+      },
+    });
+    expect(result.output).toContain("Retry web_search with a broader discovery query");
+    expect(result.output).toContain("Do not copy the event date into publication-date filters");
+    expect(searchProvider).toHaveBeenCalledWith(expect.objectContaining({
+      topic: "general",
+      quality: "high",
+    }));
+  });
+
+  it("returns accepted temporal evidence when independent completed-event sources agree", async () => {
+    const searchProvider = vi.fn<WebSearchProvider>(async () => ({
+      provider: "tavily",
+      retrievedAt: "2026-07-19T05:34:48.312Z",
+      sources: [{
+        url: "https://www.espn.com.mx/match",
+        title: "Guadalajara 0-2 Toluca (18 de Jul., 2026) Resultado Final",
+      }, {
+        url: "https://www.tudn.com/match",
+        title: "Guadalajara vs Toluca",
+        snippet: "Resultado final del 18 de julio de 2026: Guadalajara 0-2 Toluca.",
+      }],
+    }));
+    const tool = new WebSearchTool({
+      searchProvider,
+      freshnessCapability: { provider: "tavily", recencyFilter: "enforced" },
+    });
+
+    const result = await tool.execute({
+      name: "web_search",
+      input: {
+        query: "Guadalajara Toluca resultado hoy",
+        freshnessRequired: true,
+        recencyDays: 2,
+        temporalRequirement: {
+          exactLocalDate: "2026-07-18",
+          requiredIdentityTerms: ["guadalajara", "toluca"],
+          eventStatus: "completed",
+          minimumIndependentSources: 2,
+        },
+      },
+    }, makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }));
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      temporalEvidence: {
+        accepted: true,
+        acceptedSourceIds: ["https://www.espn.com.mx/match", "https://www.tudn.com/match"],
+      },
+    });
+  });
+
   it("fails closed when no search provider is configured", async () => {
     const tool = new WebSearchTool();
 
@@ -462,9 +925,43 @@ describe("WebSearchTool", () => {
       maxResults: 5,
     });
   });
+
 });
 
 describe("WebExtractTool", () => {
+  it("verifies temporal event consensus from full independent page content", async () => {
+    const extractProvider = vi.fn<WebExtractProvider>(async () => ({
+      provider: "tavily",
+      retrievedAt: "2026-07-19T05:34:48.312Z",
+      pages: [{
+        url: "https://www.espn.com.mx/match",
+        text: "Resultado final del 18 de julio de 2026: Guadalajara 0-2 Toluca.",
+      }, {
+        url: "https://www.tudn.com/match",
+        text: "Guadalajara contra Toluca terminó el 18 de julio de 2026. Marcador final 0-2.",
+      }],
+    }));
+    const tool = new WebExtractTool({ extractProvider });
+
+    const result = await tool.execute({
+      name: "web_extract",
+      input: {
+        urls: ["https://www.espn.com.mx/match", "https://www.tudn.com/match"],
+        temporalRequirement: {
+          exactLocalDate: "2026-07-18",
+          requiredIdentityTerms: ["guadalajara", "toluca"],
+          eventStatus: "completed",
+          minimumIndependentSources: 2,
+        },
+      },
+    }, makeSandbox("C:/workspace", { netPolicy: "full", allowedDomains: ["*"] }));
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata).toMatchObject({
+      temporalEvidence: { accepted: true },
+    });
+  });
+
   it("extracts allowed pages through the provider with structured output and metadata", async () => {
     const extractProvider = vi.fn<WebExtractProvider>(async () => ({
       provider: "test-extract",

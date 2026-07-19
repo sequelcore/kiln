@@ -342,6 +342,10 @@ describe("config-merger", () => {
           type: "tavily",
           apiKeyEnv: "TAVILY_API_KEY",
         },
+        searchFallbackProviders: [{
+          type: "brave",
+          apiKeyEnv: "BRAVE_API_KEY",
+        }],
         extractProvider: {
           type: "firecrawl",
           apiKeyEnv: "FIRECRAWL_API_KEY",
@@ -354,6 +358,10 @@ describe("config-merger", () => {
         type: "tavily",
         apiKeyEnv: "TAVILY_API_KEY",
       },
+      searchFallbackProviders: [{
+        type: "brave",
+        apiKeyEnv: "BRAVE_API_KEY",
+      }],
       extractProvider: {
         type: "firecrawl",
         apiKeyEnv: "FIRECRAWL_API_KEY",

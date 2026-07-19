@@ -22,6 +22,7 @@ import type {
   SessionExecutionScope,
   SessionTurnOutcome,
   ConversationToolResultProjectionPolicy,
+  TurnTemporalContext,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { McpClient } from "@kilnai/core";
@@ -317,6 +318,8 @@ export interface ModelRoutingPolicyConfig {
 
 export interface PerCallToolConfig {
   readonly turnId?: string;
+  /** Per-turn temporal reference, derived at the operator surface rather than persisted in the session prompt. */
+  readonly temporalContext?: TurnTemporalContext;
   readonly executionScope?: SessionExecutionScope;
   readonly workingDirectory?: string;
   readonly governedWorkRequirement?: {

@@ -746,13 +746,15 @@ function projectSearchResultsPresentation(
     ...readSearchResultsFromRecord(outputRecord),
     ...parseSearchResultsText(text),
   ]);
-  if (searchResults.length === 0) return null;
+  const freshnessFields = projectSearchFreshnessFields(effectiveMetadata);
+  if (searchResults.length === 0 && freshnessFields.length === 0) return null;
   const summary = compactText(text);
   const preview = compactPreview(text);
   const fields = [
-    field("Results", searchResults.length),
+    ...(searchResults.length > 0 ? [field("Results", searchResults.length)] : []),
     field("Query", effectiveMetadata?.query),
     field("Source", readString(effectiveMetadata?.toolName) ?? toolName),
+    ...freshnessFields,
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   return {
     outputKind: "search_results",
@@ -765,6 +767,69 @@ function projectSearchResultsPresentation(
     ...(resourceLinks.length > 0 ? { resourceLinks } : {}),
     raw: toolResultRawAvailability(resourceLinks),
   };
+}
+
+function projectSearchFreshnessFields(metadata: Record<string, unknown> | undefined): readonly OperatorEventDetailItem[] {
+  if (!metadata) return [];
+  const required = metadata.freshnessRequired === true;
+  const enforcement = readString(metadata.freshnessEnforcement);
+  const freshness = required
+    ? `required · ${enforcement === "enforced" ? "enforced" : "not enforced"}`
+    : undefined;
+  const sources = Array.isArray(metadata.sources) ? metadata.sources : [];
+  const datedSources = sources.filter((source) => readString(asRecord(source)?.publishedAt) !== null).length;
+  const attempts = Array.isArray(metadata.providerAttempts) ? metadata.providerAttempts : [];
+  const omittedPreferences = [...new Set(attempts.flatMap((attempt) => {
+    const values = asRecord(attempt)?.omittedPreferences;
+    return Array.isArray(values)
+      ? values.filter((value): value is string => typeof value === "string")
+      : [];
+  }))];
+  const postcondition = asRecord(metadata.domainPostcondition);
+  const acceptedCount = readNumber(postcondition?.acceptedCount);
+  const rejectedCount = readNumber(postcondition?.rejectedCount);
+  const postconditionEnforcement = readString(postcondition?.enforcement);
+  const provider = readString(metadata.provider);
+  const providerRequestId = readString(metadata.providerRequestId);
+  const providerDurationMs = readNumber(metadata.providerDurationMs);
+  return [
+    field("Provider route", provider
+      ? `${provider}${attempts.length > 0 ? ` via ${attempts.length} attempt${attempts.length === 1 ? "" : "s"}` : ""}`
+      : undefined),
+    field("Omitted preferences", omittedPreferences.length > 0
+      ? omittedPreferences.map((preference) => preference.replaceAll("_", " ")).join(", ")
+      : undefined),
+    field("Domain compliance", postconditionEnforcement && acceptedCount !== null && rejectedCount !== null
+      ? `${postconditionEnforcement} · ${acceptedCount} accepted · ${rejectedCount} rejected`
+      : undefined),
+    field("Provider request", providerRequestId),
+    field("Provider latency", providerDurationMs !== null ? `${providerDurationMs} ms` : undefined),
+    field("Freshness", freshness),
+    field("Freshness rejection", metadata.errorCode === "freshness_not_enforced"
+      ? "Provider cannot enforce recency filtering"
+      : undefined),
+    field("Retrieved at", readString(metadata.retrievedAt)),
+    ...projectTemporalEvidenceFields(metadata),
+    ...(sources.length > 0 ? [field("Dated sources", `${datedSources} of ${sources.length}`)] : []),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
+}
+
+function projectTemporalEvidenceFields(metadata: Record<string, unknown> | undefined): readonly OperatorEventDetailItem[] {
+  const temporalRequirement = asRecord(metadata?.temporalRequirement);
+  const temporalEvidence = asRecord(metadata?.temporalEvidence);
+  const recoveryDirective = asRecord(metadata?.recoveryDirective);
+  const acceptedSourceIds = Array.isArray(temporalEvidence?.acceptedSourceIds)
+    ? temporalEvidence.acceptedSourceIds.filter((value): value is string => typeof value === "string")
+    : [];
+  return [
+    field("Event evidence", temporalEvidence?.accepted === true ? "verified" : temporalEvidence ? "rejected" : undefined),
+    field("Independent sources", temporalEvidence ? acceptedSourceIds.length : undefined),
+    field("Event date", readString(temporalRequirement?.exactLocalDate)),
+    field("Recovery", recoveryDirective?.kind === "progressive_web_research"
+      && recoveryDirective.action === "broaden_search"
+      ? "Broaden search, then extract candidates"
+      : undefined),
+  ].filter((item): item is OperatorEventDetailItem => item !== null);
 }
 
 function readSearchOutputText(output: string | undefined, outputRecord: Record<string, unknown> | null): string {
@@ -922,6 +987,7 @@ function projectTextPresentation(
     field("Path", filePath),
     field("Lines", totalLines),
     field("Bytes", totalBytes),
+    ...projectTemporalEvidenceFields(metadata),
   ].filter((item): item is OperatorEventDetailItem => item !== null);
   const preview = compactPreview(text);
   const operation = readString(metadata?.operation);
@@ -1428,7 +1494,8 @@ function projectFailedToolPresentation(
     ),
     title: `${sentenceFromKey(toolName)} failed`,
     summary: message,
-    fields: [field("Path", filePath)].filter((item): item is OperatorEventDetailItem => item !== null),
+    fields: [field("Path", filePath), ...projectTemporalEvidenceFields(metadata)]
+      .filter((item): item is OperatorEventDetailItem => item !== null),
     diagnostic: {
       ...(code ? { code } : {}),
       message,

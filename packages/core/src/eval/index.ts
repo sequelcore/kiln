@@ -50,6 +50,13 @@ export {
   KILN_EXTERNAL_BENCHMARK_TRACKS,
   evaluateBenchmarkReadiness,
 } from "./benchmark-baseline.js";
+export { evaluateWebRetrievalBenchmark, projectWebRetrievalObservation } from "./web-retrieval-benchmark.js";
+export type {
+  WebRetrievalBenchmarkCase,
+  WebRetrievalBenchmarkObservation,
+  WebRetrievalBenchmarkReport,
+  WebRetrievalProviderMetrics,
+} from "./web-retrieval-benchmark.js";
 export { evaluateProgressiveLoadingPromotion } from "./progressive-loading-benchmark.js";
 export type {
   ProgressiveLoadingObservation,

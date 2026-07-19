@@ -189,6 +189,15 @@ describe("global-config", () => {
       ].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("identity.timezone must be a non-empty string");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "identity:",
+        "  timezone: Not/A_Timezone",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow("identity.timezone must be a valid IANA time zone");
   });
 
   it("readGlobalConfig() validates active instruction profiles", () => {

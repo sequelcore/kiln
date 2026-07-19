@@ -188,6 +188,7 @@ function mergeWeb(
     ...base,
     ...override,
     searchProvider: override?.searchProvider ?? base?.searchProvider,
+    searchFallbackProviders: override?.searchFallbackProviders ?? base?.searchFallbackProviders,
     extractProvider: override?.extractProvider ?? base?.extractProvider,
     allowedDomains: override?.allowedDomains ?? base?.allowedDomains,
   };

@@ -877,6 +877,194 @@ describe("operator event presentation", () => {
     expect(presentation.details).toContainEqual({ label: "Tool usage", value: "web_search 3" });
   });
 
+  it("projects enforced freshness and dated-source evidence for web search results", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      outputSummary: "Found 1 source",
+      metadata: {
+        toolName: "web_search",
+        kind: "web",
+        operation: "search",
+        provider: "tavily",
+        freshnessRequired: true,
+        freshnessEnforcement: "enforced",
+        retrievedAt: "2026-07-19T04:45:46.720Z",
+        sources: [{
+          title: "Match result",
+          url: "https://example.com/match",
+          publishedAt: "2026-07-18T23:00:00.000Z",
+        }],
+      },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Freshness", value: "required · enforced" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Retrieved at", value: "2026-07-19T04:45:46.720Z" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Dated sources", value: "1 of 1" });
+  });
+
+  it("projects provider routing and strict postcondition evidence", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      outputSummary: "Found one governed source",
+      metadata: {
+        toolName: "web_search",
+        kind: "web",
+        operation: "search",
+        provider: "brave",
+        providerRequestId: "req-brave",
+        providerDurationMs: 84,
+        providerAttempts: [
+          {
+            providerId: "tavily-primary",
+            outcome: "contract_rejected",
+            omittedPreferences: ["country_targeting", "language_targeting"],
+          },
+          { providerId: "brave-fallback-1", outcome: "accepted" },
+        ],
+        domainPostcondition: {
+          enforcement: "strict",
+          acceptedCount: 1,
+          rejectedCount: 0,
+          rejectedSourceIds: [],
+        },
+        sources: [{ title: "Docs", url: "https://docs.example.com/kiln" }],
+      },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Provider route", value: "brave via 2 attempts" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({
+      label: "Omitted preferences",
+      value: "country targeting, language targeting",
+    });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Domain compliance", value: "strict · 1 accepted · 0 rejected" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Provider request", value: "req-brave" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Provider latency", value: "84 ms" });
+  });
+
+  it("projects fail-closed freshness rejection even when a web search returns no sources", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      outputSummary: "Web search requires a provider that enforces recency filtering.",
+      metadata: {
+        toolName: "web_search",
+        kind: "web",
+        operation: "search",
+        provider: "searxng",
+        freshnessRequired: true,
+        freshnessEnforcement: "not_enforced",
+        errorCode: "freshness_not_enforced",
+      },
+      status: { state: "failed" },
+    });
+
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Freshness", value: "required · not enforced" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Freshness rejection", value: "Provider cannot enforce recency filtering" });
+  });
+
+  it("projects semantic event consensus separately from provider freshness", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      outputSummary: "Verified event evidence",
+      metadata: {
+        toolName: "web_search",
+        kind: "web",
+        operation: "search",
+        freshnessRequired: true,
+        freshnessEnforcement: "enforced",
+        temporalRequirement: {
+          exactLocalDate: "2026-07-18",
+          requiredIdentityTerms: ["guadalajara", "toluca"],
+          eventStatus: "completed",
+          minimumIndependentSources: 2,
+        },
+        temporalEvidence: {
+          accepted: true,
+          acceptedSourceIds: ["https://espn.com.mx/match", "https://tudn.com/match"],
+          rejectedSourceIds: [],
+        },
+        sources: [{ title: "Final", url: "https://espn.com.mx/match" }],
+      },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Event evidence", value: "verified" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Independent sources", value: "2" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Event date", value: "2026-07-18" });
+  });
+
+  it("projects progressive recovery when exact-date evidence is insufficient", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      outputSummary: "Event evidence is insufficient",
+      metadata: {
+        toolName: "web_search",
+        kind: "web",
+        operation: "search",
+        errorCode: "temporal_evidence_rejected",
+        temporalRequirement: {
+          exactLocalDate: "2026-07-18",
+          requiredIdentityTerms: ["chivas", "toluca"],
+          eventStatus: "completed",
+          minimumIndependentSources: 2,
+        },
+        temporalEvidence: {
+          accepted: false,
+          reason: "independent_source_consensus_missing",
+          acceptedSourceIds: [],
+          rejectedSourceIds: ["https://record.example/index"],
+        },
+        recoveryDirective: {
+          kind: "progressive_web_research",
+          action: "broaden_search",
+          constraintPolicy: "relax_only_agent_added",
+          preserveTemporalRequirement: true,
+          nextActions: ["broaden_search", "extract_candidates"],
+        },
+      },
+      status: { state: "failed" },
+    });
+
+    expect(presentation.toolPresentation?.fields).toContainEqual({
+      label: "Recovery",
+      value: "Broaden search, then extract candidates",
+    });
+  });
+
+  it("projects semantic consensus verified from extracted full pages", () => {
+    const presentation = presentOperatorEventPayload("tool_call_completed", {
+      toolCallId: "tool-1",
+      toolName: "web_extract",
+      outputSummary: "Extracted two pages",
+      metadata: {
+        toolName: "web_extract",
+        kind: "web",
+        operation: "extract",
+        temporalRequirement: {
+          exactLocalDate: "2026-07-18",
+          requiredIdentityTerms: ["guadalajara", "toluca"],
+          eventStatus: "completed",
+          minimumIndependentSources: 2,
+        },
+        temporalEvidence: {
+          accepted: true,
+          acceptedSourceIds: ["https://espn.com.mx/match", "https://tudn.com/match"],
+          rejectedSourceIds: [],
+        },
+      },
+      status: { state: "succeeded" },
+    });
+
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Event evidence", value: "verified" });
+    expect(presentation.toolPresentation?.fields).toContainEqual({ label: "Independent sources", value: "2" });
+  });
+
   it("marks completed tool events as failed when the tool result envelope is an error", () => {
     const presentation = presentOperatorEventPayload("tool_call_completed", {
       toolCallId: "tool-1",

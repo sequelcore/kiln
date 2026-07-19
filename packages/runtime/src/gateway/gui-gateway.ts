@@ -13,6 +13,8 @@ import {
   type ReasoningEffort,
   type ToolAuthorizedEvent,
   type DefaultBuiltinToolRegistryOptions,
+  defineTurnTemporalContext,
+  type TurnTemporalContext,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { ExecutionSessionEvent } from "@kilnai/core";
@@ -1785,6 +1787,12 @@ function wireOperatorTransport(
                 requestedAuthority,
                 input.transport.workingDirectory,
                 governedWorkRequirement,
+                input.transport.operatorTimeZone
+                  ? defineTurnTemporalContext({
+                    observedAt: new Date().toISOString(),
+                    timeZone: input.transport.operatorTimeZone,
+                  })
+                  : undefined,
               );
               turnPerCallConfig = {
                 ...turnPerCallConfig,
@@ -1939,6 +1947,7 @@ export function buildGuiTurnPerCallConfig(
   requestedAuthority?: OperatorTurnRequestedAuthority,
   workingDirectory?: string,
   governedWorkRequirement?: PerCallToolConfig["governedWorkRequirement"],
+  temporalContext?: TurnTemporalContext,
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
@@ -1951,6 +1960,7 @@ export function buildGuiTurnPerCallConfig(
     builtinToolSurface,
     executionMode,
     requestedAuthority,
+    ...(temporalContext ? { temporalContext } : {}),
     authorityContext: {
       executionUse: "operator_interactive",
       sessionPolicy: {

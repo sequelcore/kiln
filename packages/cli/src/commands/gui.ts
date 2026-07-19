@@ -305,6 +305,7 @@ export async function guiCommand(
       ttsAdapter: operatorVoice.ttsAdapter,
       executionMode: flags.plan ? "plan" : "execute",
       managedInvocation: managedInvocationForGateway,
+      operatorTimeZone: runtimeAppConfig.operatorTimeZone,
       budgetAdmission: runtimeBudgetAdmission,
       workingDirectory: cwd,
       domainLabel: bootstrapContext.domainLabel,

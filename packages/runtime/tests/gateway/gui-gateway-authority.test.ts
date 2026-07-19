@@ -152,6 +152,32 @@ describe("GUI authority forwarding", () => {
     expect(cfg.toolAllowlist?.has("shell_command")).toBe(false);
   });
 
+  it("carries canonical temporal context into GUI turns", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth",
+      "gpt-5.4-mini",
+      undefined,
+      undefined,
+      undefined,
+      "execute",
+      undefined,
+      undefined,
+      undefined,
+      {
+        observedAt: "2026-07-19T04:45:46.720Z",
+        timeZone: "America/Tijuana",
+        localDate: "2026-07-18",
+      },
+    );
+
+    expect(cfg.temporalContext).toEqual({
+      observedAt: "2026-07-19T04:45:46.720Z",
+      timeZone: "America/Tijuana",
+      localDate: "2026-07-18",
+    });
+  });
+
   it("carries the selected GUI workspace into the admitted turn config", async () => {
     const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
     const cfg = buildGuiTurnPerCallConfig(
