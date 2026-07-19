@@ -206,7 +206,7 @@ describe("operator event presentation", () => {
     });
 
     expect(presentation).toMatchObject({
-      title: "Failed read",
+      title: "Failed to read files",
       summary: message,
       tone: "error",
       toolPresentation: {
@@ -825,13 +825,40 @@ describe("operator event presentation", () => {
       status: { state: "succeeded" },
     });
 
-    expect(started.title).toBe("Using read_many");
+    expect(started.title).toBe("Reading files");
     expect(started.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
     expect(operatorEventTargetsSurface(started, "conversation_inline")).toBe(true);
 
-    expect(completed.title).toBe("Completed read_many");
+    expect(completed.title).toBe("Read files");
     expect(completed.summary).toBe("24 files read, 109 skipped");
     expect(completed.surfaces).toEqual(["conversation_inline", "activity_panel", "inspector"]);
+  });
+
+  it("uses human action labels for common tool families while retaining tool identity in details", () => {
+    const cases = [
+      { toolName: "web_search", started: "Searching the web", completed: "Searched the web" },
+      { toolName: "shell_command", started: "Running command", completed: "Ran command" },
+      { toolName: "rg", started: "Searching files", completed: "Searched files" },
+      { toolName: "patch", started: "Editing files", completed: "Edited files" },
+      { toolName: "browser_navigate", started: "Opening page", completed: "Opened page" },
+    ] as const;
+
+    for (const item of cases) {
+      const started = presentOperatorEventPayload("tool_call_started", {
+        toolCallId: `started-${item.toolName}`,
+        toolName: item.toolName,
+        input: {},
+      });
+      const completed = presentOperatorEventPayload("tool_call_completed", {
+        toolCallId: `completed-${item.toolName}`,
+        toolName: item.toolName,
+        status: { state: "succeeded" },
+      });
+
+      expect(started.title).toBe(item.started);
+      expect(completed.title).toBe(item.completed);
+      expect(completed.details).toContainEqual({ label: "Tool", value: item.toolName });
+    }
   });
 
   it("surfaces tool usage counts on completed tool events", () => {

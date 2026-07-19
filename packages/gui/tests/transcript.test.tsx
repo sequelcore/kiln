@@ -271,6 +271,9 @@ describe("Transcript", () => {
     );
 
     expect(document.querySelectorAll('[data-slot="ai-tool-group"]')).toHaveLength(1);
+    const group = document.querySelector('[data-slot="ai-tool-group"]');
+    expect(group).toHaveAttribute("data-presentation", "trace");
+    expect(group).toHaveAttribute("data-framing", "none");
     expect(screen.getByRole("button", { name: "Working · 3 actions. Hide actions" })).toBeVisible();
     expect(within(screen.getByRole("list", { name: "Tool activity" })).getAllByRole("listitem")).toHaveLength(3);
     expect(document.querySelectorAll('[data-slot="ai-tool"]')).toHaveLength(3);
@@ -379,10 +382,10 @@ describe("Transcript", () => {
     expect(tools).toHaveLength(4);
     expect(document.querySelectorAll('[data-slot="ai-tool-header"]')).toHaveLength(4);
     expect(document.querySelectorAll('[data-slot="ai-tool-status"]')).toHaveLength(4);
-    expect(screen.getByRole("button", { name: /read\. Running\. Show details/u })).toBeVisible();
-    expect(screen.getByRole("button", { name: /read\. Completed\. Show details/u })).toBeVisible();
-    expect(screen.getByRole("button", { name: /work_item\.execution\.start\. Paused\. Show details/u })).toBeVisible();
-    expect(screen.getByRole("button", { name: /goal\.create\. Failed\. Hide details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Using read\. Running\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Completed read\. Completed\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Execution paused\. Paused\. Show details/u })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Failed goal\.create\. Failed\. Hide details/u })).toBeVisible();
   });
 
   it("renders structured tool diagnostics without a JSON dump", () => {
@@ -2012,11 +2015,16 @@ describe("Transcript", () => {
     );
 
     const toolRow = screen.getAllByRole("article")[1]!;
+    const tool = toolRow.querySelector('[data-slot="ai-tool"]');
     const toolEvent = toolRow.querySelector('[data-role="tool-event"]');
-    expect(toolRow.querySelector('[data-slot="ai-tool"]')).toHaveAttribute("data-state", "running");
+    expect(tool).toHaveAttribute("data-state", "running");
+    expect(tool).toHaveAttribute("data-presentation", "trace");
+    expect(tool).toHaveAttribute("data-framing", "none");
     expect(toolEvent).toHaveTextContent("Execution in progress");
     expect(toolEvent).toHaveAttribute("data-slot", "ai-tool-header");
     expect(toolRow.querySelector('[data-slot="ai-tool-status"]')).toHaveTextContent("Running");
+    expect(toolRow.querySelector('[data-slot="ai-tool-status"]')).not.toHaveAttribute("data-slot", "badge");
+    expect(tool?.querySelector('[data-slot="badge"]')).toBeNull();
     expect(toolRow.querySelector('[data-slot="ai-tool-status"] svg')).toHaveClass("motion-safe:animate-spin");
     expect(toolRow.querySelector('[data-role="active-tool-beam"]')).not.toBeInTheDocument();
   });
@@ -2031,7 +2039,7 @@ describe("Transcript", () => {
             type: "event",
             eventKind: "tool_call_started",
             createdAt: new Date().toISOString(),
-            title: "Using managed_agent.invoke",
+            title: "Delegating architecture review",
             summary: "foundation-readonly-plan via codex-oauth/gpt-5.5 (direct-provider) · Execution in progress",
             tone: "running",
             details: {
@@ -2063,6 +2071,8 @@ describe("Transcript", () => {
     );
 
     const row = screen.getAllByRole("article")[1]!;
+    expect(row).toHaveTextContent("Delegating architecture review");
+    expect(row).not.toHaveTextContent("managed_agent.invoke");
     expect(row).toHaveTextContent("gpt-5.5");
     expect(row).toHaveTextContent("direct-provider");
     fireEvent.click(within(row).getByRole("button", { name: /Show details$/u }));

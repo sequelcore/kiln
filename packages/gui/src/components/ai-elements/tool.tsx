@@ -1,7 +1,6 @@
 import type { ComponentProps } from "react";
 import { CheckCircle2, ChevronDown, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
@@ -25,13 +24,13 @@ function ToolStatus(props: { readonly state: ToolState }) {
   const label = TOOL_STATE_LABELS[props.state];
   const Icon = TOOL_STATE_ICONS[props.state];
   return (
-    <Badge
+    <span
       className={cn(
-        "shrink-0 gap-1 px-1.5 py-0 font-normal",
-        props.state === "paused" ? "border-warning/40 text-warning" : null,
+        "inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground",
+        props.state === "paused" ? "text-warning" : null,
+        props.state === "failed" ? "text-destructive" : null,
       )}
       data-slot="ai-tool-status"
-      variant={props.state === "failed" ? "destructive" : "outline"}
     >
       <Icon
         aria-hidden="true"
@@ -40,24 +39,19 @@ function ToolStatus(props: { readonly state: ToolState }) {
           props.state === "completed" ? "text-success" : null,
         )}
       />
-      {label}
-    </Badge>
+      <span className={props.state === "completed" ? "sr-only" : undefined}>{label}</span>
+    </span>
   );
 }
 
-export type ToolProps = ComponentProps<typeof Collapsible> & {
-  readonly state: ToolState;
-  readonly variant?: "outline" | "ghost";
-};
+export type ToolProps = ComponentProps<typeof Collapsible> & { readonly state: ToolState };
 
-export function Tool({ className, state, variant = "outline", ...props }: ToolProps) {
+export function Tool({ className, state, ...props }: ToolProps) {
   return (
     <Collapsible
-      className={cn(
-        "w-full min-w-0 overflow-hidden",
-        variant === "outline" ? "rounded-lg border border-border/70 bg-card/65" : "bg-transparent",
-        className,
-      )}
+      className={cn("w-full min-w-0", className)}
+      data-framing="none"
+      data-presentation="trace"
       data-slot="ai-tool"
       data-state={state}
       {...props}
@@ -89,14 +83,14 @@ export function ToolHeader({
     <CollapsibleTrigger
       aria-label={`${title}. ${stateLabel}. ${expanded ? "Hide" : "Show"} details`}
       className={cn(
-        "group/tool-header flex w-full min-w-0 items-center gap-2 px-2.5 py-2 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+        "group/tool-header flex w-full min-w-0 items-center gap-2 py-1.5 text-left text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/70",
         className,
       )}
       data-slot="ai-tool-header"
       type="button"
       {...props}
     >
-      <span className="min-w-0 truncate font-mono text-[11px] font-medium text-foreground">{title}</span>
+      <span className="min-w-0 truncate text-xs font-medium text-current">{title}</span>
       <ToolStatus state={state} />
       {summary ? (
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={summary}>
@@ -118,14 +112,13 @@ export function ToolHeader({
   );
 }
 
-export type ToolContentProps = ComponentProps<typeof CollapsibleContent> & { readonly variant?: "outline" | "ghost" };
+export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 
-export function ToolContent({ className, variant = "outline", ...props }: ToolContentProps) {
+export function ToolContent({ className, ...props }: ToolContentProps) {
   return (
     <CollapsibleContent
       className={cn(
-        "min-w-0 px-3 py-3 text-popover-foreground outline-none data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-safe:transition-opacity",
-        variant === "outline" ? "border-t border-border/60" : "border-t border-border/45",
+        "ml-1.5 min-w-0 border-l border-border/55 py-2 pl-5 text-popover-foreground outline-none data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-safe:transition-opacity",
         className,
       )}
       data-slot="ai-tool-content"

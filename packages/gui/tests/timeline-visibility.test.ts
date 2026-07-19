@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { OperatorSessionEvent, OperatorSessionEventKind } from "@kilnai/gateway-contracts";
 import type { TimelineEntry } from "../src/lib/session-store.js";
-import { isActivityTimelineEntry, isConversationTimelineEntry } from "../src/lib/timeline-visibility.js";
+import { isActivityTimelineEntry, projectConversationTimelineEntries } from "../src/lib/timeline-visibility.js";
 
 const createdAt = "2026-04-29T00:00:00.000Z";
-type TimelineEventKind = Extract<TimelineEntry, { type: "event" }>["eventKind"];
 
 function messageEntry(role: "user" | "assistant", content: string): TimelineEntry {
   return {
@@ -19,43 +19,81 @@ function messageEntry(role: "user" | "assistant", content: string): TimelineEntr
   };
 }
 
-function eventEntry(eventKind: TimelineEventKind): TimelineEntry {
+function eventEntry(event: OperatorSessionEvent, details?: unknown): TimelineEntry {
   return {
-    id: `event:${eventKind}`,
+    id: `timeline:${event.eventId}`,
     type: "event",
-    eventKind,
+    eventKind: event.kind,
     createdAt,
-    title: eventKind.replace(/_/g, " "),
+    title: event.kind.replace(/_/g, " "),
     tone: "info",
+    details,
+  };
+}
+
+function sessionEvent(kind: OperatorSessionEventKind, sequence: number, payload: Record<string, unknown> = {}): OperatorSessionEvent {
+  return {
+    eventId: `event-${sequence}`,
+    kilnSessionId: "session-1",
+    sequence,
+    timestamp: createdAt,
+    kind,
+    turnId: "turn-1",
+    source: { actor: "runtime", surface: "gui" },
+    payload,
   };
 }
 
 describe("timeline visibility", () => {
   it("keeps conversational messages, tool calls, terminal agent results, and approvals in the transcript", () => {
-    expect(isConversationTimelineEntry(messageEntry("user", "hi"))).toBe(true);
-    expect(isConversationTimelineEntry(messageEntry("assistant", "hello"))).toBe(true);
-    expect(isConversationTimelineEntry(eventEntry("tool_call_started"))).toBe(true);
-    expect(isConversationTimelineEntry(eventEntry("tool_call_completed"))).toBe(true);
-    expect(isConversationTimelineEntry(eventEntry("agent_invocation_completed"))).toBe(true);
-    expect(isConversationTimelineEntry(eventEntry("agent_invocation_failed"))).toBe(true);
-    expect(isConversationTimelineEntry(eventEntry("approval_requested"))).toBe(true);
-    expect(isConversationTimelineEntry(eventEntry("approval_resolved"))).toBe(true);
+    const events = [
+      sessionEvent("tool_call_started", 1, { toolCallId: "tool-1", toolName: "web_search", input: {} }),
+      sessionEvent("tool_call_completed", 2, { toolCallId: "tool-1", toolName: "web_search", status: "success", result: "done" }),
+      sessionEvent("agent_invocation_completed", 3),
+      sessionEvent("agent_invocation_failed", 4),
+      sessionEvent("approval_requested", 5),
+      sessionEvent("approval_resolved", 6),
+    ];
+    const entries = [
+      messageEntry("user", "hi"),
+      messageEntry("assistant", "hello"),
+      ...events.map((event) => eventEntry(event)),
+    ];
+
+    expect(projectConversationTimelineEntries(entries, events)).toEqual(entries);
   });
 
   it("keeps routing, lifecycle, cost, and turn metadata out of the transcript", () => {
-    expect(isConversationTimelineEntry(eventEntry("provider_routed"))).toBe(false);
-    expect(isConversationTimelineEntry(eventEntry("agent_invocation_started"))).toBe(false);
-    expect(isConversationTimelineEntry(eventEntry("plan_submitted"))).toBe(false);
-    expect(isConversationTimelineEntry(eventEntry("plan_approved"))).toBe(false);
-    expect(isConversationTimelineEntry(eventEntry("work_items.materialized"))).toBe(false);
-    expect(isConversationTimelineEntry(eventEntry("cost_updated"))).toBe(false);
-    expect(isConversationTimelineEntry(eventEntry("turn_completed"))).toBe(false);
+    const events = [
+      sessionEvent("provider_routed", 1),
+      sessionEvent("agent_invocation_started", 2),
+      sessionEvent("plan_submitted", 3),
+      sessionEvent("plan_approved", 4),
+      sessionEvent("work_items.materialized", 5),
+      sessionEvent("cost_updated", 6),
+      sessionEvent("turn_completed", 7),
+    ];
+
+    expect(projectConversationTimelineEntries(events.map((event) => eventEntry(event)), events)).toEqual([]);
+  });
+
+  it("uses canonical session-event presentation instead of re-projecting reduced timeline details", () => {
+    const event = sessionEvent("tool_call_completed", 1, {
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      status: "success",
+      result: "done",
+    });
+    const canonicalEntry = eventEntry(event, {});
+    const orphanEntry = { ...canonicalEntry, id: "timeline:missing-event" };
+
+    expect(projectConversationTimelineEntries([canonicalEntry, orphanEntry], [event])).toEqual([canonicalEntry]);
   });
 
   it("routes every runtime event to the activity log", () => {
-    expect(isActivityTimelineEntry(eventEntry("provider_routed"))).toBe(true);
-    expect(isActivityTimelineEntry(eventEntry("cost_updated"))).toBe(true);
-    expect(isActivityTimelineEntry(eventEntry("turn_completed"))).toBe(true);
+    expect(isActivityTimelineEntry(eventEntry(sessionEvent("provider_routed", 1)))).toBe(true);
+    expect(isActivityTimelineEntry(eventEntry(sessionEvent("cost_updated", 2)))).toBe(true);
+    expect(isActivityTimelineEntry(eventEntry(sessionEvent("turn_completed", 3)))).toBe(true);
     expect(isActivityTimelineEntry(messageEntry("user", "hi"))).toBe(false);
   });
 });

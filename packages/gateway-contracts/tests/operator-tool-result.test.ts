@@ -62,7 +62,7 @@ describe("operator tool result contract", () => {
     });
 
     expect(presentOperatorEventPayload("tool_call_completed", payload)).toMatchObject({
-      title: "Failed read",
+      title: "Failed to read files",
       tone: "error",
       conversationDisposition: "exception",
     });

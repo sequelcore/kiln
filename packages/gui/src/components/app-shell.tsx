@@ -83,7 +83,7 @@ import {
   type WorkbenchSurface,
 } from "./workbench-navigation.js";
 import { useUiStore } from "../lib/ui-store.js";
-import { isActivityTimelineEntry, isConversationTimelineEntry } from "../lib/timeline-visibility.js";
+import { isActivityTimelineEntry, projectConversationTimelineEntries } from "../lib/timeline-visibility.js";
 import { OperatorTerminalDock, OPERATOR_TERMINAL_PANEL_ID } from "./operator-terminal-dock.js";
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
@@ -364,7 +364,10 @@ function useAppShellRuntimeView() {
   const pendingApprovals = useMemo(() => derivePendingApprovals(timelineEntries), [timelineEntries]);
   const workItems = useMemo(() => deriveWorkItems(timelineEntries), [timelineEntries]);
   const activityEntries = useMemo(() => timelineEntries.filter(isActivityTimelineEntry), [timelineEntries]);
-  const conversationEntries = useMemo(() => timelineEntries.filter(isConversationTimelineEntry), [timelineEntries]);
+  const conversationEntries = useMemo(
+    () => projectConversationTimelineEntries(timelineEntries, sessionEvents),
+    [timelineEntries, sessionEvents],
+  );
   const workflowActivity = useMemo(() => projectWorkflowActivity(sessionEvents), [sessionEvents]);
   const sessionContinuity = useMemo(() => deriveSessionContinuity({
     status,

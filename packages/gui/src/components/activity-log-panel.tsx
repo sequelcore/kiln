@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  presentOperatorEventPayload,
   projectManagedAgentIdentity,
   type OperatorEventDetailItem,
   type OperatorIdentityProjection,
@@ -11,6 +10,7 @@ import { OperatorAvatar } from "./operator-avatar.js";
 import type { OperatorAvatarState } from "./operator-avatar.js";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { ToolEvidence } from "./transcript.js";
 
 interface ActivityLogPanelProps {
   readonly entries: readonly TimelineEntry[];
@@ -80,10 +80,7 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const selectedEvent = events.find((entry) => activityKey(entry) === selectedKey) ?? events[0] ?? null;
-  const selectedPresentation = selectedEvent
-    ? presentOperatorEventPayload(selectedEvent.eventKind, detailsPayloadForEvent(selectedEvent))
-    : null;
-  const selectedDetails = selectedEvent?.presentationDetails ?? selectedPresentation?.details ?? [];
+  const selectedDetails = selectedEvent?.presentationDetails ?? [];
   const selectedIdentity = selectedEvent ? identityForEvent(selectedEvent) : null;
 
   useEffect(() => {
@@ -185,6 +182,9 @@ export function ActivityLogPanel(props: ActivityLogPanelProps) {
                 </div>
               </div>
               <DetailList items={selectedDetails} />
+              {selectedEvent.toolPresentation ? (
+                <ToolEvidence presentation={selectedEvent.toolPresentation} />
+              ) : null}
             </section>
           ) : (
             <div className="grid h-full place-items-center text-center">

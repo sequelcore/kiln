@@ -22,22 +22,24 @@ export function ToolGroup(props: {
       : "Completed";
   return (
     <Collapsible
-      className="w-full min-w-0 overflow-hidden rounded-lg border border-border/70 bg-card/40"
+      className="w-full min-w-0"
+      data-framing="none"
+      data-presentation="trace"
       data-slot="ai-tool-group"
       onOpenChange={props.onOpenChange}
       open={props.open}
     >
       <CollapsibleTrigger
         aria-label={`${label}. ${props.open ? "Hide" : "Show"} actions`}
-        className="group/tool-group flex w-full items-center gap-2 px-3 py-2 text-left outline-none transition-colors hover:bg-muted/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="group/tool-group flex w-full items-center gap-2 py-1.5 text-left text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring/70"
         type="button"
       >
         <Icon aria-hidden="true" className={cn("size-3.5 shrink-0", props.active ? "motion-safe:animate-spin text-primary" : props.failedCount > 0 ? "text-destructive" : "text-success")} />
-        <span className="min-w-0 flex-1 text-xs font-medium text-foreground">{label}</span>
+        <span className="min-w-0 flex-1 text-xs font-medium text-current">{label}</span>
         <span className="text-[11px] text-muted-foreground">{summary}</span>
         <ChevronDown aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/tool-group:rotate-180" />
       </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-border/55 px-2 py-1.5 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-safe:transition-opacity">
+      <CollapsibleContent className="ml-1.5 border-l border-border/55 py-1 pl-5 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-safe:transition-opacity">
         <ul className="flex flex-col" aria-label="Tool activity">
           {props.children}
         </ul>
@@ -47,5 +49,5 @@ export function ToolGroup(props: {
 }
 
 export function ToolGroupItem(props: ComponentProps<"li">) {
-  return <li {...props} className={cn("border-b border-border/45 last:border-b-0", props.className)} />;
+  return <li {...props} className={cn("min-w-0", props.className)} />;
 }

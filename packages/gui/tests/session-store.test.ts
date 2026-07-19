@@ -2902,12 +2902,12 @@ describe("session-store", () => {
         expect.objectContaining({
           type: "event",
           eventKind: "tool_call_started",
-          title: "Using rg",
+          title: "Searching files",
         }),
         expect.objectContaining({
           type: "event",
           eventKind: "tool_call_completed",
-          title: "Completed rg",
+          title: "Searched files",
           summary: "1 match",
         }),
       ]),

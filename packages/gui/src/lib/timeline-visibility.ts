@@ -1,15 +1,19 @@
-import { operatorEventTargetsConversation, presentOperatorEventPayload } from "@kilnai/gateway-contracts";
+import { operatorEventTargetsConversation, presentOperatorSessionEvent } from "@kilnai/gateway-contracts";
+import type { OperatorSessionEvent } from "@kilnai/gateway-contracts";
 import type { TimelineEntry, TimelineEventEntry } from "./session-store.js";
 
-export function isActionableTranscriptEvent(entry: TimelineEventEntry): boolean {
-  const payload = typeof entry.details === "object" && entry.details !== null && !Array.isArray(entry.details)
-    ? entry.details as Record<string, unknown>
-    : {};
-  return operatorEventTargetsConversation(presentOperatorEventPayload(entry.eventKind, payload));
-}
+export function projectConversationTimelineEntries(
+  entries: readonly TimelineEntry[],
+  sessionEvents: readonly OperatorSessionEvent[],
+): readonly TimelineEntry[] {
+  const conversationalEventEntryIds = new Set<string>();
+  for (const event of sessionEvents) {
+    if (operatorEventTargetsConversation(presentOperatorSessionEvent(event))) {
+      conversationalEventEntryIds.add(`timeline:${event.eventId}`);
+    }
+  }
 
-export function isConversationTimelineEntry(entry: TimelineEntry): boolean {
-  return entry.type === "message" || isActionableTranscriptEvent(entry);
+  return entries.filter((entry) => entry.type === "message" || conversationalEventEntryIds.has(entry.id));
 }
 
 export function isActivityTimelineEntry(entry: TimelineEntry): entry is TimelineEventEntry {

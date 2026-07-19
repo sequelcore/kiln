@@ -225,10 +225,35 @@ function resetStore(): void {
   useSessionStore.setState({
     status: "ready",
     messages: [],
-    sessionEvents: [],
+    sessionEvents: [
+      {
+        eventId: "file-1",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-04-23T18:00:00.000Z",
+        kind: "file_changed",
+        source: { actor: "runtime", surface: "gui" },
+        payload: {
+          path: "packages/gui/src/app-shell.tsx",
+          changeType: "modified",
+        },
+      },
+      {
+        eventId: "approval-1",
+        kilnSessionId: "session-1",
+        sequence: 2,
+        timestamp: "2026-04-23T18:01:00.000Z",
+        kind: "approval_requested",
+        source: { actor: "runtime", surface: "gui" },
+        payload: {
+          approvalId: "approval-1",
+          action: "Write file",
+        },
+      },
+    ],
     timelineEntries: [
       {
-        id: "event:file-1",
+        id: "timeline:file-1",
         type: "event",
         eventKind: "file_changed",
         createdAt: "2026-04-23T18:00:00.000Z",
@@ -241,7 +266,7 @@ function resetStore(): void {
         },
       },
       {
-        id: "event:approval-1",
+        id: "timeline:approval-1",
         type: "event",
         eventKind: "approval_requested",
         createdAt: "2026-04-23T18:01:00.000Z",

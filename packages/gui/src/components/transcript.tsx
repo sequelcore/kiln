@@ -669,12 +669,11 @@ function PresentationIntentDetails(props: { readonly intent: PresentationIntent 
   return null;
 }
 
-function ToolResultPresentationDetails(props: {
-  readonly entry: TimelineEventEntry;
+export function ToolEvidence(props: {
+  readonly presentation: NonNullable<TimelineEventEntry["toolPresentation"]>;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
 }) {
-  const presentation = props.entry.toolPresentation;
-  if (!presentation) return null;
+  const presentation = props.presentation;
   const contentLabel = toolResultContentLabel(presentation.outputKind);
   const preview = presentation.presentationIntent || presentation.searchResults?.length ? undefined : presentation.preview;
   const fields = presentation.fields ?? [];
@@ -902,7 +901,7 @@ function ToolEventDetails(props: {
       <>
         <MetaList items={presentationDetails} />
         {terminal}
-        <ToolResultPresentationDetails entry={props.entry} loadResourceDataUrl={props.loadResourceDataUrl} />
+        <ToolEvidence presentation={props.entry.toolPresentation} loadResourceDataUrl={props.loadResourceDataUrl} />
       </>
     );
   }
@@ -1085,6 +1084,10 @@ function isToolEvent(entry: TimelineEventEntry): boolean {
   return entry.eventKind === "tool_call_started" || entry.eventKind === "tool_call_completed";
 }
 
+function toolEventIdentifier(entry: TimelineEventEntry): string {
+  return entry.presentationDetails?.find((item) => item.label === "Tool")?.value ?? entry.title;
+}
+
 function eventIcon(entry: TimelineEventEntry) {
   return {
     info: TerminalIcon,
@@ -1105,19 +1108,13 @@ function eventBadgeVariant(entry: TimelineEventEntry): "outline" | "secondary" |
   }[entry.tone] as "outline" | "secondary" | "destructive";
 }
 
-function toolEventName(entry: TimelineEventEntry): string {
-  return entry.presentationDetails?.find((item) => item.label === "Tool")?.value ?? entry.title;
-}
-
 function ToolEventCard(props: {
   readonly entry: TimelineEventEntry;
   readonly loadResourceDataUrl?: TranscriptProps["loadResourceDataUrl"];
-  readonly nested?: boolean;
 }) {
   const [open, setOpen] = useState(() => shouldAutoOpenToolEventDetails(props.entry));
   const summary = eventSummaryText(props.entry);
   const hasDetails = canRenderEventDetails(props.entry);
-  const toolName = toolEventName(props.entry);
   const state: ToolState = props.entry.tone === "running"
     ? "running"
     : props.entry.tone === "error"
@@ -1127,7 +1124,7 @@ function ToolEventCard(props: {
         : "completed";
 
   return (
-    <Tool className="flex-1" onOpenChange={setOpen} open={open} state={state} variant={props.nested ? "ghost" : "outline"}>
+    <Tool className="flex-1" onOpenChange={setOpen} open={open} state={state}>
       <ToolHeader
         data-role="tool-event"
         dateTime={props.entry.createdAt}
@@ -1135,10 +1132,10 @@ function ToolEventCard(props: {
         state={state}
         summary={summary ?? undefined}
         timeLabel={new Date(props.entry.createdAt).toLocaleTimeString()}
-        title={toolName}
+        title={props.entry.title}
       />
       {hasDetails ? (
-        <ToolContent variant={props.nested ? "ghost" : "outline"}>
+        <ToolContent>
           <EventDetails entry={props.entry} open loadResourceDataUrl={props.loadResourceDataUrl} />
         </ToolContent>
       ) : null}
@@ -1178,7 +1175,7 @@ function ToolActivityGroupRow(props: {
       >
         {props.entries.map((entry) => (
           <ToolGroupItem key={entry.id}>
-            <ToolEventCard entry={entry} loadResourceDataUrl={props.loadResourceDataUrl} nested />
+            <ToolEventCard entry={entry} loadResourceDataUrl={props.loadResourceDataUrl} />
           </ToolGroupItem>
         ))}
       </ToolGroup>
@@ -1387,7 +1384,7 @@ const STANDALONE_TOOL_OUTPUTS = new Set<ToolResultOutputKind>([
 ]);
 
 function isGovernanceToolEvent(entry: TimelineEventEntry): boolean {
-  const toolName = toolEventName(entry);
+  const toolName = toolEventIdentifier(entry);
   return toolName.startsWith("goal.")
     || toolName.startsWith("work_item.")
     || toolName.startsWith("managed_agent.")

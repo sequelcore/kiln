@@ -14,6 +14,11 @@ describe("ActivityLogPanel", () => {
         title: "Provider routed",
         summary: "codex-oauth · gpt-5.5",
         tone: "info",
+        presentationDetails: [
+          { label: "Provider", value: "codex-oauth" },
+          { label: "Model", value: "gpt-5.5" },
+          { label: "Why", value: "Explicit model override" },
+        ],
         details: {
           provider: {
             provider: "codex-oauth",
@@ -49,6 +54,11 @@ describe("ActivityLogPanel", () => {
         title: "Turn completed",
         summary: "success",
         tone: "success",
+        presentationDetails: [
+          { label: "Provider", value: "codex-oauth" },
+          { label: "Continuity", value: "fallback-replay" },
+          { label: "Authority", value: "destructive" },
+        ],
         details: {
           routedProvider: "codex-oauth",
           routedModel: "gpt-5.4-mini",
@@ -118,5 +128,30 @@ describe("ActivityLogPanel", () => {
     const avatars = screen.getAllByLabelText("Piama avatar");
     expect(avatars).toHaveLength(2);
     expect(avatars[0]).toHaveAttribute("data-avatar-state", "success");
+  });
+  it("renders the same canonical tool evidence used by the transcript", () => {
+    const entries: TimelineEntry[] = [{
+      id: "timeline:event:search",
+      type: "event",
+      eventKind: "tool_call_completed",
+      createdAt: "2026-04-29T07:05:00.000Z",
+      title: "Searched the web",
+      summary: "2 results",
+      tone: "success",
+      toolPresentation: {
+        outputKind: "search_results",
+        title: "Search results",
+        searchResults: [
+          { title: "Kiln documentation", url: "https://example.com/kiln", snippet: "Canonical evidence." },
+          { title: "Architecture", url: "https://example.com/architecture" },
+        ],
+      },
+    }];
+
+    render(<ActivityLogPanel entries={entries} />);
+
+    const detail = screen.getByLabelText("Selected activity detail");
+    expect(detail).toHaveTextContent("2 results");
+    expect(screen.getByRole("link", { name: /Kiln documentation/u })).toHaveAttribute("href", "https://example.com/kiln");
   });
 });

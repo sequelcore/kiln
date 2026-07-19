@@ -238,6 +238,22 @@ explicitly promotes them. Large payloads must be summarized inline and linked to
 resources or inspector details; raw tool JSON must not be pasted into the
 conversation surface.
 
+Conversation tool activity uses trace framing, not panel framing. A routine
+tool call is one compact, unframed disclosure row with a semantic action title,
+state icon, bounded summary, and optional timestamp. Consecutive routine calls
+may share one unframed disclosure group. Cards and stronger visual boundaries
+are reserved for decisions, approvals, workflow state, failures that require
+attention, and rich evidence after the operator explicitly opens details. The
+technical tool identifier remains available in canonical details, but it must
+not replace the semantic action title on conversation surfaces.
+
+Surface consumers must decide visibility from the canonical
+`OperatorSessionEvent` presentation. They must not call
+`presentOperatorEventPayload` again with reduced timeline or view-model details;
+doing so creates a second authority and can change surface routing. Timeline
+entries provide ordering and display data, while session events provide the
+canonical visibility decision.
+
 Tool completion presentation is typed. `tool_call_completed` projections may
 include `toolPresentation`, a shared `@kilnai/gateway-contracts` view model with
 an `outputKind`, title, summary, fields, bounded preview, resource links, and
