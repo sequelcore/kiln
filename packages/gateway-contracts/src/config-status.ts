@@ -76,6 +76,7 @@ export const KILN_CONFIG_READ_VIEWS = [
   "agents",
   "skills",
   "permissions",
+  "mcp",
   "memory",
   "projections",
   "setup",
@@ -465,6 +466,7 @@ export interface KilnConfigSetupSnapshot {
   readonly nativeProjections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly skills?: KilnSkillCatalogSnapshot;
+  readonly mcp?: KilnMcpStatusSnapshot;
   readonly recommendedActions: readonly KilnConfigSetupAction[];
 }
 
@@ -482,6 +484,64 @@ export interface KilnConfigSetupActionResult {
   readonly setup: KilnConfigSetupSnapshot;
 }
 
+export interface KilnMcpConfigurationDiagnosticSnapshot {
+  readonly code: string;
+  readonly message: string;
+  readonly serverId: string;
+  readonly scope: "global" | "project";
+  readonly field?: string;
+  readonly sourcePath: string;
+  readonly reference?: string;
+}
+
+export interface KilnMcpServerStatusSnapshot {
+  readonly id: string;
+  readonly enabled: boolean;
+  readonly source: "global" | "project" | "overridden" | "disabled-by-project";
+  readonly transport: "stdio" | "streamable-http";
+  readonly admission: "admitted" | "denied";
+  readonly trust: "untrusted" | "local" | "verified";
+  readonly provenance: Readonly<Record<string, {
+    readonly scope: "global" | "project";
+    readonly sourcePath: string;
+    readonly field: string;
+  }>>;
+  readonly runtimeCompatibility: {
+    readonly status: "compatible" | "incompatible" | "not-evaluated";
+    readonly reason?: string;
+  };
+  readonly projectionCompatibility: readonly {
+    readonly harness: "claude" | "codex" | "opencode";
+    readonly status: "compatible" | "incompatible" | "not-evaluated";
+    readonly reason?: string;
+  }[];
+  readonly health: {
+    readonly state: "not-tested" | "healthy" | "degraded" | "unavailable" | "disabled";
+    readonly lastFailure?: string;
+  };
+  readonly discovery: {
+    readonly state: "not-tested" | "current" | "changed" | "failed" | "disabled";
+    readonly tools: number;
+    readonly resources: number;
+    readonly prompts: number;
+    readonly admitted: number;
+    readonly capabilities: readonly {
+      readonly selector: string;
+      readonly kind: "tool" | "resource" | "prompt";
+      readonly name: string;
+      readonly admitted: boolean;
+    }[];
+  };
+  readonly projection: {
+    readonly state: "not-synchronized" | "current" | "drifted" | "incompatible" | "disabled";
+  };
+}
+
+export interface KilnMcpStatusSnapshot {
+  readonly servers: readonly KilnMcpServerStatusSnapshot[];
+  readonly diagnostics: readonly KilnMcpConfigurationDiagnosticSnapshot[];
+}
+
 export interface KilnConfigStatusSnapshot {
   /** Optional for backwards-compatible transport decoding; consumers require it before authorization. */
   readonly evidenceVersion?: number;
@@ -491,6 +551,7 @@ export interface KilnConfigStatusSnapshot {
   readonly effectiveConfigStatus: KilnConfigSourceStatus;
   readonly effectiveConfig?: Record<string, unknown>;
   readonly errors: readonly string[];
+  readonly mcp: KilnMcpStatusSnapshot;
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly skills?: KilnSkillCatalogSnapshot;
@@ -635,6 +696,28 @@ export const KilnSkillCatalogSnapshotSchema = z.object({
   entries: z.array(KilnSkillCatalogSnapshotEntrySchema),
 });
 
+export const KilnMcpStatusSnapshotSchema = z.object({
+  servers: z.array(z.object({
+    id: z.string(), enabled: z.boolean(), source: z.enum(["global", "project", "overridden", "disabled-by-project"]),
+    transport: z.enum(["stdio", "streamable-http"]), admission: z.enum(["admitted", "denied"]),
+    trust: z.enum(["untrusted", "local", "verified"]),
+    provenance: z.record(z.string(), z.object({ scope: z.enum(["global", "project"]), sourcePath: z.string(), field: z.string() })),
+    runtimeCompatibility: z.object({ status: z.enum(["compatible", "incompatible", "not-evaluated"]), reason: z.string().optional() }),
+    projectionCompatibility: z.array(z.object({ harness: z.enum(["claude", "codex", "opencode"]), status: z.enum(["compatible", "incompatible", "not-evaluated"]), reason: z.string().optional() })),
+    health: z.object({ state: z.enum(["not-tested", "healthy", "degraded", "unavailable", "disabled"]), lastFailure: z.string().optional() }),
+    discovery: z.object({
+      state: z.enum(["not-tested", "current", "changed", "failed", "disabled"]),
+      tools: z.number().int().nonnegative(), resources: z.number().int().nonnegative(), prompts: z.number().int().nonnegative(), admitted: z.number().int().nonnegative(),
+      capabilities: z.array(z.object({ selector: z.string(), kind: z.enum(["tool", "resource", "prompt"]), name: z.string(), admitted: z.boolean() })),
+    }),
+    projection: z.object({ state: z.enum(["not-synchronized", "current", "drifted", "incompatible", "disabled"]) }),
+  })),
+  diagnostics: z.array(z.object({
+    code: z.string(), message: z.string(), serverId: z.string(), scope: z.enum(["global", "project"]),
+    field: z.string().optional(), sourcePath: z.string(), reference: z.string().optional(),
+  })),
+});
+
 export const KilnConfigSetupSnapshotSchema = z.object({
   projectRoot: z.string(),
   projectContext: KilnConfigSourceSnapshotSchema.extend({
@@ -645,6 +728,7 @@ export const KilnConfigSetupSnapshotSchema = z.object({
   nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
   permissionIntegrity: z.array(TrustedExecutionIntegritySchema),
   skills: KilnSkillCatalogSnapshotSchema.optional(),
+  mcp: KilnMcpStatusSnapshotSchema.optional(),
   recommendedActions: z.array(z.enum(KILN_CONFIG_SETUP_ACTIONS)),
 });
 
@@ -682,6 +766,7 @@ export const KilnConfigStatusSnapshotSchema = z.object({
   effectiveConfigStatus: z.enum(KILN_CONFIG_SOURCE_STATUSES),
   effectiveConfig: z.record(z.string(), z.unknown()).optional(),
   errors: z.array(z.string()),
+  mcp: KilnMcpStatusSnapshotSchema,
   projections: z.array(KilnProjectionTargetSnapshotSchema),
   permissionIntegrity: z.array(TrustedExecutionIntegritySchema),
   skills: KilnSkillCatalogSnapshotSchema.optional(),

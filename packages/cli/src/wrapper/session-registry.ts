@@ -23,7 +23,7 @@ import {
   type RuntimeBudgetAdmissionPort,
   type RuntimeExecutionEnvelope,
 } from "@kilnai/runtime";
-import { ClaudeSession } from "./claude-code-process.js";
+import { ClaudeSession, type ClaudeSessionConfig } from "./claude-code-process.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
 import { PooledHarnessSession } from "./pooled-harness-session.js";
@@ -32,6 +32,9 @@ import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import { projectMcpServer, type NativeMcpHarness } from "../config/native-mcp-projection.js";
+import { createCanonicalMcpClient } from "../config/mcp-credentials.js";
+import { assertNativeMcpProjectionCurrent } from "../config/native-mcp-projection-sync.js";
 
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
 export type DirectApiProviderId =
@@ -149,7 +152,8 @@ export interface ProviderCreateConfig {
   readonly systemPrompt?: string;
   readonly cwd?: string;
   readonly env?: Record<string, string>;
-  readonly mcpServers?: Record<string, { command: string; args: string[] }>;
+  readonly canonicalMcpServers?: readonly import("@kilnai/core").ResolvedMcpServer[];
+  readonly mcpToolAllowlist?: ReadonlySet<string>;
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
   readonly reasoningEffort?: ReasoningEffort;
@@ -167,6 +171,12 @@ export interface ProviderCreateConfig {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+}
+
+export interface CreateDefaultRegistryOptions {
+  readonly canonicalMcpServers?: readonly import("@kilnai/core").ResolvedMcpServer[];
+  /** Canonical project root that owns native MCP projection state. */
+  readonly canonicalMcpProjectPath?: string;
 }
 
 export interface ClaudeBackendConfig {
@@ -959,9 +969,26 @@ function createPooledHarnessSession(
   });
 }
 
+function projectCanonicalMcpServers(
+  harness: NativeMcpHarness,
+  servers: readonly import("@kilnai/core").ResolvedMcpServer[] | undefined,
+): Record<string, Record<string, unknown>> | undefined {
+  if (!servers || servers.length === 0) return undefined;
+  const projected: Record<string, Record<string, unknown>> = {};
+  for (const server of servers) {
+    const result = projectMcpServer(harness, server);
+    if (result.status === "disabled") continue;
+    if (result.status === "incompatible") {
+      throw new Error(`${harness} cannot represent canonical MCP server '${server.id}': ${result.reason}`);
+    }
+    projected[server.id] = result.entry;
+  }
+  return Object.keys(projected).length > 0 ? projected : undefined;
+}
+
 function buildDirectProviderCapabilities(provider: DirectApiProviderId): SessionCapabilities {
   return {
-    mcp: false,
+    mcp: true,
     streaming: true,
     resumable: false,
     resume: false,
@@ -1008,23 +1035,31 @@ function createDirectProviderSession(
     ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
     ...(config.budgetAdmission ? { budgetAdmission: config.budgetAdmission } : {}),
     ...(config.executionEnvelope ? { executionEnvelope: config.executionEnvelope } : {}),
+    ...(config.canonicalMcpServers ? {
+      mcpClients: config.canonicalMcpServers.map(createCanonicalMcpClient),
+    } : {}),
+    ...(config.mcpToolAllowlist ? { mcpToolAllowlist: config.mcpToolAllowlist } : {}),
   });
 }
 
 function createDirectProviderDescriptor(
   provider: DirectApiProviderId,
   isAvailable?: () => boolean,
+  canonicalMcpServers?: readonly import("@kilnai/core").ResolvedMcpServer[],
 ): SessionProviderDescriptor {
   return {
     id: provider,
     costTier: DIRECT_PROVIDER_COST_TIERS[provider],
     capabilities: buildDirectProviderCapabilities(provider),
     ...(isAvailable ? { isAvailable } : {}),
-    create: (config) => createDirectProviderSession(provider, config),
+    create: (config) => createDirectProviderSession(provider, {
+      ...config,
+      canonicalMcpServers: config.canonicalMcpServers ?? canonicalMcpServers,
+    }),
   };
 }
 
-export function createDefaultRegistry(): {
+export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}): {
   registry: SessionRegistry;
   worktreeManager: WorktreeManager;
 } {
@@ -1033,16 +1068,16 @@ export function createDefaultRegistry(): {
     debug("pruneStale error:", err instanceof Error ? err.message : String(err));
   });
 
-  const codexOauthProvider = createDirectProviderDescriptor("codex-oauth");
-  const opencodeGoProvider = createDirectProviderDescriptor("opencode-go");
-  const opencodeZenProvider = createDirectProviderDescriptor("opencode-zen");
+  const codexOauthProvider = createDirectProviderDescriptor("codex-oauth", undefined, options.canonicalMcpServers);
+  const opencodeGoProvider = createDirectProviderDescriptor("opencode-go", undefined, options.canonicalMcpServers);
+  const opencodeZenProvider = createDirectProviderDescriptor("opencode-zen", undefined, options.canonicalMcpServers);
   const directProviders: SessionProviderDescriptor[] = [
-    createDirectProviderDescriptor("anthropic", () => hasNonEmptyEnv("ANTHROPIC_API_KEY")),
-    createDirectProviderDescriptor("openai", () => hasNonEmptyEnv("OPENAI_API_KEY")),
-    createDirectProviderDescriptor("deepseek", () => hasNonEmptyEnv("DEEPSEEK_API_KEY")),
-    createDirectProviderDescriptor("openrouter", () => hasNonEmptyEnv("OPENROUTER_API_KEY")),
-    createDirectProviderDescriptor("ollama"),
-    createDirectProviderDescriptor("lmstudio"),
+    createDirectProviderDescriptor("anthropic", () => hasNonEmptyEnv("ANTHROPIC_API_KEY"), options.canonicalMcpServers),
+    createDirectProviderDescriptor("openai", () => hasNonEmptyEnv("OPENAI_API_KEY"), options.canonicalMcpServers),
+    createDirectProviderDescriptor("deepseek", () => hasNonEmptyEnv("DEEPSEEK_API_KEY"), options.canonicalMcpServers),
+    createDirectProviderDescriptor("openrouter", () => hasNonEmptyEnv("OPENROUTER_API_KEY"), options.canonicalMcpServers),
+    createDirectProviderDescriptor("ollama", undefined, options.canonicalMcpServers),
+    createDirectProviderDescriptor("lmstudio", undefined, options.canonicalMcpServers),
   ];
 
   const providers: SessionProviderDescriptor[] = [
@@ -1071,7 +1106,10 @@ export function createDefaultRegistry(): {
           ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
           task: config.task,
           systemPrompt: config.systemPrompt ?? "",
-          mcpServers: config.mcpServers,
+          mcpServers: projectCanonicalMcpServers(
+            "claude",
+            config.canonicalMcpServers ?? options.canonicalMcpServers,
+          ) as ClaudeSessionConfig["mcpServers"],
           cwd: config.cwd ?? process.cwd(),
           env,
           permissionMode: cfg.permissionMode,
@@ -1097,7 +1135,7 @@ export function createDefaultRegistry(): {
       id: "codex",
       costTier: "low",
       capabilities: {
-        mcp: false,
+        mcp: true,
         streaming: true,
         resumable: false,
         resume: false,
@@ -1109,6 +1147,14 @@ export function createDefaultRegistry(): {
         permissionPolicy: DEFAULT_POLICY,
       },
       create: (config) => {
+        const canonicalMcpServers = config.canonicalMcpServers ?? options.canonicalMcpServers ?? [];
+        if (canonicalMcpServers.length > 0) {
+          assertNativeMcpProjectionCurrent(
+            { servers: Object.fromEntries(canonicalMcpServers.map((server) => [server.id, server])), diagnostics: [] },
+            options.canonicalMcpProjectPath ?? process.cwd(),
+            "codex",
+          );
+        }
         const translated = translatePermission(config.permissionPolicy, "codex") as CodexTranslationEnvelope;
         const cfg = translated.config;
         const createSession = (env: Record<string, string> | undefined) => new CodexSession({
@@ -1159,12 +1205,7 @@ export function createDefaultRegistry(): {
       create: (config) => {
         const translated = translatePermission(config.permissionPolicy, "opencode") as OpenCodeTranslationEnvelope;
         const cfg = translated.config;
-        const mcpServers = config.mcpServers
-          ? Object.entries(config.mcpServers).map(([name, v]) => ({
-              name,
-              url: v.command,
-            }))
-          : [];
+        const mcpServers = projectCanonicalMcpServers("opencode", config.canonicalMcpServers ?? options.canonicalMcpServers);
         const createSession = (env: Record<string, string> | undefined) => new OpenCodeSession({
           ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
           task: config.task,

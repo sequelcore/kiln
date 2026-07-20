@@ -33,6 +33,7 @@ export interface ProviderAdapterAppRuntime {
   readonly groundingDeps?: import("./message-pipeline.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
   readonly coordinationContextProvider?: import("./message-pipeline.js").AdmittedTurnContext["coordinationContextProvider"];
+  readonly toolAllowlist?: ReadonlySet<string>;
 }
 
 /** Request body for POST /message */
@@ -127,6 +128,7 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         groundingDeps: runtime.groundingDeps,
         contextArtifactCache: runtime.contextArtifactCache,
         coordinationContextProvider: runtime.coordinationContextProvider,
+        ...(runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: runtime.toolAllowlist } } : {}),
       });
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);

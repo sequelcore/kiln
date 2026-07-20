@@ -138,6 +138,32 @@ describe("native projection install state", () => {
     });
   });
 
+  it("supports JSON Pointer managed paths for MCP server ids containing dots", () => {
+    const field = "/mcp_servers/studio.v2";
+    const document = {
+      mcp_servers: {
+        "studio.v2": { command: "cmd.exe", args: ["/c", "studio.bat"] },
+        unmanaged: { command: "keep" },
+      },
+    };
+    const target = createNativeProjectionSnapshot({
+      targetId: "codex-mcp",
+      filePath: "C:/repo/.codex/config.toml",
+      document,
+      managedFields: [field],
+    });
+    const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
+
+    expect(detectNativeProjectionDrift({
+      targetId: "codex-mcp",
+      state,
+      currentDocument: document,
+    })).toBeUndefined();
+    expect(stripManagedFields({ currentDocument: document, managedFields: [field] })).toEqual({
+      mcp_servers: { unmanaged: { command: "keep" } },
+    });
+  });
+
   it("strips managed fields while preserving unmanaged native keys", () => {
     const stripped = stripManagedFields({
       currentDocument: {

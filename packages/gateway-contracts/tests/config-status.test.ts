@@ -257,6 +257,29 @@ describe("KilnConfig setup and status permission integrity", () => {
       global: { path: "C:/Users/test/.kiln/config.yaml", status: "valid" },
       effectiveConfigStatus: "valid",
       errors: [],
+      mcp: {
+        servers: [{
+          id: "studio",
+          enabled: true,
+          source: "project",
+          transport: "stdio",
+          admission: "admitted",
+          trust: "untrusted",
+          provenance: {
+            command: { scope: "project", sourcePath: "C:/repo/kiln/.kiln/kiln.yaml", field: "command" },
+          },
+          runtimeCompatibility: { status: "compatible" },
+          projectionCompatibility: [
+            { harness: "codex", status: "compatible" },
+            { harness: "claude", status: "compatible" },
+            { harness: "opencode", status: "compatible" },
+          ],
+          health: { state: "not-tested" },
+          discovery: { state: "not-tested", tools: 0, resources: 0, prompts: 0, admitted: 0, capabilities: [] },
+          projection: { state: "not-synchronized" },
+        }],
+        diagnostics: [],
+      },
       projections: [],
       permissionIntegrity: [integrity],
       setup,
@@ -264,6 +287,7 @@ describe("KilnConfig setup and status permission integrity", () => {
     });
 
     expect(parsed.permissionIntegrity).toEqual(parsed.setup.permissionIntegrity);
+    expect(parsed.mcp.servers[0]).toMatchObject({ id: "studio", transport: "stdio" });
   });
 });
 

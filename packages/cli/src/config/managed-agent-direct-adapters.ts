@@ -1,8 +1,11 @@
 import type {
+  Capability,
   DefaultBuiltinToolRegistryOptions,
   DirectProviderId,
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ProviderAdapter,
+  ResolvedMcpServer,
+  ToolDefinition,
 } from "@kilnai/core";
 import {
   isDirectProviderId,
@@ -19,6 +22,7 @@ import {
   createDirectProviderAdapter,
   type DirectProviderAdapterOptions,
 } from "../wrapper/direct-provider-adapter-factory.js";
+import { createCanonicalMcpClient } from "./mcp-credentials.js";
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
 type BuiltinToolOptionsSource =
@@ -45,6 +49,13 @@ export interface ManagedDirectProviderAdapterFactoryOptions {
   readonly runtimeEnv?: EnvMap;
   readonly processEnv?: EnvMap;
   readonly executionEnvelope?: ExecutionEnvelopeSource;
+  readonly canonicalMcpServers?: readonly ResolvedMcpServer[];
+  readonly createMcpClient?: (server: ResolvedMcpServer) => {
+    readonly serverName: string;
+    discoverProviderCapabilities(): Promise<readonly Capability[]>;
+    executeCapability(selector: string, input: Record<string, unknown>): Promise<unknown>;
+    disconnect?(): Promise<void>;
+  };
   readonly createProviderAdapter?: (options: DirectProviderAdapterOptions) => Promise<ProviderAdapter>;
 }
 
@@ -79,21 +90,67 @@ export function createManagedDirectProviderAdapterFactory(
       processEnv: options.processEnv,
     });
     const builtinToolSurface = resolveBuiltinToolSurface();
+    const admittedMcpSelectors = new Set(
+      (route.tools?.allowed ?? []).filter((name) => name.startsWith("mcp:")),
+    );
+    const createMcpClient = options.createMcpClient ?? createCanonicalMcpClient;
+    const mcpClients = admittedMcpSelectors.size > 0
+      ? (options.canonicalMcpServers ?? []).map(createMcpClient)
+      : [];
+    let discoveredMcpCapabilities: readonly (readonly Capability[])[];
+    try {
+      discoveredMcpCapabilities = await Promise.all(mcpClients.map((client) => client.discoverProviderCapabilities()));
+    } finally {
+      await Promise.all(mcpClients.map(disconnectMcpClient));
+    }
+    const mcpCapabilities = discoveredMcpCapabilities.flat()
+      .filter((capability) => admittedMcpSelectors.has(capability.name));
+    const mcpTools: ToolDefinition[] = mcpCapabilities.map((capability) => ({
+      name: capability.name,
+      description: capability.description,
+      inputSchema: capability.schema,
+      tags: new Set(capability.tags),
+    }));
+    const mcpCapabilityMap = new Map<string, Capability>(mcpCapabilities.map((capability) => [
+      capability.name,
+      capability,
+    ]));
+    const mcpExecutors = new Map(mcpCapabilities.map((capability) => {
+      const client = mcpClients.find((candidate) => capability.name.startsWith(`mcp:${candidate.serverName}:`));
+      if (!client) throw new Error(`No canonical MCP client owns selector '${capability.name}'.`);
+      return [capability.name, async (input: Record<string, unknown>) => {
+        try {
+          return await client.executeCapability(capability.name, input);
+        } finally {
+          await disconnectMcpClient(client);
+        }
+      }] as const;
+    }));
+    const runtimeTools = new Map([...builtinToolSurface.callBuiltinTools, ...mcpExecutors]);
+    const runtimeCapabilities = new Map([...builtinToolSurface.capabilities, ...mcpCapabilityMap]);
     const executionEnvelope = resolveExecutionEnvelope(options.executionEnvelope);
 
     return new ManagedDirectProviderRuntimeAdapter({
       providerId: provider,
       model: executionProfile.model,
       provider: providerAdapter,
-      tools: builtinToolSurface.toolDefinitions,
-      builtinTools: builtinToolSurface.callBuiltinTools,
-      builtinToolsProvider: () => resolveBuiltinToolSurface().callBuiltinTools,
-      capabilityMap: builtinToolSurface.capabilities,
+      tools: [...builtinToolSurface.toolDefinitions, ...mcpTools],
+      builtinTools: runtimeTools,
+      builtinToolsProvider: () => new Map([
+        ...resolveBuiltinToolSurface().callBuiltinTools,
+        ...mcpExecutors,
+      ]),
+      capabilityMap: runtimeCapabilities,
       toolAuthority: builtinToolSurface.toolAuthority,
       ...(executionEnvelope ? { executionEnvelope } : {}),
       ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
   };
+}
+
+async function disconnectMcpClient(client: { readonly disconnect?: () => Promise<void> }): Promise<void> {
+  if (!client.disconnect) return;
+  await client.disconnect().catch(() => undefined);
 }
 
 function resolveExecutionEnvelope(source: ExecutionEnvelopeSource | undefined): RuntimeExecutionEnvelope | undefined {

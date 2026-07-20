@@ -309,7 +309,7 @@ describe("createTenantRoutes", () => {
 
       const { createTenantRoutes: createTenantRoutesWithMocks } = await import("../../src/gateway/tenant-routes.js");
 
-      const runtime = makeRuntime();
+      const runtime = makeRuntime({ toolAllowlist: new Set(["mcp:tenant-tools:tool:read"]), });
       runtime.tenantRegistry.create(makeTenantConfig());
       const app = createTenantRoutesWithMocks(runtime);
 
@@ -327,7 +327,7 @@ describe("createTenantRoutes", () => {
       expect(forwarded.tenant?.tenantId).toBe("test-tenant");
       expect(forwarded.systemPrompt).toBeUndefined();
       expect(forwarded.callBuiltinTools).toBeUndefined();
-      expect(forwarded.perCallConfig).toBeUndefined();
+      expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set(["mcp:tenant-tools:tool:read"]));
       expect(forwarded.requestedAuthority).toBe("audited");
 
       vi.doUnmock("../../src/gateway/message-pipeline.js");

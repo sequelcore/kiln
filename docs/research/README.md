@@ -107,6 +107,11 @@ define the active architecture contract. For doctrine, use
   Runtime ownership, cloned-harness comparison, current provider/model evidence,
   benchmark limits, and community failure signals for managed child routing.
 
+- `22-canonical-mcp-integration-2026.md`
+  Stable MCP protocol, official SDK, cloned Codex/Claude Code/OpenCode,
+  Roblox Studio, security research, repository gaps, and accepted design
+  decisions for Kiln-owned MCP resolution, execution, and native projection.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -142,4 +147,5 @@ define the active architecture contract. For doctrine, use
 19. `19-clear-writing-skill.md`
 20. `20-cross-domain-task-taxonomy.md`
 21. `21-managed-invocation-routing-2026.md`
-22. `web-retrieval-provider-routing.md`
+22. `22-canonical-mcp-integration-2026.md`
+23. `web-retrieval-provider-routing.md`

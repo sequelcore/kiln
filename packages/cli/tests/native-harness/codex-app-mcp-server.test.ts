@@ -40,6 +40,7 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
     errors: [],
     projections: [],
     permissionIntegrity: [],
+    mcp: { servers: [], diagnostics: [] },
     setup: {
       projectRoot: "C:\\workspace\\kiln",
       projectContext: { path: "C:\\workspace\\kiln\\.kiln\\project-context.md", status: "valid", recommendation: "none" },

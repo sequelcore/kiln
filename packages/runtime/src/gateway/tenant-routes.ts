@@ -26,6 +26,7 @@ export interface TenantAppRuntime {
   readonly groundingDeps?: import("./message-pipeline.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
   readonly coordinationContextProvider?: import("./message-pipeline.js").AdmittedTurnContext["coordinationContextProvider"];
+  readonly toolAllowlist?: ReadonlySet<string>;
 }
 
 /** Request body for POST /message */
@@ -97,6 +98,7 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       billing: billingConfig,
       channel: "api",
       tenant,
+      ...(runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: runtime.toolAllowlist } } : {}),
       idleTimeoutMs: tenant.idleTimeoutMs,
       groundingMode: tenant.groundingMode,
       groundingDeps: runtime.groundingDeps,

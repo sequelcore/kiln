@@ -12,6 +12,7 @@ import type {
   KilnConfigStatusSnapshot,
   KilnGlobalInstructionShimSetupSnapshot,
   KilnHarnessCapabilitySnapshot,
+  KilnMcpStatusSnapshot,
   KilnProjectionTargetSnapshot,
   KilnRepoShimProjectionSnapshot,
 } from "@kilnai/gateway-contracts";
@@ -20,6 +21,7 @@ import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 import {
   globalToKilnYaml,
+  resolveKilnMcpConfiguration,
 } from "../config/config-merger.js";
 import {
   readGlobalConfig,
@@ -36,6 +38,7 @@ import {
   detectNativeProjectionDrift,
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
+  type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "../config/native-projection-state.js";
 import { stripJsonComments } from "../config/json-comments.js";
@@ -56,6 +59,9 @@ import {
 import { readGlobalInstructionShimProjectionSnapshots } from "./global-instruction-shim-projection.js";
 import { readSkillCatalogStatus } from "../config/skill-catalog-status.js";
 import { resolveCliMemoryStorage } from "./cli-memory-storage.js";
+import { projectMcpServer, type NativeMcpHarness } from "../config/native-mcp-projection.js";
+import { readMcpRuntimeState } from "../config/mcp-runtime-state.js";
+import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
@@ -93,6 +99,7 @@ export async function readConfigStatusSnapshot(
   const projectState = readProjectConfigState(rootPath);
   const projectContext = readProjectContextState(rootPath);
   const effectiveConfig = buildEffectiveConfig(globalState, projectState, errors);
+  const mcp = buildMcpStatus(globalState, projectState, rootPath, options.userHome ?? homedir());
 
   errors.push(
     ...sourceErrors("global config", globalState.source),
@@ -122,6 +129,7 @@ export async function readConfigStatusSnapshot(
     projections: projectionState.projections,
     permissionIntegrity,
     skillCatalog,
+    mcp,
   });
 
   return {
@@ -139,12 +147,107 @@ export async function readConfigStatusSnapshot(
     effectiveConfigStatus: effectiveConfig ? "valid" : errors.length > 0 ? "invalid" : "missing",
     ...(effectiveConfig ? { effectiveConfig: effectiveConfig as unknown as Record<string, unknown> } : {}),
     errors,
+    mcp,
     projections: projectionState.projections,
     permissionIntegrity,
     ...(skillCatalog ? { skills: skillCatalog } : {}),
     setup,
     harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
   };
+}
+
+function buildMcpStatus(
+  globalState: ConfigLoadState,
+  projectState: ConfigLoadState,
+  rootPath: string,
+  userHome: string,
+): KilnMcpStatusSnapshot {
+  if (globalState.source.status === "invalid" || projectState.source.status === "invalid") {
+    return { servers: [], diagnostics: [] };
+  }
+  const credentials = createMcpCredentialAccess(process.env, userHome);
+  const resolution = resolveKilnMcpConfiguration({
+    globalConfig: globalState.config as KilnGlobalConfig | null,
+    globalPath: globalState.source.path,
+    projectConfig: projectState.config as KilnYaml | null,
+    projectPath: projectState.source.path,
+    credentialExists: credentials.exists,
+  });
+  const installState = readNativeProjectionInstallState(join(rootPath, ".kiln"));
+  const runtimeState = readMcpRuntimeState(rootPath);
+  return {
+    servers: Object.values(resolution.servers).map((server) => {
+      const observed = runtimeState.servers[server.id];
+      const projectionCompatibility = (["codex", "claude", "opencode"] as const).map((harness) => {
+        const projection = projectMcpServer(harness, server);
+        return {
+          harness,
+          status: projection.status === "compatible" ? "compatible" as const : "incompatible" as const,
+          ...(projection.status === "compatible" ? {} : { reason: projection.reason }),
+        };
+      });
+      return ({
+      id: server.id,
+      enabled: server.enabled,
+      source: server.source,
+      transport: server.transport,
+      admission: server.admission?.state ?? "denied",
+      trust: server.trust ?? "untrusted",
+      provenance: server.provenance,
+      runtimeCompatibility: { status: "compatible" as const },
+      projectionCompatibility,
+      health: server.enabled
+        ? { state: observed?.health ?? "not-tested" as const, ...(observed?.lastFailure ? { lastFailure: observed.lastFailure } : {}) }
+        : { state: "disabled" as const },
+      discovery: {
+        state: server.enabled ? observed?.discovery ?? "not-tested" as const : "disabled" as const,
+        tools: observed?.tools ?? 0,
+        resources: observed?.resources ?? 0,
+        prompts: observed?.prompts ?? 0,
+        admitted: observed?.admitted ?? 0,
+        capabilities: observed?.capabilities ?? [],
+      },
+      projection: {
+        state: resolveMcpProjectionState(
+          server.id,
+          server.enabled,
+          projectionCompatibility.some((entry) => entry.status === "compatible"),
+          installState,
+        ),
+      },
+    }); }),
+    diagnostics: resolution.diagnostics,
+  };
+}
+
+function resolveMcpProjectionState(
+  serverId: string,
+  enabled: boolean,
+  hasCompatibleHarness: boolean,
+  installState: NativeProjectionInstallState,
+): "not-synchronized" | "current" | "drifted" | "incompatible" | "disabled" {
+  if (!enabled) return "disabled";
+  if (!hasCompatibleHarness) return "incompatible";
+  let hasCurrent = false;
+  for (const harness of ["codex", "claude", "opencode"] as const) {
+    const targetId = `mcp:${harness}`;
+    const target = installState.targets[targetId];
+    if (!target || !target.managedFields.includes(mcpProjectionPointer(harness, serverId))) continue;
+    try {
+      const document = readNativeDocument(target.filePath);
+      if (detectNativeProjectionDrift({ targetId, state: installState, currentDocument: document })) return "drifted";
+      hasCurrent = true;
+    } catch {
+      return "drifted";
+    }
+  }
+  return hasCurrent ? "current" : "not-synchronized";
+}
+
+function mcpProjectionPointer(harness: NativeMcpHarness, serverId: string): string {
+  const root = harness === "codex" ? "mcp_servers" : harness === "claude" ? "mcpServers" : "mcp";
+  const encode = (value: string) => value.replace(/~/g, "~0").replace(/\//g, "~1");
+  return `/${encode(root)}/${encode(serverId)}`;
 }
 
 export async function readConfigStatusView(
@@ -531,6 +634,8 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
         policy: config?.permissions ?? null,
         permissionIntegrity: snapshot.permissionIntegrity,
       };
+    case "mcp":
+      return snapshot.mcp;
     case "memory": {
       const memoryStorage = resolveCliMemoryStorage(snapshot.project.rootPath);
       return {
@@ -549,6 +654,7 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
         project: snapshot.project,
         effectiveConfigStatus: snapshot.effectiveConfigStatus,
         errors: snapshot.errors,
+        mcp: snapshot.mcp,
         harnessCapabilities: snapshot.harnessCapabilities,
       };
   }
@@ -562,6 +668,7 @@ function buildSetupSnapshot(input: {
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: KilnConfigStatusSnapshot["permissionIntegrity"];
   readonly skillCatalog?: ReturnType<typeof readSkillCatalogStatus>;
+  readonly mcp: KilnMcpStatusSnapshot;
 }): KilnConfigSetupSnapshot {
   const nativeProjections = input.projections.filter((projection) => projection.kind === "native");
   const globalInstructionShims = input.globalInstructionShims;
@@ -584,6 +691,7 @@ function buildSetupSnapshot(input: {
     nativeProjections,
     permissionIntegrity: input.permissionIntegrity,
     ...(input.skillCatalog ? { skills: input.skillCatalog } : {}),
+    mcp: input.mcp,
     recommendedActions: actions,
   };
 }

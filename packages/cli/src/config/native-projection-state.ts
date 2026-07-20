@@ -236,6 +236,15 @@ function deletePathSegments(target: Record<string, unknown>, segments: readonly 
 }
 
 function parseFieldPath(fieldPath: string): readonly string[] {
+  if (fieldPath.startsWith("/")) {
+    const segments = fieldPath.slice(1).split("/").map((segment) => segment
+      .replace(/~1/g, "/")
+      .replace(/~0/g, "~"));
+    if (segments.length === 0 || segments.some((segment) => segment.length === 0)) {
+      throw new Error(`Invalid managed JSON Pointer path: ${fieldPath}`);
+    }
+    return segments;
+  }
   const segments = fieldPath.split(".").map((segment) => segment.trim()).filter(Boolean);
   if (segments.length === 0) {
     throw new Error("Managed field path must not be empty");

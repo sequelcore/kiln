@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify as stringifyToml } from "smol-toml";
 import { readConfigStatusSnapshot, readConfigStatusView } from "../../src/application/config-status.js";
+import { recordMcpDiscovery } from "../../src/config/mcp-runtime-state.js";
+import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/config/mcp-credentials.js";
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 import {
@@ -125,6 +127,112 @@ describe("config-status", () => {
         "sync-repo-shims",
         "sync-global-instruction-shims",
       ]),
+    });
+  });
+
+  it("publishes canonical MCP resolution in the shared status and bounded read view", async () => {
+    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+      'version: "1"',
+      "mcp:",
+      "  servers:",
+      "    fixture:",
+      "      transport: stdio",
+      "      command: fixture-mcp.exe",
+      "      admission:",
+      "        state: admitted",
+      "        tools:",
+      "          allow: [echo]",
+      "",
+    ].join("\n"), "utf-8");
+    recordMcpDiscovery(tempDir, {
+      serverId: "fixture",
+      tools: [{ serverId: "fixture", kind: "tool", selector: "mcp:fixture:tool:echo", descriptor: { name: "echo", inputSchema: {} } }],
+      resources: [], prompts: [], discoveredAt: "2026-07-19T00:00:00.000Z",
+    });
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const view = await readConfigStatusView(snapshot, "mcp");
+
+    expect(snapshot.mcp).toMatchObject({
+      servers: [{
+        id: "fixture",
+        enabled: true,
+        source: "project",
+        transport: "stdio",
+        admission: "admitted",
+        trust: "untrusted",
+        runtimeCompatibility: { status: "compatible" },
+        health: { state: "healthy" },
+        discovery: {
+          state: "current",
+          tools: 1,
+          resources: 0,
+          prompts: 0,
+          admitted: 1,
+          capabilities: [{
+            selector: "mcp:fixture:tool:echo",
+            kind: "tool",
+            name: "echo",
+            admitted: true,
+          }],
+        },
+        projection: { state: "not-synchronized" },
+      }],
+      diagnostics: [],
+    });
+    expect(view.value).toEqual(snapshot.mcp);
+  });
+
+  it("keeps credential-backed servers valid in status without exposing the secret", async () => {
+    const userHome = join(tempDir, "home");
+    vi.stubEnv(KILN_MCP_SECRET_KEY_ENV, "status-test-master-key");
+    createMcpCredentialAccess(process.env, userHome).set("docs-token", "super-secret-token");
+    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+      'version: "1"',
+      "mcp:",
+      "  servers:",
+      "    docs:",
+      "      transport: streamable-http",
+      "      url: https://mcp.example.com/mcp",
+      "      headers:",
+      "        Authorization: { fromCredential: docs-token }",
+      "      admission: { state: admitted }",
+      "",
+    ].join("\n"), "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.mcp.servers).toEqual([expect.objectContaining({ id: "docs" })]);
+    expect(snapshot.mcp.diagnostics).toEqual([]);
+    expect(JSON.stringify(snapshot.mcp)).not.toContain("super-secret-token");
+  });
+
+  it("reports a server incompatible when no native harness can preserve its policy", async () => {
+    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+      'version: "1"',
+      "mcp:",
+      "  servers:",
+      "    guarded:",
+      "      transport: stdio",
+      "      command: guarded-mcp.exe",
+      "      maxCapabilities: 16",
+      "      admission: { state: admitted }",
+      "",
+    ].join("\n"), "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
+
+    expect(snapshot.mcp.servers[0]).toMatchObject({
+      id: "guarded",
+      projection: { state: "incompatible" },
+      projectionCompatibility: [
+        { harness: "codex", status: "incompatible" },
+        { harness: "claude", status: "incompatible" },
+        { harness: "opencode", status: "incompatible" },
+      ],
     });
   });
 

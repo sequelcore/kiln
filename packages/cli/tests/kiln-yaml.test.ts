@@ -124,7 +124,7 @@ describe("mergeKilnYaml", () => {
       version: "1",
       mcp: {
         servers: {
-          kiln: { type: "stdio", command: "kiln-mcp" },
+          kiln: { transport: "stdio", command: "kiln-mcp" },
         },
       },
     };
@@ -137,7 +137,7 @@ describe("mergeKilnYaml", () => {
     };
     const result = mergeKilnYaml(base, override);
     expect(result.mcp?.servers["kiln"]).toEqual({
-      type: "stdio",
+      transport: "stdio",
       command: "kiln-mcp",
       enabled: true,
     });
@@ -146,12 +146,12 @@ describe("mergeKilnYaml", () => {
   it("adds new mcp server from override", () => {
     const base: KilnYaml = {
       version: "1",
-      mcp: { servers: { kiln: { type: "stdio" } } },
+      mcp: { servers: { kiln: { transport: "stdio", command: "kiln-mcp" } } },
     };
     const override: Partial<KilnYaml> = {
       mcp: {
         servers: {
-          custom: { type: "http", url: "http://localhost:3001/sse" },
+          custom: { transport: "streamable-http", url: "http://localhost:3001/mcp" },
         },
       },
     };

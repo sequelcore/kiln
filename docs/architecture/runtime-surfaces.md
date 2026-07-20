@@ -88,8 +88,9 @@ does not own app runtime topology.
 
 ## App Gateway MCP Discovery
 
-At App Gateway startup, configured app MCP servers are discovered before their
-tools are projected into the app tool context. If an app declares an explicit
+At App Gateway startup, app MCP server ids are resolved from canonical
+global/project Kiln configuration and discovered before tools are projected
+into the app context. If an app declares an explicit
 agent tool list and the first MCP discovery response omits configured tool
 names, the App Gateway retries discovery before accepting the surface. A warning
 is emitted only after the final retry still lacks configured tools.
@@ -97,6 +98,11 @@ is emitted only after the final retry still lacks configured tools.
 This retry is a startup consistency guard for app/MCP restart races. It does not
 authorize undeclared tools, bypass app tool allowlists, or change the MCP
 endpoint boundary described above.
+
+CLI, GUI, TUI, direct-provider, and managed-agent routes use Kiln-owned MCP
+clients. Native Codex, Claude Code, and OpenCode files are capability-aware
+projections only; incompatibility and drift remain explicit. See
+[Canonical MCP](../guides/mcp.md).
 
 ## App YAML Capability Position
 

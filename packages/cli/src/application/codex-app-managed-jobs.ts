@@ -22,6 +22,7 @@ import { readConfigStatusSnapshot } from "./config-status.js";
 import { discoverNativeHarnessProjectRoot } from "./native-harness-project-root.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
+import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 
 const CODEX_APP_CALLER_ID = "codex-app";
@@ -77,7 +78,13 @@ export async function createCodexAppManagedJobApplicationComposition(
   if (root.status !== "resolved") {
     throw new ManagedJobApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
   }
-  const { registry } = createDefaultRegistry();
+  const mcpResolution = loadResolvedKilnMcpConfiguration(root.rootPath);
+  if (mcpResolution.diagnostics.length > 0) {
+    throw new ManagedJobApplicationError("route_unavailable", "Repair canonical MCP configuration before using managed-agent routes.");
+  }
+  const admittedMcpServers = Object.values(mcpResolution.servers).filter((server) =>
+    server.enabled && server.admission?.state === "admitted");
+  const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
   const freshManagedInvocation = async (): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
     let config: KilnYaml | undefined;
     try {
@@ -93,6 +100,7 @@ export async function createCodexAppManagedJobApplicationComposition(
       surface: "operator",
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: createSessionBuiltinToolOptions(),
+        canonicalMcpServers: admittedMcpServers,
       }),
       builtinToolOptions: createSessionBuiltinToolOptions(),
     }, {

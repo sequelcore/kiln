@@ -1,15 +1,7 @@
-// McpConfig types -- YAML configuration for MCP server connections
-
-export interface McpServerConfig {
-  readonly name: string;
-  readonly url: string;
-  readonly env?: Record<string, string>;
-  readonly reconnect?: boolean;
-  readonly requestTimeoutMs?: number;
-}
+// App Gateway MCP admission references canonical Kiln server identities.
 
 export interface McpConfig {
-  readonly servers: readonly McpServerConfig[];
+  readonly servers: readonly string[];
 }
 
 export interface McpValidationError {
@@ -17,40 +9,25 @@ export interface McpValidationError {
   readonly message: string;
 }
 
+const SERVER_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$/;
+
 export function validateMcpConfig(config: McpConfig): McpValidationError[] {
   const errors: McpValidationError[] = [];
-
-  if (!config.servers || !Array.isArray(config.servers) || config.servers.length === 0) {
-    errors.push({ field: "servers", message: "must be a non-empty array" });
-    return errors;
+  if (!Array.isArray(config.servers) || config.servers.length === 0) {
+    return [{ field: "servers", message: "must be a non-empty array" }];
   }
-
-  const serverNames = new Set<string>();
-  for (let i = 0; i < config.servers.length; i++) {
-    const server = config.servers[i]!;
-
-    if (!server.name || typeof server.name !== "string") {
-      errors.push({ field: `servers[${i}].name`, message: "must be a non-empty string" });
-    } else if (serverNames.has(server.name)) {
-      errors.push({ field: `servers[${i}].name`, message: "duplicate server name" });
-    } else {
-      serverNames.add(server.name);
+  const seen = new Set<string>();
+  for (let index = 0; index < config.servers.length; index++) {
+    const serverId = config.servers[index];
+    if (typeof serverId !== "string" || !SERVER_ID_PATTERN.test(serverId)) {
+      errors.push({ field: `servers[${index}]`, message: "must be a canonical MCP server id" });
+      continue;
     }
-
-    if (!server.url || typeof server.url !== "string") {
-      errors.push({ field: `servers[${i}].url`, message: "must be a non-empty string" });
+    if (seen.has(serverId)) {
+      errors.push({ field: `servers[${index}]`, message: "duplicate canonical server id" });
+      continue;
     }
-
-    if (
-      server.requestTimeoutMs !== undefined &&
-      (!Number.isFinite(server.requestTimeoutMs) || server.requestTimeoutMs <= 0)
-    ) {
-      errors.push({
-        field: `servers[${i}].requestTimeoutMs`,
-        message: "must be a positive finite number",
-      });
-    }
+    seen.add(serverId);
   }
-
   return errors;
 }

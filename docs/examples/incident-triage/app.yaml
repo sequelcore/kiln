@@ -14,8 +14,7 @@ memory:
 
 mcp:
   servers:
-    - name: incident-tools
-      url: http://localhost:3500/mcp
+    - incident-tools
 
 safety:
   pii:
@@ -49,11 +48,11 @@ teams:
           open_incident and append_timeline_note as auditable mutations.
         tier: fast
         tools:
-          - list_services
-          - get_service_status
-          - get_runbook
-          - open_incident
-          - append_timeline_note
+          - mcp:incident-tools:tool:list_services
+          - mcp:incident-tools:tool:get_service_status
+          - mcp:incident-tools:tool:get_runbook
+          - mcp:incident-tools:tool:open_incident
+          - mcp:incident-tools:tool:append_timeline_note
 
     workflow:
       phases: [respond]

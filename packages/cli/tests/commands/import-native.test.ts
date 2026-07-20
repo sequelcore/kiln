@@ -46,7 +46,7 @@ describe("import-native command helpers", () => {
       },
       mcp: {
         servers: {
-          kiln: { type: "stdio", command: "kiln-mcp" },
+          kiln: { transport: "stdio", command: "kiln-mcp" },
         },
       },
     };
@@ -79,7 +79,7 @@ describe("import-native command helpers", () => {
       models: { codex: "gpt-5.4" },
       mcp: {
         servers: {
-          kiln: { type: "stdio", command: "kiln-mcp" },
+          kiln: { transport: "stdio", command: "kiln-mcp" },
         },
       },
       components: { include: ["baseline:core"] },

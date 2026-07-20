@@ -65,6 +65,20 @@ Relevant architecture docs:
 - [Runtime Surfaces](../architecture/runtime-surfaces.md)
 - [Voice Capability](../architecture/voice-capability.md)
 
+## Canonical MCP References
+
+`app.yaml` does not define MCP transports or credentials. It references
+canonical global/project server identities:
+
+```yaml
+mcp:
+  servers: [support-tools, knowledge]
+```
+
+App Gateway resolves these ids through Kiln configuration, discovers admitted
+capabilities, applies app/agent/tenant allowlists, and fails startup when a
+reference is missing or discovery fails. See [Canonical MCP](../guides/mcp.md).
+
 ## Voice Provider Fields
 
 The current parser accepts app-level voice providers through `voice.stt` and

@@ -25,7 +25,7 @@ import type {
   TurnTemporalContext,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
-import type { McpClient } from "@kilnai/core";
+import type { KilnMcpClient } from "@kilnai/core";
 import type { EventBus } from "@kilnai/core";
 import type { ContextAuditEntry } from "@kilnai/core";
 import type {
@@ -97,7 +97,7 @@ export interface OrchestratorDeps {
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly tools?: readonly ToolDefinition[];
   readonly materializableTools?: ReadonlyMap<string, ToolDefinition>;
-  readonly mcpClients?: readonly McpClient[];
+  readonly mcpClients?: readonly KilnMcpClient[];
   readonly builtinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly eventBus?: EventBus;
   readonly escalationDetector?: EscalationDetector;

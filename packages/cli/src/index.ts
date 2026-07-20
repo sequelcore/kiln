@@ -35,8 +35,6 @@ export { ClaudeSession } from "./wrapper/claude-code-process.js";
 export type { ClaudeSessionConfig } from "./wrapper/claude-code-process.js";
 export type { SessionMode, SessionContext, SessionReport, WrapperConfig } from "./wrapper/index.js";
 export { SessionManager } from "./wrapper/session-manager.js";
-export { generateConfig, generateMcpConfig } from "./mcp/index.js";
-export type { McpClient, McpClientConfig, McpServerDef } from "./mcp/index.js";
 
 export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);
@@ -58,7 +56,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     doctor: "Diagnose local harness installation, path, version, auth, and model readiness",
     memory: "Browse and search memory layers",
     config: "Edit domain config and provider settings",
-    "mcp-config": "Generate MCP client configuration JSON",
+    "mcp-config": "Synchronize canonical MCP servers into governed native harness projections",
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
     dev: "Start development mode with hot-reload and event streaming (--playground)",
@@ -547,8 +545,8 @@ function parseReasoningEffort(value: string | undefined): ReasoningEffort | unde
   throw new Error(`Unknown reasoning effort '${value}'. Use minimal, low, medium, high, or xhigh.`);
 }
 
-function parseMcpConfigFlags(rawArgs: readonly string[]): { client?: string; name?: string; command?: string; args?: string } {
-  const flags: { client?: string; name?: string; command?: string; args?: string } = {};
+function parseMcpConfigFlags(rawArgs: readonly string[]): { client?: string; name?: string; command?: string; args?: string; test?: boolean; server?: string; repair?: boolean; uninstall?: boolean; credential?: string; fromEnv?: string } {
+  const flags: { client?: string; name?: string; command?: string; args?: string; test?: boolean; server?: string; repair?: boolean; uninstall?: boolean; credential?: string; fromEnv?: string } = {};
   let i = 0;
   while (i < rawArgs.length) {
     const arg = rawArgs[i]!;
@@ -558,6 +556,27 @@ function parseMcpConfigFlags(rawArgs: readonly string[]): { client?: string; nam
     } else if (arg.startsWith("--client=")) {
       flags.client = arg.split("=")[1];
       i += 1;
+    } else if (arg === "--test") {
+      flags.test = true;
+      i += 1;
+    } else if (arg === "--repair") {
+      flags.repair = true;
+      i += 1;
+    } else if (arg === "--uninstall") {
+      flags.uninstall = true;
+      i += 1;
+    } else if (arg === "--server" && i + 1 < rawArgs.length) {
+      flags.server = rawArgs[i + 1];
+      i += 2;
+    } else if (arg.startsWith("--server=")) {
+      flags.server = arg.split("=")[1];
+      i += 1;
+    } else if (arg === "--credential" && i + 1 < rawArgs.length) {
+      flags.credential = rawArgs[i + 1];
+      i += 2;
+    } else if (arg === "--from-env" && i + 1 < rawArgs.length) {
+      flags.fromEnv = rawArgs[i + 1];
+      i += 2;
     } else if (arg === "--name" && i + 1 < rawArgs.length) {
       flags.name = rawArgs[i + 1];
       i += 2;

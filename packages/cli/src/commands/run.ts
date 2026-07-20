@@ -63,7 +63,7 @@ import type { PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
 import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel, type KilnGlobalConfig } from "../config/global-config.js";
-import { loadKilnConfig } from "../config/config-merger.js";
+import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { inferRouteTask, resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
 import { resolveConfiguredReasoningEffort } from "../config/reasoning-policy.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -847,6 +847,12 @@ export async function runCommand(
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  const mcpResolution = loadResolvedKilnMcpConfiguration(cwd);
+  if (mcpResolution.diagnostics.length > 0) {
+    throw new Error(`Canonical MCP configuration is invalid: ${mcpResolution.diagnostics.map((item) => item.code).join(", ")}`);
+  }
+  const admittedMcpServers = Object.values(mcpResolution.servers).filter((server) =>
+    server.enabled && server.admission?.state === "admitted");
   const resolvedAppConfig: KilnAppConfig = resolvedKilnConfig
     ? { ...appConfig, kilnYaml: resolvedKilnConfig }
     : appConfig;
@@ -934,7 +940,7 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(identityAppConfig, resolvedAgent);
-  const { registry, worktreeManager } = createDefaultRegistry();
+  const { registry, worktreeManager } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
   const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(cwd);
   const manager = new SessionManager(config, runtimeAppConfig, contextArtifactCache, worktreeManager);
   let continuationSessionId: string | undefined;
@@ -1117,6 +1123,7 @@ export async function runCommand(
     directAdapterFactory: createManagedDirectProviderAdapterFactory({
       builtinToolOptions: () => builtinToolOptions,
       runtimeEnv: env,
+      canonicalMcpServers: admittedMcpServers,
     }),
     builtinToolOptions: () => builtinToolOptions,
     artifactStore: builtinToolOptions.artifactResources?.store,
@@ -1328,6 +1335,7 @@ export async function runCommand(
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,
     requestedAuthority: flags.requestedAuthority,
+    ...(admittedMcpServers.length > 0 ? { canonicalMcpServers: admittedMcpServers } : {}),
   };
 
   const sessionHooks = new SessionHooks(appConfig.kilnYaml?.hooks, {

@@ -28,6 +28,7 @@ import {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
   deriveAuthorityFromEffect,
   getBuiltinEffectEnvelope,
+  type KilnMcpClient,
 } from "@kilnai/core";
 import {
   buildEffectiveTurnAuthorityPolicyInputs,
@@ -73,6 +74,8 @@ export interface ProviderSessionConfig {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly mcpClients?: readonly KilnMcpClient[];
+  readonly mcpToolAllowlist?: ReadonlySet<string>;
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -146,11 +149,13 @@ function resolveProfile(
 }
 
 function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<ExecutionSessionEvent, { type: "tool_use" }> {
+  const isMcp = event.toolName.startsWith("mcp:");
   return {
     type: "tool_use",
     toolName: event.toolName,
     input: event.toolInput ?? {},
     toolCallId: event.toolCallId,
+    ...(isMcp ? { source: "mcp" as const, mcpSelector: event.toolName } : {}),
   };
 }
 
@@ -196,7 +201,7 @@ function deriveCapabilities(
     })()
     : [];
   return {
-    mcp: false,
+    mcp: true,
     streaming: true,
     resumable: false,
     resume: false,
@@ -222,6 +227,7 @@ export class ProviderSession implements IKilnSession {
   private readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
   private readonly capabilityMap: ReadonlyMap<string, Capability>;
   private readonly eventBus: EventBus;
+  private disposePromise?: Promise<void>;
 
   constructor(readonly config: ProviderSessionConfig) {
     this.sessionId = config.runtimeSessionId ?? randomUUID();
@@ -325,7 +331,8 @@ export class ProviderSession implements IKilnSession {
   }
 
   async dispose(): Promise<void> {
-    // Stateless direct-provider session; no process/socket lifecycle to tear down.
+    this.disposePromise ??= Promise.all((this.config.mcpClients ?? []).map((client) => client.disconnect())).then(() => undefined);
+    await this.disposePromise;
   }
 
   private async checkProviderBudget(): Promise<string | undefined> {
@@ -511,17 +518,26 @@ export class ProviderSession implements IKilnSession {
     abortSignal: AbortSignal | undefined,
     turnId: string | undefined,
     workingDirectory: string | undefined,
+    externalTools: readonly ToolDefinition[] = [],
+    externalCapabilities: ReadonlyMap<string, Capability> = new Map(),
   ): PerCallToolConfig {
+    const combinedToolDefinitions = [...this.toolDefinitions, ...externalTools];
+    const combinedCapabilities = new Map([...this.capabilityMap, ...externalCapabilities]);
     if (!requestedAuthority || requestedAuthority === "auto") {
       const admittedToolNames = new Set(this.materializableTools.keys());
+      for (const tool of externalTools) {
+        if (!this.config.mcpToolAllowlist || this.config.mcpToolAllowlist.has(tool.name)) {
+          admittedToolNames.add(tool.name);
+        }
+      }
       return {
         ...(turnId ? { turnId } : {}),
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(abortSignal ? { abortSignal } : {}),
         ...(workingDirectory ? { workingDirectory } : {}),
         toolAllowlist: admittedToolNames,
-        additionalTools: this.toolDefinitions,
-        perCallCapabilities: filterCapabilityMap(this.capabilityMap, admittedToolNames),
+        additionalTools: combinedToolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
+        perCallCapabilities: filterCapabilityMap(combinedCapabilities, admittedToolNames),
         ...(requestedAuthority ? {
           effectiveTurnAuthority: {
             executionMode: "execute",
@@ -544,13 +560,16 @@ export class ProviderSession implements IKilnSession {
     }
 
     const candidateTools = new Map(this.materializableTools);
-    for (const tool of this.toolDefinitions) {
+    for (const tool of combinedToolDefinitions) {
       candidateTools.set(tool.name, tool);
     }
     const admittedToolNames = new Set<string>();
     const toolAuthority = new Map<string, AuthorityDescriptor>();
     for (const tool of candidateTools.values()) {
-      const capability = this.capabilityMap.get(tool.name);
+      if (tool.name.startsWith("mcp:") && this.config.mcpToolAllowlist && !this.config.mcpToolAllowlist.has(tool.name)) {
+        continue;
+      }
+      const capability = combinedCapabilities.get(tool.name);
       const authority = authorityDescriptorFromCapability(tool.name, capability);
       if (!authority) {
         continue;
@@ -589,8 +608,8 @@ export class ProviderSession implements IKilnSession {
       ...(workingDirectory ? { workingDirectory } : {}),
       toolAllowlist: admittedToolNames,
       toolAuthority,
-      additionalTools: this.toolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
-      perCallCapabilities: filterCapabilityMap(this.capabilityMap, admittedToolNames),
+      additionalTools: combinedToolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
+      perCallCapabilities: filterCapabilityMap(combinedCapabilities, admittedToolNames),
       effectiveTurnAuthority: {
         executionMode: "execute",
         requestedAuthority,
@@ -613,6 +632,16 @@ export class ProviderSession implements IKilnSession {
   private async *runKilnExecutable(options: SessionRunOptions, startedAt: number): AsyncIterable<ExecutionSessionEvent> {
     const { RuntimeSessionOrchestrator, RuntimeSession } = await import("@kilnai/runtime");
 
+    const mcpCapabilities = (await Promise.all(
+      (this.config.mcpClients ?? []).map((client) => client.discoverProviderCapabilities()),
+    )).flat();
+    const externalTools: ToolDefinition[] = mcpCapabilities.map((capability) => ({
+      name: capability.name,
+      description: capability.description,
+      inputSchema: capability.schema,
+      tags: new Set(capability.tags),
+    }));
+    const externalCapabilityMap = new Map(mcpCapabilities.map((capability) => [capability.name, capability]));
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
     const perCallConfig = this.buildPerCallConfig(
       options.reasoningEffort ?? this.config.reasoningEffort,
@@ -620,6 +649,8 @@ export class ProviderSession implements IKilnSession {
       options.abortSignal,
       options.turnId,
       options.cwd ?? this.config.cwd,
+      externalTools,
+      externalCapabilityMap,
     );
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options, perCallConfig.effectiveTurnAuthority);
     const adapter = await createDirectProviderAdapter({
@@ -642,12 +673,13 @@ export class ProviderSession implements IKilnSession {
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: adapter,
       model: this.resolvedModel,
-      tools: this.toolDefinitions,
+      tools: [...this.toolDefinitions, ...externalTools],
       materializableTools: this.materializableTools,
       builtinTools: this.builtinTools,
       eventBus: this.eventBus,
       toolAuthorizer: authorizer,
-      capabilityMap: this.capabilityMap,
+      capabilityMap: new Map([...this.capabilityMap, ...externalCapabilityMap]),
+      ...(this.config.mcpClients && this.config.mcpClients.length > 0 ? { mcpClients: this.config.mcpClients } : {}),
       dangerousCommandDetector: undefined,
       ...(this.config.budgetAdmission ? { budgetAdmission: this.config.budgetAdmission } : {}),
       ...(this.config.executionEnvelope ? { executionEnvelope: this.config.executionEnvelope } : {}),

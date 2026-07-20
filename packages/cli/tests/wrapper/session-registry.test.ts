@@ -142,7 +142,7 @@ const CAPABILITIES: Record<string, SessionCapabilities> = {
   "codex-oauth": { ...MOCK_CAPA, priority: 1, mcp: false, costTrackingMode: "computed" },
   claude: { ...MOCK_CAPA, priority: 1, mcp: true },
   opencode: { ...MOCK_CAPA, priority: 2, mcp: true },
-  codex: { ...MOCK_CAPA, priority: 3, mcp: false, costTrackingMode: "computed" },
+  codex: { ...MOCK_CAPA, priority: 3, mcp: true, costTrackingMode: "computed" },
   "opencode-go": { ...MOCK_CAPA, priority: 2, mcp: false, costTrackingMode: "computed" },
   "opencode-zen": { ...MOCK_CAPA, priority: 3, mcp: false, costTrackingMode: "computed" },
   anthropic: { ...MOCK_CAPA, priority: 4, mcp: false, costTrackingMode: "computed" },
@@ -436,11 +436,11 @@ describe("SessionRegistry", () => {
   });
 
   describe("selectBest", () => {
-    it("requiresMcp=true excludes all direct providers and codex", () => {
+    it("requiresMcp=true retains Codex through governed native projection", () => {
       const reg = makeRegistry();
       const result = reg.selectBest({ requiresMcp: true });
       expect(result.primary).toBe("claude");
-      expect(result.scores.find((s) => s.id === "codex")?.excluded).toBe(true);
+      expect(result.scores.find((s) => s.id === "codex")?.excluded).toBe(false);
       expect(result.scores.find((s) => s.id === "openai")?.excluded).toBe(true);
       expect(result.scores.find((s) => s.id === "ollama")?.excluded).toBe(true);
     });

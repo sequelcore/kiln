@@ -14,8 +14,7 @@ memory:
 
 mcp:
   servers:
-    - name: research-tools
-      url: http://localhost:3400/mcp
+    - research-tools
 
 safety:
   pii:
@@ -49,9 +48,9 @@ teams:
           source list.
         tier: fast
         tools:
-          - search_sources
-          - read_source
-          - save_brief
+          - mcp:research-tools:tool:search_sources
+          - mcp:research-tools:tool:read_source
+          - mcp:research-tools:tool:save_brief
 
     workflow:
       phases: [respond]

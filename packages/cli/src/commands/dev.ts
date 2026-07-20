@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import { YamlWatcher } from "./dev-watcher.js";
+import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
 
 export interface DevFlags {
   port?: number;
@@ -45,7 +47,17 @@ export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Pr
   try {
     if (hasGateway) {
       const { startGateway } = await import("@kilnai/runtime");
-      await startGateway(gatewayPath, { port, devMode: true, studioDistPath: appConfig.studioDistPath });
+      const mcp = loadResolvedKilnMcpConfiguration(root);
+      if (mcp.diagnostics.length > 0) {
+        throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
+      }
+      await startGateway(gatewayPath, {
+        port,
+        devMode: true,
+        studioDistPath: appConfig.studioDistPath,
+        canonicalMcpServers: new Map(Object.entries(mcp.servers)),
+        mcpCredentialResolver: createMcpCredentialAccess().resolve,
+      });
     } else {
       const { startDevServer } = await import("@kilnai/runtime");
       await startDevServer({ port, appYamlPath: existsSync(appYamlPath) ? appYamlPath : undefined, studioDistPath: appConfig.studioDistPath });

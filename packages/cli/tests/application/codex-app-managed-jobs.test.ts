@@ -49,6 +49,7 @@ vi.mock("../../src/application/config-status.js", () => ({
       errors: [],
       projections: [],
       permissionIntegrity: [],
+      mcp: { servers: [], diagnostics: [] },
       setup: {
         projectRoot: "C:/workspace/kiln",
         projectContext: {

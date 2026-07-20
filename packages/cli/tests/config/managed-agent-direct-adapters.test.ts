@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentResponse, ProviderAdapter, ToolResourceProvider } from "@kilnai/core";
+import type { AgentResponse, ProviderAdapter, ResolvedMcpServer, ToolResourceProvider } from "@kilnai/core";
 import { createSessionBuiltinToolOptions, defineManagedAgentInvocationRequest, textParts } from "@kilnai/core";
 import { ManagedDirectProviderRuntimeAdapter, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
@@ -54,6 +54,53 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       runtimeEnv: { OPENAI_API_KEY: "runtime-key" },
       processEnv: undefined,
     });
+  });
+
+  it("admits only route-qualified MCP selectors and dispatches them through the owning client", async () => {
+    const selector = "mcp:fixture:tool:echo";
+    const executeCapability = vi.fn(async () => ({ echoed: true }));
+    const disconnect = vi.fn(async () => undefined);
+    const createMcpClient = vi.fn(() => ({
+      serverName: "fixture",
+      discoverProviderCapabilities: vi.fn(async () => [{
+        name: selector,
+        description: "echo",
+        schema: { type: "object" },
+        tags: ["mcp", "fixture"],
+      }]),
+      executeCapability,
+      disconnect,
+    }));
+    const canonicalMcpServers: ResolvedMcpServer[] = [{
+      id: "fixture", enabled: true, transport: "stdio", command: "node", args: ["fixture.mjs"],
+      source: "project", provenance: {}, connection: { state: "not-tested" }, projection: { state: "not-synchronized" },
+      admission: { state: "admitted" },
+    }];
+    const factory = createManagedDirectProviderAdapterFactory({
+      canonicalMcpServers,
+      createMcpClient,
+      createProviderAdapter: vi.fn(async () => provider()),
+    });
+
+    const adapter = await factory({
+      id: "openai-mcp", kind: "direct", provider: "openai", model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"], tools: { allowed: [selector] },
+    });
+    const internals = adapter as unknown as {
+      readonly tools: readonly { readonly name: string }[];
+      readonly builtinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
+    };
+    expect(internals.tools).toEqual(expect.arrayContaining([expect.objectContaining({ name: selector })]));
+    await expect(internals.builtinTools.get(selector)?.({ value: "hi" })).resolves.toEqual({ echoed: true });
+    expect(executeCapability).toHaveBeenCalledWith(selector, { value: "hi" });
+    expect(disconnect).toHaveBeenCalledTimes(2);
+
+    const withoutSelector = await factory({
+      id: "openai-no-mcp", kind: "direct", provider: "openai", model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"], tools: { allowed: ["read"] },
+    });
+    expect((withoutSelector as unknown as { tools: readonly { name: string }[] }).tools.some((tool) => tool.name.startsWith("mcp:"))).toBe(false);
+    expect(createMcpClient).toHaveBeenCalledTimes(1);
   });
 
   it("marks direct managed runtime adapters write-capable only for explicit write routes", async () => {

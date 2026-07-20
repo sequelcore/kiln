@@ -8,6 +8,7 @@ import type {
   AuthorityDescriptor,
   ApprovalRequestedEvent,
   ActionEffectEnvelope,
+  KilnMcpClient,
 } from "@kilnai/core";
 import { textParts, EventBus, normalizeToolInput } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
@@ -1999,6 +2000,74 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
             resultSummary: "Authorization denied: Authorization denied",
           }),
         ]);
+    });
+
+    it("dispatches a qualified MCP selector only to its owning server", async () => {
+      const selector = "mcp:second:tool:echo";
+      const provider = makeToolCallProvider({ id: "mcp-1", name: selector, input: { value: "hello" } });
+      const firstExecute = vi.fn().mockRejectedValue(new Error("wrong server"));
+      const secondExecute = vi.fn().mockResolvedValue({ echoed: "hello" });
+      const clients = [
+        { serverName: "first", executeCapability: firstExecute },
+        { serverName: "second", executeCapability: secondExecute },
+      ] as unknown as readonly KilnMcpClient[];
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 3, allowed: true, requiresApproval: false, reason: "admitted" }),
+      };
+      const capability: Capability = {
+        name: selector,
+        description: "Untrusted external tool",
+        schema: {},
+        tags: ["mcp", "second"],
+      };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: selector, description: capability.description, inputSchema: {}, tags: new Set(capability.tags) }],
+        mcpClients: clients,
+        capabilityMap: new Map([[selector, capability]]),
+        toolAuthorizer: authorizer,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("echo"));
+
+      expect(firstExecute).not.toHaveBeenCalled();
+      expect(secondExecute).toHaveBeenCalledWith(selector, { value: "hello" });
+      expect(result.toolExecutions?.[0]).toMatchObject({ toolName: selector, success: true });
+    });
+
+    it("blocks a denied qualified MCP tool before external execution", async () => {
+      const selector = "mcp:studio:tool:run_luau";
+      const provider = makeToolCallProvider({ id: "mcp-denied", name: selector, input: { code: "print('no')" } });
+      const execute = vi.fn().mockResolvedValue("must not run");
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 4, allowed: false, requiresApproval: false, reason: "mutation denied" }),
+      };
+      const capability: Capability = {
+        name: selector,
+        description: "Untrusted external mutation",
+        schema: {},
+        tags: ["mcp", "studio"],
+      };
+      const append = vi.fn();
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: selector, description: capability.description, inputSchema: {}, tags: new Set(capability.tags) }],
+        mcpClients: [{ serverName: "studio", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
+        capabilityMap: new Map([[selector, capability]]),
+        toolAuthorizer: authorizer,
+        auditLog: { append },
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("run"));
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(result.toolExecutions?.[0]).toMatchObject({ toolName: selector, success: false });
+      expect(append).toHaveBeenCalledWith(expect.objectContaining({
+        action: "tool_execution",
+        outcome: "error",
+        resource: selector,
+        metadata: expect.objectContaining({ authorityAllowed: false, authorityReason: "mutation denied" }),
+      }));
     });
 
     it("correlates ordered tool output chunks between tool start and completion", async () => {

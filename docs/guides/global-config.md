@@ -52,7 +52,7 @@ kiln config set --global skills.selection.mode auto
 | `models.default` | `string` | Default model used when a route-specific model does not override it. |
 | `models.<engine>` | `string` | Engine-specific model override. |
 | `permissions` | `KilnPermissionPolicy` | Default approval and sandbox policy applied when no project-level override exists. |
-| `mcp` | `Record<string, unknown>` | Global MCP server definitions and related client config. |
+| `mcp.servers` | `Record<string, McpServerConfiguration>` | Canonical global MCP definitions; projects may add, narrow, override, or disable them. |
 | `hooks` | `Record<string, unknown>` | Global hook configuration shared across Kiln-managed workflows. |
 | `managedAgents` | `KilnManagedAgentsConfig` | Governed child-agent route configuration shared by GUI, TUI, and CLI runtime surfaces. |
 | `modelTaskSuitability` | `KilnModelTaskSuitabilityOverride[]` | Operator or project overrides for provider/model task suitability evidence. |
@@ -81,6 +81,11 @@ MCP server entries may include `requestTimeoutMs` to override the default
 Kiln-owned MCP client request timeout for that server. Use it for servers with
 long-running tools when the tool's own input does not expose a millisecond
 `timeout` field.
+
+The complete schema, merge rules, credential references, admission policy, and
+projection lifecycle are documented in [Canonical MCP](mcp.md). MCP supports
+only stdio and Streamable HTTP. Literal sensitive values are rejected; use
+environment or encrypted Kiln credential references.
 
 Kiln's economic routing posture is subscription-first where the provider exposes
 a compliant direct route. Direct subscription providers such as `codex-oauth`,

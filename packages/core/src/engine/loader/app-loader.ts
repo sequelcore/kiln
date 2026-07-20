@@ -33,7 +33,7 @@ import type { KnowledgeConfig, KnowledgeEmbeddingConfig, KnowledgeStoreConfig, K
 import { validateKnowledgeConfig } from "../domain/knowledge-config.js";
 import type { EvalConfig, EvalScorerConfig, EvalDatasetConfig, EvalExperimentConfig } from "../domain/eval-config.js";
 import { validateEvalConfig } from "../domain/eval-config.js";
-import type { McpConfig, McpServerConfig } from "../domain/mcp-config.js";
+import type { McpConfig } from "../domain/mcp-config.js";
 import { validateMcpConfig } from "../domain/mcp-config.js";
 import type { ToolSelectionConfig, ToolSelectionStrategy } from "../domain/tool-selection-config.js";
 import { validateToolSelectionConfig } from "../domain/tool-selection-config.js";
@@ -215,14 +215,6 @@ interface RawEval {
   datasets?: unknown;
   scorers?: unknown;
   experiments?: unknown;
-}
-
-interface RawMcpServer {
-  name?: unknown;
-  url?: unknown;
-  env?: unknown;
-  reconnect?: unknown;
-  requestTimeoutMs?: unknown;
 }
 
 interface RawMcp {
@@ -1088,39 +1080,10 @@ function mapMcp(raw: RawMcp): { mcp: McpConfig | undefined; errors: { field: str
     return { mcp: undefined, errors: [] };
   }
 
-  const servers: McpServerConfig[] = [];
+  const servers: string[] = [];
   if (Array.isArray(raw.servers)) {
     for (let i = 0; i < raw.servers.length; i++) {
-      const server = raw.servers[i] as RawMcpServer | undefined;
-      if (!server) continue;
-
-      let env: Record<string, string> | undefined;
-      if (server.env && typeof server.env === "object" && !Array.isArray(server.env)) {
-        const envObj: Record<string, string> = {};
-        for (const [key, value] of Object.entries(server.env as Record<string, unknown>)) {
-          if (typeof value === "string") {
-            envObj[key] = value;
-          }
-        }
-        if (Object.keys(envObj).length > 0) {
-          env = envObj;
-        }
-      }
-
-      const requestTimeoutMs =
-        server.requestTimeoutMs === undefined
-          ? undefined
-          : typeof server.requestTimeoutMs === "number"
-            ? server.requestTimeoutMs
-            : Number.NaN;
-
-      servers.push({
-        name: typeof server.name === "string" ? server.name : "",
-        url: typeof server.url === "string" ? server.url : "",
-        ...(env && Object.keys(env).length > 0 ? { env } : {}),
-        ...(typeof server.reconnect === "boolean" ? { reconnect: server.reconnect } : {}),
-        ...(requestTimeoutMs !== undefined ? { requestTimeoutMs } : {}),
-      });
+      servers.push(typeof raw.servers[i] === "string" ? raw.servers[i] as string : "");
     }
   }
 

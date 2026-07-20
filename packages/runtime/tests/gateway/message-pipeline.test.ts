@@ -1701,6 +1701,7 @@ describe("processAdmittedTurn", () => {
       eventEmitter: emitter,
       tenantId: "_default",
       tenant,
+      perCallConfig: { toolAllowlist: new Set(["mock_tool", "other_tenant_tool"]) },
     });
 
     const result = await processInboundMessage(ctx);
@@ -1719,7 +1720,7 @@ describe("processAdmittedTurn", () => {
       expect.objectContaining({
         tenantId: "tenant-1",
         toolAuthority,
-        toolAllowlist,
+        toolAllowlist: new Set(["mock_tool"]),
         rateLimiter,
         additionalTools: toolDefinitions,
         perCallCapabilities: capabilities,

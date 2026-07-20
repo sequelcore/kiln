@@ -5,6 +5,7 @@ import { parse, stringify } from "yaml";
 import { validateVoiceConfig, type VoiceConfig } from "@kilnai/core";
 import { KilnYamlError } from "../kiln-yaml.js";
 import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
+import { readMcpConfigurationSource } from "./mcp-config.js";
 import type {
   KilnManagedAgentsConfig,
   KilnHooksConfig,
@@ -261,6 +262,11 @@ export function validateGlobalConfig(config: unknown): void {
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
   validateGlobalUi(config.ui);
+  readMcpConfigurationSource({
+    value: config.mcp,
+    scope: "global",
+    sourcePath: resolveGlobalConfigPath(),
+  });
 }
 
 function validateIdentity(value: unknown): void {

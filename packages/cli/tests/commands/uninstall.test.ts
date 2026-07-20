@@ -73,6 +73,7 @@ describe("uninstallNativeTargets", () => {
     const document = {
       model: "gpt-5.4",
       sandbox_mode: "workspace-write",
+      mcp_servers: { fixture: { command: "node", args: ["fixture.mjs"] } },
     };
     const codexAgent = "# Planner\n";
     const codexSkill = "# Skill\n";
@@ -92,6 +93,16 @@ describe("uninstallNativeTargets", () => {
           filePath: codexConfigPath,
           document,
           managedFields: ["sandbox_mode"],
+          updatedAt: "2026-05-06T12:00:00.000Z",
+        }),
+      );
+      state = upsertNativeProjectionTargetState(
+        state,
+        createNativeProjectionSnapshot({
+          targetId: "mcp:codex",
+          filePath: codexConfigPath,
+          document,
+          managedFields: ["/mcp_servers/fixture"],
           updatedAt: "2026-05-06T12:00:00.000Z",
         }),
       );
@@ -127,7 +138,7 @@ describe("uninstallNativeTargets", () => {
       const result = uninstallNativeTargets(join(root, "project"), { target: "codex" });
 
       expect(result).toEqual({
-        removed: ["codex-config", "codex-agent:planner", "codex-skill:planner/SKILL.md"],
+        removed: ["codex-config", "mcp:codex", "codex-agent:planner", "codex-skill:planner/SKILL.md"],
         skipped: [],
         errors: [],
       });

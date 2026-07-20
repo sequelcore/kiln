@@ -209,15 +209,22 @@ The CLI no longer exposes a Rust readiness proof command; future Rust module
 evidence should be added through a dedicated approved slice instead of a
 temporary benchmark subcommand.
 
-## MCP Server
+## Canonical MCP
 
-The CLI includes a built-in MCP server for Claude Code integration:
+Inspect, safely test, and synchronize canonical global/project MCP servers:
 
 ```bash
-kiln mcp-config        # Print MCP server configuration for Claude Code
+kiln config read --view mcp
+kiln mcp-config --test --server <id>
+kiln mcp-config --client codex
+kiln mcp-config --repair --client codex
+kiln mcp-config --uninstall --client codex
+kiln uninstall codex
 ```
 
-This lets Claude Code use Kiln tools directly in your development workflow.
+Kiln-owned direct sessions do not depend on native projection. Projection is
+managed, reversible, drift-aware, and preserves unmanaged native settings. See
+`docs/guides/mcp.md` for configuration, security, App Gateway, and Roblox Studio.
 
 ## Documentation
 

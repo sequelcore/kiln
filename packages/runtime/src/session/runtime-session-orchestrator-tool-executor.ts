@@ -488,6 +488,12 @@ export class RuntimeSessionToolExecutor {
           output: content,
           resultSummary: content.slice(0, 200),
         });
+        this.appendAudit(normalizedToolCall.name, 0, "error", {
+          level: 4,
+          allowed: false,
+          requiresApproval: false,
+          reason: "Tool is outside the tenant/session allowlist",
+        });
         continue;
       }
 
@@ -557,6 +563,7 @@ export class RuntimeSessionToolExecutor {
                 output: content,
                 resultSummary: content.slice(0, 200),
               });
+              this.appendAudit(normalizedToolCall.name, 0, "error", authResult);
               continue;
             }
             executionAuthority = {
@@ -601,6 +608,7 @@ export class RuntimeSessionToolExecutor {
               output: content,
               resultSummary: content.slice(0, 200),
             });
+            this.appendAudit(normalizedToolCall.name, 0, "error", authResult);
             continue;
           }
         }
@@ -1370,12 +1378,10 @@ export class RuntimeSessionToolExecutor {
     }
 
     if (this.deps.mcpClients) {
-      for (const client of this.deps.mcpClients) {
-        try {
-          return await client.executeTool(toolCall.name, toolCall.input);
-        } catch {
-          continue;
-        }
+      const client = this.deps.mcpClients.find((candidate) =>
+        toolCall.name.startsWith(`mcp:${candidate.serverName}:`));
+      if (client) {
+        return client.executeCapability(toolCall.name, toolCall.input);
       }
     }
 

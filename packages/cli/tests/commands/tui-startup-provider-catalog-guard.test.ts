@@ -359,6 +359,7 @@ vi.mock("@kilnai/runtime", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: configMocks.readGlobalConfig,
+  resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
   resolveGlobalDefaultProvider: (config: typeof configMocks.globalConfig) => {
     if (!config) return undefined;
     return config.routing?.defaultWorker

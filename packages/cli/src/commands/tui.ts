@@ -38,7 +38,7 @@ import {
   createManagedInvocationExecutionProofResolverRef,
 } from "../application/managed-invocation-attachment.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import { loadKilnConfig } from "../config/config-merger.js";
+import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime, type OperatorVoiceRuntime } from "../config/operator-voice.js";
 import { createStartupProfiler, type StartupProfiler } from "../application/startup-profiler.js";
@@ -1337,14 +1337,17 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const { startTui } = await import("@kilnai/tui");
   const startupProfiler = createStartupProfiler("tui");
   startupProfiler.mark("command-entered");
-  const { registry } = createDefaultRegistry();
-  const providerDisplayInfo = getProviderDisplayInfo(registry);
-  const providerIds = providerDisplayInfo.map((entry) => entry.id);
-
   const cwd = resolveProjectRoot({ explicitPath: flags.cwd }).rootPath;
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  const mcpResolution = loadResolvedKilnMcpConfiguration(cwd);
+  const admittedMcpServers = mcpResolution.diagnostics.length === 0
+    ? Object.values(mcpResolution.servers).filter((server) => server.enabled && server.admission?.state === "admitted")
+    : [];
+  const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
+  const providerDisplayInfo = getProviderDisplayInfo(registry);
+  const providerIds = providerDisplayInfo.map((entry) => entry.id);
   startupProfiler.mark("config-loaded", { projectPath: cwd });
   const runtimeAppConfig = withContextCandidates(
     withWorkGovernanceContext(withGlobalIdentityContext(appConfig, globalConfig), resolvedKilnConfig?.workGovernance),
@@ -1410,6 +1413,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,
+        canonicalMcpServers: admittedMcpServers,
       }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,

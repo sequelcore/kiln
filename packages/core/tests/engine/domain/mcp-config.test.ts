@@ -4,9 +4,7 @@ import { validateMcpConfig, type McpConfig } from "../../../src/engine/domain/mc
 describe("validateMcpConfig", () => {
   it("returns empty array for valid config", () => {
     const config: McpConfig = {
-      servers: [
-        { name: "mcp-server", url: "https://example.com/mcp", requestTimeoutMs: 300_000 },
-      ],
+      servers: ["mcp-server"],
     };
     expect(validateMcpConfig(config)).toEqual([]);
   });
@@ -20,46 +18,21 @@ describe("validateMcpConfig", () => {
   it("errors on duplicate server names", () => {
     const config: McpConfig = {
       servers: [
-        { name: "mcp-server", url: "https://example.com/mcp" },
-        { name: "mcp-server", url: "https://example.com/mcp2" },
+        "mcp-server",
+        "mcp-server",
       ],
     };
     const errors = validateMcpConfig(config);
-    expect(errors).toContainEqual({ field: "servers[1].name", message: "duplicate server name" });
+    expect(errors).toContainEqual({ field: "servers[1]", message: "duplicate canonical server id" });
   });
 
-  it("errors on missing URL", () => {
+  it("errors on malformed canonical server ids", () => {
     const config = {
       servers: [
-        { name: "mcp-server" },
+        "bad server",
       ],
     } as unknown as McpConfig;
     const errors = validateMcpConfig(config);
-    expect(errors).toContainEqual({ field: "servers[0].url", message: "must be a non-empty string" });
-  });
-
-  it("errors on missing server name", () => {
-    const config: McpConfig = {
-      servers: [
-        { name: "", url: "https://example.com/mcp" },
-      ],
-    };
-    const errors = validateMcpConfig(config);
-    expect(errors).toContainEqual({ field: "servers[0].name", message: "must be a non-empty string" });
-  });
-
-  it("errors on invalid request timeout", () => {
-    const config: McpConfig = {
-      servers: [
-        { name: "mcp-server", url: "https://example.com/mcp", requestTimeoutMs: 0 },
-      ],
-    };
-
-    const errors = validateMcpConfig(config);
-
-    expect(errors).toContainEqual({
-      field: "servers[0].requestTimeoutMs",
-      message: "must be a positive finite number",
-    });
+    expect(errors).toContainEqual({ field: "servers[0]", message: "must be a canonical MCP server id" });
   });
 });

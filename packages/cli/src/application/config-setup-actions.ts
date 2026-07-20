@@ -3,11 +3,12 @@ import type {
   KilnConfigSetupAction,
   KilnConfigSetupActionResult,
 } from "@kilnai/gateway-contracts";
-import { loadKilnConfig } from "../config/config-merger.js";
+import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
+import { syncNativeMcpProjections } from "../config/native-mcp-projection-sync.js";
 import { adoptNativeHarnessSkills } from "../config/native-skill-adoption.js";
 import { writeProjectContextAdoption } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
@@ -132,11 +133,17 @@ async function syncNativeProjections(
     skillConfig: kilnYaml.skills,
     userHome,
   });
+  const mcpResult = await syncNativeMcpProjections(loadResolvedKilnMcpConfiguration(projectPath), projectPath);
+  const mcpErrors = mcpResult.targets.flatMap((target) =>
+    target.status === "current"
+      ? []
+      : [`${target.harness} MCP projection ${target.status}${target.reason ? `: ${target.reason}` : ""}`]);
   const errors = [
     ...permissionResult.errors,
     ...hookResult.errors,
     ...agentResult.errors,
     ...skillResult.errors,
+    ...mcpErrors,
   ];
   if (errors.length > 0) {
     return result(action, "failed", "Native projection sync failed.", errors, projectPath, userHome);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { AllCredentialsExhaustedError, KilnError, type ExecutionSessionEvent } from "@kilnai/core";
+import { AllCredentialsExhaustedError, KilnError, type ExecutionSessionEvent, type KilnMcpClient } from "@kilnai/core";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
@@ -493,7 +493,7 @@ describe("ProviderSession implements IKilnSession", () => {
   it("capabilities match Phase 10a requirements", () => {
     const session = new ProviderSession(baseConfig());
     expect(session.capabilities).toMatchObject({
-      mcp: false,
+      mcp: true,
       streaming: true,
       resumable: false,
       resume: false,
@@ -512,10 +512,14 @@ describe("ProviderSession implements IKilnSession", () => {
     expect(new ProviderSession(baseConfig({ provider: "lmstudio" })).capabilities.priority).toBe(9);
   });
 
-  it("dispose resolves and is a no-op", async () => {
-    const session = new ProviderSession(baseConfig());
+  it("dispose closes owned MCP sessions idempotently", async () => {
+    const disconnect = vi.fn(async () => undefined);
+    const session = new ProviderSession(baseConfig({
+      mcpClients: [{ disconnect }] as unknown as readonly KilnMcpClient[],
+    }));
     await expect(session.dispose()).resolves.toBeUndefined();
     await expect(session.dispose()).resolves.toBeUndefined();
+    expect(disconnect).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -726,6 +730,50 @@ describe("ProviderSession.run()", () => {
       cacheWriteTokens: 7,
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+  });
+
+  it("attaches admitted qualified MCP capabilities to direct-provider execution", async () => {
+    const selector = "mcp:fixture:tool:echo";
+    const discoverProviderCapabilities = vi.fn(async () => [{
+      name: selector,
+      description: "External echo",
+      schema: { type: "object" },
+      tags: ["mcp", "fixture"],
+    }]);
+    const client = {
+      serverName: "fixture",
+      discoverProviderCapabilities,
+      disconnect: vi.fn(async () => undefined),
+    } as unknown as KilnMcpClient;
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "done" }],
+      toolExecutions: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      outcome: "completed",
+    });
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      mcpClients: [client],
+      mcpToolAllowlist: new Set([selector]),
+    }));
+
+    await collectEvents(session.run({ prompt: "use fixture" }));
+
+    expect(discoverProviderCapabilities).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledWith(expect.objectContaining({
+      mcpClients: [client],
+      tools: expect.arrayContaining([expect.objectContaining({ name: selector })]),
+      capabilityMap: expect.any(Map),
+    }));
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as { toolAllowlist: Set<string> };
+    expect(perCallConfig.toolAllowlist.has(selector)).toBe(true);
   });
 
   it("uses the runtime terminal outcome after an earlier tool failure is recovered", async () => {

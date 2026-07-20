@@ -20,6 +20,7 @@ export * from "./safety/index.js";
 export * from "./enrichment/index.js";
 export * from "./tools/index.js";
 export * from "./work-governance/index.js";
+export * from "./mcp/index.js";
 export * from "./feedback/index.js";
 export * from "./external-engagement/index.js";
 export * from "./credentials/index.js";
@@ -322,7 +323,6 @@ export { validateAgentCard } from "./engine/domain/a2a-config.js";
 // MCP types re-exported for direct access by runtime mcp module
 export type {
   McpConfig,
-  McpServerConfig,
   McpValidationError,
 } from "./engine/domain/mcp-config.js";
 export { validateMcpConfig } from "./engine/domain/mcp-config.js";
@@ -445,6 +445,7 @@ export {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
   conservativeEnvelopeFromExternalHints,
   deriveAuthorityFromEffect,
+  normalizeActionEffectEnvelope,
   resolveInvocationEffect,
   isValidNarrowing,
   catalogAuthorityFromEnvelope,

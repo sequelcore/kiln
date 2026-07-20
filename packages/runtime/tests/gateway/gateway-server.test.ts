@@ -365,16 +365,16 @@ describe("createGatewayApp", () => {
 
   it("retries MCP discovery when configured tools are initially missing", async () => {
     const app = makeApp("artu");
-    app.teams.default.agents.w.tools = ["get_opportunity_report"];
-    const discoverTools = vi.fn()
-      .mockResolvedValueOnce([{ name: "get_opportunity" }])
+    app.teams.default.agents.w.tools = ["mcp:artu-trading:tool:get_opportunity_report"];
+    const discoverProviderCapabilities = vi.fn()
+      .mockResolvedValueOnce([{ name: "mcp:artu-trading:tool:get_opportunity" }])
       .mockResolvedValueOnce([
-        { name: "get_opportunity" },
-        { name: "get_opportunity_report" },
+        { name: "mcp:artu-trading:tool:get_opportunity" },
+        { name: "mcp:artu-trading:tool:get_opportunity_report" },
       ]);
 
     const capabilities = await discoverMcpCapabilitiesWithConfiguredToolRetry({
-      client: { discoverTools },
+      client: { discoverProviderCapabilities },
       app,
       appName: "artu",
       serverName: "artu-trading",
@@ -382,10 +382,27 @@ describe("createGatewayApp", () => {
       delayMs: 0,
     });
 
-    expect(discoverTools).toHaveBeenCalledTimes(2);
+    expect(discoverProviderCapabilities).toHaveBeenCalledTimes(2);
     expect(capabilities.map((capability) => capability.name)).toContain(
-      "get_opportunity_report",
+      "mcp:artu-trading:tool:get_opportunity_report",
     );
+  });
+
+  it("does not make one canonical server satisfy another server's configured selectors", async () => {
+    const app = makeApp("artu");
+    app.teams.default.agents.w.tools = ["mcp:other-server:tool:lookup"];
+    const discoverProviderCapabilities = vi.fn().mockResolvedValue([]);
+
+    await discoverMcpCapabilitiesWithConfiguredToolRetry({
+      client: { discoverProviderCapabilities },
+      app,
+      appName: "artu",
+      serverName: "artu-trading",
+      attempts: 3,
+      delayMs: 0,
+    });
+
+    expect(discoverProviderCapabilities).toHaveBeenCalledTimes(1);
   });
 
   it("GET /observability requires gateway JWT when configured", async () => {

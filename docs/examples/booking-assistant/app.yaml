@@ -14,8 +14,7 @@ memory:
 
 mcp:
   servers:
-    - name: booking-tools
-      url: http://localhost:3200/mcp
+    - booking-tools
 
 billing:
   budgetEndpoint: http://localhost:3300/budget?tenantId={userId}
@@ -52,9 +51,9 @@ teams:
           When listing available slots, present them in a clear, organized format.
         tier: fast
         tools:
-          - list_available_slots
-          - create_booking
-          - cancel_booking
+          - mcp:booking-tools:tool:list_available_slots
+          - mcp:booking-tools:tool:create_booking
+          - mcp:booking-tools:tool:cancel_booking
 
     workflow:
       phases: [respond]

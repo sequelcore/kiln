@@ -2,6 +2,8 @@
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
 
 export async function gatewayCommand(args: string[]): Promise<void> {
   // Parse --config flag (default: gateway.yaml in cwd)
@@ -42,7 +44,15 @@ export async function gatewayCommand(args: string[]): Promise<void> {
 
   // Dynamically import to avoid loading gateway deps on every CLI invocation
   const { startGateway } = await import("@kilnai/runtime");
-  await startGateway(resolvedPath, { port: portOverride });
+  const mcp = loadResolvedKilnMcpConfiguration(process.cwd());
+  if (mcp.diagnostics.length > 0) {
+    throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
+  }
+  await startGateway(resolvedPath, {
+    port: portOverride,
+    canonicalMcpServers: new Map(Object.entries(mcp.servers)),
+    mcpCredentialResolver: createMcpCredentialAccess().resolve,
+  });
 }
 
 function printGatewayHelp(): void {

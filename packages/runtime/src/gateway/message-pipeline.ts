@@ -1906,11 +1906,16 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
       effectiveCallBuiltinTools = tenantToolCtx.callBuiltinTools;
     }
 
+    const baseToolAllowlist = effectivePerCallConfig?.toolAllowlist;
+    const tenantToolAllowlist = tenantToolCtx.toolAllowlist;
+    const narrowedToolAllowlist = baseToolAllowlist && tenantToolAllowlist
+      ? new Set([...tenantToolAllowlist].filter((name) => baseToolAllowlist.has(name)))
+      : tenantToolAllowlist ?? baseToolAllowlist;
     effectivePerCallConfig = {
       ...effectivePerCallConfig,
       tenantId: effectiveTenantId,
       toolAuthority: tenantToolCtx.toolAuthority,
-      toolAllowlist: tenantToolCtx.toolAllowlist,
+      toolAllowlist: narrowedToolAllowlist,
       rateLimiter: tenantToolCtx.rateLimiter,
       additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
       perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,

@@ -355,6 +355,7 @@ describe("createProviderAdapterRoutes", () => {
         } as ProviderAdapterAppRuntime["tenant"],
         knowledgePipeline: knowledgePipeline as ProviderAdapterAppRuntime["knowledgePipeline"],
         knowledgeMode: "auto",
+        toolAllowlist: new Set(["mcp:docs:tool:search"]),
       });
       const app = createProviderAdapterRoutesWithMocks(runtime);
 
@@ -373,7 +374,7 @@ describe("createProviderAdapterRoutes", () => {
       expect(forwarded.knowledgeMode).toBe("auto");
       expect(forwarded.requestedAuthority).toBe("audited");
       expect(forwarded.callBuiltinTools).toBeUndefined();
-      expect(forwarded.perCallConfig).toBeUndefined();
+      expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set(["mcp:docs:tool:search"]));
 
       vi.doUnmock("../../src/gateway/message-pipeline.js");
       vi.resetModules();

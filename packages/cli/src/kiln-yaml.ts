@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { KilnYamlError } from "./kiln-yaml-types.js";
+import { readMcpConfigurationSource } from "./config/mcp-config.js";
 import type {
   KilnYaml,
   KilnModelTaskSuitabilityOverride,
@@ -68,6 +69,11 @@ export function readKilnYaml(kilnDir: string): KilnYaml | null {
     if (typeof parsed !== "object" || parsed === null) {
       throw new KilnYamlError("kiln.yaml must be an object");
     }
+    readMcpConfigurationSource({
+      value: (parsed as Record<string, unknown>).mcp,
+      scope: "project",
+      sourcePath: path,
+    });
     return parsed as KilnYaml;
   } catch (err) {
     if (err instanceof KilnYamlError) {

@@ -14,8 +14,7 @@ memory:
 
 mcp:
   servers:
-    - name: support-tools
-      url: http://localhost:3100/mcp
+    - support-tools
 
 safety:
   pii:
@@ -45,9 +44,9 @@ teams:
           If you cannot find information, offer to create a support ticket.
         tier: fast
         tools:
-          - check_order_status
-          - get_account_info
-          - create_support_ticket
+          - mcp:support-tools:tool:check_order_status
+          - mcp:support-tools:tool:get_account_info
+          - mcp:support-tools:tool:create_support_ticket
 
     workflow:
       phases: [respond]

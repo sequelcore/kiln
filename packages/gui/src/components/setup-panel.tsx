@@ -121,11 +121,12 @@ export function SetupPanel(props: SetupPanelProps) {
                   </CardAction>
                 </CardHeader>
                 <CardContent>
-                  <dl className="grid divide-y divide-border/70 border-y border-border/70 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+                  <dl className="grid divide-y divide-border/70 border-y border-border/70 sm:grid-cols-5 sm:divide-x sm:divide-y-0">
                     <SetupHealthFact label="Project Context" value={props.snapshot.projectContext.status} />
                     <SetupHealthFact label="Repo Shims" value={statusSummary(repoShims)} />
                     <SetupHealthFact label="Global Instruction Shims" value={statusSummary(globalInstructionShims)} />
                     <SetupHealthFact label="Native Projections" value={statusSummary(nativeProjections)} />
+                    <SetupHealthFact label="MCP Servers" value={mcpStatusSummary(props.snapshot.mcp)} />
                   </dl>
                 </CardContent>
                 <CardFooter className="justify-between gap-4 text-sm text-muted-foreground">
@@ -167,12 +168,59 @@ export function SetupPanel(props: SetupPanelProps) {
 
             <PermissionIntegrityCard integrity={permissionIntegrity} />
 
+            <McpStatusCard snapshot={props.snapshot.mcp} />
+
             <SetupSourceInventory snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
           </div>
         ) : null}
       </div>
     </section>
   );
+}
+
+function McpStatusCard(props: { readonly snapshot: KilnConfigSetupSnapshot["mcp"] }) {
+  if (!props.snapshot || (props.snapshot.servers.length === 0 && props.snapshot.diagnostics.length === 0)) return null;
+  return (
+    <section aria-label="MCP Servers">
+      <Card>
+        <CardHeader>
+          <CardTitle><h3>MCP Servers</h3></CardTitle>
+          <CardDescription>Canonical admission, discovery, health, and native projection evidence.</CardDescription>
+        </CardHeader>
+        <CardContent className="divide-y divide-border/70 p-0">
+          {props.snapshot.servers.map((server) => (
+            <div key={server.id} className="grid gap-2 px-4 py-4 text-sm sm:grid-cols-[minmax(0,1fr)_auto]">
+              <div className="min-w-0">
+                <p className="truncate font-medium text-foreground">{server.id}</p>
+                <p className="text-xs text-muted-foreground">
+                  {server.source} · {server.transport} · {server.admission} · trust {server.trust}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {server.discovery.tools} tools, {server.discovery.resources} resources, {server.discovery.prompts} prompts · {server.discovery.admitted} admitted
+                </p>
+              </div>
+              <div className="flex flex-wrap items-start justify-start gap-2 sm:justify-end">
+                <Badge variant={server.health.state === "healthy" ? "outline" : "secondary"}>{server.health.state}</Badge>
+                <Badge variant={server.projection.state === "current" || server.projection.state === "disabled" ? "outline" : "destructive"}>{server.projection.state}</Badge>
+              </div>
+            </div>
+          ))}
+          {props.snapshot.diagnostics.map((diagnostic, index) => (
+            <div key={`${diagnostic.serverId}:${diagnostic.code}:${index}`} className="px-4 py-3 text-sm text-destructive">
+              {diagnostic.serverId}: {diagnostic.code} — {diagnostic.message}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function mcpStatusSummary(snapshot: KilnConfigSetupSnapshot["mcp"]): string {
+  if (!snapshot || snapshot.servers.length === 0) return snapshot?.diagnostics.length ? "invalid" : "none";
+  const issues = snapshot.diagnostics.length + snapshot.servers.filter((server) =>
+    server.health.state === "degraded" || server.health.state === "unavailable" || server.projection.state === "drifted" || server.projection.state === "incompatible").length;
+  return issues === 0 ? `${snapshot.servers.length} configured` : `${issues} issue${issues === 1 ? "" : "s"}`;
 }
 
 function summarizeSetup(snapshot: KilnConfigSetupSnapshot | null | undefined) {

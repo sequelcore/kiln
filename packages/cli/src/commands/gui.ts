@@ -18,7 +18,7 @@ import {
   createRuntimeBudgetAdmissionFromGlobalConfig,
 } from "../application/runtime-budget-admission.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import { loadKilnConfig } from "../config/config-merger.js";
+import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -116,6 +116,10 @@ export async function guiCommand(
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  const mcpResolution = loadResolvedKilnMcpConfiguration(cwd);
+  const admittedMcpServers = mcpResolution.diagnostics.length === 0
+    ? Object.values(mcpResolution.servers).filter((server) => server.enabled && server.admission?.state === "admitted")
+    : [];
   startupProfiler.mark("config-loaded", { projectPath: cwd });
   const runtimeAppConfig = withContextCandidates(
     withWorkGovernanceContext(withGlobalIdentityContext(appConfig, globalConfig), resolvedKilnConfig?.workGovernance),
@@ -135,7 +139,7 @@ export async function guiCommand(
   const port = flags.port ?? 4810;
   const guiPort = flags.guiPort ?? 5183;
   const sessionStore = new SessionStore(cwd);
-  const { registry } = createDefaultRegistry();
+  const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
   const providerDisplay = getProviderDisplayInfo(registry);
   const providerIds = providerDisplay.map((provider) => provider.id);
   const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
@@ -197,6 +201,7 @@ export async function guiCommand(
       isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,
+        canonicalMcpServers: admittedMcpServers,
       }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,

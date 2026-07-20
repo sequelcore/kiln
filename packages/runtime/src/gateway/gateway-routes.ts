@@ -511,9 +511,9 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                 projectedTurnContext,
                 undefined,
                 options?.requestedAuthority ? {
-                  ...((options.requestedAuthority !== "auto") ? {
-                    toolAllowlist: new Set<string>(),
-                  } : {}),
+                  ...((options.requestedAuthority !== "auto")
+                    ? { toolAllowlist: new Set<string>() }
+                    : runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : {}),
                   effectiveTurnAuthority: {
                     executionMode: "execute",
                     requestedAuthority: options.requestedAuthority,
@@ -528,7 +528,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                     toolCount: 0,
                     deniedToolCount: 0,
                   },
-                } : undefined,
+                } : runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : undefined,
               );
             },
           });
@@ -1073,6 +1073,7 @@ async function processAppGatewayGuiMessage(
         voiceConfig: selectedRuntime.loadedApp.app.voice,
         sttAdapter: selectedRuntime.loadedApp.sttAdapter,
         ttsAdapter: selectedRuntime.loadedApp.ttsAdapter,
+        ...(selectedRuntime.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: selectedRuntime.runtime.toolAllowlist } } : {}),
       })
       : await processTenantAppGatewayGuiTurn(selectedRuntime, userParts, sessionId, frame.requestedAuthority);
 
@@ -1153,6 +1154,7 @@ async function processTenantAppGatewayGuiTurn(
     voiceConfig: selection.loadedApp.app.voice,
     sttAdapter: selection.loadedApp.sttAdapter,
     ttsAdapter: selection.loadedApp.ttsAdapter,
+    ...(selection.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: selection.runtime.toolAllowlist } } : {}),
   });
 }
 

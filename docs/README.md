@@ -100,6 +100,7 @@ High-use guides today:
 - [Knowledge](guides/knowledge.md)
 - [Voice](guides/voice.md)
 - [Tool Use](guides/tool-use.md)
+- [Canonical MCP](guides/mcp.md)
 - [Governed External Engagement](guides/external-engagement.md)
 - [Observability](guides/observability.md)
 - [TUI](guides/tui.md)

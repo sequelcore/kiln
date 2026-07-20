@@ -99,6 +99,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     options.permissionPolicy,
     { agent: options.permissionAgent },
   );
+  const scopedMcpToolAllowlist = permissionEvaluator.scope.matchedScope && permissionEvaluator.scope.mcpTools
+    ? new Set(permissionEvaluator.scope.mcpTools.map((selector) => normalizeMcpSelector(selector)))
+    : undefined;
   const preferredProvider = options.requirements.preferredProvider;
   const candidates: readonly RunSessionRouteCandidate[] = options.routeCandidates && options.routeCandidates.length > 0
     ? options.routeCandidates
@@ -142,13 +145,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     const providerId = candidate.provider;
     providersUsed.add(providerId);
     const candidateReasoningEffort = candidate.reasoningEffort ?? options.sessionConfig.reasoningEffort;
-    const effectiveSessionConfig = candidate.model || candidateReasoningEffort
-      ? {
-        ...options.sessionConfig,
-        ...(candidate.model ? { model: candidate.model } : {}),
-        ...(candidateReasoningEffort ? { reasoningEffort: candidateReasoningEffort } : {}),
-      }
-      : options.sessionConfig;
+    const effectiveSessionConfig = {
+      ...options.sessionConfig,
+      ...(candidate.model ? { model: candidate.model } : {}),
+      ...(candidateReasoningEffort ? { reasoningEffort: candidateReasoningEffort } : {}),
+      ...(scopedMcpToolAllowlist ? { mcpToolAllowlist: scopedMcpToolAllowlist } : {}),
+    };
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
     let attemptError: string | null = null;

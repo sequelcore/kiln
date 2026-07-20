@@ -1,7 +1,7 @@
 # 03 - Federated Harness Configuration Plane
 
-Status: Deferred research
-Execution: Deferred until capability matrices and projection benchmarks justify reopening.
+Status: MCP bounded context implemented; broader federation remains deferred
+Execution: Canonical MCP ownership, direct execution, and governed Codex/Claude/OpenCode projection landed. Other capability families retain separate evidence gates.
 Created: 2026-06-29
 
 ## Objective

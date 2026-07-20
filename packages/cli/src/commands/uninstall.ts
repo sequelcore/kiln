@@ -105,7 +105,14 @@ export function uninstallNativeTargets(projectPath: string, options: UninstallNa
       continue;
     }
 
-    const currentDocument = readNativeProjectionDocument(target);
+    let currentDocument: Record<string, unknown>;
+    try {
+      currentDocument = readNativeProjectionDocument(target);
+    } catch (error) {
+      skipped.push(targetId);
+      errors.push(`${targetId}: native configuration is unreadable and was not modified: ${safeError(error)}`);
+      continue;
+    }
     const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument });
     if (drift && !options.force) {
       skipped.push(targetId);
@@ -138,10 +145,15 @@ function resolveTargetIds(state: NativeProjectionInstallState, target: string | 
     return GLOBAL_INSTRUCTION_TARGETS.filter((targetId) => state.targets[targetId] !== undefined);
   }
   if (HARNESS_TARGETS.has(normalized)) {
-    const targetIds = Object.keys(state.targets).filter((targetId) => targetId.startsWith(`${normalized}-`));
+    const targetIds = Object.keys(state.targets).filter((targetId) =>
+      targetId.startsWith(`${normalized}-`) || targetId === `mcp:${normalized}`);
     return targetIds;
   }
   return [TARGET_ALIASES[normalized] ?? normalized];
+}
+
+function safeError(error: unknown): string {
+  return error instanceof Error ? error.message.replace(/[\r\n]+/g, " ").slice(0, 240) : "unknown parse error";
 }
 
 function readNativeProjectionDocument(target: NativeProjectionTargetState): Record<string, unknown> {

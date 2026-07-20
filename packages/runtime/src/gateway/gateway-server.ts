@@ -17,6 +17,7 @@ import {
   MemoryArtifactResourceStore,
   ModelCapabilityRegistry,
   DeterministicDangerousCommandDetector,
+  KilnMcpClient,
 } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
@@ -26,10 +27,10 @@ import {
   isPooledDirectProviderId,
   OpenCodeCredentialPoolService,
 } from "../agents/credential-pool/index.js";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer } from "@kilnai/core";
 import { ActionEffectAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
-import { EventBus, McpClient, CostTracker } from "@kilnai/core";
+import { EventBus, CostTracker } from "@kilnai/core";
 import { ChannelRegistry } from "../channels/channel-registry.js";
 import { WebChannel } from "../channels/web-channel.js";
 import { TriggerRegistry } from "../trigger/trigger-registry.js";
@@ -140,6 +141,9 @@ export interface StartGatewayOptions {
   readonly secretKeyEnv?: string;
   /** Runtime-managed auxiliary routes available for multimodal capability delegation, keyed by app name. */
   readonly multimodalDelegationRoutesByApp?: ReadonlyMap<string, readonly RuntimeMultimodalDelegationRoute[]>;
+  /** Canonical effective project MCP servers. Apps may only admit these identities by id. */
+  readonly canonicalMcpServers?: ReadonlyMap<string, ResolvedMcpServer>;
+  readonly mcpCredentialResolver?: (credentialId: string) => string | undefined;
 }
 
 export interface DevServerOptions {
@@ -249,7 +253,7 @@ function providerHealthSeverity(status: ProviderHealthStatus): number {
 }
 
 export interface DiscoverMcpCapabilitiesInput {
-  readonly client: Pick<McpClient, "discoverTools">;
+  readonly client: Pick<KilnMcpClient, "discoverProviderCapabilities">;
   readonly app: App;
   readonly appName: string;
   readonly serverName: string;
@@ -262,12 +266,13 @@ export async function discoverMcpCapabilitiesWithConfiguredToolRetry(
 ): Promise<readonly Capability[]> {
   const attempts = Math.max(1, input.attempts ?? 3);
   const delayMs = Math.max(0, input.delayMs ?? 250);
-  const configuredToolNames = collectConfiguredToolNames(input.app);
+  const configuredToolNames = collectConfiguredToolNames(input.app)
+    .filter((name) => name.startsWith(`mcp:${input.serverName}:`));
   let capabilities: readonly Capability[] = [];
   let missingConfiguredTools: readonly string[] = [];
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    capabilities = await input.client.discoverTools();
+    capabilities = await input.client.discoverProviderCapabilities();
     missingConfiguredTools = missingTools(configuredToolNames, capabilities);
     if (missingConfiguredTools.length === 0 || attempt === attempts) {
       break;
@@ -516,6 +521,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   // Initialize provider-adapter runtimes and delegation targets in a single pass
   const sessionRegistry = new SessionRegistry();
   const delegationTargets = new Map<string, DelegationTarget>();
+  const ownedMcpClients: KilnMcpClient[] = [];
 
   for (const loaded of loadedApps) {
     const resolved = resolvedApps.find((r) => r.name === loaded.name);
@@ -529,34 +535,40 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     const systemPrompt = buildSystemPromptFromApp(resolved.app);
 
     // Discover MCP tools if configured
-    const mcpClients: McpClient[] = [];
+    const mcpClients: KilnMcpClient[] = [];
     const tools: ToolDefinition[] = [];
     const capabilityMap = new Map<string, Capability>();
+    const configuredToolNames = new Set(collectConfiguredToolNames(resolved.app));
+    const configuredWildcard = Object.values(resolved.app.teams).some((team) =>
+      Object.values(team.agents).some((agent) => agent.tools?.includes("*")));
 
     if (resolved.app.mcp?.servers) {
-      for (const serverConfig of resolved.app.mcp.servers) {
-        try {
-          const client = new McpClient(serverConfig);
-          const capabilities = await discoverMcpCapabilitiesWithConfiguredToolRetry({
-            client,
-            app: resolved.app,
-            appName: loaded.name,
-            serverName: serverConfig.name,
-          });
-          for (const cap of capabilities) {
-            tools.push({
-              name: cap.name,
-              description: cap.description,
-              inputSchema: cap.schema,
-              tags: new Set(cap.tags),
-            });
-            capabilityMap.set(cap.name, cap);
-          }
-          mcpClients.push(client);
-          console.log(`  ${loaded.name}: discovered ${capabilities.length} tools from MCP server "${serverConfig.name}"`);
-        } catch (err) {
-          console.warn(`  ${loaded.name}: failed to connect to MCP server "${serverConfig.name}": ${err}`);
+      for (const serverId of resolved.app.mcp.servers) {
+        const serverConfig = options?.canonicalMcpServers?.get(serverId);
+        if (!serverConfig) {
+          throw new KilnError("CONFIG_INVALID", `App '${loaded.name}' references unavailable canonical MCP server '${serverId}'`);
         }
+        const client = new KilnMcpClient(serverConfig, {
+          ...(options?.mcpCredentialResolver ? { credentialResolver: options.mcpCredentialResolver } : {}),
+        });
+        const capabilities = await discoverMcpCapabilitiesWithConfiguredToolRetry({
+          client,
+          app: resolved.app,
+          appName: loaded.name,
+          serverName: serverId,
+        });
+        for (const cap of capabilities) {
+          tools.push({
+            name: cap.name,
+            description: cap.description,
+            inputSchema: cap.schema,
+            tags: new Set(cap.tags),
+          });
+          capabilityMap.set(cap.name, cap);
+        }
+        mcpClients.push(client);
+        ownedMcpClients.push(client);
+        console.log(`  ${loaded.name}: discovered ${capabilities.length} tools from MCP server "${serverId}"`);
       }
     }
 
@@ -716,6 +728,9 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
       ...(multimodalDelegationRoutes ? { multimodalDelegationRoutes } : {}),
       multimodalTransformRoutes,
     });
+    const toolAllowlist = new Set(tools
+      .filter((tool) => !tool.name.startsWith("mcp:") || configuredWildcard || configuredToolNames.has(tool.name))
+      .map((tool) => tool.name));
 
     // Build grounding deps (shared by all routes for this app)
     const groundingRail = new GroundingRail();
@@ -778,6 +793,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         billing: resolved.runtimeModeConfig.billing,
         apiKey: resolvedApiKey,
         groundingDeps,
+        toolAllowlist,
       };
 
       const createOutboundMediaPublisher = (channel: (typeof loaded.binding.channels)[number] | undefined) => {
@@ -953,6 +969,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
         knowledgePipeline: loaded.knowledgePipeline?.pipeline,
         knowledgeMode: resolved.app.knowledge?.mode,
         groundingDeps,
+        toolAllowlist,
       };
     }
   }
@@ -1481,6 +1498,9 @@ REASONING: <one sentence explanation>`;
     webhookDedup.close();
     swarmMemoryRepository?.close();
     mcpServerInstance?.close().catch(() => {});
+    for (const client of ownedMcpClients) {
+      client.disconnect().catch(() => {});
+    }
     for (const loaded of loadedApps) {
       loaded.knowledgePipeline?.close().catch(() => {});
     }

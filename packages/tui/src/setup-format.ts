@@ -43,6 +43,16 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
     ].join("\n")).join("\n")
     : "  - none";
   const skills = formatSkillCatalog(snapshot.skills);
+  const mcp = snapshot.mcp?.servers.length
+    ? snapshot.mcp.servers.map((server) => [
+      `  - ${server.id}: source=${server.source} transport=${server.transport} enabled=${server.enabled ? "yes" : "no"} admission=${server.admission} trust=${server.trust}`,
+      `    health=${server.health.state} discovery=${server.discovery.state} tools=${server.discovery.tools} resources=${server.discovery.resources} prompts=${server.discovery.prompts} admitted=${server.discovery.admitted}`,
+      `    projection=${server.projection.state} compatibility=${server.projectionCompatibility.map((entry) => `${entry.harness}:${entry.status}`).join(",")}`,
+    ].join("\n")).join("\n")
+    : "  - none";
+  const mcpDiagnostics = snapshot.mcp?.diagnostics.length
+    ? snapshot.mcp.diagnostics.map((diagnostic) => `  - ${diagnostic.serverId}: ${diagnostic.code}: ${diagnostic.message}`).join("\n")
+    : "  - none";
   return [
     `project: ${snapshot.projectRoot}`,
     `project context: ${snapshot.projectContext.status}`,
@@ -57,6 +67,10 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
     permissionIntegrity,
     "skills:",
     skills,
+    "mcp servers:",
+    mcp,
+    "mcp diagnostics:",
+    mcpDiagnostics,
   ].join("\n");
 }
 

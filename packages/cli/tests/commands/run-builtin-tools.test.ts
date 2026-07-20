@@ -287,6 +287,7 @@ vi.mock("../../src/application/repo-summary-cache.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => undefined),
+  resolveGlobalConfigPath: vi.fn(() => "C:\\Users\\operator\\.kiln\\config.yaml"),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
   resolveGlobalDefaultProvider: vi.fn(() => undefined),
 }));

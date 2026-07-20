@@ -198,6 +198,8 @@ function operatorTranscriptPayload(
         type: event.type,
         toolName: event.toolName,
         ...(event.input !== undefined ? { input: event.input } : {}),
+        ...(event.source !== undefined ? { source: event.source } : {}),
+        ...(event.mcpSelector !== undefined ? { mcpSelector: event.mcpSelector } : {}),
       };
     case "tool_result": {
       const toolName = event.toolName ?? "unknown";

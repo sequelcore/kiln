@@ -336,9 +336,7 @@ router:
 
 mcp:
   servers:
-    - name: tools
-      url: http://localhost:3001/mcp
-      requestTimeoutMs: 390000
+    - tools
 
 teams:
   solo:
@@ -358,7 +356,7 @@ teams:
 
     const app = parseAppYaml(yaml);
 
-    expect(app.mcp?.servers[0]?.requestTimeoutMs).toBe(390_000);
+    expect(app.mcp?.servers).toEqual(["tools"]);
   });
 
   it("maps cross-surface voice policy from YAML", () => {
@@ -615,9 +613,7 @@ router:
 
 mcp:
   servers:
-    - name: tools
-      url: http://localhost:3001/mcp
-      requestTimeoutMs: never
+    - bad server
 
 teams:
   solo:

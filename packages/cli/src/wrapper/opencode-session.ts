@@ -98,11 +98,6 @@ function asOpencodeClient(value: unknown): OpencodeClientShape {
   return value as OpencodeClientShape;
 }
 
-interface McpServer {
-  name: string;
-  url: string;
-}
-
 interface TranslationRuleMetadata {
   readonly category: string;
   readonly selector: string;
@@ -132,7 +127,7 @@ export interface OpenCodeSessionConfig {
   readonly task: string;
   readonly cwd: string;
   readonly env?: Record<string, string>;
-  readonly mcpServers?: McpServer[];
+  readonly mcpServers?: Readonly<Record<string, Record<string, unknown>>>;
   readonly mcpServerEntryPath?: string;
   readonly model?: string;
   readonly port?: number;
@@ -325,8 +320,12 @@ export function buildOpenCodeRuntimeConfigContent(config: OpenCodeSessionConfig)
   }
 
   const mcpEntry = buildOpenCodeMcpEntry(config);
-  if (mcpEntry !== undefined) {
-    document.mcp = { kiln: mcpEntry };
+  const mcp = {
+    ...(config.mcpServers ?? {}),
+    ...(mcpEntry ? { kiln: mcpEntry } : {}),
+  };
+  if (Object.keys(mcp).length > 0) {
+    document.mcp = mcp;
   }
 
   return JSON.stringify(document);

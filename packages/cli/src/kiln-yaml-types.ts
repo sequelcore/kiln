@@ -1,4 +1,4 @@
-import type { MemoryLayerKind, MemoryScopeKind } from "@kilnai/core";
+import type { McpServerConfiguration, MemoryLayerKind, MemoryScopeKind } from "@kilnai/core";
 import type { KilnMemoryAuthorityOperation } from "./wrapper/session.js";
 
 export class KilnYamlError extends Error {
@@ -8,16 +8,7 @@ export class KilnYamlError extends Error {
   }
 }
 
-export interface KilnYamlMcpServer {
-  type?: "stdio" | "http" | "kiln-bundled";
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-  enabled?: boolean;
-  module?: string;
-}
+export type KilnYamlMcpServer = McpServerConfiguration;
 
 export interface KilnYamlMcp {
   servers: Record<string, KilnYamlMcpServer>;
