@@ -119,6 +119,7 @@ Current core built-ins:
 - `managed-agent-risk-review`
 - `benchmark-readiness-review`
 - `config-projection-review`
+- `action-first-communication`
 - `clear-writing`
 
 Use global config to make the policy explicit:
@@ -256,6 +257,13 @@ proposals, support replies, UI copy, public content, internal communication,
 education, or technical documentation. It is not a brand voice, legal style, or
 regional government style; stricter project, organization, legal, academic, or
 regulatory formats remain higher-precedence constraints.
+
+`action-first-communication` is a neutral, explicit response profile for users
+who prefer the result or next action first, bounded steps, visible state, and
+matter-of-fact errors. It is not enabled for every turn, does not infer a
+medical condition, and yields to safety, accuracy, requested explanation depth,
+and required output formats. Assign it through an agent profile or request the
+skill explicitly.
 
 Future official packs are deferred. They may later provide web, backend,
 security, data, brand, regional-content, or opinionated engineering workflows,

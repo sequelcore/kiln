@@ -329,7 +329,9 @@ describe("buildProviderSystemPrompt", () => {
     expect(result).toContain("For UI/frontend work, confirm actual package roots first");
     expect(result).toContain("Do not assume paths such as gui, web, app, packages/web, or packages/app exist.");
     expect(result).toContain("Use the git tool for Git inspection instead of bash commands");
+    expect(result).toContain("resolved host workspace path");
     expect(result).toContain("Do not reuse /mnt/c or /c shell paths as cwd.");
+    expect(result).not.toMatch(/[A-Za-z]:[\\/]/u);
     expect(result).toContain(
       '{"filePath":"packages/cli/src/wrapper/preamble-builder.ts"}',
     );

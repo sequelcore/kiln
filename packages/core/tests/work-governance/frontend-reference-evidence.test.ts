@@ -30,7 +30,7 @@ describe("frontend reference evidence", () => {
       "Code-backed frontend implementation evidence: component structure, navigation model, panel density, typography, and spacing.",
     ].join("\n"))).toBe(true);
     expect(containsCodeBackedFrontendEvidence([
-      "### C:\\Proyectos\\Sequel\\cloned\\opencode — Qualifying Frontend Found",
+      "### C:\\workspace\\references\\opencode — Qualifying Frontend Found",
       "Key source paths:",
       "- packages/app/src/pages/layout.tsx — Main layout with sidebar rail, expandable panel, session list, project avatar",
       "- packages/app/src/pages/session.tsx — Session view with virtualized message timeline and inline composer dock",

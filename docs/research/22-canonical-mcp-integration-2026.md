@@ -68,7 +68,7 @@ Evidence:
 
 - OpenAI, [Codex MCP documentation](https://developers.openai.com/codex/mcp),
   inspected 2026-07-19.
-- `C:/Proyectos/Sequel/cloned/codex`, commit
+- `<sequel-root>/cloned/codex`, commit
   `db887d03e1f907467e33271572dffb73bceecd6b` dated 2026-06-30, especially
   `codex-rs/config/src/mcp_types.rs` and `codex-rs/core/src/connectors.rs`.
 
@@ -86,7 +86,7 @@ Evidence:
 
 - Anthropic, [Connect Claude Code to tools via MCP](https://code.claude.com/docs/en/mcp),
   inspected 2026-07-19.
-- `C:/Proyectos/Sequel/cloned/claude-code`, commit
+- `<sequel-root>/cloned/claude-code`, commit
   `3136b1ba9779c91f74cd8ceabc8574d84880a0c9` dated 2026-07-01, especially
   `services/mcp/types.ts`, `services/mcp/config.ts`,
   `services/mcp/client.ts`, and `services/mcp/useManageMCPConnections.ts`.
@@ -105,7 +105,7 @@ Evidence:
 
 - OpenCode, [MCP servers](https://opencode.ai/docs/mcp-servers/), inspected
   2026-07-19.
-- `C:/Proyectos/Sequel/cloned/opencode`, package version `1.17.12`, captured
+- `<sequel-root>/cloned/opencode`, package version `1.17.12`, captured
   2026-07-01, especially `packages/opencode/src/mcp/index.ts`,
   `packages/opencode/src/mcp/catalog.ts`, and
   `packages/opencode/src/mcp/auth.ts`.

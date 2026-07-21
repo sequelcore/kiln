@@ -27,7 +27,7 @@ function buildExecutableToolGuidanceSection(): string {
     "For UI/frontend work, confirm actual package roots first with tree on known workspace directories, glob **/package.json, or a bounded raw/structured glob. Do not assume paths such as gui, web, app, packages/web, or packages/app exist.",
     'Use read with an object like {"filePath":"packages/cli/src/wrapper/preamble-builder.ts"} before summarizing or editing a file.',
     "Use the git tool for Git inspection instead of bash commands like git status or git rev-parse.",
-    "When using bash cwd on Windows, pass the host workspace path such as C:\\Proyectos\\Sequel\\kiln. Do not reuse /mnt/c or /c shell paths as cwd.",
+    "When using bash cwd on Windows, pass the resolved host workspace path. Do not reuse /mnt/c or /c shell paths as cwd.",
     "If the user did not provide an exact path, discover candidates with glob or grep before asking for clarification.",
     "Prefer a discover -> read -> answer/edit flow instead of guessing paths or calling multiple search tools with empty arguments.",
     "Read relevant files before editing them unless the target file and intended contents are already explicit.",

@@ -23,7 +23,7 @@ describe("startup profiler", () => {
     process.stderr.write = write as unknown as typeof process.stderr.write;
 
     createStartupProfiler("gui", true).mark("config-loaded", {
-      projectPath: "C:\\Proyectos\\Sequel\\kiln",
+      projectPath: "C:\\workspace\\kiln",
       mode: "dev",
     });
 

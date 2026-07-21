@@ -643,7 +643,7 @@ describe("session feedback repair work item", () => {
         approved: true,
         approvedBy: "ricardo",
         approvedAt: "2026-05-18T12:05:00.000Z",
-        resourceUris: ["file:///C:/Users/Ricardo/secrets/approval.txt"],
+        resourceUris: ["file:///C:/Users/ExampleUser/secrets/approval.txt"],
       },
       riskHypothesis: "Approval evidence must stay inside local feedback resources.",
       fileImpact: ["packages/core/src/feedback/index.ts"],

@@ -311,7 +311,7 @@ describe("RuntimeSessionOrchestrator", () => {
       const session = makeSession();
 
       await orchestrator.processMessage(session, textParts("msg"), undefined, undefined, {
-        workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+        workingDirectory: "C:\\workspace\\kiln",
         effectiveTurnAuthority: {
           executionMode: "execute",
           requestedAuthority: "destructive",
@@ -326,7 +326,7 @@ describe("RuntimeSessionOrchestrator", () => {
 
       expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
         executionContext: {
-          workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+          workingDirectory: "C:\\workspace\\kiln",
           requestedAuthority: "destructive",
         },
       }));

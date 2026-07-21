@@ -187,7 +187,7 @@ home directory:
 ```json
 {
   "auth": {
-    "homeDir": "C:/Users/alex/.codex-work"
+    "homeDir": "C:/Users/ExampleUser/.codex-work"
   }
 }
 ```

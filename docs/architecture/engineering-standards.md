@@ -101,6 +101,14 @@ or point here, but architectural and coding doctrine belongs in
 ## Tests And Verification
 
 - Behavior changes need focused tests at the owning boundary.
+- Test fixtures must be synthetic, portable, and limited to the behavior under
+  test. Never persist operator-specific paths, usernames, home directories,
+  credentials, tokens, or raw incident payloads. Use temporary directories for
+  filesystem behavior and generic OS-specific paths only when path syntax is
+  part of the contract.
+- Do not paste user-supplied bug text verbatim into a regression test unless
+  the exact literal is the contract. Preserve the smallest sanitized value
+  that still reproduces the failure.
 - Shared surface behavior needs at least one non-primary surface test so parity
   is protected.
 - CLI package tests must be deterministic and diagnosable in the canonical

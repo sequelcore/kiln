@@ -19,13 +19,13 @@ describe("cli memory storage", () => {
     const resolution = resolveCliMemoryStorage("/workspace/project", {
       platform: "linux",
       env: {
-        XDG_STATE_HOME: "/home/r/.local/state",
-        HOME: "/home/r",
+        XDG_STATE_HOME: "/home/test/.local/state",
+        HOME: "/home/test",
       },
     });
 
     expect(resolution.memoryDbPath.replace(/\\/gu, "/")).toMatch(
-      /^\/home\/r\/\.local\/state\/kiln\/memory\/projects\/project-[a-f0-9]{16}\/memory\.db$/u,
+      /^\/home\/test\/\.local\/state\/kiln\/memory\/projects\/project-[a-f0-9]{16}\/memory\.db$/u,
     );
   });
 

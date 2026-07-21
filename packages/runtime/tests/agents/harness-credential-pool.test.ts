@@ -21,7 +21,7 @@ describe("HarnessCredentialPoolService", () => {
       providerId: "codex",
       id: "plus",
       label: "Codex Plus",
-      auth: { homeDir: "C:/Users/alex/.codex-plus" },
+      auth: { homeDir: "C:/Users/ExampleUser/.codex-plus" },
     });
 
     const service = new HarnessCredentialPoolService({ rootDir });
@@ -33,7 +33,7 @@ describe("HarnessCredentialPoolService", () => {
     }]);
     const pool = await service.createPool("codex");
     const lease = pool.acquire();
-    expect(lease.auth.homeDir).toBe("C:/Users/alex/.codex-plus");
+    expect(lease.auth.homeDir).toBe("C:/Users/ExampleUser/.codex-plus");
   });
 
   it("fails fast when a harness credential has no homeDir", async () => {

@@ -4438,13 +4438,13 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       });
 
       await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, {
-        workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+        workingDirectory: "C:\\workspace\\kiln",
       });
 
       const context = toolFn.mock.calls[0]?.[1] as {
         readonly sandbox?: { readonly cwd?: string };
       } | undefined;
-      expect(context?.sandbox?.cwd).toBe("C:\\Proyectos\\Sequel\\kiln");
+      expect(context?.sandbox?.cwd).toBe("C:\\workspace\\kiln");
     });
 
     it("allows all tools when no allowlist", async () => {

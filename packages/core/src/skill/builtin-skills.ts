@@ -121,6 +121,15 @@ Workflow:
 4. Refactor without changing behavior.
 5. Run the focused test, then the relevant broader gate.
 
+Fixture hygiene:
+- Use synthetic, portable fixture values that express only the behavior under test.
+- Never copy operator-specific paths, usernames, home directories, credentials,
+  tokens, or raw incident payloads into tests.
+- Use temporary directories for filesystem behavior. Use a generic OS-specific
+  path only when that path syntax is itself part of the contract.
+- Do not paste user-supplied bug text verbatim unless the exact literal is the
+  contract. Reduce it to the smallest sanitized equivalent that still fails.
+
 If a failing test is impractical, explain why and choose the closest executable
 verification.
 `,
@@ -290,6 +299,34 @@ Check:
 
 Do not recommend direct edits to generated AGENTS.md, CLAUDE.md, or native
 harness skill files.
+`,
+  }),
+  defineBuiltinSkill({
+    name: "action-first-communication",
+    description: "Shape responses for fast scanning and execution by leading with the outcome or next action and keeping state visible.",
+    tags: ["accessibility", "communication", "response-design", "productivity"],
+    instructions: `
+# Action-First Communication
+
+Use this skill when the user or agent profile requests concise, highly
+scannable, execution-oriented responses.
+
+Rules:
+1. Lead with the answer, outcome, or next concrete action. Do not begin with
+   praise, a plan announcement, or background that can follow the result.
+2. Number steps only when order matters. Keep each step to one bounded action.
+3. Make state visible when work spans turns: state what is complete, what is in
+   progress, and the next decision or action.
+4. Keep tangents separate from the main task. Include them only when they
+   materially change correctness, safety, or the next action.
+5. State errors with cause, evidence, and the nearest corrective action. Avoid
+   alarmist or performative language.
+6. If work remains, end with one concrete next action when that helps the user
+   proceed. Do not add generic closing pleasantries.
+
+Do not invent time estimates. Do not force short answers when the user asks for
+an explanation, comparison, walkthrough, or complete analysis.
+Safety, accuracy, and the user's requested format take precedence over brevity.
 `,
   }),
   defineBuiltinSkill({

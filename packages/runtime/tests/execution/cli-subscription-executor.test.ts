@@ -85,20 +85,20 @@ describe("CliSubscriptionExecutor", () => {
       system: "sys",
       messages: [],
       executionContext: {
-        workingDirectory: "C:\\Proyectos\\Sequel\\kiln",
+        workingDirectory: "C:\\workspace\\kiln",
         requestedAuthority: "destructive",
       },
     });
 
     expect(factory).toHaveBeenCalledWith(
       "sys",
-      "C:\\Proyectos\\Sequel\\kiln",
+      "C:\\workspace\\kiln",
       {
         kilnSessionId: "kiln-runtime-session",
         requestedAuthority: "destructive",
       },
     );
-    expect(run.mock.calls[0]?.[0]?.cwd).toBe("C:\\Proyectos\\Sequel\\kiln");
+    expect(run.mock.calls[0]?.[0]?.cwd).toBe("C:\\workspace\\kiln");
   });
 
   it("passes the active operator surface through the factory context", async () => {

@@ -53,8 +53,8 @@ describe("import-native command helpers", () => {
 
     const plan = createImportNativePlan({
       target: "codex",
-      nativeConfigPath: "C:/Users/alex/.codex/config.toml",
-      globalConfigPath: "C:/Users/alex/.kiln/config.yaml",
+      nativeConfigPath: "C:/Users/ExampleUser/.codex/config.toml",
+      globalConfigPath: "C:/Users/ExampleUser/.kiln/config.yaml",
       currentConfig,
       nativeDocument: {
         model: "gpt-5.4",
@@ -85,8 +85,8 @@ describe("import-native command helpers", () => {
       components: { include: ["baseline:core"] },
     });
     expect(plan.hasChanges).toBe(true);
-    expect(plan.diff).toContain("--- C:/Users/alex/.kiln/config.yaml");
-    expect(plan.diff).toContain("+++ C:/Users/alex/.kiln/config.yaml");
+    expect(plan.diff).toContain("--- C:/Users/ExampleUser/.kiln/config.yaml");
+    expect(plan.diff).toContain("+++ C:/Users/ExampleUser/.kiln/config.yaml");
     expect(plan.diff).toContain("+  codex: gpt-5.4");
   });
 

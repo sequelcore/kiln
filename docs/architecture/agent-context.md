@@ -367,6 +367,7 @@ The built-in skill ids are:
 | `managed-agent-risk-review` | Audit child invocation authority, route identity, handoff, replay, and evidence. | `architect`, `reviewer` |
 | `benchmark-readiness-review` | Decide whether eval or benchmark evidence is reproducible and public-ready. | `researcher`, `reviewer` |
 | `config-projection-review` | Review canonical config, generated shims, native projections, drift, and setup state. | `scout`, `architect` |
+| `action-first-communication` | Shape responses for fast scanning and execution without medical assumptions or unsafe brevity rules. | Any explicitly configured agent |
 | `clear-writing` | Write, rewrite, or review prose so it is clear, accurate, structured, and audience-appropriate. | Any writing or review agent |
 
 Built-ins are the lowest precedence tier. Project skills override user skills;
@@ -381,6 +382,12 @@ opinionated packs belong outside core. Future official packs such as web,
 backend, security, or an opinionated engineering pack may be installable
 content, but they must not become default product doctrine unless promoted
 through the same evaluation and documentation gate.
+
+`action-first-communication` is an explicit response-shaping option, not a
+medical profile and not universal doctrine. It does not infer a diagnosis,
+invent estimates, cap necessary explanations, or override safety and required
+formats. Operators may assign it to an agent or request it as a skill when that
+interaction style is useful.
 
 ## Managed Child Context
 

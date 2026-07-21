@@ -188,10 +188,10 @@ describe("GUI authority forwarding", () => {
       undefined,
       "execute",
       "destructive",
-      "C:\\Proyectos\\Sequel\\kiln",
+      "C:\\workspace\\kiln",
     );
 
-    expect(cfg.workingDirectory).toBe("C:\\Proyectos\\Sequel\\kiln");
+    expect(cfg.workingDirectory).toBe("C:\\workspace\\kiln");
   });
 
   it("validates and carries an operator governed-work requirement into the turn config", async () => {
@@ -211,7 +211,7 @@ describe("GUI authority forwarding", () => {
       undefined,
       "execute",
       "destructive",
-      "C:\\Proyectos\\Sequel\\kiln",
+      "C:\\workspace\\kiln",
       requirement,
     );
 
