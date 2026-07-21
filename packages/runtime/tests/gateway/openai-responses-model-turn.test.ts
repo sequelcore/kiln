@@ -126,7 +126,8 @@ describe("ModelTurnResult to Responses SSE", () => {
       "response.completed",
     ]);
     expect(events.find((event) => event.type === "response.custom_tool_call_input.done")?.input).toBe(rawCustomInput);
-    expect(events.at(-1)?.response).toMatchObject({ usage: { input_tokens: 8, input_tokens_details: { cached_tokens: 2, cache_write_tokens: 1 }, output_tokens: 5, total_tokens: 13 } });
+    expect(events.at(-1)?.response.usage).toEqual({ input_tokens: 8, input_tokens_details: { cached_tokens: 2 }, output_tokens: 5, total_tokens: 13 });
+    expect(events.omissions).toEqual([{ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: 1, protocolVersion: "codex-0.144.5" }]);
     expect((events.at(-1)?.response as { output: unknown[] }).output.map((item: any) => item.type)).toEqual(["reasoning", "message", "function_call", "custom_tool_call"]);
   });
 
@@ -142,7 +143,8 @@ describe("ModelTurnResult to Responses SSE", () => {
     const events = mapModelTurnResultToOpenAIResponsesEvents({ responseId: "resp_round", model: request.model, result });
     expect({ verbosity: turn.textVerbosity, degradation: admitted.unavailableOptional, output: (events.at(-1)?.response as any).output.map((item: any) => item.type), usage: events.at(-1)?.response.usage }).toEqual({
       verbosity: "low", degradation: ["reasoning-encrypted-content"], output: ["reasoning", "message", "function_call", "custom_tool_call"],
-      usage: { input_tokens: 12, input_tokens_details: { cached_tokens: 4, cache_write_tokens: 2 }, output_tokens: 6, total_tokens: 18 },
+      usage: { input_tokens: 12, input_tokens_details: { cached_tokens: 4 }, output_tokens: 6, total_tokens: 18 },
     });
+    expect(events.omissions).toEqual([{ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: 2, protocolVersion: "codex-0.144.5" }]);
   });
 });

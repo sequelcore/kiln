@@ -15,6 +15,8 @@ import type { WsRoutesConfig } from "./ws-routes.js";
 import { createWsRoutes } from "./ws-routes.js";
 import { createHarnessIngressRoutes } from "./harness-ingress-routes.js";
 import type { HarnessIngressRoutesConfig } from "./harness-ingress-routes.js";
+import { createOpenAIResponsesRoutes } from "./openai-responses-routes.js";
+import type { OpenAIResponsesIngressConfig } from "./openai-responses-routes.js";
 import { createWsTenantRoutes } from "./ws-tenant-routes.js";
 import type { DelegationRegistry } from "./delegation-handler.js";
 import { createDelegationRoutes } from "./delegation-routes.js";
@@ -124,6 +126,8 @@ export interface GatewayServerConfig {
   readonly upgradeWebSocket?: WsRoutesConfig["upgradeWebSocket"];
   /** Explicit opt-in cross-harness ingress; absent means the route is not exposed. */
   readonly harnessIngress?: HarnessIngressRoutesConfig;
+  /** Explicit opt-in authenticated OpenAI Responses ingress. */
+  readonly responsesIngress?: OpenAIResponsesIngressConfig;
   readonly validateToken?: WsRoutesConfig["validateToken"];
   /** Gateway-level JWT verifier. When set, applied to all API and admin routes. */
   readonly jwtVerifier?: JwtVerifyFn;
@@ -158,6 +162,10 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
 
   if (config.harnessIngress) {
     app.route("/", createHarnessIngressRoutes(config.harnessIngress));
+  }
+  if (config.responsesIngress) {
+    // Caller-owned model ingress deliberately owns auth/capability admission; generic App prompt scanning is not authority here.
+    app.route("/", createOpenAIResponsesRoutes(config.responsesIngress));
   }
 
   app.get("/media/:appName/:namespace/:id/content", (c) => {

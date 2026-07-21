@@ -34,7 +34,11 @@ describe("parseOpenAIResponsesRequest", () => {
     store: false,
     prompt_cache_key: "tenant:demo",
     service_tier: "priority",
-    client_metadata: { request_id: "synthetic-1" },
+    client_metadata: {
+      session_id: "018f0000-0000-7000-8000-000000000001",
+      thread_id: "018f0000-0000-7000-8000-000000000002",
+      turn_id: "018f0000-0000-7000-8000-000000000003",
+    },
   };
 
   it("preserves the supported 0.144.5 request semantics without adapter mapping", () => {
@@ -215,10 +219,10 @@ describe("Responses SSE builders", () => {
     const delta = stream.reasoningSummaryTextDelta("rs_1", 0, 0, "checking");
     const done = stream.reasoningSummaryTextDone("rs_1", 0, 0, "checking");
     stream.outputItemDone({ itemId: "rs_1", outputIndex: 0, item: { id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "checking" }] } });
-    const completed = stream.completed({ input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 3, cache_write_tokens: 2 } });
+    const completed = stream.completed({ input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 3 } });
     expect([added.type, part.type, delta.type, done.type]).toEqual(["response.output_item.added", "response.reasoning_summary_part.added", "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done"]);
     expect(completed.response.output).toEqual([{ id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "checking" }] }]);
-    expect(completed.response.usage.input_tokens_details).toEqual({ cached_tokens: 3, cache_write_tokens: 2 });
+    expect(completed.response.usage).toEqual({ input_tokens: 10, input_tokens_details: { cached_tokens: 3 }, output_tokens: 4, total_tokens: 14 });
   });
 
   it("enforces lifecycle order and emits canonical non-leaking failures", () => {

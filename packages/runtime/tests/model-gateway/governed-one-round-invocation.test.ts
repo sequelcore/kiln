@@ -35,7 +35,7 @@ function ports(overrides: Partial<GovernedOneRoundInvocationPorts> = {}): Govern
 
 const input = () => ({
   attemptId: "attempt-1",
-  identity: { tenantId: "tenant-1", applicationId: "app-1", sessionId: "session-1", turnId: "turn-1" },
+  identity: { tenantId: "tenant-1", applicationId: "app-1", callerId: "caller-1", sessionId: "session-1", turnId: "turn-1" },
   route,
   authority: { status: "admitted" as const, capabilityId: "cap-1", scopes: ["model.invoke"] },
   budget: { status: "admitted" as const, evidenceId: "budget-1" },
@@ -170,6 +170,7 @@ describe("invokeGovernedOneRound", () => {
     const serialized = JSON.stringify(recorded);
     expect(serialized).not.toMatch(/token|secret|authorization|password/i);
     expect(JSON.parse(serialized)).toHaveLength(5);
+    expect(recorded[0]).toMatchObject({ callerId: "caller-1" });
   });
 
   it("uses caller-owned attempt ids so two attempts for one turn remain distinct", async () => {
@@ -245,6 +246,14 @@ describe("invokeGovernedOneRound", () => {
     let catalogCalls = 0;
     const fixture = ports({ candidateCatalog: { list: async () => { catalogCalls += 1; return [candidate("account-a")]; } } });
     await expect(invokeGovernedOneRound({ ...input(), attemptId: " " }, fixture))
+      .rejects.toMatchObject({ code: "invalid-input" });
+    expect(catalogCalls).toBe(0);
+  });
+
+  it("validates caller identity before catalog work", async () => {
+    let catalogCalls = 0;
+    const fixture = ports({ candidateCatalog: { list: async () => { catalogCalls += 1; return [candidate("account-a")]; } } });
+    await expect(invokeGovernedOneRound({ ...input(), identity: { ...input().identity, callerId: " " } }, fixture))
       .rejects.toMatchObject({ code: "invalid-input" });
     expect(catalogCalls).toBe(0);
   });

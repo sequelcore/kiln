@@ -64,6 +64,18 @@ export interface OpenAIResponsesModelTurnCapabilitySummary {
   readonly unsupported: readonly OpenAIResponsesCapabilityIssue[];
 }
 
+export interface OpenAIResponsesProjectionOmission {
+  readonly code: "cache-write-tokens-not-representable";
+  readonly field: "usage.cacheWriteTokens";
+  readonly value: number;
+  readonly protocolVersion: "codex-0.144.5";
+}
+
+/** Array-compatible so existing SSE writers keep working while closeout can record omissions. */
+export type OpenAIResponsesEventProjection = ResponsesSseEvent[] & {
+  readonly omissions: readonly OpenAIResponsesProjectionOmission[];
+};
+
 type WireRecord = Record<string, unknown>;
 const asRecord = (value: unknown): WireRecord => value as WireRecord;
 const cloneJsonObject = (value: unknown): ModelJsonObject => structuredClone(value ?? {}) as ModelJsonObject;
@@ -214,7 +226,7 @@ export function mapOpenAIResponsesRequestToModelTurn(request: OpenAIResponsesReq
 
 export function mapModelTurnResultToOpenAIResponsesEvents(input: {
   readonly responseId: string; readonly model: string; readonly result: ModelTurnResult;
-}): ResponsesSseEvent[] {
+}): OpenAIResponsesEventProjection {
   validateModelTurnResult(input.result);
   const stream = createResponsesStreamState({ responseId: input.responseId, model: input.model });
   const events: ResponsesSseEvent[] = [stream.created(), stream.inProgress()];
@@ -240,6 +252,9 @@ export function mapModelTurnResultToOpenAIResponsesEvents(input: {
     outputIndex++;
   }
   const usage = input.result.usage;
-  events.push(stream.completed({ input_tokens: usage.inputTokens, input_tokens_details: { cached_tokens: usage.cacheReadTokens, cache_write_tokens: usage.cacheWriteTokens }, output_tokens: usage.outputTokens, total_tokens: usage.inputTokens + usage.outputTokens }));
-  return events;
+  events.push(stream.completed({ input_tokens: usage.inputTokens, input_tokens_details: { cached_tokens: usage.cacheReadTokens }, output_tokens: usage.outputTokens, total_tokens: usage.inputTokens + usage.outputTokens }));
+  const omissions: readonly OpenAIResponsesProjectionOmission[] = Object.freeze(usage.cacheWriteTokens > 0
+    ? [Object.freeze({ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: usage.cacheWriteTokens, protocolVersion: "codex-0.144.5" })]
+    : []);
+  return Object.assign(events, { omissions }) as OpenAIResponsesEventProjection;
 }

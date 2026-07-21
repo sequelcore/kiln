@@ -1,4 +1,12 @@
 // Gateway
+export { OPENAI_RESPONSES_RAW_BODY_MAX_BYTES, createOpenAIResponsesRoutes } from "./gateway/openai-responses-routes.js";
+export type {
+  OpenAIResponsesCompatibilityEvidence,
+  OpenAIResponsesIngressConfig,
+  OpenAIResponsesObservedCorrelation,
+  OpenAIResponsesResolvedVirtualModel,
+  OpenAIResponsesTrustedPrincipal,
+} from "./gateway/openai-responses-routes.js";
 export {
   GovernedOneRoundCommittedError,
   GovernedOneRoundInvocationError,
@@ -44,9 +52,11 @@ export {
 } from "./gateway/openai-responses-model-turn.js";
 export type {
   OpenAIResponsesCapabilityIssue,
+  OpenAIResponsesEventProjection,
   OpenAIResponsesModelTurnCapability,
   OpenAIResponsesModelTurnCapabilitySummary,
   OpenAIResponsesModelTurnErrorCode,
+  OpenAIResponsesProjectionOmission,
 } from "./gateway/openai-responses-model-turn.js";
 export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js";
 export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";

@@ -19,6 +19,7 @@ export type GovernedOneRoundToolExecutionMode = "caller-owned" | "kiln-owned";
 export interface GovernedOneRoundIdentity {
   readonly tenantId: string;
   readonly applicationId: string;
+  readonly callerId: string;
   readonly sessionId: string;
   readonly turnId: string;
 }
@@ -73,6 +74,7 @@ export interface GovernedOneRoundAttemptEvidence {
   readonly attemptId: string;
   readonly tenantId: string;
   readonly applicationId: string;
+  readonly callerId: string;
   readonly sessionId: string;
   readonly turnId: string;
   readonly route: ModelGatewayRoute;
@@ -192,6 +194,7 @@ export async function invokeGovernedOneRound(
       attemptId: attempt.attemptId,
       tenantId: input.identity.tenantId,
       applicationId: input.identity.applicationId,
+      callerId: input.identity.callerId,
       sessionId: input.identity.sessionId,
       turnId: input.identity.turnId,
       route: input.route,
@@ -209,6 +212,7 @@ export async function invokeGovernedOneRound(
         attemptId: attempt.attemptId,
         tenantId: input.identity.tenantId,
         applicationId: input.identity.applicationId,
+        callerId: input.identity.callerId,
         sessionId: input.identity.sessionId,
         turnId: input.identity.turnId,
         route: input.route,
@@ -333,6 +337,7 @@ function validateAdmission(input: GovernedOneRoundInvocationInput): void {
     attemptId: input.attemptId,
     tenantId: input.identity.tenantId,
     applicationId: input.identity.applicationId,
+    callerId: input.identity.callerId,
     sessionId: input.identity.sessionId,
     turnId: input.identity.turnId,
     capabilityId: input.authority.capabilityId,
