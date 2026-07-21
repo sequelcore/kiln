@@ -1,5 +1,5 @@
-import { projectConversationForModel } from "@kilnai/core";
-import type { ContentPart, ConversationToolResultProjectionPolicy, ProviderAdapter, ToolCall } from "@kilnai/core";
+import { projectConversationForModel, sha256ContentIdentity } from "@kilnai/core";
+import type { ContentPart, ConversationToolResultProjectionPolicy, EffectivePromptManifest, ProviderAdapter, ToolCall } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./runtime-session-orchestrator.types.js";
@@ -72,7 +72,7 @@ export async function finalizeRuntimeSessionResponse(
 
 export async function requestRuntimeSessionFallbackResponse(
   provider: ProviderAdapter,
-  system: string,
+  effectivePrompt: EffectivePromptManifest,
   session: RuntimeSession,
   maxTokens: number | undefined,
   cachePartition?: ProviderRequestCachePartitionInput,
@@ -84,11 +84,21 @@ export async function requestRuntimeSessionFallbackResponse(
   readonly request: ProviderRequestRegionEvidence;
   readonly stopReason?: string;
 }> {
+  if (
+    typeof effectivePrompt !== "object"
+    || effectivePrompt === null
+    || effectivePrompt.version !== "v1"
+    || typeof effectivePrompt.finalPrompt !== "string"
+    || effectivePrompt.finalPromptHash !== sha256ContentIdentity(effectivePrompt.finalPrompt)
+    || !Array.isArray(effectivePrompt.components)
+  ) {
+    throw new Error("A valid effective prompt manifest is required before provider invocation");
+  }
   const conversationProjection = projectConversationForModel(session.conversationHistory, conversationPolicy);
   const messages = conversationProjection.messages;
   const response = await provider.createMessage({
     sessionId: session.id,
-    system,
+    system: effectivePrompt.finalPrompt,
     messages,
     maxTokens,
   });
@@ -105,7 +115,8 @@ export async function requestRuntimeSessionFallbackResponse(
       contextUsage: response.contextUsage,
     },
     request: measureProviderRequestRegions({
-      system,
+      system: effectivePrompt.finalPrompt,
+      effectivePrompt,
       messages,
       toolCount: 0,
       cachePartition,

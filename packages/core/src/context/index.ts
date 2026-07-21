@@ -1,4 +1,22 @@
 export { estimateTextTokens, renderProjectedContext } from "./projected-context.js";
+export {
+  buildEffectivePromptManifest,
+  sha256ContentIdentity,
+  toEffectivePromptEvidence,
+} from "./effective-prompt-manifest.js";
+export type {
+  DeferredEffectivePromptComponent,
+  DeferredEffectivePromptComponentInput,
+  EffectivePromptComponent,
+  EffectivePromptComponentEvidence,
+  EffectivePromptComponentInput,
+  EffectivePromptComponentProvenance,
+  EffectivePromptComponentScope,
+  EffectivePromptContentComponent,
+  EffectivePromptEvidence,
+  EffectivePromptManifest,
+  EffectivePromptManifestInput,
+} from "./effective-prompt-manifest.js";
 export type {
   ContextAllocationMode,
   ContextCandidateSegment,

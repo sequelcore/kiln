@@ -1,36 +1,164 @@
+import {
+  buildEffectivePromptManifest,
+  sha256ContentIdentity,
+  type DeferredEffectivePromptComponentInput,
+  type EffectivePromptComponentInput,
+  type EffectivePromptManifest,
+  type TurnTemporalContext,
+} from "@kilnai/core";
 import type { RuntimeSession } from "../../runtime-session.js";
 import type { GovernedRuntimeContext } from "../../runtime-session-orchestrator.types.js";
-import type { TurnTemporalContext } from "@kilnai/core";
+
+const GOVERNED_CONTEXT_PREFIX = "\n\n--- Governed Context ---\n";
+
+function contentComponentRevision(content: string): string {
+  return sha256ContentIdentity(content);
+}
+
+function temporalContextPrompt(temporalContext: TurnTemporalContext): string {
+  return [
+    "",
+    "",
+    "--- Turn Temporal Context ---",
+    `Observed at (UTC): ${temporalContext.observedAt}`,
+    `Operator-local date: ${temporalContext.localDate} (${temporalContext.timeZone})`,
+    "Use this as the canonical meaning of relative dates such as today and tomorrow. Provider recency alone is not event evidence. Do not substitute a publication or retrieval date for the event date.",
+    "",
+    "--- Progressive Exact-Date Web Research ---",
+    "For claims about an event on an exact date, use a bounded discovery -> verification -> extraction sequence:",
+    "1. Start with a broad web_search query containing the event identities and date. Set temporalRequirement to the event date, completed status, and at least two independent sources.",
+    "2. Do not copy the event date into startDate or endDate; those fields filter publication dates. Do not invent a domain allowlist. Use exactPhrases only for text that must literally occur, not ordinary entity names.",
+    "3. If temporal evidence is insufficient, retry at least once with a materially broader discovery query. Remove only optional constraints you introduced; preserve operator constraints, network policy, and temporalRequirement.",
+    "4. Use web_extract on the strongest candidate pages with the same temporalRequirement when snippets do not establish the event date, identities, and completed status.",
+    "5. Only synthesize result, chronicle, and causal analysis after evidence is accepted. Otherwise state the evidence gap explicitly.",
+  ].join("\n");
+}
+
+function deferredAuditComponents(
+  governedContext: GovernedRuntimeContext | undefined,
+): readonly DeferredEffectivePromptComponentInput[] {
+  const audit = governedContext?.audit;
+  if (!audit) {
+    return [];
+  }
+  return audit.deferredBlockIds.map((id) => {
+    const block = audit.blocks.find((candidate) => candidate.id === id);
+    const metadataIdentity = JSON.stringify({
+      id,
+      source: block?.source ?? null,
+      kind: block?.kind ?? null,
+      estimatedTokens: block?.estimatedTokens ?? null,
+      projectionSourceHash: block?.projectionEvidence?.sourceHash ?? null,
+      decision: "deferred",
+    });
+    return {
+      id,
+      revision: sha256ContentIdentity(metadataIdentity),
+      scope: "deferred",
+      estimatedTokens: block?.estimatedTokens,
+      provenance: {
+        source: "runtime-context-governor",
+        contextBlockId: id,
+        contextSource: block?.source,
+        auditDecision: "deferred",
+      },
+    };
+  });
+}
 
 export function buildRuntimeTurnSystemPrompt(
   session: RuntimeSession,
   governedContext: GovernedRuntimeContext | undefined,
   temporalContext?: TurnTemporalContext,
-): string {
-  let system = session.systemPrompt;
+): EffectivePromptManifest {
+  const components: Array<EffectivePromptComponentInput | DeferredEffectivePromptComponentInput> = [
+    {
+      id: "runtime-base-prompt",
+      revision: contentComponentRevision(session.systemPrompt),
+      scope: "static",
+      content: session.systemPrompt,
+      provenance: { source: "runtime-session" },
+    },
+  ];
+
   if (governedContext?.content) {
     if (governedContext.audit?.governor !== "DefaultContextGovernor") {
       throw new Error("Governed runtime context must include a DefaultContextGovernor audit");
     }
-    system += "\n\n--- Governed Context ---\n" + governedContext.content;
+    const content = GOVERNED_CONTEXT_PREFIX + governedContext.content;
+    components.push({
+      id: "runtime-governed-context",
+      revision: contentComponentRevision(content),
+      scope: "dynamic",
+      content,
+      provenance: {
+        source: "runtime-context-governor",
+        auditDecision: "admitted",
+      },
+    });
   }
+
   if (temporalContext) {
-    system += [
-      "",
-      "",
-      "--- Turn Temporal Context ---",
-      `Observed at (UTC): ${temporalContext.observedAt}`,
-      `Operator-local date: ${temporalContext.localDate} (${temporalContext.timeZone})`,
-      "Use this as the canonical meaning of relative dates such as today and tomorrow. Provider recency alone is not event evidence. Do not substitute a publication or retrieval date for the event date.",
-      "",
-      "--- Progressive Exact-Date Web Research ---",
-      "For claims about an event on an exact date, use a bounded discovery -> verification -> extraction sequence:",
-      "1. Start with a broad web_search query containing the event identities and date. Set temporalRequirement to the event date, completed status, and at least two independent sources.",
-      "2. Do not copy the event date into startDate or endDate; those fields filter publication dates. Do not invent a domain allowlist. Use exactPhrases only for text that must literally occur, not ordinary entity names.",
-      "3. If temporal evidence is insufficient, retry at least once with a materially broader discovery query. Remove only optional constraints you introduced; preserve operator constraints, network policy, and temporalRequirement.",
-      "4. Use web_extract on the strongest candidate pages with the same temporalRequirement when snippets do not establish the event date, identities, and completed status.",
-      "5. Only synthesize result, chronicle, and causal analysis after evidence is accepted. Otherwise state the evidence gap explicitly.",
-    ].join("\n");
+    const content = temporalContextPrompt(temporalContext);
+    components.push({
+      id: "runtime-turn-temporal-context",
+      revision: contentComponentRevision(content),
+      scope: "dynamic",
+      content,
+      provenance: { source: "runtime-temporal-context" },
+    });
   }
-  return system;
+
+  components.push(...deferredAuditComponents(governedContext));
+  return buildEffectivePromptManifest({ components });
+}
+
+export function reconcileRuntimeInvocationPromptManifest(
+  assembled: EffectivePromptManifest,
+  invocationSystem: string,
+): EffectivePromptManifest {
+  if (invocationSystem === assembled.finalPrompt) {
+    return assembled;
+  }
+
+  const deferred = assembled.components
+    .filter((component): component is typeof component & { readonly scope: "deferred" } => (
+      component.scope === "deferred"
+    ))
+    .map(({ id, revision, scope, estimatedTokens, provenance }) => ({
+      id,
+      revision,
+      scope,
+      estimatedTokens,
+      provenance,
+    }));
+
+  if (invocationSystem.startsWith(assembled.finalPrompt)) {
+    const content = invocationSystem.slice(assembled.finalPrompt.length);
+    return buildEffectivePromptManifest({
+      components: [
+        ...assembled.components,
+        {
+          id: "runtime-routing-suffix",
+          revision: contentComponentRevision(content),
+          scope: "dynamic",
+          content,
+          provenance: { source: "runtime-routing" },
+        },
+      ],
+    });
+  }
+
+  return buildEffectivePromptManifest({
+    components: [
+      {
+        id: "runtime-routed-prompt",
+        revision: contentComponentRevision(invocationSystem),
+        scope: "dynamic",
+        content: invocationSystem,
+        provenance: { source: "runtime-routing-replacement" },
+      },
+      ...deferred,
+    ],
+  });
 }

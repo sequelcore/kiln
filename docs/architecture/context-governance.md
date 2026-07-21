@@ -87,6 +87,17 @@ An admitted runtime turn passes a `GovernedRuntimeContext` to the orchestrator.
 If governed content is present, it must carry a `DefaultContextGovernor` audit.
 Raw object-wrapped strings are rejected at the prompt assembly seam.
 
+Runtime assembles the provider system prompt as one `EffectivePromptManifest`.
+The manifest records ordered static, dynamic, and deferred components, then
+produces the only string that may be sent to the provider. Routing-owned
+suffixes are reconciled into that manifest before invocation. Provider-request
+telemetry fails closed if the manifest and transmitted system prompt differ.
+
+`ContextGovernor` still owns admission and deferral. The prompt manifest does
+not rank, admit, truncate, or recover context; it describes the exact result of
+those decisions. Request evidence contains hashes, scopes, and token estimates,
+not prompt text or caller-controlled provenance strings.
+
 Direct API, webhook, WebSocket, CLI, GUI, and TUI paths must not assemble raw
 prompt memory such as `combinedMemory` after admission. Route-local retrieval
 may remain as input collection, but model admission goes through the governed
@@ -180,5 +191,7 @@ The current target is:
 - memory sparsity or retrieval failure is explicit
 - context policy is not hidden in helper utilities
 - admitted/deferred context decisions are auditable
+- each runtime provider request identifies the exact effective prompt without
+  persisting its text
 - a summary candidate cannot establish live operational authority or resource
   existence

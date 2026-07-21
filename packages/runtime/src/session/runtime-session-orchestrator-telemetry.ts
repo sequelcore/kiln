@@ -15,8 +15,15 @@ import type {
   ProviderRequestToolProjectionEvidence,
   ContextUsageRawEvidence,
   ConversationProjectionEvidence,
+  EffectivePromptEvidence,
+  EffectivePromptManifest,
 } from "@kilnai/core";
-import { computeUsageCostUsd, resolveExecutionCostEvidence, resolveExecutionPricing } from "@kilnai/core";
+import {
+  computeUsageCostUsd,
+  resolveExecutionCostEvidence,
+  resolveExecutionPricing,
+  toEffectivePromptEvidence,
+} from "@kilnai/core";
 import type { ModelPricing } from "@kilnai/core";
 
 export interface OrchestratorUsageSnapshot {
@@ -56,6 +63,7 @@ export interface ProviderRequestRegionEvidence {
   readonly toolCount: number;
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly conversationProjection?: ConversationProjectionEvidence;
+  readonly effectivePrompt?: EffectivePromptEvidence;
   readonly stopReason?: string;
 }
 
@@ -94,10 +102,14 @@ export function measureProviderRequestRegions(input: {
   readonly toolCount: number;
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly conversationProjection?: ConversationProjectionEvidence;
+  readonly effectivePrompt?: EffectivePromptManifest;
   readonly stopReason?: string;
   readonly requestRegionOrder?: readonly ProviderRequestCacheRegionSource[];
   readonly cachePartition?: ProviderRequestCachePartitionInput;
 }): ProviderRequestRegionEvidence {
+  if (input.effectivePrompt && input.effectivePrompt.finalPrompt !== input.system) {
+    throw new Error("Effective prompt manifest must describe the exact provider system prompt");
+  }
   const system = serializeForEvidence(input.system);
   const messages = serializeForEvidence(input.messages);
   const tools = serializeForEvidence(input.tools ?? []);
@@ -138,6 +150,9 @@ export function measureProviderRequestRegions(input: {
     toolCount: input.toolCount,
     ...(input.toolProjection ? { toolProjection: input.toolProjection } : {}),
     ...(input.conversationProjection ? { conversationProjection: input.conversationProjection } : {}),
+    ...(input.effectivePrompt
+      ? { effectivePrompt: toEffectivePromptEvidence(input.effectivePrompt) }
+      : {}),
     ...(input.stopReason ? { stopReason: input.stopReason } : {}),
   };
 }

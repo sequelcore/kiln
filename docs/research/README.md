@@ -112,6 +112,11 @@ define the active architecture contract. For doctrine, use
   Roblox Studio, security research, repository gaps, and accepted design
   decisions for Kiln-owned MCP resolution, execution, and native projection.
 
+- `23-prompt-component-governance.md`
+  Official guidance and cloned-harness evidence for minimal prompt components,
+  progressive disclosure, model-specific prompt evaluation, neutral response
+  skills, and optional validated controlled-technical-English packs.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -148,4 +153,5 @@ define the active architecture contract. For doctrine, use
 20. `20-cross-domain-task-taxonomy.md`
 21. `21-managed-invocation-routing-2026.md`
 22. `22-canonical-mcp-integration-2026.md`
-23. `web-retrieval-provider-routing.md`
+23. `23-prompt-component-governance.md`
+24. `web-retrieval-provider-routing.md`

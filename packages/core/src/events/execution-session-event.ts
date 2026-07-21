@@ -6,6 +6,7 @@ import type { ContextUsageRawEvidence } from "./context-usage-projection.js";
 import type { SessionExecutionScope } from "./session-execution-scope.js";
 import type { SessionTurnOutcome } from "./session-event.js";
 import type { ConversationProjectionEvidence } from "../context/conversation-projection.js";
+import type { EffectivePromptEvidence } from "../context/effective-prompt-manifest.js";
 
 export type ExecutionSessionCostTrackingMode =
   | "native"
@@ -63,6 +64,7 @@ export interface ProviderRequestEvidence {
   readonly toolCount: number;
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly conversationProjection?: ConversationProjectionEvidence;
+  readonly effectivePrompt?: EffectivePromptEvidence;
   readonly stopReason?: string;
   readonly contextUsage?: ContextUsageRawEvidence;
 }

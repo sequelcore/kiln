@@ -23,4 +23,7 @@ export { DefaultContextSummarizer } from "./summarization/context-summarizer.js"
 export type { ContextSummarizer } from "./summarization/context-summarizer.js";
 export { DefaultAgentHandoffSummarizer } from "./summarization/agent-handoff-summarizer.js";
 export type { AgentHandoffSummarizer } from "./summarization/agent-handoff-summarizer.js";
-export { buildRuntimeTurnSystemPrompt } from "./context/runtime-turn-system-prompt.js";
+export {
+  buildRuntimeTurnSystemPrompt,
+  reconcileRuntimeInvocationPromptManifest,
+} from "./context/runtime-turn-system-prompt.js";

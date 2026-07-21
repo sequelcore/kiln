@@ -40,11 +40,12 @@ request before routing or session mutation.
 1. canonical admitted-turn handoff
 2. context input collection
 3. governed context projection
-4. turn system-prompt assembly
-5. runtime continuity presentation
-6. model and tool orchestration
-7. canonical turn-record application
-8. session save and telemetry emission
+4. effective-prompt manifest assembly
+5. routing-suffix reconciliation and exact-prompt validation
+6. runtime continuity presentation
+7. model and tool orchestration
+8. canonical turn-record application
+9. session save and telemetry emission
 
 **Canonical boundary:** `processAdmittedTurn(...)`
 
@@ -86,6 +87,9 @@ persistence.
 8. governed merge and ordering
 9. truncation, deferral, or summary if needed
 10. audit emission
+
+The governor audit is consumed by Runtime prompt assembly. Deferred components
+remain metadata-only and do not contribute to the provider prompt hash.
 
 **Gates:**
 

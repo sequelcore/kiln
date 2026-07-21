@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHash } from "node:crypto";
 import type { ActionEffectEnvelope, ProviderAdapter, Capability, ToolDefinition } from "@kilnai/core";
-import { textParts, EventBus, ToolCache } from "@kilnai/core";
+import { textParts, EventBus, sha256ContentIdentity, ToolCache } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { measureProviderRequestRegions } from "../../src/session/runtime-session-orchestrator-telemetry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -135,6 +136,16 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
     expect(result.providerRequests?.[0]?.messageBytes).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.toolSchemaBytes).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.systemHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.providerRequests?.[0]?.effectivePrompt?.finalPromptHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    const sentSystem = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0].system;
+    expect(result.providerRequests?.[0]?.effectivePrompt?.finalPromptHash).toBe(
+      `sha256:${createHash("sha256").update(sentSystem).digest("hex")}`,
+    );
+    expect(result.providerRequests?.[0]?.effectivePrompt?.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: sha256ContentIdentity("runtime-base-prompt"), scope: "static" }),
+      expect.objectContaining({ id: sha256ContentIdentity("runtime-routing-suffix"), scope: "dynamic" }),
+    ]));
+    expect(JSON.stringify(result.providerRequests?.[0]?.effectivePrompt)).not.toContain("Be helpful.");
     expect(result.providerRequests?.[0]?.messageHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(result.providerRequests?.[0]?.toolSchemaHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(result.providerRequests?.[0]?.stablePrefixHash).toMatch(/^sha256:[a-f0-9]{64}$/u);

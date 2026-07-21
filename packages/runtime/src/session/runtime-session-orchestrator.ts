@@ -8,6 +8,7 @@ import type {
   ProviderExecutionContext,
   ProviderExecutionRequestedAuthority,
   ConversationToolResultProjectionPolicy,
+  EffectivePromptManifest,
 } from "@kilnai/core";
 import {
   accountedWorkItemEvidence,
@@ -42,7 +43,10 @@ import {
   RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON,
   RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON,
 } from "./runtime-session-orchestrator.types.js";
-import { buildRuntimeTurnSystemPrompt } from "./support/index.js";
+import {
+  buildRuntimeTurnSystemPrompt,
+  reconcileRuntimeInvocationPromptManifest,
+} from "./support/index.js";
 import {
   assessRuntimeTemporalEvidence,
   shouldRequestTemporalEvidenceRecovery,
@@ -249,12 +253,16 @@ export class RuntimeSessionOrchestrator {
 
     let escalation = this.detectPreLlmEscalation(userParts);
 
-    const system = buildRuntimeTurnSystemPrompt(session, governedContext, perCallConfig?.temporalContext);
+    const systemManifest = buildRuntimeTurnSystemPrompt(
+      session,
+      governedContext,
+      perCallConfig?.temporalContext,
+    );
     const routing = await resolveRuntimeSessionRouting(
       this.deps,
       session,
       userParts,
-      system,
+      systemManifest.finalPrompt,
       this._tools,
       perCallConfig,
       (sessionId, decision) => this.telemetry.emitModelRouted(sessionId, decision),
@@ -296,6 +304,10 @@ export class RuntimeSessionOrchestrator {
       (sessionId, description) => this.approvalGate.requestApproval(sessionId, description),
       (sessionId, message) => this.telemetry.emitError(sessionId, message),
       callBuiltinTools,
+    );
+    const invocationPromptManifest = reconcileRuntimeInvocationPromptManifest(
+      systemManifest,
+      routing.invocationSystem,
     );
     const budgetRouteModel = routing.routingDecision?.model ?? this.model;
     let projectedRoundTools = routing.effectiveTools;
@@ -385,7 +397,7 @@ export class RuntimeSessionOrchestrator {
       );
       const response = await routing.effectiveProvider.createMessage({
         sessionId: session.id,
-        system: routing.invocationSystem,
+        system: invocationPromptManifest.finalPrompt,
         messages: conversationProjection.messages,
         tools: toolsForRound,
         ...(round === 0 && perCallConfig?.initialToolChoice
@@ -409,7 +421,8 @@ export class RuntimeSessionOrchestrator {
         },
         session.activeAgentId ?? undefined,
         measureProviderRequestRegions({
-          system: routing.invocationSystem,
+          system: invocationPromptManifest.finalPrompt,
+          effectivePrompt: invocationPromptManifest,
           messages: conversationProjection.messages,
           tools: toolsForRound,
           toolCount: toolsForRound?.length ?? 0,
@@ -534,6 +547,7 @@ export class RuntimeSessionOrchestrator {
         return this.finalizeAfterRepeatedToolFailure({
           session,
           routing,
+          invocationPromptManifest,
           cachePartition,
           executionEnvelope,
           toolExecutions,
@@ -601,6 +615,7 @@ export class RuntimeSessionOrchestrator {
         return this.finalizeAfterRepeatedToolFailure({
           session,
           routing,
+          invocationPromptManifest,
           cachePartition,
           executionEnvelope,
           toolExecutions,
@@ -662,7 +677,7 @@ export class RuntimeSessionOrchestrator {
     session.addUserMessage(toolRoundBudgetFinalizationPrompt(toolRoundBudget.max));
     const fallback = await requestRuntimeSessionFallbackResponse(
       routing.effectiveProvider,
-      routing.invocationSystem,
+      invocationPromptManifest,
       session,
       this.deps.maxTokens,
       buildRuntimeProviderRequestCachePartition(session, routing, perCallConfig, executionEnvelope),
@@ -742,6 +757,7 @@ export class RuntimeSessionOrchestrator {
   private async finalizeAfterRepeatedToolFailure(input: {
     readonly session: RuntimeSession;
     readonly routing: RuntimeSessionRoutingResolution;
+    readonly invocationPromptManifest: EffectivePromptManifest;
     readonly cachePartition?: ProviderRequestCachePartitionInput;
     readonly executionEnvelope?: RuntimeExecutionEnvelope;
     readonly toolExecutions: readonly ToolExecutionSummary[];
@@ -749,7 +765,7 @@ export class RuntimeSessionOrchestrator {
   }): Promise<OrchestrateResult> {
     const fallback = await requestRuntimeSessionFallbackResponse(
       input.routing.effectiveProvider,
-      input.routing.invocationSystem,
+      input.invocationPromptManifest,
       input.session,
       this.deps.maxTokens,
       input.cachePartition,

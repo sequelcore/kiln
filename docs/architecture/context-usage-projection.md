@@ -5,6 +5,14 @@ context for the route that actually completed the request. It is not billing,
 the historical transcript length, output budget, reasoning-token total, or a
 prediction of the next request.
 
+Effective-prompt evidence is a separate request-level concern. It proves which
+ordered prompt components produced the exact system string by recording a
+final hash, component hashes, scopes, and token estimates. It does not replace
+context-usage normalization and it contains no raw prompt or provenance text.
+The first implementation is available through runtime provider-request
+evidence; a persisted canonical event and operator-facing inspection surface
+remain a later contract slice.
+
 ## Ownership And Transport
 
 Core owns the provider-neutral semantic shape and canonical
