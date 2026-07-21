@@ -13,6 +13,8 @@ import type { ProviderAdapterAppRuntime } from "./provider-adapter-routes.js";
 import { createProviderAdapterRoutes } from "./provider-adapter-routes.js";
 import type { WsRoutesConfig } from "./ws-routes.js";
 import { createWsRoutes } from "./ws-routes.js";
+import { createHarnessIngressRoutes } from "./harness-ingress-routes.js";
+import type { HarnessIngressRoutesConfig } from "./harness-ingress-routes.js";
 import { createWsTenantRoutes } from "./ws-tenant-routes.js";
 import type { DelegationRegistry } from "./delegation-handler.js";
 import { createDelegationRoutes } from "./delegation-routes.js";
@@ -120,6 +122,8 @@ export interface GatewayServerConfig {
   readonly safetyPipelines?: Map<string, SafetyPipeline>;
   readonly studioDistPath?: string;
   readonly upgradeWebSocket?: WsRoutesConfig["upgradeWebSocket"];
+  /** Explicit opt-in cross-harness ingress; absent means the route is not exposed. */
+  readonly harnessIngress?: HarnessIngressRoutesConfig;
   readonly validateToken?: WsRoutesConfig["validateToken"];
   /** Gateway-level JWT verifier. When set, applied to all API and admin routes. */
   readonly jwtVerifier?: JwtVerifyFn;
@@ -151,6 +155,10 @@ function emptyGuiProviderModelDiscoveryProjection(sourceId: string): GuiProvider
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
   const app = new Hono();
+
+  if (config.harnessIngress) {
+    app.route("/", createHarnessIngressRoutes(config.harnessIngress));
+  }
 
   app.get("/media/:appName/:namespace/:id/content", (c) => {
     const appName = c.req.param("appName");

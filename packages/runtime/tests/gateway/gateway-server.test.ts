@@ -59,6 +59,13 @@ function makeConfig(apps: LoadedApp[]): GatewayServerConfig {
   return { port: 4800, apps };
 }
 
+describe("gateway harness ingress composition", () => {
+  it("does not expose the harness websocket route without explicit ingress configuration", async () => {
+    const response = await createGatewayApp(makeConfig([])).request("http://localhost/harness/v1/ws");
+    expect(response.status).toBe(404);
+  });
+});
+
 function makeMockProvider(): ProviderAdapter {
   return {
     name: "mock",

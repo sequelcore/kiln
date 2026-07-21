@@ -9,7 +9,7 @@ import type {
   ProviderModelNormalizedIdentity,
   ProviderModelRouteIdentity,
 } from "./provider-model-evidence.js";
-import { assertProviderModelEvidence } from "./provider-model-evidence.js";
+import { assertProviderModelEvidence, isSameProviderModelRoute } from "./provider-model-evidence.js";
 import { isCanonicalModelCapability } from "./model-capability-registry.js";
 
 export type ProviderModelEligibilityUse = "interactive" | "managed-agent";
@@ -247,7 +247,7 @@ function evaluateCapability(
   }
 
   const matchingClaims = claims.filter(
-    (claim) => claim.capability === capability && sameRoute(claim.route, route),
+    (claim) => claim.capability === capability && isSameProviderModelRoute(claim.route, route),
   );
   if (matchingClaims.length === 0) {
     reasons.push(`missing-capability:${capability}`);
@@ -312,11 +312,6 @@ function validateCapabilityClaim(claim: ProviderModelCapabilityClaim, index: num
   }
 }
 
-function sameRoute(left: ProviderModelRouteIdentity, right: ProviderModelRouteIdentity): boolean {
-  return left.providerId === right.providerId
-    && left.providerModelId === right.providerModelId
-    && left.scope === right.scope;
-}
 
 function requireText(value: string, field: string): void {
   if (value.trim().length === 0) {

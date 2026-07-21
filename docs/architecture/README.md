@@ -127,6 +127,11 @@ is documented by concern, not as a single monolith.
   Provider credential rotation, cooldown, runtime credential sources,
   cross-process reload, health snapshots, and secret-free observability.
 
+- `model-gateway.md`
+  Canonical cross-harness model ingress, route-scoped account affinity,
+  attempt commit/failover semantics, native projection, and migration from
+  pool-owned execution.
+
 - `credential-governance.md`
   Provider-agnostic `SecretRef` boundary, env-backed source contract,
   rotation/refresh metadata, and secret-free diagnostics.

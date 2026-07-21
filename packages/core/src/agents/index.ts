@@ -258,6 +258,7 @@ export type {
 export {
   PROVIDER_MODEL_EVIDENCE_STATES,
   createProviderModelEvidence,
+  isSameProviderModelRoute,
 } from "./provider-model-evidence.js";
 export type {
   ProviderModelAliasEvidence,
@@ -285,6 +286,31 @@ export type {
   ProviderModelEligibilityRequirements,
   ProviderModelEligibilityUse,
 } from "./provider-model-eligibility.js";
+export {
+  advanceAttemptCommit,
+  createAccountRef,
+  createAttemptCommit,
+  reassignAttemptAccount,
+  reserveAccountForNewWork,
+  selectModelGatewayAccount,
+} from "./model-gateway/index.js";
+export type {
+  AccountRef,
+  AttemptCommit,
+  AttemptCommitPhase,
+  ModelGatewayAccountCandidate,
+  ModelGatewayAccountHealth,
+  ModelGatewayAccountRejection,
+  ModelGatewayAccountRejectionReason,
+  ModelGatewayAccountSelection,
+  ModelGatewayAccountSelectionResult,
+  ModelGatewayAffinity,
+  ModelGatewayAffinityEvidence,
+  ModelGatewayAffinityOutcome,
+  ModelGatewayRoute,
+  NewWorkAccountReservation,
+  SelectModelGatewayAccountInput,
+} from "./model-gateway/index.js";
 
 export {
   CredentialPool,

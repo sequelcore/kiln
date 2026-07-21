@@ -60,6 +60,16 @@ export interface ProviderModelRouteIdentity {
   readonly scope: string;
 }
 
+/** Compares the complete execution-route identity without promoting any evidence. */
+export function isSameProviderModelRoute(
+  left: ProviderModelRouteIdentity,
+  right: ProviderModelRouteIdentity,
+): boolean {
+  return left.providerId === right.providerId
+    && left.providerModelId === right.providerModelId
+    && left.scope === right.scope;
+}
+
 export interface ProviderModelIdentity {
   readonly harness?: ProviderModelHarnessIdentity;
   readonly provider: ProviderModelProviderIdentity;

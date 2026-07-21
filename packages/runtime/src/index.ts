@@ -1,6 +1,8 @@
 // Gateway
 export { createGatewayApp } from "./gateway/gateway-routes.js";
 export type { LoadedApp, GatewayServerConfig } from "./gateway/gateway-routes.js";
+export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js";
+export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
 export type { StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startDevServer } from "./gateway/gateway-server.js";

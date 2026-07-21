@@ -1,0 +1,201 @@
+# Model Gateway
+
+## Purpose
+
+The Model Gateway is Kiln's runtime-owned boundary for executing an admitted
+model turn from any supported harness surface through one canonical route,
+account-selection policy, session model, and evidence stream.
+
+Codex, Claude Code, OpenCode, and Kiln-native surfaces are ingress adapters.
+They do not own provider routing, account rotation, retry policy, authority,
+budgets, or provider credentials. Direct providers and native harnesses are
+execution adapters. They do not define session identity or operator policy.
+
+## Scope
+
+The first supported deployment is one local Kiln runtime authority bound to a
+loopback interface. Multiple harness processes may connect to that authority.
+Remote or multi-runtime account sharing is unsupported until Kiln has a
+transactional lease store, fencing tokens, and crash-recovery semantics. A
+runtime must reject configuration that implies unsupported shared authority.
+
+The gateway does not:
+
+- bypass provider quotas, restrictions, or terms;
+- share personal accounts between operators;
+- assume that protocol compatibility proves product entitlement;
+- make every provider capability available through every harness;
+- use provider or account identity as the canonical Kiln session identity.
+
+## Bounded Contexts
+
+### Core Domain
+
+`@kilnai/core` owns pure decisions and state transitions:
+
+- opaque account and route identity;
+- account eligibility and deterministic selection;
+- route-scoped session affinity;
+- attempt lease, dispatch, commit, and terminal state;
+- secret-free selection and rejection evidence.
+
+Core does not know about OAuth tokens, API keys, environment variables, home
+directories, HTTP, files, provider SDKs, native processes, or operator UI.
+
+### Runtime Application
+
+`@kilnai/runtime` owns:
+
+- ingress admission and protocol adapters;
+- provider/model eligibility before account selection;
+- account catalog and secret resolution ports;
+- durable affinity and attempt evidence for the local runtime;
+- provider and harness adapter invocation;
+- cancellation, streaming, budgets, health, and canonical events;
+- redacted gateway projections for operator surfaces.
+
+Secret resolution happens only after an account lease is admitted. Resolved
+secrets never enter prompts, public contracts, session transcripts, logs, or
+surface projections.
+
+### Gateway Contracts And Surfaces
+
+`@kilnai/gateway-contracts` owns versioned request and projection DTOs. CLI,
+GUI, TUI, SDK, and native harness projections consume those DTOs. Surfaces may
+request a route or an admitted policy mode, but they do not select accounts or
+reconstruct runtime eligibility.
+
+## Canonical Turn Flow
+
+1. Authenticate the harness instance with a process-scoped capability.
+2. Validate the ingress payload, authority envelope, limits, and protocol.
+3. Normalize the request into a canonical model turn.
+4. Resolve provider/model eligibility from current canonical evidence.
+5. Resolve an existing route-scoped affinity when continuity requires it.
+6. Select an eligible account and acquire a lease for one attempt.
+7. Resolve the account secret inside the runtime adapter boundary.
+8. Dispatch through the selected protocol or native harness adapter.
+9. Commit the attempt no later than the point where upstream effects may have
+   occurred.
+10. Stream canonical events and project them back to the ingress protocol.
+11. Record the terminal outcome, health evidence, usage, and affinity state.
+
+## Account Selection
+
+Account selection happens after route eligibility. Account health cannot make
+an ineligible provider/model route eligible.
+
+An account candidate must provide current evidence that it is:
+
+- enabled and valid;
+- entitled to the selected provider/model route;
+- compatible with the requested execution authority and tenant scope;
+- outside cooldown;
+- below its concurrency limit;
+- within configured budget and reserve policy.
+
+Selection is deterministic. A healthy compatible affinity wins. New work uses
+the least-pressure eligible candidate, with explicit priority and stable account
+identity as tie breakers. Reserved accounts are excluded from new work unless
+the policy explicitly admits their use. Random selection is not an operational
+gateway policy.
+
+An affinity binds a Kiln session and provider route to an opaque account
+reference. It does not pin the whole Kiln session to one provider, model, or
+account. A provider-native thread created under one account must never be
+resumed under another account.
+
+## Attempt And Failover Semantics
+
+The canonical attempt lifecycle is:
+
+```text
+planned -> leased -> dispatching -> committed -> terminal
+```
+
+Before dispatch, a known local failure may release the lease and select another
+eligible account. Once request effects may have reached the provider, the
+attempt is committed for retry purposes. After commit or the first observable
+model/tool event, Kiln must not replay the turn through another account.
+
+A connection loss after possible dispatch is `ambiguous`, not safely
+retryable. Kiln may reconcile only when the provider exposes a proven
+idempotency or request-status contract. Otherwise it records a failed or paused
+terminal outcome and requires an explicit retry. An account rebind starts a new
+provider-native thread from the canonical Kiln transcript and emits continuity
+rebind evidence.
+
+The existing `PooledProviderAdapter` buffer-and-retry stream behavior is a
+transitional implementation. Model Gateway streaming is progressive and owns
+the commit boundary. Provider adapters must not perform hidden cross-account
+retries.
+
+## Harness Protocols
+
+The local gateway may expose versioned ingress adapters for:
+
+- OpenAI Responses for Codex;
+- OpenAI-compatible Chat Completions for OpenCode and compatible clients;
+- Anthropic Messages for supported Claude Code gateway routes;
+- Kiln-native gateway contracts.
+
+Every provider/model/harness combination has explicit capability evidence.
+Protocol translation does not imply tool, reasoning, context, resume, billing,
+or contractual compatibility. Unsupported combinations fail closed and remain
+absent from generated model catalogs.
+
+## Native Projection
+
+Kiln config is canonical. Codex model catalogs and base URLs, OpenCode provider
+configuration, and Claude Code gateway settings are generated projections.
+Projection uses the existing install-state, managed-field ownership, backup,
+drift, adoption, sync, and uninstall lifecycle. Native files never become route
+or account authority.
+
+## Security Invariants
+
+- Loopback location is not authentication; every ingress request requires an
+  admitted harness capability.
+- Harness-supplied headers are allowlisted and cannot select credentials or
+  widen authority.
+- Request size, duration, concurrency, tool authority, and spend are bounded
+  before provider dispatch.
+- Account references and diagnostics are secret-free and tenant-scoped.
+- Untrusted prompt or tool content cannot alter route, account, disclosure, or
+  retry policy.
+- Provider errors are normalized before they reach operator surfaces.
+
+## Migration
+
+Migration is provider-by-provider and consumer-complete:
+
+1. Introduce core selection and attempt contracts with focused tests.
+2. Introduce the runtime Model Gateway and adapt the existing credential stores
+   behind its application boundary.
+3. Add protocol ingress and progressive streaming.
+4. Cut direct API providers over across CLI, App Gateway, and managed
+   invocation.
+5. Cut Codex OAuth and OpenCode routes over.
+6. Cut native harness-home routes over.
+7. Delete old pool-owned retry and per-surface construction paths once no
+   consumer remains.
+
+Dual reads or writes are temporary only inside a versioned migration. Mixed or
+unknown credential metadata versions fail closed instead of being inferred.
+
+## Verification
+
+Required focused evidence includes:
+
+- deterministic account selection and rejection reasons;
+- affinity continuity and explicit rebind behavior;
+- concurrent lease limits and stale lease recovery;
+- failure before dispatch, during dispatch, after commit, and after first stream
+  event;
+- cancellation and backpressure;
+- provider-native thread isolation between accounts;
+- no secret, token, home path, or authorization header in contracts, events,
+  logs, snapshots, or fixtures;
+- install, drift, adoption, sync, uninstall, and exact native-config restore;
+- Codex, OpenCode, and supported Claude Code live tests isolated from default
+  hermetic test suites.

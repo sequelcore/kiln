@@ -652,3 +652,31 @@ export type {
   WorkflowToolCallState,
   WorkflowWorkItemActivity,
 } from "./workflow-activity-projection.js";
+
+export {
+  HARNESS_INGRESS_PROTOCOL_VERSION,
+  HARNESS_INGRESS_MAX_INLINE_DATA_LENGTH,
+  HARNESS_INGRESS_MAX_PARTS,
+  HARNESS_INGRESS_MAX_TEXT_LENGTH,
+  HARNESS_INGRESS_REASONING_EFFORTS,
+  HARNESS_INGRESS_REQUESTED_AUTHORITIES,
+  HarnessIngressContentPartSchema,
+  HarnessIngressErrorSchema,
+  HarnessIngressServerFrameSchema,
+  HarnessIngressTurnAcceptedSchema,
+  HarnessIngressTurnCancelResultSchema,
+  HarnessIngressTurnCancelSchema,
+  HarnessIngressTurnCompletedSchema,
+  HarnessIngressTurnStartSchema,
+  HarnessIngressTransportIdentitySchema,
+  HarnessIngressUntrustedClientFrameSchema,
+  parseHarnessIngressClientFrame,
+  parseHarnessIngressServerFrame,
+} from "./harness-ingress.js";
+export type {
+  HarnessIngressClientFrame,
+  HarnessIngressContentPart,
+  HarnessIngressServerFrame,
+  HarnessIngressTransportIdentity,
+  HarnessIngressUntrustedClientFrame,
+} from "./harness-ingress.js";
