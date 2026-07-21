@@ -46,7 +46,7 @@ const input = () => ({
     tools: [{ kind: "custom" as const, name: "native_tool", grammar: { syntax: "lark" as const, source: "start: /.+/" } }],
     toolChoice: { kind: "tool" as const, name: "native_tool" },
     responseFormat: { kind: "json-schema" as const, name: "answer", schema: { type: "object" }, strict: true },
-    reasoning: { effort: "low" as const }, maxOutputTokens: 10,
+    reasoning: { effort: "low" as const }, textVerbosity: "high" as const, maxOutputTokens: 10,
   },
 });
 
@@ -63,6 +63,7 @@ describe("invokeGovernedOneRound", () => {
 
   it("passes canonical custom call input to the dispatcher byte-for-byte", async () => {
     let receivedInput: string | undefined;
+    let receivedVerbosity: string | undefined;
     let dispatches = 0;
     const customCall = { kind: "custom" as const, id: "prior-call", name: "native_tool", input: { kind: "raw-text" as const, value: customInput } };
     const fixture = ports({ dispatcherResolver: { resolve: async () => ({
@@ -70,6 +71,7 @@ describe("invokeGovernedOneRound", () => {
         dispatches += 1;
         const part = request.turn.history[0]?.parts[0];
         receivedInput = part?.type === "tool-call" && part.call.kind === "custom" ? part.call.input.value : undefined;
+        receivedVerbosity = request.turn.textVerbosity;
         return modelResult;
       },
     }) } });
@@ -87,6 +89,7 @@ describe("invokeGovernedOneRound", () => {
 
     expect(dispatches).toBe(1);
     expect(receivedInput).toBe(customInput);
+    expect(receivedVerbosity).toBe("high");
   });
 
   it("fails closed for unavailable affinity unless explicit rebind is admitted", async () => {

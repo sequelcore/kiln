@@ -22,7 +22,7 @@ describe("parseOpenAIResponsesRequest", () => {
     ],
     tools: [
       { type: "function", name: "lookup", description: "Find a record", parameters: { type: "object" } },
-      { type: "custom", name: "apply_patch", description: "Patch a file" },
+      { type: "custom", name: "apply_patch", description: "Patch a file", format: { type: "grammar", syntax: "lark", definition: "start: begin_patch hunk+ end_patch" } },
     ],
     tool_choice: { type: "function", name: "lookup" },
     parallel_tool_calls: true,
@@ -40,6 +40,10 @@ describe("parseOpenAIResponsesRequest", () => {
   it("preserves the supported 0.144.5 request semantics without adapter mapping", () => {
     const parsed = parseOpenAIResponsesRequest(request);
     expect(parsed).toEqual(request);
+  });
+
+  it("accepts missing custom format only at the wire parser boundary", () => {
+    expect(() => parseOpenAIResponsesRequest({ model: "gpt-5-codex", input: [{ type: "message", role: "user", content: "hi" }], tools: [{ type: "custom", name: "legacy_freeform" }], stream: true, store: false })).not.toThrow();
   });
 
   it("accepts Codex history, item references, reasoning context, and grammar custom tools", () => {
@@ -201,6 +205,20 @@ describe("Responses SSE builders", () => {
     ]);
     expect(completed.response.output[0]).not.toBe(messageItem);
     expect(Object.getPrototypeOf(completed.response.output[0])).toBe(Object.prototype);
+  });
+
+  it("emits and retains a Codex reasoning-summary lifecycle with cache details", () => {
+    const stream = createResponsesStreamState({ responseId: "resp_reasoning", model: "gpt-5-codex" });
+    stream.created(); stream.inProgress();
+    const added = stream.reasoningAdded("rs_1", 0);
+    const part = stream.reasoningSummaryPartAdded("rs_1", 0, 0);
+    const delta = stream.reasoningSummaryTextDelta("rs_1", 0, 0, "checking");
+    const done = stream.reasoningSummaryTextDone("rs_1", 0, 0, "checking");
+    stream.outputItemDone({ itemId: "rs_1", outputIndex: 0, item: { id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "checking" }] } });
+    const completed = stream.completed({ input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 3, cache_write_tokens: 2 } });
+    expect([added.type, part.type, delta.type, done.type]).toEqual(["response.output_item.added", "response.reasoning_summary_part.added", "response.reasoning_summary_text.delta", "response.reasoning_summary_text.done"]);
+    expect(completed.response.output).toEqual([{ id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "checking" }] }]);
+    expect(completed.response.usage.input_tokens_details).toEqual({ cached_tokens: 3, cache_write_tokens: 2 });
   });
 
   it("enforces lifecycle order and emits canonical non-leaking failures", () => {

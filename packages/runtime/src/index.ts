@@ -35,6 +35,19 @@ export {
   parseOpenAIResponsesRequest,
 } from "./gateway/openai-responses-protocol.js";
 export type { OpenAIResponsesRequest, ResponsesFailureCode, ResponsesSseEvent } from "./gateway/openai-responses-protocol.js";
+export {
+  OpenAIResponsesModelTurnError,
+  inspectOpenAIResponsesModelTurnCapabilities,
+  mapModelTurnResultToOpenAIResponsesEvents,
+  mapOpenAIResponsesRequestToModelTurn,
+  preflightOpenAIResponsesModelTurn,
+} from "./gateway/openai-responses-model-turn.js";
+export type {
+  OpenAIResponsesCapabilityIssue,
+  OpenAIResponsesModelTurnCapability,
+  OpenAIResponsesModelTurnCapabilitySummary,
+  OpenAIResponsesModelTurnErrorCode,
+} from "./gateway/openai-responses-model-turn.js";
 export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js";
 export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";

@@ -80,6 +80,7 @@ export interface ModelTurn {
     readonly strict?: boolean;
   };
   readonly reasoning?: { readonly effort?: ReasoningEffort; readonly summary?: "auto" | "concise" | "detailed" };
+  readonly textVerbosity?: "low" | "medium" | "high";
   readonly maxOutputTokens?: number;
 }
 
@@ -157,6 +158,9 @@ export function validateModelTurn(turn: ModelTurn): void {
     }
   }
   validateReasoning(turn.reasoning);
+  if (turn.textVerbosity !== undefined && !["low", "medium", "high"].includes(turn.textVerbosity as string)) {
+    throw new TypeError("textVerbosity is invalid.");
+  }
   if (turn.maxOutputTokens !== undefined && (!Number.isSafeInteger(turn.maxOutputTokens) || turn.maxOutputTokens <= 0)) {
     throw new TypeError("maxOutputTokens must be a positive integer.");
   }

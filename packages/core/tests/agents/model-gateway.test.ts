@@ -373,9 +373,11 @@ describe("caller-owned one-round dispatcher", () => {
       parallelToolCalls: false,
       responseFormat: { kind: "json-schema", name: "answer", strict: true, schema: { type: "object" } },
       reasoning: { effort: "high", summary: "concise" },
+      textVerbosity: "low",
     })).not.toThrow();
     expect(() => validateModelTurn({ ...turn, parallelToolCalls: "yes" as never })).toThrow("parallelToolCalls");
     expect(() => validateModelTurn({ ...turn, tools: [{ ...turn.tools[0]!, description: 42 as never }] })).toThrow("description");
+    expect(() => validateModelTurn({ ...turn, textVerbosity: "verbose" as never })).toThrow("textVerbosity");
   });
 
   it("accepts URL images without invented media types and requires media type for base64", () => {
