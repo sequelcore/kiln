@@ -81,6 +81,18 @@ describe("parseOpenAIResponsesRequest", () => {
     expect(() => parseOpenAIResponsesRequest({ ...request, input: [{ type: "message", role: "user", content: [{ type: "input_image", image_url: image }] }] })).not.toThrow();
   });
 
+  it("accepts structured function and custom tool outputs with text and images", () => {
+    expect(() => parseOpenAIResponsesRequest({
+      ...request,
+      input: [
+        { type: "function_call", call_id: "fn", name: "lookup", arguments: "{}" },
+        { type: "function_call_output", call_id: "fn", output: [{ type: "input_text", text: "found" }, { type: "input_image", image_url: "data:image/png;base64,QUJD" }] },
+        { type: "custom_tool_call", call_id: "custom", name: "patch", input: "patch" },
+        { type: "custom_tool_call_output", call_id: "custom", output: [{ type: "input_text", text: "patched" }] },
+      ],
+    })).not.toThrow();
+  });
+
   it("rejects aggregate inline-image content above the request budget", () => {
     const image = `data:image/png;base64,${"A".repeat(27 * 1024 * 1024)}`;
     const input = [0, 1].map(() => ({ type: "message", role: "user", content: [{ type: "input_image", image_url: image }] }));

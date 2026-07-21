@@ -195,8 +195,8 @@ function validateInputItem(value: unknown, callIds: Map<string, CallRecord>): vo
   }
 
   const callId = boundedString(item.call_id, `${type}.call_id`); optionalString(item.id, `${type}.id`);
-  if (type === "function_call_output") { noUnknown(item, ["type", "id", "call_id", "output", "status"], type); requireCall(callIds, callId, "function", type); boundedString(item.output, `${type}.output`); }
-  else if (type === "custom_tool_call_output") { noUnknown(item, ["type", "id", "call_id", "output", "status", "name"], type); requireCall(callIds, callId, "custom", type); boundedString(item.output, `${type}.output`); optionalString(item.name, `${type}.name`); }
+  if (type === "function_call_output") { noUnknown(item, ["type", "id", "call_id", "output", "status"], type); requireCall(callIds, callId, "function", type); validateContent(item.output, "user"); }
+  else if (type === "custom_tool_call_output") { noUnknown(item, ["type", "id", "call_id", "output", "status", "name"], type); requireCall(callIds, callId, "custom", type); validateContent(item.output, "user"); optionalString(item.name, `${type}.name`); }
   else { noUnknown(item, ["type", "id", "call_id", "status", "execution", "tools"], type); requireCall(callIds, callId, "tool_search", type); oneOf(item.execution, ["client"], `${type}.execution`); optionalString(item.status, `${type}.status`); portable(array(item.tools, `${type}.tools`), `${type}.tools`); }
 }
 

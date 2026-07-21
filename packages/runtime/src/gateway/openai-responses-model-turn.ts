@@ -114,7 +114,15 @@ export function inspectOpenAIResponsesModelTurnCapabilities(request: OpenAIRespo
     else if (item.type === "tool_search_call" || item.type === "tool_search_output") unsupported.push({ code: "unsupported-tool-search", path });
     else if (item.type === "function_call") required.add("function-tools");
     else if (item.type === "custom_tool_call") required.add("custom-tools-lark");
-    else if (item.type === "message" && Array.isArray(item.content)) {
+    else if ((item.type === "function_call_output" || item.type === "custom_tool_call_output") && Array.isArray(item.output)) {
+      for (const [partIndex, rawPart] of item.output.entries()) {
+        const part = asRecord(rawPart);
+        if (part.type !== "input_image") continue;
+        if (part.file_id !== undefined) unsupported.push({ code: "unsupported-image-file-id", path: `${path}.output[${partIndex}]` });
+        else if (typeof part.image_url === "string" && part.image_url.startsWith("data:")) required.add("input-image-base64");
+        else required.add("input-image-url");
+      }
+    } else if (item.type === "message" && Array.isArray(item.content)) {
       for (const [partIndex, rawPart] of item.content.entries()) {
         const part = asRecord(rawPart);
         if (part.type !== "input_image") continue;
@@ -169,6 +177,16 @@ function mapMessage(item: WireRecord, path: string): ModelTurnMessage {
   return { role, parts };
 }
 
+function mapToolResultContent(output: unknown, path: string): Array<{ type: "text"; text: string } | ModelImagePart> {
+  if (typeof output === "string") return [{ type: "text", text: output }];
+  return (output as unknown[]).map((raw, index) => {
+    const part = asRecord(raw);
+    return part.type === "input_image"
+      ? mapImage(part, `${path}[${index}]`)
+      : { type: "text" as const, text: part.text as string };
+  });
+}
+
 function mapTools(request: OpenAIResponsesRequest): ModelTool[] | undefined {
   if (!Array.isArray(request.tools)) return undefined;
   return request.tools.map((raw, index) => {
@@ -204,7 +222,7 @@ export function mapOpenAIResponsesRequestToModelTurn(request: OpenAIResponsesReq
       if (value === null || typeof value !== "object" || Array.isArray(value)) throw new OpenAIResponsesModelTurnError("invalid-function-arguments", "Function arguments must contain a JSON object.", `${path}.arguments`);
       history.push({ role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", id: item.call_id as string, name: item.name as string, input: { kind: "json-object", value: value as ModelJsonObject } } }] });
     } else if (item.type === "custom_tool_call") history.push({ role: "assistant", parts: [{ type: "tool-call", call: { kind: "custom", id: item.call_id as string, name: item.name as string, input: { kind: "raw-text", value: item.input as string } } }] });
-    else if (item.type === "function_call_output" || item.type === "custom_tool_call_output") history.push({ role: "user", parts: [{ type: "tool-result", callId: item.call_id as string, content: [{ type: "text", text: item.output as string }] }] });
+    else if (item.type === "function_call_output" || item.type === "custom_tool_call_output") history.push({ role: "user", parts: [{ type: "tool-result", callId: item.call_id as string, content: mapToolResultContent(item.output, `${path}.output`) }] });
   }
   const tools = mapTools(request);
   const choice = request.tool_choice;

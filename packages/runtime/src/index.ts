@@ -12,6 +12,19 @@ export {
   GovernedOneRoundInvocationError,
   invokeGovernedOneRound,
 } from "./model-gateway/governed-one-round-invocation.js";
+export {
+  CODEX_OAUTH_SSE_LIMITS,
+  CODEX_OAUTH_RESPONSES_ENDPOINT,
+  CodexOAuthModelTurnDispatcher,
+  CodexOAuthModelTurnError,
+  encodeCodexOAuthResponsesRequest,
+} from "./model-gateway/codex-oauth-model-turn-dispatcher.js";
+export type {
+  CodexOAuthModelTurnDispatcherOptions,
+  CodexOAuthModelTurnErrorCode,
+  CodexOAuthResolvedCredential,
+  CodexOAuthSseLimits,
+} from "./model-gateway/codex-oauth-model-turn-dispatcher.js";
 export type {
   GovernedOneRoundAccountLease,
   GovernedOneRoundAffinityPolicy,
