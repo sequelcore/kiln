@@ -143,6 +143,26 @@ describe("invokeGovernedOneRound", () => {
     expect(affinityWrites).toBe(0);
   });
 
+  it("runs the committed lifecycle hook immediately before dispatch and treats hook failure as committed unknown", async () => {
+    const order: string[] = [];
+    const fixture = ports({
+      attemptEvidence: { record: async ({ phase }) => { order.push(`evidence:${phase}`); } },
+      dispatcherResolver: { resolve: async () => ({ dispatchOneRound: async () => { order.push("provider"); return modelResult; } }) },
+    });
+    await invokeGovernedOneRound({ ...input(), lifecycle: { afterCommittedBeforeDispatch: () => { order.push("hook"); } } }, fixture);
+    expect(order.indexOf("evidence:committed")).toBeLessThan(order.indexOf("hook"));
+    expect(order.indexOf("hook")).toBeLessThan(order.indexOf("provider"));
+
+    const failed = ports();
+    const error = await invokeGovernedOneRound({
+      ...input(),
+      lifecycle: { afterCommittedBeforeDispatch: () => { throw new Error("guard unavailable"); } },
+    }, failed).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GovernedOneRoundCommittedError);
+    expect(failed.calls).toBe(0);
+    expect(failed.events).toEqual(["planned", "leased", "dispatching", "committed", "failed"]);
+  });
+
   it("rejects non-caller-owned or denied authority before any port work", async () => {
     const fixture = ports();
     await expect(invokeGovernedOneRound({ ...input(), toolExecutionMode: "kiln-owned" }, fixture))

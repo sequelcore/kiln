@@ -296,6 +296,11 @@ export {
   dispatchModelGatewayOneRound,
   validateModelTurn,
   validateModelTurnResult,
+  abandonModelGatewayReplayClaim,
+  commitModelGatewayReplayClaim,
+  completeModelGatewayReplayClaim,
+  createModelGatewayReplayClaim,
+  settleModelGatewayReplayClaimUnknown,
 } from "./model-gateway/index.js";
 export type {
   AccountRef,
@@ -335,6 +340,9 @@ export type {
   ModelTurnMessage,
   ModelTurnResult,
   ModelTurnUsage,
+  ModelGatewayReplayClaim,
+  ModelGatewayReplayFence,
+  ModelGatewayReplayKey,
 } from "./model-gateway/index.js";
 
 export {

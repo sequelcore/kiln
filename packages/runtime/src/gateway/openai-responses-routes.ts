@@ -5,9 +5,13 @@ import {
   GovernedOneRoundInvocationError,
   type GovernedOneRoundAffinityPolicy,
   type GovernedOneRoundBudgetEvidence,
-  type GovernedOneRoundInvocationInput,
-  type GovernedOneRoundInvocationResult,
+  type GovernedOneRoundInvocationPorts,
+  invokeGovernedOneRound,
 } from "../model-gateway/governed-one-round-invocation.js";
+import type {
+  ModelGatewayReplayDecision,
+  ModelGatewayReplayGuard,
+} from "../model-gateway/replay-guard.js";
 import {
   OpenAIResponsesProtocolError,
   encodeSseEvent,
@@ -70,9 +74,11 @@ export interface OpenAIResponsesIngressConfig {
   readonly resolveVirtualModel: (input: { readonly principal: OpenAIResponsesTrustedPrincipal; readonly requestedModel: string }) => Promise<OpenAIResponsesResolvedVirtualModel | undefined>;
   readonly namespaceCorrelation: (input: { readonly principal: OpenAIResponsesTrustedPrincipal; readonly observed: OpenAIResponsesObservedCorrelation }) => Promise<{ readonly sessionId: string; readonly turnId: string }>;
   readonly compatibilityEvidence: { record(evidence: OpenAIResponsesCompatibilityEvidence): Promise<void> };
-  readonly execute: (input: GovernedOneRoundInvocationInput) => Promise<GovernedOneRoundInvocationResult>;
+  readonly invocationPorts: GovernedOneRoundInvocationPorts;
   readonly createAttemptId: () => string;
   readonly createResponseId: () => string;
+  /** Optional process-local protection; terminal TTL expiry or restart permits redispatch. */
+  readonly replayGuard?: ModelGatewayReplayGuard;
   readonly maxBodyBytes?: number;
   readonly maxConcurrentRequests?: number;
 }
@@ -87,6 +93,8 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
   const concurrency = createConcurrencyLimiter(config.maxConcurrentRequests);
   app.post("/v1/responses", async (context) => {
     let executed = false;
+    let replayDispatch: Extract<ModelGatewayReplayDecision, { kind: "dispatch" }> | undefined;
+    let replayCommitAttempted = false;
     let releaseConcurrency: (() => void) | undefined;
     try {
       const token = requireBearer(context.req.header("authorization"));
@@ -132,9 +140,37 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
         optionalRequested: capabilities.optionalRequested, unavailableOptional: capabilities.unavailableOptional,
       });
 
+      if (config.replayGuard !== undefined) {
+        const key = config.replayGuard.fingerprint({
+          rawBody,
+          ingress: "openai-responses",
+          tenantId: principal.tenantId,
+          applicationId: principal.applicationId,
+          callerId: principal.callerId,
+          sessionId: namespaced.sessionId,
+          turnId: namespaced.turnId,
+          route: resolved.route,
+          toolExecutionMode: "caller-owned",
+          ...(resolved.affinity.continuity === "none" ? {} : { affinityKey: resolved.affinity.key }),
+        });
+        const decision = config.replayGuard.claim(key);
+        if (decision.kind === "join-inflight") {
+          const response = safeJson(409, "replay_in_progress", "An identical request is already in progress.");
+          response.headers.set("retry-after", String(decision.retryAfterSeconds));
+          return response;
+        }
+        if (decision.kind === "committed-unknown") {
+          return safeJson(409, "committed_unknown", "The prior request may have committed and must not be dispatched again.");
+        }
+        if (decision.kind === "replay-completed") {
+          return projectSuccessfulResponse(request.model, decision.value.responseId, decision.value.result, true);
+        }
+        replayDispatch = decision;
+      }
+
       if (context.req.raw.signal.aborted) throw new GovernedOneRoundInvocationError("aborted", "Request aborted.");
       const responseId = requireServerId(config.createResponseId(), "responseId");
-      const result = await config.execute({
+      const result = await invokeGovernedOneRound({
         attemptId: requireServerId(config.createAttemptId(), "attemptId"),
         identity: {
           tenantId: principal.tenantId,
@@ -150,13 +186,22 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
         toolExecutionMode: "caller-owned",
         turn,
         signal: context.req.raw.signal,
-      });
+        ...(replayDispatch === undefined ? {} : {
+          lifecycle: { afterCommittedBeforeDispatch: () => {
+            replayCommitAttempted = true;
+            config.replayGuard!.markCommitted(replayDispatch!.key, replayDispatch!.fence);
+          } },
+        }),
+      }, config.invocationPorts);
       executed = true;
       let events: OpenAIResponsesEventProjection;
       try {
         events = mapModelTurnResultToOpenAIResponsesEvents({ responseId, model: request.model, result: result.result });
       } catch {
         throw new ResponsesIngressError(409, "committed_projection_failure", "The committed response could not be represented and must not be retried automatically.");
+      }
+      if (replayDispatch !== undefined) {
+        config.replayGuard!.complete(replayDispatch.key, replayDispatch.fence, { result: result.result, responseId });
       }
       const omissionCodes = events.omissions.map((omission) => omission.code);
       if (omissionCodes.length > 0) {
@@ -189,6 +234,12 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
         },
       });
     } catch (error) {
+      if (replayDispatch !== undefined) {
+        try {
+          if (replayCommitAttempted) config.replayGuard!.settleUnknown(replayDispatch.key, replayDispatch.fence);
+          else config.replayGuard!.abandon(replayDispatch.key, replayDispatch.fence);
+        } catch { /* incompatible/stale transitions retain their existing conservative state */ }
+      }
       if (executed) return safeJson(409, "committed_projection_failure", "The committed response could not be represented and must not be retried automatically.");
       return projectSafeError(error);
     } finally {
@@ -196,6 +247,22 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
     }
   });
   return app;
+}
+
+function projectSuccessfulResponse(model: string, responseId: string, result: import("@kilnai/core").ModelTurnResult, replayed: boolean): Response {
+  const events = mapModelTurnResultToOpenAIResponsesEvents({ responseId, model, result });
+  const omissionCodes = events.omissions.map((omission) => omission.code);
+  return new Response(events.map(encodeSseEvent).join(""), {
+    status: 200,
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      "x-content-type-options": "nosniff",
+      "x-request-id": responseId,
+      ...(replayed ? { "x-kiln-replay": "cached" } : {}),
+      ...(omissionCodes.length === 0 ? {} : { "x-kiln-projection-omissions": omissionCodes.join(",") }),
+    },
+  });
 }
 
 function requireBearer(header: string | undefined): string {

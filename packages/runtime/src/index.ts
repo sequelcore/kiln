@@ -13,6 +13,17 @@ export {
   invokeGovernedOneRound,
 } from "./model-gateway/governed-one-round-invocation.js";
 export {
+  InMemoryModelGatewayReplayGuard,
+  MODEL_GATEWAY_REPLAY_FINGERPRINT_VERSION,
+} from "./model-gateway/replay-guard.js";
+export type {
+  InMemoryModelGatewayReplayGuardOptions,
+  ModelGatewayReplayCompletedValue,
+  ModelGatewayReplayDecision,
+  ModelGatewayReplayFingerprintInput,
+  ModelGatewayReplayGuard,
+} from "./model-gateway/replay-guard.js";
+export {
   CODEX_OAUTH_SSE_LIMITS,
   CODEX_OAUTH_RESPONSES_ENDPOINT,
   CodexOAuthModelTurnDispatcher,

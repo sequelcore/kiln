@@ -51,6 +51,8 @@ export interface GovernedOneRoundInvocationInput {
   readonly toolExecutionMode: GovernedOneRoundToolExecutionMode;
   readonly turn: ModelTurn;
   readonly signal?: AbortSignal;
+  /** Called after committed evidence and immediately before the sole provider dispatch. */
+  readonly lifecycle?: { readonly afterCommittedBeforeDispatch: () => void | Promise<void> };
 }
 
 export interface GovernedOneRoundCandidateCatalog {
@@ -260,6 +262,7 @@ export async function invokeGovernedOneRound(
         await record();
         effectsMayHaveEscaped = true;
         try {
+          await input.lifecycle?.afterCommittedBeforeDispatch();
           result = await dispatchModelGatewayOneRound(dispatcher, {
             account: selected.account,
             route: input.route,

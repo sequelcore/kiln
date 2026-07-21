@@ -32,6 +32,18 @@ export type {
   ModelTurnResult,
   ModelTurnUsage,
 } from "./one-round-dispatcher.js";
+export {
+  abandonModelGatewayReplayClaim,
+  commitModelGatewayReplayClaim,
+  completeModelGatewayReplayClaim,
+  createModelGatewayReplayClaim,
+  settleModelGatewayReplayClaimUnknown,
+} from "./replay-guard.js";
+export type {
+  ModelGatewayReplayClaim,
+  ModelGatewayReplayFence,
+  ModelGatewayReplayKey,
+} from "./replay-guard.js";
 
 declare const ACCOUNT_REF: unique symbol;
 
