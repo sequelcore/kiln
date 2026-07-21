@@ -3,6 +3,36 @@ import {
   type ProviderModelRouteIdentity,
 } from "../provider-model-evidence.js";
 
+export {
+  dispatchModelGatewayOneRound,
+  validateModelTurn,
+  validateModelTurnResult,
+} from "./one-round-dispatcher.js";
+export type {
+  CustomModelTool,
+  CustomModelToolCall,
+  FunctionModelTool,
+  FunctionModelToolCall,
+  ModelJsonObject,
+  ModelJsonValue,
+  ModelGatewayOneRoundDispatcher,
+  ModelGatewayOneRoundDispatchInput,
+  ModelImagePart,
+  ModelPart,
+  ModelReasoningSummaryPart,
+  ModelTextPart,
+  ModelTool,
+  ModelToolCall,
+  ModelToolCallPart,
+  ModelToolChoice,
+  ModelToolResultContent,
+  ModelToolResultPart,
+  ModelTurn,
+  ModelTurnMessage,
+  ModelTurnResult,
+  ModelTurnUsage,
+} from "./one-round-dispatcher.js";
+
 declare const ACCOUNT_REF: unique symbol;
 
 /** Opaque account identifier. It intentionally carries no credential material. */
@@ -267,7 +297,10 @@ function requireCanonicalAccountRef(value: AccountRef, field: string): void {
 }
 
 function isNextPhase(current: AttemptCommitPhase, next: AttemptCommitPhase): boolean {
-  return (current === "planned" && next === "leased")
+  const isPreCommitTerminal = (next === "failed" || next === "cancelled")
+    && (current === "planned" || current === "leased" || current === "dispatching");
+  return isPreCommitTerminal
+    || (current === "planned" && next === "leased")
     || (current === "leased" && next === "dispatching")
     || (current === "dispatching" && next === "committed")
     || (current === "committed" && (next === "succeeded" || next === "failed" || next === "cancelled"));

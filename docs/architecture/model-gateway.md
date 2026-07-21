@@ -144,6 +144,35 @@ Protocol translation does not imply tool, reasoning, context, resume, billing,
 or contractual compatibility. Unsupported combinations fail closed and remain
 absent from generated model catalogs.
 
+## Tool Execution Ownership
+
+Every ingress route declares one admitted tool execution mode:
+
+- `kiln-owned`: `RuntimeSessionOrchestrator` owns the multi-round tool loop,
+  runtime tool admission, execution, and terminal governance.
+- `caller-owned`: Model Gateway performs exactly one provider round and returns
+  admitted tool calls to the native harness. Kiln does not instantiate a runtime
+  tool executor for that turn.
+
+Tool ownership is fixed by the authenticated ingress capability and executable
+route policy. It is not inferred from prompt text, model output, tool names, or
+managed-agent caller metadata. Caller-owned mode records the native harness's
+authority evidence and must not claim that Kiln enforced filesystem or network
+isolation that belongs to the harness.
+
+Caller-owned mode uses a dedicated one-round dispatcher contract. Generic
+provider adapters with internal request retries or `PooledProviderAdapter`
+cross-account retries do not satisfy this contract. The gateway records the
+attempt as committed before provider effects can escape, returns function and
+freeform/custom tool calls without changing their ownership, and never retries
+the turn through another account after commit.
+
+OpenAI Responses, Anthropic Messages, and OpenAI-compatible wire adapters are
+anti-corruption layers around these two runtime modes. Wire compatibility does
+not choose the mode. Codex normally uses caller-owned mode so its native tool
+and subagent lifecycle remains intact, while a Kiln chat surface normally uses
+kiln-owned mode.
+
 ## Native Projection
 
 Kiln config is canonical. Codex model catalogs and base URLs, OpenCode provider

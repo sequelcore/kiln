@@ -9,6 +9,11 @@ import {
   type AccountRef,
   type ModelGatewayAccountCandidate,
   type ModelGatewayRoute,
+  dispatchModelGatewayOneRound,
+  type ModelGatewayOneRoundDispatchInput,
+  validateModelTurn,
+  validateModelTurnResult,
+  type ModelTurnResult,
 } from "../../src/agents/model-gateway/index.js";
 import { isSameProviderModelRoute } from "../../src/agents/provider-model-evidence.js";
 
@@ -211,7 +216,174 @@ describe("AttemptCommit", () => {
       .toThrow("cannot change accounts after committed");
   });
 
+  it("permits explicit pre-commit failure and cancellation terminal states", () => {
+    const planned = createAttemptCommit({ attemptId: "attempt-precommit", account: accountA });
+    const leased = advanceAttemptCommit(planned, "leased");
+
+    expect(advanceAttemptCommit(planned, "failed").phase).toBe("failed");
+    expect(advanceAttemptCommit(leased, "cancelled").phase).toBe("cancelled");
+  });
+
   it("rejects blank attempt identifiers at the exported creation boundary", () => {
     expect(() => createAttemptCommit({ attemptId: " ", account: accountA })).toThrow("attemptId must not be empty");
+  });
+});
+
+describe("caller-owned one-round dispatcher", () => {
+  const customCall = {
+    kind: "custom" as const,
+    id: "call-1",
+    name: "shell",
+    input: { kind: "raw-text" as const, value: "echo  one\r\n  two" },
+  };
+  const result: ModelTurnResult = {
+    parts: [{ type: "tool-call", call: customCall }],
+    usage: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    stopReason: "tool-call",
+  };
+  const turn = {
+    history: [{ role: "developer" as const, parts: [{ type: "text" as const, text: "fixture" }] }],
+    tools: [{ kind: "custom" as const, name: "shell", description: "Run syntax", grammar: { syntax: "lark" as const, source: "start: /.+/" } }],
+    toolChoice: { kind: "tool" as const, name: "shell" },
+    maxOutputTokens: 10,
+  };
+
+  it("calls exactly once and preserves custom tool input byte-for-byte", async () => {
+    let calls = 0;
+    const input: ModelGatewayOneRoundDispatchInput = {
+      account: createAccountRef("account-a"), route: route(), sessionId: "session-1",
+      turn,
+    };
+
+    const received = await dispatchModelGatewayOneRound({
+      dispatchOneRound: async (received) => {
+        calls += 1;
+        expect(received).toBe(input);
+        return result;
+      },
+    }, input);
+
+    expect(calls).toBe(1);
+    expect(received).toBe(result);
+    expect(received.parts[0]).toMatchObject({ call: { input: { kind: "raw-text", value: "echo  one\r\n  two" } } });
+  });
+
+  it("rejects undeclared or wrong-kind provider tool calls after the single dispatch", async () => {
+    const input: ModelGatewayOneRoundDispatchInput = {
+      account: createAccountRef("account-a"), route: route(), sessionId: "session-1", turn,
+    };
+    let calls = 0;
+    await expect(dispatchModelGatewayOneRound({ dispatchOneRound: async () => {
+      calls += 1;
+      return { ...result, parts: [{ type: "tool-call", call: { ...customCall, name: "undeclared" } }] };
+    } }, input)).rejects.toThrow("declared");
+    await expect(dispatchModelGatewayOneRound({ dispatchOneRound: async () => {
+      calls += 1;
+      return {
+        ...result,
+        parts: [{ type: "tool-call", call: {
+          kind: "function", id: "call-wrong-kind", name: "shell",
+          input: { kind: "json-object", value: {} },
+        } }],
+      };
+    } }, input)).rejects.toThrow("kind");
+    expect(calls).toBe(2);
+  });
+
+  it("validates unique tools, finite JSON, and function input objects", () => {
+    expect(() => validateModelTurn({ ...turn, tools: [...turn.tools, turn.tools[0]!] })).toThrow("unique");
+    expect(() => validateModelTurn({
+      history: [],
+      tools: [{ kind: "function", name: "lookup", inputSchema: { type: "object", limit: Number.NaN } }],
+    })).toThrow("finite");
+    expect(() => validateModelTurn({
+      history: [{ role: "assistant", parts: [{
+        type: "tool-call", call: {
+          kind: "function", id: "call-json", name: "lookup",
+          input: { kind: "json-object", value: [] as never },
+        },
+      }] }],
+      tools: [{ kind: "function", name: "lookup", inputSchema: { type: "object" } }],
+    })).toThrow("JSON object");
+  });
+
+  it("requires tool results to match an earlier call id and kind without nesting", () => {
+    expect(() => validateModelTurn({
+      history: [{ role: "user", parts: [{ type: "tool-result", callId: "missing", content: [{ type: "text", text: "done" }] }] }],
+    })).toThrow("prior tool call");
+    expect(() => validateModelTurn({
+      history: [
+        { role: "assistant", parts: [{ type: "tool-call", call: customCall }] },
+        { role: "user", parts: [{ type: "tool-result", callId: "call-1", content: [{ type: "text", text: "done" }] }] },
+        { role: "user", parts: [{ type: "tool-result", callId: "call-1", content: [{ type: "text", text: "again" }] }] },
+      ],
+    })).toThrow("duplicates");
+    expect(() => validateModelTurn({
+      history: [
+        { role: "assistant", parts: [{ type: "tool-call", call: customCall }] },
+        { role: "user", parts: [{ type: "tool-result", callId: "call-1", content: [{ type: "tool-result" }] as never }] },
+      ],
+    })).toThrow("nested");
+    expect(() => validateModelTurn({
+      history: [
+        { role: "assistant", parts: [{ type: "tool-call", call: customCall }] },
+        { role: "user", parts: [{ type: "tool-result", callId: "call-1", isError: "yes" as never, content: [] }] },
+      ],
+    })).toThrow("isError");
+  });
+
+  it("allows only assistant tool calls followed by user tool results", () => {
+    for (const role of ["user", "developer"] as const) {
+      expect(() => validateModelTurn({
+        history: [{ role, parts: [{ type: "tool-call", call: customCall }] }],
+      })).toThrow("assistant-only");
+    }
+    for (const role of ["assistant", "developer"] as const) {
+      expect(() => validateModelTurn({
+        history: [
+          { role: "assistant", parts: [{ type: "tool-call", call: customCall }] },
+          { role, parts: [{ type: "tool-result", callId: "call-1", content: [{ type: "text", text: "done" }] }] },
+        ],
+      })).toThrow("user-only");
+    }
+    expect(() => validateModelTurn({
+      history: [
+        { role: "assistant", parts: [{ type: "tool-call", call: customCall }] },
+        { role: "user", parts: [{ type: "tool-result", callId: "call-1", content: [{ type: "text", text: "done" }] }] },
+      ],
+    })).not.toThrow();
+  });
+
+  it("accepts portable reasoning summaries and rejects invalid result usage", () => {
+    expect(() => validateModelTurn({
+      history: [{ role: "assistant", parts: [{ type: "reasoning-summary", text: "Checked constraints." }] }],
+    })).not.toThrow();
+    expect(() => validateModelTurnResult({ ...result, usage: { ...result.usage, outputTokens: Number.POSITIVE_INFINITY } }))
+      .toThrow("finite");
+    expect(() => validateModelTurn({
+      history: [{ role: "user", parts: [{ type: "reasoning-summary", text: "not model reasoning" }] }],
+    })).toThrow("assistant");
+    expect(() => validateModelTurnResult({ ...result, usage: { inputTokens: 1 } as never })).toThrow("usage.outputTokens");
+  });
+
+  it("validates protocol-neutral response, reasoning, and tool options", () => {
+    expect(() => validateModelTurn({
+      ...turn,
+      instructions: "Stay concise.",
+      parallelToolCalls: false,
+      responseFormat: { kind: "json-schema", name: "answer", strict: true, schema: { type: "object" } },
+      reasoning: { effort: "high", summary: "concise" },
+    })).not.toThrow();
+    expect(() => validateModelTurn({ ...turn, parallelToolCalls: "yes" as never })).toThrow("parallelToolCalls");
+    expect(() => validateModelTurn({ ...turn, tools: [{ ...turn.tools[0]!, description: 42 as never }] })).toThrow("description");
+  });
+
+  it("accepts URL images without invented media types and requires media type for base64", () => {
+    expect(() => validateModelTurn({
+      history: [{ role: "user", parts: [{ type: "image", source: { kind: "url", url: "https://fixture.invalid/image" } }] }],
+    })).not.toThrow();
+    expect(() => validateModelTurn({
+      history: [{ role: "user", parts: [{ type: "image", source: { kind: "base64", data: "AAAA" } } as never] }],
+    })).toThrow("mediaType");
   });
 });

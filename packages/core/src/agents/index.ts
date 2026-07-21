@@ -293,6 +293,9 @@ export {
   reassignAttemptAccount,
   reserveAccountForNewWork,
   selectModelGatewayAccount,
+  dispatchModelGatewayOneRound,
+  validateModelTurn,
+  validateModelTurnResult,
 } from "./model-gateway/index.js";
 export type {
   AccountRef,
@@ -310,6 +313,28 @@ export type {
   ModelGatewayRoute,
   NewWorkAccountReservation,
   SelectModelGatewayAccountInput,
+  ModelGatewayOneRoundDispatcher,
+  ModelGatewayOneRoundDispatchInput,
+  CustomModelTool,
+  CustomModelToolCall,
+  FunctionModelTool,
+  FunctionModelToolCall,
+  ModelJsonObject,
+  ModelJsonValue,
+  ModelImagePart,
+  ModelPart,
+  ModelReasoningSummaryPart,
+  ModelTextPart,
+  ModelTool,
+  ModelToolCall,
+  ModelToolCallPart,
+  ModelToolChoice,
+  ModelToolResultContent,
+  ModelToolResultPart,
+  ModelTurn,
+  ModelTurnMessage,
+  ModelTurnResult,
+  ModelTurnUsage,
 } from "./model-gateway/index.js";
 
 export {

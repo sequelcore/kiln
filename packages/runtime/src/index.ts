@@ -1,6 +1,40 @@
 // Gateway
+export {
+  GovernedOneRoundCommittedError,
+  GovernedOneRoundInvocationError,
+  invokeGovernedOneRound,
+} from "./model-gateway/governed-one-round-invocation.js";
+export type {
+  GovernedOneRoundAccountLease,
+  GovernedOneRoundAffinityPolicy,
+  GovernedOneRoundAffinityStore,
+  GovernedOneRoundAttemptEvidence,
+  GovernedOneRoundAttemptEvidenceSink,
+  GovernedOneRoundAttemptPhase,
+  GovernedOneRoundAuthorityEvidence,
+  GovernedOneRoundBudgetEvidence,
+  GovernedOneRoundCandidateCatalog,
+  GovernedOneRoundCloseout,
+  GovernedOneRoundCloseoutDiagnostic,
+  GovernedOneRoundCloseoutDiagnosticCode,
+  GovernedOneRoundDispatcherResolver,
+  GovernedOneRoundIdentity,
+  GovernedOneRoundInvocationErrorCode,
+  GovernedOneRoundInvocationInput,
+  GovernedOneRoundInvocationPorts,
+  GovernedOneRoundInvocationResult,
+  GovernedOneRoundToolExecutionMode,
+} from "./model-gateway/governed-one-round-invocation.js";
 export { createGatewayApp } from "./gateway/gateway-routes.js";
 export type { LoadedApp, GatewayServerConfig } from "./gateway/gateway-routes.js";
+export {
+  OPENAI_RESPONSES_PROTOCOL_LIMITS,
+  OpenAIResponsesProtocolError,
+  createResponsesStreamState,
+  encodeSseEvent,
+  parseOpenAIResponsesRequest,
+} from "./gateway/openai-responses-protocol.js";
+export type { OpenAIResponsesRequest, ResponsesFailureCode, ResponsesSseEvent } from "./gateway/openai-responses-protocol.js";
 export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js";
 export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
