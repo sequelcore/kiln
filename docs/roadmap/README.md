@@ -40,6 +40,7 @@ item requires an explicit priority decision recorded here.
 | 3 | [05 - Cross-Harness Kiln Control Plane](./05-cross-harness-kiln-control-plane.md) | Ready | Slice 4: define quota, subscription, metered-cost, and comparable-cost evidence before changing route preference. | Slices 0-3 and the managed-result redaction correction are complete; resume after the admitted UI correction. |
 | 4 | [01 - Native Operator Surface](./01-native-operator-surface.md) | Queued | Slice 3: workload fixture governance. | The slice is bounded to Gateway contracts and tests, but it is not a public-release truth blocker. |
 | 5 | [04 - Skill Capability Plane](./04-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract before automatic operations or value promotion. | Inventory and repair evidence exist, but policy ownership and promotion evidence remain open. |
+| 6 | [07 - Prompt Governance Plane](./07-prompt-governance-plane.md) | Queued | Slice 1: persist final-request effective-prompt evidence and expose one content-free operator inspection contract. | The manifest/request-evidence foundation is complete; event and surface work is sequenced behind higher-priority Ready tracks. |
 
 The TypeScript 7 migration is not an executable Kiln roadmap item while the
 required Bun alias fix is unpublished. Its external dependency and follow-up
@@ -63,6 +64,7 @@ remains the supported public package line until registry verification succeeds.
 | [04 - Skill Capability Plane](./04-skill-capability-plane.md) | Research | Inventory and local repair started; automatic admission, evaluation, and operations are not admitted. | Define the shared evidence/admission contract. GUI/TUI rendering of existing diagnostics remains owned by Roadmap 02. |
 | [05 - Cross-Harness Kiln Control Plane](./05-cross-harness-kiln-control-plane.md) | Ready | Slices 0-3 and the managed-result redaction correction are complete. Slice 4 is planned; Slice 5 remains entitlement-triggered and deferred. | Define the Slice 4 quota and subscription evidence contract. Keep later adapters, setup, dogfood, and benchmark slices separately gated. |
 | [06 - External Runtime Governance Fixture](./06-external-runtime-governance-fixture.md) | Ready | A live MCP-only external-runtime trace is diagnosed and the deterministic fixture contract is bounded. | Implement Slice 0 as failing tests without widening route authority or adding vendor-specific policy. |
+| [07 - Prompt Governance Plane](./07-prompt-governance-plane.md) | Queued | Slice 0 is complete: typed manifests, exact Runtime prompt authority, redacted request evidence, compact doctrine, and the optional action-first skill. | Start Slice 1 only after higher-priority Ready work closes or the queue is explicitly reprioritized. |
 
 ## Roadmap File Standard
 
