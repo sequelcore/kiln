@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelGatewayReplayDecision } from "../../src/model-gateway/replay-guard.js";
 import { LocalModelGatewayStore } from "../../src/model-gateway/local-model-gateway-store.js";
-import { createCodexOAuthResponsesIngress } from "../../src/model-gateway/codex-oauth-responses-ingress.js";
+import { createCodexOAuthModelGatewayIngress } from "../../src/model-gateway/codex-oauth-model-gateway-ingress.js";
 import { startGateway } from "../../src/gateway/gateway-server.js";
 import { CredentialWatcher } from "../../src/agents/credential-pool/credential-watcher.js";
 import { WebhookDedup } from "../../src/gateway/webhook-dedup.js";
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     committedRecovery.close();
 
     const securePath = join(root, "secure-state", "gateway.sqlite");
-    const handle = await createCodexOAuthResponsesIngress({
+    const handle = await createCodexOAuthModelGatewayIngress({
       config: gatewayConfig,
       databasePath: securePath,
       credentialRootDir: join(root, "auth"),
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
 
       const existingDirectory = join(root, "existing-parent");
       await mkdir(existingDirectory); await chmod(existingDirectory, 0o755);
-      const existingHandle = await createCodexOAuthResponsesIngress({ config: gatewayConfig, databasePath: join(existingDirectory, "gateway.sqlite"), credentialRootDir: join(root, "auth-existing"), env: { REPLAY: secret, TOKEN: "synthetic-bearer-token-at-least-32-bytes" } });
+      const existingHandle = await createCodexOAuthModelGatewayIngress({ config: gatewayConfig, databasePath: join(existingDirectory, "gateway.sqlite"), credentialRootDir: join(root, "auth-existing"), env: { REPLAY: secret, TOKEN: "synthetic-bearer-token-at-least-32-bytes" } });
       existingHandle.close();
       if (((await stat(existingDirectory)).mode & 0o777) !== 0o755) throw new Error("Factory changed permissions on a pre-existing parent directory.");
     }

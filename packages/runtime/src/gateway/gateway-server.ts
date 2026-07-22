@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { createRequire } from "node:module";
-import type { Hono } from "hono";
+import { Hono } from "hono";
 import {
   parseGatewayYaml,
   parseAppYaml,
@@ -38,7 +38,8 @@ import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
 import { createOpenAIResponsesRoutes } from "./openai-responses-routes.js";
-import { createCodexOAuthResponsesIngress } from "../model-gateway/codex-oauth-responses-ingress.js";
+import { createCodexOAuthModelGatewayIngress } from "../model-gateway/codex-oauth-model-gateway-ingress.js";
+import { createAnthropicMessagesRoutes } from "../model-gateway/anthropic-messages-routes.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
 import { createDefaultRuntimeMultimodalTransformRoutes } from "../session/runtime-multimodal-transforms.js";
@@ -150,7 +151,7 @@ export interface StartGatewayOptions {
   readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: (request: Request) => Response | Promise<Response> }) => { stop(force?: boolean): void };
 }
 
-export interface StartCodexOAuthModelGatewayListenerOptions {
+export interface StartModelGatewayListenerOptions {
   readonly config: ModelGatewayConfig;
   readonly databasePath: string;
   readonly credentialRootDir?: string;
@@ -166,8 +167,8 @@ export async function closeGatewayResources(actions: readonly (() => void | Prom
 }
 
 /** Starts only the private model ingress and owns its listener/store lifecycle. */
-export async function startCodexOAuthModelGatewayListener(options: StartCodexOAuthModelGatewayListenerOptions): Promise<{ close(): void }> {
-  const handle = await createCodexOAuthResponsesIngress({
+export async function startModelGatewayListener(options: StartModelGatewayListenerOptions): Promise<{ close(): void }> {
+  const handle = await createCodexOAuthModelGatewayIngress({
     config: options.config,
     databasePath: options.databasePath,
     ...(options.credentialRootDir === undefined ? {} : { credentialRootDir: options.credentialRootDir }),
@@ -176,7 +177,9 @@ export async function startCodexOAuthModelGatewayListener(options: StartCodexOAu
   });
   let listener: { stop(force?: boolean): void } | undefined;
   try {
-    const modelApp = createOpenAIResponsesRoutes(handle.ingress);
+    const modelApp = new Hono();
+    if (handle.openAIResponses) modelApp.route("/", createOpenAIResponsesRoutes(handle.openAIResponses));
+    if (handle.anthropicMessages) modelApp.route("/", createAnthropicMessagesRoutes(handle.anthropicMessages));
     listener = options.listen
       ? options.listen({ hostname: "127.0.0.1", port: options.config.port, fetch: modelApp.fetch })
       : Bun.serve({ hostname: "127.0.0.1", port: options.config.port, fetch: modelApp.fetch });
@@ -1547,12 +1550,13 @@ REASONING: <one sentence explanation>`;
 
   try {
     if (gatewayConfig.modelGateway) {
-      modelGatewayRuntime = await startCodexOAuthModelGatewayListener({
+      modelGatewayRuntime = await startModelGatewayListener({
         config: gatewayConfig.modelGateway,
         databasePath: join(gatewayYamlDir, ".kiln", "model-gateway", "model-gateway.sqlite"),
         ...(options?.modelGatewayListener === undefined ? {} : { listen: options.modelGatewayListener }),
       });
-      console.log(`Model gateway: http://127.0.0.1:${gatewayConfig.modelGateway.port}/v1/responses`);
+      const surfaces = [gatewayConfig.modelGateway.surfaces.openAIResponses ? "/v1/responses" : undefined, gatewayConfig.modelGateway.surfaces.anthropicMessages ? "/v1/messages" : undefined].filter(Boolean).join(", ");
+      console.log(`Model gateway: http://127.0.0.1:${gatewayConfig.modelGateway.port} (${surfaces})`);
     }
 
     triggerRegistry.start();

@@ -126,7 +126,7 @@ function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): M
   rejectUnknown(replay, ["ttlMs", "maxEntries", "hmacKeyEnv"], "modelGateway.replay", errors);
   const rawSurfaces = isRecord(rawValue.surfaces) ? rawValue.surfaces : {};
   if (!isRecord(rawValue.surfaces)) errors.push({ field: "modelGateway.surfaces", message: "must be an object" });
-  rejectUnknown(rawSurfaces, ["openAIResponses"], "modelGateway.surfaces", errors);
+  rejectUnknown(rawSurfaces, ["openAIResponses", "anthropicMessages"], "modelGateway.surfaces", errors);
   const rawResponses = rawSurfaces.openAIResponses;
   let openAIResponses: ModelGatewayConfig["surfaces"]["openAIResponses"];
   if (rawResponses !== undefined) {
@@ -136,11 +136,20 @@ function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): M
       openAIResponses = { maxBodyBytes: num(rawResponses.maxBodyBytes), maxConcurrentRequests: num(rawResponses.maxConcurrentRequests) };
     }
   }
+  const rawAnthropic = rawSurfaces.anthropicMessages;
+  let anthropicMessages: ModelGatewayConfig["surfaces"]["anthropicMessages"];
+  if (rawAnthropic !== undefined) {
+    if (!isRecord(rawAnthropic)) errors.push({ field: "modelGateway.surfaces.anthropicMessages", message: "must be an object" });
+    else {
+      rejectUnknown(rawAnthropic, ["maxBodyBytes", "maxConcurrentRequests"], "modelGateway.surfaces.anthropicMessages", errors);
+      anthropicMessages = { maxBodyBytes: num(rawAnthropic.maxBodyBytes), maxConcurrentRequests: num(rawAnthropic.maxConcurrentRequests) };
+    }
+  }
   const principals = Array.isArray(rawValue.principals) ? rawValue.principals.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
     rejectUnknown(raw, ["tokenEnv", "ingress", "tenantId", "applicationId", "callerId", "capabilityId", "scopes", "budgetEvidenceId", "virtualModelIds", "nativeHarness"], `modelGateway.principals[${index}]`, errors);
     if (raw.nativeHarness !== undefined && typeof raw.nativeHarness !== "string") errors.push({ field: `modelGateway.principals[${index}].nativeHarness`, message: "must be a string" });
-    return { tokenEnv: str(raw.tokenEnv), ingress: str(raw.ingress) as "openai-responses", tenantId: str(raw.tenantId), applicationId: str(raw.applicationId), callerId: str(raw.callerId), capabilityId: str(raw.capabilityId), scopes: strings(raw.scopes), budgetEvidenceId: str(raw.budgetEvidenceId), virtualModelIds: strings(raw.virtualModelIds), ...(typeof raw.nativeHarness === "string" ? { nativeHarness: raw.nativeHarness as "codex" | "opencode" } : {}) };
+    return { tokenEnv: str(raw.tokenEnv), ingress: str(raw.ingress) as ModelGatewayConfig["principals"][number]["ingress"], tenantId: str(raw.tenantId), applicationId: str(raw.applicationId), callerId: str(raw.callerId), capabilityId: str(raw.capabilityId), scopes: strings(raw.scopes), budgetEvidenceId: str(raw.budgetEvidenceId), virtualModelIds: strings(raw.virtualModelIds), ...(typeof raw.nativeHarness === "string" ? { nativeHarness: raw.nativeHarness as ModelGatewayConfig["principals"][number]["nativeHarness"] } : {}) };
   }) : [];
   const virtualModels = Array.isArray(rawValue.virtualModels) ? rawValue.virtualModels.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
@@ -156,7 +165,7 @@ function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): M
     rejectUnknown(raw, ["id", "providerId", "credentialId", "maxConcurrency", "reservedAffinitySlots"], `modelGateway.accounts[${index}]`, errors);
     return { id: str(raw.id), providerId: str(raw.providerId) as "codex-oauth", credentialId: str(raw.credentialId), maxConcurrency: num(raw.maxConcurrency), reservedAffinitySlots: num(raw.reservedAffinitySlots) };
   }) : [];
-  return { port: num(rawValue.port), accounts, replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels, surfaces: { ...(openAIResponses ? { openAIResponses } : {}) } };
+  return { port: num(rawValue.port), accounts, replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels, surfaces: { ...(openAIResponses ? { openAIResponses } : {}), ...(anthropicMessages ? { anthropicMessages } : {}) } };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

@@ -65,7 +65,6 @@ function toolResultOutput(content: readonly ({ type: "text"; text: string } | Mo
 
 export function encodeCodexOAuthResponsesRequest(input: ModelGatewayOneRoundDispatchInput): WireRecord {
   validateModelTurn(input.turn);
-  if (input.turn.maxOutputTokens !== undefined) unsupported("maxOutputTokens is not representable by the pinned Codex transport.");
   const wireInput: WireInput[] = []; const calls = new Map<string, "function" | "custom">();
   for (const message of input.turn.history) {
     const normal: WireContent[] = [];
@@ -107,6 +106,7 @@ export function encodeCodexOAuthResponsesRequest(input: ModelGatewayOneRoundDisp
   }
   const body: WireRecord = {
     model: input.route.providerModelId,
+    ...(input.turn.maxOutputTokens === undefined ? {} : { max_output_tokens: input.turn.maxOutputTokens }),
     ...(input.turn.instructions === undefined ? {} : { instructions: input.turn.instructions }),
     input: wireInput,
     ...(tools === undefined ? {} : { tools }), tool_choice: toolChoice,
@@ -197,7 +197,12 @@ async function decodeCodexSse(response: Response, limits: CodexOAuthSseLimits): 
         if (!matches) throw new CodexOAuthModelTurnError("malformed-sse", "The completed response did not match streamed output.");
       }
       const authoritativeItems = streamedItems.length > 0 ? streamedItems : terminalItems;
-      terminal = { parts: authoritativeItems.flatMap((item) => structuredClone(item.parts)), usage: { inputTokens, outputTokens, cacheReadTokens: cached, cacheWriteTokens: 0 }, stopReason: "completed" };
+      const parts = authoritativeItems.flatMap((item) => structuredClone(item.parts));
+      terminal = {
+        parts,
+        usage: { inputTokens, outputTokens, cacheReadTokens: cached, cacheWriteTokens: 0 },
+        stopReason: parts.some((part) => part.type === "tool-call") ? "tool_use" : "completed",
+      };
     }
   };
   try {

@@ -101,7 +101,7 @@ modelGateway:
       .toThrow(/exactly one/);
   });
 
-  it("rejects retired and not-yet-supported model gateway authorities", () => {
+  it("rejects retired authorities and admits only mounted protocol surfaces", () => {
     const canonical = `port: 4800
 apps: []
 modelGateway:
@@ -113,9 +113,40 @@ modelGateway:
   virtualModels: [{ id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: provider-model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }]
 `;
     expect(() => parseGatewayYaml(canonical.replace("surfaces:", "openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 }\n  surfaces:"))).toThrow(/modelGateway\.openAIResponses/);
-    expect(() => parseGatewayYaml(canonical.replace("openAIResponses", "anthropicMessages"))).toThrow(/modelGateway\.surfaces\.anthropicMessages/);
-    expect(() => parseGatewayYaml(canonical.replace("openai-responses", "anthropic-messages"))).toThrow(/modelGateway\.principals\[0\]\.ingress/);
-    expect(() => parseGatewayYaml(canonical.replace("nativeHarness: codex", "nativeHarness: claude"))).toThrow(/modelGateway\.principals\[0\]\.nativeHarness/);
+    expect(() => parseGatewayYaml(canonical.replace("openai-responses", "anthropic-messages"))).toThrow(/requires modelGateway\.surfaces\.anthropicMessages/);
+    const claude = canonical
+      .replace("openAIResponses", "anthropicMessages")
+      .replace("openai-responses", "anthropic-messages")
+      .replace("nativeHarness: codex", "nativeHarness: claude")
+      .replace("id: model", "id: claude-kiln")
+      .replaceAll("[model]", "[claude-kiln]");
+    expect(parseGatewayYaml(claude).modelGateway).toMatchObject({
+      surfaces: { anthropicMessages: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
+      principals: [{ ingress: "anthropic-messages", nativeHarness: "claude" }],
+    });
+    expect(() => parseGatewayYaml(claude.replaceAll("claude-kiln", "model"))).toThrow(/Claude native model ids/);
+  });
+
+  it("allows the same trusted identity on distinct ingresses but not twice on one ingress", () => {
+    const yaml = `port: 4800
+apps: []
+modelGateway:
+  port: 4801
+  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }]
+  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
+  surfaces:
+    openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 }
+    anthropicMessages: { maxBodyBytes: 1024, maxConcurrentRequests: 1 }
+  principals:
+    - { tokenEnv: RESPONSES_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [claude-kiln] }
+    - { tokenEnv: ANTHROPIC_TOKEN, ingress: anthropic-messages, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [claude-kiln], nativeHarness: claude }
+  virtualModels:
+    - { id: claude-kiln, displayName: Claude Kiln, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: upstream, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
+`;
+    expect(() => parseGatewayYaml(yaml)).not.toThrow();
+    expect(() => parseGatewayYaml(yaml.replace("ingress: anthropic-messages", "ingress: openai-responses"))).toThrow(/trusted principal identity must be unique/);
+    const withoutAnthropicPrincipal = yaml.replace("    - { tokenEnv: ANTHROPIC_TOKEN, ingress: anthropic-messages, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [claude-kiln], nativeHarness: claude }\n", "");
+    expect(() => parseGatewayYaml(withoutAnthropicPrincipal)).toThrow(/surfaces\.anthropicMessages.*requires at least one anthropic-messages principal/);
   });
 
   it("requires unique native harness ownership and complete picker metadata", () => {

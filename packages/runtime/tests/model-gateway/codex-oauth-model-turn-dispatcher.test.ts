@@ -80,9 +80,12 @@ describe("Codex OAuth outbound request codec", () => {
   it.each([
     ["assistant image", { history: [{ role: "assistant", parts: [{ type: "image", source: { kind: "url", url: "https://example.test/a" } }] }] }],
     ["error result", { history: [{ role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", id: "c", name: "f", input: { kind: "json-object", value: {} } } }] }, { role: "user", parts: [{ type: "tool-result", callId: "c", content: [{ type: "text", text: "bad" }], isError: true }] }], tools: [{ kind: "function", name: "f", inputSchema: {} }] }],
-    ["max tokens", { history: [], maxOutputTokens: 10 }],
   ])("rejects unrepresentable %s before fetch", (_label, turn) => {
     expect(() => encodeCodexOAuthResponsesRequest(dispatchInput(turn as ModelTurn))).toThrow(expect.objectContaining({ code: "unsupported-capability" }));
+  });
+
+  it("preserves the caller output-token limit on the pinned Responses body", () => {
+    expect(encodeCodexOAuthResponsesRequest(dispatchInput({ history: [], maxOutputTokens: 10 }))).toMatchObject({ max_output_tokens: 10 });
   });
 });
 
@@ -107,14 +110,14 @@ describe("CodexOAuthModelTurnDispatcher", () => {
       { type: "reasoning-summary", text: "checked" }, { type: "text", text: "hello" },
       { type: "tool-call", call: { kind: "function", id: "call_fn", name: "lookup", input: { kind: "json-object", value: { id: 7 } } } },
       { type: "tool-call", call: { kind: "custom", id: "call_custom", name: "apply_patch", input: { kind: "raw-text", value: raw } } },
-    ], usage: { inputTokens: 9, outputTokens: 4, cacheReadTokens: 3, cacheWriteTokens: 0 }, stopReason: "completed" });
+    ], usage: { inputTokens: 9, outputTokens: 4, cacheReadTokens: 3, cacheWriteTokens: 0 }, stopReason: "tool_use" });
   });
 
   it("rejects binding and capability errors without fetching", async () => {
     const fetchFn = vi.fn(); const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn as typeof fetch });
     await expect(dispatcher.dispatchOneRound(dispatchInput(richTurn(), { account: createAccountRef("other") }))).rejects.toMatchObject({ code: "account-mismatch" });
     await expect(dispatcher.dispatchOneRound(dispatchInput(richTurn(), { route: { ...route, providerId: "other" } }))).rejects.toMatchObject({ code: "route-mismatch" });
-    await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [], maxOutputTokens: 1 }))).rejects.toMatchObject({ code: "unsupported-capability" });
+    await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [{ role: "assistant", parts: [{ type: "image", source: { kind: "url", url: "https://example.test/a" } }] }] }))).rejects.toMatchObject({ code: "unsupported-capability" });
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

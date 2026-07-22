@@ -36,7 +36,7 @@ export type ModelGatewayCapabilityId =
 
 export interface ModelGatewayPrincipalConfig {
   readonly tokenEnv: string;
-  readonly ingress: "openai-responses";
+  readonly ingress: "openai-responses" | "anthropic-messages";
   readonly tenantId: string;
   readonly applicationId: string;
   readonly callerId: string;
@@ -44,7 +44,7 @@ export interface ModelGatewayPrincipalConfig {
   readonly scopes: readonly string[];
   readonly budgetEvidenceId: string;
   readonly virtualModelIds: readonly string[];
-  readonly nativeHarness?: "codex" | "opencode";
+  readonly nativeHarness?: "codex" | "opencode" | "claude";
 }
 
 export interface ModelGatewayVirtualModelConfig {
@@ -80,6 +80,7 @@ export interface ModelGatewayConfig {
   readonly virtualModels: readonly ModelGatewayVirtualModelConfig[];
   readonly surfaces: {
     readonly openAIResponses?: ModelGatewayHttpSurfaceConfig;
+    readonly anthropicMessages?: ModelGatewayHttpSurfaceConfig;
   };
 }
 
@@ -191,11 +192,12 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
   if (!Array.isArray(value.accounts) || value.accounts.length === 0) errors.push({ field: "modelGateway.accounts", message: "must be non-empty" });
   const surfaces = value.surfaces;
   if (!surfaces || typeof surfaces !== "object") { errors.push({ field: "modelGateway.surfaces", message: "must be an object" }); return; }
-  const surface = surfaces.openAIResponses;
-  if (!surface) errors.push({ field: "modelGateway.surfaces.openAIResponses", message: "must be configured" });
-  else {
-    bounded(surface.maxBodyBytes, 1, 64 * 1024 * 1024, "modelGateway.surfaces.openAIResponses.maxBodyBytes", errors, true);
-    bounded(surface.maxConcurrentRequests, 1, 1024, "modelGateway.surfaces.openAIResponses.maxConcurrentRequests", errors, true);
+  const responsesSurface = surfaces.openAIResponses;
+  const anthropicSurface = surfaces.anthropicMessages;
+  if (!responsesSurface && !anthropicSurface) errors.push({ field: "modelGateway.surfaces", message: "must configure at least one mounted surface" });
+  for (const [name, surface] of [["openAIResponses", responsesSurface], ["anthropicMessages", anthropicSurface]] as const) if (surface) {
+    bounded(surface.maxBodyBytes, 1, 64 * 1024 * 1024, `modelGateway.surfaces.${name}.maxBodyBytes`, errors, true);
+    bounded(surface.maxConcurrentRequests, 1, 1024, `modelGateway.surfaces.${name}.maxConcurrentRequests`, errors, true);
   }
   if (!value.replay || !ENV.test(value.replay.hmacKeyEnv ?? "")) errors.push({ field: "modelGateway.replay.hmacKeyEnv", message: "must be a canonical environment variable name" });
   bounded(value.replay?.ttlMs, 1, 86_400_000, "modelGateway.replay.ttlMs", errors, true);
@@ -210,23 +212,33 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
     else if (tokens.has(principal.tokenEnv)) errors.push({ field: `${path}.tokenEnv`, message: "must be unique" }); else tokens.add(principal.tokenEnv);
     if (!Array.isArray(principal.scopes) || !principal.scopes.includes("model.invoke") || new Set(principal.scopes).size !== principal.scopes.length || principal.scopes.some((scope) => !ID.test(scope))) errors.push({ field: `${path}.scopes`, message: "must contain unique canonical scopes including model.invoke" });
     if (!Array.isArray(principal.virtualModelIds) || principal.virtualModelIds.length === 0 || new Set(principal.virtualModelIds).size !== principal.virtualModelIds.length || principal.virtualModelIds.some((id) => !ID.test(id))) errors.push({ field: `${path}.virtualModelIds`, message: "must contain unique canonical model ids" });
-    if (principal.ingress !== "openai-responses") errors.push({ field: `${path}.ingress`, message: "must be openai-responses" });
-    else if (!surface) errors.push({ field: `${path}.ingress`, message: "requires modelGateway.surfaces.openAIResponses" });
+    if (principal.ingress === "openai-responses") {
+      if (!responsesSurface) errors.push({ field: `${path}.ingress`, message: "requires modelGateway.surfaces.openAIResponses" });
+    } else if (principal.ingress === "anthropic-messages") {
+      if (!anthropicSurface) errors.push({ field: `${path}.ingress`, message: "requires modelGateway.surfaces.anthropicMessages" });
+    } else errors.push({ field: `${path}.ingress`, message: "must be openai-responses or anthropic-messages" });
     if (principal.nativeHarness !== undefined) {
-      if (principal.nativeHarness !== "codex" && principal.nativeHarness !== "opencode") errors.push({ field: `${path}.nativeHarness`, message: "must be codex or opencode" });
+      if (!(["codex", "opencode", "claude"] as const).includes(principal.nativeHarness)) errors.push({ field: `${path}.nativeHarness`, message: "must be codex, opencode, or claude" });
+      else if (principal.nativeHarness === "claude" && principal.ingress !== "anthropic-messages") errors.push({ field: `${path}.nativeHarness`, message: "claude requires anthropic-messages ingress" });
+      else if (principal.nativeHarness !== "claude" && principal.ingress !== "openai-responses") errors.push({ field: `${path}.nativeHarness`, message: `${principal.nativeHarness} requires openai-responses ingress` });
       else if (nativeHarnesses.has(principal.nativeHarness)) errors.push({ field: `${path}.nativeHarness`, message: `native harness '${principal.nativeHarness}' must be unique` });
       else nativeHarnesses.add(principal.nativeHarness);
     }
-    const identity = [principal.tenantId, principal.applicationId, principal.callerId].join("\0");
+    const identity = [principal.ingress, principal.tenantId, principal.applicationId, principal.callerId].join("\0");
     if (principalIdentities.has(identity)) errors.push({ field: path, message: "trusted principal identity must be unique" }); else principalIdentities.add(identity);
   }
   if (!Array.isArray(value.principals) || value.principals.length === 0) errors.push({ field: "modelGateway.principals", message: "must be non-empty" });
+  const configuredIngresses = new Set((value.principals ?? []).map((principal) => principal.ingress));
+  if (responsesSurface && !configuredIngresses.has("openai-responses")) errors.push({ field: "modelGateway.surfaces.openAIResponses", message: "requires at least one openai-responses principal" });
+  if (anthropicSurface && !configuredIngresses.has("anthropic-messages")) errors.push({ field: "modelGateway.surfaces.anthropicMessages", message: "requires at least one anthropic-messages principal" });
   const models = new Set<string>();
   const nativeModelIds = new Set((value.principals ?? []).flatMap((principal) => principal.nativeHarness ? principal.virtualModelIds : []));
   const codexNativeModelIds = new Set((value.principals ?? []).flatMap((principal) => principal.nativeHarness === "codex" ? principal.virtualModelIds : []));
+  const claudeNativeModelIds = new Set((value.principals ?? []).flatMap((principal) => principal.nativeHarness === "claude" ? principal.virtualModelIds : []));
   for (const [index, model] of (value.virtualModels ?? []).entries()) {
     const path = `modelGateway.virtualModels[${index}]`;
     if (!ID.test(model.id ?? "") || models.has(model.id)) errors.push({ field: `${path}.id`, message: "must be a unique canonical id" }); else models.add(model.id);
+    if (claudeNativeModelIds.has(model.id) && !/^(?:claude|anthropic)[A-Za-z0-9._:-]*$/.test(model.id)) errors.push({ field: `${path}.id`, message: "Claude native model ids must start with claude or anthropic" });
     const requiresPickerMetadata = nativeModelIds.has(model.id);
     if ((requiresPickerMetadata || model.displayName !== undefined) && (typeof model.displayName !== "string" || model.displayName.trim().length === 0 || model.displayName.length > 128)) errors.push({ field: `${path}.displayName`, message: "must be a non-empty string of at most 128 characters when exposed to a native harness" });
     if ((requiresPickerMetadata || model.contextTokens !== undefined) && (!Number.isSafeInteger(model.contextTokens) || model.contextTokens! < 1)) errors.push({ field: `${path}.contextTokens`, message: "must be a positive safe integer when exposed to a native harness" });
