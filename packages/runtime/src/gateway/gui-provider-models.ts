@@ -1853,6 +1853,60 @@ export async function discoverOpencodeCliModelDiscovery(): Promise<GuiCliProvide
   }
 }
 
+/**
+ * Claude Code does not expose a stable `models` command.  Its Agent SDK
+ * control plane exposes the authenticated catalog without sending a model
+ * turn, so managed-route admission can remain evidence based.
+ */
+export async function discoverClaudeCliModelDiscovery(): Promise<GuiCliProviderModelDiscovery> {
+  const executable = findExecutable([
+    ...homeExecutableCandidates([".local\\bin\\claude.exe"]),
+    "claude",
+    "claude.exe",
+  ]);
+  if (!executable) {
+    return unavailableCliProviderDiscovery("cli_missing", "Claude Code executable was not found.", "not_required");
+  }
+  try {
+    const { query } = await import("@anthropic-ai/claude-agent-sdk");
+    const control = query({
+      prompt: "",
+      options: { permissionMode: "plan", pathToClaudeCodeExecutable: executable },
+    });
+    try {
+      const models = normalizeModelIds((await boundedClaudeSupportedModels(control)).map((model) => model.value));
+      return models.length > 0
+        ? { models, status: "available", reason: "Claude Code models discovered through the Agent SDK control plane.", authState: "authenticated" }
+        : unavailableCliProviderDiscovery("empty_model_list", "Claude Code returned an empty model catalog.", "unknown");
+    } finally {
+      control.close();
+    }
+  } catch (error) {
+    if (error instanceof ClaudeModelDiscoveryTimeoutError) {
+      return unavailableCliProviderDiscovery("endpoint_timeout", "Claude Code model discovery timed out.", "unknown");
+    }
+    return unavailableCliProviderDiscovery("endpoint_error", "Claude Code model discovery failed.", "unknown");
+  }
+}
+
+class ClaudeModelDiscoveryTimeoutError extends Error {}
+
+async function boundedClaudeSupportedModels(
+  control: { readonly supportedModels: () => Promise<readonly { readonly value: string }[]> },
+): Promise<readonly { readonly value: string }[]> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      control.supportedModels(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new ClaudeModelDiscoveryTimeoutError()), 5_000);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
 const CODEX_APP_SERVER_INITIALIZE_REQUEST_ID = 1;
 const CODEX_APP_SERVER_MODEL_LIST_REQUEST_ID = 2;
 const CODEX_APP_SERVER_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;

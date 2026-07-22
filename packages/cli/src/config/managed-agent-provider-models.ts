@@ -6,6 +6,7 @@ import type {
 import { deriveProviderModelEligibility } from "@kilnai/core";
 import {
   discoverCodexCliModelDiscovery,
+  discoverClaudeCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
   normalizeRuntimeProviderDiscoveryCatalog,
@@ -35,13 +36,15 @@ const MANAGED_DIRECT_PROVIDER_DISCOVERY_AVAILABILITY: Readonly<Record<string, bo
 };
 
 export async function discoverManagedAgentProviderModels(): Promise<ManagedAgentProviderModelCatalogDiagnostics> {
-  const [codex, opencode, directProviders] = await Promise.all([
+  const [claude, codex, opencode, directProviders] = await Promise.all([
+    discoverClaudeCliModelDiscovery(),
     discoverCodexCliModelDiscovery(),
     discoverOpencodeCliModelDiscovery(),
     discoverGuiDirectProviderModelDiscovery(MANAGED_DIRECT_PROVIDER_DISCOVERY_AVAILABILITY),
   ]);
   const observedAt = new Date().toISOString();
   return Object.fromEntries([
+    ["claude", catalogDiagnostics("claude", "claude-harness", claude, observedAt, "claude", "claude")],
     ["codex", catalogDiagnostics("codex", "codex-harness", codex, observedAt, "codex", "codex")],
     ["opencode", catalogDiagnostics("opencode", "opencode-harness", opencode, observedAt, "opencode", "opencode")],
     ...Object.entries(directProviders).map(([provider, discovery]) => [

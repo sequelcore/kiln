@@ -18,6 +18,13 @@ export interface CliSessionFactoryContext {
     readonly approval: "never" | "on-request" | "on-failure" | "untrusted";
     readonly sandbox: "read-only" | "workspace-write" | "danger-full-access";
   };
+  /**
+   * A provider-neutral structured result contract for managed children.  The
+   * harness may enforce it natively (rather than relying on prompt prose).
+   */
+  readonly structuredOutput?: {
+    readonly schema: Readonly<Record<string, unknown>>;
+  };
 }
 
 /**

@@ -5,6 +5,8 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   KILN_LIVE_CODEX_MODEL,
   KILN_LIVE_CODEX_TESTS_ENV,
+  KILN_LIVE_CLAUDE_MODEL,
+  KILN_LIVE_CLAUDE_TESTS_ENV,
   KILN_LIVE_OPENCODE_MODEL,
   KILN_LIVE_OPENCODE_TESTS_ENV,
   evaluateManagedAgentLivePreflight,
@@ -23,6 +25,13 @@ const childEnv = {
   ...process.env,
   ...preflight.environment,
 };
+
+if (
+  preflight.enabledProviders.includes(KILN_LIVE_CLAUDE_TESTS_ENV)
+  && childEnv[KILN_LIVE_CLAUDE_MODEL] === undefined
+) {
+  childEnv[KILN_LIVE_CLAUDE_MODEL] = "default";
+}
 
 if (
   preflight.enabledProviders.includes(KILN_LIVE_CODEX_TESTS_ENV)
@@ -46,6 +55,9 @@ function detectLocalLiveProviderFlags(): readonly string[] {
   if (hasExecutable("codex") && existsSync(join(homedir(), ".codex", "auth.json"))) {
     detected.push(KILN_LIVE_CODEX_TESTS_ENV);
   }
+  if (hasExecutable("claude") && hasClaudeCredential()) {
+    detected.push(KILN_LIVE_CLAUDE_TESTS_ENV);
+  }
   if (hasExecutable("opencode") && hasOpenCodeCredential()) {
     detected.push(KILN_LIVE_OPENCODE_TESTS_ENV);
   }
@@ -55,6 +67,22 @@ function detectLocalLiveProviderFlags(): readonly string[] {
 function hasOpenCodeCredential(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY)
     || existsSync(join(homedir(), ".local", "share", "opencode", "auth.json"));
+}
+
+function hasClaudeCredential(): boolean {
+  const result = spawnSync("claude", ["auth", "status", "--json"], {
+    encoding: "utf8",
+    shell: false,
+    windowsHide: true,
+    timeout: 5_000,
+  });
+  if (result.status !== 0 || typeof result.stdout !== "string") return false;
+  try {
+    const status = JSON.parse(result.stdout) as { readonly loggedIn?: unknown; readonly authMethod?: unknown };
+    return status.loggedIn === true && status.authMethod === "claude.ai";
+  } catch {
+    return false;
+  }
 }
 
 function hasExecutable(command: string): boolean {

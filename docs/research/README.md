@@ -106,6 +106,8 @@ define the active architecture contract. For doctrine, use
 - `21-managed-invocation-routing-2026.md`
   Runtime ownership, cloned-harness comparison, current provider/model evidence,
   benchmark limits, and community failure signals for managed child routing.
+  Claude Code catalog evidence is obtained through the Agent SDK control-plane
+  `Query.supportedModels()` call without iterating the model response stream.
 
 - `22-canonical-mcp-integration-2026.md`
   Stable MCP protocol, official SDK, cloned Codex/Claude Code/OpenCode,

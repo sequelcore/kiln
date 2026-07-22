@@ -606,18 +606,29 @@ Exit gate:
 
 ### Slice 5 - Native Harness Entitlement Adapters
 
-Status: Deferred. Reopen only when a Claude Code subscription is configured as
-an admitted operator entitlement or a real external consumer requires it.
+Status: Active (2026-07-21). The read-only adapter, catalog discovery, native
+structured handoff, and strict live test are implemented. Admission remains
+fail-closed until that strict provider live test completes successfully; write
+authority and fan-out remain deferred.
 
 Goal: support product-entitlement routes where direct providers are not
 appropriate.
 
-Work:
+Implemented:
 
-- when admitted, model Claude Code subscription access as native-harness
-  entitlement, not a direct Anthropic provider;
-- when admitted, define what proof Claude Code can provide for execution,
-  result handoff, and authority;
+- model Claude Code subscription access as native-harness entitlement, not a
+  direct Anthropic provider;
+- discover the authenticated exact model catalog through Agent SDK
+  `Query.supportedModels()` without iterating the model response stream;
+- enforce Claude `plan` mode and native SDK structured output for read-only
+  managed child handoff;
+- add a strict read-only Claude harness live proof that rejects weak terminal
+  success without a validated structured handoff.
+
+Remaining work:
+
+- obtain a successful strict provider live result before adding any Claude
+  catalog value to the live-proven admission set;
 - isolate API-key Anthropic usage as a separate explicitly billed direct
   provider only when configured;
 - document terms and billing boundaries in status.

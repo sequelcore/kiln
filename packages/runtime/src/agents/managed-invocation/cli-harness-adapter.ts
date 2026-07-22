@@ -10,6 +10,7 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineStructuredExecutionResult,
+  STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
 } from "@kilnai/core";
 import type {
   ExecutionSessionEvent,
@@ -60,6 +61,7 @@ export interface ManagedCliHarnessFilesystemBoundaryConfig {
 
 interface CollectedCliHarnessEvidence {
   readonly textParts: string[];
+  readonly structuredOutputs: unknown[];
   readonly fileChanges: Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[];
   readonly writeDecisions: Extract<ExecutionSessionEvent, { readonly type: "write_decision" }>[];
   readonly usage: {
@@ -168,7 +170,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     const filesystemSnapshot = await snapshotFilesystemBoundary(this.filesystemBoundary);
     const session = this.factory(system, cwd, {
       kilnSessionId: childSessionId,
-      permissionPolicy: permissionPolicyFromAuthority(request),
+      permissionPolicy: permissionPolicyFromAuthority(request, this.providerId),
+      ...(request.input.handoff ? {
+        structuredOutput: { schema: STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA },
+      } : {}),
     });
     const collected = createEmptyCollectedEvidence();
     const runPromise = this.collectRunEvidence(session, {
@@ -260,10 +265,14 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       filesystemChanges,
       readOnlyFilesystemViolation,
     });
-    const lifecycleState = resolveLifecycleState(request, collected, writeEvidence);
     const structuredResult = request.input.handoff
-      ? parseCliHarnessStructuredResult(collected.textParts.join(""))
+      ? parseCliHarnessStructuredResult(
+        collected.structuredOutputs.length === 1
+          ? collected.structuredOutputs[0]
+          : collected.structuredOutputs.length === 0 ? collected.textParts.join("") : undefined,
+      )
       : undefined;
+    const lifecycleState = resolveLifecycleState(request, collected, writeEvidence, structuredResult);
     const summary = structuredResult?.summary ?? summarizeResult(request, collected, writeEvidence);
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
@@ -352,6 +361,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         collected.textParts.push(event.content);
         continue;
       }
+      if (event.type === "structured_output") {
+        collected.structuredOutputs.push(event.value);
+        continue;
+      }
       if (event.type === "cost_update") {
         collected.usage.inputTokens = event.inputTokens ?? collected.usage.inputTokens;
         collected.usage.outputTokens = event.outputTokens ?? collected.usage.outputTokens;
@@ -381,11 +394,17 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   }
 }
 
-function parseCliHarnessStructuredResult(text: string): StructuredExecutionResult | undefined {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+function parseCliHarnessStructuredResult(value: unknown): StructuredExecutionResult | undefined {
+  const parsed = typeof value === "string"
+    ? (() => {
+      const trimmed = value.trim();
+      if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return undefined;
+      try { return JSON.parse(trimmed) as unknown; } catch { return undefined; }
+    })()
+    : value;
+  if (parsed === undefined) return undefined;
   try {
-    return defineStructuredExecutionResult(JSON.parse(trimmed) as StructuredExecutionResult);
+    return defineStructuredExecutionResult(parsed as StructuredExecutionResult);
   } catch {
     return undefined;
   }
@@ -406,6 +425,7 @@ function withManagedInvocationResourceContext(system: string, resourceContext: s
 function createEmptyCollectedEvidence(): CollectedCliHarnessEvidence {
   return {
     textParts: [],
+    structuredOutputs: [],
     fileChanges: [],
     writeDecisions: [],
     usage: {},
@@ -601,6 +621,7 @@ function resolveLifecycleState(
   request: ManagedAgentInvocationRequest,
   collected: CollectedCliHarnessEvidence,
   writeEvidence: ReturnType<typeof collectWriteEvidence>,
+  structuredResult: StructuredExecutionResult | undefined,
 ): ManagedAgentInvocationRecord["lifecycleState"] {
   if (collected.error !== undefined) {
     return isCancellationError(collected.error) ? "cancelled" : "failed";
@@ -611,7 +632,7 @@ function resolveLifecycleState(
   if (requiresApprovedWorkspaceWriteEvidence(request) && !hasCompletedWorkspaceWriteEvidence(writeEvidence)) {
     return "failed";
   }
-  if (!hasSubstantiveResultHandoff(collected, writeEvidence)) {
+  if (!hasSubstantiveResultHandoff(collected, writeEvidence, structuredResult)) {
     return "failed";
   }
   return "completed";
@@ -644,8 +665,10 @@ function summarizeResult(
 function hasSubstantiveResultHandoff(
   collected: CollectedCliHarnessEvidence,
   writeEvidence: ReturnType<typeof collectWriteEvidence>,
+  structuredResult: StructuredExecutionResult | undefined,
 ): boolean {
-  return collected.textParts.join("").trim().length > 0
+  return structuredResult !== undefined
+    || collected.textParts.join("").trim().length > 0
     || writeEvidence.evidence.length > 0;
 }
 
@@ -677,9 +700,14 @@ function managedInvocationUri(invocationId: string, resource: string): string {
 
 function permissionPolicyFromAuthority(
   request: ManagedAgentInvocationRequest,
+  providerId: string,
 ): NonNullable<Parameters<CliSessionFactory>[2]>["permissionPolicy"] {
   return {
-    approval: "on-request",
+    // Claude Code plan mode is its native read-only capability.  Do not lend
+    // the child the interactive/default authority of its parent surface.
+    approval: providerId === "claude" && request.authority.writeAuthority === undefined
+      ? "untrusted"
+      : "on-request",
     sandbox: request.authority.toolAuthority.writeAllowed === true
       && request.authority.workingDirectory.mode === "workspace-write"
       ? "workspace-write"

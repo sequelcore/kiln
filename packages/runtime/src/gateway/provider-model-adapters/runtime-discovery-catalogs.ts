@@ -11,6 +11,7 @@ import {
 import type { ProviderModelEvidenceFreshness } from "@kilnai/core";
 
 export type RuntimeProviderAdapterFamily =
+  | "claude-harness"
   | "codex-harness"
   | "opencode-harness"
   | "opencode-service"

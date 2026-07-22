@@ -138,7 +138,7 @@ export interface ManagedAgentRouteConfigSource {
   };
 }
 
-const SUPPORTED_HARNESS_PROVIDERS = new Set<string>(["codex", "opencode"]);
+const SUPPORTED_HARNESS_PROVIDERS = new Set<string>(["claude", "codex", "opencode"]);
 const READONLY_PROFILE: KilnManagedAgentProfile = "foundation-readonly-plan";
 const WRITE_PROFILES = new Set<KilnManagedAgentProfile>([
   "foundation-propose-writes",
@@ -163,6 +163,9 @@ const LIVE_PROVEN_HARNESS_WRITE_AUTHORITY = {
   scopeReduction: true,
 } as const;
 const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] | "*"> = {
+  // Keep Claude fail-closed until the strict provider live proof observes a
+  // completed native structured handoff for an exact catalog value.
+  claude: [],
   codex: "*",
   opencode: ["opencode/minimax-m2.5-free"],
 };
@@ -693,7 +696,8 @@ function isEnabledSupportedChildEngine(
   provider: string,
 ): boolean {
   return SUPPORTED_HARNESS_PROVIDERS.has(provider)
-    && config.engines?.[provider]?.enabled === true;
+    && config.engines?.[provider]?.enabled === true
+    && (provider !== "claude" || Boolean(config.models?.claude?.trim()));
 }
 
 async function resolveRouteConfig(
@@ -751,7 +755,9 @@ async function resolveRouteConfig(
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' is unavailable.`);
   }
 
-  const model = routeConfig.model ?? DEFAULT_MODELS[routeConfig.provider];
+  const model = routeConfig.provider === "claude"
+    ? routeConfig.model
+    : routeConfig.model ?? DEFAULT_MODELS[routeConfig.provider];
   if (!model) {
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
@@ -1481,6 +1487,7 @@ function createHarnessSessionFactory(
       },
       model,
       sessionLedgerOwner: "host",
+      ...(factoryContext?.structuredOutput ? { structuredOutputSchema: factoryContext.structuredOutput.schema } : {}),
       ...(factoryContext?.operatorSurface ? { operatorSurface: factoryContext.operatorSurface } : {}),
     };
     return context.registry.createSession(provider, config);

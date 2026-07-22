@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { discoverOpencodeCliModelDiscovery } from "@kilnai/runtime";
+import { discoverClaudeCliModelDiscovery, discoverOpencodeCliModelDiscovery } from "@kilnai/runtime";
 import { discoverManagedAgentProviderModels } from "./managed-agent-provider-models.js";
 
 vi.mock("@kilnai/runtime", async (importOriginal) => {
@@ -10,6 +10,12 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
       models: ["gpt-5.3-codex"],
       status: "available",
       reason: "Codex CLI models discovered.",
+      authState: "authenticated",
+    })),
+    discoverClaudeCliModelDiscovery: vi.fn(async () => ({
+      models: ["claude-sonnet-live-exact"],
+      status: "available",
+      reason: "Claude Code models discovered through the Agent SDK control plane.",
       authState: "authenticated",
     })),
     discoverGuiDirectProviderModelDiscovery: vi.fn(async () => ({
@@ -49,6 +55,11 @@ describe("discoverManagedAgentProviderModels", () => {
       eligible: false,
       reasons: expect.arrayContaining(["missing-configured-evidence"]),
       route: { providerId: "opencode", providerModelId: "opencode/minimax-m2.5-free" },
+    });
+    expect(discovered.claude?.["claude-sonnet-live-exact"]?.catalogDiagnosticDecision).toMatchObject({
+      eligible: false,
+      reasons: expect.arrayContaining(["missing-configured-evidence"]),
+      route: { providerId: "claude", providerModelId: "claude-sonnet-live-exact" },
     });
     expect(discovered["codex-oauth"]?.["gpt-5.5"]?.catalogDiagnosticDecision).toMatchObject({
       eligible: false,

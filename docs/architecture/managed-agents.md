@@ -391,6 +391,23 @@ child. The first supported cross-harness slice is read-only managed invocation;
 write authority, fan-out, and remote adapter expansion require separate
 capability proof.
 
+### Claude Code read-only harness
+
+Claude Code has an implemented read-only adapter candidate for
+`foundation-readonly-plan`, but route admission remains fail-closed until the
+strict provider live proof completes with a native structured handoff. A route
+must name an exact model and that exact catalog value
+must be present in the authenticated Agent SDK `Query.supportedModels()`
+catalog; unobserved aliases and defaults are not route proof. Kiln creates the child
+in Claude `plan` mode, supplies the canonical
+`structured-execution-result-v1` JSON schema through the SDK `outputFormat`,
+and records its native `structured_output` separately from assistant prose.
+Claude has no managed write-authority descriptor: a configuration requesting a
+write profile fails admission before a Claude process starts. This is native
+Claude Code entitlement routing, not an Anthropic API route or subscription
+pooling mechanism. Static discovery, a weak terminal result, or credential-file
+presence is not sufficient proof to enable the route.
+
 The snapshot is intentionally normalized rather than provider-native. It records:
 
 - route id and admitted route-health reason

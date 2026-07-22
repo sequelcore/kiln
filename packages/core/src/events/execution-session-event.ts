@@ -135,6 +135,8 @@ export interface ProviderRequestCachePartitionEvidence {
 
 export type ExecutionSessionEvent = (
   | { readonly type: "text_delta"; readonly content: string; readonly isThinking?: boolean }
+  /** Native structured result emitted independently of assistant prose. */
+  | { readonly type: "structured_output"; readonly value: unknown }
   | {
       readonly type: "tool_use";
       readonly toolName: string;

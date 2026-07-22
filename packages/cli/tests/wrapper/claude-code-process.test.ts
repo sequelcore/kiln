@@ -138,4 +138,35 @@ describe("ClaudeSession implements IKilnSession", () => {
     expect(appendedSystemPrompt).toContain("provider: claude-code");
     expect(appendedSystemPrompt).toContain("model: claude-sonnet-4-5-20250929");
   });
+
+  it("uses the SDK JSON schema output format for a managed structured handoff", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", total_cost_usd: 0, is_error: false };
+    })());
+
+    const schema = { type: "object", required: ["summary"] };
+    const session = new ClaudeSession(baseConfig({ structuredOutputSchema: schema }));
+    await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const queryCall = queryCalls[queryCalls.length - 1]?.[0] as {
+      options?: { outputFormat?: { type?: string; schema?: unknown } };
+    } | undefined;
+    expect(queryCall?.options?.outputFormat).toEqual({ type: "json_schema", schema });
+  });
+
+  it("emits one native structured output event without treating it as prose", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "assistant", message: { content: [{ type: "text", text: "explanatory prose" }] } };
+      yield { type: "result", total_cost_usd: 0, is_error: false, structured_output: { summary: "canonical" } };
+    })());
+    const session = new ClaudeSession(baseConfig({ structuredOutputSchema: { type: "object" } }));
+    const events = await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    expect(events.filter((event) => event.type === "structured_output")).toEqual([
+      { type: "structured_output", value: { summary: "canonical" } },
+    ]);
+    expect(events.findIndex((event) => event.type === "structured_output"))
+      .toBeLessThan(events.findIndex((event) => event.type === "completed"));
+  });
 });

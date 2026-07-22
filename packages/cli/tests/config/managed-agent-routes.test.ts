@@ -55,6 +55,8 @@ function observedProviderModels(
       providerId,
       family: providerId === "codex"
         ? "codex-harness"
+        : providerId === "claude"
+          ? "claude-harness"
         : providerId === "opencode"
           ? "opencode-harness"
           : "direct-provider",
@@ -66,7 +68,7 @@ function observedProviderModels(
       },
       observedAt: FIXTURE_OBSERVED_AT,
       freshness,
-      ...(providerId === "codex" || providerId === "opencode"
+      ...(providerId === "codex" || providerId === "claude" || providerId === "opencode"
         ? { harnessId: providerId, reportedProviderId: providerId }
         : {}),
     });
@@ -103,6 +105,7 @@ function managedCatalogRequirements(): ProviderModelEligibilityRequirements {
 }
 
 const COMMON_OBSERVED_PROVIDER_MODELS = observedProviderModels({
+  claude: ["default", "opus", "haiku"],
   codex: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
   opencode: ["opencode/minimax-m2.5-free", "opencode/nemotron-3-super-free"],
   "codex-oauth": ["gpt-5.5", "gpt-5.4-mini", "codex-auto-review"],
@@ -377,6 +380,32 @@ describe("resolveManagedInvocationToolOptions", () => {
       model: "gpt-5.3-codex-spark",
       available: true,
     });
+  });
+
+  it("keeps an enabled Claude route fail-closed until strict live handoff proof exists", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      version: "1",
+      engines: { claude: { enabled: true, billing: "subscription" } },
+      routing: { defaultWorker: "claude" },
+      models: { claude: "default" },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("claude"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId: "claude-readonly",
+      routeSource: "enabled-engine-fallback",
+      kind: "harness",
+      provider: "claude",
+      model: "default",
+      profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: "Provider 'claude' model 'default' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.",
+    }]);
+    expect(result.managedInvocation).toBeUndefined();
   });
 
   it("projects ordered routing routes into read-only managed routes when no explicit managed routes exist", async () => {
@@ -1837,6 +1866,38 @@ describe("resolveManagedInvocationToolOptions", () => {
       routeId: "codex-write",
       available: false,
       reason: "Write-capable managed invocation routes require explicit writeAuthority scope and approval config.",
+    });
+  });
+
+  it("rejects Claude write routes even when configuration requests write authority", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "claude-write",
+        kind: "harness",
+        provider: "claude",
+        model: "default",
+        profiles: ["foundation-apply-approved-writes"],
+        tools: { allowed: ["read", "write"], writes: true },
+        writeAuthority: {
+          workspace: { mode: "apply-approved", allowedPaths: ["packages"] },
+          memory: { mode: "none", operations: [] },
+          artifacts: { mode: "none", resourceUris: [], retention: "session" },
+          tools: { allowed: ["read", "write"], denied: [] },
+          approval: { mode: "required-before-apply" },
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("claude"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+    });
+
+    expect(result.managedInvocation).toBeUndefined();
+    expect(result.routeHealth[0]).toMatchObject({
+      routeId: "claude-write",
+      available: false,
+      reason: "Provider 'claude' does not have live-proven write evidence support.",
     });
   });
 

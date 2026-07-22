@@ -115,6 +115,7 @@ export type {
 } from "./operator-terminal/operator-terminal-service.js";
 export {
   buildGuiOperatorDiscoveryResults,
+  discoverClaudeCliModelDiscovery,
   buildWelcomeProviderDescriptors,
   discoverCodexCliModelDiscovery,
   discoverGuiCliOperatorModels,

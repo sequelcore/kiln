@@ -52,6 +52,8 @@ export interface ClaudeSessionConfig {
   readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly model?: string;
+  /** Managed-child result schema, enforced by the Agent SDK when present. */
+  readonly structuredOutputSchema?: Readonly<Record<string, unknown>>;
 }
 
 function derivePermissionPolicy(
@@ -176,6 +178,12 @@ export class ClaudeSession implements IKilnSession {
       allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
       settingSources: ["project"],
       model: this.config.model,
+      ...(this.config.structuredOutputSchema ? {
+        outputFormat: {
+          type: "json_schema" as const,
+          schema: this.config.structuredOutputSchema,
+        },
+      } : {}),
       stderr: (data: string) => {
         process.stderr.write(data);
       },
@@ -262,8 +270,12 @@ export class ClaudeSession implements IKilnSession {
               output_tokens?: number;
               cache_read_input_tokens?: number;
             };
+            structured_output?: unknown;
           };
           totalCostUsd = resultMsg.total_cost_usd ?? 0;
+          if (this.config.structuredOutputSchema !== undefined && resultMsg.structured_output !== undefined) {
+            yield { type: "structured_output", value: resultMsg.structured_output };
+          }
           yield {
             type: "cost_update",
             usd: totalCostUsd,

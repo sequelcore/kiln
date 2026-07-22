@@ -173,7 +173,7 @@ function eventStream(events: readonly ExecutionSessionEvent[]): AsyncIterable<Ex
 }
 
 describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
-  it("validates a CLI harness structured result at the adapter boundary", async () => {
+  it("treats a native structured result as a substantive handoff without prose", async () => {
     const structuredResult = {
       version: "structured-execution-result-v1",
       status: "completed",
@@ -209,7 +209,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       },
     });
     const run = vi.fn(() => eventStream([
-      { type: "text_delta", content: JSON.stringify(structuredResult) },
+      { type: "structured_output", value: structuredResult },
       { type: "completed", exitCode: 0, totalUsd: 0 },
     ]));
     const adapter = new ManagedCliHarnessAdapter({
@@ -238,6 +238,46 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
       })],
     });
     expect(result.record.resultHandoff?.summary).toBe("Repository surface mapped.");
+  });
+
+  it("passes the canonical structured schema through the provider-neutral factory context", async () => {
+    const baseRequest = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      input: {
+        ...baseRequest.input,
+        handoff: { requiredResultFields: ["summary"] },
+      },
+    });
+    const factory = vi.fn(() => ({
+      run: () => eventStream([{ type: "completed", exitCode: 0, totalUsd: 0 }]),
+      dispose: vi.fn(async () => undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "opencode", model: "sonic", factory });
+
+    await new RuntimeManagedAgentInvocationService().invoke(request, adapter, snapshotInputFor(request));
+
+    expect(factory.mock.calls[0]?.[2]?.structuredOutput?.schema).toMatchObject({
+      type: "object",
+      properties: { version: { const: "structured-execution-result-v1" } },
+    });
+  });
+
+  it("reduces a Claude managed child to native plan authority", async () => {
+    const baseRequest = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      providerRoute: { ...baseRequest.providerRoute, providerId: "claude", model: "claude-sonnet-4-5-20250929" },
+    });
+    const factory = vi.fn(() => ({
+      run: () => eventStream([{ type: "completed", exitCode: 0, totalUsd: 0 }]),
+      dispose: vi.fn(async () => undefined),
+    }));
+    const adapter = new ManagedCliHarnessAdapter({ providerId: "claude", model: "claude-sonnet-4-5-20250929", factory });
+
+    await new RuntimeManagedAgentInvocationService().invoke(request, adapter, snapshotInputFor(request));
+
+    expect(factory.mock.calls[0]?.[2]?.permissionPolicy).toEqual({ approval: "untrusted", sandbox: "read-only" });
   });
 
   it("executes an admitted foundation-readonly-plan invocation and records replayable evidence", async () => {

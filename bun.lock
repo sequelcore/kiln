@@ -155,9 +155,10 @@
       "name": "@kilnai/runtime",
       "version": "3.0.0-beta.1",
       "dependencies": {
-        "@kilnai/core": "^2.1.0",
-        "@kilnai/gateway-contracts": "^2.1.0",
-        "@kilnai/gui": "^2.1.0",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.45",
+        "@kilnai/core": "3.0.0-beta.1",
+        "@kilnai/gateway-contracts": "3.0.0-beta.1",
+        "@kilnai/gui": "3.0.0-beta.1",
         "hono": "^4.7.0",
         "jose": "^5.0.0",
         "sharp": "^0.34.5",

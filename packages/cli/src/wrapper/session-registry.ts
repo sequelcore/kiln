@@ -171,6 +171,8 @@ export interface ProviderCreateConfig {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  /** Provider-neutral managed child result contract. */
+  readonly structuredOutputSchema?: Readonly<Record<string, unknown>>;
 }
 
 export interface CreateDefaultRegistryOptions {
@@ -1122,6 +1124,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           continuationSessionId: config.continuationSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
           model: config.model,
+          structuredOutputSchema: config.structuredOutputSchema,
         });
         return createPooledHarnessSession(
           "claude-code",
