@@ -1594,7 +1594,6 @@ describe("run command builtin tool wiring", () => {
     });
 
     const run = runCommand(APP_CONFIG, "interrupt active run", { provider: "codex" }, { exitOnFailure: false });
-    const runExpectation = expect(run).rejects.toThrow("Kiln run exited with code 1");
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
     await waitForCondition(() => runWiringMocks.capturedRunSessionInputs.length > 0);
@@ -1611,7 +1610,7 @@ describe("run command builtin tool wiring", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(input.abortSignal?.reason).toBe("Parent run interrupted by SIGINT.");
 
-    await runExpectation;
+    await expect(run).rejects.toThrow("Kiln run exited with code 1");
 
     expect(exitCodes).toEqual([130]);
     expect(runWiringMocks.cleanupRegistryRunAll).toHaveBeenCalledTimes(1);
@@ -1797,9 +1796,10 @@ function captureStdout() {
 }
 
 async function waitForCondition(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
     if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Timed out waiting for condition");
 }
