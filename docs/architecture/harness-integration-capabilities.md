@@ -140,7 +140,7 @@ Current status:
 
 | Harness | Status | Mechanism |
 |---------|--------|-----------|
-| Claude Code | Not proven | No canonical external Kiln config backend found |
+| Claude Code | Runtime injection not proven | Kiln-launched managed sessions isolate native config with `CLAUDE_CONFIG_DIR`; standalone Model Gateway routing uses governed native settings projection instead of a generic runtime-config backend |
 | Codex | Supported | `CODEX_HOME` plus CLI config overrides for Kiln-launched processes |
 | OpenCode | Supported | `OPENCODE_CONFIG_CONTENT` for Kiln-launched processes |
 
@@ -175,15 +175,16 @@ architecture. Kiln uses native projection when:
 Native projection must remain governed by install-state, drift detection,
 append-only backups, and explicit uninstall behavior.
 
-Native default route projection is a supported projection surface for Codex and
-OpenCode only when the canonical Kiln provider/model can be encoded in that
-harness's native syntax. It is not a fallback picker and does not import stale
-ambient defaults. Codex and OpenCode config writers compose permissions,
-supported settings, and the route default before one managed write. They
-preserve unmanaged native defaults until install-state proves Kiln owns the
-field. Claude Code default-route projection is unsupported until a stable
-native contract is proven; surfaces must mark that proof unsupported rather
-than assuming parity.
+Native default route projection is supported for Codex, OpenCode, and the
+Claude Messages gateway only when the canonical Kiln provider/model can be
+encoded in that harness's native syntax. It is not a fallback picker and does
+not import stale ambient defaults. Each config writer composes permissions,
+supported settings, and the route default before one managed write, preserving
+unmanaged native defaults until install-state proves Kiln owns the field.
+Claude projection owns only the granular gateway environment fields and the
+`model` field when exactly one canonical virtual model is available; ambiguous
+model sets produce no invented default. This does not make Claude native config
+import supported or turn a Claude subscription into Anthropic API access.
 
 Native agent projection uses the same capability model. A Kiln agent without
 `providerRoute` is portable and projects to native harnesses without a fixed

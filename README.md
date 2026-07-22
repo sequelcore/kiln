@@ -146,6 +146,7 @@ Most important architecture documents:
 - [Flows](docs/architecture/flows.md)
 - [Safety](docs/architecture/safety.md)
 - [Coordination](docs/architecture/coordination.md)
+- [Model Gateway](docs/architecture/model-gateway.md)
 - [Memory](docs/architecture/memory.md)
 - [Context Governance](docs/architecture/context-governance.md)
 - [Adaptation](docs/architecture/adaptation.md)

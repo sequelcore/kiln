@@ -1,7 +1,11 @@
 # 05 - Cross-Harness Kiln Control Plane
 
-Status: Active delivery track; Slices 0-3 are complete. Slice 4 is planned.
-Execution: Ready - define Slice 4 quota and subscription evidence before changing route preference.
+Status: Active delivery track; Slices 0-3 are complete. The governed Model
+Gateway foundation and Slice 5 Claude read-only adapter candidate are
+implemented; Slice 4 economics remain planned and Claude admission remains
+fail-closed pending strict provider live proof.
+Execution: Ready - define Slice 4 quota and subscription evidence before
+changing route preference, and admit no Claude model without strict live proof.
 Created: 2026-07-04.
 
 ## Objective
@@ -74,11 +78,12 @@ Kiln needs to own this boundary natively.
 - Reference implementations and comparative study of Codex, Claude Code,
   OpenCode, and plugins such as `codex-plugin-cc`.
 
-Claude Code is an optional future entitlement surface, not a current operator
-dependency. No Claude Code subscription or admitted route is configured, so
-Claude-specific implementation is deferred and cannot block current roadmap
-completion. Reopen it only when the operator configures that entitlement or a
-real external consumer requires the surface.
+Claude Code remains an optional native-harness entitlement surface rather than
+a direct Anthropic provider. Kiln now has a read-only adapter candidate, exact
+authenticated catalog discovery, and native structured-result handoff, but its
+model admission set remains empty until the strict provider live proof succeeds.
+This candidate does not convert a Claude subscription into Anthropic API access
+and does not grant write authority or cross-account pooling.
 
 ## Non-Goals
 
@@ -499,8 +504,9 @@ Objective: expose safe canonical managed-job result handoff/retrieval to Codex
 App without duplicating Runtime lifecycle or leaking prompts, transcripts,
 hidden reasoning, provider payloads, paths, or secrets.
 
-Slice 3C remains a thin projection over Runtime-owned managed-job state. It
-does not implement the Claude path or Slice 4 routing.
+At closure, Slice 3C remained a thin projection over Runtime-owned managed-job
+state and did not implement the later Claude candidate or Slice 4 routing. Those
+concerns retain their own admission and verification gates.
 
 Slice 3C now persists the existing Runtime canonical result handoff before a
 managed job is observable as `succeeded`, authorizes status/result reads with
