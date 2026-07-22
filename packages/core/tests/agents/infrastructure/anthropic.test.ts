@@ -8,6 +8,7 @@ import { extractText, textParts } from "../../../src/engine/domain/content.js";
 import { getInvalidToolInputDetails } from "../../../src/agents/tool-call-input.js";
 
 const mockCreate = vi.fn();
+const mockConstructor = vi.fn();
 
 vi.mock("@anthropic-ai/sdk", () => {
   class MockAPIError extends Error {
@@ -21,9 +22,7 @@ vi.mock("@anthropic-ai/sdk", () => {
 
   class MockAnthropic {
     messages = { create: mockCreate };
-    constructor(_opts: Record<string, unknown>) {
-      // apiKey captured but not used in tests
-    }
+    constructor(opts: Record<string, unknown>) { mockConstructor(opts); }
     static APIError = MockAPIError;
   }
 
@@ -122,6 +121,11 @@ describe("AnthropicAdapter", () => {
   describe("constructor", () => {
     it("has name 'anthropic'", () => {
       expect(adapter.name).toBe("anthropic");
+    });
+
+    it("disables SDK-owned retries when internal retries are disabled", () => {
+      new AnthropicAdapter({ apiKey: "test-key", internalRetry: false });
+      expect(mockConstructor).toHaveBeenLastCalledWith({ apiKey: "test-key", maxRetries: 0 });
     });
   });
 

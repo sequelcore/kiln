@@ -38,7 +38,7 @@ import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
 import { createOpenAIResponsesRoutes } from "./openai-responses-routes.js";
-import { createCodexOAuthModelGatewayIngress } from "../model-gateway/codex-oauth-model-gateway-ingress.js";
+import { createModelGatewayIngress } from "../model-gateway/model-gateway-ingress.js";
 import { createAnthropicMessagesRoutes } from "../model-gateway/anthropic-messages-routes.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
@@ -168,7 +168,7 @@ export async function closeGatewayResources(actions: readonly (() => void | Prom
 
 /** Starts only the private model ingress and owns its listener/store lifecycle. */
 export async function startModelGatewayListener(options: StartModelGatewayListenerOptions): Promise<{ close(): void }> {
-  const handle = await createCodexOAuthModelGatewayIngress({
+  const handle = await createModelGatewayIngress({
     config: options.config,
     databasePath: options.databasePath,
     ...(options.credentialRootDir === undefined ? {} : { credentialRootDir: options.credentialRootDir }),

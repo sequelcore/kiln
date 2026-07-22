@@ -36,7 +36,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   private readonly internalRetry: boolean;
 
   constructor(config: AnthropicAdapterConfig) {
-    this.client = new Anthropic({ apiKey: config.apiKey });
+    this.client = new Anthropic({ apiKey: config.apiKey, ...(config.internalRetry === false ? { maxRetries: 0 } : {}) });
     this.model = config.defaultModel ?? CLAUDE_SONNET;
     this.internalRetry = config.internalRetry ?? true;
   }

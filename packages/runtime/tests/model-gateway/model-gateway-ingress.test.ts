@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CodexOAuthTokenFile, ModelGatewayConfig } from "@kilnai/core";
 import { CodexOAuthCredentialPoolService } from "../../src/agents/credential-pool/codex-oauth-credential-pool.js";
+import { OpenCodeCredentialPoolService } from "../../src/agents/credential-pool/opencode-credential-pool.js";
 import { createAnthropicMessagesRoutes } from "../../src/model-gateway/anthropic-messages-routes.js";
-import { createCodexOAuthModelGatewayIngress } from "../../src/model-gateway/codex-oauth-model-gateway-ingress.js";
+import { createModelGatewayIngress } from "../../src/model-gateway/model-gateway-ingress.js";
 import { LocalModelGatewayStore } from "../../src/model-gateway/local-model-gateway-store.js";
 
 function token(accountId: string, access = "access"): CodexOAuthTokenFile {
@@ -31,7 +32,7 @@ const config: ModelGatewayConfig = {
   ],
 };
 
-describe("createCodexOAuthModelGatewayIngress", () => {
+describe("createModelGatewayIngress", () => {
   let root: string | undefined;
   afterEach(async () => { vi.restoreAllMocks(); if (root) await rm(root, { recursive: true, force: true }); root = undefined; });
 
@@ -46,7 +47,7 @@ describe("createCodexOAuthModelGatewayIngress", () => {
       ],
       virtualModels: [...config.virtualModels, { ...config.virtualModels[0]!, id: "claude-codex", displayName: "Claude Codex" }],
     };
-    const handle = await createCodexOAuthModelGatewayIngress({ config: shared, databasePath: ":memory:", credentialRootDir: join(root, "auth"), env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32), ANTHROPIC_TOKEN: "a".repeat(32) } });
+    const handle = await createModelGatewayIngress({ config: shared, databasePath: ":memory:", credentialRootDir: join(root, "auth"), env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32), ANTHROPIC_TOKEN: "a".repeat(32) } });
     try {
       const responsesPrincipal = (await handle.openAIResponses!.authenticateBearer("b".repeat(32)))!;
       const anthropicPrincipal = (await handle.anthropicMessages!.authenticate("a".repeat(32)))!;
@@ -62,7 +63,7 @@ describe("createCodexOAuthModelGatewayIngress", () => {
       expect(otherAgentCorrelation.sessionId).toBe(anthropicCorrelation.sessionId);
       expect(otherAgentCorrelation.turnId).not.toBe(anthropicCorrelation.turnId);
     } finally { handle.close(); }
-    await expect(createCodexOAuthModelGatewayIngress({
+    await expect(createModelGatewayIngress({
       config: shared,
       databasePath: ":memory:",
       credentialRootDir: join(root, "auth"),
@@ -87,7 +88,7 @@ describe("createCodexOAuthModelGatewayIngress", () => {
       ],
     };
 
-    await expect(createCodexOAuthModelGatewayIngress({
+    await expect(createModelGatewayIngress({
       config: duplicateIdentity,
       databasePath: ":memory:",
       credentialRootDir: join(root, "auth"),
@@ -115,7 +116,7 @@ describe("createCodexOAuthModelGatewayIngress", () => {
       const frame = { type: "response.completed", response: { id: "provider-response", output: [{ type: "message", id: "message-1", role: "assistant", content: [{ type: "output_text", text: "PROBE_OK" }] }], usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 } } };
       return new Response(`event: response.completed\ndata: ${JSON.stringify(frame)}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
     });
-    const handle = await createCodexOAuthModelGatewayIngress({ config: anthropicConfig, databasePath: ":memory:", credentialRootDir: credentialRoot, env: { REPLAY_SECRET: "r".repeat(32), ANTHROPIC_TOKEN: "a".repeat(32) }, fetch: providerFetch as typeof fetch });
+    const handle = await createModelGatewayIngress({ config: anthropicConfig, databasePath: ":memory:", credentialRootDir: credentialRoot, env: { REPLAY_SECRET: "r".repeat(32), ANTHROPIC_TOKEN: "a".repeat(32) }, fetch: providerFetch as typeof fetch });
     try {
       const app = createAnthropicMessagesRoutes(handle.anthropicMessages!);
       const response = await app.request(new Request("http://127.0.0.1/v1/messages?beta=true", {
@@ -134,7 +135,7 @@ describe("createCodexOAuthModelGatewayIngress", () => {
     const credentialRoot = join(root, "auth");
     const pool = new CodexOAuthCredentialPoolService({ rootDir: credentialRoot });
     await pool.linkCredential({ id: "credential-a", tokenFile: token("provider-account") });
-    const handle = await createCodexOAuthModelGatewayIngress({
+    const handle = await createModelGatewayIngress({
       config,
       databasePath: join(root, "state", "gateway.sqlite"),
       credentialRootDir: credentialRoot,
@@ -153,14 +154,14 @@ describe("createCodexOAuthModelGatewayIngress", () => {
       const authority = { status: "admitted" as const, capabilityId: "invoke", scopes: ["model.invoke"] };
       const budget = { status: "admitted" as const, evidenceId: "budget-a" };
       const [first] = await handle.openAIResponses!.invocationPorts.candidateCatalog.list({ identity, route: resolved!.route, authority, budget });
-      expect(first?.account).toMatch(/^configured:primary:[a-f0-9]{64}$/);
+      expect(first?.account).toMatch(/^configured:primary:[a-f0-9]{64}:[a-f0-9]{64}$/);
       expect(String(first?.account)).not.toContain("provider-account");
       const lease = await handle.openAIResponses!.invocationPorts.accountLease.acquire({ identity, route: resolved!.route, account: first!.account, purpose: "new" });
 
       await pool.linkCredential({ id: "credential-a", tokenFile: token("provider-account", "rotated") });
       const [rotated] = await handle.openAIResponses!.invocationPorts.candidateCatalog.list({ identity, route: resolved!.route, authority, budget });
       expect(rotated?.account).not.toBe(first?.account);
-      await expect(handle.openAIResponses!.invocationPorts.dispatcherResolver.resolve({ identity, route: resolved!.route, account: first!.account, leaseId: lease!.leaseId })).rejects.toThrow("unavailable");
+      await expect(handle.openAIResponses!.invocationPorts.dispatcherResolver.resolve({ identity, route: resolved!.route, account: first!.account, leaseId: lease!.leaseId })).rejects.toThrow("identity changed");
 
       const namespaced = await handle.openAIResponses!.namespaceCorrelation({ principal: principal!, observed: { sessionId: "external-session", turnId: "external-turn", rawBodyDigest: "a".repeat(64) } });
       const collidingPrincipal = await handle.openAIResponses!.authenticateBearer("c".repeat(32));
@@ -182,9 +183,44 @@ describe("createCodexOAuthModelGatewayIngress", () => {
     }
   });
 
+  it("exposes multiple exact OpenCode accounts and dispatches only the leased account", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-opencode-gateway-"));
+    const credentialRoot = join(root, "auth");
+    const pool = new OpenCodeCredentialPoolService({ rootDir: credentialRoot });
+    await pool.linkCredential({ id: "go-a", tier: "go", apiKey: "synthetic-key-a", createdAt: "2026-01-01T00:00:00.000Z" });
+    await pool.linkCredential({ id: "go-b", tier: "go", apiKey: "synthetic-key-b", createdAt: "2026-01-01T00:00:00.000Z" });
+    const openCodeConfig: ModelGatewayConfig = {
+      ...config,
+      accounts: [
+        { id: "go-primary", providerId: "opencode-go", credentialId: "go-a", maxConcurrency: 1, reservedAffinitySlots: 0 },
+        { id: "go-secondary", providerId: "opencode-go", credentialId: "go-b", maxConcurrency: 1, reservedAffinitySlots: 0 },
+      ],
+      principals: [{ ...config.principals[0]!, virtualModelIds: ["kimi"] }],
+      virtualModels: [{ id: "kimi", providerId: "opencode-go", providerModelId: "kimi-k3", accountIds: ["go-primary", "go-secondary"], capabilities: ["text"], affinity: { continuity: "prefer", scope: "session", allowRebind: true } }],
+    };
+    const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "KIMI_OK" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 3, completion_tokens: 1 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const handle = await createModelGatewayIngress({ config: openCodeConfig, databasePath: ":memory:", credentialRootDir: credentialRoot, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) } });
+    try {
+      const principal = (await handle.openAIResponses!.authenticateBearer("b".repeat(32)))!;
+      const resolved = (await handle.openAIResponses!.resolveVirtualModel({ principal, requestedModel: "kimi" }))!;
+      const identity = { tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId, sessionId: "session", turnId: "turn" };
+      const candidates = await handle.openAIResponses!.invocationPorts.candidateCatalog.list({ identity, route: resolved.route, authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes }, budget: principal.budgetEvidence });
+      expect(candidates).toHaveLength(2);
+      expect(new Set(candidates.map((candidate) => candidate.account)).size).toBe(2);
+      const selected = candidates[0]!;
+      const lease = await handle.openAIResponses!.invocationPorts.accountLease.acquire({ identity, route: resolved.route, account: selected.account, purpose: "new" });
+      const dispatcher = await handle.openAIResponses!.invocationPorts.dispatcherResolver.resolve({ identity, route: resolved.route, account: selected.account, leaseId: lease!.leaseId });
+      await expect(dispatcher.dispatchOneRound({ account: selected.account, route: resolved.route, sessionId: "session", turn: { history: [{ role: "user", parts: [{ type: "text", text: "hello" }] }] } })).resolves.toMatchObject({ parts: [{ type: "text", text: "KIMI_OK" }] });
+      expect(providerFetch).toHaveBeenCalledOnce();
+    } finally { handle.close(); }
+  });
+
   it("fails closed when configured secret material is missing or too short", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-responses-ingress-secret-"));
-    await expect(createCodexOAuthModelGatewayIngress({ config, databasePath: join(root, "db.sqlite"), env: { REPLAY_SECRET: "short", BEARER_TOKEN: "b".repeat(32), BEARER_TOKEN_2: "c".repeat(32) } })).rejects.toThrow("at least 32 bytes");
+    await expect(createModelGatewayIngress({ config, databasePath: join(root, "db.sqlite"), env: { REPLAY_SECRET: "short", BEARER_TOKEN: "b".repeat(32), BEARER_TOKEN_2: "c".repeat(32) } })).rejects.toThrow("at least 32 bytes");
   });
 
   it.each([403, 429, 503])("feeds provider status %i into credential health without retrying", async (status) => {
@@ -199,7 +235,7 @@ describe("createCodexOAuthModelGatewayIngress", () => {
       vi.spyOn(CodexOAuthCredentialPoolService.prototype, "recordProviderOutcome").mockImplementation(async () => { feedbackOrder.push("credential-health"); throw new Error("health unavailable"); });
     }
     let providerCalls = 0;
-    const handle = await createCodexOAuthModelGatewayIngress({
+    const handle = await createModelGatewayIngress({
       config, databasePath: join(root, "gateway.sqlite"), credentialRootDir: credentialRoot,
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32), BEARER_TOKEN_2: "c".repeat(32) },
       fetch: async () => { providerCalls += 1; return new Response("upstream failed", { status }); },
@@ -228,7 +264,7 @@ describe("createCodexOAuthModelGatewayIngress", () => {
     await pool.linkCredential({ id: "credential-a", tokenFile: token("provider-account") });
     vi.spyOn(CodexOAuthCredentialPoolService.prototype, "recordProviderOutcome").mockRejectedValue(new Error("health unavailable"));
     const frame = { type: "response.completed", response: { id: "provider-response", output: [{ type: "message", id: "message-1", role: "assistant", content: [{ type: "output_text", text: "ok" }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } };
-    const handle = await createCodexOAuthModelGatewayIngress({ config, databasePath: join(root, "gateway.sqlite"), credentialRootDir: credentialRoot, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32), BEARER_TOKEN_2: "c".repeat(32) }, fetch: async () => new Response(`event: response.completed\ndata: ${JSON.stringify(frame)}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } }) });
+    const handle = await createModelGatewayIngress({ config, databasePath: join(root, "gateway.sqlite"), credentialRootDir: credentialRoot, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32), BEARER_TOKEN_2: "c".repeat(32) }, fetch: async () => new Response(`event: response.completed\ndata: ${JSON.stringify(frame)}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } }) });
     try {
       const principal = (await handle.openAIResponses!.authenticateBearer("b".repeat(32)))!;
       const resolved = (await handle.openAIResponses!.resolveVirtualModel({ principal, requestedModel: "codex" }))!;

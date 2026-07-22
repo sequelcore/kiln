@@ -173,6 +173,17 @@ export function validateGatewayConfig(config: GatewayConfig): GatewayValidationE
 }
 
 const CAPABILITIES = new Set<ModelGatewayCapabilityId>(["text", "input-image-url", "input-image-base64", "function-tools", "custom-tools-lark", "parallel-tool-calls", "json-schema-response", "reasoning-controls", "text-verbosity"]);
+const PROVIDER_CAPABILITIES: Readonly<Record<DirectProviderId, ReadonlySet<ModelGatewayCapabilityId>>> = {
+  "codex-oauth": CAPABILITIES,
+  "opencode-go": new Set(["text", "input-image-url", "input-image-base64", "function-tools"]),
+  "opencode-zen": new Set(["text", "input-image-url", "input-image-base64", "function-tools"]),
+  anthropic: new Set(["text", "input-image-url", "input-image-base64", "function-tools"]),
+  openai: new Set(["text", "input-image-url", "input-image-base64", "function-tools"]),
+  deepseek: new Set(["text", "input-image-url", "input-image-base64", "function-tools"]),
+  openrouter: new Set(["text", "input-image-url", "input-image-base64", "function-tools"]),
+  ollama: new Set(["text", "input-image-base64", "function-tools"]),
+  lmstudio: new Set(["text", "input-image-url", "input-image-base64", "function-tools"]),
+};
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const ENV = /^[A-Z_][A-Z0-9_]*$/;
 
@@ -258,6 +269,10 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
       else if (accountProviders.get(id) !== model.providerId) errors.push({ field: `${path}.accountIds`, message: `account '${id}' belongs to provider '${accountProviders.get(id)}', not '${model.providerId}'` });
     }
     if (!Array.isArray(model.capabilities) || model.capabilities.length === 0 || new Set(model.capabilities).size !== model.capabilities.length || model.capabilities.some((id) => !CAPABILITIES.has(id))) errors.push({ field: `${path}.capabilities`, message: "must contain unique supported capability ids" });
+    else if (isDirectProviderId(model.providerId)) {
+      const unsupported = model.capabilities.find((capability) => !PROVIDER_CAPABILITIES[model.providerId].has(capability));
+      if (unsupported) errors.push({ field: `${path}.capabilities`, message: `provider '${model.providerId}' does not support capability '${unsupported}' through the model gateway` });
+    }
     const affinity = model.affinity;
     if (!affinity || !["none", "prefer", "require"].includes(affinity.continuity)) errors.push({ field: `${path}.affinity.continuity`, message: "is invalid" });
     else if (affinity.continuity === "none" && (affinity.scope !== undefined || affinity.allowRebind !== undefined)) errors.push({ field: `${path}.affinity`, message: "scope and allowRebind require continuity" });

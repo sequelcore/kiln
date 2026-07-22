@@ -135,6 +135,8 @@ modelGateway:
       .toThrow(/belongs to provider 'anthropic'/);
     expect(() => parseGatewayYaml(yaml.replace("providerId: opencode-go", "providerId: unsupported-provider")))
       .toThrow(/supported direct provider/);
+    expect(() => parseGatewayYaml(yaml.replace("capabilities: [text]", "capabilities: [text, reasoning-controls]")))
+      .toThrow(/opencode-go.*reasoning-controls/);
   });
 
   it("rejects retired authorities and admits only mounted protocol surfaces", () => {

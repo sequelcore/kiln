@@ -20,8 +20,10 @@ export { LocalModelGatewayStore } from "./model-gateway/local-model-gateway-stor
 export { GovernedIngressCommittedExecutionError, executeGovernedIngress } from "./model-gateway/governed-ingress-executor.js";
 export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatewayCompatibilityEvidence, ModelGatewayIngressId } from "./model-gateway/governed-ingress-executor.js";
 export type { LocalModelGatewayStoreAccount, LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
-export { createCodexOAuthModelGatewayIngress } from "./model-gateway/codex-oauth-model-gateway-ingress.js";
-export type { CodexOAuthModelGatewayIngressHandle, CodexOAuthModelGatewayIngressOptions } from "./model-gateway/codex-oauth-model-gateway-ingress.js";
+export { createModelGatewayIngress } from "./model-gateway/model-gateway-ingress.js";
+export type { ModelGatewayIngressHandle, ModelGatewayIngressOptions } from "./model-gateway/model-gateway-ingress.js";
+export { ProviderAdapterOneRoundDispatcher, ProviderAdapterOneRoundError } from "./model-gateway/provider-adapter-one-round-dispatcher.js";
+export type { ProviderAdapterOneRoundDispatcherOptions, ProviderAdapterOneRoundErrorCode } from "./model-gateway/provider-adapter-one-round-dispatcher.js";
 export { createAnthropicMessagesRoutes } from "./model-gateway/anthropic-messages-routes.js";
 export type { AnthropicMessagesIngressConfig, AnthropicMessagesObservedCorrelation, AnthropicMessagesResolvedVirtualModel, AnthropicMessagesTrustedPrincipal } from "./model-gateway/anthropic-messages-routes.js";
 export { ANTHROPIC_MESSAGES_PROTOCOL_LIMITS, ANTHROPIC_MESSAGES_VERSION, AnthropicMessagesProtocolError, encodeAnthropicMessagesSseEvent, parseAnthropicMessagesRequest } from "./model-gateway/anthropic-messages-protocol.js";
