@@ -6,6 +6,8 @@ export interface ModelJsonObject { readonly [key: string]: ModelJsonValue }
 
 export interface FunctionModelTool {
   readonly kind: "function";
+  readonly namespace?: string;
+  readonly namespaceDescription?: string;
   readonly name: string;
   readonly description?: string;
   readonly inputSchema: ModelJsonObject;
@@ -24,6 +26,7 @@ export type ModelTool = FunctionModelTool | CustomModelTool;
 
 export interface FunctionModelToolCall {
   readonly kind: "function";
+  readonly namespace?: string;
   readonly id: string;
   readonly name: string;
   readonly input: { readonly kind: "json-object"; readonly value: ModelJsonObject };
@@ -65,7 +68,7 @@ export type ModelToolChoice =
   | { readonly kind: "auto" }
   | { readonly kind: "none" }
   | { readonly kind: "required" }
-  | { readonly kind: "tool"; readonly name: string };
+  | { readonly kind: "tool"; readonly namespace?: string; readonly name: string };
 
 export interface ModelTurn {
   readonly instructions?: string;
@@ -130,11 +133,17 @@ export function validateModelTurn(turn: ModelTurn): void {
   if (!Array.isArray(tools)) throw new TypeError("Model turn tools must be an array.");
   const toolNames = new Set<string>();
   const toolKinds = new Map<string, ModelTool["kind"]>();
+  const namespaceDescriptions = new Map<string, string | undefined>();
   for (const [index, tool] of tools.entries()) {
     validateTool(tool, `tools[${index}]`);
-    if (toolNames.has(tool.name)) throw new TypeError("Model tool names must be unique.");
-    toolNames.add(tool.name);
-    toolKinds.set(tool.name, tool.kind);
+    const identity = modelToolIdentity(tool);
+    if (toolNames.has(identity)) throw new TypeError("Model tool identities must be unique.");
+    toolNames.add(identity);
+    toolKinds.set(identity, tool.kind);
+    if (tool.kind === "function" && tool.namespace !== undefined) {
+      if (namespaceDescriptions.has(tool.namespace) && namespaceDescriptions.get(tool.namespace) !== tool.namespaceDescription) throw new TypeError("Model function namespace descriptions must be consistent.");
+      namespaceDescriptions.set(tool.namespace, tool.namespaceDescription);
+    }
   }
   if (turn.toolChoice !== undefined) {
     if (!isObject(turn.toolChoice) || !["auto", "none", "required", "tool"].includes(turn.toolChoice.kind as string)) {
@@ -142,7 +151,8 @@ export function validateModelTurn(turn: ModelTurn): void {
     }
     if (turn.toolChoice.kind === "tool") {
       requireIdentifier(turn.toolChoice.name, "toolChoice.name");
-      if (!toolNames.has(turn.toolChoice.name)) throw new TypeError("Selected model tool must exist in tools.");
+      if (turn.toolChoice.namespace !== undefined) requireIdentifier(turn.toolChoice.namespace, "toolChoice.namespace");
+      if (!toolNames.has(modelToolIdentity(turn.toolChoice))) throw new TypeError("Selected model tool must exist in tools.");
     }
   }
   if (turn.instructions !== undefined && typeof turn.instructions !== "string") throw new TypeError("instructions must be a string.");
@@ -189,7 +199,7 @@ export function validateModelTurnResult(result: ModelTurnResult): void {
 }
 
 function validateModelTurnResultAgainstTools(result: ModelTurnResult, tools: readonly ModelTool[]): void {
-  validateModelTurnResultWithToolKinds(result, new Map(tools.map((tool) => [tool.name, tool.kind])), true);
+  validateModelTurnResultWithToolKinds(result, new Map(tools.map((tool) => [modelToolIdentity(tool), tool.kind])), true);
 }
 
 function validateModelTurnResultWithToolKinds(
@@ -223,6 +233,11 @@ function validateTool(tool: ModelTool, path: string): void {
   requireIdentifier(tool.name, `${path}.name`);
   if (tool.description !== undefined && typeof tool.description !== "string") throw new TypeError(`${path}.description must be a string.`);
   if (tool.kind === "function") {
+    if (tool.namespace !== undefined) requireIdentifier(tool.namespace, `${path}.namespace`);
+    if (tool.namespaceDescription !== undefined) {
+      if (tool.namespace === undefined) throw new TypeError(`${path}.namespaceDescription requires namespace.`);
+      if (typeof tool.namespaceDescription !== "string") throw new TypeError(`${path}.namespaceDescription must be a string.`);
+    }
     validateJsonObject(tool.inputSchema, `${path}.inputSchema`);
     if (tool.outputSchema !== undefined) validateJsonObject(tool.outputSchema, `${path}.outputSchema`);
     if (tool.strict !== undefined && typeof tool.strict !== "boolean") throw new TypeError(`${path}.strict must be a boolean.`);
@@ -253,7 +268,7 @@ function validateOutputPart(
     if (role !== "assistant") throw new TypeError(`${path} tool-call is assistant-only.`);
     validateToolCall(part.call, `${path}.call`);
     if (calls.has(part.call.id)) throw new TypeError("Model tool call ids must be unique.");
-    const declaredKind = toolKinds.get(part.call.name);
+    const declaredKind = toolKinds.get(modelToolIdentity(part.call));
     if (requireDeclaredTool && declaredKind === undefined) throw new TypeError(`${path}.call must name a declared model tool.`);
     if (declaredKind !== undefined && declaredKind !== part.call.kind) throw new TypeError(`${path}.call kind does not match its tool.`);
     calls.set(part.call.id, part.call.kind);
@@ -268,6 +283,7 @@ function validateToolCall(call: ModelToolCall, path: string): void {
   requireIdentifier(call.name, `${path}.name`);
   if (!isObject(call.input)) throw new TypeError(`${path}.input is invalid.`);
   if (call.kind === "function") {
+    if (call.namespace !== undefined) requireIdentifier(call.namespace, `${path}.namespace`);
     if (call.input.kind !== "json-object") throw new TypeError(`${path}.input kind must be json-object.`);
     validateJsonObject(call.input.value, `${path}.input.value`);
   } else {
@@ -353,6 +369,10 @@ function requireIdentifier(value: unknown, path: string): asserts value is strin
   if (typeof value !== "string" || value.length === 0 || value.length > 256 || value !== value.trim()) {
     throw new TypeError(`${path} must be a non-empty canonical identifier of at most 256 characters.`);
   }
+}
+
+function modelToolIdentity(tool: { readonly name: string; readonly namespace?: string }): string {
+  return `${tool.namespace ?? ""}\u0000${tool.name}`;
 }
 
 function isToolResultPart(value: unknown): value is ModelToolResultPart {

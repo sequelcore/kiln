@@ -87,6 +87,16 @@ describe("Codex OAuth outbound request codec", () => {
   it("omits the caller output-token limit unsupported by the pinned Codex endpoint", () => {
     expect(encodeCodexOAuthResponsesRequest(dispatchInput({ history: [], maxOutputTokens: 10 }))).not.toHaveProperty("max_output_tokens");
   });
+
+  it("groups namespaced function tools and preserves namespace on function history", () => {
+    const body = encodeCodexOAuthResponsesRequest(dispatchInput({
+      history: [{ role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", namespace: "workspace", id: "call-read", name: "read", input: { kind: "json-object", value: {} } } }] }],
+      tools: [{ kind: "function", namespace: "workspace", namespaceDescription: "Workspace operations", name: "read", description: "Read", inputSchema: { type: "object" }, strict: true }],
+    }));
+
+    expect(body.tools).toEqual([{ type: "namespace", name: "workspace", description: "Workspace operations", tools: [{ type: "function", name: "read", description: "Read", parameters: { type: "object" }, strict: true }] }]);
+    expect(body.input).toEqual([{ type: "function_call", namespace: "workspace", call_id: "call-read", name: "read", arguments: "{}" }]);
+  });
 });
 
 describe("CodexOAuthModelTurnDispatcher", () => {
@@ -111,6 +121,19 @@ describe("CodexOAuthModelTurnDispatcher", () => {
       { type: "tool-call", call: { kind: "function", id: "call_fn", name: "lookup", input: { kind: "json-object", value: { id: 7 } } } },
       { type: "tool-call", call: { kind: "custom", id: "call_custom", name: "apply_patch", input: { kind: "raw-text", value: raw } } },
     ], usage: { inputTokens: 9, outputTokens: 4, cacheReadTokens: 3, cacheWriteTokens: 0 }, stopReason: "tool_use" });
+  });
+
+  it("preserves namespace on provider function calls", async () => {
+    const output = [{ type: "function_call", id: "fc_ns", call_id: "call_ns", namespace: "workspace", name: "read", arguments: "{}" }];
+    const fetchFn = vi.fn(async () => sseResponse([{ type: "response.output_item.done", item: output[0] }, completed(output)]));
+    const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
+
+    const result = await dispatcher.dispatchOneRound(dispatchInput({
+      history: [],
+      tools: [{ kind: "function", namespace: "workspace", name: "read", inputSchema: {} }],
+    }));
+
+    expect(result.parts).toEqual([{ type: "tool-call", call: { kind: "function", namespace: "workspace", id: "call_ns", name: "read", input: { kind: "json-object", value: {} } } }]);
   });
 
   it("rejects binding and capability errors without fetching", async () => {

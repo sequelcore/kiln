@@ -1,16 +1,19 @@
 /** Pure, clean-room boundary for the Codex CLI 0.144.5 Responses wire subset. */
 export const OPENAI_RESPONSES_PROTOCOL_LIMITS = {
   maxStringLength: 65_536,
+  maxMessageContentLength: 262_144,
   maxImageDataUrlLength: 35_000_000,
   maxAggregateStringBytes: 50 * 1024 * 1024,
   maxPortableNodes: 25_000,
   maxPortableProperties: 50_000,
   maxPortableDepth: 32,
   maxInputItems: 128,
-  maxTools: 32,
+  maxTopLevelTools: 32,
+  maxNamespaceTools: 32,
+  maxExpandedTools: 128,
   maxMetadataEntries: 16,
   maxMetadataKeyLength: 64,
-  maxMetadataValueLength: 512,
+  maxMetadataValueLength: 4_096,
 } as const;
 
 export class OpenAIResponsesProtocolError extends Error {
@@ -18,12 +21,13 @@ export class OpenAIResponsesProtocolError extends Error {
 }
 
 type RecordValue = Record<string, unknown>;
-export type OpenAIResponsesRequest = RecordValue & { model: string; input: unknown[]; stream: true; store: false };
+export type OpenAIResponsesRequest = RecordValue & { model: string; input: unknown[]; stream: true; store: false; max_output_tokens?: number };
 
 const TOP_LEVEL_KEYS = new Set([
   "model", "instructions", "input", "tools", "tool_choice", "parallel_tool_calls",
   "reasoning", "text", "stream", "stream_options", "store", "include",
   "prompt_cache_key", "service_tier", "client_metadata",
+  "max_output_tokens",
 ]);
 const CALL_TYPES = new Set(["function_call", "custom_tool_call", "local_shell_call", "tool_search_call"]);
 const INPUT_TYPES = new Set([
@@ -129,11 +133,11 @@ function validJson(value: unknown, label: string): void {
 }
 
 function validateContent(content: unknown, role: string): void {
-  if (typeof content === "string") { boundedString(content, "message content"); return; }
+  if (typeof content === "string") { boundedString(content, "message content", OPENAI_RESPONSES_PROTOCOL_LIMITS.maxMessageContentLength); return; }
   const parts = array(content, "message content"); if (parts.length === 0) fail("message content must not be empty");
   for (const part of parts) {
     const entry = dataObject(part, "content part");
-    if (entry.type === "input_text") { noUnknown(entry, ["type", "text"], "input_text"); boundedString(entry.text, "input_text.text"); continue; }
+    if (entry.type === "input_text") { noUnknown(entry, ["type", "text"], "input_text"); boundedString(entry.text, "input_text.text", OPENAI_RESPONSES_PROTOCOL_LIMITS.maxMessageContentLength); continue; }
     if (entry.type === "output_text" && role === "assistant") {
       noUnknown(entry, ["type", "text", "annotations", "logprobs"], "output_text"); boundedString(entry.text, "output_text.text");
       if (entry.annotations !== undefined) portable(array(entry.annotations, "output_text.annotations"), "output_text.annotations");
@@ -201,35 +205,66 @@ function validateInputItem(value: unknown, callIds: Map<string, CallRecord>): vo
 }
 
 function validateTools(value: unknown): void {
-  const tools = array(value, "tools"); if (tools.length > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxTools) fail("tools exceeds the supported bound");
+  const tools = array(value, "tools"); if (tools.length > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxTopLevelTools) fail("tools exceeds the supported bound");
+  let expandedTools = 0;
   for (const raw of tools) {
     const tool = dataObject(raw, "tool"); const type = boundedString(tool.type, "tool.type");
-    if (type === "function") { noUnknown(tool, ["type", "name", "description", "parameters", "strict", "namespace", "defer_loading"], "function tool"); boundedString(tool.name, "function tool.name"); optionalString(tool.description, "function tool.description"); optionalString(tool.namespace, "function tool.namespace"); if (tool.strict !== undefined && typeof tool.strict !== "boolean") fail("function tool.strict must be boolean"); if (tool.defer_loading !== undefined && typeof tool.defer_loading !== "boolean") fail("function tool.defer_loading must be boolean"); if (tool.parameters !== undefined) portable(dataObject(tool.parameters, "function tool.parameters"), "function tool.parameters"); }
+    if (type === "function") { expandedTools++; noUnknown(tool, ["type", "name", "description", "parameters", "strict", "namespace", "defer_loading"], "function tool"); boundedString(tool.name, "function tool.name"); optionalString(tool.description, "function tool.description"); optionalString(tool.namespace, "function tool.namespace"); if (tool.strict !== undefined && typeof tool.strict !== "boolean") fail("function tool.strict must be boolean"); if (tool.defer_loading !== undefined && typeof tool.defer_loading !== "boolean") fail("function tool.defer_loading must be boolean"); if (tool.parameters !== undefined) portable(dataObject(tool.parameters, "function tool.parameters"), "function tool.parameters"); }
     else if (type === "custom") {
+      expandedTools++;
       noUnknown(tool, ["type", "name", "description", "format", "namespace", "defer_loading"], "custom tool"); boundedString(tool.name, "custom tool.name"); optionalString(tool.description, "custom tool.description"); optionalString(tool.namespace, "custom tool.namespace"); if (tool.defer_loading !== undefined && typeof tool.defer_loading !== "boolean") fail("custom tool.defer_loading must be boolean");
       if (tool.format !== undefined) { const format = dataObject(tool.format, "custom tool.format"); noUnknown(format, ["type", "syntax", "definition"], "custom tool.format"); if (format.type !== "grammar") fail("custom tool.format.type is unsupported"); oneOf(format.syntax, ["lark"], "custom tool.format.syntax"); boundedString(format.definition, "custom tool.format.definition"); }
-    } else if (type === "tool_search") { noUnknown(tool, ["type", "description"], "tool_search tool"); optionalString(tool.description, "tool_search.description"); }
+    } else if (type === "tool_search") { expandedTools++; noUnknown(tool, ["type", "description"], "tool_search tool"); optionalString(tool.description, "tool_search.description"); }
+    else if (type === "namespace") {
+      noUnknown(tool, ["type", "name", "description", "tools"], "namespace tool");
+      boundedString(tool.name, "namespace tool.name"); optionalString(tool.description, "namespace tool.description");
+      const nested = array(tool.tools, "namespace tool.tools");
+      if (nested.length === 0 || nested.length > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxNamespaceTools) fail("namespace tool.tools exceeds the supported bound");
+      expandedTools += nested.length;
+      for (const rawNested of nested) {
+        const nestedTool = dataObject(rawNested, "namespace function tool");
+        if (nestedTool.type !== "function") fail("namespace tools must be functions");
+        noUnknown(nestedTool, ["type", "name", "description", "parameters", "strict"], "namespace function tool");
+        boundedString(nestedTool.name, "namespace function tool.name"); optionalString(nestedTool.description, "namespace function tool.description");
+        if (nestedTool.strict !== undefined && typeof nestedTool.strict !== "boolean") fail("namespace function tool.strict must be boolean");
+        if (nestedTool.parameters !== undefined) portable(dataObject(nestedTool.parameters, "namespace function tool.parameters"), "namespace function tool.parameters");
+      }
+    } else if (type === "web_search") {
+      expandedTools++;
+      noUnknown(tool, ["type", "external_web_access"], "web_search tool");
+      if (typeof tool.external_web_access !== "boolean") fail("web_search tool.external_web_access must be boolean");
+    }
     else fail("unsupported tool type");
+    if (expandedTools > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxExpandedTools) fail("tools exceeds the expanded tool bound");
   }
 }
 
 export function parseOpenAIResponsesRequest(value: unknown): OpenAIResponsesRequest {
   validatePlainDataBudget(value);
-  const request = dataObject(value, "request"); for (const key of Object.keys(request)) if (!TOP_LEVEL_KEYS.has(key)) fail(`unknown top-level field '${key}'`);
+  const source = dataObject(value, "request"); for (const key of Object.keys(source)) if (!TOP_LEVEL_KEYS.has(key)) fail(`unknown top-level field '${key}'`);
+  const request = structuredClone(source);
+  if (request.reasoning === null) delete request.reasoning;
+  if (Array.isArray(request.input)) for (const raw of request.input) {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const item = raw as RecordValue;
+    if (item.type === undefined && item.role !== undefined && item.content !== undefined) item.type = "message";
+    if (item.type === "message" && item.role === "system") item.role = "developer";
+  }
   boundedString(request.model, "model"); optionalString(request.instructions, "instructions");
   if (request.stream !== true) fail("only stream=true is supported"); if (request.store !== false) fail("only store=false is supported");
   const input = array(request.input, "input"); if (input.length === 0 || input.length > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxInputItems) fail("input must be within the supported item bound");
   const callIds = new Map<string, CallRecord>(); for (const item of input) validateInputItem(item, callIds);
   if (request.tools !== undefined) validateTools(request.tools);
   if (request.parallel_tool_calls !== undefined && typeof request.parallel_tool_calls !== "boolean") fail("parallel_tool_calls must be boolean");
-  if (request.tool_choice !== undefined && !["auto", "none", "required"].includes(request.tool_choice as string)) { const choice = dataObject(request.tool_choice, "tool_choice"); noUnknown(choice, ["type", "name"], "tool_choice"); oneOf(choice.type, ["function", "custom"], "tool_choice.type"); boundedString(choice.name, "tool_choice.name"); }
+  if (request.tool_choice !== undefined && !["auto", "none", "required"].includes(request.tool_choice as string)) { const choice = dataObject(request.tool_choice, "tool_choice"); noUnknown(choice, ["type", "namespace", "name"], "tool_choice"); const type = oneOf(choice.type, ["function", "custom"], "tool_choice.type"); if (type === "custom" && choice.namespace !== undefined) fail("custom tool_choice does not support namespace"); optionalString(choice.namespace, "tool_choice.namespace"); boundedString(choice.name, "tool_choice.name"); }
   if (request.reasoning !== undefined) { const reasoning = dataObject(request.reasoning, "reasoning"); noUnknown(reasoning, ["effort", "summary", "context"], "reasoning"); if (reasoning.effort !== undefined) oneOf(reasoning.effort, ["low", "medium", "high", "xhigh"], "reasoning.effort"); if (reasoning.summary !== undefined) oneOf(reasoning.summary, ["auto", "concise", "detailed"], "reasoning.summary"); if (reasoning.context !== undefined) oneOf(reasoning.context, ["auto", "current_turn", "all_turns"], "reasoning.context"); }
   if (request.stream_options !== undefined) { const options = dataObject(request.stream_options, "stream_options"); noUnknown(options, ["reasoning_summary_delivery"], "stream_options"); oneOf(options.reasoning_summary_delivery, ["sequential_cutoff"], "stream_options.reasoning_summary_delivery"); }
   if (request.include !== undefined) for (const entry of array(request.include, "include")) oneOf(entry, ["reasoning.encrypted_content"], "include entry");
   if (request.text !== undefined) { const text = dataObject(request.text, "text"); noUnknown(text, ["verbosity", "format"], "text"); if (text.verbosity !== undefined) oneOf(text.verbosity, ["low", "medium", "high"], "text.verbosity"); if (text.format !== undefined) { const format = dataObject(text.format, "text.format"); noUnknown(format, ["type", "name", "schema", "strict"], "text.format"); if (format.type !== "json_schema") fail("unsupported text format"); boundedString(format.name, "text.format.name"); portable(dataObject(format.schema, "text.format.schema"), "text.format.schema"); if (format.strict !== undefined && typeof format.strict !== "boolean") fail("text.format.strict must be boolean"); } }
   optionalString(request.prompt_cache_key, "prompt_cache_key"); optionalString(request.service_tier, "service_tier");
+  if (request.max_output_tokens !== undefined && (!Number.isSafeInteger(request.max_output_tokens) || (request.max_output_tokens as number) <= 0)) fail("max_output_tokens must be a positive integer");
   if (request.client_metadata !== undefined) { const metadata = dataObject(request.client_metadata, "client_metadata"); const entries = Object.entries(metadata); if (entries.length > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxMetadataEntries) fail("client_metadata exceeds entry bound"); for (const [key, entry] of entries) if (key.length > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxMetadataKeyLength || typeof entry !== "string" || entry.length > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxMetadataValueLength) fail("client_metadata exceeds documented bounds"); }
-  return structuredClone(request) as OpenAIResponsesRequest;
+  return request as OpenAIResponsesRequest;
 }
 
 export type ResponsesSseEvent = RecordValue & { type: string; sequence_number: number };
@@ -266,7 +301,7 @@ export function createResponsesStreamState(response: { responseId: string; model
     reasoningSummaryPartAdded: (itemId: string, outputIndex: number, summaryIndex: number) => { const item = requireActive("reasoning", itemId, outputIndex, ["added"]); item.stage = "summary_part_added"; return event("response.reasoning_summary_part.added", { item_id: itemId, output_index: outputIndex, summary_index: summaryIndex, part: { type: "summary_text", text: "" } }); },
     reasoningSummaryTextDelta: (itemId: string, outputIndex: number, summaryIndex: number, delta: string) => { const item = requireActive("reasoning", itemId, outputIndex, ["summary_part_added", "summary_delta"]); item.stage = "summary_delta"; return event("response.reasoning_summary_text.delta", { item_id: itemId, output_index: outputIndex, summary_index: summaryIndex, delta }); },
     reasoningSummaryTextDone: (itemId: string, outputIndex: number, summaryIndex: number, text: string) => { const item = requireActive("reasoning", itemId, outputIndex, ["summary_part_added", "summary_delta"]); item.stage = "summary_done"; return event("response.reasoning_summary_text.done", { item_id: itemId, output_index: outputIndex, summary_index: summaryIndex, text }); },
-    functionCallAdded: (input: { itemId: string; callId: string; name: string; outputIndex: number }) => add("function_call", input.itemId, input.outputIndex, { id: input.itemId, type: "function_call", call_id: input.callId, name: input.name, arguments: "", status: "in_progress" }),
+    functionCallAdded: (input: { itemId: string; callId: string; namespace?: string; name: string; outputIndex: number }) => add("function_call", input.itemId, input.outputIndex, { id: input.itemId, type: "function_call", call_id: input.callId, ...(input.namespace === undefined ? {} : { namespace: input.namespace }), name: input.name, arguments: "", status: "in_progress" }),
     functionCallArgumentsDelta: (itemId: string, outputIndex: number, delta: string) => { const item = requireActive("function_call", itemId, outputIndex, ["added", "delta"]); item.stage = "delta"; return event("response.function_call_arguments.delta", { item_id: itemId, output_index: outputIndex, delta }); },
     functionCallArgumentsDone: (itemId: string, outputIndex: number, argumentsValue: string) => { validJson(argumentsValue, "function call arguments"); const item = requireActive("function_call", itemId, outputIndex, ["added", "delta"]); item.stage = "arguments_done"; return event("response.function_call_arguments.done", { item_id: itemId, output_index: outputIndex, arguments: argumentsValue }); },
     customToolCallAdded: (input: { itemId: string; callId: string; name: string; outputIndex: number }) => add("custom_tool_call", input.itemId, input.outputIndex, { id: input.itemId, type: "custom_tool_call", call_id: input.callId, name: input.name, input: "", status: "in_progress" }),

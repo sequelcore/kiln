@@ -68,6 +68,109 @@ describe("parseOpenAIResponsesRequest", () => {
     expect(parsed.input).toHaveLength(6);
   });
 
+  it("accepts the current Codex CLI namespace and web-search tool shapes", () => {
+    const parsed = parseOpenAIResponsesRequest({
+      ...request,
+      reasoning: null,
+      tools: [
+        {
+          type: "namespace",
+          name: "workspace",
+          description: "Workspace operations",
+          tools: [{
+            type: "function",
+            name: "read_file",
+            description: "Read a workspace file",
+            parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+            strict: true,
+          }],
+        },
+        { type: "web_search", external_web_access: true },
+      ],
+    });
+
+    expect(parsed.tools).toEqual([
+      expect.objectContaining({ type: "namespace", name: "workspace" }),
+      { type: "web_search", external_web_access: true },
+    ]);
+    expect(parsed.reasoning).toBeUndefined();
+  });
+
+  it("accepts namespaced function tool choice", () => {
+    const parsed = parseOpenAIResponsesRequest({
+      ...request,
+      tool_choice: { type: "function", namespace: "workspace", name: "read_file" },
+    });
+
+    expect(parsed.tool_choice).toEqual({ type: "function", namespace: "workspace", name: "read_file" });
+  });
+
+  it("bounds expanded namespace tools independently from top-level tools", () => {
+    const namespace = (name: string, count: number) => ({
+      type: "namespace",
+      name,
+      tools: Array.from({ length: count }, (_, index) => ({
+        type: "function",
+        name: `tool_${index}`,
+        parameters: { type: "object" },
+      })),
+    });
+
+    expect(() => parseOpenAIResponsesRequest({
+      ...request,
+      tools: Array.from({ length: 4 }, (_, index) => namespace(`group_${index}`, 32)),
+    })).not.toThrow();
+    expect(() => parseOpenAIResponsesRequest({
+      ...request,
+      tools: [...Array.from({ length: 4 }, (_, index) => namespace(`group_${index}`, 32)), namespace("overflow", 1)],
+    })).toThrow("expanded tool bound");
+  });
+
+  it("normalizes the OpenCode Responses message shorthand and output limit", () => {
+    const parsed = parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [
+        { role: "system", content: "Follow the operator policy." },
+        { role: "user", content: [{ type: "input_text", text: "hello" }] },
+      ],
+      max_output_tokens: 4096,
+      stream: true,
+      store: false,
+    });
+
+    expect(parsed.input).toEqual([
+      { type: "message", role: "developer", content: "Follow the operator policy." },
+      { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] },
+    ]);
+    expect(parsed.max_output_tokens).toBe(4096);
+  });
+
+  it("accepts bounded current Codex turn metadata", () => {
+    expect(() => parseOpenAIResponsesRequest({
+      ...request,
+      client_metadata: { "x-codex-turn-metadata": "x".repeat(588) },
+    })).not.toThrow();
+    expect(() => parseOpenAIResponsesRequest({
+      ...request,
+      client_metadata: { "x-codex-turn-metadata": "x".repeat(4097) },
+    })).toThrow("client_metadata exceeds documented bounds");
+  });
+
+  it("accepts a bounded OpenCode system prompt larger than 64 KiB", () => {
+    expect(() => parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [{ role: "system", content: "x".repeat(71_879) }],
+      stream: true,
+      store: false,
+    })).not.toThrow();
+    expect(() => parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [{ role: "system", content: "x".repeat(262_145) }],
+      stream: true,
+      store: false,
+    })).toThrow("message content exceeds");
+  });
+
   it("returns a detached plain-data snapshot", () => {
     const source = structuredClone(request);
     const parsed = parseOpenAIResponsesRequest(source);
@@ -113,7 +216,7 @@ describe("parseOpenAIResponsesRequest", () => {
     [{ ...request, input: [{ type: "computer_call" }] }, "unsupported input item type"],
     [{ ...request, input: [{ type: "function_call", call_id: "a", name: "x", arguments: "{" }] }, "valid JSON"],
     [{ ...request, input: [{ type: "function_call", call_id: "same", name: "x", arguments: "{}" }, { type: "custom_tool_call", call_id: "same", name: "x", input: "x" }] }, "duplicate call_id"],
-    [{ ...request, tools: [{ type: "web_search" }] }, "unsupported tool type"],
+    [{ ...request, tools: [{ type: "web_search" }] }, "external_web_access"],
     [{ ...request, model: "x".repeat(65_537) }, "model exceeds"],
     [{ ...request, input: [{ type: "function_call_output", call_id: "missing", output: "x" }] }, "matching earlier call"],
     [{ ...request, input: [{ type: "custom_tool_call", call_id: "call_1", name: "x", input: "x" }, { type: "function_call_output", call_id: "call_1", output: "x" }] }, "matching function"],

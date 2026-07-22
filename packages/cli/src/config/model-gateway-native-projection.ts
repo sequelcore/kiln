@@ -113,6 +113,7 @@ export function buildCodexResponsesProjection(input: {
     patch: {
       model_provider: "kiln",
       model_catalog_json: input.modelCatalogPath,
+      web_search: "disabled",
       model_providers: {
         kiln: {
           name: "Kiln",
@@ -127,7 +128,7 @@ export function buildCodexResponsesProjection(input: {
       },
       ...(defaultModel ? { model: defaultModel } : {}),
     },
-    managedFields: ["model_provider", "model_catalog_json", "model_providers.kiln", ...(defaultModel ? ["model"] : [])],
+    managedFields: ["model_provider", "model_catalog_json", "web_search", "model_providers.kiln", ...(defaultModel ? ["model"] : [])],
     catalog: { models: models.map((model, index) => codexModelInfo(model, index)) },
   };
 }

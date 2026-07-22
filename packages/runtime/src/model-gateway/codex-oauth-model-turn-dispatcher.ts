@@ -78,7 +78,7 @@ export function encodeCodexOAuthResponsesRequest(input: ModelGatewayOneRoundDisp
         if (part.type === "reasoning-summary") wireInput.push({ type: "reasoning", summary: [{ type: "summary_text", text: part.text }] });
         else if (part.type === "tool-call") {
           calls.set(part.call.id, part.call.kind);
-          if (part.call.kind === "function") wireInput.push({ type: "function_call", call_id: part.call.id, name: part.call.name, arguments: JSON.stringify(part.call.input.value) });
+          if (part.call.kind === "function") wireInput.push({ type: "function_call", ...(part.call.namespace === undefined ? {} : { namespace: part.call.namespace }), call_id: part.call.id, name: part.call.name, arguments: JSON.stringify(part.call.input.value) });
           else wireInput.push({ type: "custom_tool_call", call_id: part.call.id, name: part.call.name, input: part.call.input.value });
         } else {
           if (part.isError === true) unsupported("Error tool results are not representable without changing their semantics.");
@@ -89,20 +89,14 @@ export function encodeCodexOAuthResponsesRequest(input: ModelGatewayOneRoundDisp
     }
     if (normal.length > 0) wireInput.push({ type: "message", role: message.role, content: normal });
   }
-  const tools = input.turn.tools?.map((tool): WireRecord => tool.kind === "function" ? {
-    type: "function", name: tool.name, ...(tool.description === undefined ? {} : { description: tool.description }),
-    parameters: structuredClone(tool.inputSchema), ...(tool.strict === undefined ? {} : { strict: tool.strict }),
-  } : {
-    type: "custom", name: tool.name, ...(tool.description === undefined ? {} : { description: tool.description }),
-    format: { type: "grammar", syntax: "lark", definition: tool.grammar.source },
-  });
+  const tools = encodeTools(input.turn.tools);
   let toolChoice: unknown = "auto";
   if (input.turn.toolChoice?.kind === "none" || input.turn.toolChoice?.kind === "required" || input.turn.toolChoice?.kind === "auto") toolChoice = input.turn.toolChoice.kind;
   else if (input.turn.toolChoice?.kind === "tool") {
-    const selectedName = input.turn.toolChoice.name;
-    const selected = input.turn.tools?.find((tool) => tool.name === selectedName);
+    const choice = input.turn.toolChoice; const selectedName = choice.name;
+    const selected = input.turn.tools?.find((tool) => tool.name === selectedName && (tool.kind !== "function" || tool.namespace === choice.namespace));
     if (!selected) unsupported("Selected tool is unavailable.");
-    toolChoice = { type: selected.kind === "function" ? "function" : "custom", name: selected.name };
+    toolChoice = { type: selected.kind === "function" ? "function" : "custom", ...(selected.kind === "function" && selected.namespace !== undefined ? { namespace: selected.namespace } : {}), name: selected.name };
   }
   const body: WireRecord = {
     model: input.route.providerModelId,
@@ -119,6 +113,33 @@ export function encodeCodexOAuthResponsesRequest(input: ModelGatewayOneRoundDisp
     ...(input.turn.responseFormat === undefined ? {} : { format: { type: "json_schema", name: input.turn.responseFormat.name, schema: structuredClone(input.turn.responseFormat.schema), strict: input.turn.responseFormat.strict ?? false } }),
   };
   return body;
+}
+
+function encodeTools(tools: ModelTurn["tools"]): WireRecord[] | undefined {
+  if (tools === undefined) return undefined;
+  const encoded: WireRecord[] = [];
+  const namespaces = new Map<string, WireRecord>();
+  for (const tool of tools) {
+    if (tool.kind === "function") {
+      const wire = {
+        type: "function", name: tool.name, ...(tool.description === undefined ? {} : { description: tool.description }),
+        parameters: structuredClone(tool.inputSchema), ...(tool.strict === undefined ? {} : { strict: tool.strict }),
+      };
+      if (tool.namespace === undefined) encoded.push(wire);
+      else {
+        let group = namespaces.get(tool.namespace);
+        if (group === undefined) {
+          group = { type: "namespace", name: tool.namespace, ...(tool.namespaceDescription === undefined ? {} : { description: tool.namespaceDescription }), tools: [] };
+          namespaces.set(tool.namespace, group); encoded.push(group);
+        }
+        (group.tools as WireRecord[]).push(wire);
+      }
+    } else encoded.push({
+      type: "custom", name: tool.name, ...(tool.description === undefined ? {} : { description: tool.description }),
+      format: { type: "grammar", syntax: "lark", definition: tool.grammar.source },
+    });
+  }
+  return encoded;
 }
 
 function safeRequestId(headers: Headers): string | undefined {
@@ -149,7 +170,7 @@ function decodeDoneItem(itemValue: unknown): DecodedOutputItem {
     if (typeof item.call_id !== "string" || typeof item.name !== "string" || typeof item.arguments !== "string") throw new CodexOAuthModelTurnError("malformed-sse", "A recognized function call was malformed.");
     let value: unknown; try { value = JSON.parse(item.arguments); } catch { throw new CodexOAuthModelTurnError("malformed-sse", "A function call contained invalid JSON arguments."); }
     if (!object(value)) throw new CodexOAuthModelTurnError("malformed-sse", "Function arguments must be a JSON object.");
-    return { id: item.id, callId: item.call_id, parts: [{ type: "tool-call", call: { kind: "function", id: item.call_id, name: item.name, input: { kind: "json-object", value: value as ModelJsonObject } } }] };
+    return { id: item.id, callId: item.call_id, parts: [{ type: "tool-call", call: { kind: "function", ...(typeof item.namespace === "string" ? { namespace: item.namespace } : {}), id: item.call_id, name: item.name, input: { kind: "json-object", value: value as ModelJsonObject } } }] };
   }
   if (item.type === "custom_tool_call") {
     if (typeof item.call_id !== "string" || typeof item.name !== "string" || typeof item.input !== "string") throw new CodexOAuthModelTurnError("malformed-sse", "A recognized custom tool call was malformed.");

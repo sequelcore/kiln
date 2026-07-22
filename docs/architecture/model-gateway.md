@@ -155,11 +155,25 @@ The other providers use a capability-limited one-round bridge over a raw,
 exact-credential adapter.
 
 The portable adapter intersection is text, URL/base64 images where the
-transport supports them, and function tools. Codex OAuth may additionally
-advertise its proven Responses capabilities. Custom Lark tools, parallel-tool
-flags, JSON-schema response formats, reasoning controls, and text verbosity
-are rejected for generic adapter routes before provider dispatch; config may
-not advertise them on those routes.
+transport supports them, function tools, a positive output-token limit, and
+the sequential default represented by `parallelToolCalls: false`. Codex OAuth
+may additionally advertise its proven Responses capabilities. Custom Lark
+tools, parallel execution, JSON-schema response formats, reasoning controls,
+and text verbosity are rejected for generic adapter routes before provider
+dispatch; config may not advertise them on those routes.
+
+Function identity is the pair `(namespace, name)`, not an unqualified name.
+Codex namespace envelopes map to that neutral identity and are reconstructed
+for Codex OAuth. Flat function transports receive bounded, collision-safe
+aliases for one provider round; responses are mapped back to the original
+namespace identity before returning to the caller. Namespace metadata is never
+silently discarded or concatenated into a canonical tool name.
+
+Provider-hosted search is not the same capability as Kiln's governed
+`web_search` tool. Until a route has an explicit hosted-search capability and
+proven response projection, the Codex native projection disables hosted web
+search and the Responses ingress rejects an advertised `web_search` tool
+before dispatch. No adapter substitutes one search authority for the other.
 
 Every provider/model/harness combination has explicit capability evidence.
 Protocol translation does not imply tool, reasoning, context, resume, billing,

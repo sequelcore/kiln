@@ -70,6 +70,74 @@ describe("OpenAI Responses to ModelTurn anti-corruption mapping", () => {
     });
   });
 
+  it("maps the OpenCode output-token limit into the neutral turn", () => {
+    const request = parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [{ role: "user", content: "hello" }],
+      max_output_tokens: 4096,
+      stream: true,
+      store: false,
+    });
+
+    expect(mapOpenAIResponsesRequestToModelTurn(request).maxOutputTokens).toBe(4096);
+  });
+
+  it("preserves namespace identity for grouped Codex function tools and calls", () => {
+    const request = parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [{ type: "function_call", call_id: "call-read", namespace: "workspace", name: "read", arguments: "{}" }],
+      tools: [{
+        type: "namespace",
+        name: "workspace",
+        description: "Workspace operations",
+        tools: [{ type: "function", name: "read", parameters: { type: "object" }, strict: true }],
+      }],
+      stream: true,
+      store: false,
+    });
+
+    const turn = mapOpenAIResponsesRequestToModelTurn(request);
+    expect(turn.tools).toEqual([{ kind: "function", namespace: "workspace", namespaceDescription: "Workspace operations", name: "read", inputSchema: { type: "object" }, strict: true }]);
+    expect(turn.history).toEqual([{ role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", namespace: "workspace", id: "call-read", name: "read", input: { kind: "json-object", value: {} } } }] }]);
+  });
+
+  it("preserves namespace identity in an explicit function tool choice", () => {
+    const request = parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [{ role: "user", content: "read it" }],
+      tools: [{
+        type: "namespace",
+        name: "workspace",
+        tools: [{ type: "function", name: "read", parameters: { type: "object" } }],
+      }],
+      tool_choice: { type: "function", namespace: "workspace", name: "read" },
+      stream: true,
+      store: false,
+    });
+
+    expect(mapOpenAIResponsesRequestToModelTurn(request).toolChoice).toEqual({
+      kind: "tool",
+      namespace: "workspace",
+      name: "read",
+    });
+  });
+
+  it("classifies provider-hosted web search separately from Kiln caller-owned tools", () => {
+    const request = parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [{ role: "user", content: "hello" }],
+      tools: [{ type: "web_search", external_web_access: true }],
+      stream: true,
+      store: false,
+    });
+
+    expect(inspectOpenAIResponsesModelTurnCapabilities(request).unsupported).toContainEqual({
+      code: "unsupported-provider-hosted-web-search",
+      path: "tools[0]",
+    });
+    expect(() => mapOpenAIResponsesRequestToModelTurn(request)).toThrow(expect.objectContaining({ code: "unsupported-provider-hosted-web-search" }));
+  });
+
   it.each([
     ["unsupported-item-reference", [{ type: "item_reference", id: "msg_1" }]],
     ["unsupported-reasoning-replay", [{ type: "reasoning", id: "rs_1", summary: [], encrypted_content: "opaque" }]],
@@ -146,5 +214,17 @@ describe("ModelTurnResult to Responses SSE", () => {
       usage: { input_tokens: 12, input_tokens_details: { cached_tokens: 4 }, output_tokens: 6, total_tokens: 18 },
     });
     expect(events.omissions).toEqual([{ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: 2, protocolVersion: "codex-0.144.5" }]);
+  });
+
+  it("projects namespace identity back onto Responses function-call events", () => {
+    const result: ModelTurnResult = {
+      parts: [{ type: "tool-call", call: { kind: "function", namespace: "workspace", id: "call-read", name: "read", input: { kind: "json-object", value: {} } } }],
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      stopReason: "tool_use",
+    };
+
+    const events = mapModelTurnResultToOpenAIResponsesEvents({ responseId: "resp_namespace", model: "synthetic-model", result });
+    expect(events.find((event) => event.type === "response.output_item.added")?.item).toMatchObject({ namespace: "workspace", name: "read" });
+    expect((events.at(-1)?.response as { output: unknown[] }).output).toEqual([expect.objectContaining({ namespace: "workspace", name: "read" })]);
   });
 });

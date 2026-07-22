@@ -83,6 +83,41 @@ describe("ProviderAdapterOneRoundDispatcher", () => {
     } satisfies Partial<CreateMessageOptions>));
   });
 
+  it("treats explicit parallelToolCalls false as the portable sequential default", async () => {
+    const provider = adapter();
+    const dispatcher = new ProviderAdapterOneRoundDispatcher({ account, providerId: "anthropic", adapter: provider });
+
+    await expect(dispatcher.dispatchOneRound(input(turn({ parallelToolCalls: false })))).resolves.toBeDefined();
+    expect(provider.createMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("projects namespaced function identities into reversible provider-safe aliases", async () => {
+    const createMessage = vi.fn(async (options: CreateMessageOptions): Promise<AgentResponse> => ({
+      parts: [], inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0,
+      toolCalls: [{ id: "call-next", name: options.tools![1]!.name, input: {} }], stopReason: "tool_use",
+    }));
+    const provider: ProviderAdapter = { name: "fixture", createMessage, async *streamMessage() { return; } };
+    const dispatcher = new ProviderAdapterOneRoundDispatcher({ account, providerId: "anthropic", adapter: provider });
+    const namespaced: ModelTurn = {
+      history: [{ role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", namespace: "files", id: "call-prior", name: "read", input: { kind: "json-object", value: {} } } }] }],
+      tools: [
+        { kind: "function", namespace: "database", name: "read", inputSchema: {} },
+        { kind: "function", namespace: "files", name: "read", inputSchema: {} },
+      ],
+      toolChoice: { kind: "tool", namespace: "files", name: "read" },
+    };
+
+    await expect(dispatcher.dispatchOneRound(input(namespaced))).resolves.toMatchObject({
+      parts: [{ type: "tool-call", call: { kind: "function", namespace: "files", id: "call-next", name: "read" } }],
+    });
+    const sent = createMessage.mock.calls[0]![0];
+    expect(sent.tools?.map((tool) => tool.name)).toHaveLength(2);
+    expect(new Set(sent.tools?.map((tool) => tool.name)).size).toBe(2);
+    expect(sent.tools?.every((tool) => /^kiln_ns_\d+_[A-Za-z0-9_-]+$/.test(tool.name))).toBe(true);
+    expect(sent.toolChoice).toEqual({ type: "tool", name: sent.tools![1]!.name });
+    expect(sent.messages[0]).toMatchObject({ parts: [{ type: "tool_use", name: sent.tools![1]!.name }] });
+  });
+
   it.each([
     ["custom tools", { tools: [{ kind: "custom", name: "shell", grammar: { syntax: "lark", source: "start: /x/" } }] }],
     ["parallel tool calls", { parallelToolCalls: true }],

@@ -307,6 +307,27 @@ describe("caller-owned one-round dispatcher", () => {
     })).toThrow("JSON object");
   });
 
+  it("uses namespace plus name as the identity of caller-owned function tools", () => {
+    const namespacedTurn = {
+      history: [{ role: "assistant" as const, parts: [{
+        type: "tool-call" as const,
+        call: { kind: "function" as const, namespace: "files", id: "call-read", name: "read", input: { kind: "json-object" as const, value: {} } },
+      }] }],
+      tools: [
+        { kind: "function" as const, namespace: "files", name: "read", inputSchema: {} },
+        { kind: "function" as const, namespace: "database", name: "read", inputSchema: {} },
+      ],
+      toolChoice: { kind: "tool" as const, namespace: "files", name: "read" },
+    };
+
+    expect(() => validateModelTurn(namespacedTurn)).not.toThrow();
+    expect(() => validateModelTurn({
+      ...namespacedTurn,
+      toolChoice: { kind: "tool", namespace: "missing", name: "read" },
+    })).toThrow("exist");
+    expect(() => validateModelTurn({ ...namespacedTurn, tools: [...namespacedTurn.tools, namespacedTurn.tools[0]!] })).toThrow("unique");
+  });
+
   it("requires tool results to match an earlier call id and kind without nesting", () => {
     expect(() => validateModelTurn({
       history: [{ role: "user", parts: [{ type: "tool-result", callId: "missing", content: [{ type: "text", text: "done" }] }] }],

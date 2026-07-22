@@ -22,6 +22,7 @@ export type OpenAIResponsesModelTurnErrorCode =
   | "unsupported-reasoning-context"
   | "unsupported-local-shell"
   | "unsupported-tool-search"
+  | "unsupported-provider-hosted-web-search"
   | "unsupported-image-file-id"
   | "unsupported-custom-tool-format"
   | "unsupported-route-capability"
@@ -87,6 +88,7 @@ function capabilityError(issue: OpenAIResponsesCapabilityIssue): OpenAIResponses
     "unsupported-reasoning-context": "Reasoning context selection is not supported by the model-turn boundary.",
     "unsupported-local-shell": "Local shell replay requires a capability that the model-turn boundary does not expose.",
     "unsupported-tool-search": "Tool-search replay requires a capability that the model-turn boundary does not expose.",
+    "unsupported-provider-hosted-web-search": "Provider-hosted web search is unavailable on this model-turn route.",
     "unsupported-image-file-id": "File-backed image references must be resolved before model-turn mapping.",
     "unsupported-custom-tool-format": "Custom tools require an explicit Lark grammar.",
   };
@@ -134,8 +136,9 @@ export function inspectOpenAIResponsesModelTurnCapabilities(request: OpenAIRespo
   }
   if (Array.isArray(request.tools)) for (const [index, raw] of request.tools.entries()) {
     const tool = asRecord(raw);
-    if (tool.type === "function") required.add("function-tools");
+    if (tool.type === "function" || tool.type === "namespace") required.add("function-tools");
     else if (tool.type === "tool_search") unsupported.push({ code: "unsupported-tool-search", path: `tools[${index}]` });
+    else if (tool.type === "web_search") unsupported.push({ code: "unsupported-provider-hosted-web-search", path: `tools[${index}]` });
     else if (tool.type === "custom") {
       required.add("custom-tools-lark");
       const format = tool.format === undefined ? undefined : asRecord(tool.format);
@@ -189,21 +192,30 @@ function mapToolResultContent(output: unknown, path: string): Array<{ type: "tex
 
 function mapTools(request: OpenAIResponsesRequest): ModelTool[] | undefined {
   if (!Array.isArray(request.tools)) return undefined;
-  return request.tools.map((raw, index) => {
+  return request.tools.flatMap((raw, index): ModelTool[] => {
     const tool = asRecord(raw);
-    if (tool.type === "function") return {
+    if (tool.type === "function") return [{
       kind: "function", name: tool.name as string,
       ...(tool.description === undefined ? {} : { description: tool.description as string }),
       inputSchema: cloneJsonObject(tool.parameters),
       ...(tool.strict === undefined ? {} : { strict: tool.strict as boolean }),
-    };
+    }];
+    if (tool.type === "namespace") return (tool.tools as unknown[]).map((rawNested): ModelTool => {
+      const nested = asRecord(rawNested);
+      return {
+        kind: "function", namespace: tool.name as string, ...(tool.description === undefined ? {} : { namespaceDescription: tool.description as string }), name: nested.name as string,
+        ...(nested.description === undefined ? {} : { description: nested.description as string }),
+        inputSchema: cloneJsonObject(nested.parameters),
+        ...(nested.strict === undefined ? {} : { strict: nested.strict as boolean }),
+      };
+    });
     const format = tool.format === undefined ? undefined : asRecord(tool.format);
     if (!format || format.type !== "grammar" || format.syntax !== "lark" || typeof format.definition !== "string" || format.definition.length === 0) throw capabilityError({ code: "unsupported-custom-tool-format", path: `tools[${index}].format` });
-    return {
+    return [{
       kind: "custom", name: tool.name as string,
       ...(tool.description === undefined ? {} : { description: tool.description as string }),
       grammar: { syntax: "lark", source: format.definition },
-    };
+    }];
   });
 }
 
@@ -220,7 +232,7 @@ export function mapOpenAIResponsesRequestToModelTurn(request: OpenAIResponsesReq
     } else if (item.type === "function_call") {
       let value: unknown; try { value = JSON.parse(item.arguments as string); } catch { throw new OpenAIResponsesModelTurnError("invalid-function-arguments", "Function arguments must contain a JSON object.", `${path}.arguments`); }
       if (value === null || typeof value !== "object" || Array.isArray(value)) throw new OpenAIResponsesModelTurnError("invalid-function-arguments", "Function arguments must contain a JSON object.", `${path}.arguments`);
-      history.push({ role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", id: item.call_id as string, name: item.name as string, input: { kind: "json-object", value: value as ModelJsonObject } } }] });
+      history.push({ role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", ...(item.namespace === undefined ? {} : { namespace: item.namespace as string }), id: item.call_id as string, name: item.name as string, input: { kind: "json-object", value: value as ModelJsonObject } } }] });
     } else if (item.type === "custom_tool_call") history.push({ role: "assistant", parts: [{ type: "tool-call", call: { kind: "custom", id: item.call_id as string, name: item.name as string, input: { kind: "raw-text", value: item.input as string } } }] });
     else if (item.type === "function_call_output" || item.type === "custom_tool_call_output") history.push({ role: "user", parts: [{ type: "tool-result", callId: item.call_id as string, content: mapToolResultContent(item.output, `${path}.output`) }] });
   }
@@ -228,7 +240,14 @@ export function mapOpenAIResponsesRequestToModelTurn(request: OpenAIResponsesReq
   const choice = request.tool_choice;
   let toolChoice: ModelToolChoice | undefined;
   if (choice === "auto" || choice === "none" || choice === "required") toolChoice = { kind: choice };
-  else if (choice !== undefined) toolChoice = { kind: "tool", name: asRecord(choice).name as string };
+  else if (choice !== undefined) {
+    const selected = asRecord(choice);
+    toolChoice = {
+      kind: "tool",
+      ...(selected.namespace === undefined ? {} : { namespace: selected.namespace as string }),
+      name: selected.name as string,
+    };
+  }
   const text = request.text === undefined ? undefined : asRecord(request.text); const format = text?.format === undefined ? undefined : asRecord(text.format);
   const reasoningWire = request.reasoning === undefined ? undefined : asRecord(request.reasoning);
   const turn: ModelTurn = {
@@ -238,6 +257,7 @@ export function mapOpenAIResponsesRequestToModelTurn(request: OpenAIResponsesReq
     ...(format === undefined ? {} : { responseFormat: { kind: "json-schema", name: format.name as string, schema: cloneJsonObject(format.schema), ...(format.strict === undefined ? {} : { strict: format.strict as boolean }) } as const }),
     ...(reasoningWire === undefined ? {} : { reasoning: { ...(reasoningWire.effort === undefined ? {} : { effort: reasoningWire.effort as "low" | "medium" | "high" | "xhigh" }), ...(reasoningWire.summary === undefined ? {} : { summary: reasoningWire.summary as "auto" | "concise" | "detailed" }) } }),
     ...(text?.verbosity === undefined ? {} : { textVerbosity: text.verbosity as "low" | "medium" | "high" }),
+    ...(request.max_output_tokens === undefined ? {} : { maxOutputTokens: request.max_output_tokens }),
   };
   validateModelTurn(turn); return structuredClone(turn);
 }
@@ -260,8 +280,8 @@ export function mapModelTurnResultToOpenAIResponsesEvents(input: {
       events.push(stream.outputItemDone({ itemId, outputIndex, item: { id: itemId, type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: part.text, annotations: [] }] } }));
     } else if (part.type === "tool-call" && part.call.kind === "function") {
       const itemId = `fc_${part.call.id}`; const argumentsValue = JSON.stringify(part.call.input.value);
-      events.push(stream.functionCallAdded({ itemId, callId: part.call.id, name: part.call.name, outputIndex }), stream.functionCallArgumentsDelta(itemId, outputIndex, argumentsValue), stream.functionCallArgumentsDone(itemId, outputIndex, argumentsValue));
-      events.push(stream.outputItemDone({ itemId, outputIndex, item: { id: itemId, type: "function_call", call_id: part.call.id, name: part.call.name, arguments: argumentsValue, status: "completed" } }));
+      events.push(stream.functionCallAdded({ itemId, callId: part.call.id, ...(part.call.namespace === undefined ? {} : { namespace: part.call.namespace }), name: part.call.name, outputIndex }), stream.functionCallArgumentsDelta(itemId, outputIndex, argumentsValue), stream.functionCallArgumentsDone(itemId, outputIndex, argumentsValue));
+      events.push(stream.outputItemDone({ itemId, outputIndex, item: { id: itemId, type: "function_call", call_id: part.call.id, ...(part.call.namespace === undefined ? {} : { namespace: part.call.namespace }), name: part.call.name, arguments: argumentsValue, status: "completed" } }));
     } else if (part.type === "tool-call" && part.call.kind === "custom") {
       const itemId = `ctc_${part.call.id}`; const raw = part.call.input.value;
       events.push(stream.customToolCallAdded({ itemId, callId: part.call.id, name: part.call.name, outputIndex }), stream.customToolCallInputDelta(itemId, outputIndex, raw), stream.customToolCallInputDone(itemId, outputIndex, raw));

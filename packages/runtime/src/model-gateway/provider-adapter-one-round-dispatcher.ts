@@ -10,6 +10,7 @@ import {
   type ModelGatewayOneRoundDispatchInput,
   type ModelJsonObject,
   type ModelPart,
+  type ModelTool,
   type ModelTurn,
   type ModelTurnMessage,
   type ModelTurnResult,
@@ -62,12 +63,18 @@ export class ProviderAdapterOneRoundDispatcher implements ModelGatewayOneRoundDi
       throw new ProviderAdapterOneRoundError("route-mismatch", "The dispatcher is bound to a different provider route.");
     }
 
-    const response = await this.#adapter.createMessage(toCreateMessageOptions(input));
-    return toModelTurnResult(response);
+    const projection = buildFunctionToolProjection(input.turn.tools ?? []);
+    const response = await this.#adapter.createMessage(toCreateMessageOptions(input, projection));
+    return toModelTurnResult(response, projection);
   }
 }
 
-function toCreateMessageOptions(input: ModelGatewayOneRoundDispatchInput): CreateMessageOptions {
+interface FunctionToolProjection {
+  readonly toWire: ReadonlyMap<string, string>;
+  readonly fromWire: ReadonlyMap<string, FunctionModelTool>;
+}
+
+function toCreateMessageOptions(input: ModelGatewayOneRoundDispatchInput, projection: FunctionToolProjection): CreateMessageOptions {
   assertSupportedTurn(input.turn);
   const system = [
     input.turn.instructions,
@@ -76,7 +83,7 @@ function toCreateMessageOptions(input: ModelGatewayOneRoundDispatchInput): Creat
       .map((message) => message.parts.map((part) => (part as { readonly text: string }).text).join("")),
   ].filter((value): value is string => value !== undefined && value.length > 0).join("\n\n");
   const tools = input.turn.tools?.filter((tool): tool is FunctionModelTool => tool.kind === "function").map((tool): ToolDefinition => ({
-    name: tool.name,
+    name: requireProjectedName(projection, tool.namespace, tool.name),
     description: tool.description ?? "",
     inputSchema: tool.inputSchema as Record<string, unknown>,
     ...(tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema as Record<string, unknown> }),
@@ -86,16 +93,16 @@ function toCreateMessageOptions(input: ModelGatewayOneRoundDispatchInput): Creat
   return {
     sessionId: input.sessionId,
     system,
-    messages: input.turn.history.filter((message) => message.role !== "developer").map(toAgentMessage),
+    messages: input.turn.history.filter((message) => message.role !== "developer").map((message) => toAgentMessage(message, projection)),
     ...(tools === undefined ? {} : { tools }),
-    ...(input.turn.toolChoice === undefined ? {} : { toolChoice: toToolChoice(input.turn.toolChoice) }),
+    ...(input.turn.toolChoice === undefined ? {} : { toolChoice: toToolChoice(input.turn.toolChoice, projection) }),
     ...(input.turn.maxOutputTokens === undefined ? {} : { maxTokens: input.turn.maxOutputTokens }),
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   };
 }
 
 function assertSupportedTurn(turn: ModelTurn): void {
-  if (turn.parallelToolCalls !== undefined) unsupported("parallel tool calls");
+  if (turn.parallelToolCalls === true) unsupported("parallel tool calls");
   if (turn.responseFormat !== undefined) unsupported("JSON-schema response formats");
   if (turn.reasoning !== undefined) unsupported("reasoning controls");
   if (turn.textVerbosity !== undefined) unsupported("text verbosity");
@@ -113,14 +120,14 @@ function unsupported(capability: string): never {
   throw new ProviderAdapterOneRoundError("unsupported-capability", `Provider-adapter routes do not support ${capability}.`);
 }
 
-function toAgentMessage(message: ModelTurnMessage): AgentMessage {
+function toAgentMessage(message: ModelTurnMessage, projection: FunctionToolProjection): AgentMessage {
   return {
     role: message.role as AgentMessage["role"],
-    parts: message.parts.map(toContentPart),
+    parts: message.parts.map((part) => toContentPart(part, projection)),
   };
 }
 
-function toContentPart(part: ModelPart): ContentPart {
+function toContentPart(part: ModelPart, projection: FunctionToolProjection): ContentPart {
   switch (part.type) {
     case "text": return { type: "text", text: part.text };
     case "image": return part.source.kind === "url"
@@ -128,9 +135,9 @@ function toContentPart(part: ModelPart): ContentPart {
       : { type: "image", mimeType: part.source.mediaType, data: part.source.data };
     case "tool-call":
       if (part.call.kind !== "function") return unsupported("custom tool calls");
-      return { type: "tool_use", id: part.call.id, name: part.call.name, input: part.call.input.value as Record<string, unknown> };
+      return { type: "tool_use", id: part.call.id, name: requireProjectedName(projection, part.call.namespace, part.call.name), input: part.call.input.value as Record<string, unknown> };
     case "tool-result": {
-      const contentParts = part.content.map((content): ContentPart => toContentPart(content));
+      const contentParts = part.content.map((content): ContentPart => toContentPart(content, projection));
       return {
         type: "tool_result",
         toolUseId: part.callId,
@@ -143,16 +150,16 @@ function toContentPart(part: ModelPart): ContentPart {
   }
 }
 
-function toToolChoice(choice: NonNullable<ModelTurn["toolChoice"]>): ToolChoiceOption {
+function toToolChoice(choice: NonNullable<ModelTurn["toolChoice"]>, projection: FunctionToolProjection): ToolChoiceOption {
   switch (choice.kind) {
     case "auto": return { type: "auto" };
     case "none": return { type: "none" };
     case "required": return { type: "any" };
-    case "tool": return { type: "tool", name: choice.name };
+    case "tool": return { type: "tool", name: requireProjectedName(projection, choice.namespace, choice.name) };
   }
 }
 
-function toModelTurnResult(response: AgentResponse): ModelTurnResult {
+function toModelTurnResult(response: AgentResponse, projection: FunctionToolProjection): ModelTurnResult {
   const parts: ModelPart[] = [];
   for (const part of response.parts) {
     if (part.type === "text") parts.push({ type: "text", text: part.text });
@@ -165,7 +172,8 @@ function toModelTurnResult(response: AgentResponse): ModelTurnResult {
     }
   }
   for (const call of response.toolCalls) {
-    parts.push({ type: "tool-call", call: { kind: "function", id: call.id, name: call.name, input: { kind: "json-object", value: call.input as ModelJsonObject } } });
+    const original = projection.fromWire.get(call.name);
+    parts.push({ type: "tool-call", call: { kind: "function", ...(original?.namespace === undefined ? {} : { namespace: original.namespace }), id: call.id, name: original?.name ?? call.name, input: { kind: "json-object", value: call.input as ModelJsonObject } } });
   }
   return {
     parts,
@@ -178,3 +186,33 @@ function toModelTurnResult(response: AgentResponse): ModelTurnResult {
     stopReason: response.stopReason,
   };
 }
+
+function buildFunctionToolProjection(tools: readonly ModelTool[]): FunctionToolProjection {
+  const functions = tools.filter((tool): tool is FunctionModelTool => tool.kind === "function");
+  const occupied = new Set(functions.filter((tool) => tool.namespace === undefined).map((tool) => tool.name));
+  const toWire = new Map<string, string>(); const fromWire = new Map<string, FunctionModelTool>();
+  for (const [index, tool] of functions.entries()) {
+    let wireName = tool.name;
+    if (tool.namespace !== undefined) {
+      const suffix = `${safeToolSegment(tool.namespace)}_${safeToolSegment(tool.name)}`;
+      const prefix = `kiln_ns_${index}_`;
+      wireName = `${prefix}${suffix}`.slice(0, 64);
+      let collision = 1;
+      while (occupied.has(wireName)) {
+        const marker = `_${collision++}`;
+        wireName = `${prefix}${suffix}`.slice(0, 64 - marker.length) + marker;
+      }
+    }
+    occupied.add(wireName); toWire.set(toolIdentity(tool.namespace, tool.name), wireName); fromWire.set(wireName, tool);
+  }
+  return { toWire, fromWire };
+}
+
+function requireProjectedName(projection: FunctionToolProjection, namespace: string | undefined, name: string): string {
+  const projected = projection.toWire.get(toolIdentity(namespace, name));
+  if (projected === undefined) unsupported("namespaced function history without a current declaration");
+  return projected;
+}
+
+function toolIdentity(namespace: string | undefined, name: string): string { return `${namespace ?? ""}\u0000${name}`; }
+function safeToolSegment(value: string): string { return value.replace(/[^A-Za-z0-9_-]/g, "_") || "tool"; }

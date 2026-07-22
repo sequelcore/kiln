@@ -51,7 +51,7 @@ describe("model gateway native projections", () => {
   it("builds a secret-free Codex Responses provider and official static model catalog", () => {
     const projected = buildCodexResponsesProjection({ config: config([principal("codex")]), modelCatalogPath: "C:/project/.kiln/projections/codex-model-catalog.json" });
     expect(projected?.patch).toMatchObject({
-      model: "model-a", model_provider: "kiln", model_catalog_json: "C:/project/.kiln/projections/codex-model-catalog.json",
+      model: "model-a", model_provider: "kiln", model_catalog_json: "C:/project/.kiln/projections/codex-model-catalog.json", web_search: "disabled",
       model_providers: { kiln: { base_url: "http://127.0.0.1:4910/v1", env_key: "CODEX_TOKEN", wire_api: "responses", request_max_retries: 0, stream_max_retries: 0, supports_websockets: false, requires_openai_auth: false } },
     });
     expect(JSON.stringify(projected)).not.toContain("Bearer");
