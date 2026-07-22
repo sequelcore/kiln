@@ -18,20 +18,16 @@ function token(accountId: string, access = "access"): CodexOAuthTokenFile {
 const config: ModelGatewayConfig = {
   port: 4801,
   accounts: [{ id: "primary", providerId: "codex-oauth", credentialId: "credential-a", maxConcurrency: 2, reservedAffinitySlots: 1 }],
-  openAIResponses: {
-    enabled: true,
-    maxBodyBytes: 1024,
-    maxConcurrentRequests: 2,
-    replay: { ttlMs: 60_000, maxEntries: 100, hmacKeyEnv: "REPLAY_SECRET" },
-    principals: [
-      { tokenEnv: "BEARER_TOKEN", tenantId: "tenant:a", applicationId: "app", callerId: "caller-a", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget-a", virtualModelIds: ["codex"] },
-      { tokenEnv: "BEARER_TOKEN_2", tenantId: "tenant", applicationId: "a:app", callerId: "caller-a", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget-b", virtualModelIds: ["codex"] },
-    ],
-    virtualModels: [
+  replay: { ttlMs: 60_000, maxEntries: 100, hmacKeyEnv: "REPLAY_SECRET" },
+  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 2 } },
+  principals: [
+      { tokenEnv: "BEARER_TOKEN", ingress: "openai-responses", tenantId: "tenant:a", applicationId: "app", callerId: "caller-a", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget-a", virtualModelIds: ["codex"] },
+      { tokenEnv: "BEARER_TOKEN_2", ingress: "openai-responses", tenantId: "tenant", applicationId: "a:app", callerId: "caller-a", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget-b", virtualModelIds: ["codex"] },
+  ],
+  virtualModels: [
       { id: "codex", displayName: "Codex", contextTokens: 1000, outputTokens: 100, providerId: "codex-oauth", providerModelId: "gpt-test", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "prefer", scope: "session" } },
       { id: "not-allowed", displayName: "Other", contextTokens: 1000, outputTokens: 100, providerId: "codex-oauth", providerModelId: "gpt-other", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "none" } },
-    ],
-  },
+  ],
 };
 
 describe("createCodexOAuthResponsesIngress", () => {

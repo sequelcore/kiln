@@ -204,17 +204,15 @@ function serializeCodexProbeProjection(patch: Record<string, unknown>): string {
 
 function gatewayConfig(port: number): ModelGatewayConfig {
   const principal = (nativeHarness: "codex" | "opencode", tokenEnv: string) => ({
-    tokenEnv, tenantId: "probe", applicationId: nativeHarness, callerId: "live", capabilityId: "invoke",
+    tokenEnv, ingress: "openai-responses" as const, tenantId: "probe", applicationId: nativeHarness, callerId: "live", capabilityId: "invoke",
     scopes: ["model.invoke"], budgetEvidenceId: "synthetic", virtualModelIds: ["model-a"], nativeHarness,
   } as const);
   return {
     port,
     accounts: [{ id: "unused", providerId: "codex-oauth", credentialId: "unused", maxConcurrency: 1, reservedAffinitySlots: 0 }],
-    openAIResponses: {
-      enabled: true, maxBodyBytes: 1024 * 1024, maxConcurrentRequests: 2,
-      replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "UNUSED" },
-      principals: [principal("codex", "CODEX_GATEWAY_TOKEN"), principal("opencode", "OPENCODE_GATEWAY_TOKEN")],
-      virtualModels: [{ id: "model-a", displayName: "Kiln Probe", contextTokens: 100000, outputTokens: 4096, baseInstructions: "You are a governed Kiln probe.", providerId: "codex-oauth", providerModelId: "unused", accountIds: ["unused"], capabilities: ["text"], affinity: { continuity: "none" } }],
-    },
+    replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "UNUSED" },
+    surfaces: { openAIResponses: { maxBodyBytes: 1024 * 1024, maxConcurrentRequests: 2 } },
+    principals: [principal("codex", "CODEX_GATEWAY_TOKEN"), principal("opencode", "OPENCODE_GATEWAY_TOKEN")],
+    virtualModels: [{ id: "model-a", displayName: "Kiln Probe", contextTokens: 100000, outputTokens: 4096, baseInstructions: "You are a governed Kiln probe.", providerId: "codex-oauth", providerModelId: "unused", accountIds: ["unused"], capabilities: ["text"], affinity: { continuity: "none" } }],
   };
 }

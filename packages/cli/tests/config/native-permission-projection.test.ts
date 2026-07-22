@@ -76,15 +76,12 @@ modelGateway:
   port: 4910
   accounts:
     - { id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }
-  openAIResponses:
-    enabled: true
-    maxBodyBytes: 1024
-    maxConcurrentRequests: 2
-    replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
-    principals:
-      - { tokenEnv: CODEX_GATEWAY_TOKEN, tenantId: tenant, applicationId: codex-app, callerId: codex, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-codex, virtualModelIds: [model-a], nativeHarness: codex }
-      - { tokenEnv: OPENCODE_GATEWAY_TOKEN, tenantId: tenant, applicationId: opencode-app, callerId: opencode, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-opencode, virtualModelIds: [model-a], nativeHarness: opencode }
-    virtualModels:
+  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
+  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 2 } }
+  principals:
+      - { tokenEnv: CODEX_GATEWAY_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: codex-app, callerId: codex, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-codex, virtualModelIds: [model-a], nativeHarness: codex }
+      - { tokenEnv: OPENCODE_GATEWAY_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: opencode-app, callerId: opencode, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-opencode, virtualModelIds: [model-a], nativeHarness: opencode }
+  virtualModels:
       - id: model-a
         displayName: Kiln Model A
         contextTokens: 200000

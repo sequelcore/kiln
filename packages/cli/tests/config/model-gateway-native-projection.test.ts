@@ -6,26 +6,22 @@ import {
   resolveResponsesNativeProjectionSource,
 } from "../../src/config/model-gateway-native-projection.js";
 
-function config(principals: ModelGatewayConfig["openAIResponses"]["principals"]): ModelGatewayConfig {
+function config(principals: ModelGatewayConfig["principals"]): ModelGatewayConfig {
   return {
     port: 4910,
     accounts: [{ id: "account", providerId: "codex-oauth", credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0 }],
-    openAIResponses: {
-      enabled: true,
-      maxBodyBytes: 1024,
-      maxConcurrentRequests: 1,
-      replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
-      principals,
-      virtualModels: [
+    replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
+    surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
+    principals,
+    virtualModels: [
         { id: "model-a", displayName: "Model A", contextTokens: 200000, outputTokens: 8192, baseInstructions: "Governed model A instructions.", providerId: "codex-oauth", providerModelId: "upstream-a", accountIds: ["account"], capabilities: ["text", "parallel-tool-calls", "input-image-url"], affinity: { continuity: "none" } },
         { id: "model-b", displayName: "Model B", contextTokens: 100000, outputTokens: 4096, baseInstructions: "Governed model B instructions.", providerId: "codex-oauth", providerModelId: "upstream-b", accountIds: ["account"], capabilities: ["text"], affinity: { continuity: "none" } },
-      ],
-    },
+    ],
   };
 }
 
-const principal = (nativeHarness: "codex" | "opencode", models = ["model-a"]): ModelGatewayConfig["openAIResponses"]["principals"][number] => ({
-  tokenEnv: `${nativeHarness.toUpperCase()}_TOKEN`, tenantId: "tenant", applicationId: nativeHarness,
+const principal = (nativeHarness: "codex" | "opencode", models = ["model-a"]): ModelGatewayConfig["principals"][number] => ({
+  tokenEnv: `${nativeHarness.toUpperCase()}_TOKEN`, ingress: "openai-responses", tenantId: "tenant", applicationId: nativeHarness,
   callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget",
   virtualModelIds: models, nativeHarness,
 });
@@ -65,12 +61,17 @@ describe("model gateway native projections", () => {
       .toThrow("multiple codex");
   });
 
+  it("does not project a principal assigned to an unsupported ingress", () => {
+    const invalidIngress = { ...principal("codex"), ingress: "anthropic-messages" as never };
+    expect(resolveResponsesNativeProjectionSource(config([invalidIngress]), "codex")).toBeUndefined();
+  });
+
   it("requires canonical base instructions only at the Codex projection boundary", () => {
     const withoutInstructions = config([principal("codex")]);
-    const model = withoutInstructions.openAIResponses.virtualModels[0]!;
-    const invalid = { ...withoutInstructions, openAIResponses: { ...withoutInstructions.openAIResponses, virtualModels: [{ ...model, baseInstructions: undefined }] } };
+    const model = withoutInstructions.virtualModels[0]!;
+    const invalid = { ...withoutInstructions, virtualModels: [{ ...model, baseInstructions: undefined }] };
     expect(() => buildCodexResponsesProjection({ config: invalid, modelCatalogPath: "C:/catalog.json" })).toThrow("base instructions");
-    const openCodeOnly = { ...invalid, openAIResponses: { ...invalid.openAIResponses, principals: [principal("opencode")] } };
+    const openCodeOnly = { ...invalid, principals: [principal("opencode")] };
     expect(buildOpenCodeResponsesProjection({ config: openCodeOnly })).toBeDefined();
   });
 });

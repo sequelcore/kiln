@@ -18,10 +18,11 @@ export interface CodexOAuthResponsesIngressOptions {
 export interface CodexOAuthResponsesIngressHandle { readonly ingress: OpenAIResponsesIngressConfig; readonly store: LocalModelGatewayStore; close(): void }
 
 export async function createCodexOAuthResponsesIngress(options: CodexOAuthResponsesIngressOptions): Promise<CodexOAuthResponsesIngressHandle> {
-  const env = options.env ?? process.env; const surface = options.config.openAIResponses;
-  if (surface.virtualModels.some((model) => model.providerId === "codex-oauth" && model.accountIds.length !== 1)) throw new Error("Codex OAuth virtual models must reference exactly one account.");
-  const replaySecret = requireSecret(env, surface.replay.hmacKeyEnv, "replay HMAC key");
-  const principals = surface.principals.map((config) => ({ config, token: requireSecret(env, config.tokenEnv, "Responses bearer token") }));
+  const env = options.env ?? process.env; const surface = options.config.surfaces.openAIResponses;
+  if (!surface) throw new Error("Responses surface must be configured.");
+  if (options.config.virtualModels.some((model) => model.providerId === "codex-oauth" && model.accountIds.length !== 1)) throw new Error("Codex OAuth virtual models must reference exactly one account.");
+  const replaySecret = requireSecret(env, options.config.replay.hmacKeyEnv, "replay HMAC key");
+  const principals = options.config.principals.filter((config) => config.ingress === "openai-responses").map((config) => ({ config, token: requireSecret(env, config.tokenEnv, "Responses bearer token") }));
   const tokenDigests = new Set(principals.map(({ token }) => digest(token).toString("hex")));
   if (tokenDigests.size !== principals.length) throw new Error("Responses bearer token values must be unique.");
   const pool = new CodexOAuthCredentialPoolService({ rootDir: options.credentialRootDir });
@@ -30,7 +31,7 @@ export async function createCodexOAuthResponsesIngress(options: CodexOAuthRespon
     const created = await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
     if (created !== undefined && process.platform !== "win32") await chmod(stateDirectory, 0o700);
   }
-  const store = new LocalModelGatewayStore({ path: options.databasePath, replaySecret, replayTtlMs: surface.replay.ttlMs, replayMaxEntries: surface.replay.maxEntries, accounts: [] });
+  const store = new LocalModelGatewayStore({ path: options.databasePath, replaySecret, replayTtlMs: options.config.replay.ttlMs, replayMaxEntries: options.config.replay.maxEntries, accounts: [] });
   try {
     if (options.databasePath !== ":memory:" && process.platform !== "win32") await chmod(options.databasePath, 0o600);
   } catch (error) {
@@ -38,7 +39,7 @@ export async function createCodexOAuthResponsesIngress(options: CodexOAuthRespon
     throw error;
   }
   const accounts = new Map(options.config.accounts.map((account) => [account.id, account]));
-  const routes = new Map(surface.virtualModels.map((model) => [model.id, { model, route: { providerId: model.providerId, providerModelId: model.providerModelId, scope: `virtual:${model.id}` } }]));
+  const routes = new Map(options.config.virtualModels.map((model) => [model.id, { model, route: { providerId: model.providerId, providerModelId: model.providerModelId, scope: `virtual:${model.id}` } }]));
   const executionByRef = new Map<string, { config: ModelGatewayAccountConfig; fileIdentity: string }>();
 
   const candidateCatalog: GovernedOneRoundInvocationPorts["candidateCatalog"] = { list: async ({ route }) => {

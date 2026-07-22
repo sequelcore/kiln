@@ -25,11 +25,11 @@ export function resolveResponsesNativeProjectionSource(
   config: ModelGatewayConfig,
   harness: ResponsesNativeHarness,
 ): ProjectionSource | undefined {
-  const principals = config.openAIResponses.principals.filter((principal) => principal.nativeHarness === harness);
+  const principals = config.principals.filter((principal) => principal.ingress === "openai-responses" && principal.nativeHarness === harness);
   if (principals.length > 1) throw new Error(`modelGateway declares multiple ${harness} native harness principals.`);
   const principal = principals[0];
   if (!principal) return undefined;
-  const byId = new Map(config.openAIResponses.virtualModels.map((model) => [model.id, model]));
+  const byId = new Map(config.virtualModels.map((model) => [model.id, model]));
   const models = principal.virtualModelIds.map((id) => {
     const model = byId.get(id);
     if (!model) throw new Error(`${harness} native harness principal references unknown virtual model '${id}'.`);

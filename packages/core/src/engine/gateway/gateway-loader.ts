@@ -121,33 +121,42 @@ function resolveEnvValue(value: string): string {
 
 function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): ModelGatewayConfig | undefined {
   if (!isRecord(rawValue)) { errors.push({ field: "modelGateway", message: "must be an object" }); return undefined; }
-  rejectUnknown(rawValue, ["port", "accounts", "openAIResponses"], "modelGateway", errors);
-  const rawSurface = rawValue.openAIResponses;
-  if (!isRecord(rawSurface)) { errors.push({ field: "modelGateway.openAIResponses", message: "must be an object" }); return undefined; }
-  rejectUnknown(rawSurface, ["enabled", "maxBodyBytes", "maxConcurrentRequests", "replay", "principals", "virtualModels"], "modelGateway.openAIResponses", errors);
-  const replay = isRecord(rawSurface.replay) ? rawSurface.replay : {};
-  rejectUnknown(replay, ["ttlMs", "maxEntries", "hmacKeyEnv"], "modelGateway.openAIResponses.replay", errors);
-  const principals = Array.isArray(rawSurface.principals) ? rawSurface.principals.map((entry, index) => {
+  rejectUnknown(rawValue, ["port", "accounts", "replay", "principals", "virtualModels", "surfaces"], "modelGateway", errors);
+  const replay = isRecord(rawValue.replay) ? rawValue.replay : {};
+  rejectUnknown(replay, ["ttlMs", "maxEntries", "hmacKeyEnv"], "modelGateway.replay", errors);
+  const rawSurfaces = isRecord(rawValue.surfaces) ? rawValue.surfaces : {};
+  if (!isRecord(rawValue.surfaces)) errors.push({ field: "modelGateway.surfaces", message: "must be an object" });
+  rejectUnknown(rawSurfaces, ["openAIResponses"], "modelGateway.surfaces", errors);
+  const rawResponses = rawSurfaces.openAIResponses;
+  let openAIResponses: ModelGatewayConfig["surfaces"]["openAIResponses"];
+  if (rawResponses !== undefined) {
+    if (!isRecord(rawResponses)) errors.push({ field: "modelGateway.surfaces.openAIResponses", message: "must be an object" });
+    else {
+      rejectUnknown(rawResponses, ["maxBodyBytes", "maxConcurrentRequests"], "modelGateway.surfaces.openAIResponses", errors);
+      openAIResponses = { maxBodyBytes: num(rawResponses.maxBodyBytes), maxConcurrentRequests: num(rawResponses.maxConcurrentRequests) };
+    }
+  }
+  const principals = Array.isArray(rawValue.principals) ? rawValue.principals.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
-    rejectUnknown(raw, ["tokenEnv", "tenantId", "applicationId", "callerId", "capabilityId", "scopes", "budgetEvidenceId", "virtualModelIds", "nativeHarness"], `modelGateway.openAIResponses.principals[${index}]`, errors);
-    if (raw.nativeHarness !== undefined && typeof raw.nativeHarness !== "string") errors.push({ field: `modelGateway.openAIResponses.principals[${index}].nativeHarness`, message: "must be a string" });
-    return { tokenEnv: str(raw.tokenEnv), tenantId: str(raw.tenantId), applicationId: str(raw.applicationId), callerId: str(raw.callerId), capabilityId: str(raw.capabilityId), scopes: strings(raw.scopes), budgetEvidenceId: str(raw.budgetEvidenceId), virtualModelIds: strings(raw.virtualModelIds), ...(typeof raw.nativeHarness === "string" ? { nativeHarness: raw.nativeHarness as "codex" | "opencode" } : {}) };
+    rejectUnknown(raw, ["tokenEnv", "ingress", "tenantId", "applicationId", "callerId", "capabilityId", "scopes", "budgetEvidenceId", "virtualModelIds", "nativeHarness"], `modelGateway.principals[${index}]`, errors);
+    if (raw.nativeHarness !== undefined && typeof raw.nativeHarness !== "string") errors.push({ field: `modelGateway.principals[${index}].nativeHarness`, message: "must be a string" });
+    return { tokenEnv: str(raw.tokenEnv), ingress: str(raw.ingress) as "openai-responses", tenantId: str(raw.tenantId), applicationId: str(raw.applicationId), callerId: str(raw.callerId), capabilityId: str(raw.capabilityId), scopes: strings(raw.scopes), budgetEvidenceId: str(raw.budgetEvidenceId), virtualModelIds: strings(raw.virtualModelIds), ...(typeof raw.nativeHarness === "string" ? { nativeHarness: raw.nativeHarness as "codex" | "opencode" } : {}) };
   }) : [];
-  const virtualModels = Array.isArray(rawSurface.virtualModels) ? rawSurface.virtualModels.map((entry, index) => {
+  const virtualModels = Array.isArray(rawValue.virtualModels) ? rawValue.virtualModels.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
-    rejectUnknown(raw, ["id", "displayName", "contextTokens", "outputTokens", "baseInstructions", "providerId", "providerModelId", "accountIds", "capabilities", "affinity"], `modelGateway.openAIResponses.virtualModels[${index}]`, errors);
+    rejectUnknown(raw, ["id", "displayName", "contextTokens", "outputTokens", "baseInstructions", "providerId", "providerModelId", "accountIds", "capabilities", "affinity"], `modelGateway.virtualModels[${index}]`, errors);
     const affinity = isRecord(raw.affinity) ? raw.affinity : {};
-    rejectUnknown(affinity, ["continuity", "scope", "allowRebind"], `modelGateway.openAIResponses.virtualModels[${index}].affinity`, errors);
-    if (affinity.scope !== undefined && typeof affinity.scope !== "string") errors.push({ field: `modelGateway.openAIResponses.virtualModels[${index}].affinity.scope`, message: "must be a string" });
-    if (affinity.allowRebind !== undefined && typeof affinity.allowRebind !== "boolean") errors.push({ field: `modelGateway.openAIResponses.virtualModels[${index}].affinity.allowRebind`, message: "must be a boolean" });
-    return { id: str(raw.id), ...(raw.displayName === undefined ? {} : { displayName: str(raw.displayName) }), ...(raw.contextTokens === undefined ? {} : { contextTokens: num(raw.contextTokens) }), ...(raw.outputTokens === undefined ? {} : { outputTokens: num(raw.outputTokens) }), ...(raw.baseInstructions === undefined ? {} : { baseInstructions: str(raw.baseInstructions) }), providerId: str(raw.providerId) as "codex-oauth", providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["openAIResponses"]["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
+    rejectUnknown(affinity, ["continuity", "scope", "allowRebind"], `modelGateway.virtualModels[${index}].affinity`, errors);
+    if (affinity.scope !== undefined && typeof affinity.scope !== "string") errors.push({ field: `modelGateway.virtualModels[${index}].affinity.scope`, message: "must be a string" });
+    if (affinity.allowRebind !== undefined && typeof affinity.allowRebind !== "boolean") errors.push({ field: `modelGateway.virtualModels[${index}].affinity.allowRebind`, message: "must be a boolean" });
+    return { id: str(raw.id), ...(raw.displayName === undefined ? {} : { displayName: str(raw.displayName) }), ...(raw.contextTokens === undefined ? {} : { contextTokens: num(raw.contextTokens) }), ...(raw.outputTokens === undefined ? {} : { outputTokens: num(raw.outputTokens) }), ...(raw.baseInstructions === undefined ? {} : { baseInstructions: str(raw.baseInstructions) }), providerId: str(raw.providerId) as "codex-oauth", providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
   }) : [];
   const accounts = Array.isArray(rawValue.accounts) ? rawValue.accounts.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
     rejectUnknown(raw, ["id", "providerId", "credentialId", "maxConcurrency", "reservedAffinitySlots"], `modelGateway.accounts[${index}]`, errors);
     return { id: str(raw.id), providerId: str(raw.providerId) as "codex-oauth", credentialId: str(raw.credentialId), maxConcurrency: num(raw.maxConcurrency), reservedAffinitySlots: num(raw.reservedAffinitySlots) };
   }) : [];
-  return { port: num(rawValue.port), accounts, openAIResponses: { enabled: rawSurface.enabled === true, maxBodyBytes: num(rawSurface.maxBodyBytes), maxConcurrentRequests: num(rawSurface.maxConcurrentRequests), replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels } };
+  return { port: num(rawValue.port), accounts, replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels, surfaces: { ...(openAIResponses ? { openAIResponses } : {}) } };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
