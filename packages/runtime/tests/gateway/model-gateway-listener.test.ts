@@ -14,7 +14,7 @@ const config: ModelGatewayConfig = {
     maxConcurrentRequests: 1,
     replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
     principals: [{ tokenEnv: "BEARER_TOKEN", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["codex"] }],
-    virtualModels: [{ id: "codex", providerId: "codex-oauth", providerModelId: "gpt-test", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "none" } }],
+    virtualModels: [{ id: "codex", displayName: "Codex", contextTokens: 1000, outputTokens: 100, providerId: "codex-oauth", providerModelId: "gpt-test", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "none" } }],
   },
 };
 
@@ -70,7 +70,7 @@ modelGateway:
     principals:
       - { tokenEnv: BEARER_TOKEN, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [codex] }
     virtualModels:
-      - { id: codex, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
+      - { id: codex, displayName: Codex, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
 `, "utf8");
     await expect(startGateway(path, { port: 4819 })).rejects.toThrow("must differ");
   });

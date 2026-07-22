@@ -129,17 +129,18 @@ function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): M
   rejectUnknown(replay, ["ttlMs", "maxEntries", "hmacKeyEnv"], "modelGateway.openAIResponses.replay", errors);
   const principals = Array.isArray(rawSurface.principals) ? rawSurface.principals.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
-    rejectUnknown(raw, ["tokenEnv", "tenantId", "applicationId", "callerId", "capabilityId", "scopes", "budgetEvidenceId", "virtualModelIds"], `modelGateway.openAIResponses.principals[${index}]`, errors);
-    return { tokenEnv: str(raw.tokenEnv), tenantId: str(raw.tenantId), applicationId: str(raw.applicationId), callerId: str(raw.callerId), capabilityId: str(raw.capabilityId), scopes: strings(raw.scopes), budgetEvidenceId: str(raw.budgetEvidenceId), virtualModelIds: strings(raw.virtualModelIds) };
+    rejectUnknown(raw, ["tokenEnv", "tenantId", "applicationId", "callerId", "capabilityId", "scopes", "budgetEvidenceId", "virtualModelIds", "nativeHarness"], `modelGateway.openAIResponses.principals[${index}]`, errors);
+    if (raw.nativeHarness !== undefined && typeof raw.nativeHarness !== "string") errors.push({ field: `modelGateway.openAIResponses.principals[${index}].nativeHarness`, message: "must be a string" });
+    return { tokenEnv: str(raw.tokenEnv), tenantId: str(raw.tenantId), applicationId: str(raw.applicationId), callerId: str(raw.callerId), capabilityId: str(raw.capabilityId), scopes: strings(raw.scopes), budgetEvidenceId: str(raw.budgetEvidenceId), virtualModelIds: strings(raw.virtualModelIds), ...(typeof raw.nativeHarness === "string" ? { nativeHarness: raw.nativeHarness as "codex" | "opencode" } : {}) };
   }) : [];
   const virtualModels = Array.isArray(rawSurface.virtualModels) ? rawSurface.virtualModels.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
-    rejectUnknown(raw, ["id", "providerId", "providerModelId", "accountIds", "capabilities", "affinity"], `modelGateway.openAIResponses.virtualModels[${index}]`, errors);
+    rejectUnknown(raw, ["id", "displayName", "contextTokens", "outputTokens", "baseInstructions", "providerId", "providerModelId", "accountIds", "capabilities", "affinity"], `modelGateway.openAIResponses.virtualModels[${index}]`, errors);
     const affinity = isRecord(raw.affinity) ? raw.affinity : {};
     rejectUnknown(affinity, ["continuity", "scope", "allowRebind"], `modelGateway.openAIResponses.virtualModels[${index}].affinity`, errors);
     if (affinity.scope !== undefined && typeof affinity.scope !== "string") errors.push({ field: `modelGateway.openAIResponses.virtualModels[${index}].affinity.scope`, message: "must be a string" });
     if (affinity.allowRebind !== undefined && typeof affinity.allowRebind !== "boolean") errors.push({ field: `modelGateway.openAIResponses.virtualModels[${index}].affinity.allowRebind`, message: "must be a boolean" });
-    return { id: str(raw.id), providerId: str(raw.providerId) as "codex-oauth", providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["openAIResponses"]["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
+    return { id: str(raw.id), ...(raw.displayName === undefined ? {} : { displayName: str(raw.displayName) }), ...(raw.contextTokens === undefined ? {} : { contextTokens: num(raw.contextTokens) }), ...(raw.outputTokens === undefined ? {} : { outputTokens: num(raw.outputTokens) }), ...(raw.baseInstructions === undefined ? {} : { baseInstructions: str(raw.baseInstructions) }), providerId: str(raw.providerId) as "codex-oauth", providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["openAIResponses"]["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
   }) : [];
   const accounts = Array.isArray(rawValue.accounts) ? rawValue.accounts.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};

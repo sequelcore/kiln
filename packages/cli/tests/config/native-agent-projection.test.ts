@@ -17,6 +17,15 @@ vi.mock("node:fs", () => ({
   }),
   existsSync: vi.fn((path: string) => fsMocks.files.has(path)),
   readFileSync: vi.fn((path: string) => fsMocks.files.get(path) ?? ""),
+  renameSync: vi.fn((source: string, destination: string) => {
+    const content = fsMocks.files.get(source);
+    if (content === undefined) throw new Error(`ENOENT: ${source}`);
+    fsMocks.files.set(destination, content);
+    fsMocks.files.delete(source);
+  }),
+  rmSync: vi.fn((path: string) => {
+    fsMocks.files.delete(path);
+  }),
 }));
 
 vi.mock("node:os", () => {
@@ -302,10 +311,11 @@ describe("native-agent-projection", () => {
       },
     ]);
 
-    writeFileSyncMock.mockImplementation((targetPath: string) => {
+    writeFileSyncMock.mockImplementation((targetPath: string, content: string) => {
       if (targetPath.includes(".codex")) {
         throw new Error("codex write failed");
       }
+      fsMocks.files.set(targetPath, content);
     });
 
     const result = await syncNativeAgentProjections("/workspace/project");

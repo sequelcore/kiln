@@ -66,6 +66,7 @@ describe("uninstallNativeTargets", () => {
   it("uninstalls every managed entry for a harness target", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-uninstall-codex-group-"));
     const codexConfigPath = join(root, "home", ".codex", "config.toml");
+    const codexCatalogPath = join(root, "project", ".kiln", "projections", "codex-model-catalog.json");
     const codexAgentPath = join(root, "home", ".codex", "agents", "planner.md");
     const codexSkillPath = join(root, "home", ".codex", "skills", "planner", "SKILL.md");
     const opencodeAgentPath = join(root, "home", ".config", "opencode", "agents", "planner.md");
@@ -78,14 +79,25 @@ describe("uninstallNativeTargets", () => {
     const codexAgent = "# Planner\n";
     const codexSkill = "# Skill\n";
     const opencodeAgent = "# OpenCode Planner\n";
+    const codexCatalog = '{"models":[]}\n';
 
     try {
       writeFileSyncRecursive(codexConfigPath, stringifyToml(document), "utf-8");
+      writeFileSyncRecursive(codexCatalogPath, codexCatalog, "utf-8");
       writeFileSyncRecursive(codexAgentPath, codexAgent, "utf-8");
       writeFileSyncRecursive(codexSkillPath, codexSkill, "utf-8");
       writeFileSyncRecursive(opencodeAgentPath, opencodeAgent, "utf-8");
 
       let state = emptyNativeProjectionInstallState();
+      state = upsertNativeProjectionTargetState(
+        state,
+        createNativeProjectionFileSnapshot({
+          targetId: "codex-model-catalog",
+          filePath: codexCatalogPath,
+          content: codexCatalog,
+          updatedAt: "2026-05-06T12:00:00.000Z",
+        }),
+      );
       state = upsertNativeProjectionTargetState(
         state,
         createNativeProjectionSnapshot({
@@ -138,7 +150,7 @@ describe("uninstallNativeTargets", () => {
       const result = uninstallNativeTargets(join(root, "project"), { target: "codex" });
 
       expect(result).toEqual({
-        removed: ["codex-config", "mcp:codex", "codex-agent:planner", "codex-skill:planner/SKILL.md"],
+        removed: ["codex-model-catalog", "codex-config", "mcp:codex", "codex-agent:planner", "codex-skill:planner/SKILL.md"],
         skipped: [],
         errors: [],
       });
@@ -147,6 +159,7 @@ describe("uninstallNativeTargets", () => {
       });
       expect(() => readFileSync(codexAgentPath, "utf-8")).toThrow();
       expect(() => readFileSync(codexSkillPath, "utf-8")).toThrow();
+      expect(() => readFileSync(codexCatalogPath, "utf-8")).toThrow();
       expect(readFileSync(opencodeAgentPath, "utf-8")).toBe(opencodeAgent);
       expect(Object.keys(readNativeProjectionInstallState(kilnDir).targets)).toEqual(["opencode-agent:planner"]);
     } finally {

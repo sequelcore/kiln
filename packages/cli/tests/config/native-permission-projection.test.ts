@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { parse as parseToml } from "smol-toml";
 import {
   mkdirSync,
+  existsSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -29,6 +30,8 @@ vi.mock("node:os", async () => {
 
 import { tmpdir } from "node:os";
 import { syncNativePermissionProjections } from "../../src/config/native-permission-projection.js";
+import { uninstallNativeTargets } from "../../src/commands/uninstall.js";
+import * as nativeProjectionState from "../../src/config/native-projection-state.js";
 
 interface TestPaths {
   rootPath: string;
@@ -64,6 +67,37 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
+function writeModelGateway(projectPath: string): void {
+  mkdirSync(join(projectPath, ".kiln"), { recursive: true });
+  writeFileSync(join(projectPath, ".kiln", "gateway.yaml"), `
+port: 4800
+apps: []
+modelGateway:
+  port: 4910
+  accounts:
+    - { id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }
+  openAIResponses:
+    enabled: true
+    maxBodyBytes: 1024
+    maxConcurrentRequests: 2
+    replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
+    principals:
+      - { tokenEnv: CODEX_GATEWAY_TOKEN, tenantId: tenant, applicationId: codex-app, callerId: codex, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-codex, virtualModelIds: [model-a], nativeHarness: codex }
+      - { tokenEnv: OPENCODE_GATEWAY_TOKEN, tenantId: tenant, applicationId: opencode-app, callerId: opencode, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-opencode, virtualModelIds: [model-a], nativeHarness: opencode }
+    virtualModels:
+      - id: model-a
+        displayName: Kiln Model A
+        contextTokens: 200000
+        outputTokens: 8192
+        baseInstructions: You are a governed Kiln coding agent.
+        providerId: codex-oauth
+        providerModelId: upstream-a
+        accountIds: [account]
+        capabilities: [text, parallel-tool-calls]
+        affinity: { continuity: none }
+`, "utf8");
+}
+
 describe("syncNativePermissionProjections", () => {
   let paths: TestPaths;
 
@@ -78,6 +112,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     syncMocks.mockedHomedir = "";
     try {
       rmSync(paths.rootPath, { recursive: true, force: true });
@@ -239,6 +274,169 @@ describe("syncNativePermissionProjections", () => {
         strength: "rules-only",
       },
     });
+  });
+
+  it("composes gateway providers and catalog into native config without persisting secrets", async () => {
+    writeModelGateway(paths.projectPath);
+    const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
+    mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
+    writeFileSync(opencodePath, JSON.stringify({ theme: "ocean", enabled_providers: ["anthropic"], provider: { local: { npm: "fixture" } } }), "utf8");
+
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+    expect(result.errors).toEqual([]);
+    const codexPath = join(paths.homePath, ".codex", "config.toml");
+    const codex = parseToml(readFileSync(codexPath, "utf8")) as Record<string, unknown>;
+    expect(codex).toMatchObject({ model: "model-a", model_provider: "kiln" });
+    expect(asRecord(asRecord(codex.model_providers).kiln)).toMatchObject({
+      base_url: "http://127.0.0.1:4910/v1", env_key: "CODEX_GATEWAY_TOKEN", wire_api: "responses",
+      request_max_retries: 0, stream_max_retries: 0, supports_websockets: false,
+    });
+    const catalogPath = String(codex.model_catalog_json);
+    expect(readJson(catalogPath)).toEqual({ models: [expect.objectContaining({ slug: "model-a", display_name: "Kiln Model A", context_window: 200000 })] });
+    expect(readFileSync(codexPath, "utf8")).not.toContain("Bearer");
+
+    const opencode = readJson(opencodePath);
+    expect(opencode.theme).toBe("ocean");
+    expect(opencode.enabled_providers).toEqual(["anthropic", "kiln"]);
+    expect(asRecord(opencode.provider).local).toEqual({ npm: "fixture" });
+    expect(asRecord(asRecord(opencode.provider).kiln)).toMatchObject({
+      npm: "@ai-sdk/openai",
+      options: { baseURL: "http://127.0.0.1:4910/v1", apiKey: "{env:OPENCODE_GATEWAY_TOKEN}" },
+    });
+    expect(opencode.model).toBe("kiln/model-a");
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    expect(Object.keys(asRecord(state.targets))).toContain("codex-model-catalog");
+  });
+
+  it("uses a unique temporary file when a legacy same-process temp path already exists", async () => {
+    writeModelGateway(paths.projectPath);
+    const projectionsDir = join(paths.projectPath, ".kiln", "projections");
+    const catalogPath = join(projectionsDir, "codex-model-catalog.json");
+    const legacyTemporaryPath = `${catalogPath}.${process.pid}.tmp`;
+    mkdirSync(projectionsDir, { recursive: true });
+    writeFileSync(legacyTemporaryPath, "stale temporary file\n", "utf8");
+
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+
+    expect(result.errors).toEqual([]);
+    expect(existsSync(catalogPath)).toBe(true);
+    expect(readFileSync(legacyTemporaryPath, "utf8")).toBe("stale temporary file\n");
+    expect(readdirSync(projectionsDir).filter((entry) => entry.endsWith(".tmp"))).toEqual([
+      `codex-model-catalog.json.${process.pid}.tmp`,
+    ]);
+  });
+
+  it("removes only previously owned gateway fields and catalog when canonical gateway config disappears", async () => {
+    writeModelGateway(paths.projectPath);
+    const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
+    mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
+    writeFileSync(opencodePath, JSON.stringify({ enabled_providers: ["anthropic"] }), "utf8");
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+    const codexPath = join(paths.homePath, ".codex", "config.toml");
+    const catalogPath = String((parseToml(readFileSync(codexPath, "utf8")) as Record<string, unknown>).model_catalog_json);
+    rmSync(join(paths.projectPath, ".kiln", "gateway.yaml"));
+
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+    const codex = parseToml(readFileSync(codexPath, "utf8")) as Record<string, unknown>;
+    expect(codex.model_provider).toBeUndefined();
+    expect(codex.model_catalog_json).toBeUndefined();
+    expect(asRecord(codex.model_providers).kiln).toBeUndefined();
+    expect(existsSync(catalogPath)).toBe(false);
+    const opencode = readJson(opencodePath);
+    expect(opencode.enabled_providers).toEqual(["anthropic"]);
+    expect(asRecord(opencode.provider).kiln).toBeUndefined();
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    expect(asRecord(state.targets)["codex-model-catalog"]).toBeUndefined();
+  });
+
+  it("reports gateway provider drift without overwriting unmanaged native config", async () => {
+    writeModelGateway(paths.projectPath);
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+    const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
+    const opencode = readJson(opencodePath);
+    const provider = asRecord(opencode.provider);
+    provider.kiln = { ...asRecord(provider.kiln), name: "operator-change" };
+    writeFileSync(opencodePath, `${JSON.stringify(opencode, null, 2)}\n`, "utf8");
+
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+    expect(result.opencode).toBe(false);
+    expect(result.errors).toContain("OpenCode: managed field drift detected: provider.kiln");
+    expect(asRecord(asRecord(readJson(opencodePath).provider).kiln).name).toBe("operator-change");
+  });
+
+  it("owns only the kiln enabled-provider membership through additive sync and uninstall", async () => {
+    writeModelGateway(paths.projectPath);
+    const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
+    mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
+    writeFileSync(opencodePath, JSON.stringify({ enabled_providers: ["anthropic"] }), "utf8");
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+    const withOperatorAddition = readJson(opencodePath);
+    withOperatorAddition.enabled_providers = ["anthropic", "kiln", "google"];
+    writeFileSync(opencodePath, `${JSON.stringify(withOperatorAddition, null, 2)}\n`, "utf8");
+
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+    expect(readJson(opencodePath).enabled_providers).toEqual(["anthropic", "kiln", "google"]);
+    const uninstall = uninstallNativeTargets(paths.projectPath, { target: "opencode" });
+    expect(uninstall.errors).toEqual([]);
+    expect(readJson(opencodePath).enabled_providers).toEqual(["anthropic", "google"]);
+  });
+
+  it("reports model catalog drift instead of deleting or replacing it", async () => {
+    writeModelGateway(paths.projectPath);
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+    const codexPath = join(paths.homePath, ".codex", "config.toml");
+    const catalogPath = String((parseToml(readFileSync(codexPath, "utf8")) as Record<string, unknown>).model_catalog_json);
+    writeFileSync(catalogPath, "operator catalog\n", "utf8");
+
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+    expect(result.codex).toBe(false);
+    expect(result.errors).toContain("Codex: managed model catalog drift detected");
+    expect(readFileSync(catalogPath, "utf8")).toBe("operator catalog\n");
+  });
+
+  it("refuses an unmanaged fixed-path Codex catalog without overwriting it", async () => {
+    writeModelGateway(paths.projectPath);
+    const catalogPath = join(paths.projectPath, ".kiln", "projections", "codex-model-catalog.json");
+    mkdirSync(join(paths.projectPath, ".kiln", "projections"), { recursive: true });
+    writeFileSync(catalogPath, "operator catalog\n", "utf8");
+
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+    expect(result.codex).toBe(false);
+    expect(result.errors).toContain("Codex: model catalog path already exists without Kiln install-state ownership");
+    expect(readFileSync(catalogPath, "utf8")).toBe("operator catalog\n");
+    expect(existsSync(join(paths.homePath, ".codex", "config.toml"))).toBe(false);
+  });
+
+  it("leaves Codex config untouched when the catalog cannot be staged", async () => {
+    writeModelGateway(paths.projectPath);
+    const codexPath = join(paths.homePath, ".codex", "config.toml");
+    mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
+    writeFileSync(codexPath, "model = \"operator-model\"\n", "utf8");
+    writeFileSync(join(paths.projectPath, ".kiln", "projections"), "blocks directory creation", "utf8");
+
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+    expect(result.codex).toBe(false);
+    expect(result.errors).toContain("Codex: managed model catalog could not be updated safely");
+    expect(readFileSync(codexPath, "utf8")).toBe("model = \"operator-model\"\n");
+  });
+
+  it("rolls back every native projection when install-state persistence fails", async () => {
+    writeModelGateway(paths.projectPath);
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+    const claudePath = join(paths.projectPath, ".claude", "settings.json");
+    const codexPath = join(paths.homePath, ".codex", "config.toml");
+    const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
+    const catalogPath = String((parseToml(readFileSync(codexPath, "utf8")) as Record<string, unknown>).model_catalog_json);
+    const installStatePath = join(paths.projectPath, ".kiln", "install-state.json");
+    const before = new Map([claudePath, codexPath, opencodePath, catalogPath, installStatePath].map((path) => [path, readFileSync(path, "utf8")]));
+    const gatewayPath = join(paths.projectPath, ".kiln", "gateway.yaml");
+    writeFileSync(gatewayPath, readFileSync(gatewayPath, "utf8").replace("displayName: Kiln Model A", "displayName: Kiln Model Updated"), "utf8");
+    vi.spyOn(nativeProjectionState, "writeNativeProjectionInstallState").mockImplementationOnce(() => {
+      throw new Error("synthetic install-state failure");
+    });
+
+    await expect(syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).rejects.toThrow("synthetic install-state failure");
+    for (const [path, content] of before) expect(readFileSync(path, "utf8"), path).toBe(content);
   });
 
   it("projects the canonical Codex OAuth default model into Codex native config", async () => {

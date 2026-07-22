@@ -11,7 +11,7 @@ import { WebhookDedup } from "../../src/gateway/webhook-dedup.js";
 const secret = "synthetic-file-backed-replay-secret-32-bytes";
 const fingerprint = { rawBody: "{}", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn", route: { providerId: "codex-oauth", providerModelId: "model", scope: "virtual:model" }, toolExecutionMode: "caller-owned" };
 const completed = { responseId: "resp_synthetic", result: { parts: [{ type: "text" as const, text: "synthetic" }], usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" } };
-const gatewayConfig = { port: 4901, accounts: [{ id: "account", providerId: "codex-oauth" as const, credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0 }], openAIResponses: { enabled: true, maxBodyBytes: 1024, maxConcurrentRequests: 1, replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, principals: [{ tokenEnv: "TOKEN", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", providerId: "codex-oauth" as const, providerModelId: "model", accountIds: ["account"], capabilities: ["text" as const], affinity: { continuity: "none" as const } }] } };
+const gatewayConfig = { port: 4901, accounts: [{ id: "account", providerId: "codex-oauth" as const, credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0 }], openAIResponses: { enabled: true, maxBodyBytes: 1024, maxConcurrentRequests: 1, replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, principals: [{ tokenEnv: "TOKEN", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, providerId: "codex-oauth" as const, providerModelId: "model", accountIds: ["account"], capabilities: ["text" as const], affinity: { continuity: "none" as const } }] } };
 
 function store(path: string, ownerId: string): LocalModelGatewayStore {
   return new LocalModelGatewayStore({ path, replaySecret: secret, replayTtlMs: 5_000, replayMaxEntries: 20, accounts: [], ownerId, ownerStaleMs: 75 });
@@ -97,7 +97,7 @@ modelGateway:
     principals:
       - { tokenEnv: BEARER_TOKEN, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [model] }
     virtualModels:
-      - { id: model, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
+      - { id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
 `, "utf8");
     process.env.REPLAY_SECRET = secret; process.env.BEARER_TOKEN = "synthetic-bearer-token-at-least-32-bytes";
     let watcherStopped = false; let dedupClosed = false;

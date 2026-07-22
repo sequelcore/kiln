@@ -43,10 +43,15 @@ export interface ModelGatewayPrincipalConfig {
   readonly scopes: readonly string[];
   readonly budgetEvidenceId: string;
   readonly virtualModelIds: readonly string[];
+  readonly nativeHarness?: "codex" | "opencode";
 }
 
 export interface ModelGatewayVirtualModelConfig {
   readonly id: string;
+  readonly displayName?: string;
+  readonly contextTokens?: number;
+  readonly outputTokens?: number;
+  readonly baseInstructions?: string;
   readonly providerId: "codex-oauth";
   readonly providerModelId: string;
   readonly accountIds: readonly string[];
@@ -190,6 +195,7 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
   bounded(surface.replay?.maxEntries, 1, 1_000_000, "replay.maxEntries", errors, true);
   const tokens = new Set<string>();
   const principalIdentities = new Set<string>();
+  const nativeHarnesses = new Set<string>();
   for (const [index, principal] of (surface.principals ?? []).entries()) {
     const path = `modelGateway.openAIResponses.principals[${index}]`;
     for (const [field, id] of Object.entries({ tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId, capabilityId: principal.capabilityId, budgetEvidenceId: principal.budgetEvidenceId })) if (!ID.test(id ?? "")) errors.push({ field: `${path}.${field}`, message: "must be a canonical id" });
@@ -197,14 +203,26 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
     else if (tokens.has(principal.tokenEnv)) errors.push({ field: `${path}.tokenEnv`, message: "must be unique" }); else tokens.add(principal.tokenEnv);
     if (!Array.isArray(principal.scopes) || !principal.scopes.includes("model.invoke") || new Set(principal.scopes).size !== principal.scopes.length || principal.scopes.some((scope) => !ID.test(scope))) errors.push({ field: `${path}.scopes`, message: "must contain unique canonical scopes including model.invoke" });
     if (!Array.isArray(principal.virtualModelIds) || principal.virtualModelIds.length === 0 || new Set(principal.virtualModelIds).size !== principal.virtualModelIds.length || principal.virtualModelIds.some((id) => !ID.test(id))) errors.push({ field: `${path}.virtualModelIds`, message: "must contain unique canonical model ids" });
+    if (principal.nativeHarness !== undefined) {
+      if (principal.nativeHarness !== "codex" && principal.nativeHarness !== "opencode") errors.push({ field: `${path}.nativeHarness`, message: "must be codex or opencode" });
+      else if (nativeHarnesses.has(principal.nativeHarness)) errors.push({ field: `${path}.nativeHarness`, message: `native harness '${principal.nativeHarness}' must be unique` });
+      else nativeHarnesses.add(principal.nativeHarness);
+    }
     const identity = [principal.tenantId, principal.applicationId, principal.callerId].join("\0");
     if (principalIdentities.has(identity)) errors.push({ field: path, message: "trusted principal identity must be unique" }); else principalIdentities.add(identity);
   }
   if (!Array.isArray(surface.principals) || surface.principals.length === 0) errors.push({ field: "modelGateway.openAIResponses.principals", message: "must be non-empty" });
   const models = new Set<string>();
+  const nativeModelIds = new Set((surface.principals ?? []).flatMap((principal) => principal.nativeHarness ? principal.virtualModelIds : []));
+  const codexNativeModelIds = new Set((surface.principals ?? []).flatMap((principal) => principal.nativeHarness === "codex" ? principal.virtualModelIds : []));
   for (const [index, model] of (surface.virtualModels ?? []).entries()) {
     const path = `modelGateway.openAIResponses.virtualModels[${index}]`;
     if (!ID.test(model.id ?? "") || models.has(model.id)) errors.push({ field: `${path}.id`, message: "must be a unique canonical id" }); else models.add(model.id);
+    const requiresPickerMetadata = nativeModelIds.has(model.id);
+    if ((requiresPickerMetadata || model.displayName !== undefined) && (typeof model.displayName !== "string" || model.displayName.trim().length === 0 || model.displayName.length > 128)) errors.push({ field: `${path}.displayName`, message: "must be a non-empty string of at most 128 characters when exposed to a native harness" });
+    if ((requiresPickerMetadata || model.contextTokens !== undefined) && (!Number.isSafeInteger(model.contextTokens) || model.contextTokens! < 1)) errors.push({ field: `${path}.contextTokens`, message: "must be a positive safe integer when exposed to a native harness" });
+    if ((requiresPickerMetadata || model.outputTokens !== undefined) && (!Number.isSafeInteger(model.outputTokens) || model.outputTokens! < 1 || model.contextTokens === undefined || model.outputTokens! > model.contextTokens)) errors.push({ field: `${path}.outputTokens`, message: "must be a positive safe integer no greater than contextTokens when exposed to a native harness" });
+    if ((codexNativeModelIds.has(model.id) || model.baseInstructions !== undefined) && (typeof model.baseInstructions !== "string" || model.baseInstructions.trim().length === 0 || Buffer.byteLength(model.baseInstructions, "utf8") > 32_768)) errors.push({ field: `${path}.baseInstructions`, message: "must be non-empty and at most 32768 UTF-8 bytes when exposed to Codex" });
     if (model.providerId !== "codex-oauth") errors.push({ field: `${path}.providerId`, message: "must be codex-oauth" });
     if (!ID.test(model.providerModelId ?? "")) errors.push({ field: `${path}.providerModelId`, message: "must be a canonical id" });
     if (!Array.isArray(model.accountIds) || model.accountIds.length !== 1 || new Set(model.accountIds).size !== model.accountIds.length || model.accountIds.some((id) => !ID.test(id))) errors.push({ field: `${path}.accountIds`, message: "codex-oauth virtual models must reference exactly one canonical account id" });

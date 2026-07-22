@@ -13,6 +13,15 @@ vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
   readFileSync: vi.fn((path: string) => fsMocks.files.get(path) ?? ""),
   readdirSync: vi.fn(),
+  renameSync: vi.fn((source: string, destination: string) => {
+    const content = fsMocks.files.get(source);
+    if (content === undefined) throw new Error(`ENOENT: ${source}`);
+    fsMocks.files.set(destination, content);
+    fsMocks.files.delete(source);
+  }),
+  rmSync: vi.fn((path: string) => {
+    fsMocks.files.delete(path);
+  }),
   writeFileSync: vi.fn((path: string, content: string) => {
     fsMocks.files.set(path, content);
   }),

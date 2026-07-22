@@ -35,6 +35,16 @@ export { ClaudeSession } from "./wrapper/claude-code-process.js";
 export type { ClaudeSessionConfig } from "./wrapper/claude-code-process.js";
 export type { SessionMode, SessionContext, SessionReport, WrapperConfig } from "./wrapper/index.js";
 export { SessionManager } from "./wrapper/session-manager.js";
+export {
+  buildCodexResponsesProjection,
+  buildOpenCodeResponsesProjection,
+  resolveResponsesNativeProjectionSource,
+} from "./config/model-gateway-native-projection.js";
+export type {
+  CodexResponsesProjection,
+  OpenCodeResponsesProjection,
+  ResponsesNativeHarness,
+} from "./config/model-gateway-native-projection.js";
 
 export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);

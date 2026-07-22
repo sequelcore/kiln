@@ -9,17 +9,27 @@ import {
 } from "./permission-projection.js";
 import { resolveNativeDefaultRouteProjection } from "../native-route-integrity.js";
 import type { KilnYaml } from "../../kiln-yaml-types.js";
+import { mergeManagedFields, stripManagedFields } from "../native-projection-state.js";
+import type { CodexResponsesProjection } from "../model-gateway-native-projection.js";
 
 export function translateCodexPermissionProjection(input: {
   readonly policy: KilnPermissionPolicy;
   readonly existingDocument: Record<string, unknown>;
   readonly kilnYaml?: KilnYaml;
   readonly ownsManagedDefault?: boolean;
+  readonly gatewayProjection?: CodexResponsesProjection;
+  readonly previousManagedFields?: readonly string[];
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "codex");
   const cfg = translated.config as { approvalMode: string; sandboxMode: string };
-  const existingDocument = sanitizeCodexConfigDocument(input.existingDocument);
-  const defaultRoute = input.kilnYaml
+  const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) =>
+    field === "model_provider" || field === "model_catalog_json" || field === "model_providers.kiln"
+  );
+  const existingDocument = stripManagedFields({
+    currentDocument: sanitizeCodexConfigDocument(input.existingDocument),
+    managedFields: staleGatewayFields,
+  });
+  const defaultRoute = !input.gatewayProjection && input.kilnYaml
     ? resolveNativeDefaultRouteProjection("codex", input.kilnYaml)
     : undefined;
   const managedFields = [
@@ -27,6 +37,7 @@ export function translateCodexPermissionProjection(input: {
     "sandbox_mode",
     "kiln.permission_sync",
     ...(defaultRoute?.status === "project" ? ["model"] : []),
+    ...(input.gatewayProjection?.managedFields ?? []),
   ];
   const document: Record<string, unknown> = {
     ...existingDocument,
@@ -37,6 +48,18 @@ export function translateCodexPermissionProjection(input: {
       permission_sync: toPermissionSyncMetadata(translated),
     },
   };
+  if (input.gatewayProjection) {
+    if (!input.gatewayProjection.managedFields.includes("model") && input.ownsManagedDefault) delete document.model;
+    return createPermissionProjection({
+      targetId: PERMISSION_PROJECTION_TARGET_IDS.codex,
+      managedFields: [...new Set(managedFields)],
+      document: mergeManagedFields({ currentDocument: document, managedPatch: input.gatewayProjection.patch, managedFields: input.gatewayProjection.managedFields }),
+      integrity: {
+        harness: "codex", policy: input.policy, translated,
+        enforcement: { approvalControl: "enforced", filesystemSandbox: "enforced", networkBoundary: "enforced", strength: "strong" },
+      },
+    });
+  }
   if (defaultRoute?.status === "project" && defaultRoute.nativeModel) {
     document.model = defaultRoute.nativeModel;
   } else if ((defaultRoute?.status === "remove-stale" || defaultRoute?.status === "missing-default") && input.ownsManagedDefault) {

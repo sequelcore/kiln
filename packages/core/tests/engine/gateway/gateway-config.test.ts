@@ -50,8 +50,13 @@ modelGateway:
         scopes: [model.invoke]
         budgetEvidenceId: budget-a
         virtualModelIds: [codex]
+        nativeHarness: codex
     virtualModels:
       - id: codex
+        displayName: Kiln Codex
+        contextTokens: 200000
+        outputTokens: 10000
+        baseInstructions: You are a governed Kiln coding agent.
         providerId: codex-oauth
         providerModelId: gpt-5.6-codex
         accountIds: [account-a]
@@ -60,8 +65,8 @@ modelGateway:
 `);
     expect(parsed.modelGateway?.openAIResponses).toMatchObject({
       replay: { hmacKeyEnv: "KILN_REPLAY_KEY" },
-      principals: [{ tokenEnv: "KILN_RESPONSES_TOKEN", applicationId: "app-a" }],
-      virtualModels: [{ providerId: "codex-oauth", accountIds: ["account-a"], affinity: { scope: "session" } }],
+      principals: [{ tokenEnv: "KILN_RESPONSES_TOKEN", applicationId: "app-a", nativeHarness: "codex" }],
+      virtualModels: [{ displayName: "Kiln Codex", contextTokens: 200000, outputTokens: 10000, providerId: "codex-oauth", accountIds: ["account-a"], affinity: { scope: "session" } }],
     });
     expect(JSON.stringify(parsed)).not.toContain("secret-value");
   });
@@ -81,9 +86,10 @@ modelGateway:
     principals:
       - { tokenEnv: TOKEN_ENV, tenantId: tenant, applicationId: standalone-app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [model] }
     virtualModels:
-      - { id: model, providerId: codex-oauth, providerModelId: provider-model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
+      - { id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: provider-model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
 `;
     expect(parseGatewayYaml(standalone).apps).toEqual([]);
+    expect(() => parseGatewayYaml(standalone.replace("displayName: Model, contextTokens: 1000, outputTokens: 100, ", ""))).not.toThrow();
     expect(parseGatewayYaml(standalone.replace("apps: []\n", "")).apps).toEqual([]);
     for (const malformed of ["{}", "null", "standalone"]) {
       expect(() => parseGatewayYaml(standalone.replace("apps: []", `apps: ${malformed}`))).toThrow(/apps/);
@@ -99,11 +105,39 @@ modelGateway:
       .toThrow(/exactly one/);
   });
 
+  it("requires unique native harness ownership and complete picker metadata", () => {
+    const yaml = `port: 4800
+apps: []
+modelGateway:
+  port: 4801
+  accounts:
+    - { id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }
+  openAIResponses:
+    enabled: true
+    maxBodyBytes: 1024
+    maxConcurrentRequests: 1
+    replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
+    principals:
+      - { tokenEnv: TOKEN_A, tenantId: tenant, applicationId: a, callerId: a, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: a, virtualModelIds: [model], nativeHarness: codex }
+      - { tokenEnv: TOKEN_B, tenantId: tenant, applicationId: b, callerId: b, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: b, virtualModelIds: [model], nativeHarness: codex }
+    virtualModels:
+      - { id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, baseInstructions: Governed fixture instructions., providerId: codex-oauth, providerModelId: upstream, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
+`;
+    expect(() => parseGatewayYaml(yaml)).toThrow(/native harness 'codex' must be unique/);
+    const singleWithoutInstructions = yaml
+      .replace("      - { tokenEnv: TOKEN_B, tenantId: tenant, applicationId: b, callerId: b, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: b, virtualModelIds: [model], nativeHarness: codex }\n", "")
+      .replace("baseInstructions: Governed fixture instructions., ", "");
+    expect(() => parseGatewayYaml(singleWithoutInstructions)).toThrow(/baseInstructions/);
+    expect(() => parseGatewayYaml(singleWithoutInstructions.replace("nativeHarness: codex", "nativeHarness: opencode"))).not.toThrow();
+    expect(() => parseGatewayYaml(yaml.replace(", nativeHarness: codex }\n      -", " }\n      -").replace(", nativeHarness: codex }\n    virtualModels", " }\n    virtualModels").replace("displayName: Model", "displayName: ''")))
+      .toThrow(/displayName/);
+  });
+
   it.each([
     ["unknown field", "extra: true"],
-    ["wrong provider", "virtualModels:\n      - id: codex\n        providerId: other\n        providerModelId: model\n        accountIds: [a]\n        capabilities: [text]\n        affinity: { continuity: none }"],
+    ["wrong provider", "virtualModels:\n      - id: codex\n        displayName: Codex\n        contextTokens: 1000\n        outputTokens: 100\n        providerId: other\n        providerModelId: model\n        accountIds: [a]\n        capabilities: [text]\n        affinity: { continuity: none }"],
   ])("fails closed for malformed model gateway %s", (_label, fragment) => {
-    const yaml = `port: 4800\napps:\n  - name: app-a\n    config: a.yaml\n    channels: [{type: api}]\nmodelGateway:\n  port: 4801\n  accounts:\n    - {id: a, providerId: codex-oauth, credentialId: credential-a, maxConcurrency: 1, reservedAffinitySlots: 0}\n  openAIResponses:\n    enabled: true\n    maxBodyBytes: 1048576\n    maxConcurrentRequests: 4\n    replay: {ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY}\n    principals:\n      - {tokenEnv: TOKEN_ENV, tenantId: t, applicationId: app-a, callerId: c, capabilityId: cap, scopes: [model.invoke], budgetEvidenceId: b, virtualModelIds: [m]}\n    virtualModels:\n      - {id: m, providerId: codex-oauth, providerModelId: p, accountIds: [a], capabilities: [text], affinity: {continuity: none}}\n    ${fragment}`;
+    const yaml = `port: 4800\napps:\n  - name: app-a\n    config: a.yaml\n    channels: [{type: api}]\nmodelGateway:\n  port: 4801\n  accounts:\n    - {id: a, providerId: codex-oauth, credentialId: credential-a, maxConcurrency: 1, reservedAffinitySlots: 0}\n  openAIResponses:\n    enabled: true\n    maxBodyBytes: 1048576\n    maxConcurrentRequests: 4\n    replay: {ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY}\n    principals:\n      - {tokenEnv: TOKEN_ENV, tenantId: t, applicationId: app-a, callerId: c, capabilityId: cap, scopes: [model.invoke], budgetEvidenceId: b, virtualModelIds: [m]}\n    virtualModels:\n      - {id: m, displayName: Model, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: p, accountIds: [a], capabilities: [text], affinity: {continuity: none}}\n    ${fragment}`;
     expect(() => parseGatewayYaml(yaml)).toThrow();
   });
   describe("validateGatewayConfig", () => {

@@ -28,8 +28,8 @@ const config: ModelGatewayConfig = {
       { tokenEnv: "BEARER_TOKEN_2", tenantId: "tenant", applicationId: "a:app", callerId: "caller-a", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget-b", virtualModelIds: ["codex"] },
     ],
     virtualModels: [
-      { id: "codex", providerId: "codex-oauth", providerModelId: "gpt-test", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "prefer", scope: "session" } },
-      { id: "not-allowed", providerId: "codex-oauth", providerModelId: "gpt-other", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "none" } },
+      { id: "codex", displayName: "Codex", contextTokens: 1000, outputTokens: 100, providerId: "codex-oauth", providerModelId: "gpt-test", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "prefer", scope: "session" } },
+      { id: "not-allowed", displayName: "Other", contextTokens: 1000, outputTokens: 100, providerId: "codex-oauth", providerModelId: "gpt-other", accountIds: ["primary"], capabilities: ["text"], affinity: { continuity: "none" } },
     ],
   },
 };
@@ -71,12 +71,21 @@ describe("createCodexOAuthResponsesIngress", () => {
       expect(rotated?.account).not.toBe(first?.account);
       await expect(handle.ingress.invocationPorts.dispatcherResolver.resolve({ identity, route: resolved!.route, account: first!.account, leaseId: lease!.leaseId })).rejects.toThrow("unavailable");
 
-      const namespaced = await handle.ingress.namespaceCorrelation({ principal: principal!, observed: { sessionId: "external-session", turnId: "external-turn" } });
+      const namespaced = await handle.ingress.namespaceCorrelation({ principal: principal!, observed: { sessionId: "external-session", turnId: "external-turn", rawBodyDigest: "a".repeat(64) } });
       const collidingPrincipal = await handle.ingress.authenticateBearer("c".repeat(32));
-      const separatelyNamespaced = await handle.ingress.namespaceCorrelation({ principal: collidingPrincipal!, observed: { sessionId: "external-session", turnId: "external-turn" } });
+      const separatelyNamespaced = await handle.ingress.namespaceCorrelation({ principal: collidingPrincipal!, observed: { sessionId: "external-session", turnId: "external-turn", rawBodyDigest: "a".repeat(64) } });
       expect(namespaced.sessionId).toMatch(/^ns:[a-f0-9]{64}$/);
       expect(namespaced.sessionId).not.toContain("external-session");
       expect(separatelyNamespaced.sessionId).not.toBe(namespaced.sessionId);
+      const retry = await handle.ingress.namespaceCorrelation({ principal: principal!, observed: { sessionId: "external-session", rawBodyDigest: "1".repeat(64) } });
+      const sameRetry = await handle.ingress.namespaceCorrelation({ principal: principal!, observed: { sessionId: "external-session", rawBodyDigest: "1".repeat(64) } });
+      const nextBody = await handle.ingress.namespaceCorrelation({ principal: principal!, observed: { sessionId: "external-session", rawBodyDigest: "2".repeat(64) } });
+      expect(sameRetry.turnId).toBe(retry.turnId);
+      expect(nextBody.turnId).not.toBe(retry.turnId);
+      const threadOnly = await handle.ingress.namespaceCorrelation({ principal: principal!, observed: { threadId: "stable-thread", rawBodyDigest: "1".repeat(64) } });
+      const threadNextBody = await handle.ingress.namespaceCorrelation({ principal: principal!, observed: { threadId: "stable-thread", rawBodyDigest: "2".repeat(64) } });
+      expect(threadNextBody.sessionId).toBe(threadOnly.sessionId);
+      expect(threadNextBody.turnId).not.toBe(threadOnly.turnId);
     } finally {
       handle.close();
     }

@@ -37,7 +37,41 @@ const TARGET_ALIASES: Readonly<Record<string, string>> = {
   "opencode-instructions": "opencode-global-instructions",
 };
 
-const HARNESS_TARGETS = new Set(["claude", "codex", "opencode"]);
+type NativeHarnessTarget = "claude" | "codex" | "opencode";
+
+const HARNESS_TARGET_OWNERSHIP: Readonly<Record<NativeHarnessTarget, {
+  readonly exact: ReadonlySet<string>;
+  readonly prefixes: readonly string[];
+}>> = {
+  claude: {
+    exact: new Set([
+      "claude-settings",
+      "claude-global-instructions",
+      "claude-hook-settings",
+      "claude-autoformat-hook",
+      "mcp:claude",
+    ]),
+    prefixes: ["claude-agent:", "claude-skill:"],
+  },
+  codex: {
+    exact: new Set([
+      "codex-config",
+      "codex-model-catalog",
+      "codex-global-instructions",
+      "codex-autoformat-hook",
+      "mcp:codex",
+    ]),
+    prefixes: ["codex-agent:", "codex-skill:"],
+  },
+  opencode: {
+    exact: new Set([
+      "opencode-config",
+      "opencode-global-instructions",
+      "mcp:opencode",
+    ]),
+    prefixes: ["opencode-agent:", "opencode-skill:"],
+  },
+} as const;
 const GLOBAL_INSTRUCTION_TARGETS = [
   "codex-global-instructions",
   "claude-global-instructions",
@@ -123,6 +157,7 @@ export function uninstallNativeTargets(projectPath: string, options: UninstallNa
     const stripped = stripManagedFields({
       currentDocument,
       managedFields: target.managedFields,
+      managedArrayItems: target.managedArrayItems,
     });
     writeNativeProjectionDocument(target, stripped);
     installState = removeNativeProjectionTargetState(installState, targetId);
@@ -144,12 +179,16 @@ function resolveTargetIds(state: NativeProjectionInstallState, target: string | 
   if (normalized === "instructions" || normalized === "global-instructions") {
     return GLOBAL_INSTRUCTION_TARGETS.filter((targetId) => state.targets[targetId] !== undefined);
   }
-  if (HARNESS_TARGETS.has(normalized)) {
-    const targetIds = Object.keys(state.targets).filter((targetId) =>
-      targetId.startsWith(`${normalized}-`) || targetId === `mcp:${normalized}`);
-    return targetIds;
+  if (isNativeHarnessTarget(normalized)) {
+    const ownership = HARNESS_TARGET_OWNERSHIP[normalized];
+    return Object.keys(state.targets).filter((targetId) =>
+      ownership.exact.has(targetId) || ownership.prefixes.some((prefix) => targetId.startsWith(prefix)));
   }
   return [TARGET_ALIASES[normalized] ?? normalized];
+}
+
+function isNativeHarnessTarget(value: string): value is NativeHarnessTarget {
+  return Object.hasOwn(HARNESS_TARGET_OWNERSHIP, value);
 }
 
 function safeError(error: unknown): string {

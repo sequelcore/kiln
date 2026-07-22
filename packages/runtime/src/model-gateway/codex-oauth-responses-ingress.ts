@@ -92,7 +92,8 @@ export async function createCodexOAuthResponsesIngress(options: CodexOAuthRespon
 function requireSecret(env: Readonly<Record<string, string | undefined>>, name: string, label: string): string { const value = env[name]; if (!value || Buffer.byteLength(value, "utf8") < 32) throw new Error(`${label} environment value must contain at least 32 bytes.`); return value; }
 function digest(value: string): Buffer { return createHash("sha256").update(value, "utf8").digest(); }
 function namespaceCorrelation(secret: string, principal: OpenAIResponsesTrustedPrincipal, observed: OpenAIResponsesObservedCorrelation): { sessionId: string; turnId: string } {
-  const session = observed.sessionId ?? observed.threadId; if (!session) throw new Error("Codex session or thread correlation is required."); const turn = observed.turnId ?? observed.threadId ?? session;
+  const session = observed.sessionId ?? observed.threadId; if (!session) throw new Error("A native session or thread correlation is required.");
+  const turn = observed.turnId ?? observed.rawBodyDigest;
   const namespaced = (kind: string, value: string) => { const h = createHmac("sha256", secret); for (const field of ["kiln-correlation-v1", principal.tenantId, principal.applicationId, principal.callerId, kind, value]) { const bytes = Buffer.from(field, "utf8"); h.update(`${bytes.byteLength}:`); h.update(bytes); h.update(";"); } return h.digest("hex"); };
   return { sessionId: `ns:${namespaced("session", session)}`, turnId: `ns:${namespaced("turn", turn)}` };
 }

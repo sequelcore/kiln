@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 
@@ -10,6 +10,7 @@ export interface NativeProjectionTargetState {
   readonly contentHash: string;
   readonly managedFields: readonly string[];
   readonly managedFieldHashes: Readonly<Record<string, string>>;
+  readonly managedArrayItems?: Readonly<Record<string, readonly unknown[]>>;
   readonly updatedAt: string;
   readonly permissionIntegrity?: TrustedExecutionIntegrity;
 }
@@ -24,6 +25,7 @@ export interface NativeProjectionSnapshotInput {
   readonly filePath: string;
   readonly document: Record<string, unknown>;
   readonly managedFields: readonly string[];
+  readonly managedArrayItems?: Readonly<Record<string, readonly unknown[]>>;
   readonly updatedAt?: string;
   readonly permissionIntegrity?: TrustedExecutionIntegrity;
 }
@@ -41,6 +43,7 @@ export interface NativeProjectionDrift {
 }
 
 const INSTALL_STATE_FILE = "install-state.json";
+let installStateWriteSequence = 0;
 
 export function emptyNativeProjectionInstallState(): NativeProjectionInstallState {
   return {
@@ -69,7 +72,13 @@ export function writeNativeProjectionInstallState(
 ): void {
   const path = join(kilnDir, INSTALL_STATE_FILE);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  const temporary = `${path}.${process.pid}.${++installStateWriteSequence}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }
 
 export function createNativeProjectionSnapshot(
@@ -77,7 +86,7 @@ export function createNativeProjectionSnapshot(
 ): NativeProjectionTargetState {
   const managedFieldHashes: Record<string, string> = {};
   for (const fieldPath of input.managedFields) {
-    managedFieldHashes[fieldPath] = hashStableValue(getPathValue(input.document, fieldPath));
+    managedFieldHashes[fieldPath] = hashManagedValue(input.document, fieldPath, input.managedArrayItems?.[fieldPath]);
   }
 
   return {
@@ -86,6 +95,7 @@ export function createNativeProjectionSnapshot(
     contentHash: hashStableValue(input.document),
     managedFields: [...input.managedFields],
     managedFieldHashes,
+    ...(input.managedArrayItems ? { managedArrayItems: input.managedArrayItems } : {}),
     updatedAt: input.updatedAt ?? new Date().toISOString(),
     ...(input.permissionIntegrity ? { permissionIntegrity: input.permissionIntegrity } : {}),
   };
@@ -144,7 +154,7 @@ export function detectNativeProjectionDrift(input: {
   }
 
   const driftedFields = target.managedFields.filter((fieldPath) => {
-    const currentHash = hashStableValue(getPathValue(input.currentDocument, fieldPath));
+    const currentHash = hashManagedValue(input.currentDocument, fieldPath, target.managedArrayItems?.[fieldPath]);
     return currentHash !== target.managedFieldHashes[fieldPath];
   });
 
@@ -183,12 +193,30 @@ export function mergeManagedFields(input: {
 export function stripManagedFields(input: {
   readonly currentDocument: Record<string, unknown>;
   readonly managedFields: readonly string[];
+  readonly managedArrayItems?: Readonly<Record<string, readonly unknown[]>>;
 }): Record<string, unknown> {
   const stripped = cloneRecord(input.currentDocument);
   for (const fieldPath of input.managedFields) {
+    const ownedItems = input.managedArrayItems?.[fieldPath];
+    if (ownedItems) {
+      const current = getPathValue(stripped, fieldPath);
+      if (Array.isArray(current)) {
+        const retained = current.filter((item) => !ownedItems.some((owned) => stableStringify(owned) === stableStringify(item)));
+        if (retained.length > 0) setPathValue(stripped, fieldPath, retained);
+        else deletePathValue(stripped, fieldPath);
+      }
+      continue;
+    }
     deletePathValue(stripped, fieldPath);
   }
   return stripped;
+}
+
+function hashManagedValue(document: Record<string, unknown>, fieldPath: string, ownedItems: readonly unknown[] | undefined): string {
+  const value = getPathValue(document, fieldPath);
+  if (!ownedItems) return hashStableValue(value);
+  const current = Array.isArray(value) ? value : [];
+  return hashStableValue(ownedItems.map((owned) => current.filter((item) => stableStringify(item) === stableStringify(owned)).length));
 }
 
 function getPathValue(source: Record<string, unknown>, fieldPath: string): unknown {

@@ -328,7 +328,7 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     }));
     expect(fixture.namespace).toHaveBeenCalledWith(expect.objectContaining({
       principal,
-      observed: { sessionId: "native-session", threadId: "native-thread", turnId: "native-turn" },
+      observed: expect.objectContaining({ sessionId: "native-session", threadId: "native-thread", turnId: "native-turn", rawBodyDigest: expect.stringMatching(/^[a-f0-9]{64}$/) }),
     }));
     expect(fixture.catalog).toHaveBeenCalledWith(expect.objectContaining({
       identity: expect.objectContaining({ sessionId: "ns:tenant:session-1", turnId: "ns:tenant:turn-1" }),
@@ -343,6 +343,43 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(threadContradiction.status).toBe(400);
     const invalid = await app.request(request(body(), { "session-id": "x".repeat(257) }));
     expect(invalid.status).toBe(400);
+  });
+
+  it("accepts consistent OpenCode session headers and rejects contradictory hints", async () => {
+    const fixture = config();
+    const app = createOpenAIResponsesRoutes(fixture.value);
+    const accepted = await app.request(request(body(), {
+      "x-session-id": "session-a",
+      "x-session-affinity": "session-a",
+    }));
+    expect(accepted.status).toBe(200);
+    expect(fixture.namespace).toHaveBeenCalledWith(expect.objectContaining({
+      observed: expect.objectContaining({ sessionId: "session-a", rawBodyDigest: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+    }));
+    const rejected = await app.request(request(body(), {
+      "x-session-id": "session-a",
+      "x-session-affinity": "session-b",
+    }));
+    expect(rejected.status).toBe(400);
+  });
+
+  it("hashes exact bounded request bytes so a UTF-8 BOM cannot collide with the decoded JSON", async () => {
+    const fixture = config();
+    const app = createOpenAIResponsesRoutes(fixture.value);
+    const json = JSON.stringify(body());
+    const bytes = new TextEncoder().encode(json);
+    const withBom = new Uint8Array(bytes.byteLength + 3);
+    withBom.set([0xef, 0xbb, 0xbf]); withBom.set(bytes, 3);
+    const rawRequest = (payload: BodyInit) => new Request("http://127.0.0.1/v1/responses", {
+      method: "POST",
+      headers: { authorization: "Bearer valid-token", "content-type": "application/json", "x-session-id": "session-a", "x-session-affinity": "session-a" },
+      body: payload,
+    });
+    expect((await app.request(rawRequest(bytes))).status).toBe(200);
+    expect((await app.request(rawRequest(withBom))).status).toBe(200);
+    const digests = fixture.namespace.mock.calls.map(([input]) => input.observed.rawBodyDigest);
+    expect(digests).toHaveLength(2);
+    expect(digests[0]).not.toBe(digests[1]);
   });
 
   it("derives affinity keys from trusted namespaced session correlation", async () => {

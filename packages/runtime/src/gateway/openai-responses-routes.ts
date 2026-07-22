@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createHash } from "node:crypto";
 import type { ModelGatewayRoute } from "@kilnai/core";
 import {
   GovernedOneRoundCommittedError,
@@ -54,6 +55,7 @@ export interface OpenAIResponsesObservedCorrelation {
   readonly sessionId?: string;
   readonly threadId?: string;
   readonly turnId?: string;
+  readonly rawBodyDigest: string;
 }
 
 export interface OpenAIResponsesCompatibilityEvidence {
@@ -106,7 +108,8 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
       requireJsonContentType(context.req.header("content-type"));
       releaseConcurrency = concurrency.acquire();
       if (releaseConcurrency === undefined) throw new ResponsesIngressError(429, "ingress_overloaded", "The Responses ingress is at capacity.");
-      const rawBody = await readBoundedBody(context.req.raw, maxBodyBytes);
+      const boundedBody = await readBoundedBody(context.req.raw, maxBodyBytes);
+      const rawBody = boundedBody.text;
       let decoded: unknown;
       try { decoded = JSON.parse(rawBody); }
       catch { throw new ResponsesIngressError(400, "invalid_json", "The request body must contain valid JSON."); }
@@ -132,7 +135,7 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
         throw error;
       }
       const turn = mapOpenAIResponsesRequestToModelTurn(request);
-      const observed = readCorrelation(context.req.raw.headers, request);
+      const observed = readCorrelation(context.req.raw.headers, request, boundedBody.sha256);
       const namespaced = await config.namespaceCorrelation({ principal, observed });
       validateNamespacedCorrelation(namespaced, observed);
       const affinity = deriveAffinity(resolved.affinity, namespaced);
@@ -297,41 +300,46 @@ function resolveBodyLimit(configured: number | undefined): number {
   return Math.min(configured, OPENAI_RESPONSES_RAW_BODY_MAX_BYTES);
 }
 
-async function readBoundedBody(request: Request, maximum: number): Promise<string> {
+async function readBoundedBody(request: Request, maximum: number): Promise<{ readonly text: string; readonly sha256: string }> {
   const declared = request.headers.get("content-length");
   if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maximum)) throw new ResponsesIngressError(413, "request_too_large", "The request body exceeds the supported limit.");
   if (request.body === null) throw new ResponsesIngressError(400, "invalid_json", "The request body is required.");
   const reader = request.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
+  const hash = createHash("sha256");
   let decoded = ""; let total = 0;
   try {
     while (true) {
       if (request.signal.aborted) throw new GovernedOneRoundInvocationError("aborted", "Request aborted.");
       const read = await reader.read(); if (read.done) break; total += read.value.byteLength;
       if (total > maximum) { await reader.cancel(); throw new ResponsesIngressError(413, "request_too_large", "The request body exceeds the supported limit."); }
+      hash.update(read.value);
       try { decoded += decoder.decode(read.value, { stream: true }); }
       catch { throw new ResponsesIngressError(400, "invalid_json", "The request body must be UTF-8 JSON."); }
     }
     try { decoded += decoder.decode(); }
     catch { throw new ResponsesIngressError(400, "invalid_json", "The request body must be UTF-8 JSON."); }
   } finally { reader.releaseLock(); }
-  return decoded;
+  return { text: decoded, sha256: hash.digest("hex") };
 }
 
-function readCorrelation(headers: Headers, request: OpenAIResponsesRequest): OpenAIResponsesObservedCorrelation {
+function readCorrelation(headers: Headers, request: OpenAIResponsesRequest, rawBodyDigest: string): OpenAIResponsesObservedCorrelation {
   const metadata = request.client_metadata as Record<string, string> | undefined;
   const headerSession = optionalCorrelation(headers.get("session-id"), "session-id");
+  const openCodeSession = optionalCorrelation(headers.get("x-session-id"), "x-session-id");
+  const openCodeAffinity = optionalCorrelation(headers.get("x-session-affinity"), "x-session-affinity");
   const headerThread = optionalCorrelation(headers.get("thread-id"), "thread-id");
   const headerClientRequest = optionalCorrelation(headers.get("x-client-request-id"), "x-client-request-id");
   const metadataSession = optionalCorrelation(metadata?.session_id, "client_metadata.session_id");
   const metadataThread = optionalCorrelation(metadata?.thread_id, "client_metadata.thread_id");
   const metadataTurn = optionalCorrelation(metadata?.turn_id, "client_metadata.turn_id");
-  const sessionId = consistentHint([headerSession, metadataSession], "session correlation hints contradict");
+  const sessionId = consistentHint([headerSession, openCodeSession, openCodeAffinity, metadataSession], "session correlation hints contradict");
   const threadId = consistentHint([headerThread, headerClientRequest, metadataThread], "thread correlation hints contradict");
   return {
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(threadId === undefined ? {} : { threadId }),
     ...(metadataTurn === undefined ? {} : { turnId: metadataTurn }),
+    rawBodyDigest,
   };
 }
 
@@ -349,7 +357,7 @@ function consistentHint(values: readonly (string | undefined)[], message: string
 
 function validateNamespacedCorrelation(value: { readonly sessionId: string; readonly turnId: string }, observed: OpenAIResponsesObservedCorrelation): void {
   requireServerId(value.sessionId, "sessionId"); requireServerId(value.turnId, "turnId");
-  const raw = new Set([observed.sessionId, observed.threadId, observed.turnId].filter(Boolean));
+  const raw = new Set([observed.sessionId, observed.threadId, observed.turnId, observed.rawBodyDigest].filter(Boolean));
   if (raw.has(value.sessionId) || raw.has(value.turnId)) throw new ResponsesIngressError(500, "invalid_namespace", "Correlation namespace resolution failed.");
 }
 
