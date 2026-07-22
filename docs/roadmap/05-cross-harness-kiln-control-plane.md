@@ -1,12 +1,20 @@
 # 05 - Cross-Harness Kiln Control Plane
 
 Status: Active delivery track; Slices 0-3 are complete. The governed Model
-Gateway foundation and Slice 5 Claude read-only adapter candidate are
-implemented; Slice 4 economics remain planned and Claude admission remains
+Gateway now dispatches all supported direct providers through exact explicit
+account pools, and the Slice 5 Claude read-only adapter candidate is
+implemented. Slice 4 economics remain planned and Claude admission remains
 fail-closed pending strict provider live proof.
 Execution: Ready - define Slice 4 quota and subscription evidence before
 changing route preference, and admit no Claude model without strict live proof.
 Created: 2026-07-04.
+
+Delivery note (2026-07-21): Codex, OpenCode, and Claude protocol projections
+share one runtime authority. Virtual models can bind multiple accounts from the
+same supported direct provider with deterministic selection, concurrency,
+reservation, affinity, exact credential revision checks, and no hidden
+cross-account retry. This is authorized account assignment and isolation, not
+quota evasion or automatic subscription rotation.
 
 ## Objective
 

@@ -13,8 +13,10 @@ execution adapters. They do not define session identity or operator policy.
 
 ## Scope
 
-The first supported deployment is one local Kiln runtime authority bound to a
-loopback interface. Multiple harness processes may connect to that authority.
+The supported deployment is one local Kiln runtime authority bound to a
+loopback interface. Multiple harness processes may connect to that authority,
+and each admitted virtual model may bind one or more explicitly configured
+accounts from one direct provider.
 Remote or multi-runtime account sharing is unsupported until Kiln has a
 transactional lease store, fencing tokens, and crash-recovery semantics. A
 runtime must reject configuration that implies unsupported shared authority.
@@ -94,6 +96,13 @@ An account candidate must provide current evidence that it is:
 - below its concurrency limit;
 - within configured budget and reserve policy.
 
+Every virtual-model account pool is provider-homogeneous. Kiln rejects unknown
+providers, duplicate provider/credential bindings, cross-provider account
+references, and credential revisions that change between selection and secret
+resolution. Account references contain only configured IDs plus opaque
+filesystem identity/revision evidence; they never contain keys, tokens, or
+provider account claims.
+
 Selection is deterministic. A healthy compatible affinity wins. New work uses
 the least-pressure eligible candidate, with explicit priority and stable account
 identity as tie breakers. Reserved accounts are excluded from new work unless
@@ -125,19 +134,32 @@ terminal outcome and requires an explicit retry. An account rebind starts a new
 provider-native thread from the canonical Kiln transcript and emits continuity
 rebind evidence.
 
-The existing `PooledProviderAdapter` buffer-and-retry stream behavior is a
-transitional implementation. Model Gateway streaming is progressive and owns
-the commit boundary. Provider adapters must not perform hidden cross-account
-retries.
+`PooledProviderAdapter` remains available to legacy non-gateway consumers, but
+the Model Gateway does not use it. Gateway turns bind one exact credential,
+disable adapter and SDK retries, perform one provider call, and let the
+governed attempt lifecycle own any later explicit retry or rebind decision.
 
 ## Harness Protocols
 
-The local gateway may expose versioned ingress adapters for:
+The local gateway exposes versioned ingress adapters for:
 
 - OpenAI Responses for Codex;
-- OpenAI-compatible Chat Completions for OpenCode and compatible clients;
+- OpenAI Responses projections for OpenCode and compatible clients;
 - Anthropic Messages for supported Claude Code gateway routes;
 - Kiln-native gateway contracts.
+
+The runtime can dispatch an admitted virtual model to `codex-oauth`,
+`opencode-go`, `opencode-zen`, `anthropic`, `openai`, `deepseek`, `openrouter`,
+`ollama`, or `lmstudio`. Codex OAuth uses its dedicated Responses dispatcher.
+The other providers use a capability-limited one-round bridge over a raw,
+exact-credential adapter.
+
+The portable adapter intersection is text, URL/base64 images where the
+transport supports them, and function tools. Codex OAuth may additionally
+advertise its proven Responses capabilities. Custom Lark tools, parallel-tool
+flags, JSON-schema response formats, reasoning controls, and text verbosity
+are rejected for generic adapter routes before provider dispatch; config may
+not advertise them on those routes.
 
 Every provider/model/harness combination has explicit capability evidence.
 Protocol translation does not imply tool, reasoning, context, resume, billing,

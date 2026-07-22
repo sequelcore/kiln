@@ -62,6 +62,28 @@ describe("model gateway native projections", () => {
     })]);
   });
 
+  it("projects an OpenCode-backed virtual model into Codex without exposing upstream credentials", () => {
+    const configured = config([principal("codex")]);
+    const crossProvider: ModelGatewayConfig = {
+      ...configured,
+      accounts: [
+        { id: "go-a", providerId: "opencode-go", credentialId: "credential-a", maxConcurrency: 1, reservedAffinitySlots: 0 },
+        { id: "go-b", providerId: "opencode-go", credentialId: "credential-b", maxConcurrency: 1, reservedAffinitySlots: 0 },
+      ],
+      virtualModels: configured.virtualModels.map((model) => ({
+        ...model,
+        providerId: "opencode-go" as const,
+        accountIds: ["go-a", "go-b"],
+        capabilities: ["text", "function-tools"] as const,
+      })),
+    };
+
+    const projected = buildCodexResponsesProjection({ config: crossProvider, modelCatalogPath: "C:/catalog.json" });
+    expect(projected?.catalog.models[0]).toMatchObject({ slug: "model-a", display_name: "Model A" });
+    expect(JSON.stringify(projected)).not.toContain("credential-a");
+    expect(JSON.stringify(projected)).not.toContain("opencode-go");
+  });
+
   it("builds an OpenCode Responses provider while preserving enabled providers", () => {
     const projected = buildOpenCodeResponsesProjection({ config: config([principal("opencode")]), existingEnabledProviders: ["anthropic"] });
     expect(projected?.patch).toEqual({
