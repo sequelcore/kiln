@@ -7,12 +7,9 @@ import {
   type GovernedOneRoundAffinityPolicy,
   type GovernedOneRoundBudgetEvidence,
   type GovernedOneRoundInvocationPorts,
-  invokeGovernedOneRound,
 } from "../model-gateway/governed-one-round-invocation.js";
-import type {
-  ModelGatewayReplayDecision,
-  ModelGatewayReplayGuard,
-} from "../model-gateway/replay-guard.js";
+import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type ModelGatewayCompatibilityEvidence } from "../model-gateway/governed-ingress-executor.js";
+import type { ModelGatewayReplayGuard } from "../model-gateway/replay-guard.js";
 import {
   OpenAIResponsesProtocolError,
   encodeSseEvent,
@@ -25,10 +22,8 @@ import {
   mapModelTurnResultToOpenAIResponsesEvents,
   mapOpenAIResponsesRequestToModelTurn,
   preflightOpenAIResponsesModelTurn,
-  type OpenAIResponsesEventProjection,
   type OpenAIResponsesModelTurnCapability,
   type OpenAIResponsesModelTurnCapabilitySummary,
-  type OpenAIResponsesProjectionOmission,
 } from "./openai-responses-model-turn.js";
 
 /** Raw JSON envelope cap; larger than the parser's aggregate string budget to allow JSON syntax overhead. */
@@ -58,26 +53,13 @@ export interface OpenAIResponsesObservedCorrelation {
   readonly rawBodyDigest: string;
 }
 
-export interface OpenAIResponsesCompatibilityEvidence {
-  readonly stage: "request" | "response";
-  readonly status: "compatible" | "degraded" | "rejected";
-  readonly tenantId: string;
-  readonly applicationId: string;
-  readonly callerId: string;
-  readonly requestedModel: string;
-  readonly route: ModelGatewayRoute;
-  readonly required: readonly OpenAIResponsesModelTurnCapability[];
-  readonly optionalRequested: readonly OpenAIResponsesModelTurnCapability[];
-  readonly unavailableOptional: readonly OpenAIResponsesModelTurnCapability[];
-  readonly rejectedCapability?: OpenAIResponsesModelTurnCapability;
-  readonly omissionCodes?: readonly OpenAIResponsesProjectionOmission["code"][];
-}
+export type OpenAIResponsesCompatibilityEvidence = ModelGatewayCompatibilityEvidence;
 
 export interface OpenAIResponsesIngressConfig {
   readonly authenticateBearer: (token: string) => Promise<OpenAIResponsesTrustedPrincipal | undefined>;
   readonly resolveVirtualModel: (input: { readonly principal: OpenAIResponsesTrustedPrincipal; readonly requestedModel: string }) => Promise<OpenAIResponsesResolvedVirtualModel | undefined>;
   readonly namespaceCorrelation: (input: { readonly principal: OpenAIResponsesTrustedPrincipal; readonly observed: OpenAIResponsesObservedCorrelation }) => Promise<{ readonly sessionId: string; readonly turnId: string }>;
-  readonly compatibilityEvidence: { record(evidence: OpenAIResponsesCompatibilityEvidence): Promise<void> };
+  readonly compatibilityEvidence: { record(evidence: ModelGatewayCompatibilityEvidence): Promise<void> };
   readonly invocationPorts: GovernedOneRoundInvocationPorts;
   readonly createAttemptId: () => string;
   readonly createResponseId: () => string;
@@ -97,8 +79,6 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
   const concurrency = createConcurrencyLimiter(config.maxConcurrentRequests);
   app.post("/v1/responses", async (context) => {
     let executed = false;
-    let replayDispatch: Extract<ModelGatewayReplayDecision, { kind: "dispatch" }> | undefined;
-    let replayCommitAttempted = false;
     let releaseConcurrency: (() => void) | undefined;
     try {
       const token = requireBearer(context.req.header("authorization"));
@@ -124,6 +104,7 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
       } catch (error) {
         if (error instanceof OpenAIResponsesModelTurnError) {
           await config.compatibilityEvidence.record({
+            protocol: "openai-responses",
             stage: "request", status: "rejected", tenantId: principal.tenantId, applicationId: principal.applicationId,
             callerId: principal.callerId, requestedModel: request.model, route: resolved.route,
             required: inspectedCapabilities.required,
@@ -140,79 +121,38 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
       validateNamespacedCorrelation(namespaced, observed);
       const affinity = deriveAffinity(resolved.affinity, namespaced);
       await config.compatibilityEvidence.record({
+        protocol: "openai-responses",
         stage: "request", status: capabilities.unavailableOptional.length === 0 ? "compatible" : "degraded",
         tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId,
         requestedModel: request.model, route: resolved.route, required: capabilities.required,
         optionalRequested: capabilities.optionalRequested, unavailableOptional: capabilities.unavailableOptional,
       });
 
-      if (config.replayGuard !== undefined) {
-        const key = config.replayGuard.fingerprint({
-          rawBody,
-          ingress: "openai-responses",
-          tenantId: principal.tenantId,
-          applicationId: principal.applicationId,
-          callerId: principal.callerId,
-          sessionId: namespaced.sessionId,
-          turnId: namespaced.turnId,
-          route: resolved.route,
-          toolExecutionMode: "caller-owned",
-          ...(affinity.continuity === "none" ? {} : { affinityKey: affinity.key }),
-        });
-        const decision = config.replayGuard.claim(key);
-        if (decision.kind === "join-inflight") {
-          const response = safeJson(409, "replay_in_progress", "An identical request is already in progress.");
-          response.headers.set("retry-after", String(decision.retryAfterSeconds));
-          return response;
-        }
-        if (decision.kind === "committed-unknown") {
-          return safeJson(409, "committed_unknown", "The prior request may have committed and must not be dispatched again.");
-        }
-        if (decision.kind === "replay-completed") {
-          return projectSuccessfulResponse(request.model, decision.value.responseId, decision.value.result, true);
-        }
-        replayDispatch = decision;
-      }
-
-      if (context.req.raw.signal.aborted) throw new GovernedOneRoundInvocationError("aborted", "Request aborted.");
-      const responseId = requireServerId(config.createResponseId(), "responseId");
-      const result = await invokeGovernedOneRound({
-        attemptId: requireServerId(config.createAttemptId(), "attemptId"),
-        identity: {
-          tenantId: principal.tenantId,
-          applicationId: principal.applicationId,
-          callerId: principal.callerId,
-          sessionId: namespaced.sessionId,
-          turnId: namespaced.turnId,
-        },
-        route: resolved.route,
+      const execution = await executeGovernedIngress({
+        protocol: "openai-responses", rawBody,
+        identity: { tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId, sessionId: namespaced.sessionId, turnId: namespaced.turnId },
+        route: resolved.route, affinity,
         authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes },
-        budget: principal.budgetEvidence,
-        affinity,
-        toolExecutionMode: "caller-owned",
-        turn,
-        signal: context.req.raw.signal,
-        ...(replayDispatch === undefined ? {} : {
-          lifecycle: { afterCommittedBeforeDispatch: () => {
-            replayCommitAttempted = true;
-            config.replayGuard!.markCommitted(replayDispatch!.key, replayDispatch!.fence);
-          } },
-        }),
-      }, config.invocationPorts);
+        budget: principal.budgetEvidence, toolExecutionMode: "caller-owned", turn, signal: context.req.raw.signal,
+        invocationPorts: config.invocationPorts,
+        createAttemptId: () => requireServerId(config.createAttemptId(), "attemptId"),
+        createResponseId: () => requireServerId(config.createResponseId(), "responseId"),
+        replayGuard: config.replayGuard,
+        projectSuccess: ({ responseId, result, replayed }) => projectSuccessfulResponse(request.model, responseId, result, replayed),
+      });
+      if (execution.kind === "join-inflight") {
+        const response = safeJson(409, "replay_in_progress", "An identical request is already in progress.");
+        response.headers.set("retry-after", String(execution.retryAfterSeconds));
+        return response;
+      }
+      if (execution.kind === "committed-unknown") return safeJson(409, "committed_unknown", "The prior request may have committed and must not be dispatched again.");
       executed = true;
-      let events: OpenAIResponsesEventProjection;
-      try {
-        events = mapModelTurnResultToOpenAIResponsesEvents({ responseId, model: request.model, result: result.result });
-      } catch {
-        throw new ResponsesIngressError(409, "committed_projection_failure", "The committed response could not be represented and must not be retried automatically.");
-      }
-      if (replayDispatch !== undefined) {
-        config.replayGuard!.complete(replayDispatch.key, replayDispatch.fence, { result: result.result, responseId });
-      }
-      const omissionCodes = events.omissions.map((omission) => omission.code);
-      if (omissionCodes.length > 0) {
+      const response = execution.value;
+      const omissionCodes = response.headers.get("x-kiln-projection-omissions")?.split(",").filter(Boolean) ?? [];
+      if (!execution.replayed && omissionCodes.length > 0) {
         try {
           await config.compatibilityEvidence.record({
+            protocol: "openai-responses",
             stage: "response",
             status: "degraded",
             tenantId: principal.tenantId,
@@ -229,24 +169,9 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
           // Provider effects are committed; response-stage evidence closeout cannot erase a valid response.
         }
       }
-      return new Response(events.map(encodeSseEvent).join(""), {
-        status: 200,
-        headers: {
-          "content-type": "text/event-stream; charset=utf-8",
-          "cache-control": "no-cache, no-transform",
-          "x-content-type-options": "nosniff",
-          "x-request-id": responseId,
-          ...(omissionCodes.length === 0 ? {} : { "x-kiln-projection-omissions": omissionCodes.join(",") }),
-        },
-      });
+      return response;
     } catch (error) {
-      if (replayDispatch !== undefined) {
-        try {
-          if (replayCommitAttempted) config.replayGuard!.settleUnknown(replayDispatch.key, replayDispatch.fence);
-          else config.replayGuard!.abandon(replayDispatch.key, replayDispatch.fence);
-        } catch { /* incompatible/stale transitions retain their existing conservative state */ }
-      }
-      if (executed) return safeJson(409, "committed_projection_failure", "The committed response could not be represented and must not be retried automatically.");
+      if (executed || error instanceof GovernedIngressCommittedExecutionError) return safeJson(409, "committed_projection_failure", "The committed response could not be represented and must not be retried automatically.");
       return projectSafeError(error);
     } finally {
       releaseConcurrency?.();

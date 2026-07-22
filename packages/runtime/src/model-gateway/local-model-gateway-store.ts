@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHmac, randomBytes, randomUUID }
 import { createAccountRef, validateModelTurnResult, type ModelGatewayReplayFence, type ModelGatewayReplayKey, type ModelGatewayRoute } from "@kilnai/core";
 import type { GovernedOneRoundAccountLease, GovernedOneRoundAffinityStore, GovernedOneRoundAttemptEvidence, GovernedOneRoundAttemptEvidenceSink } from "./governed-one-round-invocation.js";
 import type { ModelGatewayReplayCompletedValue, ModelGatewayReplayDecision, ModelGatewayReplayFingerprintInput, ModelGatewayReplayGuard } from "./replay-guard.js";
-import type { OpenAIResponsesCompatibilityEvidence } from "../gateway/openai-responses-routes.js";
+import type { ModelGatewayCompatibilityEvidence } from "./governed-ingress-executor.js";
 
 export interface LocalModelGatewayStoreAccount { readonly accountRef: string; readonly maxConcurrency: number; readonly reservedAffinitySlots: number }
 export interface LocalModelGatewayStoreOptions {
@@ -21,7 +21,7 @@ type ReplayRow = { status: "claimed" | "committed" | "committed-unknown" | "comp
 
 /** Durable local authority for exactly one live runtime owner. */
 export class LocalModelGatewayStore implements GovernedOneRoundAffinityStore, GovernedOneRoundAccountLease, GovernedOneRoundAttemptEvidenceSink, ModelGatewayReplayGuard {
-  readonly compatibilityEvidence = { record: (evidence: OpenAIResponsesCompatibilityEvidence) => this.recordCompatibility(evidence) };
+  readonly compatibilityEvidence = { record: (evidence: ModelGatewayCompatibilityEvidence) => this.recordCompatibility(evidence) };
   readonly #db: Database;
   readonly #ownerId: string;
   readonly #now: () => number;
@@ -120,7 +120,7 @@ export class LocalModelGatewayStore implements GovernedOneRoundAffinityStore, Go
   configureAccount(account: LocalModelGatewayStoreAccount): void { this.#accounts.set(account.accountRef, account); }
   verifyLease(input: { readonly leaseId: string; readonly accountRef: string; readonly identity: { readonly tenantId: string; readonly applicationId: string; readonly callerId: string; readonly sessionId: string; readonly turnId: string }; readonly route: ModelGatewayRoute }): boolean { this.#heartbeat(); return this.#db.query<{ ok: number }, [string, string, string, string, string, string, string, string, string, string, string]>("SELECT 1 ok FROM leases WHERE lease_id=? AND account_ref=? AND owner_id=? AND tenant_id=? AND application_id=? AND caller_id=? AND session_id=? AND turn_id=? AND provider_id=? AND model_id=? AND route_scope=?").get(input.leaseId, input.accountRef, this.#ownerId, input.identity.tenantId, input.identity.applicationId, input.identity.callerId, input.identity.sessionId, input.identity.turnId, input.route.providerId, input.route.providerModelId, input.route.scope)?.ok === 1; }
   async record(evidence: GovernedOneRoundAttemptEvidence): Promise<void> { this.#transaction(() => { this.#heartbeat(); this.#db.query("INSERT INTO attempt_evidence(payload) VALUES(?)").run(JSON.stringify(evidence)); }); }
-  async recordCompatibility(evidence: OpenAIResponsesCompatibilityEvidence): Promise<void> { this.#transaction(() => { this.#heartbeat(); this.#db.query("INSERT INTO compatibility_evidence(payload) VALUES(?)").run(JSON.stringify(evidence)); }); }
+  async recordCompatibility(evidence: ModelGatewayCompatibilityEvidence): Promise<void> { this.#transaction(() => { this.#heartbeat(); this.#db.query("INSERT INTO compatibility_evidence(payload) VALUES(?)").run(JSON.stringify(evidence)); }); }
 
   close(): void { if (this.#closed) return; this.#closed = true; clearInterval(this.#heartbeatTimer); try { this.#db.query("DELETE FROM runtime_owner WHERE singleton=1 AND owner_id=?").run(this.#ownerId); this.#db.query("DELETE FROM leases WHERE owner_id=?").run(this.#ownerId); } finally { this.#db.close(); } }
 

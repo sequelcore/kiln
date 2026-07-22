@@ -17,6 +17,8 @@ export {
   MODEL_GATEWAY_REPLAY_FINGERPRINT_VERSION,
 } from "./model-gateway/replay-guard.js";
 export { LocalModelGatewayStore } from "./model-gateway/local-model-gateway-store.js";
+export { GovernedIngressCommittedExecutionError, executeGovernedIngress } from "./model-gateway/governed-ingress-executor.js";
+export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatewayCompatibilityEvidence, ModelGatewayIngressId } from "./model-gateway/governed-ingress-executor.js";
 export type { LocalModelGatewayStoreAccount, LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
 export { createCodexOAuthResponsesIngress } from "./model-gateway/codex-oauth-responses-ingress.js";
 export type { CodexOAuthResponsesIngressHandle, CodexOAuthResponsesIngressOptions } from "./model-gateway/codex-oauth-responses-ingress.js";

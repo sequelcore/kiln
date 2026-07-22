@@ -177,6 +177,26 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(await retry.text()).toContain("replay_in_progress");
   });
 
+  it("returns committed projection failure and never redispatches when replay completion fails", async () => {
+    const delegate = new InMemoryModelGatewayReplayGuard({ hmacKey: "route-complete-failure-key-at-least-32" });
+    const replayGuard: ModelGatewayReplayGuard = {
+      fingerprint: (input) => delegate.fingerprint(input), claim: (key) => delegate.claim(key),
+      markCommitted: (key, fence) => delegate.markCommitted(key, fence),
+      settleUnknown: (key, fence) => delegate.settleUnknown(key, fence),
+      complete: () => { throw new Error("replay backend unavailable"); },
+      abandon: (key, fence) => delegate.abandon(key, fence),
+    };
+    const fixture = config({ replayGuard });
+    const app = createOpenAIResponsesRoutes(fixture.value);
+    const first = await app.request(request());
+    expect(first.status).toBe(409);
+    expect(await first.text()).toContain("committed_projection_failure");
+    const retry = await app.request(request());
+    expect(retry.status).toBe(409);
+    expect(await retry.text()).toContain("committed_unknown");
+    expect(fixture.execute).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps an active provider dispatch fenced beyond TTL, then completes it for cached replay", async () => {
     let now = 0;
     let finish!: () => void;
