@@ -176,7 +176,7 @@ Harness pool provider IDs:
 
 | Provider | Runtime environment projection |
 |---|---|
-| `claude-code` | `CLAUDE_HOME` |
+| `claude-code` | `CLAUDE_CONFIG_DIR` |
 | `codex` | `CODEX_HOME` |
 | `opencode` | `OPENCODE_CONFIG_DIR` |
 

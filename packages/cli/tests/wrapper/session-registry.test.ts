@@ -65,6 +65,19 @@ const coreSurfaceMocks = vi.hoisted(() => {
   };
 });
 
+const claudeSdkMocks = vi.hoisted(() => ({
+  lastQuery: undefined as { options?: { env?: Record<string, string | undefined> } } | undefined,
+}));
+
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+  query: vi.fn((input: { options?: { env?: Record<string, string | undefined> } }) => {
+    claudeSdkMocks.lastQuery = input;
+    return (async function* () {
+      yield { type: "result", total_cost_usd: 0, is_error: false };
+    })();
+  }),
+}));
+
 vi.mock("@kilnai/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/core")>();
   return {
@@ -338,6 +351,35 @@ describe("SessionRegistry", () => {
         expect(session.sessionId).toBe(runtimeSessionId);
       },
     );
+
+    it("isolates pooled Claude credentials through CLAUDE_CONFIG_DIR", async () => {
+      const credentialDir = join(TEST_HOME_DIR, ".kiln", "auth", "claude-code");
+      const isolatedConfigDir = join(TEST_HOME_DIR, "claude-account-a");
+      mkdirSync(credentialDir, { recursive: true });
+      const timestamp = new Date().toISOString();
+      writeFileSync(join(credentialDir, "account-a.json"), JSON.stringify({
+        id: "account-a",
+        label: "Claude account A",
+        providerId: "claude-code",
+        source: "manual",
+        priority: 0,
+        auth: { homeDir: isolatedConfigDir },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }), "utf8");
+      claudeSdkMocks.lastQuery = undefined;
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("claude", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+      });
+
+      for await (const _event of session.run({ prompt: "test", cwd: process.cwd() })) {
+        // consume the synthetic SDK result
+      }
+
+      expect(claudeSdkMocks.lastQuery?.options?.env?.CLAUDE_CONFIG_DIR).toBe(isolatedConfigDir);
+    });
 
     it("preserves configured runtime session identity for direct provider sessions", () => {
       const { registry } = createDefaultRegistry();

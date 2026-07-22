@@ -36,11 +36,14 @@ export type { ClaudeSessionConfig } from "./wrapper/claude-code-process.js";
 export type { SessionMode, SessionContext, SessionReport, WrapperConfig } from "./wrapper/index.js";
 export { SessionManager } from "./wrapper/session-manager.js";
 export {
+  buildClaudeMessagesProjection,
   buildCodexResponsesProjection,
   buildOpenCodeResponsesProjection,
+  resolveClaudeMessagesNativeProjectionSource,
   resolveResponsesNativeProjectionSource,
 } from "./config/model-gateway-native-projection.js";
 export type {
+  ClaudeMessagesProjection,
   CodexResponsesProjection,
   OpenCodeResponsesProjection,
   ResponsesNativeHarness,

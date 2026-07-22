@@ -77,16 +77,28 @@ modelGateway:
   accounts:
     - { id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }
   replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
-  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 2 } }
+  surfaces:
+    openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 2 }
+    anthropicMessages: { maxBodyBytes: 1024, maxConcurrentRequests: 2 }
   principals:
       - { tokenEnv: CODEX_GATEWAY_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: codex-app, callerId: codex, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-codex, virtualModelIds: [model-a], nativeHarness: codex }
       - { tokenEnv: OPENCODE_GATEWAY_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: opencode-app, callerId: opencode, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-opencode, virtualModelIds: [model-a], nativeHarness: opencode }
+      - { tokenEnv: ANTHROPIC_AUTH_TOKEN, ingress: anthropic-messages, tenantId: tenant, applicationId: claude-app, callerId: claude, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget-claude, virtualModelIds: [claude-kiln-a], nativeHarness: claude }
   virtualModels:
       - id: model-a
         displayName: Kiln Model A
         contextTokens: 200000
         outputTokens: 8192
         baseInstructions: You are a governed Kiln coding agent.
+        providerId: codex-oauth
+        providerModelId: upstream-a
+        accountIds: [account]
+        capabilities: [text, parallel-tool-calls]
+        affinity: { continuity: none }
+      - id: claude-kiln-a
+        displayName: Kiln Claude A
+        contextTokens: 200000
+        outputTokens: 8192
         providerId: codex-oauth
         providerModelId: upstream-a
         accountIds: [account]
@@ -301,8 +313,82 @@ describe("syncNativePermissionProjections", () => {
       options: { baseURL: "http://127.0.0.1:4910/v1", apiKey: "{env:OPENCODE_GATEWAY_TOKEN}" },
     });
     expect(opencode.model).toBe("kiln/model-a");
+
+    const claude = readJson(join(paths.projectPath, ".claude", "settings.json"));
+    expect(claude).toMatchObject({
+      model: "claude-kiln-a",
+      env: {
+        ANTHROPIC_BASE_URL: "http://127.0.0.1:4910",
+        CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+        CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
+        CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1",
+        CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1",
+        CLAUDE_CODE_DISABLE_THINKING: "1",
+        CLAUDE_CODE_MAX_RETRIES: "0",
+        MAX_THINKING_TOKENS: "0",
+        DISABLE_INTERLEAVED_THINKING: "1",
+        DISABLE_PROMPT_CACHING: "1",
+      },
+    });
+    expect(JSON.stringify(claude)).not.toContain("ANTHROPIC_AUTH_TOKEN");
+    expect(asRecord(claude.env).OPERATOR_VALUE).toBeUndefined();
     const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
     expect(Object.keys(asRecord(state.targets))).toContain("codex-model-catalog");
+    expect(asRecord(asRecord(state.targets)["claude-settings"]).managedFields).toEqual(expect.arrayContaining([
+      "permissions",
+      "kiln.permissionSync",
+      "env.ANTHROPIC_BASE_URL",
+      "env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+      "model",
+    ]));
+  });
+
+  it("preserves unmanaged Claude settings and env fields while owning only gateway paths", async () => {
+    writeModelGateway(paths.projectPath);
+    const claudePath = join(paths.projectPath, ".claude", "settings.json");
+    mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
+    writeFileSync(claudePath, JSON.stringify({ theme: "dark", env: { OPERATOR_VALUE: "preserved" } }), "utf8");
+
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+
+    const claude = readJson(claudePath);
+    expect(claude.theme).toBe("dark");
+    expect(asRecord(claude.env).OPERATOR_VALUE).toBe("preserved");
+    expect(asRecord(claude.env).ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:4910");
+  });
+
+  it("reports Claude gateway drift and uninstall removes only Kiln-owned fields", async () => {
+    writeModelGateway(paths.projectPath);
+    const claudePath = join(paths.projectPath, ".claude", "settings.json");
+    mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
+    writeFileSync(claudePath, JSON.stringify({ env: { OPERATOR_VALUE: "preserved" } }), "utf8");
+    expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
+    const changed = readJson(claudePath);
+    asRecord(changed.env).ANTHROPIC_BASE_URL = "http://127.0.0.1:9999";
+    writeFileSync(claudePath, `${JSON.stringify(changed, null, 2)}\n`, "utf8");
+
+    const drifted = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+    expect(drifted.claude).toBe(false);
+    expect(drifted.errors).toContain("Claude Code: managed field drift detected: env.ANTHROPIC_BASE_URL");
+    expect(asRecord(readJson(claudePath).env).ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9999");
+
+    const uninstall = uninstallNativeTargets(paths.projectPath, { target: "claude", force: true });
+    expect(uninstall.errors).toEqual([]);
+    const after = readJson(claudePath);
+    expect(after.model).toBeUndefined();
+    expect(asRecord(after.env).ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(asRecord(after.env).OPERATOR_VALUE).toBe("preserved");
+  });
+
+  it("fails closed before native writes when Claude tokenEnv cannot be projected safely", async () => {
+    writeModelGateway(paths.projectPath);
+    const gatewayPath = join(paths.projectPath, ".kiln", "gateway.yaml");
+    writeFileSync(gatewayPath, readFileSync(gatewayPath, "utf8").replace("tokenEnv: ANTHROPIC_AUTH_TOKEN", "tokenEnv: CLAUDE_GATEWAY_TOKEN"), "utf8");
+
+    await expect(syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).rejects.toThrow("ANTHROPIC_AUTH_TOKEN");
+    expect(existsSync(join(paths.projectPath, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync(join(paths.homePath, ".codex", "config.toml"))).toBe(false);
+    expect(existsSync(join(paths.homePath, ".config", "opencode", "opencode.json"))).toBe(false);
   });
 
   it("uses a unique temporary file when a legacy same-process temp path already exists", async () => {
@@ -427,7 +513,9 @@ describe("syncNativePermissionProjections", () => {
     const installStatePath = join(paths.projectPath, ".kiln", "install-state.json");
     const before = new Map([claudePath, codexPath, opencodePath, catalogPath, installStatePath].map((path) => [path, readFileSync(path, "utf8")]));
     const gatewayPath = join(paths.projectPath, ".kiln", "gateway.yaml");
-    writeFileSync(gatewayPath, readFileSync(gatewayPath, "utf8").replace("displayName: Kiln Model A", "displayName: Kiln Model Updated"), "utf8");
+    writeFileSync(gatewayPath, readFileSync(gatewayPath, "utf8")
+      .replace("port: 4910", "port: 4911")
+      .replace("displayName: Kiln Model A", "displayName: Kiln Model Updated"), "utf8");
     vi.spyOn(nativeProjectionState, "writeNativeProjectionInstallState").mockImplementationOnce(() => {
       throw new Error("synthetic install-state failure");
     });

@@ -129,12 +129,15 @@ validate that the selected provider/model can be represented by that harness:
   provider ids such as `codex` or `codex-oauth`.
 - OpenCode native config receives `model: "<provider>/<model>"` when the
   selected provider/model has OpenCode-native syntax.
-- Claude Code native default projection is unsupported until a stable
-  public/native default-route contract is proven.
+- Claude Code generic provider defaults remain unsupported. A canonical
+  `modelGateway.surfaces.anthropicMessages` principal with
+  `nativeHarness: claude` projects its virtual model through Claude Code's
+  public `model` setting only when exactly one model is admitted. Multiple
+  models remain unset as a default and are exposed through gateway discovery.
 
 Each native config file has one composed writer for its managed route field.
-The Codex writer owns `codex-config`; the OpenCode writer owns
-`opencode-config`. Route defaults are composed with permissions and supported
+The Claude Code writer owns `claude-settings`, the Codex writer owns
+`codex-config`, and the OpenCode writer owns `opencode-config`. Route defaults are composed with permissions and supported
 settings before the atomic file write, then recorded in install-state with
 per-field hashes. Hook, agent, and skill projections remain separate target
 families and must not write the native `model` field.
@@ -150,6 +153,36 @@ No compatibility aliases or obsolete model mappings are allowed. If a canonical
 route cannot be encoded for a harness, Kiln omits or removes only previously
 managed native route fields and reports the unsupported capability through the
 shared status contract.
+
+## Model Gateway Native Projection
+
+Canonical `modelGateway` surfaces are projected through the same composed
+native writers and install-state used for permission projection. Codex and
+OpenCode receive their OpenAI Responses provider definitions. Claude Code
+receives an Anthropic Messages gateway configuration in `.claude/settings.json`:
+
+- `ANTHROPIC_BASE_URL` points to the loopback gateway origin without `/v1`.
+- `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` enables authenticated
+  `/v1/models` discovery on Claude Code 2.1.129 or later.
+- Claude-native virtual model ids start with `claude` or `anthropic`, matching
+  Claude Code's public gateway discovery contract; projection fails closed for
+  ids that the picker cannot expose.
+- `tokenEnv` must be `ANTHROPIC_AUTH_TOKEN`; the token value stays in the
+  process environment and is never written to settings or install-state.
+- attribution reshaping, experimental beta fields, thinking, interleaved
+  thinking, prompt caching, and native retries are disabled because the
+  admitted Messages subset does not represent those semantics.
+
+Kiln owns individual `env.<KEY>` paths rather than the whole `env` object, so
+unrelated operator settings survive sync, drift checks, force, rollback, and
+uninstall. Normal projection does not disable Claude Code's nonessential
+traffic because that switch also disables gateway model discovery. The live
+harness probe may disable it inside its disposable environment.
+
+This is a technical Anthropic Messages compatibility route. It does not turn a
+Claude subscription into gateway credit, and it must not be represented as
+Anthropic support for non-Claude upstream models. The configured gateway
+credential and upstream provider terms remain authoritative.
 
 ## Route Integrity Evidence
 

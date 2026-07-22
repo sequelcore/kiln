@@ -18,10 +18,11 @@ export class AnthropicMessagesModelTurnError extends Error {
   constructor(readonly code: "unsupported-result-part", message: string) { super(message); }
 }
 
-export type AnthropicMessagesModelTurnCapability = "text" | "input-image-url" | "input-image-base64" | "function-tools" | "parallel-tool-calls";
+export type AnthropicMessagesModelTurnCapability = "text" | "input-image-url" | "input-image-base64" | "function-tools" | "parallel-tool-calls" | "reasoning-controls";
 
 export function inspectAnthropicMessagesCapabilities(request: AnthropicMessagesRequest): readonly AnthropicMessagesModelTurnCapability[] {
   const required = new Set<AnthropicMessagesModelTurnCapability>(["text"]);
+  if (request.output_config !== undefined) required.add("reasoning-controls");
   if (request.tools !== undefined) required.add("function-tools");
   if (request.tools !== undefined && request.tools.length > 0
     && request.tool_choice?.type !== "none"
@@ -89,6 +90,7 @@ export function mapAnthropicMessagesRequestToModelTurn(request: AnthropicMessage
       ? {}
       : { parallelToolCalls: choice?.disable_parallel_tool_use !== true }),
     maxOutputTokens: request.max_tokens,
+    ...(request.output_config === undefined ? {} : { reasoning: { effort: request.output_config.effort } }),
   };
   validateModelTurn(turn);
   return structuredClone(turn);

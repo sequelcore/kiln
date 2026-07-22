@@ -14,13 +14,14 @@ export interface AnthropicMessagesRequest {
   readonly messages: readonly Record<string, unknown>[];
   readonly tools?: readonly Record<string, unknown>[];
   readonly tool_choice?: Record<string, unknown>;
+  readonly output_config?: { readonly effort: "low" | "medium" | "high" | "xhigh" };
 }
 
 type WireRecord = Record<string, unknown>;
 
 export function parseAnthropicMessagesRequest(value: unknown): AnthropicMessagesRequest {
   const request = record(value, "$request");
-  rejectUnknown(request, ["model", "max_tokens", "stream", "system", "messages", "tools", "tool_choice"] as const, "$request");
+  rejectUnknown(request, ["model", "max_tokens", "stream", "system", "messages", "tools", "tool_choice", "output_config"] as const, "$request");
   identifier(request.model, "model");
   positiveInteger(request.max_tokens, "max_tokens");
   if (request.stream !== true) fail("stream", "Anthropic Messages ingress requires streaming.");
@@ -32,7 +33,16 @@ export function parseAnthropicMessagesRequest(value: unknown): AnthropicMessages
     request.tools.forEach((tool, index) => validateTool(tool, `tools[${index}]`));
   }
   if (request.tool_choice !== undefined) validateToolChoice(request.tool_choice);
+  if (request.output_config !== undefined) validateOutputConfig(request.output_config);
   return structuredClone(request) as unknown as AnthropicMessagesRequest;
+}
+
+function validateOutputConfig(value: unknown): void {
+  const output = record(value, "output_config");
+  rejectUnknown(output, ["effort"] as const, "output_config");
+  if (!["low", "medium", "high", "xhigh"].includes(output.effort as string)) {
+    fail("output_config.effort", "effort is unsupported by the model-turn boundary.");
+  }
 }
 
 function validateSystem(value: unknown): void {

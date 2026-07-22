@@ -27,7 +27,7 @@ import {
   isNativeProjectionHarnessDisabled,
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
-import { buildCodexResponsesProjection, buildOpenCodeResponsesProjection } from "./model-gateway-native-projection.js";
+import { buildClaudeMessagesProjection, buildCodexResponsesProjection, buildOpenCodeResponsesProjection } from "./model-gateway-native-projection.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
@@ -70,7 +70,7 @@ export async function syncNativePermissionProjections(
   try {
     claudeResult = isNativeProjectionHarnessDisabled(options, "claude")
       ? skippedPermissionTarget()
-      : await syncClaudePermissions(policy, projectPath, installState, options);
+      : await syncClaudePermissions(policy, projectPath, installState, options, modelGateway);
     if (claudeResult.rollback) rollbacks.push(claudeResult.rollback);
     if (claudeResult.snapshot) installState = upsertNativeProjectionTargetState(installState, claudeResult.snapshot);
     if (claudeResult.error) errors.push(`Claude Code: ${claudeResult.error}`);
@@ -112,6 +112,7 @@ async function syncClaudePermissions(
   projectPath: string,
   installState: NativeProjectionInstallState,
   options: NativePermissionProjectionOptions,
+  modelGateway: ModelGatewayConfig | undefined,
 ): Promise<PermissionTargetResult> {
   const targetId = PERMISSION_PROJECTION_TARGET_IDS.claude;
   const target = join(projectPath, ".claude", "settings.json");
@@ -132,7 +133,13 @@ async function syncClaudePermissions(
     };
   }
 
-  const projection = translateClaudePermissionProjection({ policy, existingDocument: existing });
+  const gatewayProjection = modelGateway ? buildClaudeMessagesProjection({ config: modelGateway }) : undefined;
+  const projection = translateClaudePermissionProjection({
+    policy,
+    existingDocument: existing,
+    gatewayProjection,
+    previousManagedFields: installState.targets[targetId]?.managedFields,
+  });
   const snapshot = createNativeProjectionSnapshot({
     targetId: projection.targetId,
     filePath: target,

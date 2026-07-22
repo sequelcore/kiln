@@ -1,16 +1,20 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelGatewayConfig } from "../packages/core/src/engine/gateway/gateway-config.js";
-import { buildCodexResponsesProjection, buildOpenCodeResponsesProjection } from "../packages/cli/src/config/model-gateway-native-projection.js";
+import { buildClaudeMessagesProjection, buildCodexResponsesProjection, buildOpenCodeResponsesProjection } from "../packages/cli/src/config/model-gateway-native-projection.js";
 
 const TOKEN = "synthetic-live-probe-token-0000000000000000";
 const TIMEOUT_MS = 45_000;
 
 interface ObservedRequest {
   readonly path: string;
+  readonly method: string;
   readonly authorization: string | null;
+  readonly apiKey: string | null;
+  readonly anthropicVersion: string | null;
   readonly sessionId: string | null;
   readonly sessionAffinity: string | null;
   readonly body: Record<string, unknown>;
@@ -18,7 +22,7 @@ interface ObservedRequest {
 
 let activeObserved: ObservedRequest[] | undefined;
 
-const root = await mkdtemp(join(tmpdir(), "kiln-responses-harness-live-"));
+const root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-harness-live-"));
 try {
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -30,7 +34,8 @@ try {
     const config = gatewayConfig(server.port);
     await probeCodex(config);
     await probeOpenCode(config);
-    process.stdout.write("Codex and OpenCode Responses harness probes passed.\n");
+    await probeClaude(config);
+    process.stdout.write("Codex, OpenCode, and Claude model-gateway harness probes passed.\n");
   } finally {
     server.stop(true);
   }
@@ -40,17 +45,24 @@ try {
 
 async function probeResponse(request: Request): Promise<Response> {
   if (!activeObserved) return new Response("probe is not active", { status: 503 });
+  const url = new URL(request.url);
+  if (request.method === "HEAD") return new Response(null, { status: 200 });
   if (request.method !== "POST") return new Response("not found", { status: 404 });
+  if (url.pathname === "/v1/messages/count_tokens") return new Response("not found", { status: 404 });
   let body: Record<string, unknown>;
   try { body = JSON.parse(await request.text()) as Record<string, unknown>; }
   catch { return new Response("invalid request", { status: 400 }); }
   activeObserved.push({
-    path: new URL(request.url).pathname,
+    path: `${url.pathname}${url.search}`,
+    method: request.method,
     authorization: request.headers.get("authorization"),
-    sessionId: request.headers.get("x-session-id") ?? request.headers.get("session-id"),
+    apiKey: request.headers.get("x-api-key"),
+    anthropicVersion: request.headers.get("anthropic-version"),
+    sessionId: request.headers.get("x-claude-code-session-id") ?? request.headers.get("x-session-id") ?? request.headers.get("session-id"),
     sessionAffinity: request.headers.get("x-session-affinity"),
     body,
   });
+  if (url.pathname === "/v1/messages") return anthropicProbeResponse(body);
   const responseId = "resp_kiln_probe";
   const item = { type: "message", id: "msg_kiln_probe", role: "assistant", status: "completed", content: [{ type: "output_text", text: "PROBE_OK", annotations: [] }] };
   const completed = { id: responseId, object: "response", created_at: 1, status: "completed", model: String(body.model ?? "model-a"), output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } };
@@ -65,6 +77,22 @@ async function probeResponse(request: Request): Promise<Response> {
     ["response.completed", { type: "response.completed", response: completed }],
   ];
   return new Response(events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join(""), {
+    headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+  });
+}
+
+function anthropicProbeResponse(body: Record<string, unknown>): Response {
+  const messageId = "msg_kiln_probe";
+  const model = String(body.model ?? "claude-kiln-probe");
+  const events = [
+    { type: "message_start", message: { id: messageId, type: "message", role: "assistant", model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } },
+    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "PROBE_OK" } },
+    { type: "content_block_stop", index: 0 },
+    { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } },
+    { type: "message_stop" },
+  ];
+  return new Response(events.map((data) => `event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`).join(""), {
     headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
   });
 }
@@ -131,6 +159,47 @@ async function probeOpenCode(config: ModelGatewayConfig): Promise<void> {
   activeObserved = undefined;
 }
 
+async function probeClaude(config: ModelGatewayConfig): Promise<void> {
+  const executable = Bun.which("claude");
+  if (!executable) throw new Error("claude is not installed; the explicit live probe requires it.");
+  const configDir = join(root, "claude-config");
+  const home = join(root, "claude-home");
+  const workspace = join(root, "claude-workspace");
+  const temporary = join(root, "claude-temp");
+  await Promise.all([configDir, home, join(workspace, ".claude"), temporary].map((path) => mkdir(path, { recursive: true })));
+  const projection = buildClaudeMessagesProjection({ config });
+  if (!projection) throw new Error("Claude projection was not configured.");
+  await writeFile(join(workspace, ".claude", "settings.json"), `${JSON.stringify(projection.patch, null, 2)}\n`, "utf8");
+  activeObserved = [];
+  const sessionId = randomUUID();
+  const result = await runBounded(executable, [
+    "--bare",
+    "-p",
+    "--output-format", "json",
+    "--no-session-persistence",
+    "--tools", "",
+    "--permission-mode", "dontAsk",
+    "--model", "claude-kiln-probe",
+    "--session-id", sessionId,
+    "--system-prompt", "Reply exactly PROBE_OK.",
+    "Return exactly PROBE_OK.",
+  ], workspace, {
+    CLAUDE_CONFIG_DIR: configDir,
+    HOME: home,
+    USERPROFILE: home,
+    TEMP: temporary,
+    TMP: temporary,
+    CLAUDE_CODE_TMPDIR: temporary,
+    ANTHROPIC_AUTH_TOKEN: TOKEN,
+    ANTHROPIC_CUSTOM_MODEL_OPTION: "claude-kiln-probe",
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    CLAUDE_CODE_DISABLE_TERMINAL_TITLE: "1",
+    DISABLE_AUTOUPDATER: "1",
+  }, ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]);
+  assertClaudeProbe(result, activeObserved, sessionId);
+  activeObserved = undefined;
+}
+
 function assertProbe(harness: string, result: ProcessResult, output: string, observed: readonly ObservedRequest[], requireOpenCodeHeaders: boolean): void {
   if (result.exitCode !== 0) throw new Error(`${harness} exited ${result.exitCode}: ${redact(result.stderr || result.stdout)}`);
   if (!output.includes("PROBE_OK")) throw new Error(`${harness} did not return PROBE_OK: ${redact(output)}`);
@@ -148,12 +217,41 @@ function assertProbe(harness: string, result: ProcessResult, output: string, obs
   if (requireOpenCodeHeaders && request.sessionAffinity !== request.sessionId) throw new Error("OpenCode emitted contradictory session correlation headers.");
 }
 
+function assertClaudeProbe(result: ProcessResult, observed: readonly ObservedRequest[], sessionId: string): void {
+  if (result.exitCode !== 0) throw new Error(`Claude exited ${result.exitCode}: ${redact(result.stderr || result.stdout)}`);
+  if (!result.stdout.includes("PROBE_OK")) throw new Error(`Claude did not return PROBE_OK: ${redact(result.stdout)}`);
+  if (observed.length !== 1) throw new Error(`Claude made ${observed.length} model POSTs; expected exactly one.`);
+  const request = observed[0]!;
+  if (request.method !== "POST" || new URL(request.path, "http://127.0.0.1").pathname !== "/v1/messages") throw new Error(`Claude used unexpected request '${request.method} ${request.path}'.`);
+  if (request.authorization !== `Bearer ${TOKEN}`) throw new Error("Claude did not use the projected bearer environment variable.");
+  if (request.apiKey !== null) throw new Error("Claude sent x-api-key despite ANTHROPIC_AUTH_TOKEN bearer projection.");
+  if (request.anthropicVersion !== "2023-06-01") throw new Error(`Claude sent unexpected anthropic-version '${request.anthropicVersion}'.`);
+  if (request.sessionId !== sessionId) throw new Error("Claude omitted or changed x-claude-code-session-id correlation.");
+  if (request.body.model !== "claude-kiln-probe") throw new Error("Claude did not use the projected virtual model.");
+  if (request.body.stream !== true) throw new Error("Claude did not request the mandatory Messages SSE stream.");
+  if (typeof request.body.max_tokens !== "number" || request.body.max_tokens <= 0) throw new Error("Claude omitted a positive max_tokens bound.");
+  for (const unsupported of ["thinking", "context_management"] as const) {
+    if (unsupported in request.body) throw new Error(`Claude emitted unsupported Messages field '${unsupported}'.`);
+  }
+  const outputConfig = request.body.output_config;
+  if (!isRecord(outputConfig) || Object.keys(outputConfig).length !== 1 || outputConfig.effort !== "high") {
+    throw new Error("Claude emitted an unsupported output_config shape.");
+  }
+  if (JSON.stringify(request.body).includes('"cache_control"')) throw new Error("Claude emitted unsupported prompt cache controls.");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 interface ProcessResult { readonly exitCode: number | null; readonly stdout: string; readonly stderr: string }
 
-async function runBounded(executable: string, args: readonly string[], cwd: string, extraEnv: Record<string, string>): Promise<ProcessResult> {
+async function runBounded(executable: string, args: readonly string[], cwd: string, extraEnv: Record<string, string>, unsetEnv: readonly string[] = []): Promise<ProcessResult> {
+  const env = { ...process.env, ...extraEnv };
+  for (const key of unsetEnv) delete env[key];
   const child = spawn(executable, [...args], {
     cwd,
-    env: { ...process.env, ...extraEnv },
+    env,
     windowsHide: true,
     detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
@@ -211,8 +309,21 @@ function gatewayConfig(port: number): ModelGatewayConfig {
     port,
     accounts: [{ id: "unused", providerId: "codex-oauth", credentialId: "unused", maxConcurrency: 1, reservedAffinitySlots: 0 }],
     replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "UNUSED" },
-    surfaces: { openAIResponses: { maxBodyBytes: 1024 * 1024, maxConcurrentRequests: 2 } },
-    principals: [principal("codex", "CODEX_GATEWAY_TOKEN"), principal("opencode", "OPENCODE_GATEWAY_TOKEN")],
-    virtualModels: [{ id: "model-a", displayName: "Kiln Probe", contextTokens: 100000, outputTokens: 4096, baseInstructions: "You are a governed Kiln probe.", providerId: "codex-oauth", providerModelId: "unused", accountIds: ["unused"], capabilities: ["text"], affinity: { continuity: "none" } }],
+    surfaces: {
+      openAIResponses: { maxBodyBytes: 1024 * 1024, maxConcurrentRequests: 2 },
+      anthropicMessages: { maxBodyBytes: 1024 * 1024, maxConcurrentRequests: 2 },
+    },
+    principals: [
+      principal("codex", "CODEX_GATEWAY_TOKEN"),
+      principal("opencode", "OPENCODE_GATEWAY_TOKEN"),
+      {
+        tokenEnv: "ANTHROPIC_AUTH_TOKEN", ingress: "anthropic-messages", tenantId: "probe", applicationId: "claude", callerId: "live", capabilityId: "invoke",
+        scopes: ["model.invoke"], budgetEvidenceId: "synthetic", virtualModelIds: ["claude-kiln-probe"], nativeHarness: "claude",
+      },
+    ],
+    virtualModels: [
+      { id: "model-a", displayName: "Kiln Probe", contextTokens: 100000, outputTokens: 4096, baseInstructions: "You are a governed Kiln probe.", providerId: "codex-oauth", providerModelId: "unused", accountIds: ["unused"], capabilities: ["text"], affinity: { continuity: "none" } },
+      { id: "claude-kiln-probe", displayName: "Kiln Claude Probe", contextTokens: 100000, outputTokens: 4096, providerId: "codex-oauth", providerModelId: "unused", accountIds: ["unused"], capabilities: ["text"], affinity: { continuity: "none" } },
+    ],
   };
 }

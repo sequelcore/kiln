@@ -193,7 +193,7 @@ home directory:
 ```
 
 At execution time the wrapper projects the selected home through the harness
-environment, such as `CLAUDE_HOME`, `CODEX_HOME`, or
+environment, such as `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or
 `OPENCODE_CONFIG_DIR`. Harness token refresh remains the harness adapter's
 responsibility.
 

@@ -55,12 +55,24 @@ describe("Anthropic Messages model-turn boundary", () => {
     expect(mapAnthropicMessagesRequestToModelTurn(serial).parallelToolCalls).toBe(false);
   });
 
+  it("preserves supported effort controls as explicit governed capabilities", () => {
+    const high = parseAnthropicMessagesRequest(request({ output_config: { effort: "high" } }));
+    expect(inspectAnthropicMessagesCapabilities(high)).toContain("reasoning-controls");
+    expect(mapAnthropicMessagesRequestToModelTurn(high).reasoning).toEqual({ effort: "high" });
+
+    const medium = parseAnthropicMessagesRequest(request({ output_config: { effort: "medium" } }));
+    expect(inspectAnthropicMessagesCapabilities(medium)).toContain("reasoning-controls");
+    expect(mapAnthropicMessagesRequestToModelTurn(medium).reasoning).toEqual({ effort: "medium" });
+  });
+
   it.each([
     ["non-streaming", { stream: false }],
     ["thinking", { thinking: { type: "enabled", budget_tokens: 128 } }],
     ["sampling", { temperature: 0.5 }],
     ["context management", { context_management: {} }],
-    ["structured output", { output_config: { format: { type: "json_schema", schema: {} } } }],
+    ["structured output", { output_config: { effort: "high", format: { type: "json_schema", schema: {} } } }],
+    ["unsupported maximum effort", { output_config: { effort: "max" } }],
+    ["task budget", { output_config: { effort: "medium", task_budget: 1000 } }],
     ["server tools", { tools: [{ type: "web_search_20250305", name: "web_search" }] }],
     ["documents", { messages: [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: "eA==" } }] }] }],
     ["unsafe image URL", { messages: [{ role: "user", content: [{ type: "image", source: { type: "url", url: "file:///secret" } }] }] }],

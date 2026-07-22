@@ -13,6 +13,11 @@ export interface OpenCodeResponsesProjection {
   readonly managedFields: readonly string[];
 }
 
+export interface ClaudeMessagesProjection {
+  readonly patch: Record<string, unknown>;
+  readonly managedFields: readonly string[];
+}
+
 interface ProjectionSource {
   readonly principal: ModelGatewayPrincipalConfig;
   readonly models: readonly NativeProjectedVirtualModel[];
@@ -37,6 +42,60 @@ export function resolveResponsesNativeProjectionSource(
     return model;
   });
   return { principal, models, port: config.port };
+}
+
+export function resolveClaudeMessagesNativeProjectionSource(
+  config: ModelGatewayConfig,
+): ProjectionSource | undefined {
+  const principals = config.principals.filter((principal) => principal.ingress === "anthropic-messages" && principal.nativeHarness === "claude");
+  if (principals.length > 1) throw new Error("modelGateway declares multiple claude native harness principals.");
+  const principal = principals[0];
+  if (!principal) return undefined;
+  const byId = new Map(config.virtualModels.map((model) => [model.id, model]));
+  const models = principal.virtualModelIds.map((id) => {
+    const model = byId.get(id);
+    if (!model) throw new Error(`claude native harness principal references unknown virtual model '${id}'.`);
+    if (!/^(?:claude|anthropic)[A-Za-z0-9._:-]*$/.test(model.id)) {
+      throw new Error(`claude native harness model '${id}' must start with claude or anthropic for gateway discovery.`);
+    }
+    if (!hasPickerMetadata(model)) throw new Error(`claude native harness model '${id}' is missing validated picker metadata.`);
+    return model;
+  });
+  return { principal, models, port: config.port };
+}
+
+const CLAUDE_GATEWAY_ENV: Readonly<Record<string, string>> = {
+  CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+  CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
+  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1",
+  CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1",
+  CLAUDE_CODE_DISABLE_THINKING: "1",
+  CLAUDE_CODE_MAX_RETRIES: "0",
+  MAX_THINKING_TOKENS: "0",
+  DISABLE_INTERLEAVED_THINKING: "1",
+  DISABLE_PROMPT_CACHING: "1",
+};
+
+export function buildClaudeMessagesProjection(input: {
+  readonly config: ModelGatewayConfig;
+}): ClaudeMessagesProjection | undefined {
+  const source = resolveClaudeMessagesNativeProjectionSource(input.config);
+  if (!source) return undefined;
+  if (source.principal.tokenEnv !== "ANTHROPIC_AUTH_TOKEN") {
+    throw new Error("claude native harness projection requires tokenEnv ANTHROPIC_AUTH_TOKEN.");
+  }
+  const env = {
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${source.port}`,
+    ...CLAUDE_GATEWAY_ENV,
+  };
+  const defaultModel = source.models.length === 1 ? source.models[0]!.id : undefined;
+  return {
+    patch: { env, ...(defaultModel ? { model: defaultModel } : {}) },
+    managedFields: [
+      ...Object.keys(env).map((key) => `env.${key}`),
+      ...(defaultModel ? ["model"] : []),
+    ],
+  };
 }
 
 export function buildCodexResponsesProjection(input: {

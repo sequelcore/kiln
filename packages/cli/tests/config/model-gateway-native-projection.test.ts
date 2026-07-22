@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
 import type { ModelGatewayConfig } from "@kilnai/core";
 import {
+  buildClaudeMessagesProjection,
   buildCodexResponsesProjection,
   buildOpenCodeResponsesProjection,
+  resolveClaudeMessagesNativeProjectionSource,
   resolveResponsesNativeProjectionSource,
 } from "../../src/config/model-gateway-native-projection.js";
 
 function config(principals: ModelGatewayConfig["principals"]): ModelGatewayConfig {
+  const hasResponses = principals.some((candidate) => candidate.ingress === "openai-responses");
+  const hasMessages = principals.some((candidate) => candidate.ingress === "anthropic-messages");
   return {
     port: 4910,
     accounts: [{ id: "account", providerId: "codex-oauth", credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0 }],
     replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
-    surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
+    surfaces: {
+      ...(hasResponses ? { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } } : {}),
+      ...(hasMessages ? { anthropicMessages: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } } : {}),
+    },
     principals,
     virtualModels: [
         { id: "model-a", displayName: "Model A", contextTokens: 200000, outputTokens: 8192, baseInstructions: "Governed model A instructions.", providerId: "codex-oauth", providerModelId: "upstream-a", accountIds: ["account"], capabilities: ["text", "parallel-tool-calls", "input-image-url"], affinity: { continuity: "none" } },
@@ -25,6 +32,20 @@ const principal = (nativeHarness: "codex" | "opencode", models = ["model-a"]): M
   callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget",
   virtualModelIds: models, nativeHarness,
 });
+
+const claudePrincipal = (tokenEnv = "ANTHROPIC_AUTH_TOKEN", models = ["model-a"]): ModelGatewayConfig["principals"][number] => ({
+  tokenEnv, ingress: "anthropic-messages", tenantId: "tenant", applicationId: "claude",
+  callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget",
+  virtualModelIds: models, nativeHarness: "claude",
+});
+
+function claudeConfig(tokenEnv = "ANTHROPIC_AUTH_TOKEN", modelIds = ["claude-model-a"]): ModelGatewayConfig {
+  const configured = config([claudePrincipal(tokenEnv, modelIds)]);
+  return {
+    ...configured,
+    virtualModels: configured.virtualModels.slice(0, modelIds.length).map((model, index) => ({ ...model, id: modelIds[index]! })),
+  };
+}
 
 describe("model gateway native projections", () => {
   it("builds a secret-free Codex Responses provider and official static model catalog", () => {
@@ -48,6 +69,64 @@ describe("model gateway native projections", () => {
       enabled_providers: ["anthropic", "kiln"],
       model: "kiln/model-a",
     });
+  });
+
+  it("builds a secret-free Claude Messages gateway projection with granular managed env paths", () => {
+    const projected = buildClaudeMessagesProjection({ config: claudeConfig() });
+
+    expect(projected?.patch).toEqual({
+      env: {
+        ANTHROPIC_BASE_URL: "http://127.0.0.1:4910",
+        CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
+        CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
+        CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1",
+        CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1",
+        CLAUDE_CODE_DISABLE_THINKING: "1",
+        CLAUDE_CODE_MAX_RETRIES: "0",
+        MAX_THINKING_TOKENS: "0",
+        DISABLE_INTERLEAVED_THINKING: "1",
+        DISABLE_PROMPT_CACHING: "1",
+      },
+      model: "claude-model-a",
+    });
+    expect(projected?.managedFields).toEqual([
+      "env.ANTHROPIC_BASE_URL",
+      "env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+      "env.CLAUDE_CODE_ATTRIBUTION_HEADER",
+      "env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS",
+      "env.CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING",
+      "env.CLAUDE_CODE_DISABLE_THINKING",
+      "env.CLAUDE_CODE_MAX_RETRIES",
+      "env.MAX_THINKING_TOKENS",
+      "env.DISABLE_INTERLEAVED_THINKING",
+      "env.DISABLE_PROMPT_CACHING",
+      "model",
+    ]);
+    expect(JSON.stringify(projected)).not.toContain("synthetic-live-probe-token");
+  });
+
+  it("keeps Claude source resolution separate and fails closed for a nonstandard credential env", () => {
+    const configured = claudeConfig();
+    expect(resolveClaudeMessagesNativeProjectionSource(configured)?.principal.nativeHarness).toBe("claude");
+    expect(resolveResponsesNativeProjectionSource(configured, "codex")).toBeUndefined();
+    expect(() => buildClaudeMessagesProjection({ config: claudeConfig("CLAUDE_GATEWAY_TOKEN") }))
+      .toThrow("ANTHROPIC_AUTH_TOKEN");
+  });
+
+  it("does not pair Claude native projection with the Responses ingress", () => {
+    const wrongIngress = { ...claudePrincipal(), ingress: "openai-responses" as const };
+    expect(resolveClaudeMessagesNativeProjectionSource(config([wrongIngress]))).toBeUndefined();
+  });
+
+  it("does not invent a Claude default when multiple models are equally canonical", () => {
+    const projected = buildClaudeMessagesProjection({ config: claudeConfig("ANTHROPIC_AUTH_TOKEN", ["claude-model-a", "anthropic-model-b"]) });
+    expect(projected?.patch.model).toBeUndefined();
+    expect(projected?.managedFields).not.toContain("model");
+  });
+
+  it("fails closed for a Claude model id that discovery cannot expose even without loader validation", () => {
+    expect(() => buildClaudeMessagesProjection({ config: config([claudePrincipal()]) }))
+      .toThrow("must start with claude or anthropic");
   });
 
   it("does not invent a default when multiple allowed models are equally canonical", () => {

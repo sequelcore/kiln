@@ -16,7 +16,7 @@
     "profile:startup": "bun run scripts/profile-startup.ts",
     "test:harness": "bun run scripts/run-managed-agent-harness-tests.ts",
     "test:managed-agents:live": "bun run scripts/run-managed-agent-live-tests.ts",
-    "test:model-gateway-harnesses:live": "bun run scripts/run-responses-harness-live-probe.ts",
+    "test:model-gateway-harnesses:live": "bun run scripts/run-model-gateway-harness-live-probe.ts",
     "vendor:tools": "bun run scripts/vendor-tools.ts",
     "test:scripts": "vitest run --config scripts/vitest.config.ts --exclude scripts/profile-startup.test.ts",
     "test:startup-profile": "vitest run --config scripts/vitest.config.ts scripts/profile-startup.test.ts",

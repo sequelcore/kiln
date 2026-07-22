@@ -104,8 +104,8 @@ export async function createCodexOAuthModelGatewayIngress(options: CodexOAuthMod
     resolveVirtualModel: async ({ principal, requestedModel }) => {
       const resolved = await resolveModel("anthropic-messages", principal, requestedModel);
       if (!resolved) return undefined;
-      const supported: ReadonlySet<string> = new Set(["text", "input-image-url", "input-image-base64", "function-tools", "parallel-tool-calls"]);
-      return { ...resolved, capabilities: new Set([...resolved.capabilities].filter((capability): capability is "text" | "input-image-url" | "input-image-base64" | "function-tools" | "parallel-tool-calls" => supported.has(capability))) };
+      const supported: ReadonlySet<string> = new Set(["text", "input-image-url", "input-image-base64", "function-tools", "parallel-tool-calls", "reasoning-controls"]);
+      return { ...resolved, capabilities: new Set([...resolved.capabilities].filter((capability): capability is "text" | "input-image-url" | "input-image-base64" | "function-tools" | "parallel-tool-calls" | "reasoning-controls" => supported.has(capability))) };
     },
     listVirtualModels: async ({ principal }) => {
       const admitted = findPrincipal("anthropic-messages", principal);

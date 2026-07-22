@@ -79,10 +79,10 @@ describe("createCodexOAuthModelGatewayIngress", () => {
       ...config,
       surfaces: { anthropicMessages: { maxBodyBytes: 4096, maxConcurrentRequests: 1 } },
       principals: [{ tokenEnv: "ANTHROPIC_TOKEN", ingress: "anthropic-messages", tenantId: "tenant", applicationId: "app", callerId: "claude", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["claude-kiln"] }],
-      virtualModels: [{ ...config.virtualModels[0]!, id: "claude-kiln", displayName: "Claude Kiln" }],
+      virtualModels: [{ ...config.virtualModels[0]!, id: "claude-kiln", displayName: "Claude Kiln", capabilities: ["text", "reasoning-controls"] }],
     };
     const providerFetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toMatchObject({ model: "gpt-test", max_output_tokens: 64 });
+      expect(JSON.parse(String(init?.body))).toMatchObject({ model: "gpt-test", max_output_tokens: 64, reasoning: { effort: "high" } });
       const frame = { type: "response.completed", response: { id: "provider-response", output: [{ type: "message", id: "message-1", role: "assistant", content: [{ type: "output_text", text: "PROBE_OK" }] }], usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 } } };
       return new Response(`event: response.completed\ndata: ${JSON.stringify(frame)}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
     });
@@ -92,7 +92,7 @@ describe("createCodexOAuthModelGatewayIngress", () => {
       const response = await app.request(new Request("http://127.0.0.1/v1/messages?beta=true", {
         method: "POST",
         headers: { authorization: `Bearer ${"a".repeat(32)}`, "anthropic-version": "2023-06-01", "content-type": "application/json", "x-claude-code-session-id": "session-1" },
-        body: JSON.stringify({ model: "claude-kiln", max_tokens: 64, stream: true, messages: [{ role: "user", content: "Return PROBE_OK" }] }),
+        body: JSON.stringify({ model: "claude-kiln", max_tokens: 64, stream: true, output_config: { effort: "high" }, messages: [{ role: "user", content: "Return PROBE_OK" }] }),
       }));
       expect(response.status).toBe(200);
       expect(await response.text()).toContain("PROBE_OK");

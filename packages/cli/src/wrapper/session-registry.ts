@@ -938,7 +938,7 @@ export class SessionRegistry {
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 
 const HARNESS_PROVIDER_HOME_ENV: Record<HarnessPoolProviderId, string> = {
-  "claude-code": "CLAUDE_HOME",
+  "claude-code": "CLAUDE_CONFIG_DIR",
   codex: "CODEX_HOME",
   opencode: "OPENCODE_CONFIG_DIR",
 };
