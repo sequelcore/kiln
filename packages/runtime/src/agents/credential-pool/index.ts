@@ -73,6 +73,8 @@ export {
 export type {
   CodexOAuthCredentialPoolServiceConfig,
   CodexOAuthCredentialStatus,
+  CodexOAuthExecutionAccount,
+  CodexOAuthExecutionCredential,
   CodexOAuthPoolCredential,
   CreateCodexOAuthPooledAdapterOptions,
   LinkCodexOAuthCredentialOptions,

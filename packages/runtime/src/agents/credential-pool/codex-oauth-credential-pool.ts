@@ -1,5 +1,6 @@
-import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { constants, type BigIntStats } from "node:fs";
+import { lstat, mkdir, open, readdir, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,7 +10,6 @@ import {
   AllCredentialsExhaustedError,
   KilnError,
   PooledProviderAdapter,
-  isRetryable,
   type CodexOAuthTokenFile,
   type Credential,
   type CredentialExhaustionDiagnostic,
@@ -54,6 +54,20 @@ export interface CodexOAuthAccessTokenCandidate {
   readonly accessToken: string;
 }
 
+export interface CodexOAuthExecutionAccount {
+  readonly credentialId: string;
+  readonly fileIdentity: string;
+  /** Opaque revision derived only from filesystem metadata, never token contents. */
+  readonly revision: string;
+}
+
+export interface CodexOAuthExecutionCredential {
+  readonly credentialId: string;
+  readonly accessToken: string;
+  /** Observed provider transport header value; never selection authority. */
+  readonly chatgptAccountId: string;
+}
+
 export interface CreateCodexOAuthPooledAdapterOptions {
   readonly defaultModel: string;
   readonly createAdapter?: (credential: CodexOAuthPoolCredential) => ProviderAdapter;
@@ -71,6 +85,11 @@ interface CodexOAuthCredentialRecord {
   readonly invalidReason?: string;
 }
 
+interface CredentialFileSnapshot {
+  readonly identity: string;
+  readonly revision: string;
+}
+
 const EXPIRING_SOON_MS = 120 * 1000;
 
 export class CodexOAuthCredentialPoolService {
@@ -78,6 +97,8 @@ export class CodexOAuthCredentialPoolService {
   private readonly healthStore: CredentialHealthStore;
   private readonly watcher?: CredentialWatcher;
   private readonly observability?: CredentialPoolObservabilityRegistry;
+  private readonly credentialLocks = new Map<string, Promise<void>>();
+  private catalogLock: Promise<void> = Promise.resolve();
 
   constructor(config: CodexOAuthCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
@@ -91,19 +112,26 @@ export class CodexOAuthCredentialPoolService {
     const id = options.id ?? stableCodexOAuthCredentialId(accountId);
     assertSafeCredentialId(id);
     validateCodexOAuthTokenFile(options.tokenFile, this.credentialFilePath(id));
-    await mkdir(this.providerDirectory(), { recursive: true });
-    if (!options.id && accountId) {
-      const existing = await this.readCredentials();
-      for (const credential of existing) {
-        if (credential.id === id || readCodexOAuthAccountId(credential.tokenFile.access_token) !== accountId) {
-          continue;
+    await this.withCatalogLock(async () => {
+      await mkdir(this.providerDirectory(), { recursive: true });
+      const predecessorIds = !options.id && accountId
+        ? (await this.readCredentials()).filter((credential) => credential.id !== id && readCodexOAuthAccountId(credential.tokenFile.access_token) === accountId).map((credential) => credential.id)
+        : [];
+      await this.withCredentialLocks([id, ...predecessorIds], async () => {
+        await atomicReplaceCredentialFile(this.credentialFilePath(id), options.tokenFile);
+        await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, id);
+        if (!options.id && accountId) {
+          const existing = await this.readCredentials();
+          for (const credential of existing) {
+            if (credential.id === id || readCodexOAuthAccountId(credential.tokenFile.access_token) !== accountId) {
+              continue;
+            }
+            await unlinkIfPresent(credential.tokenPath);
+            await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, credential.id);
+          }
         }
-        await unlink(credential.tokenPath);
-        await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, credential.id);
-      }
-    }
-    await writeFile(this.credentialFilePath(id), `${JSON.stringify(options.tokenFile, null, 2)}\n`, "utf8");
-    await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, id);
+      });
+    });
   }
 
   async listStatus(): Promise<readonly CodexOAuthCredentialStatus[]> {
@@ -166,7 +194,9 @@ export class CodexOAuthCredentialPoolService {
         continue;
       }
       try {
-        const token = await new CodexOAuthAuth({ tokenPath: credential.tokenPath }).getValidAccessToken();
+        const token = await this.withCredentialLocks([credential.id], () => (
+          new CodexOAuthAuth({ tokenPath: credential.tokenPath }).getValidAccessToken()
+        ));
         if (token.trim().length > 0) {
           candidates.push({ credentialId: credential.id, accessToken: token });
         }
@@ -175,6 +205,63 @@ export class CodexOAuthCredentialPoolService {
       }
     }
     return candidates;
+  }
+
+  /** Secret-free enumeration for admission/selection; token files are never opened or decoded. */
+  async listExecutionAccounts(): Promise<readonly CodexOAuthExecutionAccount[]> {
+    const health = await this.healthStore.readProviderHealth(CODEX_OAUTH_POOL_PROVIDER_ID);
+    const unhealthy = new Set(health.filter((entry) => entry.lastOutcome?.type === "auth-failed" || (entry.cooldownUntil ?? 0) > Date.now()).map((entry) => entry.credentialId));
+    const accounts: CodexOAuthExecutionAccount[] = [];
+    for (const fileName of await this.listCredentialFileNames()) {
+      const credentialId = fileName.slice(0, -".json".length);
+      if (!isSafeCredentialId(credentialId) || unhealthy.has(credentialId)) continue;
+      const snapshot = credentialSnapshot(await lstat(join(this.providerDirectory(), fileName), { bigint: true }));
+      accounts.push({ credentialId, fileIdentity: snapshot.identity, revision: snapshot.revision });
+    }
+    return accounts;
+  }
+
+  /** Resolves exactly one already-selected credential after its account lease is held. */
+  async resolveExecutionCredential(selected: CodexOAuthExecutionAccount): Promise<CodexOAuthExecutionCredential> {
+    if (!selected || typeof selected !== "object") throw new Error("Selected Codex OAuth account is invalid.");
+    assertSafeCredentialId(selected.credentialId);
+    if (!/^[a-f0-9]{64}$/.test(selected.fileIdentity)) throw new Error("Selected Codex OAuth account file identity is invalid.");
+    if (!/^[a-f0-9]{64}$/.test(selected.revision)) throw new Error("Selected Codex OAuth account revision is invalid.");
+    const credentialId = selected.credentialId;
+    return this.withCredentialLocks([credentialId], async () => {
+    const health = await this.healthStore.readProviderHealth(CODEX_OAUTH_POOL_PROVIDER_ID);
+    if (health.some((entry) => entry.credentialId === credentialId && (entry.lastOutcome?.type === "auth-failed" || (entry.cooldownUntil ?? 0) > Date.now()))) {
+      throw new Error("Selected Codex OAuth credential is unhealthy.");
+    }
+    const tokenPath = this.credentialFilePath(credentialId);
+    let handle: FileHandle | undefined;
+    try {
+      const before = credentialSnapshot(await lstat(tokenPath, { bigint: true }));
+      if (before.identity !== selected.fileIdentity || before.revision !== selected.revision) throw new Error("revision");
+      handle = await openSelectedCredential(tokenPath);
+      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
+      const tokenFile = validateCodexOAuthTokenFile(JSON.parse(await handle.readFile("utf8")) as unknown, tokenPath);
+      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before) || !sameSnapshot(credentialSnapshot(await lstat(tokenPath, { bigint: true })), before)) throw new Error("revision");
+      const initialAccountId = readCodexOAuthAccountId(tokenFile.access_token);
+      if (initialAccountId === null) throw new Error("shape");
+      let accessToken = tokenFile.access_token;
+      if (new Date(tokenFile.expires_at).getTime() <= Date.now() + EXPIRING_SOON_MS) {
+        const refreshed = await new CodexOAuthAuth({ tokenPath }).refreshToken(tokenFile);
+        if (readCodexOAuthAccountId(refreshed.access_token) !== initialAccountId) throw new Error("account");
+        await persistRefreshOnSelectedHandle(handle, tokenPath, before, refreshed);
+        accessToken = refreshed.access_token;
+      }
+      const chatgptAccountId = readCodexOAuthAccountId(accessToken);
+      if (chatgptAccountId === null) throw new Error("shape");
+      return { credentialId, accessToken, chatgptAccountId };
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") throw new Error("Selected Codex OAuth credential is unavailable.");
+      if (error instanceof Error && error.message === "revision") throw new Error("Selected Codex OAuth credential revision changed.");
+      throw new Error("Selected Codex OAuth credential is invalid.");
+    } finally {
+      await handle?.close();
+    }
+    });
   }
 
   async recordAuthenticationFailure(credentialId: string): Promise<void> {
@@ -186,23 +273,43 @@ export class CodexOAuthCredentialPoolService {
     );
   }
 
+  async recordProviderOutcome(credentialId: string, error?: unknown): Promise<void> {
+    const outcome: CredentialOutcome = error === undefined ? { type: "ok" } : mapCodexOAuthProviderError(error);
+    const cooldownUntil = outcome.type === "rate-limited"
+      ? outcome.resetAt ?? Date.now() + 60_000
+      : outcome.type === "connection-failed"
+        ? Date.now() + 30_000
+        : outcome.type === "quota-exceeded"
+          ? Date.now() + 5 * 60_000
+          : null;
+    await this.healthStore.recordOutcome(CODEX_OAUTH_POOL_PROVIDER_ID, credentialId, outcome, cooldownUntil);
+  }
+
   async clearCredentials(): Promise<void> {
-    const files = await this.listCredentialFileNames();
-    for (const file of files) {
-      await unlink(join(this.providerDirectory(), file));
-    }
+    await this.withCatalogLock(async () => {
+      const files = await this.listCredentialFileNames();
+      const entries = files.map((file) => ({ file, credentialId: file.slice(0, -".json".length) })).filter(({ credentialId }) => isSafeCredentialId(credentialId));
+      await this.withCredentialLocks(entries.map(({ credentialId }) => credentialId), async () => {
+        for (const { file, credentialId } of entries) {
+          await unlinkIfPresent(join(this.providerDirectory(), file));
+          await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, credentialId);
+        }
+      });
+    });
   }
 
   async createPooledAdapter(options: CreateCodexOAuthPooledAdapterOptions): Promise<ProviderAdapter> {
     const status = await this.listStatus();
-    if (!status.some(isExecutableCredentialStatus)) {
+    const executable = status.filter(isExecutableCredentialStatus);
+    if (executable.length === 0) {
       throw new AllCredentialsExhaustedError(
         undefined,
         undefined,
         buildCodexOAuthExhaustionDiagnostic(status),
       );
     }
-    const pool = await this.createPool();
+    if (executable.length !== 1) throw new KilnError("CONFIG_INVALID", "Codex OAuth pooled execution requires exactly one executable credential; bind additional accounts through explicit virtual models.");
+    const pool = await this.#createPool();
     this.observability?.register(CODEX_OAUTH_POOL_PROVIDER_ID, pool);
     return new PooledProviderAdapter<CodexOAuthPoolCredential>({
       name: CODEX_OAUTH_POOL_PROVIDER_ID,
@@ -216,7 +323,7 @@ export class CodexOAuthCredentialPoolService {
     });
   }
 
-  async createPool(): Promise<CredentialPool<CodexOAuthPoolCredential>> {
+  async #createPool(): Promise<CredentialPool<CodexOAuthPoolCredential>> {
     const pool = new CredentialPool<CodexOAuthPoolCredential>(CODEX_OAUTH_POOL_PROVIDER_ID, {
       strategy: "round-robin",
       credentials: await this.loadCredentialsForPool(),
@@ -305,12 +412,134 @@ export class CodexOAuthCredentialPoolService {
   private credentialFilePath(id: string): string {
     return join(this.providerDirectory(), `${id}.json`);
   }
+
+  private async withCredentialLocks<T>(credentialIds: readonly string[], operation: () => Promise<T>): Promise<T> {
+    const ids = [...new Set(credentialIds)].sort();
+    const acquire = async (index: number): Promise<T> => {
+      const id = ids[index];
+      if (id === undefined) return operation();
+      return this.withCredentialLock(id, () => acquire(index + 1));
+    };
+    return acquire(0);
+  }
+
+  /** Administrative lock order is always catalog, then canonical sorted credential IDs. */
+  private async withCatalogLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.catalogLock;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(() => gate);
+    this.catalogLock = tail;
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.catalogLock === tail) this.catalogLock = Promise.resolve();
+    }
+  }
+
+  private async withCredentialLock<T>(credentialId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.credentialLocks.get(credentialId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(() => gate);
+    this.credentialLocks.set(credentialId, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.credentialLocks.get(credentialId) === tail) this.credentialLocks.delete(credentialId);
+    }
+  }
 }
 
 function stableCodexOAuthCredentialId(accountId: string | null): string {
   if (!accountId) return "primary";
   const digest = createHash("sha256").update(accountId).digest("hex").slice(0, 16);
   return `account-${digest}`;
+}
+
+function credentialSnapshot(value: BigIntStats): CredentialFileSnapshot {
+  if (!value.isFile() || value.isSymbolicLink() || value.ino <= 0n) {
+    throw new Error("Selected Codex OAuth credential is not a stable regular file.");
+  }
+  const fields = [value.dev, value.ino, value.mode, value.nlink, value.size, value.mtimeNs, value.ctimeNs, value.birthtimeNs];
+  const revision = createHash("sha256").update(fields.map(String).join(":"), "utf8").digest("hex");
+  const identity = createHash("sha256").update([value.dev, value.ino, value.birthtimeNs].map(String).join(":"), "utf8").digest("hex");
+  return { identity, revision };
+}
+
+function sameSnapshot(left: CredentialFileSnapshot, right: CredentialFileSnapshot): boolean {
+  return left.identity === right.identity && left.revision === right.revision;
+}
+
+/** O_NOFOLLOW is not supported by every Windows filesystem; identity checks remain mandatory on fallback. */
+async function openSelectedCredential(tokenPath: string): Promise<FileHandle> {
+  try {
+    return await open(tokenPath, constants.O_RDWR | constants.O_NOFOLLOW);
+  } catch (error) {
+    if (!isNodeError(error) || !["EINVAL", "ENOTSUP", "EOPNOTSUPP"].includes(error.code ?? "")) throw error;
+    return open(tokenPath, constants.O_RDWR);
+  }
+}
+
+async function persistRefreshOnSelectedHandle(
+  handle: FileHandle,
+  tokenPath: string,
+  expected: CredentialFileSnapshot,
+  tokenFile: CodexOAuthTokenFile,
+): Promise<void> {
+  if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), expected) || !sameSnapshot(credentialSnapshot(await lstat(tokenPath, { bigint: true })), expected)) {
+    throw new Error("revision");
+  }
+  const serialized = Buffer.from(`${JSON.stringify(tokenFile, null, 2)}\n`, "utf8");
+  await handle.truncate(0);
+  await writeAll(handle, serialized);
+  await handle.sync();
+  const openedAfter = credentialSnapshot(await handle.stat({ bigint: true }));
+  const pathAfter = credentialSnapshot(await lstat(tokenPath, { bigint: true }));
+  if (openedAfter.identity !== expected.identity || pathAfter.identity !== expected.identity || openedAfter.revision !== pathAfter.revision) {
+    throw new Error("revision");
+  }
+}
+
+async function atomicReplaceCredentialFile(tokenPath: string, tokenFile: CodexOAuthTokenFile): Promise<void> {
+  const tempPath = `${tokenPath}.${randomBytes(12).toString("hex")}.tmp`;
+  let handle: FileHandle | undefined;
+  let renamed = false;
+  try {
+    handle = await open(tempPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+    await writeAll(handle, Buffer.from(`${JSON.stringify(tokenFile, null, 2)}\n`, "utf8"));
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    // Node rename is atomic on supported same-filesystem replacements. Windows failures are not
+    // downgraded to unlink+rename because that would create a destructive replacement gap.
+    await rename(tempPath, tokenPath);
+    renamed = true;
+  } finally {
+    await handle?.close().catch(() => undefined);
+    if (!renamed) await unlinkIfPresent(tempPath);
+  }
+}
+
+async function writeAll(handle: FileHandle, bytes: Buffer): Promise<void> {
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const { bytesWritten } = await handle.write(bytes, offset, bytes.byteLength - offset, offset);
+    if (bytesWritten <= 0) throw new Error("Credential persistence made no progress.");
+    offset += bytesWritten;
+  }
+}
+
+async function unlinkIfPresent(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+  }
 }
 
 function readCodexOAuthAccountId(accessToken: string): string | null {
@@ -327,8 +556,8 @@ function readCodexOAuthAccountId(accessToken: string): string | null {
   }
 }
 
-function isRetryableCodexOAuthOutcome(outcome: CredentialOutcome): boolean {
-  return isRetryable(outcome) || outcome.type === "auth-failed";
+function isRetryableCodexOAuthOutcome(_outcome: CredentialOutcome): boolean {
+  return false;
 }
 
 export function mapCodexOAuthProviderError(error: unknown): CredentialOutcome {
@@ -341,6 +570,9 @@ export function mapCodexOAuthProviderError(error: unknown): CredentialOutcome {
   }
   if (status === 401 || status === 403) {
     return { type: "auth-failed" };
+  }
+  if (status === 408 || status === 425 || status === 500 || status === 502 || status === 503 || status === 504) {
+    return { type: "connection-failed" };
   }
   if (error instanceof KilnError && error.code === "PROVIDER_AUTH_FAILED") {
     return { type: "auth-failed" };
@@ -461,9 +693,13 @@ function readStatus(error: unknown): number | null {
 }
 
 function assertSafeCredentialId(id: string): void {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id)) {
+  if (!isSafeCredentialId(id)) {
     throw new Error(`Invalid Codex OAuth credential id: ${id}`);
   }
+}
+
+function isSafeCredentialId(id: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id);
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

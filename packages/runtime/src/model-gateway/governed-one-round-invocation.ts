@@ -65,7 +65,7 @@ export interface GovernedOneRoundAffinityStore {
 }
 
 export interface GovernedOneRoundAccountLease {
-  acquire(input: { readonly identity: GovernedOneRoundIdentity; readonly route: ModelGatewayRoute; readonly account: ModelGatewayAffinity["account"] }): Promise<{ readonly leaseId: string } | undefined>;
+  acquire(input: { readonly identity: GovernedOneRoundIdentity; readonly route: ModelGatewayRoute; readonly account: ModelGatewayAffinity["account"]; readonly purpose: "new" | "affinity" }): Promise<{ readonly leaseId: string } | undefined>;
   release(input: { readonly leaseId: string }): Promise<void>;
 }
 
@@ -173,19 +173,47 @@ export async function invokeGovernedOneRound(
     throw new GovernedOneRoundInvocationError("affinity-required", "A required route affinity is unavailable.");
   }
 
-  const selection = selectModelGatewayAccount({
-    route: input.route,
-    work: storedAffinity === undefined ? "new" : "existing",
-    ...(storedAffinity === undefined ? {} : {
-      affinity: storedAffinity,
-      allowAffinityRebind: input.affinity.continuity !== "none" && input.affinity.allowRebind === true,
-    }),
-    candidates,
-  });
-  const selected = selection.selected;
-  if (selected === undefined) {
-    throw new GovernedOneRoundInvocationError("no-eligible-account", "No eligible account is admitted for this one-round invocation.");
+  const precommitRejections: ModelGatewayAccountSelectionResult["rejections"][number][] = [];
+  let remaining = [...candidates];
+  let selection: ModelGatewayAccountSelectionResult;
+  let lease: { readonly leaseId: string } | undefined;
+  let dispatcher: ModelGatewayOneRoundDispatcher | undefined;
+  let lastResolverError: unknown;
+  while (true) {
+    const current = selectModelGatewayAccount({
+      route: input.route,
+      work: storedAffinity === undefined ? "new" : "existing",
+      ...(storedAffinity === undefined ? {} : { affinity: storedAffinity, allowAffinityRebind: input.affinity.continuity !== "none" && input.affinity.allowRebind === true }),
+      candidates: remaining,
+    });
+    if (current.selected === undefined) {
+      if (lastResolverError !== undefined) throw lastResolverError;
+      if (precommitRejections.length > 0) throw new GovernedOneRoundInvocationError("lease-conflict", "All eligible account leases are unavailable.");
+      throw new GovernedOneRoundInvocationError("no-eligible-account", "No eligible account is admitted for this one-round invocation.");
+    }
+    lease = await ports.accountLease.acquire({ identity: input.identity, route: input.route, account: current.selected.account, purpose: storedAffinity === undefined ? "new" : "affinity" });
+    if (lease === undefined) {
+      precommitRejections.push({ account: current.selected.account, reason: "lease-conflict" });
+      remaining = remaining.filter((candidate) => candidate.account !== current.selected!.account);
+      continue;
+    }
+    selection = { ...current, rejections: Object.freeze([...precommitRejections, ...current.rejections]) };
+    if (input.signal?.aborted) break;
+    try {
+      dispatcher = await ports.dispatcherResolver.resolve({ identity: input.identity, route: input.route, account: current.selected.account, leaseId: lease.leaseId });
+      break;
+    } catch (error) {
+      try {
+        await ports.accountLease.release({ leaseId: lease.leaseId });
+      } catch (releaseError) {
+        throw new AggregateError([error, releaseError], "Dispatcher resolution failed and its lease could not be safely released.");
+      }
+      lastResolverError = error;
+      precommitRejections.push({ account: current.selected.account, reason: "dispatcher-unavailable" });
+      remaining = remaining.filter((candidate) => candidate.account !== current.selected!.account);
+    }
   }
+  const selected = selection.selected!;
 
   let attempt = createAttemptCommit({ attemptId: input.attemptId, account: selected.account });
   const phases: GovernedOneRoundAttemptPhase[] = [];
@@ -230,10 +258,6 @@ export async function invokeGovernedOneRound(
   };
 
   await record();
-  const lease = await ports.accountLease.acquire({ identity: input.identity, route: input.route, account: selected.account });
-  if (lease === undefined) {
-    throw new GovernedOneRoundInvocationError("lease-conflict", "The selected account lease is unavailable.");
-  }
 
   let result: ModelTurnResult | undefined;
   let primaryError: unknown;
@@ -246,15 +270,6 @@ export async function invokeGovernedOneRound(
       await recordTerminal();
       primaryError = new GovernedOneRoundInvocationError("aborted", "The one-round invocation was aborted before dispatch.");
     } else {
-      let dispatcher: ModelGatewayOneRoundDispatcher | undefined;
-      try {
-        dispatcher = await ports.dispatcherResolver.resolve({ identity: input.identity, route: input.route, account: selected.account, leaseId: lease.leaseId });
-      } catch (error) {
-        attempt = advanceAttemptCommit(attempt, "failed");
-        await recordTerminal();
-        primaryError = error;
-      }
-
       if (dispatcher !== undefined) {
         attempt = advanceAttemptCommit(attempt, "dispatching");
         await record();

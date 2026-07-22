@@ -27,7 +27,7 @@ import {
   isPooledDirectProviderId,
   OpenCodeCredentialPoolService,
 } from "../agents/credential-pool/index.js";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer, ModelGatewayConfig } from "@kilnai/core";
 import { ActionEffectAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, CostTracker } from "@kilnai/core";
@@ -37,6 +37,8 @@ import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
+import { createOpenAIResponsesRoutes } from "./openai-responses-routes.js";
+import { createCodexOAuthResponsesIngress } from "../model-gateway/codex-oauth-responses-ingress.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
 import { createDefaultRuntimeMultimodalTransformRoutes } from "../session/runtime-multimodal-transforms.js";
@@ -144,6 +146,46 @@ export interface StartGatewayOptions {
   /** Canonical effective project MCP servers. Apps may only admit these identities by id. */
   readonly canonicalMcpServers?: ReadonlyMap<string, ResolvedMcpServer>;
   readonly mcpCredentialResolver?: (credentialId: string) => string | undefined;
+  /** Test seam for the dedicated loopback model-gateway listener. */
+  readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: (request: Request) => Response | Promise<Response> }) => { stop(force?: boolean): void };
+}
+
+export interface StartCodexOAuthModelGatewayListenerOptions {
+  readonly config: ModelGatewayConfig;
+  readonly databasePath: string;
+  readonly credentialRootDir?: string;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly providerFetch?: typeof fetch;
+  readonly listen?: StartGatewayOptions["modelGatewayListener"];
+}
+
+export async function closeGatewayResources(actions: readonly (() => void | Promise<void>)[]): Promise<void> {
+  for (const action of actions) {
+    try { await action(); } catch { /* cleanup is best-effort across independent resources */ }
+  }
+}
+
+/** Starts only the private model ingress and owns its listener/store lifecycle. */
+export async function startCodexOAuthModelGatewayListener(options: StartCodexOAuthModelGatewayListenerOptions): Promise<{ close(): void }> {
+  const handle = await createCodexOAuthResponsesIngress({
+    config: options.config,
+    databasePath: options.databasePath,
+    ...(options.credentialRootDir === undefined ? {} : { credentialRootDir: options.credentialRootDir }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
+  });
+  let listener: { stop(force?: boolean): void } | undefined;
+  try {
+    const modelApp = createOpenAIResponsesRoutes(handle.ingress);
+    listener = options.listen
+      ? options.listen({ hostname: "127.0.0.1", port: options.config.port, fetch: modelApp.fetch })
+      : Bun.serve({ hostname: "127.0.0.1", port: options.config.port, fetch: modelApp.fetch });
+  } catch (error) {
+    handle.close();
+    throw error;
+  }
+  let closed = false;
+  return { close: () => { if (closed) return; closed = true; try { listener.stop(true); } finally { handle.close(); } } };
 }
 
 export interface DevServerOptions {
@@ -357,6 +399,10 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
 
   const gatewayConfig = parseGatewayYaml(content);
   const gatewayYamlDir = dirname(configPath);
+  const port = options?.port ?? gatewayConfig.port;
+  if (gatewayConfig.modelGateway?.port === port) {
+    throw new KilnError("CONFIG_INVALID", "The effective main gateway port must differ from the model gateway port.", { context: { port } });
+  }
 
   const resolvedApps = resolveApps(gatewayConfig, gatewayYamlDir);
 
@@ -995,7 +1041,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     }
   }
 
-  const port = options?.port ?? gatewayConfig.port;
   const delegationRegistry: DelegationRegistry = { targets: delegationTargets };
 
   // Create health registry and register subsystem checkers
@@ -1483,28 +1528,43 @@ REASONING: <one sentence explanation>`;
     }
   }
 
-  triggerRegistry.start();
+  let modelGatewayRuntime: { close(): void } | undefined;
+  let resourcesClosed = false;
+  const closeStartedResources = async (): Promise<void> => {
+    if (resourcesClosed) return;
+    resourcesClosed = true;
+    await closeGatewayResources([
+      () => triggerRegistry.stop(),
+      () => credentialWatcher.stop(),
+      () => webhookDedup.close(),
+      () => swarmMemoryRepository?.close(),
+      () => mcpServerInstance?.close(),
+      () => modelGatewayRuntime?.close(),
+      ...ownedMcpClients.map((client) => () => client.disconnect()),
+      ...loadedApps.map((loaded) => () => loaded.knowledgePipeline?.close()),
+    ]);
+  };
 
-  const appNames = loadedApps.map((a) => a.name).join(", ");
-  console.log(`Gateway started on port ${port} with ${loadedApps.length} apps: ${appNames}`);
-  console.log(`GUI: http://localhost:${port}/gui/`);
-  if (options?.devMode) {
-    console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
+  try {
+    if (gatewayConfig.modelGateway) {
+      modelGatewayRuntime = await startCodexOAuthModelGatewayListener({
+        config: gatewayConfig.modelGateway,
+        databasePath: join(gatewayYamlDir, ".kiln", "model-gateway", "model-gateway.sqlite"),
+        ...(options?.modelGatewayListener === undefined ? {} : { listen: options.modelGatewayListener }),
+      });
+      console.log(`Model gateway: http://127.0.0.1:${gatewayConfig.modelGateway.port}/v1/responses`);
+    }
+
+    triggerRegistry.start();
+    const appNames = loadedApps.map((a) => a.name).join(", ");
+    console.log(`Gateway started on port ${port} with ${loadedApps.length} apps: ${appNames}`);
+    console.log(`GUI: http://localhost:${port}/gui/`);
+    if (options?.devMode) console.log(`Studio: http://localhost:${port}/${studioDistPath ? "studio" : "dev"}/`);
+    await serveAndWait(honoApp, port, closeStartedResources, bunWebsocket);
+  } catch (error) {
+    await closeStartedResources();
+    throw error;
   }
-
-  await serveAndWait(honoApp, port, () => {
-    triggerRegistry.stop();
-    credentialWatcher.stop();
-    webhookDedup.close();
-    swarmMemoryRepository?.close();
-    mcpServerInstance?.close().catch(() => {});
-    for (const client of ownedMcpClients) {
-      client.disconnect().catch(() => {});
-    }
-    for (const loaded of loadedApps) {
-      loaded.knowledgePipeline?.close().catch(() => {});
-    }
-  }, bunWebsocket);
 }
 
 /** Create a ProviderAdapter from a provider-adapter runtime config. */
@@ -1650,7 +1710,7 @@ function mountStudio(app: Hono, distPath: string, serveStatic: BunServeStatic): 
   });
 }
 
-async function serveAndWait(app: Hono, port: number, onShutdown?: () => void, websocketHandler?: BunWebSocketHandler): Promise<void> {
+async function serveAndWait(app: Hono, port: number, onShutdown?: () => void | Promise<void>, websocketHandler?: BunWebSocketHandler): Promise<void> {
   const websocket = websocketHandler ?? (await loadBunHonoAdapters()).createBunWebSocket().websocket;
 
   let server: ReturnType<typeof Bun.serve>;
@@ -1659,16 +1719,15 @@ async function serveAndWait(app: Hono, port: number, onShutdown?: () => void, we
     server = Bun.serve({ port, fetch: app.fetch, websocket, idleTimeout: 255 });
   } catch (err: unknown) {
     if (err instanceof Error && "code" in err && err.code === "EADDRINUSE") {
-      console.error(`Error: Port ${port} is already in use.`);
-      process.exit(1);
+      throw new Error(`Port ${port} is already in use.`, { cause: err });
     }
     throw err;
   }
 
   await new Promise<void>((resolve) => {
-    const shutdown = () => {
+    const shutdown = async () => {
       console.log("\nShutting down...");
-      onShutdown?.();
+      await onShutdown?.();
       server.stop(true);
       resolve();
     };

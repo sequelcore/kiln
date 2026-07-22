@@ -38,13 +38,22 @@ export class Database {
     this.db.exec(sql);
   }
 
-  prepare(sql: string): { run: (...params: unknown[]) => void; all: (...params: unknown[]) => unknown[]; get: (...params: unknown[]) => unknown } {
+  prepare(sql: string): { run: (...params: unknown[]) => BetterSqlite3.RunResult; all: (...params: unknown[]) => unknown[]; get: (...params: unknown[]) => unknown } {
     const stmt = this.db.prepare(sql);
     return {
-      run: (...params: unknown[]) => { stmt.run(...params); },
+      run: (...params: unknown[]) => stmt.run(...params),
       all: (...params: unknown[]) => stmt.all(...params),
       get: (...params: unknown[]) => stmt.get(...params) ?? null,
     };
+  }
+
+  query(sql: string): ReturnType<Database["prepare"]> {
+    return this.prepare(sql);
+  }
+
+  transaction<T>(operation: () => T): { immediate: () => T } {
+    const transaction = this.db.transaction(operation);
+    return { immediate: () => transaction.immediate() };
   }
 
   close(): void {
@@ -57,10 +66,9 @@ export class Database {
     const entry = shared.get(this.key);
     if (entry) {
       entry.refs--;
-      if (entry.refs <= 0) {
-        entry.db.close();
-        shared.delete(this.key);
-      }
+      // Keep file-keyed in-memory databases alive for the Vitest process so
+      // close/reopen exercises durable SQLite semantics without Windows file
+      // handles preventing temporary-directory cleanup.
     }
   }
 }

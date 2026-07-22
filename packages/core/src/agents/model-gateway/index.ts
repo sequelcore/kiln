@@ -79,7 +79,7 @@ export interface SelectModelGatewayAccountInput {
   readonly candidates: readonly ModelGatewayAccountCandidate[];
 }
 
-export type ModelGatewayAccountRejectionReason = "unhealthy" | "incompatible-route" | "reserved-for-new-work";
+export type ModelGatewayAccountRejectionReason = "unhealthy" | "incompatible-route" | "reserved-for-new-work" | "lease-conflict" | "dispatcher-unavailable";
 
 export interface ModelGatewayAccountRejection {
   readonly account: AccountRef;

@@ -3,7 +3,7 @@
 
 import { parse } from "yaml";
 import { KilnError } from "../errors.js";
-import type { GatewayConfig, GatewayAppBinding, GatewayChannelBinding, GatewayValidationError } from "./gateway-config.js";
+import type { GatewayConfig, GatewayAppBinding, GatewayChannelBinding, GatewayValidationError, ModelGatewayConfig } from "./gateway-config.js";
 import { validateGatewayConfig } from "./gateway-config.js";
 import type { ObservabilityConfig } from "./observability-config.js";
 import { validateObservabilityConfig } from "./observability-config.js";
@@ -52,6 +52,7 @@ interface RawGateway {
   observability?: unknown;
   auth?: unknown;
   mcp?: unknown;
+  modelGateway?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +119,42 @@ function resolveEnvValue(value: string): string {
   return process.env[value.slice(1)] ?? "";
 }
 
+function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): ModelGatewayConfig | undefined {
+  if (!isRecord(rawValue)) { errors.push({ field: "modelGateway", message: "must be an object" }); return undefined; }
+  rejectUnknown(rawValue, ["port", "accounts", "openAIResponses"], "modelGateway", errors);
+  const rawSurface = rawValue.openAIResponses;
+  if (!isRecord(rawSurface)) { errors.push({ field: "modelGateway.openAIResponses", message: "must be an object" }); return undefined; }
+  rejectUnknown(rawSurface, ["enabled", "maxBodyBytes", "maxConcurrentRequests", "replay", "principals", "virtualModels"], "modelGateway.openAIResponses", errors);
+  const replay = isRecord(rawSurface.replay) ? rawSurface.replay : {};
+  rejectUnknown(replay, ["ttlMs", "maxEntries", "hmacKeyEnv"], "modelGateway.openAIResponses.replay", errors);
+  const principals = Array.isArray(rawSurface.principals) ? rawSurface.principals.map((entry, index) => {
+    const raw = isRecord(entry) ? entry : {};
+    rejectUnknown(raw, ["tokenEnv", "tenantId", "applicationId", "callerId", "capabilityId", "scopes", "budgetEvidenceId", "virtualModelIds"], `modelGateway.openAIResponses.principals[${index}]`, errors);
+    return { tokenEnv: str(raw.tokenEnv), tenantId: str(raw.tenantId), applicationId: str(raw.applicationId), callerId: str(raw.callerId), capabilityId: str(raw.capabilityId), scopes: strings(raw.scopes), budgetEvidenceId: str(raw.budgetEvidenceId), virtualModelIds: strings(raw.virtualModelIds) };
+  }) : [];
+  const virtualModels = Array.isArray(rawSurface.virtualModels) ? rawSurface.virtualModels.map((entry, index) => {
+    const raw = isRecord(entry) ? entry : {};
+    rejectUnknown(raw, ["id", "providerId", "providerModelId", "accountIds", "capabilities", "affinity"], `modelGateway.openAIResponses.virtualModels[${index}]`, errors);
+    const affinity = isRecord(raw.affinity) ? raw.affinity : {};
+    rejectUnknown(affinity, ["continuity", "scope", "allowRebind"], `modelGateway.openAIResponses.virtualModels[${index}].affinity`, errors);
+    if (affinity.scope !== undefined && typeof affinity.scope !== "string") errors.push({ field: `modelGateway.openAIResponses.virtualModels[${index}].affinity.scope`, message: "must be a string" });
+    if (affinity.allowRebind !== undefined && typeof affinity.allowRebind !== "boolean") errors.push({ field: `modelGateway.openAIResponses.virtualModels[${index}].affinity.allowRebind`, message: "must be a boolean" });
+    return { id: str(raw.id), providerId: str(raw.providerId) as "codex-oauth", providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["openAIResponses"]["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
+  }) : [];
+  const accounts = Array.isArray(rawValue.accounts) ? rawValue.accounts.map((entry, index) => {
+    const raw = isRecord(entry) ? entry : {};
+    rejectUnknown(raw, ["id", "providerId", "credentialId", "maxConcurrency", "reservedAffinitySlots"], `modelGateway.accounts[${index}]`, errors);
+    return { id: str(raw.id), providerId: str(raw.providerId) as "codex-oauth", credentialId: str(raw.credentialId), maxConcurrency: num(raw.maxConcurrency), reservedAffinitySlots: num(raw.reservedAffinitySlots) };
+  }) : [];
+  return { port: num(rawValue.port), accounts, openAIResponses: { enabled: rawSurface.enabled === true, maxBodyBytes: num(rawSurface.maxBodyBytes), maxConcurrentRequests: num(rawSurface.maxConcurrentRequests), replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels } };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function str(value: unknown): string { return typeof value === "string" ? value : ""; }
+function num(value: unknown): number { return typeof value === "number" ? value : Number.NaN; }
+function strings(value: unknown): string[] { return Array.isArray(value) ? value.map((entry) => typeof entry === "string" ? entry : "") : []; }
+function rejectUnknown(value: Record<string, unknown>, allowed: readonly string[], path: string, errors: GatewayValidationError[]): void { for (const key of Object.keys(value)) if (!allowed.includes(key)) errors.push({ field: `${path}.${key}`, message: "is not supported" }); }
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -137,6 +174,7 @@ export function parseGatewayYaml(content: string): GatewayConfig {
 
   const raw = data as RawGateway;
   const errors: GatewayValidationError[] = [];
+  rejectUnknown(raw as unknown as Record<string, unknown>, ["port", "apps", "observability", "auth", "mcp", "modelGateway"], "root", errors);
 
   // port defaults to 4800
   let port = 4800;
@@ -150,9 +188,11 @@ export function parseGatewayYaml(content: string): GatewayConfig {
 
   // apps
   const apps: GatewayAppBinding[] = [];
-  if (!raw.apps || !Array.isArray(raw.apps)) {
+  if (raw.apps !== undefined && !Array.isArray(raw.apps)) {
+    errors.push({ field: "apps", message: "must be an array" });
+  } else if (raw.apps === undefined && raw.modelGateway === undefined) {
     errors.push({ field: "apps", message: "must be a non-empty array" });
-  } else {
+  } else if (Array.isArray(raw.apps)) {
     for (let i = 0; i < raw.apps.length; i++) {
       const rawApp = raw.apps[i];
       if (!rawApp || typeof rawApp !== "object" || Array.isArray(rawApp)) {
@@ -264,9 +304,11 @@ export function parseGatewayYaml(content: string): GatewayConfig {
     }
   }
 
+  const modelGateway = raw.modelGateway === undefined ? undefined : mapModelGateway(raw.modelGateway, errors);
+
   if (errors.length > 0) throw new GatewayLoaderError(errors);
 
-  const config: GatewayConfig = { port, apps, ...(observability ? { observability } : {}), ...(auth ? { auth } : {}), ...(mcp ? { mcp } : {}) };
+  const config: GatewayConfig = { port, apps, ...(observability ? { observability } : {}), ...(auth ? { auth } : {}), ...(mcp ? { mcp } : {}), ...(modelGateway ? { modelGateway } : {}) };
 
   const validationErrors = validateGatewayConfig(config);
   if (validationErrors.length > 0) throw new GatewayLoaderError(validationErrors);

@@ -107,13 +107,54 @@ describe("invokeGovernedOneRound", () => {
     const fixture = ports({ accountLease: { acquire: async () => undefined, release: async () => undefined } });
     await expect(invokeGovernedOneRound(input(), fixture)).rejects.toMatchObject({ code: "lease-conflict" });
     expect(fixture.calls).toBe(0);
-    expect(fixture.events).toEqual(["planned"]);
+    expect(fixture.events).toEqual([]);
   });
 
-  it("records failure when dispatcher resolution fails before dispatch", async () => {
+  it("fails over once on a pre-lease conflict and dispatches only the final selected account", async () => {
+    const second = { ...candidate("account-b"), pressure: 1 };
+    const acquired: string[] = [];
+    const fixture = ports({
+      candidateCatalog: { list: async () => [candidate("account-a"), second] },
+      accountLease: {
+        acquire: async ({ account }) => { acquired.push(account); return account === createAccountRef("account-a") ? undefined : { leaseId: "lease-b" }; },
+        release: async () => undefined,
+      },
+    });
+    const result = await invokeGovernedOneRound(input(), fixture);
+    expect(acquired).toEqual([createAccountRef("account-a"), createAccountRef("account-b")]);
+    expect(result.account).toBe(createAccountRef("account-b"));
+    expect(result.selection.rejections).toContainEqual({ account: createAccountRef("account-a"), reason: "lease-conflict" });
+    expect(fixture.calls).toBe(1);
+  });
+
+  it("excludes a precommit dispatcher-resolution failure and fails over exactly once", async () => {
+    const resolved: string[] = [];
+    const released: string[] = [];
+    const fixture = ports({
+      candidateCatalog: { list: async () => [candidate("account-a"), { ...candidate("account-b"), pressure: 1 }] },
+      accountLease: {
+        acquire: async ({ account }) => ({ leaseId: `lease-${account}` }),
+        release: async ({ leaseId }) => { released.push(leaseId); },
+      },
+      dispatcherResolver: { resolve: async ({ account }) => {
+        resolved.push(account);
+        if (account === createAccountRef("account-a")) throw new Error("credential unavailable");
+        return { dispatchOneRound: async () => modelResult };
+      } },
+    });
+
+    const result = await invokeGovernedOneRound(input(), fixture);
+    expect(resolved).toEqual([createAccountRef("account-a"), createAccountRef("account-b")]);
+    expect(released).toEqual(["lease-account-a", "lease-account-b"]);
+    expect(result.account).toBe(createAccountRef("account-b"));
+    expect(result.selection.rejections).toContainEqual({ account: createAccountRef("account-a"), reason: "dispatcher-unavailable" });
+    expect(fixture.events).toEqual(["planned", "leased", "dispatching", "committed", "succeeded"]);
+  });
+
+  it("does not emit attempt evidence when every dispatcher fails before commitment", async () => {
     const fixture = ports({ dispatcherResolver: { resolve: async () => { throw new Error("unavailable"); } } });
     await expect(invokeGovernedOneRound(input(), fixture)).rejects.toThrow("unavailable");
-    expect(fixture.events).toEqual(["planned", "leased", "failed"]);
+    expect(fixture.events).toEqual([]);
     expect(fixture.calls).toBe(0);
   });
 
@@ -214,7 +255,7 @@ describe("invokeGovernedOneRound", () => {
     });
 
     await invokeGovernedOneRound(input(), fixture);
-    expect(order.slice(0, 3)).toEqual(["evidence:planned", "lease:acquire", "evidence:leased"]);
+    expect(order.slice(0, 3)).toEqual(["lease:acquire", "evidence:planned", "evidence:leased"]);
   });
 
   it("does not read or write affinity when continuity is none and returns no affinity", async () => {

@@ -52,9 +52,10 @@ function config(overrides: ConfigOverrides = {}) {
     return [{ account: createAccountRef("account-1"), route: input.route, health: "healthy" as const, pressure: 0, reservedForNewWork: false }];
   });
   const evidence = vi.fn(async () => undefined);
+  const affinityRead = vi.fn(async () => undefined);
   const invocationPorts: GovernedOneRoundInvocationPorts = {
     candidateCatalog: { list: catalog },
-    affinityStore: { read: async () => undefined, write: async () => undefined },
+    affinityStore: { read: affinityRead, write: async () => undefined },
     accountLease: { acquire: async () => ({ leaseId: "lease-1" }), release: async () => undefined },
     attemptEvidence: { record: evidence },
     dispatcherResolver: { resolve: async () => ({ dispatchOneRound: async (input) => (await execute(input)).result }) },
@@ -75,7 +76,7 @@ function config(overrides: ConfigOverrides = {}) {
     createResponseId: () => "resp_server_1",
     ...ingressOverrides,
   };
-  return { value, execute, record, namespace, catalog, evidence };
+  return { value, execute, record, namespace, catalog, evidence, affinityRead };
 }
 
 function request(payload: unknown = body(), headers: Record<string, string> = {}): Request {
@@ -342,6 +343,20 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(threadContradiction.status).toBe(400);
     const invalid = await app.request(request(body(), { "session-id": "x".repeat(257) }));
     expect(invalid.status).toBe(400);
+  });
+
+  it("derives affinity keys from trusted namespaced session correlation", async () => {
+    const fixture = config({
+      resolveVirtualModel: async () => ({ route, capabilities: new Set(["text"]), affinity: { continuity: "prefer", scope: "session" } }),
+      namespaceCorrelation: async ({ observed }) => ({ sessionId: `trusted:${observed.sessionId}`, turnId: `trusted:${observed.turnId ?? "turn"}` }),
+    });
+    const app = createOpenAIResponsesRoutes(fixture.value);
+    expect((await app.request(request(body(), { "session-id": "raw-a" }))).status).toBe(200);
+    expect((await app.request(request(body(), { "session-id": "raw-b" }))).status).toBe(200);
+    expect(fixture.affinityRead.mock.calls.map(([input]) => input.key)).toEqual([
+      "openai-responses:session:trusted:raw-a",
+      "openai-responses:session:trusted:raw-b",
+    ]);
   });
 
   it("records optional degradation and performs required preflight before execute", async () => {

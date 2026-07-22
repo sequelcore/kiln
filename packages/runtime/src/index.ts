@@ -16,6 +16,10 @@ export {
   InMemoryModelGatewayReplayGuard,
   MODEL_GATEWAY_REPLAY_FINGERPRINT_VERSION,
 } from "./model-gateway/replay-guard.js";
+export { LocalModelGatewayStore } from "./model-gateway/local-model-gateway-store.js";
+export type { LocalModelGatewayStoreAccount, LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
+export { createCodexOAuthResponsesIngress } from "./model-gateway/codex-oauth-responses-ingress.js";
+export type { CodexOAuthResponsesIngressHandle, CodexOAuthResponsesIngressOptions } from "./model-gateway/codex-oauth-responses-ingress.js";
 export type {
   InMemoryModelGatewayReplayGuardOptions,
   ModelGatewayReplayCompletedValue,
@@ -140,6 +144,8 @@ export {
 export type {
   CodexOAuthCredentialPoolServiceConfig,
   CodexOAuthCredentialStatus,
+  CodexOAuthExecutionAccount,
+  CodexOAuthExecutionCredential,
   CodexOAuthPoolCredential,
   CreateDirectProviderPooledAdapterOptions,
   CredentialFileStatus,

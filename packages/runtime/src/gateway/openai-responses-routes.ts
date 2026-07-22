@@ -45,7 +45,9 @@ export interface OpenAIResponsesTrustedPrincipal {
 export interface OpenAIResponsesResolvedVirtualModel {
   readonly route: ModelGatewayRoute;
   readonly capabilities: ReadonlySet<OpenAIResponsesModelTurnCapability>;
-  readonly affinity: GovernedOneRoundAffinityPolicy;
+  readonly affinity:
+    | { readonly continuity: "none" }
+    | { readonly continuity: "prefer" | "require"; readonly scope: "session" | "turn"; readonly allowRebind?: boolean };
 }
 
 export interface OpenAIResponsesObservedCorrelation {
@@ -133,6 +135,7 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
       const observed = readCorrelation(context.req.raw.headers, request);
       const namespaced = await config.namespaceCorrelation({ principal, observed });
       validateNamespacedCorrelation(namespaced, observed);
+      const affinity = deriveAffinity(resolved.affinity, namespaced);
       await config.compatibilityEvidence.record({
         stage: "request", status: capabilities.unavailableOptional.length === 0 ? "compatible" : "degraded",
         tenantId: principal.tenantId, applicationId: principal.applicationId, callerId: principal.callerId,
@@ -151,7 +154,7 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
           turnId: namespaced.turnId,
           route: resolved.route,
           toolExecutionMode: "caller-owned",
-          ...(resolved.affinity.continuity === "none" ? {} : { affinityKey: resolved.affinity.key }),
+          ...(affinity.continuity === "none" ? {} : { affinityKey: affinity.key }),
         });
         const decision = config.replayGuard.claim(key);
         if (decision.kind === "join-inflight") {
@@ -182,7 +185,7 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
         route: resolved.route,
         authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes },
         budget: principal.budgetEvidence,
-        affinity: resolved.affinity,
+        affinity,
         toolExecutionMode: "caller-owned",
         turn,
         signal: context.req.raw.signal,
@@ -247,6 +250,18 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
     }
   });
   return app;
+}
+
+function deriveAffinity(
+  configured: OpenAIResponsesResolvedVirtualModel["affinity"],
+  correlation: { readonly sessionId: string; readonly turnId: string },
+): GovernedOneRoundAffinityPolicy {
+  if (configured.continuity === "none") return configured;
+  return {
+    continuity: configured.continuity,
+    key: `openai-responses:${configured.scope}:${configured.scope === "session" ? correlation.sessionId : correlation.turnId}`,
+    ...(configured.allowRebind === undefined ? {} : { allowRebind: configured.allowRebind }),
+  };
 }
 
 function projectSuccessfulResponse(model: string, responseId: string, result: import("@kilnai/core").ModelTurnResult, replayed: boolean): Response {

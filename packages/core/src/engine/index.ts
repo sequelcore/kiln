@@ -198,6 +198,11 @@ export type {
   GatewayAppBinding,
   GatewayChannelBinding,
   GatewayValidationError,
+  ModelGatewayCapabilityId,
+  ModelGatewayAccountConfig,
+  ModelGatewayConfig,
+  ModelGatewayPrincipalConfig,
+  ModelGatewayVirtualModelConfig,
 } from "./gateway/gateway-config.js";
 export { validateGatewayConfig } from "./gateway/gateway-config.js";
 export { GatewayLoaderError, parseGatewayYaml } from "./gateway/gateway-loader.js";
