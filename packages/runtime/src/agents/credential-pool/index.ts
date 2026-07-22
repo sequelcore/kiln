@@ -51,6 +51,8 @@ export type {
   DirectProviderAuth,
   DirectProviderCredentialPoolServiceConfig,
   DirectProviderCredentialStatus,
+  DirectProviderExecutionAccount,
+  DirectProviderExecutionCredential,
   PooledDirectProviderId,
 } from "./direct-provider-credential-pool.js";
 
@@ -90,4 +92,7 @@ export type {
   LinkOpenCodeCredentialOptions,
   OpenCodeCredentialPoolServiceConfig,
   OpenCodeCredentialStatus,
+  OpenCodeExecutionAccount,
+  OpenCodeExecutionCredential,
+  OpenCodeExecutionProviderId,
 } from "./opencode-credential-pool.js";

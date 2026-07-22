@@ -1,4 +1,6 @@
-import { readdir, unlink } from "node:fs/promises";
+import { constants, type BigIntStats } from "node:fs";
+import { createHash } from "node:crypto";
+import { lstat, open, readdir, unlink, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -45,6 +47,23 @@ export interface OpenCodeCredentialStatus {
     readonly cooldownUntil: number | null;
     readonly lastOutcome: CredentialOutcome | null;
   };
+}
+
+export type OpenCodeExecutionProviderId = "opencode-go" | "opencode-zen";
+
+export interface OpenCodeExecutionAccount {
+  readonly providerId: OpenCodeExecutionProviderId;
+  readonly credentialId: string;
+  readonly tier: OpenCodeTier;
+  readonly fileIdentity: string;
+  readonly revision: string;
+}
+
+export interface OpenCodeExecutionCredential {
+  readonly providerId: OpenCodeExecutionProviderId;
+  readonly credentialId: string;
+  readonly tier: OpenCodeTier;
+  readonly auth: OpenCodeAuthFile;
 }
 
 export interface ClearOpenCodeCredentialsOptions {
@@ -113,6 +132,63 @@ export class OpenCodeCredentialPoolService {
           : undefined,
       };
     });
+  }
+
+  /** Secret-free enumeration for governed selection. */
+  async listExecutionAccounts(tier: OpenCodeTier): Promise<readonly OpenCodeExecutionAccount[]> {
+    const providerId = executionProviderId(tier);
+    const health = await this.healthStore.readProviderHealth(OPENCODE_POOL_PROVIDER_ID);
+    const unhealthy = new Set(health
+      .filter((entry) => entry.lastOutcome?.type === "auth-failed" || (entry.cooldownUntil ?? 0) > Date.now())
+      .map((entry) => entry.credentialId));
+    const accounts: OpenCodeExecutionAccount[] = [];
+    for (const credential of await this.readCredentials()) {
+      if (credential.auth.tier !== tier || unhealthy.has(credential.id)) continue;
+      const snapshot = credentialSnapshot(await lstat(this.credentialFilePath(credential.id), { bigint: true }));
+      accounts.push({
+        providerId,
+        credentialId: credential.id,
+        tier,
+        fileIdentity: snapshot.identity,
+        revision: snapshot.revision,
+      });
+    }
+    return accounts;
+  }
+
+  /** Resolves only the credential revision selected before an account lease was acquired. */
+  async resolveExecutionCredential(selected: OpenCodeExecutionAccount): Promise<OpenCodeExecutionCredential> {
+    validateExecutionAccount(selected);
+    const health = await this.healthStore.readProviderHealth(OPENCODE_POOL_PROVIDER_ID);
+    if (health.some((entry) => entry.credentialId === selected.credentialId && (entry.lastOutcome?.type === "auth-failed" || (entry.cooldownUntil ?? 0) > Date.now()))) {
+      throw new Error("Selected OpenCode credential is unhealthy.");
+    }
+    const path = this.credentialFilePath(selected.credentialId);
+    let handle: FileHandle | undefined;
+    try {
+      const before = credentialSnapshot(await lstat(path, { bigint: true }));
+      if (before.identity !== selected.fileIdentity || before.revision !== selected.revision) throw new Error("revision");
+      handle = await openSelectedCredential(path);
+      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
+      const parsed = JSON.parse(await handle.readFile("utf8")) as unknown;
+      const credential = parseSelectedCredential(parsed, selected);
+      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)
+        || !sameSnapshot(credentialSnapshot(await lstat(path, { bigint: true })), before)) throw new Error("revision");
+      return credential;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") throw new Error("Selected OpenCode credential is unavailable.");
+      if (error instanceof Error && error.message === "revision") throw new Error("Selected OpenCode credential revision changed.");
+      throw new Error("Selected OpenCode credential is invalid.");
+    } finally {
+      await handle?.close();
+    }
+  }
+
+  async recordProviderOutcome(providerId: OpenCodeExecutionProviderId, credentialId: string, error?: unknown): Promise<void> {
+    executionTier(providerId);
+    assertSafeCredentialId(credentialId);
+    const outcome = secretFreeOutcome(error === undefined ? { type: "ok" } : mapOpenCodeProviderError(error));
+    await this.healthStore.recordOutcome(OPENCODE_POOL_PROVIDER_ID, credentialId, outcome, cooldownForOutcome(outcome));
   }
 
   async clearCredentials(options: ClearOpenCodeCredentialsOptions = {}): Promise<void> {
@@ -282,4 +358,85 @@ function assertSafeCredentialId(id: string): void {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+interface CredentialFileSnapshot {
+  readonly identity: string;
+  readonly revision: string;
+}
+
+function credentialSnapshot(value: BigIntStats): CredentialFileSnapshot {
+  if (!value.isFile() || value.isSymbolicLink() || value.ino <= 0n) {
+    throw new Error("Selected OpenCode credential is not a stable regular file.");
+  }
+  const fields = [value.dev, value.ino, value.mode, value.nlink, value.size, value.mtimeNs, value.ctimeNs, value.birthtimeNs];
+  return {
+    identity: createHash("sha256").update([value.dev, value.ino, value.birthtimeNs].map(String).join(":"), "utf8").digest("hex"),
+    revision: createHash("sha256").update(fields.map(String).join(":"), "utf8").digest("hex"),
+  };
+}
+
+function sameSnapshot(left: CredentialFileSnapshot, right: CredentialFileSnapshot): boolean {
+  return left.identity === right.identity && left.revision === right.revision;
+}
+
+async function openSelectedCredential(path: string): Promise<FileHandle> {
+  try {
+    return await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    if (!isNodeError(error) || !["EINVAL", "ENOTSUP", "EOPNOTSUPP"].includes(error.code ?? "")) throw error;
+    return open(path, constants.O_RDONLY);
+  }
+}
+
+function parseSelectedCredential(value: unknown, selected: OpenCodeExecutionAccount): OpenCodeExecutionCredential {
+  if (!isRecord(value) || value.id !== selected.credentialId || value.providerId !== OPENCODE_POOL_PROVIDER_ID) throw new Error("shape");
+  const auth = validateOpenCodeAuthFile(value.auth, "selected credential");
+  if (auth.tier !== selected.tier || executionProviderId(auth.tier) !== selected.providerId || value.tier !== selected.tier) throw new Error("revision");
+  return {
+    providerId: selected.providerId,
+    credentialId: selected.credentialId,
+    tier: selected.tier,
+    auth,
+  };
+}
+
+function validateExecutionAccount(value: OpenCodeExecutionAccount): void {
+  if (!isRecord(value)) throw new Error("Selected OpenCode account is invalid.");
+  assertSafeCredentialId(value.credentialId);
+  if ((value.tier !== "go" && value.tier !== "zen") || executionProviderId(value.tier) !== value.providerId) {
+    throw new Error("Selected OpenCode account provider is invalid.");
+  }
+  if (typeof value.fileIdentity !== "string" || typeof value.revision !== "string"
+    || !/^[a-f0-9]{64}$/.test(value.fileIdentity) || !/^[a-f0-9]{64}$/.test(value.revision)) {
+    throw new Error("Selected OpenCode account identity is invalid.");
+  }
+}
+
+function executionProviderId(tier: OpenCodeTier): OpenCodeExecutionProviderId {
+  return tier === "zen" ? "opencode-zen" : "opencode-go";
+}
+
+function executionTier(providerId: OpenCodeExecutionProviderId): OpenCodeTier {
+  if (providerId === "opencode-go") return "go";
+  if (providerId === "opencode-zen") return "zen";
+  throw new Error("Unsupported OpenCode execution provider.");
+}
+
+function cooldownForOutcome(outcome: CredentialOutcome): number | null {
+  return outcome.type === "rate-limited"
+    ? outcome.resetAt ?? Date.now() + 60_000
+    : outcome.type === "connection-failed"
+      ? Date.now() + 30_000
+      : outcome.type === "quota-exceeded"
+        ? Date.now() + 5 * 60_000
+        : null;
+}
+
+function secretFreeOutcome(outcome: CredentialOutcome): CredentialOutcome {
+  return outcome.type === "unknown-error" ? { type: "unknown-error" } : outcome;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

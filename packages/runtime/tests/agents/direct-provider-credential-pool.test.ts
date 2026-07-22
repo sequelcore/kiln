@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -191,5 +191,80 @@ describe("DirectProviderCredentialPoolService", () => {
     expect(mapDirectProviderError(Object.assign(new Error("quota"), { status: 402 }))).toEqual({ type: "quota-exceeded" });
     expect(mapDirectProviderError(Object.assign(new Error("auth"), { status: 401 }))).toEqual({ type: "auth-failed" });
     expect(mapDirectProviderError(new TypeError("fetch failed"))).toEqual({ type: "connection-failed" });
+  });
+
+  it("enumerates and resolves one exact stored execution credential without exposing its secret", async () => {
+    const store = new CredentialFileStore<DirectProviderAuth>({ rootDir });
+    await store.writeCredential({
+      providerId: "openai",
+      id: "work",
+      label: "Work",
+      tier: "paid",
+      auth: { apiKey: "sk-private" },
+    });
+    const service = new DirectProviderCredentialPoolService({ rootDir, env: {} });
+
+    const accounts = await service.listExecutionAccounts("openai");
+
+    expect(accounts).toEqual([{
+      providerId: "openai",
+      credentialId: "work",
+      tier: "paid",
+      fileIdentity: expect.stringMatching(/^[a-f0-9]{64}$/),
+      revision: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }]);
+    expect(JSON.stringify(accounts)).not.toContain("sk-private");
+    await expect(service.resolveExecutionCredential(accounts[0]!)).resolves.toEqual({
+      providerId: "openai",
+      credentialId: "work",
+      tier: "paid",
+      auth: { apiKey: "sk-private", baseUrl: undefined },
+    });
+  });
+
+  it("fails closed when a selected stored execution credential changes", async () => {
+    const store = new CredentialFileStore<DirectProviderAuth>({ rootDir });
+    await store.writeCredential({
+      providerId: "anthropic",
+      id: "work",
+      label: "Work",
+      auth: { apiKey: "sk-before" },
+    });
+    const service = new DirectProviderCredentialPoolService({ rootDir, env: {} });
+    const selected = (await service.listExecutionAccounts("anthropic"))[0]!;
+    const path = join(rootDir, "anthropic", "work.json");
+    const document = JSON.parse(await readFile(path, "utf8"));
+    document.auth.apiKey = "sk-after-with-a-different-length";
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+
+    await expect(service.resolveExecutionCredential(selected)).rejects.toThrow("revision changed");
+  });
+
+  it("uses opaque in-memory identity for env execution credentials and rejects changed env auth", async () => {
+    const env: Record<string, string | undefined> = { OPENAI_API_KEY: "sk-before" };
+    const service = new DirectProviderCredentialPoolService({ rootDir, env });
+    const selected = (await service.listExecutionAccounts("openai"))[0]!;
+    expect(JSON.stringify(selected)).not.toContain("sk-before");
+
+    env.OPENAI_API_KEY = "sk-after";
+
+    await expect(service.resolveExecutionCredential(selected)).rejects.toThrow("revision changed");
+  });
+
+  it("records provider outcome against the exact direct credential", async () => {
+    const store = new CredentialFileStore<DirectProviderAuth>({ rootDir });
+    await store.writeCredential({ providerId: "openai", id: "first", label: "First", auth: { apiKey: "sk-first" } });
+    await store.writeCredential({ providerId: "openai", id: "second", label: "Second", auth: { apiKey: "sk-second" } });
+    await store.writeCredential({ providerId: "openai", id: "third", label: "Third", auth: { apiKey: "sk-third" } });
+    const service = new DirectProviderCredentialPoolService({ rootDir, env: {} });
+
+    await service.recordProviderOutcome("openai", "second", Object.assign(new Error("rate"), { status: 429 }));
+    await service.recordProviderOutcome("openai", "third", new Error("provider reflected private-error-marker"));
+
+    const status = await service.listStatus("openai");
+    expect(status.find((entry) => entry.id === "first")?.health).toBeUndefined();
+    expect(status.find((entry) => entry.id === "second")?.health?.lastOutcome).toEqual({ type: "rate-limited" });
+    expect(status.find((entry) => entry.id === "third")?.health?.lastOutcome).toEqual({ type: "unknown-error" });
+    expect(JSON.stringify(status)).not.toContain("private-error-marker");
   });
 });

@@ -195,4 +195,58 @@ describe("OpenCodeCredentialPoolService", () => {
       created_at: expect.any(String),
     });
   });
+
+  it("enumerates and resolves one exact OpenCode execution credential without exposing its secret", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "work", apiKey: "sk-private", tier: "zen", createdAt: "2026-05-02T00:00:00.000Z" });
+
+    const accounts = await service.listExecutionAccounts("zen");
+
+    expect(accounts).toEqual([{
+      providerId: "opencode-zen",
+      credentialId: "work",
+      tier: "zen",
+      fileIdentity: expect.stringMatching(/^[a-f0-9]{64}$/),
+      revision: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }]);
+    expect(JSON.stringify(accounts)).not.toContain("sk-private");
+    await expect(service.resolveExecutionCredential(accounts[0]!)).resolves.toEqual({
+      providerId: "opencode-zen",
+      credentialId: "work",
+      tier: "zen",
+      auth: {
+        api_key: "sk-private",
+        tier: "zen",
+        created_at: "2026-05-02T00:00:00.000Z",
+      },
+    });
+  });
+
+  it("fails closed when a selected OpenCode execution credential changes", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "work", apiKey: "sk-before", tier: "go" });
+    const selected = (await service.listExecutionAccounts("go"))[0]!;
+    const path = join(rootDir, "opencode-api", "work.json");
+    const document = JSON.parse(await readFile(path, "utf8"));
+    document.auth.api_key = "sk-after-with-a-different-length";
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+
+    await expect(service.resolveExecutionCredential(selected)).rejects.toThrow("revision changed");
+  });
+
+  it("records provider outcome against the exact OpenCode credential", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "first", apiKey: "sk-first", tier: "go" });
+    await service.linkCredential({ id: "second", apiKey: "sk-second", tier: "go" });
+    await service.linkCredential({ id: "third", apiKey: "sk-third", tier: "go" });
+
+    await service.recordProviderOutcome("opencode-go", "second", Object.assign(new Error("auth"), { status: 401 }));
+    await service.recordProviderOutcome("opencode-go", "third", new Error("provider reflected private-error-marker"));
+
+    const status = await service.listStatus();
+    expect(status.find((entry) => entry.id === "first")?.health).toBeUndefined();
+    expect(status.find((entry) => entry.id === "second")?.health?.lastOutcome).toEqual({ type: "auth-failed" });
+    expect(status.find((entry) => entry.id === "third")?.health?.lastOutcome).toEqual({ type: "unknown-error" });
+    expect(JSON.stringify(status)).not.toContain("private-error-marker");
+  });
 });

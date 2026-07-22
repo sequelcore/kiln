@@ -1,3 +1,6 @@
+import { createHash, randomBytes } from "node:crypto";
+import { constants, type BigIntStats } from "node:fs";
+import { lstat, open, type FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -48,6 +51,21 @@ export interface DirectProviderCredentialStatus {
     readonly cooldownUntil: number | null;
     readonly lastOutcome: CredentialOutcome | null;
   };
+}
+
+export interface DirectProviderExecutionAccount {
+  readonly providerId: PooledDirectProviderId;
+  readonly credentialId: string;
+  readonly tier?: string;
+  readonly fileIdentity: string;
+  readonly revision: string;
+}
+
+export interface DirectProviderExecutionCredential {
+  readonly providerId: PooledDirectProviderId;
+  readonly credentialId: string;
+  readonly tier?: string;
+  readonly auth: DirectProviderAuth;
 }
 
 export interface CreateDirectProviderPooledAdapterOptions {
@@ -101,6 +119,11 @@ export class DirectProviderCredentialPoolService {
   private readonly healthStore: CredentialHealthStore;
   private readonly watcher?: CredentialWatcher;
   private readonly observability?: CredentialPoolObservabilityRegistry;
+  private readonly envExecutionSnapshots = new Map<PooledDirectProviderId, {
+    readonly identity: string;
+    readonly revision: string;
+    readonly auth: DirectProviderAuth;
+  }>();
 
   constructor(config: DirectProviderCredentialPoolServiceConfig = {}) {
     this.rootDir = config.rootDir ?? join(homedir(), ".kiln", "auth");
@@ -132,6 +155,95 @@ export class DirectProviderCredentialPoolService {
           : undefined,
       };
     });
+  }
+
+  /** Secret-free enumeration for governed selection. */
+  async listExecutionAccounts(provider: PooledDirectProviderId): Promise<readonly DirectProviderExecutionAccount[]> {
+    assertPooledProvider(provider);
+    const store = new CredentialFileStore<DirectProviderAuth>({ rootDir: this.rootDir });
+    const statuses = await store.readProviderCredentialStatus(provider);
+    const health = await this.healthStore.readProviderHealth(provider);
+    const unhealthy = new Set(health
+      .filter((entry) => entry.lastOutcome?.type === "auth-failed" || (entry.cooldownUntil ?? 0) > Date.now())
+      .map((entry) => entry.credentialId));
+    if (statuses.length > 0) {
+      const accounts: DirectProviderExecutionAccount[] = [];
+      for (const status of statuses) {
+        if (unhealthy.has(status.id)) continue;
+        const snapshot = credentialSnapshot(await lstat(store.credentialFilePath(provider, status.id), { bigint: true }));
+        accounts.push({
+          providerId: provider,
+          credentialId: status.id,
+          ...(status.tier === undefined ? {} : { tier: status.tier }),
+          fileIdentity: snapshot.identity,
+          revision: snapshot.revision,
+        });
+      }
+      return accounts;
+    }
+
+    const envCredential = this.resolveEnvCredential(provider)[0];
+    if (!envCredential || unhealthy.has(envCredential.id)) return [];
+    const snapshot = this.envExecutionSnapshot(provider, envCredential.auth);
+    return [{
+      providerId: provider,
+      credentialId: envCredential.id,
+      ...(envCredential.tier === undefined ? {} : { tier: envCredential.tier }),
+      fileIdentity: snapshot.identity,
+      revision: snapshot.revision,
+    }];
+  }
+
+  /** Resolves only the credential revision selected before an account lease was acquired. */
+  async resolveExecutionCredential(selected: DirectProviderExecutionAccount): Promise<DirectProviderExecutionCredential> {
+    validateDirectExecutionAccount(selected);
+    const health = await this.healthStore.readProviderHealth(selected.providerId);
+    if (health.some((entry) => entry.credentialId === selected.credentialId && (entry.lastOutcome?.type === "auth-failed" || (entry.cooldownUntil ?? 0) > Date.now()))) {
+      throw new Error("Selected direct-provider credential is unhealthy.");
+    }
+    const store = new CredentialFileStore<DirectProviderAuth>({ rootDir: this.rootDir });
+    if (selected.credentialId === "env" && !(await store.hasProviderCredentials(selected.providerId))) {
+      const current = this.resolveEnvCredential(selected.providerId)[0];
+      if (!current) throw new Error("Selected direct-provider credential is unavailable.");
+      const snapshot = this.envExecutionSnapshot(selected.providerId, current.auth);
+      if (snapshot.identity !== selected.fileIdentity || snapshot.revision !== selected.revision) {
+        throw new Error("Selected direct-provider credential revision changed.");
+      }
+      return {
+        providerId: selected.providerId,
+        credentialId: current.id,
+        ...(current.tier === undefined ? {} : { tier: current.tier }),
+        auth: { ...current.auth },
+      };
+    }
+
+    const path = store.credentialFilePath(selected.providerId, selected.credentialId);
+    let handle: FileHandle | undefined;
+    try {
+      const before = credentialSnapshot(await lstat(path, { bigint: true }));
+      assertSelectedSnapshot(before, selected);
+      handle = await openSelectedCredential(path);
+      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)) throw new Error("revision");
+      const parsed = JSON.parse(await handle.readFile("utf8")) as unknown;
+      const credential = parseSelectedDirectCredential(parsed, selected.providerId, selected.credentialId);
+      if (!sameSnapshot(credentialSnapshot(await handle.stat({ bigint: true })), before)
+        || !sameSnapshot(credentialSnapshot(await lstat(path, { bigint: true })), before)) throw new Error("revision");
+      if (credential.tier !== selected.tier) throw new Error("revision");
+      return credential;
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") throw new Error("Selected direct-provider credential is unavailable.");
+      if (error instanceof Error && error.message === "revision") throw new Error("Selected direct-provider credential revision changed.");
+      throw new Error("Selected direct-provider credential is invalid.");
+    } finally {
+      await handle?.close();
+    }
+  }
+
+  async recordProviderOutcome(provider: PooledDirectProviderId, credentialId: string, error?: unknown): Promise<void> {
+    assertPooledProvider(provider);
+    assertSafeCredentialId(credentialId, "direct-provider");
+    const outcome = secretFreeOutcome(error === undefined ? { type: "ok" } : mapDirectProviderError(error));
+    await this.healthStore.recordOutcome(provider, credentialId, outcome, cooldownForOutcome(outcome));
   }
 
   async createPooledAdapter(options: CreateDirectProviderPooledAdapterOptions): Promise<ProviderAdapter> {
@@ -211,6 +323,22 @@ export class DirectProviderCredentialPoolService {
       invalidReason: null,
       softLeaseCount: 0,
     }];
+  }
+
+  private envExecutionSnapshot(provider: PooledDirectProviderId, auth: DirectProviderAuth): {
+    readonly identity: string;
+    readonly revision: string;
+    readonly auth: DirectProviderAuth;
+  } {
+    const existing = this.envExecutionSnapshots.get(provider);
+    if (existing && sameAuth(existing.auth, auth)) return existing;
+    const snapshot = {
+      identity: randomBytes(32).toString("hex"),
+      revision: randomBytes(32).toString("hex"),
+      auth: { ...auth },
+    };
+    this.envExecutionSnapshots.set(provider, snapshot);
+    return snapshot;
   }
 
   private createAdapter(
@@ -323,4 +451,90 @@ function readStatus(error: unknown): number | null {
   }
   const status = (error as { readonly status?: unknown }).status;
   return typeof status === "number" ? status : null;
+}
+
+interface CredentialFileSnapshot {
+  readonly identity: string;
+  readonly revision: string;
+}
+
+function credentialSnapshot(value: BigIntStats): CredentialFileSnapshot {
+  if (!value.isFile() || value.isSymbolicLink() || value.ino <= 0n) {
+    throw new Error("Selected direct-provider credential is not a stable regular file.");
+  }
+  const fields = [value.dev, value.ino, value.mode, value.nlink, value.size, value.mtimeNs, value.ctimeNs, value.birthtimeNs];
+  return {
+    identity: createHash("sha256").update([value.dev, value.ino, value.birthtimeNs].map(String).join(":"), "utf8").digest("hex"),
+    revision: createHash("sha256").update(fields.map(String).join(":"), "utf8").digest("hex"),
+  };
+}
+
+function sameSnapshot(left: CredentialFileSnapshot, right: CredentialFileSnapshot): boolean {
+  return left.identity === right.identity && left.revision === right.revision;
+}
+
+function assertSelectedSnapshot(snapshot: CredentialFileSnapshot, selected: DirectProviderExecutionAccount): void {
+  if (snapshot.identity !== selected.fileIdentity || snapshot.revision !== selected.revision) throw new Error("revision");
+}
+
+async function openSelectedCredential(path: string): Promise<FileHandle> {
+  try {
+    return await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    if (!isNodeError(error) || !["EINVAL", "ENOTSUP", "EOPNOTSUPP"].includes(error.code ?? "")) throw error;
+    return open(path, constants.O_RDONLY);
+  }
+}
+
+function parseSelectedDirectCredential(value: unknown, providerId: PooledDirectProviderId, credentialId: string): DirectProviderExecutionCredential {
+  if (!isRecord(value) || value.id !== credentialId || value.providerId !== providerId) throw new Error("shape");
+  const tier = typeof value.tier === "string" ? value.tier : undefined;
+  return {
+    providerId,
+    credentialId,
+    ...(tier === undefined ? {} : { tier }),
+    auth: validateAuth(providerId, value.auth as DirectProviderAuth),
+  };
+}
+
+function validateDirectExecutionAccount(value: DirectProviderExecutionAccount): void {
+  if (!isRecord(value)) throw new Error("Selected direct-provider account is invalid.");
+  assertPooledProvider(value.providerId);
+  assertSafeCredentialId(value.credentialId, "direct-provider");
+  if (!/^[a-f0-9]{64}$/.test(value.fileIdentity) || !/^[a-f0-9]{64}$/.test(value.revision)) {
+    throw new Error("Selected direct-provider account identity is invalid.");
+  }
+  if (value.tier !== undefined && (typeof value.tier !== "string" || value.tier.length === 0)) {
+    throw new Error("Selected direct-provider account tier is invalid.");
+  }
+}
+
+function cooldownForOutcome(outcome: CredentialOutcome): number | null {
+  return outcome.type === "rate-limited"
+    ? outcome.resetAt ?? Date.now() + 60_000
+    : outcome.type === "connection-failed"
+      ? Date.now() + 30_000
+      : outcome.type === "quota-exceeded"
+        ? Date.now() + 5 * 60_000
+        : null;
+}
+
+function secretFreeOutcome(outcome: CredentialOutcome): CredentialOutcome {
+  return outcome.type === "unknown-error" ? { type: "unknown-error" } : outcome;
+}
+
+function sameAuth(left: DirectProviderAuth, right: DirectProviderAuth): boolean {
+  return left.apiKey === right.apiKey && left.baseUrl === right.baseUrl;
+}
+
+function assertSafeCredentialId(value: string, label: string): void {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(value)) throw new Error(`Invalid ${label} credential id.`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
