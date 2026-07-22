@@ -4,6 +4,7 @@
 import type { ObservabilityConfig } from "./observability-config.js";
 import type { GatewayAuthConfig } from "./auth-config.js";
 import type { GatewayMcpConfig } from "./mcp-config.js";
+import { isDirectProviderId, type DirectProviderId } from "../../agents/provider-execution-profiles.js";
 
 /** Channel binding for a specific platform adapter */
 export interface GatewayChannelBinding {
@@ -53,7 +54,7 @@ export interface ModelGatewayVirtualModelConfig {
   readonly contextTokens?: number;
   readonly outputTokens?: number;
   readonly baseInstructions?: string;
-  readonly providerId: "codex-oauth";
+  readonly providerId: DirectProviderId;
   readonly providerModelId: string;
   readonly accountIds: readonly string[];
   readonly capabilities: readonly ModelGatewayCapabilityId[];
@@ -66,7 +67,7 @@ export interface ModelGatewayVirtualModelConfig {
 
 export interface ModelGatewayAccountConfig {
   readonly id: string;
-  readonly providerId: "codex-oauth";
+  readonly providerId: DirectProviderId;
   readonly credentialId: string;
   readonly maxConcurrency: number;
   readonly reservedAffinitySlots: number;
@@ -178,11 +179,16 @@ const ENV = /^[A-Z_][A-Z0-9_]*$/;
 function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, errors: GatewayValidationError[]): void {
   if (!Number.isSafeInteger(value.port) || value.port < 1 || value.port > 65535 || value.port === gatewayPort) errors.push({ field: "modelGateway.port", message: "must be a distinct integer port between 1 and 65535" });
   const accountIds = new Set<string>();
+  const accountProviders = new Map<string, DirectProviderId>();
   const bindings = new Set<string>();
   for (const [index, account] of (value.accounts ?? []).entries()) {
     const path = `modelGateway.accounts[${index}]`;
-    if (!ID.test(account.id ?? "") || accountIds.has(account.id)) errors.push({ field: `${path}.id`, message: "must be a unique canonical id" }); else accountIds.add(account.id);
-    if (account.providerId !== "codex-oauth") errors.push({ field: `${path}.providerId`, message: "must be codex-oauth" });
+    if (!ID.test(account.id ?? "") || accountIds.has(account.id)) errors.push({ field: `${path}.id`, message: "must be a unique canonical id" });
+    else {
+      accountIds.add(account.id);
+      if (isDirectProviderId(account.providerId)) accountProviders.set(account.id, account.providerId);
+    }
+    if (!isDirectProviderId(account.providerId)) errors.push({ field: `${path}.providerId`, message: "must be a supported direct provider" });
     if (!ID.test(account.credentialId ?? "")) errors.push({ field: `${path}.credentialId`, message: "must be a canonical id" });
     const binding = `${account.providerId}:${account.credentialId}`;
     if (bindings.has(binding)) errors.push({ field: `${path}.credentialId`, message: "provider credential binding must be unique" }); else bindings.add(binding);
@@ -244,10 +250,13 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
     if ((requiresPickerMetadata || model.contextTokens !== undefined) && (!Number.isSafeInteger(model.contextTokens) || model.contextTokens! < 1)) errors.push({ field: `${path}.contextTokens`, message: "must be a positive safe integer when exposed to a native harness" });
     if ((requiresPickerMetadata || model.outputTokens !== undefined) && (!Number.isSafeInteger(model.outputTokens) || model.outputTokens! < 1 || model.contextTokens === undefined || model.outputTokens! > model.contextTokens)) errors.push({ field: `${path}.outputTokens`, message: "must be a positive safe integer no greater than contextTokens when exposed to a native harness" });
     if ((codexNativeModelIds.has(model.id) || model.baseInstructions !== undefined) && (typeof model.baseInstructions !== "string" || model.baseInstructions.trim().length === 0 || Buffer.byteLength(model.baseInstructions, "utf8") > 32_768)) errors.push({ field: `${path}.baseInstructions`, message: "must be non-empty and at most 32768 UTF-8 bytes when exposed to Codex" });
-    if (model.providerId !== "codex-oauth") errors.push({ field: `${path}.providerId`, message: "must be codex-oauth" });
+    if (!isDirectProviderId(model.providerId)) errors.push({ field: `${path}.providerId`, message: "must be a supported direct provider" });
     if (!ID.test(model.providerModelId ?? "")) errors.push({ field: `${path}.providerModelId`, message: "must be a canonical id" });
-    if (!Array.isArray(model.accountIds) || model.accountIds.length !== 1 || new Set(model.accountIds).size !== model.accountIds.length || model.accountIds.some((id) => !ID.test(id))) errors.push({ field: `${path}.accountIds`, message: "codex-oauth virtual models must reference exactly one canonical account id" });
-    else for (const id of model.accountIds) if (!accountIds.has(id)) errors.push({ field: `${path}.accountIds`, message: `references unknown account '${id}'` });
+    if (!Array.isArray(model.accountIds) || model.accountIds.length === 0 || new Set(model.accountIds).size !== model.accountIds.length || model.accountIds.some((id) => !ID.test(id))) errors.push({ field: `${path}.accountIds`, message: "must reference one or more unique canonical account ids" });
+    else for (const id of model.accountIds) {
+      if (!accountIds.has(id)) errors.push({ field: `${path}.accountIds`, message: `references unknown account '${id}'` });
+      else if (accountProviders.get(id) !== model.providerId) errors.push({ field: `${path}.accountIds`, message: `account '${id}' belongs to provider '${accountProviders.get(id)}', not '${model.providerId}'` });
+    }
     if (!Array.isArray(model.capabilities) || model.capabilities.length === 0 || new Set(model.capabilities).size !== model.capabilities.length || model.capabilities.some((id) => !CAPABILITIES.has(id))) errors.push({ field: `${path}.capabilities`, message: "must contain unique supported capability ids" });
     const affinity = model.affinity;
     if (!affinity || !["none", "prefer", "require"].includes(affinity.continuity)) errors.push({ field: `${path}.affinity.continuity`, message: "is invalid" });

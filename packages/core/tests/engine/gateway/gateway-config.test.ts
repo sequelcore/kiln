@@ -98,7 +98,43 @@ modelGateway:
     expect(() => parseGatewayYaml(standalone
       .replace("accounts:\n    - { id: account", "accounts:\n    - { id: account-2, providerId: codex-oauth, credentialId: credential-2, maxConcurrency: 1, reservedAffinitySlots: 0 }\n    - { id: account")
       .replace("accountIds: [account]", "accountIds: [account, account-2]")))
-      .toThrow(/exactly one/);
+      .not.toThrow();
+  });
+
+  it("admits supported direct providers and same-provider account pools", () => {
+    const yaml = `port: 4800
+apps: []
+modelGateway:
+  port: 4801
+  accounts:
+    - { id: kimi-primary, providerId: opencode-go, credentialId: go-primary, maxConcurrency: 2, reservedAffinitySlots: 1 }
+    - { id: kimi-secondary, providerId: opencode-go, credentialId: go-secondary, maxConcurrency: 1, reservedAffinitySlots: 0 }
+    - { id: claude-primary, providerId: anthropic, credentialId: anthropic-primary, maxConcurrency: 1, reservedAffinitySlots: 0 }
+  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
+  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 2 } }
+  principals:
+    - { tokenEnv: TOKEN_ENV, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [kimi, claude] }
+  virtualModels:
+    - { id: kimi, providerId: opencode-go, providerModelId: kimi-k3, accountIds: [kimi-primary, kimi-secondary], capabilities: [text], affinity: { continuity: prefer, scope: session, allowRebind: true } }
+    - { id: claude, providerId: anthropic, providerModelId: claude-sonnet, accountIds: [claude-primary], capabilities: [text], affinity: { continuity: none } }
+`;
+
+    expect(parseGatewayYaml(yaml).modelGateway).toMatchObject({
+      accounts: [
+        { providerId: "opencode-go" },
+        { providerId: "opencode-go" },
+        { providerId: "anthropic" },
+      ],
+      virtualModels: [
+        { providerId: "opencode-go", accountIds: ["kimi-primary", "kimi-secondary"] },
+        { providerId: "anthropic", accountIds: ["claude-primary"] },
+      ],
+    });
+
+    expect(() => parseGatewayYaml(yaml.replace("accountIds: [kimi-primary, kimi-secondary]", "accountIds: [kimi-primary, claude-primary]")))
+      .toThrow(/belongs to provider 'anthropic'/);
+    expect(() => parseGatewayYaml(yaml.replace("providerId: opencode-go", "providerId: unsupported-provider")))
+      .toThrow(/supported direct provider/);
   });
 
   it("rejects retired authorities and admits only mounted protocol surfaces", () => {

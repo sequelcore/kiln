@@ -11,6 +11,7 @@ import type { GatewayAuthConfig } from "./auth-config.js";
 import { validateGatewayAuthConfig } from "./auth-config.js";
 import type { GatewayMcpConfig } from "./mcp-config.js";
 import { validateGatewayMcpConfig } from "./mcp-config.js";
+import type { DirectProviderId } from "../../agents/provider-execution-profiles.js";
 
 /** Error class for gateway YAML loader failures, aggregating all validation errors */
 export class GatewayLoaderError extends KilnError {
@@ -158,12 +159,12 @@ function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): M
     rejectUnknown(affinity, ["continuity", "scope", "allowRebind"], `modelGateway.virtualModels[${index}].affinity`, errors);
     if (affinity.scope !== undefined && typeof affinity.scope !== "string") errors.push({ field: `modelGateway.virtualModels[${index}].affinity.scope`, message: "must be a string" });
     if (affinity.allowRebind !== undefined && typeof affinity.allowRebind !== "boolean") errors.push({ field: `modelGateway.virtualModels[${index}].affinity.allowRebind`, message: "must be a boolean" });
-    return { id: str(raw.id), ...(raw.displayName === undefined ? {} : { displayName: str(raw.displayName) }), ...(raw.contextTokens === undefined ? {} : { contextTokens: num(raw.contextTokens) }), ...(raw.outputTokens === undefined ? {} : { outputTokens: num(raw.outputTokens) }), ...(raw.baseInstructions === undefined ? {} : { baseInstructions: str(raw.baseInstructions) }), providerId: str(raw.providerId) as "codex-oauth", providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
+    return { id: str(raw.id), ...(raw.displayName === undefined ? {} : { displayName: str(raw.displayName) }), ...(raw.contextTokens === undefined ? {} : { contextTokens: num(raw.contextTokens) }), ...(raw.outputTokens === undefined ? {} : { outputTokens: num(raw.outputTokens) }), ...(raw.baseInstructions === undefined ? {} : { baseInstructions: str(raw.baseInstructions) }), providerId: str(raw.providerId) as DirectProviderId, providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
   }) : [];
   const accounts = Array.isArray(rawValue.accounts) ? rawValue.accounts.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
     rejectUnknown(raw, ["id", "providerId", "credentialId", "maxConcurrency", "reservedAffinitySlots"], `modelGateway.accounts[${index}]`, errors);
-    return { id: str(raw.id), providerId: str(raw.providerId) as "codex-oauth", credentialId: str(raw.credentialId), maxConcurrency: num(raw.maxConcurrency), reservedAffinitySlots: num(raw.reservedAffinitySlots) };
+    return { id: str(raw.id), providerId: str(raw.providerId) as DirectProviderId, credentialId: str(raw.credentialId), maxConcurrency: num(raw.maxConcurrency), reservedAffinitySlots: num(raw.reservedAffinitySlots) };
   }) : [];
   return { port: num(rawValue.port), accounts, replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels, surfaces: { ...(openAIResponses ? { openAIResponses } : {}), ...(anthropicMessages ? { anthropicMessages } : {}) } };
 }
