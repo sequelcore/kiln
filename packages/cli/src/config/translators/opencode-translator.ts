@@ -23,13 +23,6 @@ export function translateOpenCodePermissionProjection(input: {
   const { kiln: _legacyKilnMetadata, ...rawExistingDocument } = input.existingDocument;
   const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) => field === "provider.kiln");
   const existingDocument = stripManagedFields({ currentDocument: rawExistingDocument, managedFields: staleGatewayFields });
-  if ((input.previousManagedFields ?? []).includes("enabled_providers") && !input.gatewayProjection) {
-    const enabled = Array.isArray(existingDocument.enabled_providers)
-      ? existingDocument.enabled_providers.filter((provider) => provider !== "kiln")
-      : undefined;
-    if (enabled?.length) existingDocument.enabled_providers = enabled;
-    else delete existingDocument.enabled_providers;
-  }
   const defaultRoute = !input.gatewayProjection && input.kilnYaml
     ? resolveNativeDefaultRouteProjection("opencode", input.kilnYaml)
     : undefined;

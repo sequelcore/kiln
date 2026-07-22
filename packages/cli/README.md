@@ -225,6 +225,8 @@ kiln uninstall codex
 Kiln-owned direct sessions do not depend on native projection. Projection is
 managed, reversible, drift-aware, and preserves unmanaged native settings. See
 `docs/guides/mcp.md` for configuration, security, App Gateway, and Roblox Studio.
+For Codex, `mcp-config` additionally installs the project-local Kiln control
+plane as a stdio child; it does not require the HTTP Model Gateway process.
 
 ## Documentation
 

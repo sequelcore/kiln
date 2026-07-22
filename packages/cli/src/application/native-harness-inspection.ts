@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { stripJsonComments } from "../config/json-comments.js";
+import type { HarnessIntegrationId } from "../config/harness-integration-capabilities.js";
 import {
   KILN_STATUS_EVIDENCE_VERSION,
   KilnConfigStatusSnapshotSchema,
@@ -21,6 +23,7 @@ type BridgeProjectionState = "current" | "missing" | "invalid";
 type ObservableConfigStatus = KilnConfigStatusSnapshot["global"]["status"] | "unresolved";
 
 export interface NativeHarnessInspectionPort {
+  readonly harness: HarnessIntegrationId;
   /** null is reserved for tests and represents an unavailable canonical owner. */
   readStatus?: ((options?: ReadConfigStatusOptions) => Promise<KilnConfigStatusSnapshot>) | null;
   readBridgeProjection?: (projectRoot: string) => Promise<BridgeProjectionState>;
@@ -50,9 +53,9 @@ export interface NativeHarnessDiagnostic {
 export interface NativeHarnessInspectionEvidence {
   readonly harness: {
     readonly kind: "native-harness";
-    readonly harness: "codex";
-    readonly channel: "app";
-    readonly adapterId: "kiln-codex-app-mcp";
+    readonly harness: HarnessIntegrationId;
+    readonly channel: "control-plane";
+    readonly adapterId: "kiln-control-plane-mcp";
   };
   readonly authoritySource: "kiln-config-status";
   readonly capabilitySource: "kiln-harness-integration-capabilities";
@@ -128,10 +131,10 @@ type SnapshotRead =
   | { readonly diagnostic: NativeHarnessDiagnostic };
 
 export function createNativeHarnessInspectionService(
-  port: NativeHarnessInspectionPort = {},
+  port: NativeHarnessInspectionPort,
 ): NativeHarnessInspectionService {
   const readStatus = port.readStatus === undefined ? readConfigStatusSnapshot : port.readStatus;
-  const readBridgeProjection = port.readBridgeProjection ?? readCodexAppBridgeProjection;
+  const readBridgeProjection = port.readBridgeProjection ?? ((projectRoot) => readNativeHarnessBridgeProjection(projectRoot, port.harness));
   const readProjectRoot = port.readProjectRoot ?? (async () => discoverNativeHarnessProjectRoot());
   const now = port.now ?? (() => new Date());
 
@@ -172,11 +175,11 @@ export function createNativeHarnessInspectionService(
   return {
     async inspectStatus() {
       const result = await read();
-      if ("diagnostic" in result) return unresolvedStatus(result.diagnostic, now());
+      if ("diagnostic" in result) return unresolvedStatus(result.diagnostic, now(), port.harness);
       const diagnostics = diagnosticsFor(result.snapshot);
       return {
         operation: "status",
-        evidence: evidence(result.snapshot),
+        evidence: evidence(result.snapshot, port.harness),
         status: {
           completeness: diagnostics.length === 0 ? "complete" : "degraded",
           projectName: result.snapshot.project.projectName,
@@ -205,18 +208,18 @@ export function createNativeHarnessInspectionService(
 
     async inspectWorkGovernance() {
       const result = await read();
-      if ("diagnostic" in result) return unresolvedGovernance(result.diagnostic, now());
+      if ("diagnostic" in result) return unresolvedGovernance(result.diagnostic, now(), port.harness);
       const diagnostics = diagnosticsFor(result.snapshot);
       const candidate = result.snapshot.effectiveConfig?.workGovernance;
       const policy = result.snapshot.effectiveConfigStatus === "valid"
         ? KilnResolvedWorkGovernancePolicySchema.safeParse(candidate)
         : undefined;
       if (!policy?.success) {
-        return unresolvedGovernance(diagnosticFor("KILN_GOVERNANCE_EVIDENCE_MALFORMED"), now(), diagnostics, result.snapshot);
+        return unresolvedGovernance(diagnosticFor("KILN_GOVERNANCE_EVIDENCE_MALFORMED"), now(), port.harness, diagnostics, result.snapshot);
       }
       return {
         operation: "work-governance",
-        evidence: evidence(result.snapshot),
+        evidence: evidence(result.snapshot, port.harness),
         authority: "authoritative",
         policy: policy.data,
         diagnostics,
@@ -225,10 +228,10 @@ export function createNativeHarnessInspectionService(
 
     async inspectCapability() {
       const result = await read();
-      if ("diagnostic" in result) return unresolvedCapability(result.diagnostic, now());
+      if ("diagnostic" in result) return unresolvedCapability(result.diagnostic, now(), port.harness);
       const diagnostics = diagnosticsFor(result.snapshot);
       const capabilityDiagnostics: NativeHarnessDiagnostic[] = [];
-      const capability = result.snapshot.harnessCapabilities.find((entry) => entry.harness === "codex");
+      const capability = result.snapshot.harnessCapabilities.find((entry) => entry.harness === port.harness);
       let bridgeProjection: BridgeProjectionState | "unresolved" = "unresolved";
       try {
         bridgeProjection = await readBridgeProjection(result.projectRoot);
@@ -240,7 +243,7 @@ export function createNativeHarnessInspectionService(
       }
       return {
         operation: "capability",
-        evidence: evidence(result.snapshot),
+        evidence: evidence(result.snapshot, port.harness),
         capability: {
           availability: capabilityDiagnostics.length === 0 ? "available" : "unresolved",
           capabilitySource: "kiln-harness-integration-capabilities",
@@ -276,10 +279,10 @@ function projectManagedAgents(agents: readonly NativeHarnessManagedAgentSummary[
     }));
 }
 
-function unresolvedStatus(diagnostic: NativeHarnessDiagnostic, now: Date): NativeHarnessStatusResult {
+function unresolvedStatus(diagnostic: NativeHarnessDiagnostic, now: Date, harness: HarnessIntegrationId): NativeHarnessStatusResult {
   return {
     operation: "status",
-    evidence: unresolvedEvidence(now),
+    evidence: unresolvedEvidence(now, harness),
     status: {
       completeness: "unresolved",
       projectName: "unresolved",
@@ -300,21 +303,22 @@ function unresolvedStatus(diagnostic: NativeHarnessDiagnostic, now: Date): Nativ
 function unresolvedGovernance(
   diagnostic: NativeHarnessDiagnostic,
   now: Date,
+  harness: HarnessIntegrationId,
   diagnostics: readonly NativeHarnessDiagnostic[] = [],
   snapshot?: KilnConfigStatusSnapshot,
 ): NativeHarnessGovernanceResult {
   return {
     operation: "work-governance",
-    evidence: snapshot ? evidence(snapshot) : unresolvedEvidence(now),
+    evidence: snapshot ? evidence(snapshot, harness) : unresolvedEvidence(now, harness),
     authority: "unresolved",
     diagnostics: [diagnostic, ...diagnostics],
   };
 }
 
-function unresolvedCapability(diagnostic: NativeHarnessDiagnostic, now: Date): NativeHarnessCapabilityResult {
+function unresolvedCapability(diagnostic: NativeHarnessDiagnostic, now: Date, harness: HarnessIntegrationId): NativeHarnessCapabilityResult {
   return {
     operation: "capability",
-    evidence: unresolvedEvidence(now),
+    evidence: unresolvedEvidence(now, harness),
     capability: {
       availability: "unresolved",
       capabilitySource: "kiln-harness-integration-capabilities",
@@ -341,13 +345,13 @@ function diagnosticsFor(snapshot: KilnConfigStatusSnapshot): NativeHarnessDiagno
   return diagnostics;
 }
 
-function evidence(snapshot: KilnConfigStatusSnapshot): NativeHarnessInspectionEvidence {
-  return { ...unresolvedEvidence(new Date(snapshot.generatedAt)), observedAt: snapshot.generatedAt };
+function evidence(snapshot: KilnConfigStatusSnapshot, harness: HarnessIntegrationId): NativeHarnessInspectionEvidence {
+  return { ...unresolvedEvidence(new Date(snapshot.generatedAt), harness), observedAt: snapshot.generatedAt };
 }
 
-function unresolvedEvidence(now: Date): NativeHarnessInspectionEvidence {
+function unresolvedEvidence(now: Date, harness: HarnessIntegrationId): NativeHarnessInspectionEvidence {
   return {
-    harness: { kind: "native-harness", harness: "codex", channel: "app", adapterId: "kiln-codex-app-mcp" },
+    harness: { kind: "native-harness", harness, channel: "control-plane", adapterId: "kiln-control-plane-mcp" },
     authoritySource: "kiln-config-status",
     capabilitySource: "kiln-harness-integration-capabilities",
     directProviderAuthority: "kiln-runtime",
@@ -359,7 +363,7 @@ function unresolvedEvidence(now: Date): NativeHarnessInspectionEvidence {
 function diagnosticFor(code: string, targetId?: string): NativeHarnessDiagnostic {
   const diagnostics: Record<string, Omit<NativeHarnessDiagnostic, "code" | "targetId">> = {
     KILN_RUNTIME_OWNER_MISSING: { message: "Kiln's canonical status owner is unavailable.", operatorAction: "Start the Kiln installation that owns this workspace, then retry the read-only inspection." },
-    KILN_PROJECT_ROOT_UNRESOLVED: { message: "The project-local Codex bridge could not resolve its checkout.", operatorAction: "Open Codex from a checkout containing the committed project-local MCP declaration, then retry." },
+    KILN_PROJECT_ROOT_UNRESOLVED: { message: "The project-local native bridge could not resolve its checkout.", operatorAction: "Open the harness from a checkout containing the generated project-local MCP declaration, then retry." },
     KILN_PROJECT_ROOT_AMBIGUOUS: { message: "The bridge source does not identify one compatible Kiln checkout.", operatorAction: "Repair the checkout's package and Kiln project identity, then retry." },
     KILN_CONFIGURATION_READ_FAILED: { message: "Canonical Kiln configuration could not be read safely.", operatorAction: "Verify the local Kiln configuration and setup state, then retry the read-only inspection." },
     KILN_EVIDENCE_MALFORMED: { message: "Canonical status evidence is malformed or incomplete.", operatorAction: "Repair the canonical status owner before relying on this harness inspection." },
@@ -371,8 +375,8 @@ function diagnosticFor(code: string, targetId?: string): NativeHarnessDiagnostic
     KILN_STATUS_EVIDENCE_INCOMPLETE: { message: "Canonical status contains incomplete setup diagnostics.", operatorAction: "Inspect Kiln setup diagnostics before governed decisions." },
     KILN_PROJECTION_STALE: { message: "A Kiln projection is stale.", operatorAction: "Review the reported setup recommendation before trusting that projection." },
     KILN_PROJECTION_DRIFTED: { message: "A Kiln projection has drifted.", operatorAction: "Review the reported setup recommendation before trusting that projection." },
-    KILN_BRIDGE_READ_FAILED: { message: "The Codex bridge declaration could not be read safely.", operatorAction: "Verify the committed project-local MCP declaration, then retry." },
-    KILN_BRIDGE_PROJECTION_UNRESOLVED: { message: "Codex App bridge capability is not fully provable from observed projection evidence.", operatorAction: "Verify the project-local MCP declaration and Codex harness capability before relying on it." },
+    KILN_BRIDGE_READ_FAILED: { message: "The native bridge declaration could not be read safely.", operatorAction: "Verify the generated project-local MCP declaration, then retry." },
+    KILN_BRIDGE_PROJECTION_UNRESOLVED: { message: "Native bridge capability is not fully provable from observed projection evidence.", operatorAction: "Verify the project-local MCP declaration and harness capability before relying on it." },
     KILN_INTERNAL_ADAPTER_FAILURE: { message: "Native-harness inspection could not initialize safely.", operatorAction: "Restart the read-only bridge after reviewing Kiln setup diagnostics." },
   };
   const base = diagnostics[code] ?? { message: "Native-harness inspection failed safely.", operatorAction: "Retry the read-only inspection after reviewing Kiln setup diagnostics." };
@@ -383,18 +387,31 @@ function isIdentifier(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(value);
 }
 
-async function readCodexAppBridgeProjection(projectRoot: string): Promise<BridgeProjectionState> {
-  const path = join(projectRoot, ".codex", "config.toml");
+async function readNativeHarnessBridgeProjection(projectRoot: string, harness: HarnessIntegrationId): Promise<BridgeProjectionState> {
+  const path = harness === "codex"
+    ? join(projectRoot, ".codex", "config.toml")
+    : harness === "claude"
+      ? join(projectRoot, ".mcp.json")
+      : join(projectRoot, "opencode.json");
   if (!existsSync(path)) return "missing";
   try {
-    const parsed = parseToml(readFileSync(path, "utf8")) as { mcp_servers?: { kiln?: { command?: unknown; args?: unknown; enabled?: unknown } } };
-    const server = parsed.mcp_servers?.kiln;
-    return server?.command === "bun"
-      && Array.isArray(server.args)
-      && server.args.length === 1
-      && server.args[0] === "packages/cli/src/native-harness/codex-app-mcp.ts"
-      && server.enabled === true ? "current" : "invalid";
+    const raw = readFileSync(path, "utf8");
+    const parsed = (harness === "codex" ? parseToml(raw) : JSON.parse(stripJsonComments(raw))) as Record<string, unknown>;
+    const rootKey = harness === "codex" ? "mcp_servers" : harness === "claude" ? "mcpServers" : "mcp";
+    const root = parsed[rootKey] as Record<string, unknown> | undefined;
+    const server = root?.["kiln-control-plane"] as { command?: unknown; args?: unknown; enabled?: unknown } | undefined;
+    const command = harness === "opencode" && Array.isArray(server?.command) ? server.command : undefined;
+    const executable = command ? command[0] : server?.command;
+    const args = command ? command.slice(1) : server?.args;
+    const expected = ["native-harness", "control-plane-mcp", "--harness", harness, "--project-root", projectRoot];
+    return executable === "kiln"
+      && Array.isArray(args)
+      && args.length === expected.length
+      && args.every((value, index) => index === expected.length - 1
+        ? typeof value === "string" && resolve(value) === resolve(projectRoot)
+        : value === expected[index])
+      && (harness === "claude" || server?.enabled === true) ? "current" : "invalid";
   } catch {
-    throw new Error("Codex bridge declaration could not be read");
+    throw new Error("Native harness bridge declaration could not be read");
   }
 }

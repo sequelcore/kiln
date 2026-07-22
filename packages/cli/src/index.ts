@@ -48,6 +48,8 @@ export type {
   OpenCodeResponsesProjection,
   ResponsesNativeHarness,
 } from "./config/model-gateway-native-projection.js";
+export { syncGlobalOpenCodeModelGatewayProjection } from "./config/global-opencode-model-gateway-projection.js";
+export type { GlobalOpenCodeModelGatewayProjectionResult } from "./config/global-opencode-model-gateway-projection.js";
 
 export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);
@@ -70,8 +72,10 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     memory: "Browse and search memory layers",
     config: "Edit domain config and provider settings",
     "mcp-config": "Synchronize canonical MCP servers into governed native harness projections",
+    "native-harness": "Run an internal native-harness adapter",
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
+    "model-gateway": "Run or inspect the dedicated loopback model gateway",
     dev: "Start development mode with hot-reload and event streaming (--playground)",
     gui: "Start the GUI operator surface or attach to an App Gateway",
     goal: goalCommand?.description ?? "Inspect and update canonical workflow goals from session transcripts",
@@ -246,6 +250,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     return;
   }
 
+  if (command === "native-harness") {
+    const { nativeHarnessCommand } = await import("./commands/native-harness.js");
+    await nativeHarnessCommand(args.slice(1));
+    return;
+  }
+
   if (command === "domain") {
     const { domainCommand } = await import("./commands/domain.js");
     await domainCommand(config, args[1] ?? "", args.slice(2));
@@ -255,6 +265,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "gateway") {
     const { gatewayCommand } = await import("./commands/gateway.js");
     await gatewayCommand(args.slice(1));
+    return;
+  }
+
+  if (command === "model-gateway") {
+    const { modelGatewayCommand } = await import("./commands/model-gateway.js");
+    await modelGatewayCommand(args.slice(1));
     return;
   }
 

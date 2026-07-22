@@ -23,7 +23,7 @@ export function translateCodexPermissionProjection(input: {
   const translated = translatePermission(input.policy, "codex");
   const cfg = translated.config as { approvalMode: string; sandboxMode: string };
   const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) =>
-    field === "model_provider" || field === "model_catalog_json" || field === "model_providers.kiln"
+    field === "model_provider" || field === "model_catalog_json" || field === "web_search" || field === "model_providers.kiln"
   );
   const existingDocument = stripManagedFields({
     currentDocument: sanitizeCodexConfigDocument(input.existingDocument),

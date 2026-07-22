@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { parse, stringify } from "yaml";
-import { validateVoiceConfig, type VoiceConfig } from "@kilnai/core";
+import { parseGatewayYaml, validateVoiceConfig, type ModelGatewayConfig, type VoiceConfig } from "@kilnai/core";
 import { KilnYamlError } from "../kiln-yaml.js";
 import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./mcp-config.js";
@@ -95,6 +95,7 @@ export interface KilnGlobalConfig {
   readonly skills?: KilnYamlSkillsConfig;
   readonly components?: KilnGlobalComponentsConfig;
   readonly operatorVoice?: VoiceConfig;
+  readonly modelGateway?: ModelGatewayConfig;
 }
 
 const ROOT_FIELDS = new Set([
@@ -116,6 +117,7 @@ const ROOT_FIELDS = new Set([
   "skills",
   "components",
   "operatorVoice",
+  "modelGateway",
 ]);
 
 const IDENTITY_FIELDS = new Set([
@@ -249,6 +251,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "skills");
   validateRecordField(config, "components");
   validateRecordField(config, "operatorVoice");
+  validateRecordField(config, "modelGateway");
   validateIdentity(config.identity);
   validateStringArray(config.activeInstructionProfiles, "activeInstructionProfiles");
   validateWorkGovernance(config.workGovernance);
@@ -262,11 +265,28 @@ export function validateGlobalConfig(config: unknown): void {
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
   validateGlobalUi(config.ui);
+  validateGlobalModelGateway(config.modelGateway);
   readMcpConfigurationSource({
     value: config.mcp,
     scope: "global",
     sourcePath: resolveGlobalConfigPath(),
   });
+}
+
+export function resolveGlobalModelGatewayConfig(config: KilnGlobalConfig | null | undefined): ModelGatewayConfig {
+  if (!config?.modelGateway) throw new KilnYamlError("Global config does not declare modelGateway.");
+  return config.modelGateway;
+}
+
+function validateGlobalModelGateway(value: unknown): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new KilnYamlError("modelGateway must be an object");
+  const port = value.port === 4800 ? 4801 : 4800;
+  try {
+    parseGatewayYaml(stringify({ port, apps: [], modelGateway: value }));
+  } catch (error) {
+    throw new KilnYamlError(`Invalid global modelGateway: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function validateIdentity(value: unknown): void {

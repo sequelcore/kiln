@@ -211,18 +211,23 @@ kiln-owned mode.
 
 ## Native Projection
 
-Kiln config is canonical. Codex model catalogs and base URLs, OpenCode provider
-configuration, and Claude Code gateway settings are generated projections.
-Projection uses the existing install-state, managed-field ownership, backup,
-drift, adoption, sync, and uninstall lifecycle. Native files never become route
+Kiln config is canonical. The admitted global projection is additive provider
+registration: Codex receives `model_providers.kiln` and OpenCode receives
+`provider.kiln`. It does not replace Codex's provider/catalog/default/search or
+create an OpenCode provider allowlist/default. Claude Code gateway settings are
+an explicit project-local takeover because Claude does not expose an additive
+provider contract. Projection uses install-state, managed-field ownership,
+backup, drift, adoption, sync, and uninstall. Native files never become route
 or account authority.
 
 Model-catalog projection and native-agent-file projection are separate bounded
-contexts. A virtual model can expose an OpenCode-backed route in Codex's model
-picker through the gateway. An agent definition whose `providerRoute` names
-`opencode-go` still means a direct managed-invocation route; it is not rewritten
-into a Codex-native agent model. Portable agents remain available cross-harness
-through Kiln's MCP/managed-agent surface, while unsupported direct native-agent
+contexts. Codex picker integration is deferred until a verified composite
+catalog and native provider-identity passthrough exist and a supervised
+loopback listener is healthy before projection. Until then, an OpenCode-backed
+route is available to Codex through Kiln's MCP/managed-agent surface, not by
+replacing Codex's native picker. An agent definition whose `providerRoute`
+names `opencode-go` still means a direct managed-invocation route; it is not
+rewritten into a Codex-native agent model. Unsupported direct native-agent
 encodings remain fail-closed.
 
 ## Security Invariants

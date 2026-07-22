@@ -6,6 +6,17 @@ export type NativeHarnessProjectRootResolution =
   | { readonly status: "resolved"; readonly rootPath: string }
   | { readonly status: "missing" | "ambiguous" };
 
+/** Resolve an explicit trusted-workspace root supplied by the native harness projection. */
+export function resolveNativeHarnessProjectRoot(
+  projectPath: string,
+): NativeHarnessProjectRootResolution {
+  const rootPath = resolve(projectPath);
+  if (!existsSync(join(rootPath, ".kiln", "kiln.yaml"))) {
+    return { status: "missing" };
+  }
+  return { status: "resolved", rootPath };
+}
+
 /**
  * Resolves the repository that contains the source adapter, never the caller's
  * process CWD. The source layout is the project-local MCP contract declared in

@@ -51,7 +51,11 @@ export async function mcpConfigCommand(
   const result = await syncNativeMcpProjections(
     resolution,
     process.cwd(),
-    { harnesses, ...(flags.repair ? { force: true } : {}) },
+    {
+      harnesses,
+      includeKilnControlPlane: true,
+      ...(flags.repair ? { force: true } : {}),
+    },
   );
   for (const target of result.targets) {
     console.log(formatTarget(target));

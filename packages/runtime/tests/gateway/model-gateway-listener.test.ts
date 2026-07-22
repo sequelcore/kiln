@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelGatewayConfig } from "@kilnai/core";
-import { closeGatewayResources, startModelGatewayListener, startGateway } from "../../src/gateway/gateway-server.js";
+import { closeGatewayResources, startGateway } from "../../src/gateway/gateway-server.js";
+import {
+  MODEL_GATEWAY_HEALTH_PATH,
+  createModelGatewayConfigDigest,
+  inspectModelGatewayListener,
+  startModelGatewayListener,
+} from "../../src/model-gateway/model-gateway-listener.js";
 
 const config: ModelGatewayConfig = {
   port: 4819,
@@ -31,12 +37,65 @@ describe("startModelGatewayListener", () => {
     });
 
     expect(bound).toMatchObject({ hostname: "127.0.0.1", port: 4819 });
+    const health = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`, { headers: { authorization: `Bearer ${"b".repeat(32)}` } }));
+    expect(health.status).toBe(200);
+    expect(await health.json()).toMatchObject({ service: "kiln-model-gateway", status: "ready", instanceId: expect.any(String), port: 4819 });
     const response = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", { method: "POST", body: "{}" }));
     expect(response.status).toBe(401);
     runtime.close();
     runtime.close();
     expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(true);
+  });
+
+  it("serves authenticated readiness identity without exposing secrets", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-listener-health-"));
+    let bound: Parameters<NonNullable<Parameters<typeof startModelGatewayListener>[0]["listen"]>>[0] | undefined;
+    const env = { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) };
+    const runtime = await startModelGatewayListener({
+      config,
+      databasePath: join(root, "state.sqlite"),
+      credentialRootDir: join(root, "auth"),
+      env,
+      identity: { instanceId: "instance-test", version: "3.0.0-test", configDigest: createModelGatewayConfigDigest(config), pid: 4321 },
+      listen: (input) => { bound = input; return { stop: () => undefined }; },
+    });
+    try {
+      const unauthenticated = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`));
+      expect(unauthenticated.status).toBe(401);
+      expect(unauthenticated.headers.get("x-kiln-service")).toBe("model-gateway");
+
+      const response = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`, {
+        headers: { authorization: `Bearer ${env.BEARER_TOKEN}` },
+      }));
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({
+        service: "kiln-model-gateway",
+        status: "ready",
+        protocolVersion: 1,
+        instanceId: "instance-test",
+        pid: 4321,
+        version: "3.0.0-test",
+        configDigest: createModelGatewayConfigDigest(config),
+        port: 4819,
+      });
+      expect(JSON.stringify(body).includes(env.BEARER_TOKEN)).toBe(false);
+    } finally { runtime.close(); }
+  });
+
+  it("classifies matching, foreign, and stopped listeners", async () => {
+    const digest = createModelGatewayConfigDigest(config);
+    const readyResponse = new Response(JSON.stringify({ service: "kiln-model-gateway", status: "ready", protocolVersion: 1, instanceId: "instance-a", pid: 7, version: "3.0.0-test", configDigest: digest, port: 4819 }), {
+      status: 200,
+      headers: { "content-type": "application/json", "x-kiln-service": "model-gateway" },
+    });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => readyResponse.clone() })).resolves.toMatchObject({ state: "ready", identity: { pid: 7, configDigest: digest } });
+    const mismatchedResponse = new Response(JSON.stringify({ service: "kiln-model-gateway", status: "ready", protocolVersion: 1, instanceId: "instance-b", pid: 7, version: "3.0.0-test", configDigest: "f".repeat(64), port: 4819 }), { status: 200, headers: { "content-type": "application/json", "x-kiln-service": "model-gateway" } });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => mismatchedResponse.clone() })).resolves.toMatchObject({ state: "foreign", reason: "identity-mismatch" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }); } })).resolves.toEqual({ state: "stopped" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => { throw new TypeError("invalid HTTP listener"); } })).resolves.toMatchObject({ state: "foreign", reason: "unexpected-response" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => new Response("not kiln") })).resolves.toMatchObject({ state: "foreign" });
   });
 
   it("mounts configured Responses and Anthropic surfaces on the same listener", async () => {

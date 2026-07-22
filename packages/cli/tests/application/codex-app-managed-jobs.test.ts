@@ -69,9 +69,9 @@ vi.mock("../../src/application/config-status.js", () => ({
 }));
 
 import {
-  createCodexAppManagedJobApplicationComposition,
-  createCodexAppManagedJobApplicationService,
-  summarizeCodexAppManagedAgents,
+  createNativeHarnessManagedJobApplicationComposition,
+  createNativeHarnessManagedJobApplicationService,
+  summarizeNativeHarnessManagedAgents,
 } from "../../src/application/codex-app-managed-jobs.js";
 
 describe("Codex App managed-job production composition", () => {
@@ -80,7 +80,7 @@ describe("Codex App managed-job production composition", () => {
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
       .mockResolvedValue([]);
 
-    await createCodexAppManagedJobApplicationComposition({ discoverProviderModels: async () => ({}) });
+    await createNativeHarnessManagedJobApplicationComposition({ harness: "codex", discoverProviderModels: async () => ({}) });
 
     expect(recoverInterrupted).toHaveBeenCalledOnce();
     recoverInterrupted.mockRestore();
@@ -97,7 +97,7 @@ describe("Codex App managed-job production composition", () => {
       { name: "researcher", role: "Researcher", routeId: "researcher-route" },
     ];
 
-    expect(summarizeCodexAppManagedAgents(agents, undefined)).toMatchObject([{
+    expect(summarizeNativeHarnessManagedAgents(agents, undefined)).toMatchObject([{
       configuredAgentProfileId: "scout",
       availability: "unavailable",
       admissionProfileId: "foundation-readonly-plan",
@@ -106,7 +106,7 @@ describe("Codex App managed-job production composition", () => {
       configuredAgentProfileId: "researcher",
       availability: "unavailable",
     }]);
-    expect(summarizeCodexAppManagedAgents(agents, { routes: [route("scout-route"), route("researcher-route")] } as never)).toMatchObject([{
+    expect(summarizeNativeHarnessManagedAgents(agents, { routes: [route("scout-route"), route("researcher-route")] } as never)).toMatchObject([{
       configuredAgentProfileId: "scout",
       availability: "admitted",
       providerFamily: "opencode-go",
@@ -115,7 +115,7 @@ describe("Codex App managed-job production composition", () => {
       configuredAgentProfileId: "researcher",
       availability: "admitted",
     }]);
-    expect(summarizeCodexAppManagedAgents(agents, {
+    expect(summarizeNativeHarnessManagedAgents(agents, {
       routes: [],
       unavailableRoutes: [{ routeId: "scout-route", providerId: "opencode-go", profiles: ["foundation-readonly-plan"] }],
     } as never)[0]).toMatchObject({
@@ -127,7 +127,7 @@ describe("Codex App managed-job production composition", () => {
   });
 
   it("uses the real application owner and fails a missing configured profile before provider execution", async () => {
-    const service = await createCodexAppManagedJobApplicationService({ discoverProviderModels: async () => ({}) });
+    const service = await createNativeHarnessManagedJobApplicationService({ harness: "codex", discoverProviderModels: async () => ({}) });
     await expect(service.submit({
       objective: "Bounded production composition proof.",
       configuredAgentProfileId: "missing-agent",

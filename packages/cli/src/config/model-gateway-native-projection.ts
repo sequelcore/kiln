@@ -5,7 +5,6 @@ export type ResponsesNativeHarness = "codex" | "opencode";
 export interface CodexResponsesProjection {
   readonly patch: Record<string, unknown>;
   readonly managedFields: readonly string[];
-  readonly catalog: { readonly models: readonly Record<string, unknown>[] };
 }
 
 export interface OpenCodeResponsesProjection {
@@ -100,20 +99,11 @@ export function buildClaudeMessagesProjection(input: {
 
 export function buildCodexResponsesProjection(input: {
   readonly config: ModelGatewayConfig;
-  readonly modelCatalogPath: string;
 }): CodexResponsesProjection | undefined {
   const source = resolveResponsesNativeProjectionSource(input.config, "codex");
   if (!source) return undefined;
-  const models = source.models.map((model) => {
-    if (typeof model.baseInstructions !== "string" || model.baseInstructions.trim().length === 0) throw new Error(`codex native harness model '${model.id}' is missing canonical base instructions.`);
-    return model as NativeProjectedVirtualModel & Required<Pick<ModelGatewayVirtualModelConfig, "baseInstructions">>;
-  });
-  const defaultModel = source.models.length === 1 ? source.models[0]!.id : undefined;
   return {
     patch: {
-      model_provider: "kiln",
-      model_catalog_json: input.modelCatalogPath,
-      web_search: "disabled",
       model_providers: {
         kiln: {
           name: "Kiln",
@@ -126,21 +116,16 @@ export function buildCodexResponsesProjection(input: {
           supports_websockets: false,
         },
       },
-      ...(defaultModel ? { model: defaultModel } : {}),
     },
-    managedFields: ["model_provider", "model_catalog_json", "web_search", "model_providers.kiln", ...(defaultModel ? ["model"] : [])],
-    catalog: { models: models.map((model, index) => codexModelInfo(model, index)) },
+    managedFields: ["model_providers.kiln"],
   };
 }
 
 export function buildOpenCodeResponsesProjection(input: {
   readonly config: ModelGatewayConfig;
-  readonly existingEnabledProviders?: readonly string[];
 }): OpenCodeResponsesProjection | undefined {
   const source = resolveResponsesNativeProjectionSource(input.config, "opencode");
   if (!source) return undefined;
-  const enabledProviders = [...new Set([...(input.existingEnabledProviders ?? []), "kiln"])];
-  const defaultModel = source.models.length === 1 ? `kiln/${source.models[0]!.id}` : undefined;
   return {
     patch: {
       provider: {
@@ -157,39 +142,8 @@ export function buildOpenCodeResponsesProjection(input: {
           }])),
         },
       },
-      enabled_providers: enabledProviders,
-      ...(defaultModel ? { model: defaultModel } : {}),
     },
-    managedFields: ["provider.kiln", "enabled_providers", ...(defaultModel ? ["model"] : [])],
-  };
-}
-
-function codexModelInfo(model: NativeProjectedVirtualModel & Required<Pick<ModelGatewayVirtualModelConfig, "baseInstructions">>, priority: number): Record<string, unknown> {
-  const supportsReasoning = model.capabilities.includes("reasoning-controls");
-  return {
-    slug: model.id,
-    display_name: model.displayName,
-    description: "Routed by Kiln.",
-    supported_reasoning_levels: [],
-    shell_type: "default",
-    visibility: "list",
-    supported_in_api: true,
-    priority,
-    availability_nux: null,
-    upgrade: null,
-    base_instructions: model.baseInstructions,
-    supports_reasoning_summaries: supportsReasoning,
-    support_verbosity: model.capabilities.includes("text-verbosity"),
-    default_verbosity: null,
-    apply_patch_tool_type: null,
-    truncation_policy: { mode: "tokens", limit: 10_000 },
-    supports_parallel_tool_calls: model.capabilities.includes("parallel-tool-calls"),
-    context_window: model.contextTokens,
-    max_context_window: model.contextTokens,
-    experimental_supported_tools: [],
-    input_modalities: model.capabilities.includes("input-image-url") || model.capabilities.includes("input-image-base64")
-      ? ["text", "image"]
-      : ["text"],
+    managedFields: ["provider.kiln"],
   };
 }
 

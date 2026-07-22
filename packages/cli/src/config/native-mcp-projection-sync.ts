@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
-import type { McpConfigurationResolution } from "@kilnai/core";
+import type { McpConfigurationResolution, ResolvedMcpServer } from "@kilnai/core";
 import { stripJsonComments } from "./json-comments.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
@@ -43,6 +43,7 @@ export interface NativeMcpProjectionOptions {
   readonly harnesses?: readonly NativeMcpHarness[];
   readonly force?: boolean;
   readonly now?: string;
+  readonly includeKilnControlPlane?: boolean;
 }
 
 export function assertNativeMcpProjectionCurrent(
@@ -84,11 +85,19 @@ export async function syncNativeMcpProjections(
   options: NativeMcpProjectionOptions = {},
 ): Promise<NativeMcpProjectionResult> {
   const kilnDir = join(projectPath, ".kiln");
+  if (options.includeKilnControlPlane) {
+    const projectMarker = join(kilnDir, "kiln.yaml");
+    if (!existsSync(projectMarker) || !statSync(projectMarker).isFile()) {
+      throw new Error(`Cannot project the Kiln control-plane bridge: '${projectMarker}' does not exist.`);
+    }
+  }
   let installState = readNativeProjectionInstallState(kilnDir);
   let stateChanged = false;
   const targets: NativeMcpProjectionTargetResult[] = [];
+  const rollbacks: Array<() => void> = [];
 
-  for (const harness of options.harnesses ?? ALL_HARNESSES) {
+  try {
+    for (const harness of options.harnesses ?? ALL_HARNESSES) {
     const target = targetFor(harness, projectPath);
     const targetId = `mcp:${harness}`;
     let current: Record<string, unknown>;
@@ -117,6 +126,20 @@ export async function syncNativeMcpProjections(
     }
 
     const rootKey = rootKeyFor(harness);
+    if (options.includeKilnControlPlane && resolution.servers["kiln-control-plane"]) {
+      targets.push({
+        harness,
+        path: target,
+        status: "incompatible",
+        reason: "Canonical MCP server id 'kiln-control-plane' is reserved for the Kiln control-plane bridge.",
+        servers: [{
+          id: "kiln-control-plane",
+          status: "incompatible",
+          reason: "Rename the canonical MCP server; 'kiln-control-plane' is a reserved native control-plane identity.",
+        }],
+      });
+      continue;
+    }
     const base = previous
       ? stripManagedFields({ currentDocument: current, managedFields: previous.managedFields })
       : current;
@@ -125,7 +148,11 @@ export async function syncNativeMcpProjections(
     const serverResults: NonNullable<NativeMcpProjectionTargetResult["servers"]>[number][] = [];
     const root = isRecord(base[rootKey]) ? base[rootKey] : {};
 
-    for (const server of Object.values(resolution.servers)) {
+    const servers = [
+      ...Object.values(resolution.servers),
+      ...(options.includeKilnControlPlane ? [kilnControlPlaneServer(projectPath, harness)] : []),
+    ];
+    for (const server of servers) {
       const projection = projectMcpServer(harness, server);
       if (projection.status === "compatible" && server.id in root && !wasPreviouslyManaged(previous?.managedFields, rootKey, server.id)) {
         serverResults.push({
@@ -159,8 +186,10 @@ export async function syncNativeMcpProjections(
 
     const projected = mergeProjection(base, patch, managedFields);
     if (JSON.stringify(projected) !== JSON.stringify(current)) {
+      const originalContent = existsSync(target) ? readFileSync(target, "utf8") : undefined;
       mkdirSync(dirname(target), { recursive: true });
       backupNativeProjectionFile({ kilnDir, targetId, filePath: target, timestamp: options.now });
+      rollbacks.push(() => restoreNativeDocument(target, originalContent));
       writeNativeDocument(harness, target, projected);
     }
     if (managedFields.length > 0) {
@@ -181,10 +210,28 @@ export async function syncNativeMcpProjections(
       status: incompatibleCount > 0 ? "partial" : "current",
       servers: serverResults,
     });
-  }
+    }
 
-  if (stateChanged) writeNativeProjectionInstallState(kilnDir, installState);
-  return { targets };
+    if (stateChanged) writeNativeProjectionInstallState(kilnDir, installState);
+    return { targets };
+  } catch (error) {
+    rollbackNativeDocuments(rollbacks, error);
+  }
+}
+
+function kilnControlPlaneServer(projectPath: string, harness: NativeMcpHarness): ResolvedMcpServer {
+  return {
+    id: "kiln-control-plane",
+    enabled: true,
+    transport: "stdio",
+    command: "kiln",
+    args: ["native-harness", "control-plane-mcp", "--harness", harness, "--project-root", projectPath],
+    admission: { state: "admitted" },
+    source: "project",
+    provenance: {},
+    connection: { state: "not-tested" },
+    projection: { state: "not-synchronized" },
+  };
 }
 
 export async function uninstallNativeMcpProjections(
@@ -195,7 +242,9 @@ export async function uninstallNativeMcpProjections(
   let installState = readNativeProjectionInstallState(kilnDir);
   const targets: NativeMcpProjectionTargetResult[] = [];
   let stateChanged = false;
-  for (const harness of options.harnesses ?? ALL_HARNESSES) {
+  const rollbacks: Array<() => void> = [];
+  try {
+    for (const harness of options.harnesses ?? ALL_HARNESSES) {
     const targetId = `mcp:${harness}`;
     const owned = installState.targets[targetId];
     if (!owned) continue;
@@ -222,14 +271,19 @@ export async function uninstallNativeMcpProjections(
       continue;
     }
     const stripped = stripManagedFields({ currentDocument: current, managedFields: owned.managedFields });
+    const originalContent = existsSync(owned.filePath) ? readFileSync(owned.filePath, "utf8") : undefined;
     backupNativeProjectionFile({ kilnDir, targetId, filePath: owned.filePath, timestamp: options.now });
+    rollbacks.push(() => restoreNativeDocument(owned.filePath, originalContent));
     writeNativeDocument(harness, owned.filePath, stripped);
     installState = removeNativeProjectionTargetState(installState, targetId);
     stateChanged = true;
     targets.push({ harness, path: owned.filePath, status: "uninstalled" });
+    }
+    if (stateChanged) writeNativeProjectionInstallState(kilnDir, installState);
+    return { targets };
+  } catch (error) {
+    rollbackNativeDocuments(rollbacks, error);
   }
-  if (stateChanged) writeNativeProjectionInstallState(kilnDir, installState);
-  return { targets };
 }
 
 function targetFor(harness: NativeMcpHarness, projectPath: string): string {
@@ -257,6 +311,24 @@ function writeNativeDocument(harness: NativeMcpHarness, path: string, document: 
     ? stringifyToml(document)
     : `${JSON.stringify(document, null, 2)}\n`;
   writeFileSync(path, content, "utf-8");
+}
+
+function restoreNativeDocument(path: string, content: string | undefined): void {
+  if (content === undefined) {
+    rmSync(path, { force: true });
+    return;
+  }
+  writeFileSync(path, content, "utf8");
+}
+
+function rollbackNativeDocuments(rollbacks: readonly (() => void)[], originalError: unknown): never {
+  const rollbackErrors: unknown[] = [];
+  for (let index = rollbacks.length - 1; index >= 0; index -= 1) {
+    try { rollbacks[index]!(); }
+    catch (error) { rollbackErrors.push(error); }
+  }
+  if (rollbackErrors.length > 0) throw new AggregateError([originalError, ...rollbackErrors], "Native MCP projection failed and rollback was incomplete.");
+  throw originalError;
 }
 
 function mergeProjection(

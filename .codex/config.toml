@@ -1,6 +1,0 @@
-# Codex reads this project-local MCP declaration only for trusted workspaces.
-# It starts the dedicated adapter directly; it does not invoke the kiln CLI.
-[mcp_servers.kiln]
-command = "bun"
-args = ["packages/cli/src/native-harness/codex-app-mcp.ts"]
-enabled = true

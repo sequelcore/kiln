@@ -102,12 +102,10 @@ async function probeCodex(config: ModelGatewayConfig): Promise<void> {
   if (!executable) throw new Error("codex is not installed; the explicit live probe requires it.");
   const home = join(root, "codex-home");
   const workspace = join(root, "codex-workspace");
-  const catalogPath = join(home, "kiln-models.json");
   await mkdir(home, { recursive: true }); await mkdir(workspace, { recursive: true });
-  const projection = buildCodexResponsesProjection({ config, modelCatalogPath: catalogPath });
+  const projection = buildCodexResponsesProjection({ config });
   if (!projection) throw new Error("Codex projection was not configured.");
   await writeFile(join(home, "config.toml"), serializeCodexProbeProjection(projection.patch), "utf8");
-  await writeFile(catalogPath, `${JSON.stringify(projection.catalog, null, 2)}\n`, "utf8");
   const outputPath = join(home, "last-message.txt");
   activeObserved = [];
   const result = await runBounded(executable, ["exec", "--strict-config", "--ephemeral", "--ignore-rules", "--skip-git-repo-check", "--color", "never", "--output-last-message", outputPath, "Return exactly PROBE_OK and do not call tools."], workspace, {
@@ -209,7 +207,7 @@ function assertProbe(harness: string, result: ProcessResult, output: string, obs
   if (request.authorization !== `Bearer ${TOKEN}`) throw new Error(`${harness} did not use the projected bearer environment variable.`);
   if (request.body.model !== "model-a") throw new Error(`${harness} did not use the projected virtual model.`);
   if (harness === "Codex") {
-    if (request.body.instructions !== "You are a governed Kiln probe.") throw new Error("Codex did not project canonical model instructions.");
+    if (typeof request.body.instructions !== "string" || request.body.instructions.length === 0) throw new Error("Codex omitted its native instructions.");
     if (!Array.isArray(request.body.input) || !Array.isArray(request.body.tools)) throw new Error("Codex did not emit the expected Responses input/tools shape.");
   }
   if (!request.sessionId) throw new Error(`${harness} omitted stable session correlation.`);
@@ -291,9 +289,8 @@ function serializeCodexProbeProjection(patch: Record<string, unknown>): string {
   if (!provider) throw new Error("Codex probe projection omitted model_providers.kiln.");
   const line = (key: string, value: unknown) => `${key} = ${typeof value === "string" ? JSON.stringify(value) : String(value)}\n`;
   return [
-    line("model", patch.model),
-    line("model_provider", patch.model_provider),
-    line("model_catalog_json", patch.model_catalog_json),
+    line("model", "model-a"),
+    line("model_provider", "kiln"),
     "\n[model_providers.kiln]\n",
     ...["name", "base_url", "env_key", "requires_openai_auth", "wire_api", "request_max_retries", "stream_max_retries", "supports_websockets"]
       .map((key) => line(key, provider[key])),

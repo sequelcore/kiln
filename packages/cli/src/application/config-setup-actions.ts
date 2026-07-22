@@ -133,7 +133,11 @@ async function syncNativeProjections(
     skillConfig: kilnYaml.skills,
     userHome,
   });
-  const mcpResult = await syncNativeMcpProjections(loadResolvedKilnMcpConfiguration(projectPath), projectPath);
+  const mcpResult = await syncNativeMcpProjections(
+    loadResolvedKilnMcpConfiguration(projectPath),
+    projectPath,
+    { includeKilnControlPlane: true },
+  );
   const mcpErrors = mcpResult.targets.flatMap((target) =>
     target.status === "current"
       ? []

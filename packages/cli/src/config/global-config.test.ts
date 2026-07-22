@@ -22,6 +22,7 @@ import {
   resolveGlobalDefaultProvider,
   resolveGlobalUiTheme,
   resolveGlobalConfigPath,
+  resolveGlobalModelGatewayConfig,
   writeGlobalConfig,
 } from "./global-config.js";
 
@@ -135,6 +136,26 @@ describe("global-config", () => {
         model: "gpt-5.5",
       },
     });
+  });
+
+  it("reads and validates the user-scoped model gateway without secret values", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue([
+      'version: "1"',
+      "modelGateway:",
+      "  port: 4819",
+      "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }]",
+      "  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_SECRET }",
+      "  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }",
+      "  principals:",
+      "    - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [codex] }",
+      "  virtualModels:",
+      "    - { id: codex, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }",
+    ].join("\n"));
+    expect(resolveGlobalModelGatewayConfig(readGlobalConfig())).toMatchObject({ port: 4819, replay: { hmacKeyEnv: "REPLAY_SECRET" } });
+
+    readFileSyncMock.mockReturnValue(['version: "1"', "modelGateway:", "  port: 4819", "  token: raw-secret"].join("\n"));
+    expect(() => readGlobalConfig()).toThrow("Invalid global modelGateway");
   });
 
   it("readGlobalConfig() rejects non-canonical configs", () => {

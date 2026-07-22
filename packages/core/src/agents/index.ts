@@ -381,3 +381,11 @@ export type {
   PooledProviderAdapterConfig,
 } from "./credential-pool/index.js";
 export * from "./managed-invocation/index.js";
+export { createProviderUsageSnapshot } from "./provider-usage.js";
+export type {
+  ProviderUsageAvailability,
+  ProviderUsageConfidence,
+  ProviderUsageSnapshot,
+  ProviderUsageSource,
+  ProviderUsageWindow,
+} from "./provider-usage.js";

@@ -58,15 +58,19 @@ services. Native-harness permissions therefore do not apply to Kiln direct
 provider routes. Direct-provider authority remains in Kiln runtime even when a
 Codex App MCP adapter is the caller.
 
-### Codex App Read-Only MCP Bridge
+### Native Harness MCP Bridge
 
-The first admitted adapter is a project-local, trusted-workspace stdio MCP
-server declared by `.codex/config.toml`. Codex App owns discovery and child
-process lifecycle; `packages/cli/src/native-harness/codex-app-mcp.ts` owns only
-protocol startup, and its server maps three no-argument read-only operations to
-the CLI application's canonical status, resolved-governance, and harness
-capability query owners. It does not start `kiln`, `codex exec`, `opencode run`,
-or any shell command.
+The admitted adapter is a project-local stdio MCP server projected under the
+reserved `kiln-control-plane` identity for Codex, Claude Code, and OpenCode.
+Each native harness owns discovery, trust, and child-process lifecycle. The
+installed `kiln native-harness control-plane-mcp` command owns only protocol
+startup and receives an explicit harness and validated project root. The server
+maps no-argument read-only operations to the
+CLI application's canonical status, resolved-governance, and harness
+capability query owners. It also exposes managed-job submit, status, result,
+cancel, and replay operations through the canonical Runtime application owner.
+It does not invoke `codex exec`, `opencode run`, or another native CLI process;
+managed work uses admitted Kiln direct-provider routes.
 
 The adapter returns source, observation time, harness identity, request
 identity, and the direct-provider/native-harness authority boundary. It removes
@@ -74,8 +78,7 @@ paths, effective configuration, errors, environment values, and credentials
 from model-visible output. Unsupported or mutation requests return stable MCP
 errors. Read acquisition failures return typed unresolved envelopes with one
 operator action, so the three inspections remain diagnostically useful without
-inventing authority. It exposes neither managed-agent invocation nor
-configuration mutation.
+inventing authority. Configuration mutation remains outside this adapter.
 
 Read-only diagnostic acquisition is deliberately not an authority decision. A
 valid canonical status snapshot with stale or drifted harness projections is
@@ -87,20 +90,28 @@ observed capability disappear. Conversely, governance returns an
 malformed, and capability inspection returns observed fields with
 `availability: unresolved` when bridge or capability proof is incomplete.
 Only authority-dependent decisions fail closed; diagnostics remain available to
-explain how to repair the boundary.
+explain how to repair the boundary. Managed-job operations validate bounded
+inputs, caller ownership, governance, configured agent profile, route
+eligibility, and persisted lifecycle evidence before acting.
 
 The native-harness status-projection boundary validates the canonical evidence
 version, full status shape, and observation time before projecting it. Missing,
 malformed, future, stale, or unsupported evidence is unresolved; a resolved
 governance policy is additionally validated as a complete policy contract
-before it can be authoritative. The bridge identifies its project root from
-its module location and checkout markers, not `process.cwd()`: the committed
-relative `.codex/config.toml` declaration remains portable across checkouts.
+before it can be authoritative. The source-checkout entrypoint identifies its
+repository from its module location. The installed entrypoint receives an
+explicit working directory from the governed native projection and validates
+the canonical project marker before composition; MCP arguments never choose
+project identity.
 
-Codex uses project-local MCP configuration only for trusted workspaces. Trust
-is held by Codex, outside Kiln's authority, and must be established by the
-operator when absent. This is the only activation prerequisite; Kiln must not
-write `CODEX_HOME` or global Codex configuration. Codex App's MCP lifecycle and
+Native trust remains outside Kiln's authority and must be established by the
+operator when the harness requires it. Kiln does not replace global native MCP
+configuration for activation. Each harness starts the stdio child itself; the
+MCP bridge never depends on the HTTP Model Gateway process. Governed MCP sync
+projects `kiln native-harness control-plane-mcp --harness <harness>
+--project-root <root>`. The installed CLI validates the explicit project root
+through its canonical `.kiln/kiln.yaml` before composition. Generated native
+MCP files are projection state and are not committed as doctrine. Codex App's MCP lifecycle and
 tool calls are documented by the [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
 The [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 and [tool error contract](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)

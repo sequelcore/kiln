@@ -48,10 +48,10 @@ export async function runAuth(args: string[]): Promise<void> {
         await runCodexLogin();
         return;
       case "status":
-        await runCodexStatus();
+        await runCodexStatus(args.slice(2));
         return;
       case "logout":
-        await runCodexLogout();
+        await runCodexLogout(args.slice(2));
         return;
       case "help":
         printUsage();
@@ -87,13 +87,15 @@ async function runCodexLogin(): Promise<void> {
   console.log("Authenticated successfully");
 }
 
-async function runCodexStatus(): Promise<void> {
+async function runCodexStatus(rest: string[]): Promise<void> {
+  const usageRequested = parseCodexStatusOptions(rest);
   const pool = new CodexOAuthCredentialPoolService();
   const entries = await pool.listStatus();
   if (entries.length === 0) {
     console.log("Not authenticated");
     return;
   }
+  const usage = usageRequested ? await pool.refreshUsage() : [];
   console.log("Codex OAuth");
   for (const entry of entries) {
     console.log(`  ${entry.id}`);
@@ -106,12 +108,39 @@ async function runCodexStatus(): Promise<void> {
       console.log(`    Requests: ${entry.health.requestCount}`);
       console.log(`    Cooldown: ${entry.health.cooldownUntil ?? "none"}`);
     }
+    const entryUsage = usage.find((candidate) => candidate.credentialId === entry.id);
+    if (entryUsage) {
+      console.log(`    Usage: ${entryUsage.availability}`);
+      if (entryUsage.plan) console.log(`    Plan: ${entryUsage.plan}`);
+      if (entryUsage.primary) console.log(`    Primary: ${entryUsage.primary.usedPercent}%${entryUsage.primary.resetsAt ? ` (resets ${entryUsage.primary.resetsAt})` : ""}`);
+      if (entryUsage.secondary) console.log(`    Secondary: ${entryUsage.secondary.usedPercent}%${entryUsage.secondary.resetsAt ? ` (resets ${entryUsage.secondary.resetsAt})` : ""}`);
+      console.log(`    Usage observed: ${entryUsage.observedAt}`);
+    }
   }
 }
 
-async function runCodexLogout(): Promise<void> {
-  await new CodexOAuthCredentialPoolService().clearCredentials();
-  console.log("Logged out");
+async function runCodexLogout(rest: string[]): Promise<void> {
+  const id = parseCodexLogoutOptions(rest);
+  const pool = new CodexOAuthCredentialPoolService();
+  if (id) {
+    await pool.removeCredential(id);
+    console.log(`Logged out of Codex credential ${id}`);
+    return;
+  }
+  await pool.clearCredentials();
+  console.log("Logged out of all Codex credentials");
+}
+
+function parseCodexStatusOptions(rest: string[]): boolean {
+  if (rest.length === 0) return false;
+  if (rest.length === 1 && rest[0] === "--usage") return true;
+  throw new Error("Usage: kiln auth codex status [--usage]");
+}
+
+function parseCodexLogoutOptions(rest: string[]): string | undefined {
+  if (rest.length === 0) return undefined;
+  if (rest.length === 2 && rest[0] === "--id" && rest[1]?.trim()) return rest[1];
+  throw new Error("Usage: kiln auth codex logout [--id <id>]");
 }
 
 async function runOpenCodeLink(rest: string[]): Promise<void> {
@@ -328,7 +357,7 @@ async function printAllProviderStatuses(): Promise<void> {
     await runOpenCodeStatus();
   }
   if (providerDirs.includes("codex-oauth")) {
-    await runCodexStatus();
+    await runCodexStatus([]);
   }
 
   for (const file of providerFiles) {
@@ -389,8 +418,8 @@ function formatStatusRow(cells: readonly string[]): string {
 function printUsage(): void {
   console.log("Usage: kiln auth <subcommand>");
   console.log("  kiln auth codex login");
-  console.log("  kiln auth codex status");
-  console.log("  kiln auth codex logout");
+  console.log("  kiln auth codex status [--usage]");
+  console.log("  kiln auth codex logout [--id <id>]");
   console.log("  kiln auth opencode link [--tier go|zen] [--id <id>] [--key <key>]    Link OpenCode API key (imports from OpenCode config if present)");
   console.log("  kiln auth opencode import [--tier go|zen] [--id <id>]                Import OpenCode API key from native OpenCode config");
   console.log("  kiln auth opencode status [--tier go|zen] [--id <id>]                Show linked OpenCode credentials");

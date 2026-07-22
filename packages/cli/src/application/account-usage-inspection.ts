@@ -1,0 +1,82 @@
+import type { ModelGatewayConfig, ProviderUsageSnapshot } from "@kilnai/core";
+import { CodexOAuthCredentialPoolService } from "@kilnai/runtime";
+import { readGlobalConfig, resolveGlobalModelGatewayConfig } from "../config/global-config.js";
+
+export interface AccountUsageInspectionService {
+  inspect(): Promise<AccountUsageInspection>;
+}
+
+export interface AccountUsageInspection {
+  readonly operation: "account-usage";
+  readonly accounts: readonly AccountUsageInspectionEntry[];
+  readonly evidence: { readonly authority: "global-model-gateway"; readonly observedAt: string };
+}
+
+export interface AccountUsageInspectionEntry {
+  readonly provider: string;
+  readonly accountId: string;
+  readonly credentialId: string;
+  readonly plan?: string;
+  readonly availability: "available" | "exhausted" | "unknown";
+  readonly primary?: { readonly usedPercent: number; readonly resetsAt?: string };
+  readonly secondary?: { readonly usedPercent: number; readonly resetsAt?: string };
+  readonly freshness: "fresh" | "stale" | "missing";
+  readonly source: string;
+  readonly confidence: string;
+  readonly eligibleRoutes: readonly string[];
+}
+
+export interface CreateAccountUsageInspectionServiceOptions {
+  readonly readModelGateway: () => ModelGatewayConfig;
+  readonly readProviderUsage: (provider: string) => Promise<readonly ProviderUsageSnapshot[]>;
+  readonly listCredentialIds: (provider: string) => Promise<readonly string[]>;
+  readonly now?: () => Date;
+}
+
+export function createAccountUsageInspectionService(
+  options?: CreateAccountUsageInspectionServiceOptions,
+): AccountUsageInspectionService {
+  const defaults = options ?? defaultOptions();
+  return {
+    async inspect() {
+      const now = defaults.now?.() ?? new Date();
+      const config = defaults.readModelGateway();
+      const usageByProvider = new Map<string, readonly ProviderUsageSnapshot[]>();
+      const credentialsByProvider = new Map<string, ReadonlySet<string>>();
+      for (const provider of new Set(config.accounts.map((account) => account.providerId))) {
+        usageByProvider.set(provider, await defaults.readProviderUsage(provider));
+        credentialsByProvider.set(provider, new Set(await defaults.listCredentialIds(provider)));
+      }
+      const accounts = config.accounts.map((account): AccountUsageInspectionEntry => {
+        const usage = usageByProvider.get(account.providerId)?.find((entry) => entry.credentialId === account.credentialId);
+        const executable = credentialsByProvider.get(account.providerId)?.has(account.credentialId) === true;
+        const fresh = usage !== undefined && Date.parse(usage.observedAt) <= now.getTime() && Date.parse(usage.validUntil) > now.getTime();
+        const freshness = usage === undefined ? "missing" as const : fresh ? "fresh" as const : "stale" as const;
+        const blocked = !executable || (fresh && usage?.availability === "exhausted");
+        return {
+          provider: account.providerId,
+          accountId: account.id,
+          credentialId: account.credentialId,
+          ...(usage?.plan === undefined ? {} : { plan: usage.plan }),
+          availability: usage?.availability ?? "unknown",
+          ...(usage?.primary === undefined ? {} : { primary: usage.primary }),
+          ...(usage?.secondary === undefined ? {} : { secondary: usage.secondary }),
+          freshness,
+          source: usage?.source ?? "unknown",
+          confidence: usage?.confidence ?? "unknown",
+          eligibleRoutes: blocked ? [] : config.virtualModels.filter((model) => model.accountIds.includes(account.id)).map((model) => model.id).sort(),
+        };
+      }).sort((a, b) => a.accountId.localeCompare(b.accountId));
+      return { operation: "account-usage", accounts, evidence: { authority: "global-model-gateway", observedAt: now.toISOString() } };
+    },
+  };
+}
+
+function defaultOptions(): CreateAccountUsageInspectionServiceOptions {
+  const codex = new CodexOAuthCredentialPoolService();
+  return {
+    readModelGateway: () => resolveGlobalModelGatewayConfig(readGlobalConfig()),
+    readProviderUsage: async (provider) => provider === "codex-oauth" ? codex.listUsage() : [],
+    listCredentialIds: async (provider) => provider === "codex-oauth" ? (await codex.listExecutionAccounts()).map((entry) => entry.credentialId) : [],
+  };
+}

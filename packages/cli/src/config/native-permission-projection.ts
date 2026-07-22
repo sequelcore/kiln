@@ -12,7 +12,6 @@ import type { KilnYaml } from "../kiln-yaml-types.js";
 import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
 import {
   createNativeProjectionSnapshot,
-  createNativeProjectionFileSnapshot,
   detectNativeProjectionDrift,
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
@@ -43,7 +42,6 @@ export interface NativePermissionProjectionOptions extends NativeProjectionSyncO
 interface PermissionTargetResult {
   readonly ok: boolean;
   readonly snapshot?: NativeProjectionTargetState;
-  readonly additionalSnapshots?: readonly NativeProjectionTargetState[];
   readonly removeTargetIds?: readonly string[];
   readonly error?: string;
   readonly rollback?: () => void;
@@ -80,7 +78,6 @@ export async function syncNativePermissionProjections(
       : await syncCodexPermissions(kilnYaml, policy, kilnDir, installState, options, modelGateway);
     if (codexResult.rollback) rollbacks.push(codexResult.rollback);
     if (codexResult.snapshot) installState = upsertNativeProjectionTargetState(installState, codexResult.snapshot);
-    for (const snapshot of codexResult.additionalSnapshots ?? []) installState = upsertNativeProjectionTargetState(installState, snapshot);
     for (const targetId of codexResult.removeTargetIds ?? []) installState = removeNativeProjectionTargetState(installState, targetId);
     if (codexResult.error) errors.push(`Codex: ${codexResult.error}`);
 
@@ -120,9 +117,9 @@ async function syncClaudePermissions(
   let existing: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
-      existing = JSON.parse(readFileSync(target, "utf-8"));
-    } catch {
-      existing = {};
+      existing = requireRecord(JSON.parse(originalContent!), "configuration root must be an object");
+    } catch (error) {
+      return unreadablePermissionTarget(error);
     }
   }
   const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: existing });
@@ -176,10 +173,9 @@ async function syncCodexPermissions(
   let doc: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
-      const raw = readFileSync(target, "utf-8");
-      doc = parseToml(raw) as Record<string, unknown>;
-    } catch {
-      doc = {};
+      doc = requireRecord(parseToml(originalConfigContent!), "configuration root must be an object");
+    } catch (error) {
+      return unreadablePermissionTarget(error);
     }
   }
   const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: doc });
@@ -191,17 +187,17 @@ async function syncCodexPermissions(
   }
 
   const catalogTargetId = "codex-model-catalog";
-  const catalogPath = join(kilnDir, "projections", "codex-model-catalog.json");
-  const gatewayProjection = modelGateway ? buildCodexResponsesProjection({ config: modelGateway, modelCatalogPath: catalogPath }) : undefined;
   const catalogState = installState.targets[catalogTargetId];
+  const catalogPath = catalogState?.filePath ?? join(kilnDir, "projections", "codex-model-catalog.json");
+  const gatewayProjection = modelGateway ? buildCodexResponsesProjection({ config: modelGateway }) : undefined;
   const originalCatalogContent = existsSync(catalogPath) ? readFileSync(catalogPath, "utf8") : undefined;
-  if (gatewayProjection && !catalogState && existsSync(catalogPath)) return { ok: false, error: "model catalog path already exists without Kiln install-state ownership" };
-  if (catalogState) {
-    const currentContent = existsSync(catalogPath) ? readFileSync(catalogPath, "utf8") : "";
-    const catalogDrift = detectNativeProjectionFileDrift({ targetId: catalogTargetId, state: installState, currentContent });
-    if (catalogDrift && !options.force) return { ok: false, error: "managed model catalog drift detected" };
-  }
-  const catalogContent = gatewayProjection ? `${JSON.stringify(gatewayProjection.catalog, null, 2)}\n` : undefined;
+  const catalogDrift = catalogState
+    ? detectNativeProjectionFileDrift({
+      targetId: catalogTargetId,
+      state: installState,
+      currentContent: existsSync(catalogPath) ? readFileSync(catalogPath, "utf8") : "",
+    })
+    : undefined;
   const previousManagedFields = installState.targets[targetId]?.managedFields ?? [];
   const projection = translateCodexPermissionProjection({
     policy,
@@ -218,10 +214,7 @@ async function syncCodexPermissions(
     managedFields: projection.managedFields,
     permissionIntegrity: projection.integrity,
   });
-  const additionalSnapshots = gatewayProjection && catalogContent !== undefined
-    ? [createNativeProjectionFileSnapshot({ targetId: catalogTargetId, filePath: catalogPath, content: catalogContent })]
-    : [];
-  const removeTargetIds = !gatewayProjection && catalogState ? [catalogTargetId] : [];
+  const removeTargetIds = catalogState ? [catalogTargetId] : [];
   ensureDir(dirname(target));
   backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
   const rollback = () => {
@@ -229,13 +222,9 @@ async function syncCodexPermissions(
     restoreFile(catalogPath, originalCatalogContent);
   };
   try {
-    if (catalogContent !== undefined) {
-      if (originalCatalogContent !== catalogContent) writeFileAtomically(catalogPath, catalogContent);
-    } else if (catalogState) {
-      rmSync(catalogPath, { force: true });
-    }
+    if (catalogState && (!catalogDrift || options.force)) rmSync(catalogPath, { force: true });
   } catch {
-    return { ok: false, error: "managed model catalog could not be updated safely" };
+    return { ok: false, error: "legacy managed model catalog could not be removed safely" };
   }
   try {
     writeFileAtomically(target, stringifyToml(projection.document));
@@ -245,7 +234,6 @@ async function syncCodexPermissions(
   return {
     ok: true,
     snapshot,
-    additionalSnapshots,
     removeTargetIds,
     rollback,
   };
@@ -265,11 +253,10 @@ async function syncOpenCodePermissions(
   let existing: Record<string, unknown> = {};
   if (existsSync(target)) {
     try {
-      const raw = readFileSync(target, "utf-8");
-      const stripped = stripJsonComments(raw);
-      existing = JSON.parse(stripped);
-    } catch {
-      existing = {};
+      const stripped = stripJsonComments(originalContent!);
+      existing = requireRecord(JSON.parse(stripped), "configuration root must be an object");
+    } catch (error) {
+      return unreadablePermissionTarget(error);
     }
   }
   const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: existing });
@@ -280,10 +267,7 @@ async function syncOpenCodePermissions(
     };
   }
 
-  const enabledProviders = Array.isArray(existing.enabled_providers)
-    ? existing.enabled_providers.filter((value): value is string => typeof value === "string")
-    : [];
-  const gatewayProjection = modelGateway ? buildOpenCodeResponsesProjection({ config: modelGateway, existingEnabledProviders: enabledProviders }) : undefined;
+  const gatewayProjection = modelGateway ? buildOpenCodeResponsesProjection({ config: modelGateway }) : undefined;
   const projection = translateOpenCodePermissionProjection({
     policy,
     existingDocument: existing,
@@ -297,7 +281,7 @@ async function syncOpenCodePermissions(
     filePath: target,
     document: projection.document,
     managedFields: projection.managedFields,
-    ...(gatewayProjection ? { managedArrayItems: { enabled_providers: ["kiln"] } } : {}),
+    ...(gatewayProjection?.managedFields.includes("enabled_providers") ? { managedArrayItems: { enabled_providers: ["kiln"] } } : {}),
     permissionIntegrity: projection.integrity,
   });
   ensureDir(dirname(target));
@@ -319,6 +303,18 @@ function readCanonicalModelGateway(kilnDir: string): ModelGatewayConfig | undefi
   const path = join(kilnDir, "gateway.yaml");
   if (!existsSync(path)) return undefined;
   return parseGatewayYaml(readFileSync(path, "utf8")).modelGateway;
+}
+
+function unreadablePermissionTarget(error: unknown): PermissionTargetResult {
+  const detail = error instanceof Error
+    ? error.message.replace(/[\r\n]+/g, " ").slice(0, 240)
+    : "unknown parse error";
+  return { ok: false, error: `native configuration is unreadable and was not modified: ${detail}` };
+}
+
+function requireRecord(value: unknown, message: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(message);
+  return value as Record<string, unknown>;
 }
 
 let nativeProjectionWriteSequence = 0;

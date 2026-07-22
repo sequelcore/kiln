@@ -22,6 +22,25 @@ export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatew
 export type { LocalModelGatewayStoreAccount, LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
 export { createModelGatewayIngress } from "./model-gateway/model-gateway-ingress.js";
 export type { ModelGatewayIngressHandle, ModelGatewayIngressOptions } from "./model-gateway/model-gateway-ingress.js";
+export { buildModelGatewayBoundCandidates } from "./model-gateway/model-gateway-account-binding.js";
+export type { ModelGatewayBoundCandidate, ModelGatewayAccountBinding, ModelGatewayBoundUsageEvidence } from "./model-gateway/model-gateway-account-binding.js";
+export {
+  MODEL_GATEWAY_HEALTH_PATH,
+  MODEL_GATEWAY_HEALTH_PROTOCOL_VERSION,
+  createModelGatewayConfigDigest,
+  inspectModelGatewayListener,
+  startModelGatewayListener,
+} from "./model-gateway/model-gateway-listener.js";
+export { ModelGatewaySupervisor, nodeModelGatewayProcessAdapter } from "./model-gateway/model-gateway-supervisor.js";
+export type { ModelGatewayLaunchDescriptor, ModelGatewayProcessAdapter, ModelGatewayRuntimeState, ModelGatewaySpawnDescriptor, ModelGatewaySupervisorDoctor, ModelGatewaySupervisorStatus } from "./model-gateway/model-gateway-supervisor.js";
+export { WindowsModelGatewayAutostartAdapter, createModelGatewayAutostartDigest } from "./model-gateway/model-gateway-autostart.js";
+export type { ModelGatewayAutostartStatus, ModelGatewayTaskSchedulerResult } from "./model-gateway/model-gateway-autostart.js";
+export type {
+  ModelGatewayListenerIdentity,
+  ModelGatewayListenerIdentityInput,
+  ModelGatewayListenerInspection,
+  StartModelGatewayListenerOptions,
+} from "./model-gateway/model-gateway-listener.js";
 export { ProviderAdapterOneRoundDispatcher, ProviderAdapterOneRoundError } from "./model-gateway/provider-adapter-one-round-dispatcher.js";
 export type { ProviderAdapterOneRoundDispatcherOptions, ProviderAdapterOneRoundErrorCode } from "./model-gateway/provider-adapter-one-round-dispatcher.js";
 export { createAnthropicMessagesRoutes } from "./model-gateway/anthropic-messages-routes.js";
@@ -558,6 +577,14 @@ export {
 export type {
   CredentialPoolObservation,
 } from "./agents/credential-pool/credential-pool-observability.js";
+export {
+  InMemoryProviderUsageStore,
+  parseCodexProviderUsage,
+} from "./agents/provider-usage/index.js";
+export type {
+  CodexUsageHeaders,
+  ParseCodexProviderUsageInput,
+} from "./agents/provider-usage/index.js";
 export {
   ProviderModelRouteHealthStore,
 } from "./agents/provider-route-health/index.js";

@@ -98,6 +98,30 @@ describe("CodexOAuthCredentialPoolService", () => {
     await expect(service.resolveExecutionCredential(selected!)).rejects.toThrow("unhealthy");
   });
 
+  it("refreshes opt-in usage per exact credential and removes only selected credential state", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "work", tokenFile: accountToken("account-a") });
+    await service.linkCredential({ id: "free", tokenFile: accountToken("account-b") });
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      const accountId = headers.get("chatgpt-account-id");
+      return new Response(JSON.stringify({
+        plan_type: accountId === "account-a" ? "plus" : "free",
+        rate_limit: { allowed: true, limit_reached: false, primary_window: { used_percent: 20, reset_at: 4_070_908_800 } },
+      }), { status: 200 });
+    }));
+
+    const usage = await service.refreshUsage();
+    expect(usage.map((entry) => [entry.credentialId, entry.plan])).toEqual([["free", "free"], ["work", "plus"]]);
+    await service.recordProviderOutcome("work", { status: 402 });
+    await service.removeCredential("work");
+
+    expect((await service.listStatus()).map((entry) => entry.id)).toEqual(["free"]);
+    expect((await service.listUsage()).map((entry) => entry.credentialId)).toEqual(["free"]);
+    const health = JSON.parse(await readFile(join(rootDir, ".health", "codex-oauth.json"), "utf8"));
+    expect(health).not.toEqual(expect.arrayContaining([expect.objectContaining({ credentialId: "work" })]));
+  });
+
   it("refreshes and persists only an expired selected credential", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "expired", tokenFile: accountToken("account-a", { expires_at: "2020-01-01T00:00:00.000Z" }) });

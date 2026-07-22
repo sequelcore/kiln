@@ -1,12 +1,12 @@
 # 05 - Cross-Harness Kiln Control Plane
 
-Status: Active delivery track; Slices 0-3 are complete. The governed Model
-Gateway now dispatches all supported direct providers through exact explicit
-account pools, and the Slice 5 Claude read-only adapter candidate is
-implemented. Slice 4 economics remain planned and Claude admission remains
-fail-closed pending strict provider live proof.
-Execution: Ready - define Slice 4 quota and subscription evidence before
-changing route preference, and admit no Claude model without strict live proof.
+Status: Active delivery track; Slices 0-3 are complete. The 2026-07-22
+checkpoint adds a user-scoped Model Gateway lifecycle, harness-neutral MCP
+control plane, provider-usage evidence, account-aware gateway selection, and
+an additive OpenCode projection foundation. Native picker activation and
+managed-invocation account leases remain incomplete and are not live-enabled.
+Execution: Ready - resume with Slice 4C managed-invocation account leases,
+then close the OpenCode live vertical before any Codex picker takeover.
 Created: 2026-07-04.
 
 Delivery note (2026-07-21): Codex, OpenCode, and Claude protocol projections
@@ -15,6 +15,12 @@ same supported direct provider with deterministic selection, concurrency,
 reservation, affinity, exact credential revision checks, and no hidden
 cross-account retry. This is authorized account assignment and isolation, not
 quota evasion or automatic subscription rotation.
+
+Checkpoint note (2026-07-22): this document is the canonical continuation
+plan for the paused cross-harness work. Checked items below are implemented in
+the checkpoint commit; an unchecked item is not implied by adjacent completed
+infrastructure. No model provider or picker was activated in the operator's
+global harness configuration during this checkpoint.
 
 ## Objective
 
@@ -364,8 +370,9 @@ Exit gate:
   tool surface;
 - unavailable tools fail closed with actionable diagnostics.
 
-Current evidence: `.codex/config.toml` declares the dedicated Kiln stdio MCP
-adapter for trusted workspaces. Isolated protocol tests cover discovery,
+Current evidence: governed MCP sync declares the dedicated Kiln stdio MCP
+adapter project-locally for trusted Codex workspaces and owns that entry through
+install-state. Isolated protocol tests cover discovery,
 canonical query mapping, malformed input, unavailable and incomplete evidence,
 mutation denial, deterministic serialization, secret-safe projection, and no
 CLI subprocess route. Codex App discovery still requires existing Codex project
@@ -595,28 +602,124 @@ evidence. Inspection diagnostics remain canonical replay evidence; any future
 compaction must use the [typed lossless reduction contract](../architecture/verified-efficiency-control-plane.md#typed-lossless-reduction)
 and its promotion gates.
 
+## Paused Checkpoint - 2026-07-22
+
+This checkpoint is intentionally code-complete only for the items marked below.
+It is safe to resume from this section without reconstructing the incident or
+assuming that tested infrastructure was activated in the operator environment.
+
+Delivered in the repository:
+
+- [x] Native provider projection no longer replaces Codex provider, catalog,
+  default model, search behavior, or OpenCode provider allowlists/defaults.
+- [x] Malformed native configuration fails closed and install-state failures
+  roll back native edits byte-for-byte.
+- [x] A dedicated user-scoped Model Gateway listener exposes authenticated
+  identity/readiness and supports supervised lifecycle plus Windows autostart.
+- [x] Provider usage snapshots, granular Codex account removal, account-aware
+  gateway selection, and sanitized MCP inspection are implemented.
+- [x] The control-plane MCP bridge is harness-neutral and projects under the
+  non-colliding `kiln-control-plane` identity.
+- [x] The global OpenCode provider projection foundation is additive,
+  health-gated, drift-aware, and uninstallable.
+
+Not activated or not complete:
+
+- [ ] No `modelGateway` block has been applied to the operator's global Kiln
+  config, no ingress token has been bootstrapped, and no autostart task has been
+  installed.
+- [ ] The operator's existing Codex bridge has not been migrated live from
+  `kiln` to `kiln-control-plane`; OpenCode and Claude have not been live-synced.
+- [ ] Per-job managed account leases were explored but deliberately excluded
+  from the checkpoint after the interrupted implementation left lifecycle tests
+  inconsistent.
+- [ ] OpenCode picker behavior is not live-proven; Codex composite picker and
+  Claude gateway binding are not implemented as completed product surfaces.
+- [ ] The local Bun junction remains a development convenience whose global
+  manifest still reports the published version; it is not a release setup.
+- [ ] The historical full CLI run can report every test passing and still exit
+  non-zero after a late-handled rejection; focused gates pass, but the teardown
+  defect remains a release blocker.
+
+Resume order:
+
+1. Complete Slice 4C without weakening the legacy exactly-one safety guard.
+2. Re-run focused tests, workspace typecheck, and package builds from a clean
+   output tree.
+3. Apply a reviewed global Model Gateway config and bootstrap the user token.
+4. Install autostart and close the Slice 7B OpenCode live proof.
+5. Re-sync the harness-neutral MCP bridge and live-prove all three harnesses.
+6. Start the Codex composite picker only after protocol parity and restore
+   proofs pass.
+
 ### Slice 4 - Quota And Subscription-Aware Routing
 
-Status: Planned.
+Status: Active. Contracts and inspection are implemented; managed-job routing
+is not complete.
 
 Goal: spend scarce quota only where it improves verified outcomes.
 
-Work:
+#### Slice 4A - Provider Usage Evidence
 
-- record route quota class, subscription class, metered cost class, and
-  comparable-cost status;
-- model `opencode-go` and `opencode-zen` as preferred low-cost delegated
-  routes when task fit is adequate;
-- reserve expensive or scarce routes for tasks whose evidence says they need
-  them;
-- add operator-configurable ceilings and fail-closed behavior when usage
-  evidence is unavailable.
+- [x] Define an immutable provider-neutral usage snapshot with opaque account
+  identity, plan, primary and secondary windows, availability, observation
+  time, validity, source, and confidence.
+- [x] Parse sanitized Codex `/backend-api/wham/usage` snapshots and
+  `x-codex-*` response headers without retaining raw payloads, headers, email,
+  account claims, or tokens.
+- [x] Persist validated snapshots atomically and hide expired evidence.
+- [x] Treat missing, stale, or unreadable evidence as `unknown`; never invent a
+  percentage or reset time.
+- [ ] Extend the contract for additional rate-limit families, credits, and
+  spend-control only after provider evidence justifies the fields.
+
+#### Slice 4B - Account Administration And Inspection
+
+- [x] Add `kiln auth codex status --usage` as an explicit networked refresh.
+- [x] Add `kiln auth codex logout --id <id>` with exact credential, health, and
+  usage cleanup.
+- [x] Add read-only `kiln_account_usage_inspect` to the harness-neutral MCP
+  surface with sanitized availability, windows, resets, freshness, and route
+  eligibility.
+- [ ] Add operator-defined aliases without making email or provider account
+  claims routing identity.
+- [ ] Document and test provider endpoint version drift and fail-soft behavior.
+
+#### Slice 4C - Managed-Invocation Account Leases
+
+- [x] Reuse Model Gateway account bindings to exclude unconfigured ambient
+  credentials and fresh exhausted accounts from HTTP ingress selection.
+- [x] Preserve the existing exactly-one guard on legacy pooled adapters; do
+  not reintroduce ambient round-robin.
+- [ ] Acquire one explicit account lease per managed job rather than when the
+  adapter factory is constructed.
+- [ ] Persist selection reason and sanitized account reference in lifecycle,
+  result, and replay evidence.
+- [ ] Retain a lease after a timeout until the aborted provider execution has
+  actually settled; release it on success, failure, cancellation, and cleanup.
+- [ ] Preserve session affinity and allow rebind only when the virtual-model
+  policy explicitly permits it.
+- [ ] Restore Codex managed routes with two configured accounts and prove
+  exhaustion, reset, concurrency, reserved-slot, and affinity behavior with a
+  fake clock plus a bounded live probe.
+
+#### Slice 4D - Economic Route Policy
+
+- [ ] Record quota class, subscription class, metered-cost class, and
+  comparable-cost status separately from token usage.
+- [ ] Prefer `opencode-go` and `opencode-zen` only when task fit and fresh
+  eligibility evidence support the choice.
+- [ ] Add operator-configurable reservations and ceilings without implementing
+  limit evasion or cross-account retry after provider commitment.
+- [ ] Explain why a route used Codex quota instead of OpenCode, or the reverse.
 
 Exit gate:
 
 - route choice can explain why it used Codex quota instead of OpenCode, or the
   reverse;
-- no route claims free execution without evidence of subscription economics.
+- no route claims free execution without evidence of subscription economics;
+- every managed job records the exact sanitized account selection and releases
+  its lease correctly in every terminal state.
 
 ### Slice 5 - Native Harness Entitlement Adapters
 
@@ -641,11 +744,14 @@ Implemented:
 
 Remaining work:
 
-- obtain a successful strict provider live result before adding any Claude
+- [ ] Obtain a successful strict provider live result before adding any Claude
   catalog value to the live-proven admission set;
-- isolate API-key Anthropic usage as a separate explicitly billed direct
+- [ ] Isolate API-key Anthropic usage as a separate explicitly billed direct
   provider only when configured;
-- document terms and billing boundaries in status.
+- [ ] Document terms and billing boundaries in status;
+- [ ] Prove the project-local Claude gateway binding, `/v1/models` discovery,
+  one real message, and exact restore without representing Claude as an
+  additive provider.
 
 Exit gate:
 
@@ -663,11 +769,19 @@ Kiln architecture.
 
 Work:
 
-- study `codex-plugin-cc` review/rescue/status/result/cancel/setup flows;
-- compare Codex app server, Claude Code commands/plugins, OpenCode rules, MCP,
-  and native agent formats;
-- implement the thinnest adapter needed for each harness surface;
-- keep adapter code behind stable Kiln contracts.
+- [x] Generalize the Kiln managed-job MCP application identity for Codex,
+  Claude Code, and OpenCode.
+- [x] Require a trusted harness identity and explicit validated project root.
+- [x] Project a distinct `kiln-control-plane` server so OpenCode's existing
+  unmanaged `kiln tools --mcp` server is never shadowed.
+- [x] Fail closed on reserved IDs, malformed config, drift, install-state
+  persistence failure, and non-Kiln project roots.
+- [ ] Migrate the currently installed Codex bridge from the legacy `kiln` ID to
+  `kiln-control-plane` through normal sync and verify uninstall ownership.
+- [ ] Install and live-call the control plane from Codex CLI, OpenCode, and
+  Claude Code while preserving every native MCP server.
+- [ ] Rename remaining Codex-named source files after all consumers use the
+  harness-neutral contract; do not leave compatibility wrappers.
 
 Exit gate:
 
@@ -677,16 +791,62 @@ Exit gate:
 
 ### Slice 7 - Cross-Harness Setup And Doctor
 
-Status: Planned.
+Status: Active. Runtime lifecycle is implemented; native activation and live
+proof remain pending.
 
 Goal: make setup state obvious and repairable from any supported surface.
 
-Work:
+#### Slice 7A - User-Scoped Model Gateway Lifecycle
 
-- unify setup status for global shims, repo shims, native projections, plugins,
-  MCP servers, auth, app servers, and managed route health;
-- add repair actions only where Kiln owns the lifecycle;
-- keep review-only or drift-sensitive actions blocked until the operator
+- [x] Resolve one canonical `modelGateway` block from `~/.kiln/config.yaml`.
+- [x] Store PID, launch identity, lock, logs, SQLite, and health state under the
+  user-scoped Kiln runtime directory rather than a project.
+- [x] Add `start`, `ensure`, `stop`, `restart`, `status`, and `doctor` with
+  identity/digest checks and refusal to terminate foreign or stale processes.
+- [x] Add Windows user Task Scheduler autostart with least privilege,
+  idempotent ownership, exact uninstall, and no shell interpolation.
+- [x] Keep secrets out of YAML, native config, state, health, logs, and command
+  output; only environment variable names are durable.
+- [ ] Add and apply the real operator global `modelGateway` configuration.
+- [ ] Bootstrap/rotate the ingress token through an explicit user-environment
+  flow and verify inheritance after harness restart.
+- [ ] Install autostart on the operator machine and prove restart recovery.
+
+#### Slice 7B - OpenCode Additive Provider Vertical
+
+- [x] Implement a global install-state projection that owns only
+  `provider.kiln`, preserves native providers/default/allowlists, requires an
+  exact healthy listener, rolls back state-write failures, and refuses drift.
+- [x] Add `kiln model-gateway sync-native --client opencode` and exact
+  uninstall behavior.
+- [ ] Apply the projection to the operator's OpenCode config.
+- [ ] Prove `opencode models` shows `kiln/*`, execute one real turn, stop the
+  gateway, and confirm a native OpenCode provider remains usable.
+- [ ] Prove restart/autostart, update, drift repair, and uninstall restore.
+
+#### Slice 7C - Codex Composite Picker
+
+- [ ] Close OpenAI Responses parity required for native passthrough, including
+  admitted reasoning levels and hosted web-search behavior.
+- [ ] Inspect a valid native Codex catalog template and fail closed if one is
+  unavailable.
+- [ ] Generate a composite native-plus-Kiln catalog without changing session
+  provider identity, defaults, search settings, or unrelated fields.
+- [ ] Route native and virtual entries through a supervised loopback while
+  preserving native semantics; never activate provider-only projection as a
+  fake picker.
+- [ ] Journal ownership of catalog/cache/base URL and restore exact prior state
+  on uninstall.
+- [ ] Live-prove Codex CLI first, then Codex App: native turn, virtual turn,
+  pre-existing session resume, gateway recovery, and exact uninstall.
+
+#### Slice 7D - Unified Status And Repair
+
+- [ ] Report supervisor installation, runtime identity, config digest, auth
+  bootstrap, native projection, MCP bridge, route eligibility, and proof age
+  through one status contract.
+- [ ] Add repair actions only where Kiln owns lifecycle and field-level state.
+- [ ] Keep review-only or drift-sensitive actions blocked until the operator
   explicitly reviews them.
 
 Exit gate:
@@ -703,11 +863,15 @@ routes.
 
 Work:
 
-- run a real Kiln development slice from Codex App;
-- use Kiln tools for setup/status/config inspection;
-- delegate at least one implementation or research task to `opencode-go` or
-  `opencode-zen` through Kiln managed invocation;
-- preserve status, cancellation, result, and replay evidence.
+- [x] Prove Codex App -> Kiln MCP -> OpenCode Go managed invocation -> persisted
+  result/replay with a bounded read-only task.
+- [ ] Re-sync and prove the harness-neutral bridge from all three harnesses.
+- [ ] Run a real implementation slice using the completed managed account-lease
+  path, not the legacy static adapter path.
+- [ ] Preserve status, cancellation, timeout, result, usage, account selection,
+  and replay evidence.
+- [ ] Verify no workflow calls `opencode run`, `codex exec`, or an HTTP gateway
+  process as a hidden workaround.
 
 Exit gate:
 
@@ -724,11 +888,15 @@ Goal: replace anecdotal model-routing tables with measured task-class policy.
 
 Work:
 
-- compare direct providers and native harnesses on representative Kiln tasks;
-- report verified success, latency, quota pressure, cost class, retries,
-  operator intervention, and residual risk;
-- separate UI/computer-use verification, code implementation, research,
+- [ ] Compare direct providers and native harnesses on representative Kiln
+  tasks.
+- [ ] Report verified success, latency, quota pressure, cost class, retries,
+  operator intervention, and residual risk.
+- [ ] Separate UI/computer-use verification, code implementation, research,
   review, mechanical edits, and long-running debugging.
+- [ ] Treat the local development junction, full-test late rejection, and
+  cross-platform service adapters as release blockers until replaced or
+  explained by reproducible evidence.
 
 Exit gate:
 

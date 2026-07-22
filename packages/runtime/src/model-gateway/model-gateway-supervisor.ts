@@ -1,0 +1,252 @@
+import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { ModelGatewayConfig } from "@kilnai/core";
+import { createModelGatewayConfigDigest, type ModelGatewayListenerIdentity, type ModelGatewayListenerInspection } from "./model-gateway-listener.js";
+
+export interface ModelGatewayLaunchDescriptor {
+  readonly schemaVersion: 1;
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly mode: "installed" | "local-dev";
+  readonly version: string;
+  readonly requiredEnvNames: readonly string[];
+}
+
+export interface ModelGatewayRuntimeState {
+  readonly schemaVersion: 1;
+  readonly instanceId: string;
+  readonly pid: number;
+  readonly port: number;
+  readonly version: string;
+  readonly configDigest: string;
+  readonly startedAt: string;
+  readonly launch: ModelGatewayLaunchDescriptor;
+}
+
+export interface ModelGatewayProcessAdapter {
+  spawn(descriptor: ModelGatewaySpawnDescriptor, env: Readonly<Record<string, string | undefined>>): Promise<{ readonly pid: number }>;
+  terminate(pid: number): Promise<void>;
+  isAlive(pid: number): boolean;
+}
+
+export interface ModelGatewaySpawnDescriptor {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly detached: true;
+  readonly windowsHide: true;
+}
+
+export type ModelGatewaySupervisorStatus =
+  | { readonly state: "ready"; readonly identity: ModelGatewayListenerIdentity }
+  | { readonly state: "foreign"; readonly reason: string }
+  | { readonly state: "stopped" };
+
+export interface ModelGatewaySupervisorDoctor {
+  readonly status: ModelGatewaySupervisorStatus;
+  readonly stateFile: "present" | "absent";
+  readonly configDigest: string;
+  readonly version: string;
+  readonly diagnostics: readonly string[];
+}
+
+export class ModelGatewaySupervisor {
+  readonly #config: ModelGatewayConfig;
+  readonly #runtimeDir: string;
+  readonly #version: string;
+  readonly #env: Readonly<Record<string, string | undefined>>;
+  readonly #launch: ModelGatewayLaunchDescriptor;
+  readonly #inspect: () => Promise<ModelGatewayListenerInspection>;
+  readonly #process: ModelGatewayProcessAdapter;
+  readonly #createInstanceId: () => string;
+  readonly #wait: (ms: number) => Promise<void>;
+  readonly #now: () => Date;
+
+  constructor(input: {
+    readonly config: ModelGatewayConfig;
+    readonly runtimeDir: string;
+    readonly version: string;
+    readonly env: Readonly<Record<string, string | undefined>>;
+    readonly launch: ModelGatewayLaunchDescriptor;
+    readonly inspect: () => Promise<ModelGatewayListenerInspection>;
+    readonly processAdapter?: ModelGatewayProcessAdapter;
+    readonly createInstanceId?: () => string;
+    readonly wait?: (ms: number) => Promise<void>;
+    readonly now?: () => Date;
+  }) {
+    this.#config = input.config;
+    this.#runtimeDir = input.runtimeDir;
+    this.#version = input.version;
+    this.#env = input.env;
+    this.#launch = validateLaunch(input.launch);
+    this.#inspect = input.inspect;
+    this.#process = input.processAdapter ?? nodeModelGatewayProcessAdapter;
+    this.#createInstanceId = input.createInstanceId ?? randomUUID;
+    this.#wait = input.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.#now = input.now ?? (() => new Date());
+    if (this.#launch.version !== this.#version) throw new Error("Model gateway launch descriptor version does not match the supervisor version.");
+    const serializedLaunch = JSON.stringify(this.#launch);
+    for (const name of this.#launch.requiredEnvNames) {
+      const value = this.#env[name];
+      if (value && serializedLaunch.includes(value)) throw new Error(`Model gateway launch descriptor must reference '${name}' by name, not value.`);
+    }
+  }
+
+  async status(): Promise<ModelGatewaySupervisorStatus> {
+    const [inspection, state] = await Promise.all([this.#inspect(), this.readState()]);
+    if (inspection.state !== "ready") return inspection;
+    if (!state || !owns(inspection.identity, state)) return { state: "foreign", reason: "unmanaged-ready-listener" };
+    return inspection;
+  }
+
+  async start(): Promise<ModelGatewaySupervisorStatus> {
+    return this.#withLock(async () => this.#startLocked());
+  }
+
+  async ensure(): Promise<ModelGatewaySupervisorStatus> {
+    return this.start();
+  }
+
+  async stop(): Promise<ModelGatewaySupervisorStatus> {
+    return this.#withLock(async () => this.#stopLocked());
+  }
+
+  async restart(): Promise<ModelGatewaySupervisorStatus> {
+    return this.#withLock(async () => {
+      const stopped = await this.#stopLocked();
+      if (stopped.state === "foreign") return stopped;
+      return this.#startLocked();
+    });
+  }
+
+  async doctor(): Promise<ModelGatewaySupervisorDoctor> {
+    const [status, state] = await Promise.all([this.status(), this.readState()]);
+    const diagnostics: string[] = [];
+    if (status.state === "foreign") diagnostics.push(`foreign-listener:${status.reason}`);
+    if (state && state.configDigest !== createModelGatewayConfigDigest(this.#config)) diagnostics.push("state-config-drift");
+    if (state && state.version !== this.#version) diagnostics.push("state-version-drift");
+    if (state && !this.#process.isAlive(state.pid) && status.state !== "ready") diagnostics.push("stale-state");
+    for (const name of this.#launch.requiredEnvNames) if (!this.#env[name]) diagnostics.push(`missing-env:${name}`);
+    return { status, stateFile: state ? "present" : "absent", configDigest: createModelGatewayConfigDigest(this.#config), version: this.#version, diagnostics };
+  }
+
+  async readState(): Promise<ModelGatewayRuntimeState | null> {
+    try {
+      const parsed = JSON.parse(await readFile(this.#statePath(), "utf8")) as unknown;
+      return isRuntimeState(parsed) ? parsed : null;
+    } catch (error) {
+      if (isFsCode(error, "ENOENT")) return null;
+      throw error;
+    }
+  }
+
+  async #startLocked(): Promise<ModelGatewaySupervisorStatus> {
+    const current = await this.status();
+    if (current.state === "ready" || current.state === "foreign") return current;
+    const stale = await this.readState();
+    if (stale && this.#process.isAlive(stale.pid)) return { state: "foreign", reason: "stale-owner-alive" };
+    if (stale) await this.#removeState();
+    const instanceId = this.#createInstanceId();
+    const args = [...this.#launch.args, "--instance-id", instanceId];
+    const child = await this.#process.spawn({ command: this.#launch.command, args, detached: true, windowsHide: true }, this.#env);
+    const state: ModelGatewayRuntimeState = {
+      schemaVersion: 1,
+      instanceId,
+      pid: child.pid,
+      port: this.#config.port,
+      version: this.#version,
+      configDigest: createModelGatewayConfigDigest(this.#config),
+      startedAt: this.#now().toISOString(),
+      launch: this.#launch,
+    };
+    await this.#writeState(state);
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const inspection = await this.#inspect();
+      if (inspection.state === "ready") return owns(inspection.identity, state) ? inspection : { state: "foreign", reason: "spawned-identity-mismatch" };
+      if (inspection.state === "foreign") return inspection;
+      await this.#wait(100);
+    }
+    return { state: "foreign", reason: "startup-timeout" };
+  }
+
+  async #stopLocked(): Promise<ModelGatewaySupervisorStatus> {
+    const current = await this.status();
+    const state = await this.readState();
+    if (current.state === "foreign") return current;
+    if (current.state === "stopped") {
+      if (state && this.#process.isAlive(state.pid)) return { state: "foreign", reason: "stale-owner-alive" };
+      if (state) await this.#removeState();
+      return current;
+    }
+    if (!state || !owns(current.identity, state)) return { state: "foreign", reason: "ownership-mismatch" };
+    await this.#process.terminate(current.identity.pid);
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const inspection = await this.#inspect();
+      if (inspection.state === "stopped") { await this.#removeState(); return inspection; }
+      if (inspection.state === "foreign") return inspection;
+      await this.#wait(100);
+    }
+    return { state: "foreign", reason: "shutdown-timeout" };
+  }
+
+  async #withLock<T>(action: () => Promise<T>): Promise<T> {
+    await mkdir(this.#runtimeDir, { recursive: true });
+    let handle;
+    try {
+      handle = await open(this.#lockPath(), "wx", 0o600);
+    } catch (error) {
+      if (!isFsCode(error, "EEXIST")) throw error;
+      throw new Error("Another model gateway lifecycle operation is in progress.");
+    }
+    try {
+      await handle.writeFile(String(process.pid), "utf8");
+      return await action();
+    } finally {
+      await handle.close();
+      await rm(this.#lockPath(), { force: true });
+    }
+  }
+
+  async #writeState(state: ModelGatewayRuntimeState): Promise<void> {
+    await mkdir(this.#runtimeDir, { recursive: true, mode: 0o700 });
+    const temporary = `${this.#statePath()}.${process.pid}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await rename(temporary, this.#statePath());
+  }
+  async #removeState(): Promise<void> { await rm(this.#statePath(), { force: true }); }
+  #statePath(): string { return join(this.#runtimeDir, "state.json"); }
+  #lockPath(): string { return join(this.#runtimeDir, "lifecycle.lock"); }
+}
+
+export const nodeModelGatewayProcessAdapter: ModelGatewayProcessAdapter = {
+  async spawn(descriptor, env) {
+    const child = spawn(descriptor.command, [...descriptor.args], { detached: descriptor.detached, windowsHide: descriptor.windowsHide, stdio: "ignore", env: { ...process.env, ...env } });
+    await new Promise<void>((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    child.unref();
+    if (!child.pid) throw new Error("Model gateway child did not expose a process id.");
+    return { pid: child.pid };
+  },
+  async terminate(pid) { process.kill(pid, "SIGTERM"); },
+  isAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } },
+};
+
+function owns(identity: ModelGatewayListenerIdentity, state: ModelGatewayRuntimeState): boolean {
+  return identity.instanceId === state.instanceId && identity.pid === state.pid && identity.port === state.port && identity.version === state.version && identity.configDigest === state.configDigest;
+}
+
+function validateLaunch(value: ModelGatewayLaunchDescriptor): ModelGatewayLaunchDescriptor {
+  if (value.schemaVersion !== 1 || !value.command || !value.version || !["installed", "local-dev"].includes(value.mode)) throw new Error("Invalid model gateway launch descriptor.");
+  if (value.requiredEnvNames.some((name) => !/^[A-Z_][A-Z0-9_]*$/.test(name))) throw new Error("Model gateway launch descriptor contains an invalid environment name.");
+  return { ...value, args: [...value.args], requiredEnvNames: [...new Set(value.requiredEnvNames)].sort() };
+}
+
+function isRuntimeState(value: unknown): value is ModelGatewayRuntimeState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<ModelGatewayRuntimeState>;
+  return state.schemaVersion === 1 && typeof state.instanceId === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(state.instanceId) && Number.isSafeInteger(state.pid) && (state.pid ?? 0) > 0 && typeof state.configDigest === "string" && /^[a-f0-9]{64}$/.test(state.configDigest) && typeof state.version === "string" && typeof state.port === "number" && typeof state.startedAt === "string" && !!state.launch && state.launch.schemaVersion === 1;
+}
+function isFsCode(error: unknown, code: string): boolean { return !!error && typeof error === "object" && (error as { readonly code?: unknown }).code === code; }

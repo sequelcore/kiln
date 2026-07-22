@@ -11,7 +11,6 @@ import {
   OpenRouterAdapter,
   createAccountRef,
   type DirectProviderId,
-  type ModelGatewayAccountCandidate,
   type ModelGatewayAccountConfig,
   type ModelGatewayConfig,
   type ProviderAdapter,
@@ -34,6 +33,7 @@ import { CodexOAuthModelTurnDispatcher, CodexOAuthModelTurnError } from "./codex
 import { ProviderAdapterOneRoundDispatcher } from "./provider-adapter-one-round-dispatcher.js";
 import { LocalModelGatewayStore } from "./local-model-gateway-store.js";
 import type { GovernedOneRoundInvocationPorts } from "./governed-one-round-invocation.js";
+import { buildModelGatewayBoundCandidates, createModelGatewayBoundAccountRef } from "./model-gateway-account-binding.js";
 
 export interface ModelGatewayIngressOptions {
   readonly config: ModelGatewayConfig;
@@ -81,14 +81,18 @@ export async function createModelGatewayIngress(options: ModelGatewayIngressOpti
     if (store.isRouteCooling(route)) return [];
     const model = [...routes.values()].find((entry) => entry.route.providerId === route.providerId && entry.route.providerModelId === route.providerModelId && entry.route.scope === route.scope)?.model;
     if (!model) return [];
-    const execution = await listExecutionAccounts(route.providerId as DirectProviderId); const candidates: ModelGatewayAccountCandidate[] = [];
-    for (const accountId of model.accountIds) {
-      const config = accounts.get(accountId)!; const current = execution.find((entry) => entry.credentialId === config.credentialId); if (!current) continue;
-      const ref = accountRef(config, current);
-      store.configureAccount({ accountRef: ref, maxConcurrency: config.maxConcurrency, reservedAffinitySlots: config.reservedAffinitySlots });
-      candidates.push({ account: ref, route, health: "healthy", pressure: store.pressure(ref), reservedForNewWork: store.isNewWorkReserved(ref) });
-    }
-    return candidates;
+    const execution = await listExecutionAccounts(route.providerId as DirectProviderId);
+    const usage = route.providerId === "codex-oauth" ? await codexPool.listUsage() : [];
+    const bound = buildModelGatewayBoundCandidates({
+      virtualModel: model,
+      accounts: [...accounts.values()],
+      executionAccounts: execution,
+      usage,
+      configureCapacity: (accountRef, capacity) => store.configureAccount({ accountRef, ...capacity }),
+      pressure: (ref) => store.pressure(ref),
+      reservedForNewWork: (ref) => store.isNewWorkReserved(ref),
+    });
+    return bound.map((entry) => entry.candidate);
   } };
   const dispatcherResolver: GovernedOneRoundInvocationPorts["dispatcherResolver"] = { resolve: async ({ identity, route, account, leaseId }) => {
     if (!store.verifyLease({ leaseId, accountRef: account, identity, route })) throw new Error("Selected account lease is invalid.");
@@ -203,7 +207,7 @@ type ExecutionAccount =
   | DirectProviderExecutionAccount;
 
 function accountRef(config: ModelGatewayAccountConfig, execution: ExecutionAccount) {
-  return createAccountRef(`configured:${config.id}:${execution.fileIdentity}:${execution.revision}`);
+  return createModelGatewayBoundAccountRef(config, execution);
 }
 
 function rawOpenCodeAdapter(credential: OpenCodeExecutionCredential, model: string): ProviderAdapter {

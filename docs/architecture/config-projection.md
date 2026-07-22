@@ -157,9 +157,25 @@ shared status contract.
 ## Model Gateway Native Projection
 
 Canonical `modelGateway` surfaces are projected through the same composed
-native writers and install-state used for permission projection. Codex and
-OpenCode receive their OpenAI Responses provider definitions. Claude Code
-receives an Anthropic Messages gateway configuration in `.claude/settings.json`:
+native writers and install-state used for permission projection. The global
+Codex and OpenCode projections are additive registration only:
+
+- Codex receives only `model_providers.kiln`. Kiln does not set
+  `model_provider`, `model_catalog_json`, `model`, or `web_search`.
+- OpenCode receives only `provider.kiln`. Kiln does not create or modify
+  `enabled_providers` and does not select a default `model`.
+- Existing native providers, picker catalogs, defaults, search behavior, and
+  sessions remain owned by the native harness and operator.
+
+A Codex picker projection is not admitted until Kiln can preserve native
+provider identity, materialize a verified composite catalog, and prove the
+loopback listener healthy before changing native traffic. Merely declaring a
+`modelGateway` principal must never replace the native picker. Sync migrates
+legacy Kiln-owned replacement fields and catalogs away while preserving the
+additive provider definition.
+
+Claude Code receives an explicitly configured Anthropic Messages gateway
+configuration in project-local `.claude/settings.json`:
 
 - `ANTHROPIC_BASE_URL` points to the loopback gateway origin without `/v1`.
 - `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` enables authenticated

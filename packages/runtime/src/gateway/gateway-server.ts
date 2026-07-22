@@ -27,7 +27,7 @@ import {
   isPooledDirectProviderId,
   OpenCodeCredentialPoolService,
 } from "../agents/credential-pool/index.js";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer, ModelGatewayConfig } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer } from "@kilnai/core";
 import { ActionEffectAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, CostTracker } from "@kilnai/core";
@@ -37,9 +37,7 @@ import { TriggerRegistry } from "../trigger/trigger-registry.js";
 import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
-import { createOpenAIResponsesRoutes } from "./openai-responses-routes.js";
-import { createModelGatewayIngress } from "../model-gateway/model-gateway-ingress.js";
-import { createAnthropicMessagesRoutes } from "../model-gateway/anthropic-messages-routes.js";
+import { startModelGatewayListener } from "../model-gateway/model-gateway-listener.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
 import { createDefaultRuntimeMultimodalTransformRoutes } from "../session/runtime-multimodal-transforms.js";
@@ -151,44 +149,10 @@ export interface StartGatewayOptions {
   readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: (request: Request) => Response | Promise<Response> }) => { stop(force?: boolean): void };
 }
 
-export interface StartModelGatewayListenerOptions {
-  readonly config: ModelGatewayConfig;
-  readonly databasePath: string;
-  readonly credentialRootDir?: string;
-  readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly providerFetch?: typeof fetch;
-  readonly listen?: StartGatewayOptions["modelGatewayListener"];
-}
-
 export async function closeGatewayResources(actions: readonly (() => void | Promise<void>)[]): Promise<void> {
   for (const action of actions) {
     try { await action(); } catch { /* cleanup is best-effort across independent resources */ }
   }
-}
-
-/** Starts only the private model ingress and owns its listener/store lifecycle. */
-export async function startModelGatewayListener(options: StartModelGatewayListenerOptions): Promise<{ close(): void }> {
-  const handle = await createModelGatewayIngress({
-    config: options.config,
-    databasePath: options.databasePath,
-    ...(options.credentialRootDir === undefined ? {} : { credentialRootDir: options.credentialRootDir }),
-    ...(options.env === undefined ? {} : { env: options.env }),
-    ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
-  });
-  let listener: { stop(force?: boolean): void } | undefined;
-  try {
-    const modelApp = new Hono();
-    if (handle.openAIResponses) modelApp.route("/", createOpenAIResponsesRoutes(handle.openAIResponses));
-    if (handle.anthropicMessages) modelApp.route("/", createAnthropicMessagesRoutes(handle.anthropicMessages));
-    listener = options.listen
-      ? options.listen({ hostname: "127.0.0.1", port: options.config.port, fetch: modelApp.fetch })
-      : Bun.serve({ hostname: "127.0.0.1", port: options.config.port, fetch: modelApp.fetch });
-  } catch (error) {
-    handle.close();
-    throw error;
-  }
-  let closed = false;
-  return { close: () => { if (closed) return; closed = true; try { listener.stop(true); } finally { handle.close(); } } };
 }
 
 export interface DevServerOptions {

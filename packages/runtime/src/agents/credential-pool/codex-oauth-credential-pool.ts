@@ -14,8 +14,11 @@ import {
   type Credential,
   type CredentialExhaustionDiagnostic,
   type CredentialOutcome,
+  type ProviderUsageSnapshot,
   type ProviderAdapter,
 } from "@kilnai/core";
+import { CodexProviderUsageReader } from "../provider-usage/codex-provider-usage-reader.js";
+import { FileProviderUsageStore, type ProviderUsageStore } from "../provider-usage/file-provider-usage-store.js";
 import { CredentialHealthStore } from "./credential-health-store.js";
 import type { CredentialPoolObservabilityRegistry } from "./credential-pool-observability.js";
 import type { CredentialWatcher } from "./credential-watcher.js";
@@ -27,6 +30,8 @@ export interface CodexOAuthCredentialPoolServiceConfig {
   readonly healthStore?: CredentialHealthStore;
   readonly watcher?: CredentialWatcher;
   readonly observability?: CredentialPoolObservabilityRegistry;
+  readonly usageStore?: ProviderUsageStore;
+  readonly usageReader?: CodexProviderUsageReader;
 }
 
 export interface LinkCodexOAuthCredentialOptions {
@@ -97,6 +102,8 @@ export class CodexOAuthCredentialPoolService {
   private readonly healthStore: CredentialHealthStore;
   private readonly watcher?: CredentialWatcher;
   private readonly observability?: CredentialPoolObservabilityRegistry;
+  private readonly usageStore: ProviderUsageStore;
+  private readonly usageReader: CodexProviderUsageReader;
   private readonly credentialLocks = new Map<string, Promise<void>>();
   private catalogLock: Promise<void> = Promise.resolve();
 
@@ -105,6 +112,8 @@ export class CodexOAuthCredentialPoolService {
     this.healthStore = config.healthStore ?? new CredentialHealthStore({ rootDir: this.rootDir });
     this.watcher = config.watcher;
     this.observability = config.observability;
+    this.usageStore = config.usageStore ?? new FileProviderUsageStore({ rootDir: this.rootDir });
+    this.usageReader = config.usageReader ?? new CodexProviderUsageReader({ store: this.usageStore });
   }
 
   async linkCredential(options: LinkCodexOAuthCredentialOptions): Promise<void> {
@@ -120,6 +129,7 @@ export class CodexOAuthCredentialPoolService {
       await this.withCredentialLocks([id, ...predecessorIds], async () => {
         await atomicReplaceCredentialFile(this.credentialFilePath(id), options.tokenFile);
         await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, id);
+        await this.usageStore.remove(CODEX_OAUTH_POOL_PROVIDER_ID, id);
         if (!options.id && accountId) {
           const existing = await this.readCredentials();
           for (const credential of existing) {
@@ -128,6 +138,7 @@ export class CodexOAuthCredentialPoolService {
             }
             await unlinkIfPresent(credential.tokenPath);
             await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, credential.id);
+            await this.usageStore.remove(CODEX_OAUTH_POOL_PROVIDER_ID, credential.id);
           }
         }
       });
@@ -285,6 +296,40 @@ export class CodexOAuthCredentialPoolService {
     await this.healthStore.recordOutcome(CODEX_OAUTH_POOL_PROVIDER_ID, credentialId, outcome, cooldownUntil);
   }
 
+  async refreshUsage(): Promise<readonly ProviderUsageSnapshot[]> {
+    const snapshots: ProviderUsageSnapshot[] = [];
+    for (const account of await this.listExecutionAccounts()) {
+      const snapshot = await this.usageReader.read({
+        provider: CODEX_OAUTH_POOL_PROVIDER_ID,
+        credentialId: account.credentialId,
+        resolveCredential: () => this.resolveExecutionCredential(account),
+      });
+      const stillCurrent = (await this.listExecutionAccounts()).some((candidate) =>
+        candidate.credentialId === account.credentialId
+        && candidate.fileIdentity === account.fileIdentity
+        && candidate.revision === account.revision);
+      if (!stillCurrent) {
+        await this.usageStore.remove(CODEX_OAUTH_POOL_PROVIDER_ID, account.credentialId);
+        continue;
+      }
+      snapshots.push(snapshot);
+    }
+    return snapshots;
+  }
+
+  async listUsage(now = new Date()): Promise<readonly ProviderUsageSnapshot[]> {
+    return this.usageStore.list(CODEX_OAUTH_POOL_PROVIDER_ID, now);
+  }
+
+  async removeCredential(credentialId: string): Promise<void> {
+    assertSafeCredentialId(credentialId);
+    await this.withCatalogLock(() => this.withCredentialLocks([credentialId], async () => {
+      await unlinkIfPresent(this.credentialFilePath(credentialId));
+      await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, credentialId);
+      await this.usageStore.remove(CODEX_OAUTH_POOL_PROVIDER_ID, credentialId);
+    }));
+  }
+
   async clearCredentials(): Promise<void> {
     await this.withCatalogLock(async () => {
       const files = await this.listCredentialFileNames();
@@ -293,6 +338,7 @@ export class CodexOAuthCredentialPoolService {
         for (const { file, credentialId } of entries) {
           await unlinkIfPresent(join(this.providerDirectory(), file));
           await this.healthStore.removeCredentialHealth(CODEX_OAUTH_POOL_PROVIDER_ID, credentialId);
+          await this.usageStore.remove(CODEX_OAUTH_POOL_PROVIDER_ID, credentialId);
         }
       });
     });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,10 +7,17 @@ import type { KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
 import type { ManagedJobRecord } from "@kilnai/runtime";
 import { discoverNativeHarnessProjectRoot } from "../../src/application/native-harness-project-root.js";
 import {
-  CodexAppMcpServer,
+  NativeHarnessMcpServer,
   createNativeHarnessInspectionService,
-  type CodexAppMcpSdk,
+  type NativeHarnessMcpSdk,
 } from "../../src/native-harness/codex-app-mcp-server.js";
+
+const CodexAppMcpServer = class extends NativeHarnessMcpServer {
+  constructor(options: Omit<ConstructorParameters<typeof NativeHarnessMcpServer>[0], "harness">) {
+    super({ harness: "codex", ...options });
+  }
+};
+type CodexAppMcpSdk = NativeHarnessMcpSdk;
 
 const OBSERVED_AT = "2026-07-13T18:01:00.000Z";
 const TEMPORARY_CWD = join(tmpdir(), "kiln-codex-app-mcp-unrelated-cwd");
@@ -66,10 +73,11 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
 
 function createServer(
   status = snapshot(),
-  options: Parameters<typeof createNativeHarnessInspectionService>[0] = {},
-): CodexAppMcpServer {
+  options: Omit<Parameters<typeof createNativeHarnessInspectionService>[0], "harness"> = {},
+): NativeHarnessMcpServer {
   return new CodexAppMcpServer({
     inspection: createNativeHarnessInspectionService({
+      harness: "codex",
       readStatus: async () => status,
       readBridgeProjection: async () => "current",
       readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\kiln" }),
@@ -101,20 +109,54 @@ function managedJob(overrides: Partial<ManagedJobRecord> = {}): ManagedJobRecord
 }
 
 describe("CodexAppMcpServer", () => {
+  it.each(["codex", "claude", "opencode"] as const)("uses trusted %s identity in managed-job evidence", async (harness) => {
+    const server = new NativeHarnessMcpServer({
+      harness,
+      inspection: createNativeHarnessInspectionService({ harness }),
+      managedJobs: {
+        submit: async () => managedJob(),
+        getStatus: async () => managedJob(),
+        getResult: async () => ({ jobId: "managed-job-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }),
+        cancel: async () => managedJob(),
+        getReplay: async () => ({ jobId: "managed-job-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }),
+      },
+    });
+
+    await expect(server.callTool("kiln_managed_agent_status", { jobId: "managed-job-0001" })).resolves.toMatchObject({
+      structuredContent: { evidence: { harness, callerId: `${harness}-native-harness` } },
+    });
+    expect(server.listTools().map((tool) => tool.name)).toContain("kiln_managed_agent_invoke");
+  });
+
   afterEach(() => {
     rmSync(TEMPORARY_CWD, { recursive: true, force: true });
   });
-  it("discovers the three inspection tools and exactly five managed-job tools", () => {
+  it("discovers four inspection tools and exactly five managed-job tools", () => {
     expect(createServer().listTools().map((tool) => tool.name)).toEqual([
       "kiln_status_inspect",
       "kiln_work_governance_inspect",
       "kiln_capability_inspect",
+      "kiln_account_usage_inspect",
       "kiln_managed_agent_invoke",
       "kiln_managed_agent_status",
       "kiln_managed_agent_result",
       "kiln_managed_agent_cancel",
       "kiln_managed_agent_replay",
     ]);
+  });
+
+  it("returns sanitized account usage without accepting account selection arguments", async () => {
+    const inspect = vi.fn(async () => ({
+      operation: "account-usage",
+      accounts: [{ provider: "codex-oauth", accountId: "plus", credentialId: "opaque-id", plan: "plus", availability: "available", freshness: "fresh", source: "provider-endpoint", confidence: "authoritative", eligibleRoutes: ["codex-managed"] }],
+      evidence: { authority: "global-model-gateway" },
+    }));
+    const server = new NativeHarnessMcpServer({ harness: "codex", accountUsage: { inspect } });
+    const result = await server.callTool("kiln_account_usage_inspect", {});
+    expect(result.structuredContent).toMatchObject({ accounts: [{ credentialId: "opaque-id", eligibleRoutes: ["codex-managed"] }] });
+    expect(JSON.stringify(result)).not.toMatch(/token|email|path|raw/i);
+    await expect(server.callTool("kiln_account_usage_inspect", { credentialId: "opaque-id" })).resolves.toMatchObject({ isError: true });
+    expect(inspect).toHaveBeenCalledTimes(1);
   });
 
   it("narrows invoke to safely admitted configured agents without exposing route configuration", () => {
@@ -142,7 +184,7 @@ describe("CodexAppMcpServer", () => {
   it("projects only trusted request identity into the canonical managed-job submit", async () => {
     const submitted: unknown[] = [];
     const server = new CodexAppMcpServer({
-      inspection: createNativeHarnessInspectionService(),
+      inspection: createNativeHarnessInspectionService({ harness: "codex" }),
       managedJobs: {
         submit: async (input) => { submitted.push(input); return managedJob(); },
         getStatus: async () => managedJob(),
@@ -259,7 +301,7 @@ describe("CodexAppMcpServer", () => {
     expect(result.structuredContent).toMatchObject({
       operation: "status",
       evidence: {
-        harness: { kind: "native-harness", harness: "codex", channel: "app" },
+        harness: { kind: "native-harness", harness: "codex", channel: "control-plane" },
         authoritySource: "kiln-config-status",
         directProviderAuthority: "kiln-runtime",
         nativeHarnessPermissionAuthority: "native-harness-only",
@@ -413,6 +455,7 @@ describe("CodexAppMcpServer", () => {
 
   it("returns observed capabilities while classifying bridge and projection evidence as unresolved", async () => {
     const inspection = createNativeHarnessInspectionService({
+      harness: "codex",
       readStatus: async () => snapshot({ projections: [{ targetId: "codex-config", path: "ignored", kind: "native", status: "drifted" }] }),
       readBridgeProjection: async () => "invalid",
       readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\kiln" }),
@@ -440,6 +483,22 @@ describe("CodexAppMcpServer", () => {
         capability: { availability: "available", bridgeProjection: "current" },
         diagnostics: [expect.objectContaining({ code: "KILN_PROJECTION_STALE", targetId: "claude-global-instructions" })],
       },
+    });
+  });
+
+  it("recognizes the installed project-local Kiln bridge declaration without a bridge-reader mock", async () => {
+    mkdirSync(join(TEMPORARY_CWD, ".codex"), { recursive: true });
+    writeFileSync(join(TEMPORARY_CWD, ".codex", "config.toml"), `[mcp_servers.kiln-control-plane]\ncommand = "kiln"\nargs = ["native-harness", "control-plane-mcp", "--harness", "codex", "--project-root", ${JSON.stringify(TEMPORARY_CWD)}]\nenabled = true\n`);
+
+    const inspection = createNativeHarnessInspectionService({
+      harness: "codex",
+      readStatus: async () => snapshot(),
+      readProjectRoot: async () => ({ status: "resolved", rootPath: TEMPORARY_CWD }),
+      now: () => new Date(OBSERVED_AT),
+    });
+
+    await expect(inspection.inspectCapability()).resolves.toMatchObject({
+      capability: { availability: "available", bridgeProjection: "current" },
     });
   });
 
@@ -472,6 +531,7 @@ describe("CodexAppMcpServer", () => {
 
   it("reports a missing inspection owner through a stable unresolved envelope", async () => {
     const server = new CodexAppMcpServer({ inspection: createNativeHarnessInspectionService({
+      harness: "codex",
       readStatus: null,
       readBridgeProjection: async () => "current",
       readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\kiln" }),
@@ -619,6 +679,7 @@ describe("CodexAppMcpServer", () => {
     const transport = { close: async () => { transportClosed = true; } } as never;
     const server = new CodexAppMcpServer({
       inspection: createNativeHarnessInspectionService({
+        harness: "codex",
         readStatus: async () => snapshot(),
         readBridgeProjection: async () => "current",
         readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\kiln" }),

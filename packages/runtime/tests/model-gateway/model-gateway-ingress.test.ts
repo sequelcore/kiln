@@ -34,7 +34,7 @@ const config: ModelGatewayConfig = {
 
 describe("createModelGatewayIngress", () => {
   let root: string | undefined;
-  afterEach(async () => { vi.restoreAllMocks(); if (root) await rm(root, { recursive: true, force: true }); root = undefined; });
+  afterEach(async () => { vi.unstubAllGlobals(); vi.restoreAllMocks(); if (root) await rm(root, { recursive: true, force: true }); root = undefined; });
 
   it("composes Responses and Anthropic over one authority while keeping protocol ACL and namespaces distinct", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-shared-model-ingress-"));
@@ -100,6 +100,39 @@ describe("createModelGatewayIngress", () => {
     })).rejects.toThrow("trusted principal identities must be unique within each ingress");
   });
 
+  it("uses explicit virtual-model bindings for multiple Codex credentials and fresh usage health", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-multi-account-binding-"));
+    const credentialRoot = join(root, "auth");
+    const pool = new CodexOAuthCredentialPoolService({ rootDir: credentialRoot });
+    await pool.linkCredential({ id: "credential-plus", tokenFile: token("account-plus") });
+    await pool.linkCredential({ id: "credential-free", tokenFile: token("account-free") });
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const accountId = new Headers(init?.headers).get("chatgpt-account-id");
+      return new Response(JSON.stringify(accountId === "account-plus"
+        ? { plan_type: "plus", rate_limit: { allowed: false, limit_reached: true, primary_window: { used_percent: 100, reset_at: 4_070_908_800 } } }
+        : { plan_type: "free", rate_limit: { allowed: true, limit_reached: false } }), { status: 200 });
+    }));
+    await pool.refreshUsage();
+    const multi: ModelGatewayConfig = {
+      ...config,
+      accounts: [
+        { id: "plus", providerId: "codex-oauth", credentialId: "credential-plus", maxConcurrency: 1, reservedAffinitySlots: 0 },
+        { id: "free", providerId: "codex-oauth", credentialId: "credential-free", maxConcurrency: 1, reservedAffinitySlots: 0 },
+      ],
+      virtualModels: [{ ...config.virtualModels[0]!, accountIds: ["plus", "free"] }],
+      principals: [{ ...config.principals[0]!, virtualModelIds: ["codex"] }],
+    };
+    const handle = await createModelGatewayIngress({ config: multi, databasePath: ":memory:", credentialRootDir: credentialRoot, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) } });
+    try {
+      const principal = (await handle.openAIResponses!.authenticateBearer("b".repeat(32)))!;
+      const resolved = (await handle.openAIResponses!.resolveVirtualModel({ principal, requestedModel: "codex" }))!;
+      const candidates = await handle.openAIResponses!.invocationPorts.candidateCatalog.list({ identity: { ...principal, sessionId: "session", turnId: "turn" }, route: resolved.route, authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] }, budget: { status: "admitted", evidenceId: "budget" } });
+      expect(candidates).toHaveLength(2);
+      expect(candidates.filter((entry) => entry.health === "healthy")).toHaveLength(1);
+      expect(candidates.find((entry) => entry.health === "healthy")?.account).toContain("configured:free:");
+    } finally { handle.close(); }
+  });
+
   it("dispatches a conforming Messages request through the shared Codex authority exactly once", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-anthropic-codex-dispatch-"));
     const credentialRoot = join(root, "auth");
@@ -126,8 +159,9 @@ describe("createModelGatewayIngress", () => {
         headers: { authorization: `Bearer ${"a".repeat(32)}`, "anthropic-version": "2023-06-01", "content-type": "application/json", "x-claude-code-session-id": "session-1" },
         body: JSON.stringify({ model: "claude-kiln", max_tokens: 64, stream: true, output_config: { effort: "high" }, messages: [{ role: "user", content: "Return PROBE_OK" }] }),
       }));
-      expect(response.status).toBe(200);
-      expect(await response.text()).toContain("PROBE_OK");
+      const responseText = await response.text();
+      expect(response.status, responseText).toBe(200);
+      expect(responseText).toContain("PROBE_OK");
       expect(providerFetch).toHaveBeenCalledOnce();
     } finally { handle.close(); }
   });

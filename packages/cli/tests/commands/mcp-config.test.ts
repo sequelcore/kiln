@@ -57,13 +57,20 @@ describe("mcpConfigCommand", () => {
     expect(mocks.sync).toHaveBeenCalledWith(
       { servers: {}, diagnostics: [] },
       process.cwd(),
-      { harnesses: ["codex", "claude", "opencode"] },
+      { harnesses: ["codex", "claude", "opencode"], includeKilnControlPlane: true },
     );
   });
 
-  it("can narrow synchronization to one supported harness", async () => {
-    await mcpConfigCommand(APP_CONFIG, { client: "claude-code" });
-    expect(mocks.sync).toHaveBeenCalledWith(expect.anything(), process.cwd(), { harnesses: ["claude"] });
+  it.each([
+    ["codex", "codex"],
+    ["claude-code", "claude"],
+    ["opencode", "opencode"],
+  ] as const)("installs the control plane when %s is selected alone", async (client, harness) => {
+    await mcpConfigCommand(APP_CONFIG, { client });
+    expect(mocks.sync).toHaveBeenCalledWith(expect.anything(), process.cwd(), {
+      harnesses: [harness],
+      includeKilnControlPlane: true,
+    });
   });
 
   it("uninstalls only the selected governed MCP projection", async () => {

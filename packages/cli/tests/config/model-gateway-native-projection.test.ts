@@ -48,18 +48,18 @@ function claudeConfig(tokenEnv = "ANTHROPIC_AUTH_TOKEN", modelIds = ["claude-mod
 }
 
 describe("model gateway native projections", () => {
-  it("builds a secret-free Codex Responses provider and official static model catalog", () => {
+  it("adds a secret-free Codex Responses provider without taking ownership of the native picker", () => {
     const projected = buildCodexResponsesProjection({ config: config([principal("codex")]), modelCatalogPath: "C:/project/.kiln/projections/codex-model-catalog.json" });
     expect(projected?.patch).toMatchObject({
-      model: "model-a", model_provider: "kiln", model_catalog_json: "C:/project/.kiln/projections/codex-model-catalog.json", web_search: "disabled",
       model_providers: { kiln: { base_url: "http://127.0.0.1:4910/v1", env_key: "CODEX_TOKEN", wire_api: "responses", request_max_retries: 0, stream_max_retries: 0, supports_websockets: false, requires_openai_auth: false } },
     });
+    expect(projected?.patch).not.toHaveProperty("model");
+    expect(projected?.patch).not.toHaveProperty("model_provider");
+    expect(projected?.patch).not.toHaveProperty("model_catalog_json");
+    expect(projected?.patch).not.toHaveProperty("web_search");
+    expect(projected?.managedFields).toEqual(["model_providers.kiln"]);
+    expect(projected).not.toHaveProperty("catalog");
     expect(JSON.stringify(projected)).not.toContain("Bearer");
-    expect(projected?.catalog.models).toEqual([expect.objectContaining({
-      slug: "model-a", display_name: "Model A", context_window: 200000,
-      base_instructions: "Governed model A instructions.", visibility: "list", supported_in_api: true,
-      supports_parallel_tool_calls: true, input_modalities: ["text", "image"],
-    })]);
   });
 
   it("projects an OpenCode-backed virtual model into Codex without exposing upstream credentials", () => {
@@ -79,18 +79,17 @@ describe("model gateway native projections", () => {
     };
 
     const projected = buildCodexResponsesProjection({ config: crossProvider, modelCatalogPath: "C:/catalog.json" });
-    expect(projected?.catalog.models[0]).toMatchObject({ slug: "model-a", display_name: "Model A" });
+    expect(projected?.patch).toHaveProperty("model_providers.kiln");
     expect(JSON.stringify(projected)).not.toContain("credential-a");
     expect(JSON.stringify(projected)).not.toContain("opencode-go");
   });
 
-  it("builds an OpenCode Responses provider while preserving enabled providers", () => {
+  it("adds an OpenCode Responses provider without synthesizing the native allowlist or default", () => {
     const projected = buildOpenCodeResponsesProjection({ config: config([principal("opencode")]), existingEnabledProviders: ["anthropic"] });
     expect(projected?.patch).toEqual({
       provider: { kiln: { npm: "@ai-sdk/openai", name: "Kiln", options: { baseURL: "http://127.0.0.1:4910/v1", apiKey: "{env:OPENCODE_TOKEN}" }, models: { "model-a": { name: "Model A", limit: { context: 200000, output: 8192 } } } } },
-      enabled_providers: ["anthropic", "kiln"],
-      model: "kiln/model-a",
     });
+    expect(projected?.managedFields).toEqual(["provider.kiln"]);
   });
 
   it("builds a secret-free Claude Messages gateway projection with granular managed env paths", () => {
@@ -167,11 +166,11 @@ describe("model gateway native projections", () => {
     expect(resolveResponsesNativeProjectionSource(config([invalidIngress]), "codex")).toBeUndefined();
   });
 
-  it("requires canonical base instructions only at the Codex projection boundary", () => {
+  it("does not require catalog-only base instructions when adding the Codex provider", () => {
     const withoutInstructions = config([principal("codex")]);
     const model = withoutInstructions.virtualModels[0]!;
     const invalid = { ...withoutInstructions, virtualModels: [{ ...model, baseInstructions: undefined }] };
-    expect(() => buildCodexResponsesProjection({ config: invalid, modelCatalogPath: "C:/catalog.json" })).toThrow("base instructions");
+    expect(buildCodexResponsesProjection({ config: invalid, modelCatalogPath: "C:/catalog.json" })).toBeDefined();
     const openCodeOnly = { ...invalid, principals: [principal("opencode")] };
     expect(buildOpenCodeResponsesProjection({ config: openCodeOnly })).toBeDefined();
   });

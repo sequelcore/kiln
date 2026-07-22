@@ -19,33 +19,36 @@ import { createStagedManagedInvocationRouteCatalog } from "../config/managed-age
 import type { ManagedInvocationRouteResolution } from "../config/managed-agent-routes.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../config/managed-agent-provider-models.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
-import { discoverNativeHarnessProjectRoot } from "./native-harness-project-root.js";
+import { discoverNativeHarnessProjectRoot, resolveNativeHarnessProjectRoot } from "./native-harness-project-root.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 
-const CODEX_APP_CALLER_ID = "codex-app";
 /** Slice 3 admits read-only planning only; the route must explicitly support it. */
 const REQUIRED_ADMISSION_PROFILE_ID = "foundation-readonly-plan";
 
 /**
- * Production composition for the project-local Codex App bridge. Configuration
+ * Production composition for a project-local native-harness bridge. Configuration
  * and Runtime retain route and provider authority; this adapter only connects
  * their already-admitted values to the persistent application owner.
  */
-export interface CreateCodexAppManagedJobApplicationCompositionOptions {
+export type NativeHarnessId = "codex" | "claude" | "opencode";
+
+export interface CreateNativeHarnessManagedJobApplicationCompositionOptions {
+  readonly harness: NativeHarnessId;
   readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
   readonly onRefreshError?: (error: unknown) => void;
+  readonly projectPath?: string;
 }
 
-export async function createCodexAppManagedJobApplicationService(
-  options?: CreateCodexAppManagedJobApplicationCompositionOptions,
+export async function createNativeHarnessManagedJobApplicationService(
+  options: CreateNativeHarnessManagedJobApplicationCompositionOptions,
 ): Promise<ManagedJobApplicationService> {
-  return (await createCodexAppManagedJobApplicationComposition(options)).service;
+  return (await createNativeHarnessManagedJobApplicationComposition(options)).service;
 }
 
-export interface CodexAppManagedAgentSummary {
+export interface NativeHarnessManagedAgentSummary {
   readonly configuredAgentProfileId: string;
   readonly displayName?: string;
   readonly role?: string;
@@ -56,14 +59,14 @@ export interface CodexAppManagedAgentSummary {
   readonly operatorAction?: string;
 }
 
-export interface CodexAppManagedJobApplicationComposition {
+export interface NativeHarnessManagedJobApplicationComposition {
   readonly service: ManagedJobApplicationService;
-  readonly application: CodexAppManagedJobApplicationPort;
-  readonly configuredAgents: readonly CodexAppManagedAgentSummary[];
+  readonly application: NativeHarnessManagedJobApplicationPort;
+  readonly configuredAgents: readonly NativeHarnessManagedAgentSummary[];
 }
 
 /** Project identity comes from this trusted composition, never from MCP input. */
-export interface CodexAppManagedJobApplicationPort {
+export interface NativeHarnessManagedJobApplicationPort {
   submit(input: unknown): Promise<ManagedJobRecord>;
   getStatus(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobRecord>;
   getResult(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobResultQuery>;
@@ -71,10 +74,12 @@ export interface CodexAppManagedJobApplicationPort {
   getReplay(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobReplayQuery>;
 }
 
-export async function createCodexAppManagedJobApplicationComposition(
-  options: CreateCodexAppManagedJobApplicationCompositionOptions = {},
-): Promise<CodexAppManagedJobApplicationComposition> {
-  const root = discoverNativeHarnessProjectRoot();
+export async function createNativeHarnessManagedJobApplicationComposition(
+  options: CreateNativeHarnessManagedJobApplicationCompositionOptions,
+): Promise<NativeHarnessManagedJobApplicationComposition> {
+  const root = options.projectPath
+    ? resolveNativeHarnessProjectRoot(options.projectPath)
+    : discoverNativeHarnessProjectRoot();
   if (root.status !== "resolved") {
     throw new ManagedJobApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
   }
@@ -85,6 +90,7 @@ export async function createCodexAppManagedJobApplicationComposition(
   const admittedMcpServers = Object.values(mcpResolution.servers).filter((server) =>
     server.enabled && server.admission?.state === "admitted");
   const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
+  const inspection = createNativeHarnessInspectionService({ harness: options.harness, readProjectRoot: async () => root });
   const freshManagedInvocation = async (): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
     let config: KilnYaml | undefined;
     try {
@@ -128,7 +134,7 @@ export async function createCodexAppManagedJobApplicationComposition(
     project: { resolve: async () => project },
     governance: {
       resolve: async () => {
-        const governance = await createNativeHarnessInspectionService().inspectWorkGovernance();
+        const governance = await inspection.inspectWorkGovernance();
         if (governance.authority !== "authoritative") {
           throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
         }
@@ -142,7 +148,7 @@ export async function createCodexAppManagedJobApplicationComposition(
         };
       },
       admit: async () => {
-        const governance = await createNativeHarnessInspectionService().inspectWorkGovernance();
+        const governance = await inspection.inspectWorkGovernance();
         if (governance.authority !== "authoritative" || !governance.policy) {
           throw new ManagedJobApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence.");
         }
@@ -151,7 +157,7 @@ export async function createCodexAppManagedJobApplicationComposition(
         if (!governance.policy.requireDelegationFor.includes("managed-agents")) {
           return { admitted: false };
         }
-        return { admitted: true, admissionId: "codex-app-managed-agent-delegation", source: "kiln-work-governance" };
+        return { admitted: true, admissionId: `${options.harness}-managed-agent-delegation`, source: "kiln-work-governance" };
       },
     },
     profiles: {
@@ -177,7 +183,7 @@ export async function createCodexAppManagedJobApplicationComposition(
         if (!admitted) {
           throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route.");
         }
-        const port = createRuntimeManagedJobInvocationPort({ service: admitted.invocationService, resolver: runtimeResolver(admitted.route) });
+        const port = createRuntimeManagedJobInvocationPort({ service: admitted.invocationService, resolver: runtimeResolver(admitted.route, options.harness) });
         activeInvocationServices.set(input.jobId, admitted.invocationService);
         try {
           return await port.invoke(input);
@@ -194,14 +200,14 @@ export async function createCodexAppManagedJobApplicationComposition(
     store: new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs")),
   });
   await service.recoverInterrupted();
-  const application: CodexAppManagedJobApplicationPort = {
+  const application: NativeHarnessManagedJobApplicationPort = {
     submit: (input) => service.start(input),
     getStatus: (input, jobId) => service.getStatus({ project, callerId: input.callerId }, jobId),
     getResult: (input, jobId) => service.getResult({ project, callerId: input.callerId }, jobId),
     cancel: (input, jobId) => service.cancel({ project, callerId: input.callerId }, jobId),
     getReplay: (input, jobId) => service.getReplay({ project, callerId: input.callerId }, jobId),
   };
-  return { service, application, configuredAgents: summarizeCodexAppManagedAgents(configuredAgents, managedInvocation) };
+  return { service, application, configuredAgents: summarizeNativeHarnessManagedAgents(configuredAgents, managedInvocation) };
 }
 
 function routeForProfile(resolution: ManagedInvocationRouteResolution["managedInvocation"], profile: ManagedJobProfile): ManagedJobRoute | undefined {
@@ -226,7 +232,10 @@ function routeForProfile(resolution: ManagedInvocationRouteResolution["managedIn
   };
 }
 
-function runtimeResolver(route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number]): ManagedJobRuntimeInvocationResolver {
+function runtimeResolver(
+  route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number],
+  harness: NativeHarnessId,
+): ManagedJobRuntimeInvocationResolver {
   return {
     async resolve(input) {
       const profile = route?.profiles[input.route.admissionProfileId as ManagedAgentAdmissionProfile];
@@ -236,11 +245,11 @@ function runtimeResolver(route: NonNullable<ManagedInvocationRouteResolution["ma
       const request = defineManagedAgentInvocationRequest({
         invocationId: input.jobId,
         agentId: `${route.routeId}:${input.profile.id}`,
-        parentSessionId: CODEX_APP_CALLER_ID,
+        parentSessionId: `${harness}-native-harness`,
         parentTurnId: input.jobId,
         profile: input.route.admissionProfileId as ManagedAgentAdmissionProfile,
-        requestedBy: CODEX_APP_CALLER_ID,
-        requestSource: "codex-app-mcp",
+        requestedBy: `${harness}-native-harness`,
+        requestSource: `${harness}-control-plane-mcp`,
         providerRoute: { providerId: route.providerId, surface: "direct-provider", ...(route.model ? { model: route.model } : {}) },
         adapterKind: route.adapter.descriptor.adapterKind,
         executionMode: "direct-provider",
@@ -253,8 +262,8 @@ function runtimeResolver(route: NonNullable<ManagedInvocationRouteResolution["ma
         capabilitySnapshot: {
           routeId: route.routeId,
           routeSource: route.routeSource,
-          callerIdentity: { kind: "external-harness", harness: "codex", attachmentId: "kiln-codex-app-mcp", evidenceId: "codex-app-mcp" },
-          routeHealth: { status: "healthy", reason: "Configured Codex App managed-job route." },
+          callerIdentity: { kind: "external-harness", harness, attachmentId: "kiln-control-plane-mcp", evidenceId: `${harness}-control-plane-mcp` },
+          routeHealth: { status: "healthy", reason: `Configured ${harness} managed-job route.` },
           providerModelProof: { status: "configured", source: "configured-managed-route", requiresToolCalls: true },
           resourcePlane: { available: true, resourceUris: [] },
           childIdentity: { agentId: request.agentId, requestedAgentProfile: input.profile.id },
@@ -287,11 +296,11 @@ function managedJobAuthority(
   };
 }
 
-export function summarizeCodexAppManagedAgents(
+export function summarizeNativeHarnessManagedAgents(
   configuredAgents: readonly KilnAgentDefinition[],
   resolution: ManagedInvocationRouteResolution["managedInvocation"],
-): readonly CodexAppManagedAgentSummary[] {
-  return configuredAgents.flatMap((agent): readonly CodexAppManagedAgentSummary[] => {
+): readonly NativeHarnessManagedAgentSummary[] {
+  return configuredAgents.flatMap((agent): readonly NativeHarnessManagedAgentSummary[] => {
     if (!agent.routeId) return [];
     const base = {
       configuredAgentProfileId: agent.name,
