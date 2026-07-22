@@ -84,8 +84,8 @@ describe("Codex OAuth outbound request codec", () => {
     expect(() => encodeCodexOAuthResponsesRequest(dispatchInput(turn as ModelTurn))).toThrow(expect.objectContaining({ code: "unsupported-capability" }));
   });
 
-  it("preserves the caller output-token limit on the pinned Responses body", () => {
-    expect(encodeCodexOAuthResponsesRequest(dispatchInput({ history: [], maxOutputTokens: 10 }))).toMatchObject({ max_output_tokens: 10 });
+  it("omits the caller output-token limit unsupported by the pinned Codex endpoint", () => {
+    expect(encodeCodexOAuthResponsesRequest(dispatchInput({ history: [], maxOutputTokens: 10 }))).not.toHaveProperty("max_output_tokens");
   });
 });
 
@@ -179,6 +179,15 @@ describe("CodexOAuthModelTurnDispatcher", () => {
 
   it("accepts terminal-only output and maps it authoritatively", async () => {
     const fetchFn = vi.fn(async () => sseResponse([completed([richOutput[1]!])]));
+    const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
+    await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [] }))).resolves.toMatchObject({ parts: [{ type: "text", text: "hello" }] });
+  });
+
+  it("accepts complete streamed output when the terminal frame omits its output copy", async () => {
+    const fetchFn = vi.fn(async () => sseResponse([
+      { type: "response.output_item.done", item: richOutput[1] },
+      completed([]),
+    ]));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn });
     await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [] }))).resolves.toMatchObject({ parts: [{ type: "text", text: "hello" }] });
   });

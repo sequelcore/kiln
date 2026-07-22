@@ -58,7 +58,6 @@ interface ResponsesRequestBody {
   readonly input: readonly ResponsesInputItem[];
   readonly store: false;
   readonly stream: true;
-  readonly max_output_tokens?: number;
   readonly temperature?: number;
   readonly reasoning?: {
     readonly effort: ReasoningEffort;
@@ -502,7 +501,6 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         input,
         store: false,
         stream: true,
-        max_output_tokens: options.maxTokens,
         ...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
         ...(tools ? { tools } : {}),
       },

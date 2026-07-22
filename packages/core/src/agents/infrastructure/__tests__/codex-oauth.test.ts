@@ -431,7 +431,7 @@ describe("CodexOAuthAdapter", () => {
         store: boolean;
         stream: boolean;
         input: Array<{ role: string; content: string }>;
-        max_output_tokens: number;
+        max_output_tokens?: number;
       };
 
       expect(body).toMatchObject({
@@ -439,12 +439,12 @@ describe("CodexOAuthAdapter", () => {
         instructions: "System instruction",
         store: false,
         stream: true,
-        max_output_tokens: 512,
         input: [
           { role: "user", content: "User prompt" },
           { role: "assistant", content: "Assistant reply" },
         ],
       });
+      expect(body).not.toHaveProperty("max_output_tokens");
     });
 
     it("maps tools from Kiln ToolDefinition[] to Responses API tools format", async () => {

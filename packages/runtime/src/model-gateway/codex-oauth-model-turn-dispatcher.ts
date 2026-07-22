@@ -106,7 +106,6 @@ export function encodeCodexOAuthResponsesRequest(input: ModelGatewayOneRoundDisp
   }
   const body: WireRecord = {
     model: input.route.providerModelId,
-    ...(input.turn.maxOutputTokens === undefined ? {} : { max_output_tokens: input.turn.maxOutputTokens }),
     ...(input.turn.instructions === undefined ? {} : { instructions: input.turn.instructions }),
     input: wireInput,
     ...(tools === undefined ? {} : { tools }), tool_choice: toolChoice,
@@ -189,7 +188,7 @@ async function decodeCodexSse(response: Response, limits: CodexOAuthSseLimits): 
         if (terminalIds.has(item.id) || (item.callId !== undefined && terminalCallIds.has(item.callId))) throw new CodexOAuthModelTurnError("malformed-sse", "The completed response repeated an output item.");
         terminalIds.add(item.id); if (item.callId !== undefined) terminalCallIds.add(item.callId);
       }
-      if (streamedItems.length > 0) {
+      if (streamedItems.length > 0 && terminalItems.length > 0) {
         const matches = terminalItems.length === streamedItems.length && terminalItems.every((item, index) => {
           const streamed = streamedItems[index];
           return streamed !== undefined && item.id === streamed.id && JSON.stringify(item.parts) === JSON.stringify(streamed.parts);

@@ -112,7 +112,9 @@ describe("createModelGatewayIngress", () => {
       virtualModels: [{ ...config.virtualModels[0]!, id: "claude-kiln", displayName: "Claude Kiln", capabilities: ["text", "reasoning-controls"] }],
     };
     const providerFetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toMatchObject({ model: "gpt-test", max_output_tokens: 64, reasoning: { effort: "high" } });
+      const body = JSON.parse(String(init?.body));
+      expect(body).toMatchObject({ model: "gpt-test", reasoning: { effort: "high" } });
+      expect(body).not.toHaveProperty("max_output_tokens");
       const frame = { type: "response.completed", response: { id: "provider-response", output: [{ type: "message", id: "message-1", role: "assistant", content: [{ type: "output_text", text: "PROBE_OK" }] }], usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 } } };
       return new Response(`event: response.completed\ndata: ${JSON.stringify(frame)}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
     });
