@@ -106,8 +106,8 @@ export async function createModelGatewayIngress(options: ModelGatewayIngressOpti
     } catch (error) {
       const status = providerStatus(error);
       try {
-        if (status === 429) store.coolRoute(route, Date.now() + 60_000, "rate-limited");
-        else if ([408, 425, 500, 502, 503, 504].includes(status ?? 0)) store.coolRoute(route, Date.now() + 30_000, "upstream-transient");
+        if (admittedModel.accountIds.length === 1 && status === 429) store.coolRoute(route, Date.now() + 60_000, "rate-limited");
+        else if (admittedModel.accountIds.length === 1 && [408, 425, 500, 502, 503, 504].includes(status ?? 0)) store.coolRoute(route, Date.now() + 30_000, "upstream-transient");
       } catch (circuitError) { throw new AggregateError([error, circuitError], "Provider failure could not be fenced by the route circuit."); }
       await recordOutcome(current, error).catch(() => {});
       throw error;

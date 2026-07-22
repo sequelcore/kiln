@@ -5,6 +5,7 @@ import type { ObservabilityConfig } from "./observability-config.js";
 import type { GatewayAuthConfig } from "./auth-config.js";
 import type { GatewayMcpConfig } from "./mcp-config.js";
 import { isDirectProviderId, type DirectProviderId } from "../../agents/provider-execution-profiles.js";
+import { ModelCapabilityRegistry } from "../../agents/model-capability-registry.js";
 
 /** Channel binding for a specific platform adapter */
 export interface GatewayChannelBinding {
@@ -184,6 +185,7 @@ const PROVIDER_CAPABILITIES: Readonly<Record<DirectProviderId, ReadonlySet<Model
   ollama: new Set(["text", "input-image-base64", "function-tools"]),
   lmstudio: new Set(["text", "input-image-url", "input-image-base64", "function-tools"]),
 };
+const MODEL_CAPABILITIES = new ModelCapabilityRegistry();
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const ENV = /^[A-Z_][A-Z0-9_]*$/;
 
@@ -272,6 +274,14 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
     else if (isDirectProviderId(model.providerId)) {
       const unsupported = model.capabilities.find((capability) => !PROVIDER_CAPABILITIES[model.providerId].has(capability));
       if (unsupported) errors.push({ field: `${path}.capabilities`, message: `provider '${model.providerId}' does not support capability '${unsupported}' through the model gateway` });
+      else if (model.providerId !== "codex-oauth") {
+        const modality = MODEL_CAPABILITIES.modalityCapabilities(model.providerId, model.providerModelId);
+        const unsupportedByModel = model.capabilities.find((capability) =>
+          (capability === "function-tools" && !MODEL_CAPABILITIES.supportsTools(model.providerId, model.providerModelId))
+          || (capability === "input-image-url" && (!modality.inputModalities.includes("image") || !modality.constraints.supportsUrl))
+          || (capability === "input-image-base64" && (!modality.inputModalities.includes("image") || !modality.constraints.supportsBase64)));
+        if (unsupportedByModel) errors.push({ field: `${path}.capabilities`, message: `model '${model.providerModelId}' lacks capability '${unsupportedByModel}' evidence for provider '${model.providerId}'` });
+      }
     }
     const affinity = model.affinity;
     if (!affinity || !["none", "prefer", "require"].includes(affinity.continuity)) errors.push({ field: `${path}.affinity.continuity`, message: "is invalid" });

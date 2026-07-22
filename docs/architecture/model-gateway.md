@@ -203,6 +203,14 @@ Projection uses the existing install-state, managed-field ownership, backup,
 drift, adoption, sync, and uninstall lifecycle. Native files never become route
 or account authority.
 
+Model-catalog projection and native-agent-file projection are separate bounded
+contexts. A virtual model can expose an OpenCode-backed route in Codex's model
+picker through the gateway. An agent definition whose `providerRoute` names
+`opencode-go` still means a direct managed-invocation route; it is not rewritten
+into a Codex-native agent model. Portable agents remain available cross-harness
+through Kiln's MCP/managed-agent surface, while unsupported direct native-agent
+encodings remain fail-closed.
+
 ## Security Invariants
 
 - Loopback location is not authentication; every ingress request requires an

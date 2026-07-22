@@ -115,7 +115,7 @@ modelGateway:
   principals:
     - { tokenEnv: TOKEN_ENV, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [kimi, claude] }
   virtualModels:
-    - { id: kimi, providerId: opencode-go, providerModelId: kimi-k3, accountIds: [kimi-primary, kimi-secondary], capabilities: [text], affinity: { continuity: prefer, scope: session, allowRebind: true } }
+    - { id: kimi, providerId: opencode-go, providerModelId: k3, accountIds: [kimi-primary, kimi-secondary], capabilities: [text, function-tools, input-image-url], affinity: { continuity: prefer, scope: session, allowRebind: true } }
     - { id: claude, providerId: anthropic, providerModelId: claude-sonnet, accountIds: [claude-primary], capabilities: [text], affinity: { continuity: none } }
 `;
 
@@ -135,8 +135,15 @@ modelGateway:
       .toThrow(/belongs to provider 'anthropic'/);
     expect(() => parseGatewayYaml(yaml.replace("providerId: opencode-go", "providerId: unsupported-provider")))
       .toThrow(/supported direct provider/);
-    expect(() => parseGatewayYaml(yaml.replace("capabilities: [text]", "capabilities: [text, reasoning-controls]")))
+    expect(() => parseGatewayYaml(yaml.replace("capabilities: [text, function-tools, input-image-url]", "capabilities: [text, reasoning-controls]")))
       .toThrow(/opencode-go.*reasoning-controls/);
+    const deepSeekReasoner = yaml
+      .replaceAll("providerId: opencode-go", "providerId: deepseek")
+      .replaceAll("providerId: anthropic", "providerId: deepseek")
+      .replace("providerModelId: k3", "providerModelId: deepseek-reasoner")
+      .replace("providerModelId: claude-sonnet", "providerModelId: deepseek-chat")
+      .replace("capabilities: [text, function-tools, input-image-url]", "capabilities: [text, function-tools]");
+    expect(() => parseGatewayYaml(deepSeekReasoner)).toThrow(/deepseek-reasoner.*function-tools/);
   });
 
   it("rejects retired authorities and admits only mounted protocol surfaces", () => {

@@ -120,6 +120,26 @@ const PROVIDER_MULTIMODAL_TRANSPORT: ReadonlyMap<string, ProviderMultimodalTrans
     supportsUrl: true,
     degradationBehavior: ["audio and file content require governed transforms before OpenAI-compatible chat serialization"],
   }],
+  ["opencode-go", {
+    image: true,
+    screenshot: true,
+    document: false,
+    audio: false,
+    multimodalToolResults: false,
+    supportsBase64: true,
+    supportsUrl: true,
+    degradationBehavior: ["audio and file content require governed transforms before OpenCode chat serialization"],
+  }],
+  ["opencode-zen", {
+    image: true,
+    screenshot: true,
+    document: false,
+    audio: false,
+    multimodalToolResults: false,
+    supportsBase64: true,
+    supportsUrl: true,
+    degradationBehavior: ["audio and file content require governed transforms before OpenCode chat serialization"],
+  }],
   ["ollama", {
     image: true,
     screenshot: true,
@@ -175,6 +195,7 @@ const MODEL_CAPABILITIES: ReadonlyMap<string, CapabilityFlags> = new Map([
   ["deepseek-v4-flash-free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: false, supportsAudio: false, maxContextTokens: 1_000_000 }],
   ["mimo-v2.5-pro", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: false, supportsAudio: false, maxContextTokens: 1_000_000 }],
   ["minimax-m2.5-free", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: false, supportsAudio: false, maxContextTokens: 256_000 }],
+  ["k3", { supportsTools: true, supportsStreaming: true, supportsStructuredOutput: true, supportsVision: true, supportsAudio: false, maxContextTokens: 1_048_576 }],
 ]);
 
 const TASK_SUITABILITY: ReadonlyMap<string, readonly ModelTaskSuitability[]> = new Map([

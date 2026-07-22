@@ -196,12 +196,15 @@ describe("createModelGatewayIngress", () => {
         { id: "go-secondary", providerId: "opencode-go", credentialId: "go-b", maxConcurrency: 1, reservedAffinitySlots: 0 },
       ],
       principals: [{ ...config.principals[0]!, virtualModelIds: ["kimi"] }],
-      virtualModels: [{ id: "kimi", providerId: "opencode-go", providerModelId: "kimi-k3", accountIds: ["go-primary", "go-secondary"], capabilities: ["text"], affinity: { continuity: "prefer", scope: "session", allowRebind: true } }],
+      virtualModels: [{ id: "kimi", providerId: "opencode-go", providerModelId: "k3", accountIds: ["go-primary", "go-secondary"], capabilities: ["text"], affinity: { continuity: "prefer", scope: "session", allowRebind: true } }],
     };
-    const providerFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    const successfulResponse = () => new Response(JSON.stringify({
       choices: [{ message: { content: "KIMI_OK" }, finish_reason: "stop" }],
       usage: { prompt_tokens: 3, completion_tokens: 1 },
-    }), { status: 200, headers: { "content-type": "application/json" } }));
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    const providerFetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(successfulResponse());
     const handle = await createModelGatewayIngress({ config: openCodeConfig, databasePath: ":memory:", credentialRootDir: credentialRoot, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) } });
     try {
       const principal = (await handle.openAIResponses!.authenticateBearer("b".repeat(32)))!;
@@ -213,8 +216,17 @@ describe("createModelGatewayIngress", () => {
       const selected = candidates[0]!;
       const lease = await handle.openAIResponses!.invocationPorts.accountLease.acquire({ identity, route: resolved.route, account: selected.account, purpose: "new" });
       const dispatcher = await handle.openAIResponses!.invocationPorts.dispatcherResolver.resolve({ identity, route: resolved.route, account: selected.account, leaseId: lease!.leaseId });
-      await expect(dispatcher.dispatchOneRound({ account: selected.account, route: resolved.route, sessionId: "session", turn: { history: [{ role: "user", parts: [{ type: "text", text: "hello" }] }] } })).resolves.toMatchObject({ parts: [{ type: "text", text: "KIMI_OK" }] });
-      expect(providerFetch).toHaveBeenCalledOnce();
+      await expect(dispatcher.dispatchOneRound({ account: selected.account, route: resolved.route, sessionId: "session", turn: { history: [{ role: "user", parts: [{ type: "text", text: "hello" }] }] } })).rejects.toMatchObject({ status: 429 });
+      expect(providerFetch).toHaveBeenCalledTimes(1);
+
+      const remaining = await handle.openAIResponses!.invocationPorts.candidateCatalog.list({ identity, route: resolved.route, authority: { status: "admitted", capabilityId: principal.capabilityId, scopes: principal.scopes }, budget: principal.budgetEvidence });
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]!.account).not.toBe(selected.account);
+      const reboundIdentity = { ...identity, turnId: "turn-2" };
+      const reboundLease = await handle.openAIResponses!.invocationPorts.accountLease.acquire({ identity: reboundIdentity, route: resolved.route, account: remaining[0]!.account, purpose: "new" });
+      const reboundDispatcher = await handle.openAIResponses!.invocationPorts.dispatcherResolver.resolve({ identity: reboundIdentity, route: resolved.route, account: remaining[0]!.account, leaseId: reboundLease!.leaseId });
+      await expect(reboundDispatcher.dispatchOneRound({ account: remaining[0]!.account, route: resolved.route, sessionId: "session", turn: { history: [{ role: "user", parts: [{ type: "text", text: "hello" }] }] } })).resolves.toMatchObject({ parts: [{ type: "text", text: "KIMI_OK" }] });
+      expect(providerFetch).toHaveBeenCalledTimes(2);
     } finally { handle.close(); }
   });
 
