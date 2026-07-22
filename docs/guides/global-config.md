@@ -119,11 +119,12 @@ declared. A route is also unhealthy when the session-start engine probe cannot
 find or execute the target harness. Harness routes are also unhealthy when the
 provider does not advertise the configured model or when that provider/model has
 not live-proven substantive result handoff for the requested managed profile.
-The current safe default for OpenCode read-only child invocations is
-`opencode/minimax-m2.5-free`; OpenCode models that merely appear in a free tier
-remain unavailable until they pass the same managed handoff proof. Synthesized
-child routes use `models.<engine>` when present, then the adapter's safe default
-for that engine. They do not inherit
+Native OpenCode managed-child routes remain unavailable even for an advertised
+model because OpenCode permission rules do not prove a hard filesystem
+boundary. Use authorized `opencode-go` or `opencode-zen` direct-provider routes
+for delegated OpenCode capacity; those execute through Kiln's governed builtin
+tool boundary. Synthesized child routes use `models.<engine>` when present, then
+the adapter's safe default for that engine. They do not inherit
 `models.default`, because model IDs are provider-specific. Write-capable routes
 are never synthesized. Synthesized managed-agent routes use a five-minute
 timeout budget by default. Explicit `managedAgents.routes[].timeoutMs` remains

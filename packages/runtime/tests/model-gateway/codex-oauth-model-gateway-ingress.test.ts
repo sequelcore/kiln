@@ -70,6 +70,35 @@ describe("createCodexOAuthModelGatewayIngress", () => {
     })).rejects.toThrow("globally unique");
   });
 
+  it("fails closed when one ingress declares a duplicate trusted principal identity", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-duplicate-principal-"));
+    const duplicateIdentity: ModelGatewayConfig = {
+      ...config,
+      principals: [
+        config.principals[0]!,
+        {
+          ...config.principals[0]!,
+          tokenEnv: "BEARER_TOKEN_2",
+          capabilityId: "administer",
+          scopes: ["model.admin"],
+          budgetEvidenceId: "budget-b",
+          virtualModelIds: ["not-allowed"],
+        },
+      ],
+    };
+
+    await expect(createCodexOAuthModelGatewayIngress({
+      config: duplicateIdentity,
+      databasePath: ":memory:",
+      credentialRootDir: join(root, "auth"),
+      env: {
+        REPLAY_SECRET: "r".repeat(32),
+        BEARER_TOKEN: "b".repeat(32),
+        BEARER_TOKEN_2: "c".repeat(32),
+      },
+    })).rejects.toThrow("trusted principal identities must be unique within each ingress");
+  });
+
   it("dispatches a conforming Messages request through the shared Codex authority exactly once", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-anthropic-codex-dispatch-"));
     const credentialRoot = join(root, "auth");

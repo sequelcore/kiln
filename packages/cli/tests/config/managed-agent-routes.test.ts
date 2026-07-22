@@ -300,8 +300,8 @@ function makeDirectAdapter(providerId = "openai", writeCapable = false): Managed
 describe("resolveManagedInvocationToolOptions", () => {
   const OPENCODE_UNADVERTISED_MODEL_REASON =
     "Provider 'opencode' has no eligible managed-agent decision for model 'openai/gpt-4o:free'.";
-  const OPENCODE_UNPROVEN_MODEL_REASON =
-    "Provider 'opencode' model 'opencode/nemotron-3-super-free' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.";
+  const OPENCODE_UNPROVEN_BOUNDARY_REASON =
+    "Provider 'opencode' native harness has no admitted hard filesystem boundary for managed child execution; use an authorized direct provider route or keep the route unavailable.";
 
   it("does not expose managed invocation when config is absent or disabled", async () => {
     await expect(resolveManagedInvocationToolOptions(null, {
@@ -904,20 +904,20 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{
-        id: "opencode-readonly",
+        id: "codex-readonly",
         kind: "harness",
-        provider: "opencode",
-        model: "opencode/minimax-m2.5-free",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
       cwd: "C:/repo",
-      registry: createRegistryWithCapturedHarnessRun("opencode", (options) => {
+      registry: createRegistryWithCapturedHarnessRun("codex", (options) => {
         capturedRun = options;
       }),
       surface: "gui",
       providerModelEligibility: observedProviderModels({
-        opencode: ["opencode/minimax-m2.5-free"],
+        codex: ["gpt-5.3-codex-spark"],
       }),
       builtinToolOptions: () => builtinToolOptions,
     });
@@ -930,16 +930,16 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     const invokeResult = await service.invoke(defineManagedAgentInvocationRequest({
       invocationId: "cli-harness-resource-1",
-      agentId: "opencode-readonly:foundation-readonly-plan",
+      agentId: "codex-readonly:foundation-readonly-plan",
       parentSessionId: "cli-parent-session",
       parentTurnId: "cli-parent-session:turn:1",
       profile: "foundation-readonly-plan",
       requestedBy: "assistant",
       requestSource: "test",
       providerRoute: {
-        providerId: "opencode",
+        providerId: "codex",
         surface: "cli-harness",
-        model: "opencode/minimax-m2.5-free",
+        model: "gpt-5.3-codex-spark",
       },
       adapterKind: "harness",
       executionMode: "cli-harness",
@@ -1628,12 +1628,12 @@ describe("resolveManagedInvocationToolOptions", () => {
     catalog.update(refreshed.managedInvocation);
 
     expect(catalog.options).toBe(stableOptions);
-    expect(stableOptions.routes.map((route) => route.routeId)).toEqual(["opencode-readonly"]);
-    expect(stableOptions.unavailableRoutes).toBeUndefined();
+    expect(stableOptions.routes).toEqual([]);
+    expect(stableOptions.unavailableRoutes?.[0]?.reason).toBe(OPENCODE_UNPROVEN_BOUNDARY_REASON);
     expect(stableOptions.maxParallelChildren).toBe(3);
   });
 
-  it("resolves the live-proven OpenCode read-only handoff model when it is advertised", async () => {
+  it("keeps an advertised OpenCode harness model unavailable without a hard filesystem boundary", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       defaultProvider: "opencode",
     }), {
@@ -1652,18 +1652,10 @@ describe("resolveManagedInvocationToolOptions", () => {
       provider: "opencode",
       model: "opencode/minimax-m2.5-free",
       profiles: ["foundation-readonly-plan"],
-      available: true,
+      available: false,
+      reason: OPENCODE_UNPROVEN_BOUNDARY_REASON,
     }]);
-    expect(result.managedInvocation?.routes[0]?.providerId).toBe("opencode");
-    expect(result.managedInvocation?.routes[0]?.taskSuitability).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          task: "architecture-review",
-          level: "capable",
-          source: "static-profile",
-        }),
-      ]),
-    );
+    expect(result.managedInvocation).toBeUndefined();
   });
 
   it("fails closed for advertised OpenCode models without live-proven result handoff support", async () => {
@@ -1687,7 +1679,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       model: "opencode/nemotron-3-super-free",
       profiles: ["foundation-readonly-plan"],
       available: false,
-      reason: OPENCODE_UNPROVEN_MODEL_REASON,
+      reason: OPENCODE_UNPROVEN_BOUNDARY_REASON,
     }]);
     expect(result.managedInvocation).toBeUndefined();
   });

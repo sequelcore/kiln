@@ -153,7 +153,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   codex: "gpt-5.3-codex-spark",
   opencode: "opencode/minimax-m2.5-free",
 };
-const LIVE_PROVEN_WRITE_HARNESS_PROVIDERS = new Set<string>(["codex", "opencode"]);
+const LIVE_PROVEN_WRITE_HARNESS_PROVIDERS = new Set<string>(["codex"]);
 const LIVE_PROVEN_HARNESS_WRITE_AUTHORITY = {
   proposalSupported: true,
   approvedApplySupported: true,
@@ -167,7 +167,10 @@ const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] |
   // completed native structured handoff for an exact catalog value.
   claude: [],
   codex: "*",
-  opencode: ["opencode/minimax-m2.5-free"],
+  // OpenCode permission rules do not provide a hard filesystem boundary for a
+  // managed child. Keep the native child route closed; authorized OpenCode Go
+  // and Zen direct-provider routes remain available through Kiln tool policy.
+  opencode: [],
 };
 
 export async function resolveManagedInvocationToolOptions(
@@ -768,15 +771,15 @@ async function resolveRouteConfig(
   if (catalogEntry.status === "ineligible") {
     return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, undefined));
   }
-  if (!supportsReadonlyResultHandoff(routeConfig.provider, model)) {
-    return unhealthy(
-      baseHealth,
-      `Provider '${routeConfig.provider}' model '${model}' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.`,
-    );
-  }
   const canonicalAdmission = deriveCanonicalManagedRouteAdmission(catalogEntry.entry, routeConfig, model);
   if (!canonicalAdmission.eligible) {
     return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, canonicalAdmission));
+  }
+  if (!supportsReadonlyResultHandoff(routeConfig.provider, model)) {
+    return unhealthy(
+      baseHealth,
+      readonlyResultHandoffUnavailableReason(routeConfig.provider, model),
+    );
   }
 
   const profileResolution = buildRouteProfiles(routeConfig, context.cwd, profiles, config.managedAgents?.worktreeLease);
@@ -887,6 +890,13 @@ async function resolveRemoteHarnessRouteConfig(
 function supportsReadonlyResultHandoff(provider: string, model: string): boolean {
   const supportedModels = HARNESS_READONLY_RESULT_HANDOFF_MODELS[provider];
   return supportedModels === "*" || supportedModels?.includes(model) === true;
+}
+
+function readonlyResultHandoffUnavailableReason(provider: string, model: string): string {
+  if (provider === "opencode") {
+    return "Provider 'opencode' native harness has no admitted hard filesystem boundary for managed child execution; use an authorized direct provider route or keep the route unavailable.";
+  }
+  return `Provider '${provider}' model '${model}' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.`;
 }
 
 function routeRequiresWriteAuthority(

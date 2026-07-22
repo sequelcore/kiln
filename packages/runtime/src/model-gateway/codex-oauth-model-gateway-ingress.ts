@@ -31,6 +31,8 @@ export async function createCodexOAuthModelGatewayIngress(options: CodexOAuthMod
   if (options.config.virtualModels.some((model) => model.providerId === "codex-oauth" && model.accountIds.length !== 1)) throw new Error("Codex OAuth virtual models must reference exactly one account.");
   const replaySecret = requireSecret(env, options.config.replay.hmacKeyEnv, "replay HMAC key");
   const principals = options.config.principals.map((config) => ({ config, token: requireSecret(env, config.tokenEnv, "model gateway authentication token") }));
+  const principalIdentities = new Set(principals.map(({ config }) => lengthPrefixed([config.ingress, config.tenantId, config.applicationId, config.callerId])));
+  if (principalIdentities.size !== principals.length) throw new Error("Model gateway trusted principal identities must be unique within each ingress.");
   const tokenDigests = new Set(principals.map(({ token }) => digest(token).toString("hex")));
   if (tokenDigests.size !== principals.length) throw new Error("Model gateway authentication token values must be globally unique.");
   const pool = new CodexOAuthCredentialPoolService({ rootDir: options.credentialRootDir });
