@@ -80,6 +80,27 @@ describe("native projection install state", () => {
     });
   });
 
+  it("detects drift for binary whole-file projection targets", () => {
+    const content = Uint8Array.from([0, 255, 17, 34]);
+    const target = createNativeProjectionFileSnapshot({
+      targetId: "codex-skill:visual/assets/icon.png",
+      filePath: "C:/Users/test/.codex/skills/visual/assets/icon.png",
+      content,
+    });
+    const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), target);
+
+    expect(detectNativeProjectionFileDrift({
+      targetId: target.targetId,
+      state,
+      currentContent: Uint8Array.from(content),
+    })).toBeUndefined();
+    expect(detectNativeProjectionFileDrift({
+      targetId: target.targetId,
+      state,
+      currentContent: Uint8Array.from([0, 255, 17, 35]),
+    })).toEqual({ targetId: target.targetId, driftedFields: ["$file"] });
+  });
+
   it("merges managed fields without clobbering unmanaged native keys", () => {
     const merged = mergeManagedFields({
       currentDocument: {

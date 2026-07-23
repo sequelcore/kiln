@@ -70,6 +70,53 @@ template dumps, cloned reference repositories, or always-loaded context.
   `.kiln/project-context.md` updates, identify missing commands or references,
   and then rely on `kiln sync --repo-shims` to project harness entrypoints.
 
+### Frontend Catalog Consolidation - 2026-07-22
+
+- `frontend` remains the single Sequel UI router. Exact package-version
+  authority was removed from the skill pending the Stack Governance Plane.
+- `astro` and `motion` were added as narrow user-global skills grounded in
+  official framework documentation and repository evidence.
+- Current upstream `frontend-design`, `impeccable`, `react-doctor`,
+  `improve-react`, `shadcn`, `playwright-cli`, `transitions-dev`,
+  `vercel-react-best-practices`, `vercel-composition-patterns`, and
+  `web-design-guidelines` were admitted into the user-global Kiln registry.
+- `baseline-ui`, `sequel-design`, and `emil-design-eng` were retired after
+  their remaining responsibilities were covered by the router and admitted
+  design/craft skills.
+- The eight global GSAP skills were retired. GSAP guidance may return only as
+  project-local capability for a demonstrated timeline, pinning, scrub, or
+  specialized SVG consumer.
+- Unmanaged `.agents` duplicates and obsolete `webapp-testing`/Remotion UI
+  entries were backed up and removed from active discovery. Playwright CLI now
+  owns browser verification; Remotion remains a video-domain capability rather
+  than frontend baseline.
+- Native skill projection now copies and drift-checks complete skill
+  directories recursively, including text references, scripts, and binary
+  assets. Sync removes stale managed files and obsolete managed skills while
+  preserving drift review and backups.
+
+### Backend Catalog Consolidation - 2026-07-22
+
+- `backend` was added as the single Sequel backend router. It resolves tasks to
+  Spring, PostgreSQL, API contract, security, testing, architecture, review,
+  refactor, and integration capabilities without loading all doctrine at once.
+- `sequel-spring` and `sequel-postgres` were rewritten around durable
+  procedures and repository evidence. Exact patch/minor version authority was
+  moved out of skill prose pending the Stack Governance Plane.
+- `backend-api-contracts`, `backend-security`, and `backend-testing` were added
+  as narrow user-global skills with official-source references and progressive
+  disclosure.
+- `test-generator` was retired in favor of the clearer `backend-testing`
+  contract. `code-reviewer` was retired because review mechanics already belong
+  to `code-review-findings`; backend facts now come from specialist skills.
+- Popular external skills from GitHub Awesome Copilot, Jeffallan, Dr JSkill,
+  and `spring-boot-skills` were evaluated but not admitted verbatim. Their
+  stars were treated as visibility evidence, while Boot-generation bias,
+  obsolete platform lines, universal envelopes/UUIDs/Lombok, Maven-specific
+  examples, fixed coverage targets, and catalog overlap prevented admission.
+- The evidence and decision matrix are recorded in
+  [`../research/24-backend-skill-scout-2026.md`](../research/24-backend-skill-scout-2026.md).
+
 ## Research Basis
 
 - `skills.sh` frames skills as reusable agent capabilities installable through

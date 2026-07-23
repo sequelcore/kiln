@@ -241,6 +241,9 @@ describe("native-skill-projection", () => {
       if (targetPath === skillSourceDir) {
         return [dirent("SKILL.md", false), dirent("notes.txt", false), dirent("assets", true)];
       }
+      if (targetPath === join(skillSourceDir, "assets")) {
+        return [dirent("icon.svg", false)];
+      }
       if (targetPath === projectDir) {
         throw new Error("ENOENT");
       }
@@ -248,6 +251,7 @@ describe("native-skill-projection", () => {
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     fsMocks.files.set(join(skillSourceDir, "notes.txt"), "notes\n");
+    fsMocks.files.set(join(skillSourceDir, "assets", "icon.svg"), "<svg />\n");
 
     const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
 
@@ -263,6 +267,11 @@ describe("native-skill-projection", () => {
     expect(writeFileSyncMock).toHaveBeenCalledWith(
       join("/home/tester", ".codex", "skills", "planner", "SKILL.md"),
       PLANNER_SKILL,
+      "utf-8",
+    );
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      join("/home/tester", ".codex", "skills", "planner", "assets", "icon.svg"),
+      "<svg />\n",
       "utf-8",
     );
     expect(writeFileSyncMock).toHaveBeenCalledWith(
@@ -348,6 +357,39 @@ describe("native-skill-projection", () => {
     });
   });
 
+  it("projects nested skill resources and records their relative paths", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    const referenceDir = join(skillSourceDir, "references");
+
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === skillSourceDir) {
+        return [dirent("SKILL.md", false), dirent("references", true)];
+      }
+      if (targetPath === referenceDir) return [dirent("workflow.md", false)];
+      if (targetPath === projectDir) throw new Error("ENOENT");
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
+    fsMocks.files.set(join(referenceDir, "workflow.md"), "# Workflow\n");
+
+    const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
+
+    expect(result.errors).toHaveLength(0);
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      join("/home/tester", ".codex", "skills", "planner", "references", "workflow.md"),
+      "# Workflow\n",
+      "utf-8",
+    );
+    const state = JSON.parse(fsMocks.files.get(join(projectPath, ".kiln", "install-state.json")) ?? "{}") as {
+      targets: Record<string, unknown>;
+    };
+    expect(state.targets).toHaveProperty("codex-skill:planner/references/workflow.md");
+  });
+
   it("aborts only drifted projected skill files unless force is set", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
@@ -388,5 +430,81 @@ describe("native-skill-projection", () => {
     expect(forced.codex).toBe(true);
     expect(forced.errors).toHaveLength(0);
     expect(fsMocks.files.get(codexSkillPath)).toBe(PLANNER_SKILL);
+  });
+
+  it("removes managed files for skills removed from the canonical catalog", async () => {
+    const projectPath = "/workspace/project";
+    const kilnDir = join(projectPath, ".kiln");
+    const removedPath = join("/home/tester", ".codex", "skills", "removed", "SKILL.md");
+    fsMocks.files.set(removedPath, "removed\n");
+    fsMocks.files.set(join(kilnDir, "install-state.json"), JSON.stringify({
+      version: 1,
+      targets: {
+        "codex-skill:removed/SKILL.md": {
+          targetId: "codex-skill:removed/SKILL.md",
+          filePath: removedPath,
+          projectionKind: "file",
+          contentHash: "ignored",
+          managedFields: ["$file"],
+          managedFieldHashes: {
+            "$file": "bc772298e9274d658105f8298b3e35d8c88142ec543e168dade9ea8fa1e0294d",
+          },
+          updatedAt: "2026-07-22T00:00:00.000Z",
+        },
+      },
+    }));
+    readdirSyncMock.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
+
+    expect(result.errors).toEqual([]);
+    expect(fsMocks.files.has(removedPath)).toBe(false);
+    const state = JSON.parse(fsMocks.files.get(join(kilnDir, "install-state.json")) ?? "{}") as {
+      targets: Record<string, unknown>;
+    };
+    expect(state.targets).not.toHaveProperty("codex-skill:removed/SKILL.md");
+  });
+
+  it("drops stale case-only install state without deleting the current skill file", async () => {
+    const projectPath = "/workspace/project";
+    const kilnDir = join(projectPath, ".kiln");
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    const codexSkillPath = join("/home/tester", ".codex", "skills", "planner", "SKILL.md");
+    fsMocks.files.set(codexSkillPath, PLANNER_SKILL);
+    fsMocks.files.set(join(kilnDir, "install-state.json"), JSON.stringify({
+      version: 1,
+      targets: {
+        "codex-skill:planner/skill.md": {
+          targetId: "codex-skill:planner/skill.md",
+          filePath: codexSkillPath,
+          projectionKind: "file",
+          contentHash: "legacy",
+          managedFields: ["$file"],
+          managedFieldHashes: { "$file": "legacy" },
+          updatedAt: "2026-07-22T00:00:00.000Z",
+        },
+      },
+    }));
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
+      if (targetPath === projectDir) throw new Error("ENOENT");
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
+
+    const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
+
+    expect(result.errors).toEqual([]);
+    expect(fsMocks.files.get(codexSkillPath)).toBe(PLANNER_SKILL);
+    const state = JSON.parse(fsMocks.files.get(join(kilnDir, "install-state.json")) ?? "{}") as {
+      targets: Record<string, unknown>;
+    };
+    expect(state.targets).not.toHaveProperty("codex-skill:planner/skill.md");
+    expect(state.targets).toHaveProperty("codex-skill:planner/SKILL.md");
   });
 });

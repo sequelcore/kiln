@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import {
   KILN_CORE_BUILTIN_SKILLS,
   loadSkillMdIndex,
@@ -192,12 +192,25 @@ function projectionFileNames(source: SkillSourceEntry): readonly string[] {
     return [basename(source.index.filePath)];
   }
   try {
-    return readdirSync(dirname(source.index.filePath), { withFileTypes: true })
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name);
+    const sourceDir = dirname(source.index.filePath);
+    return readSkillProjectionFileNames(sourceDir, sourceDir);
   } catch {
     return [basename(source.index.filePath)];
   }
+}
+
+function readSkillProjectionFileNames(sourceRoot: string, currentDir: string): readonly string[] {
+  return readdirSync(currentDir, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .flatMap((entry) => {
+      const sourcePath = join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        return readSkillProjectionFileNames(sourceRoot, sourcePath);
+      }
+      return entry.isFile()
+        ? [relative(sourceRoot, sourcePath).split(sep).join("/")]
+        : [];
+    });
 }
 
 function aggregateProjectionStatus(
@@ -224,7 +237,7 @@ function readProjectionStatus(
   const drift = detectNativeProjectionFileDrift({
     targetId,
     state: installState,
-    currentContent: readFileSync(path, "utf-8"),
+    currentContent: readFileSync(path),
   });
   return drift ? "drifted" : "projected";
 }

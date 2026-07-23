@@ -1189,9 +1189,11 @@ directories from `~/.kiln/skills/` and `.kiln/skills/` to enabled native CLIs.
 | Codex | `~/.codex/skills/<name>/` |
 | OpenCode | `~/.config/opencode/skills/<name>/` |
 
-Project skills override global skills with the same name. Only top-level files
-within each skill directory are copied. Sync is one-way (Kiln -> CLIs). Drift in
-a projected skill file aborts that target unless `--force` is confirmed.
+Project skills override global skills with the same name. Complete skill
+directories are copied recursively, including `references/`, `scripts/`, and
+`assets/`; symbolic links are not followed. Sync is one-way (Kiln -> CLIs).
+Drift in any projected skill file aborts that file unless `--force` is
+confirmed.
 
 Native skill directories owned directly by a harness are not canonical Kiln
 config. If `kiln config read skills` reports a skill as `origin:

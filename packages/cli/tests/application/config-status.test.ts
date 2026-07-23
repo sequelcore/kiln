@@ -803,6 +803,33 @@ describe("config-status", () => {
     ]));
   });
 
+  it("reports drift when a nested projected skill resource changes", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    const skillRoot = join(userHome, ".kiln", "skills");
+    writeSkill(skillRoot, "nested-resource", "User skill.");
+    const referenceDir = join(skillRoot, "nested-resource", "references");
+    mkdirSync(referenceDir, { recursive: true });
+    writeFileSync(join(referenceDir, "workflow.md"), "canonical\n", "utf-8");
+
+    await syncNativeSkillProjections(tempDir, { userHome });
+    writeFileSync(
+      join(userHome, ".codex", "skills", "nested-resource", "references", "workflow.md"),
+      "drifted\n",
+      "utf-8",
+    );
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "nested-resource",
+        projections: expect.arrayContaining([
+          expect.objectContaining({ target: "codex", status: "drifted" }),
+        ]),
+      }),
+    ]));
+  });
+
   it("requires review when a configured skill projection is not owned by install state", async () => {
     writeProjectConfig(tempDir);
     const userHome = join(tempDir, "home");

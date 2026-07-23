@@ -50,6 +50,29 @@ describe("backupNativeProjectionFile", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("preserves binary projection content", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-binary-"));
+    const kilnDir = join(root, "project", ".kiln");
+    const nativePath = join(root, "home", ".codex", "skills", "visual", "assets", "icon.png");
+    const content = Uint8Array.from([0, 255, 17, 34]);
+
+    try {
+      mkdirSync(dirname(nativePath), { recursive: true });
+      writeFileSync(nativePath, content);
+
+      const backupPath = backupNativeProjectionFile({
+        kilnDir,
+        targetId: "codex-skill:visual/assets/icon.png",
+        filePath: nativePath,
+        timestamp: "2026-05-06T12:00:00.000Z",
+      });
+
+      expect(readFileSync(backupPath!)).toEqual(Buffer.from(content));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function writeFileSyncRecursive(path: string, content: string, encoding: BufferEncoding): void {

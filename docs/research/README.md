@@ -119,6 +119,11 @@ define the active architecture contract. For doctrine, use
   progressive disclosure, model-specific prompt evaluation, neutral response
   skills, and optional validated controlled-technical-English packs.
 
+- `24-backend-skill-scout-2026.md`
+  Official platform evidence and external skill comparison supporting the
+  consolidated Sequel backend router, Spring, PostgreSQL, API, security, and
+  testing capability catalog.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -156,4 +161,5 @@ define the active architecture contract. For doctrine, use
 21. `21-managed-invocation-routing-2026.md`
 22. `22-canonical-mcp-integration-2026.md`
 23. `23-prompt-component-governance.md`
-24. `web-retrieval-provider-routing.md`
+24. `24-backend-skill-scout-2026.md`
+25. `web-retrieval-provider-routing.md`

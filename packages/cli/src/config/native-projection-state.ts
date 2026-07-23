@@ -33,7 +33,7 @@ export interface NativeProjectionSnapshotInput {
 export interface NativeProjectionFileSnapshotInput {
   readonly targetId: string;
   readonly filePath: string;
-  readonly content: string;
+  readonly content: string | Uint8Array;
   readonly updatedAt?: string;
 }
 
@@ -104,7 +104,7 @@ export function createNativeProjectionSnapshot(
 export function createNativeProjectionFileSnapshot(
   input: NativeProjectionFileSnapshotInput,
 ): NativeProjectionTargetState {
-  const contentHash = hashStableValue(input.content);
+  const contentHash = hashFileContent(input.content);
   return {
     targetId: requireText(input.targetId, "targetId"),
     filePath: requireText(input.filePath, "filePath"),
@@ -166,16 +166,34 @@ export function detectNativeProjectionDrift(input: {
 export function detectNativeProjectionFileDrift(input: {
   readonly targetId: string;
   readonly state: NativeProjectionInstallState;
-  readonly currentContent: string;
+  readonly currentContent: string | Uint8Array;
 }): NativeProjectionDrift | undefined {
   const target = input.state.targets[input.targetId];
   if (!target) {
     return undefined;
   }
-  const currentHash = hashStableValue(input.currentContent);
-  return currentHash !== target.managedFieldHashes["$file"]
+  const expectedHash = target.managedFieldHashes["$file"];
+  const currentHashes = fileContentHashes(input.currentContent);
+  return expectedHash === undefined || !currentHashes.includes(expectedHash)
     ? { targetId: input.targetId, driftedFields: ["$file"] }
     : undefined;
+}
+
+function hashFileContent(content: string | Uint8Array): string {
+  return typeof content === "string"
+    ? hashStableValue(content)
+    : createHash("sha256").update(content).digest("hex");
+}
+
+function fileContentHashes(content: string | Uint8Array): readonly string[] {
+  const canonical = hashFileContent(content);
+  if (typeof content === "string") {
+    return [canonical];
+  }
+  // Text projections created before recursive binary-safe sync were hashed as
+  // UTF-8 strings. Accept that legacy hash once so an unchanged file does not
+  // report false drift during migration.
+  return [canonical, hashStableValue(Buffer.from(content).toString("utf-8"))];
 }
 
 export function mergeManagedFields(input: {

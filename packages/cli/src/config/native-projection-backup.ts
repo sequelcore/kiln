@@ -21,7 +21,7 @@ export function backupNativeProjectionFile(input: NativeProjectionBackupInput): 
     `${timestamp}-${basename(input.filePath)}.bak`,
   );
   mkdirSync(dirname(backupPath), { recursive: true });
-  writeFileSync(backupPath, readFileSync(input.filePath, "utf-8"), "utf-8");
+  writeFileSync(backupPath, readFileSync(input.filePath));
   return backupPath;
 }
 
