@@ -10,6 +10,45 @@ Make governed execution correct for external runtimes whose admitted work and
 verification capabilities are qualified MCP tools rather than shell, browser, or
 repository filesystem tools.
 
+The initiating operator surface, managed route, work item, goal, transcript,
+and final outcome must agree about authority, evidence, and completion. A model
+must not report success while the canonical work item or session remains failed
+or blocked.
+
+## Incident Basis
+
+A live Roblox Studio dogfood session exposed the bounded regression this track
+closes. The vendor-specific integration is evidence, not a product special case.
+
+- Session: `kiln-gui:_gui:ac1df67e-bf07-44f2-8f31-615cef792ae6:1784487944365`.
+- The parent admitted qualified Studio MCP inspection, mutation, playtest,
+  capture, console, and navigation capabilities.
+- Work governance correctly required orchestration for high-risk,
+  cross-surface, verification-heavy work.
+- The managed implementation phase converted generic `tests` and `typecheck`
+  evidence into a hard `bash` requirement even though the selected route was
+  intentionally MCP-only, so managed execution failed admission before the
+  child could work.
+- The parent then used the admitted external-runtime tools directly, created
+  the prototype, edited scripts, ran playtests, inspected the hierarchy and
+  console, and returned a human-readable success message.
+- Canonical state did not adopt that evidence: the managed attempt retained a
+  failed admission gate, stale skipped verification results, an active goal,
+  and a failed session outcome.
+- All four external navigation calls failed, but the final answer claimed that
+  navigation to two objectives succeeded.
+- The managed child could not discover the external runtime attachment that
+  the parent used successfully immediately before and after the child ran.
+- Six external mutations have no replayable approval-request or
+  approval-resolution event despite approval-bound configuration.
+- Repeated external navigation failures were preserved only as generic MCP
+  execution failures, limiting diagnosis and replay value.
+- Continuity metadata attributed one thread's runtime summary to another
+  thread and emitted duplicated thread-key prefixes.
+
+This is a control-plane consistency defect. It is not fixed by granting the
+route ambient shell access or by weakening managed-route admission.
+
 ## Ownership
 
 This track owns provider-neutral evidence realization, external-runtime target
@@ -18,18 +57,65 @@ does not own managed-job lifecycle or harness routing.
 
 ## Scope
 
-- Capability-aware realization of required evidence.
-- Explicit parent/child attachment identity.
-- Recovery after managed rejection or failure.
-- Agreement among work item, goal, session outcome, transcript, replay, and final prose.
-- Approval and actionable failure evidence for external mutations.
+- Capability-aware realization of required evidence, derived from the target
+  surface and admitted route capabilities, not only from generic evidence
+  labels.
+- Provider-neutral external-runtime verification capability contracts that
+  represent compile/load checks, console cleanliness, playtest, visual
+  observation, interaction, and hierarchy inspection without pretending they
+  are shell tests or browser QA.
+- Explicit parent/child external-runtime attachment identity through managed
+  invocation, approval, execution, transcript, and replay. Reject dispatch
+  with an attachment-mismatch diagnostic rather than heuristically retargeting.
+- Recovery after managed rejection or failure, allowed only when its concrete
+  evidence is attached to the same work item and supersedes or closes obsolete
+  failure evidence through an explicit transition.
+- Agreement among work item, goal, session outcome, transcript, replay, and
+  final prose; prevent a success final answer when canonical state remains
+  failed or blocked, and reject or qualify final claims that depend only on
+  failed tool calls.
+- Approval and actionable failure evidence for external mutations: persist
+  approval lifecycle evidence for every approval-bound external mutation
+  regardless of GUI authority selection, and preserve actionable redacted
+  external-tool failures in transcript and status evidence.
+- GUI/TUI/CLI presentation of the same canonical blocked or completed state.
 
 ## Non-Goals
 
-- No vendor-specific governance branches.
-- No ambient shell/browser authority for MCP-only routes.
+- No vendor-specific governance branches or Roblox tool-name branches in core
+  governance.
+- No ambient shell/browser authority for MCP-only routes merely to satisfy a
+  generic evidence label.
 - No weakening of delegation, approvals, or evidence requirements.
+- No trusting MCP descriptions or annotations as authority.
+- No treating screenshots or clean console output as proof of unexercised
+  gameplay.
 - No live vendor application dependency in deterministic CI.
+
+## Fixture Contract
+
+Create a deterministic in-repository MCP fixture server with an external
+runtime catalog equivalent to:
+
+```text
+mcp:external-runtime:tool:inspect_tree
+mcp:external-runtime:tool:apply_scene_edit
+mcp:external-runtime:tool:edit_script
+mcp:external-runtime:tool:start_stop_test
+mcp:external-runtime:tool:observe_runtime
+mcp:external-runtime:tool:read_console
+mcp:external-runtime:tool:navigate_actor
+```
+
+The managed route admits only those qualified selectors. It has no `bash`,
+filesystem, browser, or general network tools. Mutation remains approval-bound.
+
+The fixture must reproduce a high-risk, cross-surface work item whose generic
+policy requests `tests`, `typecheck`, visual/runtime evidence, managed review,
+and residual-risk closeout. Its deterministic runtime can return successful and
+failed tool results without launching a vendor application. The parent and
+child receive explicit attachment ids so the fixture can prove both matching
+and mismatched target behavior.
 
 ## Ordered Slices
 
@@ -37,50 +123,84 @@ does not own managed-job lifecycle or harness routing.
 
 Status: Ready.
 
-Encode a deterministic MCP-only runtime fixture that proves the current hard
-`bash` derivation, parent-success/canonical-failure disagreement, unsupported
-positive claims from failed tools, missing approval events, and attachment drift.
-The tests must fail before implementation changes.
+Encode the MCP-only route, external runtime, work item, managed invocation,
+parent recovery, and final-outcome trace as a deterministic fixture. Prove the
+current hard `bash` derivation rejects the otherwise capable route; prove a
+parent success message can currently disagree with failed canonical execution
+state; prove failed navigation cannot support a positive navigation claim;
+prove missing mutation-approval events and cross-thread attribution are
+observable regressions. The tests must fail before implementation changes.
 
 ### Slice 1 - Evidence Realization Contract
 
 Status: Queued behind Slice 0.
 
 Define one typed provider-neutral mapping from canonical evidence requirements
-to admitted capability realizations. Preserve evidence identity and fail closed
-when no qualifying realization exists.
+to admitted capability realizations. Keep canonical evidence ids stable while
+allowing explicit, policy-owned surface realizations. Preserve evidence
+identity and fail closed — reject missing realizations with a precise
+capability pause; never silently substitute weaker evidence.
 
 ### Slice 2 - Recovery And Terminal Consistency
 
 Status: Queued behind Slice 1.
 
-Bind recovery evidence to the original goal, work item, attempt, and attachment.
-Define explicit supersession of obsolete failure evidence. Final-answer
+Bind recovery evidence to the original goal, work item, attempt, and
+attachment. Define explicit supersession of obsolete failure evidence, and when
+a failed admission gate may be superseded while retaining both events in
+replay. Propagate or explicitly select the external-runtime attachment for a
+child; do not let the child heuristically target a different or absent
+instance. Fail closed when recovered evidence is incomplete. Final-answer
 eligibility must depend on canonical terminal state.
 
 ### Slice 3 - Cross-Surface Replay
 
 Status: Queued behind Slice 2.
 
-Prove GUI, TUI, CLI, SDK, and replay agree; preserve redacted server/tool failure
-identity; require approval request/resolution events; retain one thread identity.
+Prove GUI, TUI, CLI, SDK, and replay agree; preserve redacted server/tool
+failure category and identity; require approval request/resolution events for
+approval-bound mutations; assert continuation summaries retain one canonical
+thread identity without duplicated key prefixes; verify list/status calls
+cannot lose or contradict a work item within the same canonical session.
 
 ## Promotion Gates
 
+- No vendor-specific capability names in governance policy.
+- No authority widening for the managed route or parent recovery.
 - Generic repository workflows retain existing shell/test/browser requirements.
-- MCP-only work completes only with attached qualifying evidence.
+- MCP-only work completes only with attached qualifying evidence; otherwise
+  every surface reports the same blocked result.
 - Failed calls cannot support positive verification claims.
-- Recovery never erases the failed attempt from replay.
+- Recovery never erases the failed attempt from replay; a failed managed
+  attempt remains replayable after valid recovery.
 - No duplicate work-item, route, attachment, or replay owner is introduced.
+- Parent and child external-runtime attachment identity is explicit and
+  replayable.
+- Every approval-bound mutation has a corresponding canonical approval event.
+- Security, managed-agent, and cross-surface reviews report no unresolved high
+  or medium findings.
 
 ## Verification
 
-Focused governance, managed-route, Runtime, Gateway-contract, GUI/TUI, replay,
-and existing MCP suites; workspace typecheck; `git diff --check`; findings-first
-security and cross-surface review.
+- Focused unit tests for phase decomposition and evidence realization.
+- Managed direct-provider adapter tests with qualified MCP selectors.
+- Runtime integration tests for managed rejection, local recovery, approval,
+  and terminal closeout.
+- Gateway-contract and GUI/TUI projection tests for blocked/completed parity.
+- Deterministic transcript replay asserting goal, work item, attempt, session,
+  and final-answer consistency.
+- Existing MCP, work-governance, managed-agent, Runtime, CLI, GUI, and TUI
+  suites remain green; workspace typecheck; `git diff --check`; findings-first
+  security and cross-surface review.
 
 ## Completion Criteria
 
-The fixture fails before and passes after the implementation; external-runtime
-work can close without unrelated authority; every surface and final answer agree
-with canonical state; stable doctrine moves to architecture.
+The fixture fails before the implementation and passes afterward. MCP-only
+external runtimes can declare strong executable verification without
+acquiring unrelated shell or browser authority. Parent recovery cannot bypass
+required delegation or evidence attachment. Final prose, canonical outcome,
+work-item state, goal state, and replay agree. External-tool failures retain
+enough redacted detail for an operator to act. External-runtime work can close
+without unrelated authority; stable doctrine moves to architecture
+documentation and this roadmap track is removed or advanced according to the
+roadmap operating model.
