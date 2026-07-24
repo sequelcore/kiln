@@ -27,9 +27,11 @@ account-selection, or lifecycle owner.
 - Harness-neutral `kiln-control-plane` MCP bridge, migrated off the legacy
   `kiln` identity and live-called from Codex CLI, OpenCode, and Claude Code.
 - Additive OpenCode provider projection and live proof of the additive vertical.
+- Claude Code entitlement adapter and strict live proof (Ready; reprioritized
+  2026-07-24 ahead of the Codex picker now that a real configured Claude
+  subscription exists).
 - Codex native-plus-Kiln composite picker, gated behind Responses protocol
-  parity and native catalog-template inspection.
-- Conditional Claude Code entitlement adapter and strict live proof.
+  parity, native catalog-template inspection, and Claude entitlement proof.
 - Unified setup/status projection over shared lifecycle, auth, and route
   eligibility contracts.
 - Deferred thin/dynamic federation research after measured need.
@@ -110,24 +112,16 @@ Exit gate: the operator can work primarily from Codex App without burning
 Codex quota for every delegated task, and no workflow step uses a native-CLI
 shell workaround for a Kiln-managed route.
 
-### Slice 3 - Codex Composite Picker
+### Slice 3 - Claude Entitlement Adapter
 
-Status: Queued behind OpenCode live parity.
-
-Close Responses protocol parity, admitted reasoning levels, hosted web search,
-and native catalog-template inspection; fail closed if no valid native catalog
-template is available. Generate and journal an exact native-plus-Kiln catalog
-without changing session provider identity, defaults, search settings, or
-unrelated fields. Route native and virtual entries through a supervised
-loopback that preserves native semantics; never activate provider-only
-projection as a fake picker. Journal ownership of catalog/cache/base-URL state
-so uninstall restores the exact prior configuration. Prove CLI before App,
-including native turn, virtual turn, pre-existing session resume, gateway
-recovery, and exact uninstall.
-
-### Slice 4 - Claude Entitlement Adapter
-
-Status: Conditional.
+Status: Ready - reprioritized ahead of Slice 4 by explicit operator decision
+(2026-07-24). The operator now holds a Claude Pro/Max subscription and is the
+real configured consumer the prior "Conditional" gate was waiting on; the
+motivating goal is spreading governed work across Claude, Codex, and OpenCode
+so no single provider subscription is exhausted by one session (see the
+incident recorded in the changelog/session record for 2026-07-24). This
+reorders the queue for this track only; it does not change Roadmap 03/02 as
+the shared live-activation blocker below this track's header status.
 
 Keep Claude Code subscription access distinct from Anthropic API billing.
 Admit no model into the live-proven set until a strict structured live result
@@ -140,6 +134,21 @@ diagnostics, and exact restore.
 Exit gate: Claude Code subscription and Anthropic API usage cannot be confused
 in route selection or status, and native-harness routes expose an explicit
 unsupported-proof diagnostic wherever Kiln cannot verify behavior.
+
+### Slice 4 - Codex Composite Picker
+
+Status: Queued behind OpenCode live parity and Slice 3.
+
+Close Responses protocol parity, admitted reasoning levels, hosted web search,
+and native catalog-template inspection; fail closed if no valid native catalog
+template is available. Generate and journal an exact native-plus-Kiln catalog
+without changing session provider identity, defaults, search settings, or
+unrelated fields. Route native and virtual entries through a supervised
+loopback that preserves native semantics; never activate provider-only
+projection as a fake picker. Journal ownership of catalog/cache/base-URL state
+so uninstall restores the exact prior configuration. Prove CLI before App,
+including native turn, virtual turn, pre-existing session resume, gateway
+recovery, and exact uninstall.
 
 ### Slice 5 - Unified Status And Repair
 
@@ -189,7 +198,10 @@ assumptions, and unsupported-proof gaps.
 - Every projection preserves unmanaged fields and exact restore.
 - All adapters consume shared authority and lifecycle contracts.
 - OpenCode closes before Codex picker takeover.
-- Claude remains conditional unless a real configured consumer requires it.
+- Claude entitlement proof (Slice 3) is admitted ahead of the Codex composite
+  picker (Slice 4) per the 2026-07-24 reprioritization; it still requires the
+  same strict live-proof bar as every other slice before any model enters the
+  live-proven set.
 - No slice claims live validation from code-complete or integration-complete
   evidence alone; operator-machine proof is recorded separately.
 - Uninstall/restore is proven exact for every projection this track owns
