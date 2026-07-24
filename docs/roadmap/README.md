@@ -29,8 +29,9 @@ roadmap reorganization.
 | 5 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
 | 6 | [06 - Prompt Governance Plane](./06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
 | 7 | [07 - Stack Governance Plane](./07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
-| 8 | [08 - Rust Optimization Guardrail](./08-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 9 | [09 - Native Operator Surface](./09-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
+| 8 | [08 - Remote Operator Pairing](./08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
+| 9 | [09 - Rust Optimization Guardrail](./09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 10 | [10 - Native Operator Surface](./10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
 
 ## Dependency Rules
 
@@ -41,8 +42,9 @@ roadmap reorganization.
 - `05` decides whether a skill is healthy, compatible, trusted, and admitted.
 - `06` decides how admitted instructions and skill content enter provider prompts and become replayable evidence.
 - `07` owns desired stack policy and drift evidence; skills may consume its result but never own versions.
-- `08` is a decision boundary, not queued implementation.
-- `09` remains last; native surface promotion depends on stable release, gateway, and benchmark evidence.
+- `08` owns the cross-surface remote/headless pairing flow and binds to `03`'s access contract; deferred behind `07` by explicit decision, not technical dependency.
+- `09` is a decision boundary, not queued implementation.
+- `10` remains last; native surface promotion depends on stable release, gateway, and benchmark evidence.
 
 GUI execution presentation is canonical in
 [`docs/architecture/gui-execution-presentation.md`](../architecture/gui-execution-presentation.md).

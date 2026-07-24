@@ -1,4 +1,4 @@
-# 09 - Native Operator Surface
+# 10 - Native Operator Surface
 
 Status: Queued benchmark-admission track
 Execution: Queued - begin only after release truth and control-plane integration are stable.
@@ -16,7 +16,7 @@ closed with defer/no-promotion status and remains canonical in
 doctrine is canonicalized in `docs/architecture/provider-model-discovery.md`,
 `docs/architecture/managed-agents.md`, `docs/guides/gui.md`, and
 `docs/guides/tui.md`. Rust optimization is a separate implementation track
-owned by Roadmap 08; benchmark validation is one phase of this native surface
+owned by Roadmap 09; benchmark validation is one phase of this native surface
 roadmap, not the whole roadmap.
 
 ## Goals
@@ -60,7 +60,7 @@ integration, or Rust optimization.
 - No live Playwright or native rendering benchmark in the current slice.
 - No native UI, network attach, mutation, cancellation, or dispatch yet.
 - No Rust/WASM/sidecar implementation or Bun/Rust boundary definition;
-  Roadmap 08 owns that guardrail.
+  Roadmap 09 owns that guardrail.
 - No native promotion before measured browser/native parity evidence.
 
 ## Completed Foundation
@@ -113,7 +113,7 @@ defaults.
 Status: Blocked on measured evidence.
 
 Promote, narrow, or reject native behavior explicitly. Any required Rust/native
-helper must enter through Roadmap 08 and a module-specific ADR.
+helper must enter through Roadmap 09 and a module-specific ADR.
 
 ## Promotion Gates
 
@@ -135,7 +135,7 @@ rendering evidence exists and the architecture documents are updated with the
 decision outcome. Rust/WASM/sidecar optimization is not part of this roadmap:
 benchmark validation may produce workload and projection evidence that a
 later Rust slice can reuse, but Rust implementation and transport selection
-belong to Roadmap 08 or a dedicated approved Rust optimization roadmap/ADR.
+belong to Roadmap 09 or a dedicated approved Rust optimization roadmap/ADR.
 
 ## Research Basis
 

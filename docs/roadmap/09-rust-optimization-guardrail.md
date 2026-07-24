@@ -1,4 +1,4 @@
-# 08 - Rust Optimization Guardrail
+# 09 - Rust Optimization Guardrail
 
 Status: Guardrail
 Execution: Guardrail - no implementation without a module-specific ADR, parity contract, and benchmark.
