@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import os from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
@@ -19,6 +18,7 @@ import {
   isNativeProjectionHarnessDisabled,
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
+import { resolveNativeHarnessDir } from "./native-harness-home.js";
 import { decideNativeAgentProjection } from "./native-agent-projection-decision.js";
 
 export interface NativeAgentProjectionResult {
@@ -213,21 +213,21 @@ export async function syncNativeAgentProjections(
     {
       key: "claude",
       label: "Claude Code",
-      dir: join(os.homedir(), ".claude", "agents"),
+      dir: join(resolveNativeHarnessDir("claude", options.userHome), "agents"),
       extension: "md",
       render: agentToClaudeMd,
     },
     {
       key: "codex",
       label: "Codex",
-      dir: join(os.homedir(), ".codex", "agents"),
+      dir: join(resolveNativeHarnessDir("codex", options.userHome), "agents"),
       extension: "toml",
       render: agentToCodexToml,
     },
     {
       key: "opencode",
       label: "OpenCode",
-      dir: join(os.homedir(), ".config", "opencode", "agents"),
+      dir: join(resolveNativeHarnessDir("opencode", options.userHome), "agents"),
       extension: "md",
       render: agentToOpenCodeMd,
     },

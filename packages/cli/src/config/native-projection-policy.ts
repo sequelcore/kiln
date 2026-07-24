@@ -11,6 +11,13 @@ export type NativeProjectionHarness = HarnessIntegrationId;
 export interface NativeProjectionSyncOptions {
   readonly force?: boolean;
   readonly disabledHarnesses?: readonly NativeProjectionHarness[];
+  /**
+   * Explicit isolation root for tests/sandboxes. When set, every harness
+   * target resolves under this one directory instead of consulting the
+   * harness's own env var override or the OS home directory. See
+   * `native-harness-home.ts` for full precedence.
+   */
+  readonly userHome?: string;
 }
 
 export function isNativeProjectionHarnessDisabled(

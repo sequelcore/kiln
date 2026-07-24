@@ -1,6 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
-import os from "node:os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { stripJsonComments } from "./json-comments.js";
 import { translateClaudePermissionProjection } from "./translators/claude-translator.js";
@@ -26,6 +25,7 @@ import {
   isNativeProjectionHarnessDisabled,
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
+import { resolveNativeHarnessDir } from "./native-harness-home.js";
 import { buildClaudeMessagesProjection, buildCodexResponsesProjection, buildOpenCodeResponsesProjection } from "./model-gateway-native-projection.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
@@ -168,7 +168,7 @@ async function syncCodexPermissions(
   modelGateway: ModelGatewayConfig | undefined,
 ): Promise<PermissionTargetResult> {
   const targetId = PERMISSION_PROJECTION_TARGET_IDS.codex;
-  const target = join(os.homedir(), ".codex", "config.toml");
+  const target = join(resolveNativeHarnessDir("codex", options.userHome), "config.toml");
   const originalConfigContent = existsSync(target) ? readFileSync(target, "utf8") : undefined;
   let doc: Record<string, unknown> = {};
   if (existsSync(target)) {
@@ -248,7 +248,7 @@ async function syncOpenCodePermissions(
   modelGateway: ModelGatewayConfig | undefined,
 ): Promise<PermissionTargetResult> {
   const targetId = PERMISSION_PROJECTION_TARGET_IDS.opencode;
-  const target = join(os.homedir(), ".config", "opencode", "opencode.json");
+  const target = join(resolveNativeHarnessDir("opencode", options.userHome), "opencode.json");
   const originalContent = existsSync(target) ? readFileSync(target, "utf8") : undefined;
   let existing: Record<string, unknown> = {};
   if (existsSync(target)) {

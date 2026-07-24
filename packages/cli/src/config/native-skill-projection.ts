@@ -30,7 +30,6 @@ export interface NativeSkillProjectionResult {
 
 export interface NativeSkillProjectionOptions extends NativeProjectionSyncOptions {
   readonly skillConfig?: KilnYamlSkillsConfig | null;
-  readonly userHome?: string;
 }
 
 export function discoverSkillDirs(projectPath: string, userHome = os.homedir()): Map<string, string> {

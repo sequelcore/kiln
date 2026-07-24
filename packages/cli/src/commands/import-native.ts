@@ -1,5 +1,4 @@
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import readline from "node:readline";
 import { stringify as stringifyYaml } from "yaml";
@@ -7,6 +6,7 @@ import { parse as parseToml } from "smol-toml";
 import { globalToKilnYaml } from "../config/config-merger.js";
 import { HARNESSES_WITH_NATIVE_CONFIG_IMPORT } from "../config/harness-integration-capabilities.js";
 import { stripJsonComments } from "../config/json-comments.js";
+import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
 import {
   CANONICAL_GLOBAL_CONFIG_VERSION,
   defaultGlobalConfig,
@@ -342,10 +342,10 @@ function readNativeDocument(target: ImportNativeTargetId, path: string): Record<
 
 function resolveNativeConfigPath(target: ImportNativeTargetId): string {
   if (target === "codex") {
-    return join(homedir(), ".codex", "config.toml");
+    return join(resolveNativeHarnessDir("codex"), "config.toml");
   }
   if (target === "opencode") {
-    return join(homedir(), ".config", "opencode", "opencode.json");
+    return join(resolveNativeHarnessDir("opencode"), "opencode.json");
   }
   throw new Error(`Unsupported import-native target: ${target}`);
 }

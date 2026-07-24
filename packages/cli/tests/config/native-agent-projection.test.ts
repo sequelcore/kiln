@@ -389,4 +389,40 @@ describe("native-agent-projection", () => {
     expect(forced.errors).toHaveLength(0);
     expect(fsMocks.files.get(codexAgentPath)).toContain('name = "planner"');
   });
+
+  describe("with a harness-specific config dir env var set", () => {
+    const savedEnv: Record<string, string | undefined> = {};
+
+    beforeEach(() => {
+      savedEnv.CODEX_HOME = process.env.CODEX_HOME;
+      process.env.CODEX_HOME = "/scratch/codex-home";
+    });
+
+    afterEach(() => {
+      if (savedEnv.CODEX_HOME === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = savedEnv.CODEX_HOME;
+      }
+    });
+
+    it("writes to CODEX_HOME instead of the OS home directory, matching what Codex itself reads", async () => {
+      loadAgentDefinitionsMock.mockResolvedValue([
+        {
+          name: "scout",
+          role: "Discovery specialist",
+          goal: "Map the affected surface",
+          tier: "reasoning",
+          instructions: "Scout first.",
+          scope: "project",
+        },
+      ]);
+
+      const result = await syncNativeAgentProjections("/workspace/project");
+
+      expect(result.errors).toHaveLength(0);
+      expect(fsMocks.files.has(join("/scratch/codex-home", "agents", "scout.toml"))).toBe(true);
+      expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "scout.toml"))).toBe(false);
+    });
+  });
 });

@@ -825,4 +825,31 @@ describe("syncNativePermissionProjections", () => {
       "kiln.permission_sync",
     ]);
   });
+
+  describe("with OPENCODE_CONFIG_DIR set", () => {
+    let savedOpencodeConfigDir: string | undefined;
+
+    beforeEach(() => {
+      savedOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+      process.env.OPENCODE_CONFIG_DIR = join(paths.rootPath, "opencode-scratch");
+    });
+
+    afterEach(() => {
+      if (savedOpencodeConfigDir === undefined) {
+        delete process.env.OPENCODE_CONFIG_DIR;
+      } else {
+        process.env.OPENCODE_CONFIG_DIR = savedOpencodeConfigDir;
+      }
+    });
+
+    it("writes opencode.json under OPENCODE_CONFIG_DIR instead of the OS home directory", async () => {
+      const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.opencode).toBe(true);
+      const scratchConfigPath = join(paths.rootPath, "opencode-scratch", "opencode.json");
+      expect(existsSync(scratchConfigPath)).toBe(true);
+      expect(existsSync(join(paths.homePath, ".config", "opencode", "opencode.json"))).toBe(false);
+    });
+  });
 });
