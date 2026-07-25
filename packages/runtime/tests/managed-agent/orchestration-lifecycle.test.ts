@@ -6,6 +6,7 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
 } from "@kilnai/core";
+import type { ManagedAgentAdmissionDecision } from "@kilnai/core";
 import {
   RuntimeManagedAgentInvocationService,
   runManagedAgentOrchestrationLifecycle,
@@ -436,6 +437,51 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     expect(result.childRecords[0]?.record?.authority.writeAuthority?.scope.workspace.deniedPaths).toEqual([
       "C:/Repo/.kiln/worktrees/fan-out-test:child:1/.git",
     ]);
+  });
+
+  it("fails closed when the selected route declares an external-runtime attachment (Roadmap 01 Slice 3.1, F3)", async () => {
+    // managed_agent.orchestrate has no input surface to request an
+    // externalRuntimeAttachment yet (that is deliberately out of scope for
+    // this slice). This proves the single core admission gate
+    // (evaluateManagedAgentAdmission) still fails closed for the orchestrate
+    // dispatch path when the selected route is attached to a specific
+    // external-runtime instance: the route's declared attachment surfaces
+    // through runOrchestrationBatch's capabilitySnapshotInput, the built
+    // request never carries a requested attachment, and admission denies
+    // with externalRuntimeAttachment.missing before any child starts.
+    const observedRequests: ManagedAgentRuntimeInvocationInput["request"][] = [];
+    const managedInvocation = createManagedInvocation({
+      requestObserver: (request) => observedRequests.push(request),
+    });
+    const primaryRoute = managedInvocation.routes[0]!;
+    const decisions: ManagedAgentAdmissionDecision[] = [];
+
+    await expect(runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: request(2),
+      managedInvocation: {
+        ...managedInvocation,
+        routes: [{
+          ...primaryRoute,
+          externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+        }],
+      },
+      profile: "foundation-apply-approved-writes",
+      lifecycleObserver: {
+        onAdmissionResolved: ({ decision }) => {
+          decisions.push(decision);
+        },
+      },
+    })).rejects.toThrow(/externalRuntimeAttachment\.missing/);
+
+    expect(decisions.length).toBeGreaterThan(0);
+    for (const decision of decisions) {
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.missing"],
+      });
+    }
+    expect(observedRequests).toEqual([]);
+    expect(managedInvocation.invocationService?.list()).toEqual([]);
   });
 
   it("fails closed when no isolated lifecycle route is available", async () => {

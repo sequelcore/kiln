@@ -345,9 +345,103 @@ child (Thread 5) and explicit supersession-with-dual-replay for a superseded
 admission gate remain open, per Slice 1's status note assigning attachment
 work to Slice 3.
 
+### Slice 3.1 - External Runtime Attachment Identity
+
+Status: Implemented - pending merge. Closes thread 5 (attachment drift), left
+open by Slice 1 and Slice 2's status notes, and Roadmap 01 issue #6, once
+PR #8 merges into `codex/cross-harness-gateway` (tracker #5 remains open for
+the remaining Slice 3 work below).
+
+Made external-runtime attachment identity explicit, provider-neutral, and
+enforced at the canonical admission gate — "which physical external-runtime
+instance a managed child must drive," distinct from
+`ManagedAgentCallerAttachmentIdentity` ("who called Kiln", unchanged). New
+sibling type `ManagedAgentExternalRuntimeAttachmentIdentity` in
+`packages/core/src/agents/managed-invocation/index.ts` (`kind:
+"external-runtime"`, `runtimeId`, `attachmentId` — exactly three fields, no
+discovery/version/pid metadata). A route's declared attachment
+(`ManagedInvocationToolRoute.externalRuntimeAttachment`, property of the
+physical target, not any one admission profile) is compared against a
+dispatch's requested attachment by one exported comparator,
+`compareManagedAgentExternalRuntimeAttachment`, used only inside the single
+fail-closed gate `evaluateManagedAgentAdmission` — the same gate every
+dispatch path traverses (`managed_agent.invoke`, `.start`, and
+`.orchestrate`, since orchestrate's children route through
+`RuntimeManagedAgentInvocationService.start()` like every other path). Both
+absent admits unchanged (zero behavior change for the hundreds of existing
+routes that never declare an attachment); route declares/request omits
+denies `externalRuntimeAttachment.missing`; both present and equal admits;
+both present and unequal denies `externalRuntimeAttachment.mismatch`;
+request declares/route doesn't denies
+`externalRuntimeAttachment.unsupported-route`. `managed_agent.invoke` and
+`.start` share one `ToolDefinition`, so one schema addition
+(`externalRuntimeAttachment: { runtimeId, attachmentId }`, both required,
+`additionalProperties: false`) gives parity by construction; `parseInput`
+validates the object strictly — unknown keys or a blank/whitespace-only field
+are rejected with an explicit error, never silently dropped (closes the
+`additionalProperties: false` is advisory-only gap: JSON Schema constrains
+the model's tool call, not the runtime). `managed_agent.orchestrate` has no
+input surface to request an attachment yet (deliberately out of scope —
+expressing it through orchestrate's own input contract is separate,
+sequenced work) but still fails closed: the selected route's declared
+attachment is surfaced into `runOrchestrationBatch`'s
+`capabilitySnapshotInput`, so a route attached to a specific instance denies
+every orchestrated child with `externalRuntimeAttachment.missing` instead of
+silently dispatching unattached. The attachment is additive through the
+existing evidence/replay surfaces with zero projection changes
+(`ManagedAgentCapabilitySnapshot`/`Input`, `ManagedAgentLifecycleEvidence` +
+`buildManagedAgentLifecycleEvidence` for terminal events,
+`snapshotInputFromAdmission` for recovery re-admission,
+`projectManagedInvocationCapabilitySnapshotResources` already spreads),
+declarable from real route configuration
+(`KilnManagedAgentRouteConfig.externalRuntimeAttachment` →
+`packages/cli/src/config/managed-agent-routes.ts`, not just test fixtures),
+and additively declared on the operator/SDK projection contract
+(`OperatorManagedAgentCapabilitySnapshot.externalRuntimeAttachment` /
+`.callerIdentity` in `gateway-contracts/src/frames.ts`, mirrored types to
+avoid a `@kilnai/core` dependency).
+
+Deliberately not touched: `ManagedAgentCallerAttachmentIdentity` (different
+producer, lifetime, consumer, and cardinality — extending it would have
+forced a policy hole in `evaluateManagedInvocationCallerCapability`'s `kind`
+switch), `ManagedAgentResultHandoff` (attachment belongs to the invocation
+record, not child-authored output), `resource-projection.ts`,
+`caller-capability-policy.ts`, MCP client routing (`runtimeId` reuses the
+existing `mcp:<server>:…` namespace convention only), discovery/active-
+instance-switching/defaulting-to-the-sole-attached-instance (absence must
+stay absent — F7; this is deliberately different from the existing caller-
+identity default, which is unchanged), and Roadmap 02 managed-job lease/
+account lifecycle.
+
+Residual risks carried forward, not fixed in this slice: the tool-surface
+top-level input schema remains `additionalProperties: false` (advisory only)
+outside the `externalRuntimeAttachment` object itself — only that one nested
+object gets strict runtime validation; the existing caller-identity default
+synthesis (`normalizeManagedInvocationAttachment` fabricating a
+`kiln-runtime` caller identity when none is configured) is unchanged and
+orthogonal; `managed_agent.orchestrate` still has no input surface to
+express a requested attachment (fails closed via the core gate, but cannot
+yet succeed against an attached route); and Slice 1's
+`evidenceRealizations` route-config-unreachability precedent (closed here
+for `externalRuntimeAttachment` specifically, not retroactively fixed for
+`evidenceRealizations`).
+
+Verified: `@kilnai/gateway-contracts` 28 files/259 tests,
+`@kilnai/core` 289/290 files pass (3578/3580 tests — 2 pre-existing,
+unrelated `verified-efficiency-v1` publication-readiness digest-mismatch
+failures confirmed via `git stash` before this work began),
+`@kilnai/runtime` 219 files/2942 tests (includes 19 new behavioral tests
+replacing the flipped `it.fails` attachment-drift regression, plus a new
+orchestrate fail-closed test in `orchestration-lifecycle.test.ts`),
+`@kilnai/cli` 150/152 files pass (1518/1519 tests — 1 pre-existing,
+unrelated `verified-efficiency-v1` digest-mismatch failure plus one
+pre-existing flaky unhandled rejection in `run-builtin-tools.test.ts`, both
+confirmed via `git stash` before this work began), typecheck clean across
+`gateway-contracts`, `core`, `runtime`, `sdk`, `cli`, `tui`, `native`.
+
 ### Slice 3 - Cross-Surface Replay
 
-Status: Queued behind Slice 2.
+Status: Queued behind Slice 3.1 above.
 
 Prove GUI, TUI, CLI, SDK, and replay agree; preserve redacted server/tool
 failure category and identity; require approval request/resolution events for

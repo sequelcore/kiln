@@ -401,6 +401,18 @@ export interface KilnManagedAgentRemoteHarnessConfig {
   readonly limitations?: readonly string[];
 }
 
+/**
+ * Roadmap 01 Slice 3.1 - declares which external-runtime instance this
+ * route is physically attached to. A property of the target, not of any one
+ * admission profile: every profile of this route addresses the same
+ * instance. When declared, every dispatch against this route must request
+ * the exact same attachment or be denied.
+ */
+export interface KilnManagedAgentExternalRuntimeAttachmentConfig {
+  readonly runtimeId: string;
+  readonly attachmentId: string;
+}
+
 export interface KilnManagedAgentRouteConfig {
   readonly id: string;
   readonly kind: KilnManagedAgentRouteKind;
@@ -416,6 +428,7 @@ export interface KilnManagedAgentRouteConfig {
   readonly writeAuthority?: KilnManagedAgentWriteAuthorityConfig;
   readonly credentials?: KilnManagedAgentCredentialsConfig;
   readonly remoteHarness?: KilnManagedAgentRemoteHarnessConfig;
+  readonly externalRuntimeAttachment?: KilnManagedAgentExternalRuntimeAttachmentConfig;
 }
 
 export interface KilnManagedAgentsConfig {

@@ -6802,16 +6802,11 @@ describe("managed invocation runtime tool", () => {
     // Studio MCP server's list_roblox_studios/set_active_studio tools, and
     // community servers that accept an instance_id alongside every tool call
     // (reviewed 2026-07-24 via web research, not present in cloned/ references).
-    // managed_agent.invoke has no equivalent field, and its top-level schema
-    // sets additionalProperties: false, so a caller cannot even attempt to pass
-    // one. A managed child therefore has no way to receive, require, or verify
-    // which physical external-runtime instance it must target, and dispatch has
-    // no way to reject an attachment mismatch - it can only ever be admitted or
-    // denied by tool/authority, never by target identity. This is expected to
-    // fail until Roadmap 01 Slice 2 (Recovery And Terminal Consistency) adds
-    // explicit parent/child attachment identity; this .fails must flip to a
-    // plain `it` once that lands.
-    it.fails(
+    // Roadmap 01 Slice 3.1 closes this: managed_agent.invoke/.start now expose
+    // externalRuntimeAttachment, and the core admission gate
+    // (evaluateManagedAgentAdmission) enforces it. This structural check is
+    // kept as a cheap guard; the behavioral suite below is the real proof.
+    it(
       "lets managed_agent.invoke express which external-runtime instance a dispatch must target",
       () => {
         const properties = (MANAGED_AGENT_INVOKE_TOOL.inputSchema as { properties?: Record<string, unknown> })
@@ -6822,5 +6817,471 @@ describe("managed invocation runtime tool", () => {
         expect(attachmentFieldNames.length).toBeGreaterThan(0);
       },
     );
+  });
+
+  // Roadmap 01 Slice 3.1 - External Runtime Attachment Identity (issue #6,
+  // tracker #5). Behavioral proof that managed_agent.invoke/.start propagate
+  // an explicit externalRuntimeAttachment through parseInput, the
+  // ManagedAgentInvocationRequest, and the core admission gate
+  // (evaluateManagedAgentAdmission), and that a route's declared attachment
+  // is enforced - matched, mismatched, missing, or unsupported-route.
+  describe("external runtime attachment identity (Roadmap 01 Slice 3.1)", () => {
+    const ATTACHED_ROUTE_ATTACHMENT = { kind: "external-runtime" as const, runtimeId: "mcp-external-runtime", attachmentId: "instance-a" };
+
+    function makeAttachedRuntimeSurface(
+      adapter = makeAdapter({
+        adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+        providerId: "mcp-external-runtime",
+        supportedProfiles: ["foundation-readonly-plan"],
+      }),
+      routeAttachment: { readonly kind: "external-runtime"; readonly runtimeId: string; readonly attachmentId: string } | undefined,
+    ) {
+      return createAttachedRuntimeBuiltinToolSurface({
+        managedInvocation: {
+          invocationService: makeObservedRuntimeInvocationService({
+            credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+              allowedRouteIds: ["credential-route:external-runtime:primary"],
+            }),
+          }),
+          routes: [{
+            routeId: "external-runtime-attached",
+            routeSource: "explicit-managed-route",
+            providerId: "mcp-external-runtime",
+            model: "external-runtime-fixture",
+            adapter,
+            ...(routeAttachment ? { externalRuntimeAttachment: routeAttachment } : {}),
+            profiles: {
+              "foundation-readonly-plan": {
+                authorityProfileId: "authority:external-runtime-attached:foundation-readonly-plan",
+                permissionProfile: "read-only",
+                allowedToolNames: ["read", "grep", "glob"],
+                networkAllowed: false,
+                workingDirectory: {
+                  path: "C:/workspace/kiln",
+                  mode: "read-only",
+                },
+                timeoutMs: 120000,
+                timeoutSource: "explicit-route",
+                credentialRoute: {
+                  mode: "runtime-selected",
+                  routeId: "credential-route:external-runtime:primary",
+                },
+                memoryScope: {
+                  scope: { kind: "project", id: "kiln" },
+                  access: "read-only",
+                },
+              },
+            },
+          }],
+        },
+      });
+    }
+
+    const baseInvokeInput = {
+      routeId: "external-runtime-attached",
+      profile: "foundation-readonly-plan",
+      providerRoute: { providerId: "mcp-external-runtime", model: "external-runtime-fixture" },
+      task: "Run a bounded external-runtime dispatch.",
+    };
+
+    for (const toolName of ["managed_agent.invoke", "managed_agent.start"] as const) {
+      it(`${toolName} admits and persists the attachment when it matches the route's declared attachment`, async () => {
+        const adapter = makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+        const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get(toolName)?.({
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+        }, {
+          session,
+          toolCall: { id: `tool-call-${toolName}-match`, name: toolName, input: {} },
+        }) as {
+          readonly isError: boolean;
+          readonly metadata: {
+            readonly capabilitySnapshot?: { readonly externalRuntimeAttachment?: unknown };
+          };
+        };
+
+        expect(result.isError).toBe(false);
+        expect(adapter.invoke).toHaveBeenCalledTimes(1);
+        expect(result.metadata.capabilitySnapshot?.externalRuntimeAttachment).toEqual(ATTACHED_ROUTE_ATTACHMENT);
+        const startedEvent = session.sessionEvents.find((event) => event.kind === "agent_invocation_started") as
+          | { readonly capabilitySnapshot?: { readonly externalRuntimeAttachment?: unknown } }
+          | undefined;
+        expect(startedEvent?.capabilitySnapshot?.externalRuntimeAttachment).toEqual(ATTACHED_ROUTE_ATTACHMENT);
+      });
+
+      it(`${toolName} denies with external_runtime_attachment_mismatch when the requested attachment differs, without invoking the adapter`, async () => {
+        const adapter = makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+        const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get(toolName)?.({
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-b" },
+        }, {
+          session,
+          toolCall: { id: `tool-call-${toolName}-mismatch`, name: toolName, input: {} },
+        }) as {
+          readonly isError: boolean;
+          readonly output: string;
+          readonly metadata: {
+            readonly errorCode?: string;
+            readonly requestedAttachment?: unknown;
+            readonly routeAttachment?: unknown;
+          };
+        };
+
+        expect(result.isError).toBe(true);
+        expect(result.metadata.errorCode).toBe("external_runtime_attachment_mismatch");
+        expect(result.output).toContain("mcp-external-runtime:instance-a");
+        expect(result.output).toContain("mcp-external-runtime:instance-b");
+        expect(result.metadata.requestedAttachment).toEqual({ kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-b" });
+        expect(result.metadata.routeAttachment).toEqual(ATTACHED_ROUTE_ATTACHMENT);
+        expect(adapter.invoke).not.toHaveBeenCalled();
+        expect(session.sessionEvents.map((event) => event.kind)).toEqual(["agent_invocation_requested", "agent_invocation_failed"]);
+      });
+
+      it(`${toolName} denies with external_runtime_attachment_missing when the route declares an attachment and the dispatch omits it, without invoking the adapter`, async () => {
+        const adapter = makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+        const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get(toolName)?.(baseInvokeInput, {
+          session,
+          toolCall: { id: `tool-call-${toolName}-missing`, name: toolName, input: {} },
+        }) as {
+          readonly isError: boolean;
+          readonly metadata: { readonly errorCode?: string };
+        };
+
+        expect(result.isError).toBe(true);
+        expect(result.metadata.errorCode).toBe("external_runtime_attachment_missing");
+        expect(adapter.invoke).not.toHaveBeenCalled();
+        expect(session.sessionEvents.map((event) => event.kind)).toEqual(["agent_invocation_requested", "agent_invocation_failed"]);
+      });
+
+      it(`${toolName} denies with external_runtime_attachment_unsupported_route when the route declares no attachment but the dispatch requests one`, async () => {
+        const adapter = makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+        const surface = makeAttachedRuntimeSurface(adapter, undefined);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get(toolName)?.({
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+        }, {
+          session,
+          toolCall: { id: `tool-call-${toolName}-unsupported-route`, name: toolName, input: {} },
+        }) as {
+          readonly isError: boolean;
+          readonly metadata: { readonly errorCode?: string };
+        };
+
+        expect(result.isError).toBe(true);
+        expect(result.metadata.errorCode).toBe("external_runtime_attachment_unsupported_route");
+        expect(adapter.invoke).not.toHaveBeenCalled();
+      });
+
+      it(`${toolName} admits an unattached route when neither the route nor the dispatch declare an attachment (no regression)`, async () => {
+        const adapter = makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+        const surface = makeAttachedRuntimeSurface(adapter, undefined);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get(toolName)?.(baseInvokeInput, {
+          session,
+          toolCall: { id: `tool-call-${toolName}-no-attachment`, name: toolName, input: {} },
+        }) as { readonly isError: boolean };
+
+        expect(result.isError).toBe(false);
+        expect(adapter.invoke).toHaveBeenCalledTimes(1);
+      });
+
+      it(`${toolName} rejects a vendor-specific/unknown field inside externalRuntimeAttachment instead of silently dropping it (F2)`, async () => {
+        const adapter = makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+        const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get(toolName)?.({
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a", robloxPlaceId: 123 },
+        }, {
+          session,
+          toolCall: { id: `tool-call-${toolName}-unknown-field`, name: toolName, input: {} },
+        }) as { readonly isError: boolean; readonly output: string };
+
+        expect(result.isError).toBe(true);
+        expect(result.output).toContain("robloxPlaceId");
+        expect(adapter.invoke).not.toHaveBeenCalled();
+      });
+
+      it(`${toolName} rejects an empty externalRuntimeAttachment object instead of treating it as absent`, async () => {
+        const adapter = makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+        const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get(toolName)?.({
+          ...baseInvokeInput,
+          externalRuntimeAttachment: {},
+        }, {
+          session,
+          toolCall: { id: `tool-call-${toolName}-empty`, name: toolName, input: {} },
+        }) as { readonly isError: boolean; readonly output: string };
+
+        expect(result.isError).toBe(true);
+        expect(adapter.invoke).not.toHaveBeenCalled();
+      });
+
+      it(`${toolName} rejects a whitespace-only attachmentId instead of coercing it`, async () => {
+        const adapter = makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+        const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get(toolName)?.({
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "   " },
+        }, {
+          session,
+          toolCall: { id: `tool-call-${toolName}-blank`, name: toolName, input: {} },
+        }) as { readonly isError: boolean; readonly output: string };
+
+        expect(result.isError).toBe(true);
+        expect(adapter.invoke).not.toHaveBeenCalled();
+      });
+    }
+
+    it("preserves the attachment in the terminal lifecycle evidence for a completed invocation", async () => {
+      const adapter = makeAdapter({
+        adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+        providerId: "mcp-external-runtime",
+        supportedProfiles: ["foundation-readonly-plan"],
+      });
+      const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+      const session = makeSession();
+
+      await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+        ...baseInvokeInput,
+        externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      }, {
+        session,
+        toolCall: { id: "tool-call-terminal-evidence", name: "managed_agent.invoke", input: {} },
+      });
+
+      const completedEvent = session.sessionEvents.find((event) => event.kind === "agent_invocation_completed") as
+        | { readonly managedInvocationEvidence?: { readonly lifecycle?: { readonly externalRuntimeAttachment?: unknown } } }
+        | undefined;
+      expect(completedEvent?.managedInvocationEvidence?.lifecycle?.externalRuntimeAttachment).toEqual(ATTACHED_ROUTE_ATTACHMENT);
+    });
+
+    it("denies a mismatch before the adapter is ever invoked, proving admission runs upstream of dispatch", async () => {
+      const adapter = makeAdapter({
+        adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+        providerId: "mcp-external-runtime",
+        supportedProfiles: ["foundation-readonly-plan"],
+      });
+      const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+      const session = makeSession();
+
+      await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+        ...baseInvokeInput,
+        externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: "wrong-instance" },
+      }, {
+        session,
+        toolCall: { id: "tool-call-mismatch-preflight", name: "managed_agent.invoke", input: {} },
+      });
+
+      expect(adapter.invoke).not.toHaveBeenCalled();
+    });
+
+    // runtimeId and attachmentId are opaque identifiers. Tool-input parsing
+    // must validate them as non-whitespace-only, but never normalise them: a
+    // trimmed request identity would silently match a different physical
+    // instance than the caller asked for.
+    describe("opaque identity preservation", () => {
+      const WHITESPACE_ROUTE_ATTACHMENT = {
+        kind: "external-runtime" as const,
+        runtimeId: "mcp-external-runtime",
+        attachmentId: " instance-a",
+      };
+      const WHITESPACE_RUNTIME_ID_ROUTE_ATTACHMENT = {
+        kind: "external-runtime" as const,
+        runtimeId: " mcp-external-runtime",
+        attachmentId: "instance-a",
+      };
+
+      function makeAdapterFixture() {
+        return makeAdapter({
+          adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+          providerId: "mcp-external-runtime",
+          supportedProfiles: ["foundation-readonly-plan"],
+        });
+      }
+
+      it("denies with a mismatch when the requested attachmentId differs from the route's only by a leading space", async () => {
+        const adapter = makeAdapterFixture();
+        const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: " instance-a" },
+        }, {
+          session,
+          toolCall: { id: "tool-call-attachment-whitespace-mismatch", name: "managed_agent.invoke", input: {} },
+        }) as {
+          readonly isError: boolean;
+          readonly metadata: { readonly errorCode?: string; readonly requestedAttachment?: unknown };
+        };
+
+        expect(result.isError).toBe(true);
+        expect(result.metadata.errorCode).toBe("external_runtime_attachment_mismatch");
+        expect(result.metadata.requestedAttachment).toEqual({
+          kind: "external-runtime",
+          runtimeId: "mcp-external-runtime",
+          attachmentId: " instance-a",
+        });
+        expect(adapter.invoke).not.toHaveBeenCalled();
+      });
+
+      it("denies with a mismatch when the requested runtimeId differs from the route's only by a trailing space", async () => {
+        const adapter = makeAdapterFixture();
+        const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+          ...baseInvokeInput,
+          externalRuntimeAttachment: { runtimeId: "mcp-external-runtime ", attachmentId: "instance-a" },
+        }, {
+          session,
+          toolCall: { id: "tool-call-runtime-id-whitespace-mismatch", name: "managed_agent.invoke", input: {} },
+        }) as {
+          readonly isError: boolean;
+          readonly metadata: { readonly errorCode?: string; readonly requestedAttachment?: unknown };
+        };
+
+        expect(result.isError).toBe(true);
+        expect(result.metadata.errorCode).toBe("external_runtime_attachment_mismatch");
+        expect(result.metadata.requestedAttachment).toEqual({
+          kind: "external-runtime",
+          runtimeId: "mcp-external-runtime ",
+          attachmentId: "instance-a",
+        });
+        expect(adapter.invoke).not.toHaveBeenCalled();
+      });
+
+      for (const routeAttachment of [WHITESPACE_ROUTE_ATTACHMENT, WHITESPACE_RUNTIME_ID_ROUTE_ATTACHMENT]) {
+        it(`admits and preserves '${routeAttachment.runtimeId}:${routeAttachment.attachmentId}' byte-for-byte across snapshot, request, and lifecycle evidence`, async () => {
+          const adapter = makeAdapterFixture();
+          const surface = makeAttachedRuntimeSurface(adapter, routeAttachment);
+          const session = makeSession();
+
+          const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+            ...baseInvokeInput,
+            externalRuntimeAttachment: {
+              runtimeId: routeAttachment.runtimeId,
+              attachmentId: routeAttachment.attachmentId,
+            },
+          }, {
+            session,
+            toolCall: { id: `tool-call-preserve-${routeAttachment.attachmentId.trim()}-${routeAttachment.runtimeId.trim()}`, name: "managed_agent.invoke", input: {} },
+          }) as {
+            readonly isError: boolean;
+            readonly metadata: { readonly capabilitySnapshot?: { readonly externalRuntimeAttachment?: unknown } };
+          };
+
+          expect(result.isError).toBe(false);
+          expect(result.metadata.capabilitySnapshot?.externalRuntimeAttachment).toEqual(routeAttachment);
+          expect(adapter.invoke).toHaveBeenCalledTimes(1);
+          const invokedRequest = (adapter.invoke as unknown as {
+            readonly mock: { readonly calls: readonly (readonly [ManagedAgentRuntimeInvocationInput])[] };
+          }).mock.calls[0]?.[0].request;
+          expect(invokedRequest?.externalRuntimeAttachment).toEqual(routeAttachment);
+
+          const startedEvent = session.sessionEvents.find((event) => event.kind === "agent_invocation_started") as
+            | { readonly capabilitySnapshot?: { readonly externalRuntimeAttachment?: unknown } }
+            | undefined;
+          expect(startedEvent?.capabilitySnapshot?.externalRuntimeAttachment).toEqual(routeAttachment);
+
+          const completedEvent = session.sessionEvents.find((event) => event.kind === "agent_invocation_completed") as
+            | { readonly managedInvocationEvidence?: { readonly lifecycle?: { readonly externalRuntimeAttachment?: unknown } } }
+            | undefined;
+          expect(completedEvent?.managedInvocationEvidence?.lifecycle?.externalRuntimeAttachment).toEqual(routeAttachment);
+        });
+      }
+
+      for (const blank of ["", "   "]) {
+        it(`rejects runtimeId '${blank}' as an invalid opaque identity`, async () => {
+          const adapter = makeAdapterFixture();
+          const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+          const session = makeSession();
+
+          const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+            ...baseInvokeInput,
+            externalRuntimeAttachment: { runtimeId: blank, attachmentId: "instance-a" },
+          }, {
+            session,
+            toolCall: { id: `tool-call-blank-runtime-id-${blank.length}`, name: "managed_agent.invoke", input: {} },
+          }) as { readonly isError: boolean };
+
+          expect(result.isError).toBe(true);
+          expect(adapter.invoke).not.toHaveBeenCalled();
+        });
+
+        it(`rejects attachmentId '${blank}' as an invalid opaque identity`, async () => {
+          const adapter = makeAdapterFixture();
+          const surface = makeAttachedRuntimeSurface(adapter, ATTACHED_ROUTE_ATTACHMENT);
+          const session = makeSession();
+
+          const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+            ...baseInvokeInput,
+            externalRuntimeAttachment: { runtimeId: "mcp-external-runtime", attachmentId: blank },
+          }, {
+            session,
+            toolCall: { id: `tool-call-blank-attachment-id-${blank.length}`, name: "managed_agent.invoke", input: {} },
+          }) as { readonly isError: boolean };
+
+          expect(result.isError).toBe(true);
+          expect(adapter.invoke).not.toHaveBeenCalled();
+        });
+      }
+    });
+
+    it("exposes an identical externalRuntimeAttachment schema on managed_agent.invoke and managed_agent.start", () => {
+      const invokeAttachmentSchema = (MANAGED_AGENT_INVOKE_TOOL.inputSchema as { readonly properties?: Record<string, unknown> })
+        .properties?.externalRuntimeAttachment;
+      expect(invokeAttachmentSchema).toBeDefined();
+    });
   });
 });

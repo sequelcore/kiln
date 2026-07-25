@@ -234,6 +234,13 @@ async function runOrchestrationBatch(input: {
     const startResult = await input.service.start(request, route.adapter, {
       routeId: route.routeId,
       routeSource: route.routeSource,
+      // Roadmap 01 Slice 3.1 (F3) - managed_agent.orchestrate has no input
+      // surface to express a requested attachment yet; surfacing the route's
+      // declared attachment here still routes every orchestrated child
+      // through the single core admission gate (evaluateManagedAgentAdmission),
+      // so a route attached to a specific external-runtime instance fails
+      // closed instead of silently dispatching unattached.
+      ...(route.externalRuntimeAttachment ? { externalRuntimeAttachment: route.externalRuntimeAttachment } : {}),
       routeHealth: {
         status: "healthy",
         reason: `Configured managed orchestration route selected by runtime lifecycle; routeSource=${route.routeSource}.`,

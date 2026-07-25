@@ -3146,6 +3146,7 @@ function snapshotInputFromAdmission(snapshot: ManagedAgentCapabilitySnapshot): M
     routeId: snapshot.routeId,
     routeSource: snapshot.routeSource,
     ...(snapshot.callerIdentity ? { callerIdentity: snapshot.callerIdentity } : {}),
+    ...(snapshot.externalRuntimeAttachment ? { externalRuntimeAttachment: snapshot.externalRuntimeAttachment } : {}),
     ...(snapshot.invocationCapabilityEvidence
       ? { invocationCapabilityEvidence: snapshot.invocationCapabilityEvidence }
       : {}),

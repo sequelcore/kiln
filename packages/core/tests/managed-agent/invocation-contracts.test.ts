@@ -1045,6 +1045,179 @@ describe("managed agent invocation contracts", () => {
       },
     })).toThrow("Managed invocation usage route must match the admitted capability snapshot");
   });
+
+  // Roadmap 01 Slice 3.1 - External-runtime target identity ("which
+  // instance the child must drive"), distinct from
+  // ManagedAgentCallerAttachmentIdentity ("who called Kiln"). evaluateManagedAgentAdmission
+  // is the single fail-closed gate every dispatch path traverses (invoke,
+  // start, and orchestrate); these tests prove the gate itself, independent
+  // of any one tool surface.
+  describe("external runtime attachment admission (Roadmap 01 Slice 3.1)", () => {
+    const baseSnapshotInput = {
+      capturedAt: "2026-07-25T08:00:00.000Z",
+      routeId: "external-runtime-route",
+      routeSource: "explicit-managed-route" as const,
+    };
+
+    it("admits when neither the route nor the request declare an attachment (no regression for existing routes)", () => {
+      const request = defineManagedAgentInvocationRequest(makeRequest());
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), baseSnapshotInput);
+      expect(decision.status).toBe("admitted");
+    });
+
+    it("admits and persists the attachment when the route's declared attachment matches the request", () => {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      expect(decision.status).toBe("admitted");
+      if (decision.status === "admitted") {
+        expect(decision.capabilitySnapshot.externalRuntimeAttachment).toEqual({
+          kind: "external-runtime",
+          runtimeId: "mcp-external-runtime",
+          attachmentId: "instance-a",
+        });
+      }
+    });
+
+    it("denies with externalRuntimeAttachment.mismatch when the requested attachment differs from the route's", () => {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-b" },
+      });
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.mismatch"],
+      });
+    });
+
+    it("denies with externalRuntimeAttachment.missing when the route declares an attachment and the request omits it (F3 - no input surface, still fails closed)", () => {
+      const request = defineManagedAgentInvocationRequest(makeRequest());
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.missing"],
+      });
+    });
+
+    it("denies with externalRuntimeAttachment.unsupported-route when the request declares an attachment but the route declares none", () => {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), baseSnapshotInput);
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.unsupported-route"],
+      });
+    });
+
+    it("requires non-empty runtimeId and attachmentId", () => {
+      expect(() => defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "", attachmentId: "instance-a" },
+      })).toThrow("Managed invocation external runtime attachment runtimeId is required");
+      expect(() => defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "   " },
+      })).toThrow("Managed invocation external runtime attachment attachmentId is required");
+      expect(() => defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "   ", attachmentId: "instance-a" },
+      })).toThrow("Managed invocation external runtime attachment runtimeId is required");
+      expect(() => defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "" },
+      })).toThrow("Managed invocation external runtime attachment attachmentId is required");
+    });
+
+    // runtimeId and attachmentId are opaque. Validation rejects
+    // whitespace-only values, but a non-empty value must round-trip
+    // byte-for-byte: peripheral whitespace is part of the identity, never
+    // normalised away into an accidental match.
+    it("keeps a requested attachment that differs only by peripheral whitespace distinct from the route's", () => {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: " instance-a" },
+      });
+      expect(request.externalRuntimeAttachment?.attachmentId).toBe(" instance-a");
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.mismatch"],
+      });
+    });
+
+    it("keeps a requested runtimeId that differs only by peripheral whitespace distinct from the route's", () => {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime ", attachmentId: "instance-a" },
+      });
+      expect(request.externalRuntimeAttachment?.runtimeId).toBe("mcp-external-runtime ");
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.mismatch"],
+      });
+    });
+
+    it("admits and persists an attachment whose identities carry peripheral whitespace on both sides, unmodified", () => {
+      const attachment = { kind: "external-runtime" as const, runtimeId: " mcp-external-runtime ", attachmentId: " instance-a" };
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: attachment,
+      });
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: attachment,
+      });
+      expect(decision.status).toBe("admitted");
+      if (decision.status === "admitted") {
+        expect(decision.capabilitySnapshot.externalRuntimeAttachment).toEqual(attachment);
+      }
+      const evidence = buildManagedAgentLifecycleEvidence(defineManagedAgentInvocationRecord({
+        ...makeCompletedRecordInput(),
+        capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+          ...baseSnapshotInput,
+          externalRuntimeAttachment: attachment,
+        }),
+      }));
+      expect(evidence.externalRuntimeAttachment).toEqual(attachment);
+    });
+
+    it("carries the attachment through buildManagedAgentLifecycleEvidence for terminal events (F4)", () => {
+      const record = {
+        ...makeCompletedRecordInput(),
+        capabilitySnapshot: buildManagedAgentCapabilitySnapshot(makeRequest(), makeDescriptor(), {
+          ...baseSnapshotInput,
+          externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+        }),
+      };
+      const evidence = buildManagedAgentLifecycleEvidence(defineManagedAgentInvocationRecord(record));
+      expect(evidence.externalRuntimeAttachment).toEqual({
+        kind: "external-runtime",
+        runtimeId: "mcp-external-runtime",
+        attachmentId: "instance-a",
+      });
+    });
+  });
 });
 
 function makeCompletedRecordInput(

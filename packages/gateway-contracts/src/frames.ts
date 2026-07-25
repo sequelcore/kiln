@@ -574,11 +574,35 @@ export interface OperatorManagedAgentChildIdentitySnapshot {
   readonly displayName?: string;
 }
 
+export type OperatorManagedAgentCallerAttachmentIdentity =
+  | {
+    readonly kind: "kiln-runtime";
+    readonly surface: string;
+    readonly attachmentId: string;
+  }
+  | {
+    readonly kind: "external-harness";
+    readonly harness: "claude" | "codex" | "opencode";
+    readonly attachmentId: string;
+    readonly evidenceId: string;
+  };
+
+// Roadmap 01 Slice 3.1 - additive projection of
+// ManagedAgentExternalRuntimeAttachmentIdentity (@kilnai/core). Mirrors,
+// does not import, to keep gateway-contracts free of a core dependency.
+export interface OperatorManagedAgentExternalRuntimeAttachmentIdentity {
+  readonly kind: "external-runtime";
+  readonly runtimeId: string;
+  readonly attachmentId: string;
+}
+
 export interface OperatorManagedAgentCapabilitySnapshot {
   readonly snapshotId: string;
   readonly capturedAt: string;
   readonly routeId: string;
   readonly routeSource: string;
+  readonly callerIdentity?: OperatorManagedAgentCallerAttachmentIdentity;
+  readonly externalRuntimeAttachment?: OperatorManagedAgentExternalRuntimeAttachmentIdentity;
   readonly routeHealth: OperatorManagedAgentRouteHealthSnapshot;
   readonly providerModelProof: OperatorManagedAgentProviderModelProofSnapshot;
   readonly providerRoute: OperatorManagedAgentProviderRoute;

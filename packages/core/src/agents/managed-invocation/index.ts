@@ -215,6 +215,7 @@ export interface ManagedAgentInvocationRequest {
   readonly authority: ManagedAgentAuthorityProfile;
   readonly input: ManagedAgentInvocationInput;
   readonly executionScope?: SessionExecutionScope;
+  readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
 }
 
 export interface ManagedAgentAdapterDescriptor {
@@ -331,6 +332,50 @@ export type ManagedAgentExternalHarnessId = Extract<
   ManagedAgentCallerAttachmentIdentity,
   { readonly kind: "external-harness" }
 >["harness"];
+
+// Roadmap 01 Slice 3.1 - External-runtime target identity. Answers "which
+// physical external-runtime instance must the child drive", not "who called
+// Kiln" (that is ManagedAgentCallerAttachmentIdentity, above - different
+// producer, lifetime, consumer, and cardinality; see docs/roadmap/01 Slice 3
+// design review, issue #6). Deliberately three fields only: runtimeId and
+// attachmentId. No displayName/version/pid/port/free-form metadata -
+// discovery is a non-goal for this slice.
+export interface ManagedAgentExternalRuntimeAttachmentIdentity {
+  readonly kind: "external-runtime";
+  readonly runtimeId: string;
+  readonly attachmentId: string;
+}
+
+export type ManagedAgentExternalRuntimeAttachmentComparison =
+  | "matched"
+  | "both-absent"
+  | "missing"
+  | "mismatch"
+  | "unsupported-route";
+
+/**
+ * Compares the route's declared external-runtime attachment against the
+ * dispatch's requested attachment. Exact case-sensitive equality only - no
+ * normalisation, no fallback to "the only attached instance".
+ */
+export function compareManagedAgentExternalRuntimeAttachment(
+  routeAttachment: ManagedAgentExternalRuntimeAttachmentIdentity | undefined,
+  requestedAttachment: ManagedAgentExternalRuntimeAttachmentIdentity | undefined,
+): ManagedAgentExternalRuntimeAttachmentComparison {
+  if (!routeAttachment && !requestedAttachment) {
+    return "both-absent";
+  }
+  if (routeAttachment && !requestedAttachment) {
+    return "missing";
+  }
+  if (!routeAttachment && requestedAttachment) {
+    return "unsupported-route";
+  }
+  return routeAttachment!.runtimeId === requestedAttachment!.runtimeId
+    && routeAttachment!.attachmentId === requestedAttachment!.attachmentId
+    ? "matched"
+    : "mismatch";
+}
 
 export type ManagedAgentCrossHarnessAdapterId = "kiln-managed-invocation";
 
@@ -461,6 +506,7 @@ export interface ManagedAgentCapabilitySnapshot {
   readonly routeId: string;
   readonly routeSource: ManagedAgentRouteSource;
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
   readonly invocationCapabilityEvidence?: ManagedAgentInvocationCapabilityEvidence;
   readonly routeHealth: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof: ManagedAgentProviderModelProofSnapshot;
@@ -481,6 +527,7 @@ export interface ManagedAgentCapabilitySnapshotInput {
   readonly routeId: string;
   readonly routeSource: ManagedAgentRouteSource;
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
   readonly invocationCapabilityEvidence?: ManagedAgentInvocationCapabilityEvidence;
   readonly routeHealth?: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof?: ManagedAgentProviderModelProofSnapshot;
@@ -656,6 +703,7 @@ export interface ManagedAgentLifecycleEvidence {
   readonly providerId: string;
   readonly model?: string;
   readonly profile: ManagedAgentAdmissionProfile;
+  readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly authorityProfileId: string;
   readonly resourceLease: ManagedAgentResourceLeaseEvidence;
@@ -737,6 +785,9 @@ export function defineManagedAgentInvocationRequest(input: ManagedAgentInvocatio
     executionMode: requireExecutionMode(input.executionMode),
     authority,
     ...(input.executionScope ? { executionScope: requireSessionExecutionScope(input.executionScope) } : {}),
+    ...(input.externalRuntimeAttachment
+      ? { externalRuntimeAttachment: requireExternalRuntimeAttachmentIdentity(input.externalRuntimeAttachment) }
+      : {}),
     input: {
       summary: requireText(input.input?.summary, "Managed invocation input summary is required"),
       ...(input.input?.prompt !== undefined ? { prompt: input.input.prompt } : {}),
@@ -827,6 +878,9 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
     ...(input.callerIdentity !== undefined
       ? { callerIdentity: requireCallerAttachmentIdentity(input.callerIdentity) }
       : {}),
+    ...(input.externalRuntimeAttachment !== undefined
+      ? { externalRuntimeAttachment: requireExternalRuntimeAttachmentIdentity(input.externalRuntimeAttachment) }
+      : {}),
     ...(input.invocationCapabilityEvidence !== undefined
       ? { invocationCapabilityEvidence: requireInvocationCapabilityEvidence(input.invocationCapabilityEvidence) }
       : {}),
@@ -893,6 +947,33 @@ function requireCallerAttachmentIdentity(
     };
   }
   throw new Error(`Unsupported managed invocation caller identity kind: ${String((input as { readonly kind?: string }).kind ?? "")}`);
+}
+
+function requireExternalRuntimeAttachmentIdentity(
+  input: ManagedAgentExternalRuntimeAttachmentIdentity,
+): ManagedAgentExternalRuntimeAttachmentIdentity {
+  if (input.kind !== "external-runtime") {
+    throw new Error(`Unsupported managed invocation external runtime attachment kind: ${String((input as { readonly kind?: string }).kind ?? "")}`);
+  }
+  return {
+    kind: "external-runtime",
+    runtimeId: requireOpaqueAttachmentIdentity(input.runtimeId, "Managed invocation external runtime attachment runtimeId is required"),
+    attachmentId: requireOpaqueAttachmentIdentity(input.attachmentId, "Managed invocation external runtime attachment attachmentId is required"),
+  };
+}
+
+/**
+ * runtimeId and attachmentId are opaque external-runtime identifiers, not
+ * Kiln-owned names. Whitespace-only values are invalid, but any other value
+ * must be persisted and compared byte-for-byte: trimming would let a
+ * dispatch silently match a different physical instance than the caller
+ * addressed. This is deliberately not `requireText`, which normalises.
+ */
+function requireOpaqueAttachmentIdentity(value: string | undefined, message: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(message);
+  }
+  return value;
 }
 
 function requireCallerHarness(
@@ -1229,6 +1310,7 @@ export function evaluateManagedAgentAdmission(
   const routeSource = requireRouteSource(snapshotInput.routeSource);
   collectRequestGaps(request, missingCapabilities);
   collectAuthorityEvidenceGaps(request, snapshotInput.authorityEvidence, missingCapabilities, options.evaluatedAt);
+  collectExternalRuntimeAttachmentGaps(request, snapshotInput, missingCapabilities);
 
   const profile = request.profile;
   if (profile === "foundation-readonly-plan") {
@@ -1297,6 +1379,7 @@ export function buildManagedAgentCapabilitySnapshot(
     routeId: input.routeId,
     routeSource: input.routeSource,
     ...(input.callerIdentity ? { callerIdentity: input.callerIdentity } : {}),
+    ...(input.externalRuntimeAttachment ? { externalRuntimeAttachment: input.externalRuntimeAttachment } : {}),
     ...(input.invocationCapabilityEvidence
       ? { invocationCapabilityEvidence: input.invocationCapabilityEvidence }
       : {}),
@@ -1335,6 +1418,24 @@ export function buildManagedAgentCapabilitySnapshot(
       ...(request.input.context?.admittedAgentProfile ? { admittedAgentProfile: request.input.context.admittedAgentProfile } : {}),
     },
   });
+}
+
+function collectExternalRuntimeAttachmentGaps(
+  request: ManagedAgentInvocationRequest,
+  snapshotInput: ManagedAgentCapabilitySnapshotInput,
+  missingCapabilities: string[],
+): void {
+  const comparison = compareManagedAgentExternalRuntimeAttachment(
+    snapshotInput.externalRuntimeAttachment,
+    request.externalRuntimeAttachment,
+  );
+  if (comparison === "missing") {
+    missingCapabilities.push("externalRuntimeAttachment.missing");
+  } else if (comparison === "mismatch") {
+    missingCapabilities.push("externalRuntimeAttachment.mismatch");
+  } else if (comparison === "unsupported-route") {
+    missingCapabilities.push("externalRuntimeAttachment.unsupported-route");
+  }
 }
 
 function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapabilities: string[]): void {
@@ -1521,6 +1622,9 @@ export function buildManagedAgentLifecycleEvidence(
     providerId: record.providerRoute.providerId,
     ...(record.providerRoute.model !== undefined ? { model: record.providerRoute.model } : {}),
     profile: record.profile,
+    ...(record.capabilitySnapshot.externalRuntimeAttachment !== undefined
+      ? { externalRuntimeAttachment: record.capabilitySnapshot.externalRuntimeAttachment }
+      : {}),
     contextMode: record.capabilitySnapshot.contextMode,
     authorityProfileId: record.authority.authorityProfileId,
     resourceLease: record.resourceLease ?? record.capabilitySnapshot.resourceLease,
