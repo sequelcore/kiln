@@ -2070,6 +2070,57 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       }));
     });
 
+    // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture.
+    // Fourth regression proof: "missing mutation-approval events... are observable
+    // regressions." resolveAuthorization() returns undefined when neither a static
+    // toolAuthority entry nor a toolAuthorizer covers the tool name (see
+    // runtime-session-orchestrator-tool-executor.ts:855-856). The caller only runs
+    // its approval/authorization branch `if (authResult)` - when it's undefined that
+    // branch is skipped entirely and execution proceeds unchecked. A live MCP server
+    // exposes tool names discovered at runtime, so an operator's approval-bound
+    // configuration for e.g. a scene-mutating tool can miss the newly-discovered
+    // exact selector and this silently degrades to no approval at all, unlike the
+    // explicitly-denied case above where a toolAuthorizer is always configured.
+    // Expected to fail until Roadmap 01 Slice 1 (Evidence Realization Contract)
+    // makes unclassified external capabilities fail closed instead of failing open;
+    // this .fails must flip to a plain `it` once that lands.
+    it.fails(
+      "requires approval for an unregistered external-runtime mutation instead of executing it unchecked",
+      async () => {
+        const selector = "mcp:studio:tool:apply_scene_edit";
+        const provider = makeToolCallProvider({
+          id: "mcp-unregistered-mutation",
+          name: selector,
+          input: { edit: "add part" },
+        });
+        const execute = vi.fn().mockResolvedValue("scene edited");
+        const eventBus = new EventBus(100);
+        const approvalRequested = vi.fn();
+        eventBus.on("approval_requested", approvalRequested);
+
+        // Deliberately no capabilityMap and no toolAuthorizer: this is exactly what a
+        // dynamically-discovered MCP tool looks like before an operator has had a
+        // chance to pre-register it - which is precisely when approval-bound
+        // mutations must fail closed, not fail open.
+        const orchestrator = new RuntimeSessionOrchestrator({
+          provider,
+          tools: [{
+            name: selector,
+            description: "Apply a scene edit.",
+            inputSchema: {},
+            tags: new Set(["mcp", "studio"]),
+          }],
+          mcpClients: [{ serverName: "studio", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
+          eventBus,
+        });
+
+        await orchestrator.processMessage(makeSession(), textParts("edit the scene"));
+
+        expect(approvalRequested).toHaveBeenCalledTimes(1);
+        expect(execute).not.toHaveBeenCalled();
+      },
+    );
+
     it("correlates ordered tool output chunks between tool start and completion", async () => {
       const provider = makeProvider(1);
       const eventBus = new EventBus(100);

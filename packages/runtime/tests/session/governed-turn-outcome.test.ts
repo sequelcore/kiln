@@ -562,4 +562,34 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
       terminalPlan,
     ])).toBeUndefined();
   });
+
+  // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture.
+  // Third regression proof: "failed calls cannot support positive verification
+  // claims." isWorkGovernanceToolName() only recognizes the fixed governance tool
+  // set (work_governance.assess, goal.*, work_item.*); any other tool name -
+  // including a parent's own direct external-runtime MCP calls such as
+  // navigate_actor - is invisible to this derivation regardless of success. A
+  // parent that bypasses managed invocation and calls external-runtime tools
+  // directly (as the incident this fixture encodes did) can have every single
+  // call fail without that ever surfacing as a non-"completed" outcome. Expected
+  // to fail until Roadmap 01 Slice 1 (Evidence Realization Contract) makes raw
+  // tool failures for admitted capability tools count as governance evidence;
+  // this .fails must flip to a plain `it` once that lands.
+  it.fails(
+    "does not let four failed external-runtime navigation calls produce a completed outcome",
+    () => {
+      const failedNavigationCalls: readonly GovernedTurnOutcomeToolRecord[] = [
+        "objective-a",
+        "objective-a-retry",
+        "objective-b",
+        "objective-b-retry",
+      ].map((label) => record({
+        toolName: "mcp:external-runtime:tool:navigate_actor",
+        success: false,
+        metadata: { target: label, error: "navigation target unreachable" },
+      }));
+
+      expect(deriveGovernedTurnOutcomeFromToolRecords(failedNavigationCalls)).not.toBe(undefined);
+    },
+  );
 });

@@ -6690,4 +6690,95 @@ describe("managed invocation runtime tool", () => {
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(session.sessionEvents).toEqual([]);
   });
+
+  // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture.
+  // This encodes the first of that slice's regression proofs: work-governance-tool.ts's
+  // requiredToolNamesForPhaseEvidence() always adds "bash" whenever a phase's expected
+  // evidence includes "tests" or "typecheck" (see work-governance-tool.test.ts:2865,
+  // which locks that in as today's behavior), with no awareness of the target route's
+  // actual admitted capabilities. An MCP-only external-runtime route can never satisfy
+  // "bash" and is rejected outright, even when its own admitted tools (start_stop_test,
+  // observe_runtime, read_console) could realize equivalent verification evidence. This
+  // is expected to fail until Roadmap 01 Slice 1 (Evidence Realization Contract) defines
+  // a capability-aware mapping; it must start passing (and this .fails must flip to a
+  // plain `it`) once that lands.
+  describe("external-runtime MCP-only route capability (Roadmap 01 Slice 0)", () => {
+    const externalRuntimeToolNames = [
+      "mcp:external-runtime:tool:inspect_tree",
+      "mcp:external-runtime:tool:apply_scene_edit",
+      "mcp:external-runtime:tool:edit_script",
+      "mcp:external-runtime:tool:start_stop_test",
+      "mcp:external-runtime:tool:observe_runtime",
+      "mcp:external-runtime:tool:read_console",
+      "mcp:external-runtime:tool:navigate_actor",
+    ] as const;
+
+    function makeExternalRuntimeSurface(adapter = makeAdapter()) {
+      return createAttachedRuntimeBuiltinToolSurface({
+        managedInvocation: {
+          invocationService: makeObservedRuntimeInvocationService({
+            credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+              allowedRouteIds: ["credential-route:external-runtime:primary"],
+            }),
+          }),
+          routes: [{
+            routeId: "external-runtime-mcp-only",
+            routeSource: "explicit-managed-route",
+            providerId: "mcp-external-runtime",
+            model: "external-runtime-fixture",
+            adapter,
+            profiles: {
+              "foundation-apply-approved-writes": {
+                authorityProfileId: "authority:external-runtime-mcp-only:foundation-apply-approved-writes",
+                permissionProfile: "approval-bound",
+                allowedToolNames: [...externalRuntimeToolNames],
+                writeAllowed: true,
+                networkAllowed: false,
+                workingDirectory: {
+                  path: "C:/workspace/kiln",
+                  mode: "workspace-write",
+                },
+                timeoutMs: 120000,
+                timeoutSource: "explicit-route",
+                credentialRoute: {
+                  mode: "runtime-selected",
+                  routeId: "credential-route:external-runtime:primary",
+                },
+                memoryScope: {
+                  scope: { kind: "project", id: "kiln" },
+                  access: "read-only",
+                },
+              },
+            },
+          }],
+        },
+      });
+    }
+
+    it.fails(
+      "admits an MCP-only route for tests/typecheck evidence instead of hard-requiring bash",
+      async () => {
+        const surface = makeExternalRuntimeSurface();
+        const session = makeSession();
+
+        const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+          routeId: "external-runtime-mcp-only",
+          profile: "foundation-apply-approved-writes",
+          providerRoute: { providerId: "mcp-external-runtime", model: "external-runtime-fixture" },
+          task: "Run the Studio playtest and verify the console is clean before promotion.",
+          summary: "Verify the Studio prototype.",
+          contextMode: "isolated",
+          // Exactly what work-governance-tool.ts computes today for tests/typecheck evidence.
+          requiredToolNames: ["bash"],
+          expectedEvidence: ["tests", "typecheck"],
+          requestedAuthority: "audited",
+        }, {
+          session,
+          toolCall: { id: "tool-call-external-runtime-verification", name: "managed_agent.invoke", input: {} },
+        }) as { readonly isError: boolean };
+
+        expect(result?.isError).toBe(false);
+      },
+    );
+  });
 });

@@ -121,15 +121,60 @@ and mismatched target behavior.
 
 ### Slice 0 - Failing Trace Fixture
 
-Status: Ready.
+Status: 4 of 5 regressions encoded as failing tests; attachment drift needs
+Slice 1 scaffolding before it can be regression-tested. Ready to promote once
+that's added.
 
-Encode the MCP-only route, external runtime, work item, managed invocation,
-parent recovery, and final-outcome trace as a deterministic fixture. Prove the
-current hard `bash` derivation rejects the otherwise capable route; prove a
-parent success message can currently disagree with failed canonical execution
-state; prove failed navigation cannot support a positive navigation claim;
-prove missing mutation-approval events and cross-thread attribution are
-observable regressions. The tests must fail before implementation changes.
+Four of the five named regressions are encoded as deterministic `it.fails`
+tests (no live vendor dependency), each traced to an exact root cause rather
+than asserted from the incident narrative alone. Each currently fails as
+intended and must flip to a plain `it` once the fix lands; the full suite
+stays green throughout (`packages/runtime`: 2914 passed, 4 expected fail,
+typecheck clean):
+
+1. **Hard `bash` derivation rejects the otherwise capable route** -
+   `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`, describe
+   block "external-runtime MCP-only route capability (Roadmap 01 Slice 0)".
+   Root cause: `work-governance-tool.ts`'s `requiredToolNamesForPhaseEvidence`
+   (`packages/cli/src/application/work-governance-tool.ts:2009-2028`)
+   unconditionally adds `bash` for `tests`/`typecheck` evidence with no
+   awareness of route capability; `runtime-tool.ts`'s
+   `missingManagedInvocationRequiredTools` then rejects any route whose
+   admitted tools don't literally include `bash`.
+2. **A parent success message can disagree with failed canonical state** -
+   `packages/runtime/tests/session/runtime-session-orchestrator-response.test.ts`,
+   describe block "finalizeRuntimeSessionResponse (Roadmap 01 Slice 0)". Root
+   cause: `governed-turn-outcome.ts` correctly computes `outcome: "failed"` for
+   an unresolved managed-invocation blocking failure, but
+   `finalizeRuntimeSessionResponse` (`runtime-session-orchestrator-response.ts`)
+   returns the free-text `parts` completely unchanged regardless of `outcome`
+   - nothing reconciles the two.
+3. **Failed calls cannot support a positive verification claim** -
+   `packages/runtime/tests/session/governed-turn-outcome.test.ts`, test "does
+   not let four failed external-runtime navigation calls produce a completed
+   outcome". Root cause: `isWorkGovernanceToolName` only recognizes the fixed
+   governance tool set; a parent's own direct external-runtime tool calls
+   (e.g. `navigate_actor`) are invisible to outcome derivation regardless of
+   success, so repeated failures never surface as a non-"completed" outcome.
+4. **Missing mutation-approval events are observable** -
+   `packages/runtime/tests/session/runtime-session-orchestrator-tools.test.ts`,
+   test "requires approval for an unregistered external-runtime mutation
+   instead of executing it unchecked". Root cause:
+   `runtime-session-orchestrator-tool-executor.ts`'s `resolveAuthorization`
+   returns `undefined` when neither a static `toolAuthority` entry nor a
+   `toolAuthorizer` covers a tool name; the caller's approval branch is
+   `if (authResult)`-gated, so an undefined result skips approval entirely
+   instead of failing closed - exactly the gap a live-discovered MCP tool
+   name an operator never pre-registered falls into.
+
+**Not yet encoded - attachment drift.** No code today models an external-
+runtime target/attachment identity at all (`ManagedInvocationRouteProfile` has
+no such field); writing a regression test would mean asserting against a
+schema field that doesn't exist yet rather than tracing a real bug, which
+would be a synthetic proof, not genuine evidence. This needs the attachment-id
+concept introduced as part of Slice 1/2 scaffolding before it can be
+regression-tested honestly; tracked as the remaining Slice 0 gap rather than
+silently dropped.
 
 ### Slice 1 - Evidence Realization Contract
 
