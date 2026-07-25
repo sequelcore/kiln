@@ -34,6 +34,7 @@ import {
 import type { ManagedAgentWorktreeLeaseManager } from "../../src/agents/managed-invocation/index.js";
 import {
   attachManagedInvocationSessionEventSink,
+  MANAGED_AGENT_INVOKE_TOOL,
   type ManagedInvocationSessionEventSink,
   type ManagedInvocationToolOptions,
   withManagedInvocationService,
@@ -6778,6 +6779,33 @@ describe("managed invocation runtime tool", () => {
         }) as { readonly isError: boolean };
 
         expect(result?.isError).toBe(false);
+      },
+    );
+
+    // Fifth Roadmap 01 Slice 0 regression proof: attachment drift. Production
+    // external-runtime MCP integrations already solve multi-instance routing
+    // with an explicit per-call instance identifier - e.g. the official Roblox
+    // Studio MCP server's list_roblox_studios/set_active_studio tools, and
+    // community servers that accept an instance_id alongside every tool call
+    // (reviewed 2026-07-24 via web research, not present in cloned/ references).
+    // managed_agent.invoke has no equivalent field, and its top-level schema
+    // sets additionalProperties: false, so a caller cannot even attempt to pass
+    // one. A managed child therefore has no way to receive, require, or verify
+    // which physical external-runtime instance it must target, and dispatch has
+    // no way to reject an attachment mismatch - it can only ever be admitted or
+    // denied by tool/authority, never by target identity. This is expected to
+    // fail until Roadmap 01 Slice 2 (Recovery And Terminal Consistency) adds
+    // explicit parent/child attachment identity; this .fails must flip to a
+    // plain `it` once that lands.
+    it.fails(
+      "lets managed_agent.invoke express which external-runtime instance a dispatch must target",
+      () => {
+        const properties = (MANAGED_AGENT_INVOKE_TOOL.inputSchema as { properties?: Record<string, unknown> })
+          .properties ?? {};
+        const attachmentFieldNames = Object.keys(properties).filter((name) =>
+          /attachment|instance|target/i.test(name));
+
+        expect(attachmentFieldNames.length).toBeGreaterThan(0);
       },
     );
   });

@@ -121,16 +121,15 @@ and mismatched target behavior.
 
 ### Slice 0 - Failing Trace Fixture
 
-Status: 4 of 5 regressions encoded as failing tests; attachment drift needs
-Slice 1 scaffolding before it can be regression-tested. Ready to promote once
-that's added.
+Status: Complete. All 5 named regressions encoded as failing tests. Ready to
+promote to Slice 1.
 
-Four of the five named regressions are encoded as deterministic `it.fails`
-tests (no live vendor dependency), each traced to an exact root cause rather
-than asserted from the incident narrative alone. Each currently fails as
-intended and must flip to a plain `it` once the fix lands; the full suite
-stays green throughout (`packages/runtime`: 2914 passed, 4 expected fail,
-typecheck clean):
+All five named regressions are encoded as deterministic `it.fails` tests (no
+live vendor dependency), each traced to an exact root cause rather than
+asserted from the incident narrative alone. Each currently fails as intended
+and must flip to a plain `it` once its fix lands; the full suite stays green
+throughout (`packages/runtime`: 2914 passed, 5 expected fail, typecheck
+clean):
 
 1. **Hard `bash` derivation rejects the otherwise capable route** -
    `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`, describe
@@ -166,15 +165,19 @@ typecheck clean):
    `if (authResult)`-gated, so an undefined result skips approval entirely
    instead of failing closed - exactly the gap a live-discovered MCP tool
    name an operator never pre-registered falls into.
-
-**Not yet encoded - attachment drift.** No code today models an external-
-runtime target/attachment identity at all (`ManagedInvocationRouteProfile` has
-no such field); writing a regression test would mean asserting against a
-schema field that doesn't exist yet rather than tracing a real bug, which
-would be a synthetic proof, not genuine evidence. This needs the attachment-id
-concept introduced as part of Slice 1/2 scaffolding before it can be
-regression-tested honestly; tracked as the remaining Slice 0 gap rather than
-silently dropped.
+5. **Attachment drift** -
+   `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`, test
+   "lets managed_agent.invoke express which external-runtime instance a
+   dispatch must target". Root cause: `MANAGED_AGENT_INVOKE_TOOL`'s input
+   schema has no field for an external-runtime target/instance identifier at
+   all, and its top-level `additionalProperties: false` means a caller cannot
+   even attempt to pass one; a managed child has no way to receive, require,
+   or verify which physical external-runtime instance it must target, and
+   dispatch has no way to reject an attachment mismatch. Grounded in current
+   production practice, not invented: reviewed 2026-07-24, official and
+   community Roblox Studio MCP servers already solve multi-instance routing
+   with an explicit per-call instance identifier (e.g.
+   `list_roblox_studios`/`set_active_studio`, or an `instance_id` parameter).
 
 ### Slice 1 - Evidence Realization Contract
 
