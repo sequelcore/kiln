@@ -1,3 +1,16 @@
+export {
+  KILN_WORK_GOVERNANCE_EVIDENCE,
+  isKilnWorkGovernanceEvidence,
+  type KilnWorkGovernanceEvidence,
+} from "./evidence.js";
+export {
+  resolveEvidenceRealization,
+  type EvidenceRealizationCapabilityPause,
+  type EvidenceRealizationPaused,
+  type EvidenceRealizationResolved,
+  type EvidenceRealizationResult,
+  type ResolveEvidenceRealizationInput,
+} from "./evidence-realization.js";
 export type {
   GoalRun,
   GoalRunAuthorityEnvelope,

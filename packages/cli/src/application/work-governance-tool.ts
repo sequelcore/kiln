@@ -26,7 +26,9 @@ import {
   goalToolMetadata,
   GoalRunStore,
   isCanonicalArtifactContentUri,
+  isKilnWorkGovernanceEvidence,
   isTerminalGoalStatus,
+  KILN_WORK_GOVERNANCE_EVIDENCE,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
   projectManagedOrchestrationAdoptionGate,
   projectManagedOrchestrationResultHandoff,
@@ -76,32 +78,7 @@ const TRIGGERS: readonly KilnWorkGovernanceTrigger[] = [
 
 const RISKS: readonly KilnWorkGovernanceRisk[] = ["low", "medium", "high"];
 
-const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = [
-  "surface-map",
-  "risk-hypothesis",
-  "spec",
-  "plan",
-  "tests",
-  "typecheck",
-  "visual-reference-research",
-  "browser-qa",
-  "managed-agent-review",
-  "managed-orchestration:result-handoff",
-  "managed-orchestration:completion-signal",
-  "managed-orchestration:comparison-summary",
-  "managed-orchestration:route-outcome",
-  "managed-orchestration:adoption-gate",
-  "managed-orchestration:diff",
-  "managed-orchestration:verification",
-  "managed-orchestration:review",
-  "managed-orchestration:merge:compare-and-select",
-  "managed-orchestration:merge:collect-all",
-  "managed-orchestration:merge:first-success",
-  "managed-orchestration:merge:manual-review-required",
-  "managed-orchestration:merge:none",
-  "formal-proof",
-  "residual-risk",
-];
+const EVIDENCE: readonly KilnWorkGovernanceEvidence[] = KILN_WORK_GOVERNANCE_EVIDENCE;
 const WORK_ITEM_EXECUTION_FAILURE_REASONS: readonly WorkItemExecutionFailureReason[] = [
   "failed",
   "denied",
@@ -561,7 +538,7 @@ export class WorkItemUpdateTool implements DevTool {
     const expectedEvidence = uniqueEvidence([
       ...requiredEvidenceForWorkflowProfile(workflowProfile),
       ...assessment.requiredEvidence,
-      ...(existing?.expectedEvidence.filter(isEvidence) ?? []),
+      ...(existing?.expectedEvidence.filter(isKilnWorkGovernanceEvidence) ?? []),
       ...readEvidence(input.input.expectedEvidence),
     ]);
     const verificationGates = uniqueText([
@@ -575,7 +552,7 @@ export class WorkItemUpdateTool implements DevTool {
     const referenceRootsInput = readTextArray(input.input.referenceRoots);
     const referenceRoots = referenceRootsInput.length > 0 ? referenceRootsInput : existing?.referenceRoots;
     const providedEvidence = uniqueEvidence([
-      ...(existing?.providedEvidence.filter(isEvidence) ?? []),
+      ...(existing?.providedEvidence.filter(isKilnWorkGovernanceEvidence) ?? []),
       ...readEvidence(input.input.providedEvidence),
     ]);
     const skippedVerificationGates = uniqueText([
@@ -1934,7 +1911,7 @@ function resolveManagedInvocationAuthority(
 function resolveManagedInvocationPhase(step: ReadyGoalExecutionStep): ManagedInvocationPhase {
   const accountedEvidence = new Set(accountedWorkItemEvidence(step.workItem));
   const missingEvidence = step.requiredEvidence
-    .filter((evidence): evidence is KilnWorkGovernanceEvidence => isEvidence(evidence))
+    .filter((evidence): evidence is KilnWorkGovernanceEvidence => isKilnWorkGovernanceEvidence(evidence))
     .filter((evidence) => !accountedEvidence.has(evidence));
   const targetEvidence = firstMatchingPhaseEvidence(missingEvidence);
   const phaseId = phaseIdForEvidence(targetEvidence);
@@ -2612,11 +2589,7 @@ function readTriggers(value: unknown): readonly KilnWorkGovernanceTrigger[] {
 }
 
 function readEvidence(value: unknown): readonly KilnWorkGovernanceEvidence[] {
-  return Array.isArray(value) ? uniqueEvidence(value.filter(isEvidence)) : [];
-}
-
-function isEvidence(value: unknown): value is KilnWorkGovernanceEvidence {
-  return EVIDENCE.includes(value as KilnWorkGovernanceEvidence);
+  return Array.isArray(value) ? uniqueEvidence(value.filter(isKilnWorkGovernanceEvidence)) : [];
 }
 
 function readTextArray(value: unknown): readonly string[] {

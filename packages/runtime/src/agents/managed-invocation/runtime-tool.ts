@@ -11,7 +11,9 @@ import {
   WORK_CLASSIFICATION_MODES,
   defineManagedAgentInvocationRequest,
   defineWorkClassification,
+  isKilnWorkGovernanceEvidence,
   projectStructuredExecutionResult,
+  resolveEvidenceRealization,
 } from "@kilnai/core";
 import { runManagedAgentOrchestrationLifecycle } from "./orchestration-lifecycle.js";
 import { resolveManagedInvocationAgentProfile } from "./agent-profile-catalog.js";
@@ -44,6 +46,7 @@ import type {
   WorkRecommendedSkillDiagnostic,
   CanonicalSessionEvent,
   ToolDefinition,
+  KilnWorkGovernanceEvidence,
 } from "@kilnai/core";
 import { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
 import type { PresentationIntent } from "@kilnai/gateway-contracts";
@@ -109,6 +112,15 @@ export interface ManagedInvocationRouteProfile {
   readonly authorityProfileId: string;
   readonly permissionProfile: string;
   readonly allowedToolNames: readonly string[];
+  /**
+   * Roadmap 01 Slice 1 - Evidence Realization Contract. Declares which of
+   * this route's own admitted tools can realize a given evidence id (e.g. an
+   * MCP-only external-runtime route declaring which of its qualified tools
+   * satisfy "tests"/"typecheck"). Every listed tool must also appear in
+   * `allowedToolNames` or the declaration is treated as unsatisfied, never
+   * silently accepted - see `resolveEvidenceRealization` in `@kilnai/core`.
+   */
+  readonly evidenceRealizations?: Partial<Record<KilnWorkGovernanceEvidence, readonly string[]>>;
   readonly writeAllowed?: boolean;
   readonly networkAllowed?: boolean;
   readonly workingDirectory: ManagedAgentWorkingDirectory;
@@ -1286,8 +1298,69 @@ async function prepareManagedInvocationRequest(
     };
   }
 
+  // Roadmap 01 Slice 1 - Evidence Realization Contract. Strictly opt-in per
+  // route: only activates when this route's own profile declares at least
+  // one evidenceRealizations entry. A route that declares nothing keeps
+  // exactly its pre-Slice-1 behavior (requiredToolNames alone governs
+  // admission) - this must never change behavior for routes that never
+  // asked for capability-aware realization. A route that does declare
+  // realizations gets its declared (or the stable default) tools resolved
+  // against its own admitted capabilities instead of trusting whatever
+  // tool names a caller computed ahead of time - that blind trust on
+  // "bash" was the original bug: it rejected MCP-only routes regardless of
+  // their own qualified capabilities.
+  const routeDeclaresEvidenceRealizations = Object.keys(profileDefaults.evidenceRealizations ?? {}).length > 0;
+  const expectedEvidence = (parsed.input.expectedEvidence ?? []).filter(isKilnWorkGovernanceEvidence);
+  const evidenceRealization = routeDeclaresEvidenceRealizations && expectedEvidence.length > 0
+    ? resolveEvidenceRealization({
+        routeId: route.routeId,
+        expectedEvidence,
+        declaredRealizations: profileDefaults.evidenceRealizations,
+        admittedToolNames: profileDefaults.allowedToolNames,
+      })
+    : undefined;
+
+  if (evidenceRealization && !evidenceRealization.ok) {
+    const pause = evidenceRealization.pause;
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks a realization for: ${pause.unrealizedEvidence.join(", ")}.`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.input.profile,
+          status: "capability_pause",
+          capabilityPause: pause,
+          allowedToolNames: profileDefaults.allowedToolNames,
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            sourceToolName: toolName,
+            routeId: route.routeId,
+            routeSource: route.routeSource,
+            profile: parsed.input.profile,
+            providerId: route.providerId,
+            model: route.model,
+            contextMode: parsed.input.contextMode,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: `No admitted realization for: ${pause.unrealizedEvidence.join(", ")}`,
+          }),
+        },
+        toolName,
+      ),
+    };
+  }
+
+  // Only a route that opted in (declared evidenceRealizations) and whose
+  // resolution succeeded gets its required tools replaced by the resolved
+  // set; every other route keeps trusting requiredToolNames exactly as
+  // before Slice 1.
+  const effectiveRequiredToolNames = evidenceRealization?.ok
+    ? evidenceRealization.requiredToolNames
+    : (parsed.input.requiredToolNames ?? []);
+
   const missingRequiredTools = missingManagedInvocationRequiredTools(
-    parsed.input.requiredToolNames ?? [],
+    effectiveRequiredToolNames,
     profileDefaults.allowedToolNames,
   );
   if (missingRequiredTools.length > 0) {
@@ -1301,7 +1374,7 @@ async function prepareManagedInvocationRequest(
           profile: parsed.input.profile,
           status: "unavailable",
           missingRequiredTools,
-          requiredToolNames: parsed.input.requiredToolNames ?? [],
+          requiredToolNames: effectiveRequiredToolNames,
           allowedToolNames: profileDefaults.allowedToolNames,
           presentationIntent: buildManagedInvocationPresentationIntent({
             sourceToolName: toolName,
@@ -1322,7 +1395,7 @@ async function prepareManagedInvocationRequest(
   }
 
   const missingRequiredCapabilities = missingManagedInvocationRequiredCapabilities(
-    parsed.input.requiredToolNames ?? [],
+    effectiveRequiredToolNames,
     profileDefaults,
   );
   if (missingRequiredCapabilities.length > 0) {
@@ -1336,7 +1409,7 @@ async function prepareManagedInvocationRequest(
           profile: parsed.input.profile,
           status: "unavailable",
           missingRequiredCapabilities,
-          requiredToolNames: parsed.input.requiredToolNames ?? [],
+          requiredToolNames: effectiveRequiredToolNames,
           presentationIntent: buildManagedInvocationPresentationIntent({
             sourceToolName: toolName,
             routeId: route.routeId,

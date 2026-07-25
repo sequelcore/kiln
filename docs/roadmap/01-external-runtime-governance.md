@@ -181,13 +181,42 @@ clean):
 
 ### Slice 1 - Evidence Realization Contract
 
-Status: Queued behind Slice 0.
+Status: Thread 1 closed (the hard `bash` derivation regression from Slice 0);
+threads 2-5 remain open for Slices 2/3.
 
-Define one typed provider-neutral mapping from canonical evidence requirements
-to admitted capability realizations. Keep canonical evidence ids stable while
-allowing explicit, policy-owned surface realizations. Preserve evidence
-identity and fail closed — reject missing realizations with a precise
-capability pause; never silently substitute weaker evidence.
+Delivered: `resolveEvidenceRealization` in `@kilnai/core`
+(`packages/core/src/work-governance/evidence-realization.ts`) — a typed,
+provider-neutral mapping from evidence requirements to admitted capability
+realizations, strictly opt-in per route via a new
+`ManagedInvocationRouteProfile.evidenceRealizations` field. A route that
+declares nothing keeps its exact pre-Slice-1 behavior (`requiredToolNames`
+alone governs admission, unchanged). A route that declares a realization for
+an evidence id gets it resolved against its own admitted tools instead of a
+context-free default; a declared-but-unsatisfied realization fails closed
+with a precise `capability_pause` (never silently falls through to the
+generic default behind the route's back — closes the drift risk between
+`allowedToolNames` and `evidenceRealizations`). `KilnWorkGovernanceEvidence`
+moved from `@kilnai/cli` to `@kilnai/core` (with a re-export for existing CLI
+imports) since both `@kilnai/cli` and `@kilnai/runtime` need the same stable
+evidence identity and runtime must not depend on cli.
+
+This closes Slice 0's first regression precisely:
+`packages/runtime/tests/gateway/managed-invocation-tool.test.ts`'s
+"admits an MCP-only route for tests/typecheck evidence instead of
+hard-requiring bash" now passes for real (flipped from `it.fails`). Verified
+across the whole affected surface: `@kilnai/core` 290 files/3573 tests,
+`@kilnai/cli` 1519 tests (one pre-existing, unrelated failure confirmed via
+`git stash` before this work began), `@kilnai/runtime` 219 files/2915 tests
+plus 4 expected-fail (threads 2-5, correctly still open), typecheck clean
+across all three packages.
+
+Deliberately out of scope for this pass: threads 2 (parent-success/
+canonical-failure disagreement) and 3 (failed calls supporting positive
+claims) belong to Slice 2 - Recovery And Terminal Consistency; thread 4
+(missing approval events) and attachment drift (thread 5) belong to Slice 2's
+attachment-identity work and Slice 3's cross-surface replay respectively.
+Fixing them here would have been scope creep past what this slice is
+chartered to do.
 
 ### Slice 2 - Recovery And Terminal Consistency
 

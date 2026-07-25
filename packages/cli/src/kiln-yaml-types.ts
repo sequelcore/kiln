@@ -1,5 +1,7 @@
-import type { McpServerConfiguration, MemoryLayerKind, MemoryScopeKind } from "@kilnai/core";
+import type { KilnWorkGovernanceEvidence, McpServerConfiguration, MemoryLayerKind, MemoryScopeKind } from "@kilnai/core";
 import type { KilnMemoryAuthorityOperation } from "./wrapper/session.js";
+
+export type { KilnWorkGovernanceEvidence } from "@kilnai/core";
 
 export class KilnYamlError extends Error {
   constructor(message: string) {
@@ -126,32 +128,6 @@ export type KilnWorkGovernanceTrigger =
   | "long-running"
   | "verification-heavy"
   | "formal-proof-candidate";
-
-export type KilnWorkGovernanceEvidence =
-  | "surface-map"
-  | "risk-hypothesis"
-  | "spec"
-  | "plan"
-  | "tests"
-  | "typecheck"
-  | "visual-reference-research"
-  | "browser-qa"
-  | "managed-agent-review"
-  | "managed-orchestration:result-handoff"
-  | "managed-orchestration:completion-signal"
-  | "managed-orchestration:comparison-summary"
-  | "managed-orchestration:route-outcome"
-  | "managed-orchestration:adoption-gate"
-  | "managed-orchestration:diff"
-  | "managed-orchestration:verification"
-  | "managed-orchestration:review"
-  | "managed-orchestration:merge:compare-and-select"
-  | "managed-orchestration:merge:collect-all"
-  | "managed-orchestration:merge:first-success"
-  | "managed-orchestration:merge:manual-review-required"
-  | "managed-orchestration:merge:none"
-  | "formal-proof"
-  | "residual-risk";
 
 export interface KilnWorkGovernanceDirectExecutionConfig {
   readonly maxFiles?: number;

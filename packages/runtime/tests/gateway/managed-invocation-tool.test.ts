@@ -6714,7 +6714,11 @@ describe("managed invocation runtime tool", () => {
       "mcp:external-runtime:tool:navigate_actor",
     ] as const;
 
-    function makeExternalRuntimeSurface(adapter = makeAdapter()) {
+    function makeExternalRuntimeSurface(adapter = makeAdapter({
+      adapterDescriptorId: "adapter:mcp-external-runtime:harness",
+      providerId: "mcp-external-runtime",
+      supportedProfiles: ["foundation-readonly-plan"],
+    })) {
       return createAttachedRuntimeBuiltinToolSurface({
         managedInvocation: {
           invocationService: makeObservedRuntimeInvocationService({
@@ -6729,15 +6733,21 @@ describe("managed invocation runtime tool", () => {
             model: "external-runtime-fixture",
             adapter,
             profiles: {
-              "foundation-apply-approved-writes": {
-                authorityProfileId: "authority:external-runtime-mcp-only:foundation-apply-approved-writes",
-                permissionProfile: "approval-bound",
+              "foundation-readonly-plan": {
+                authorityProfileId: "authority:external-runtime-mcp-only:foundation-readonly-plan",
+                permissionProfile: "read-only",
                 allowedToolNames: [...externalRuntimeToolNames],
-                writeAllowed: true,
+                // Roadmap 01 Slice 1 - this route's own capability-aware
+                // realization: its qualified MCP tools satisfy tests/typecheck
+                // evidence without needing bash at all.
+                evidenceRealizations: {
+                  tests: ["mcp:external-runtime:tool:start_stop_test", "mcp:external-runtime:tool:observe_runtime"],
+                  typecheck: ["mcp:external-runtime:tool:observe_runtime", "mcp:external-runtime:tool:read_console"],
+                },
                 networkAllowed: false,
                 workingDirectory: {
                   path: "C:/workspace/kiln",
-                  mode: "workspace-write",
+                  mode: "read-only",
                 },
                 timeoutMs: 120000,
                 timeoutSource: "explicit-route",
@@ -6756,7 +6766,7 @@ describe("managed invocation runtime tool", () => {
       });
     }
 
-    it.fails(
+    it(
       "admits an MCP-only route for tests/typecheck evidence instead of hard-requiring bash",
       async () => {
         const surface = makeExternalRuntimeSurface();
@@ -6764,15 +6774,19 @@ describe("managed invocation runtime tool", () => {
 
         const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
           routeId: "external-runtime-mcp-only",
-          profile: "foundation-apply-approved-writes",
+          profile: "foundation-readonly-plan",
           providerRoute: { providerId: "mcp-external-runtime", model: "external-runtime-fixture" },
           task: "Run the Studio playtest and verify the console is clean before promotion.",
           summary: "Verify the Studio prototype.",
           contextMode: "isolated",
-          // Exactly what work-governance-tool.ts computes today for tests/typecheck evidence.
+          // A legacy/pre-Slice-1 caller value - work-governance-tool.ts's old
+          // context-free derivation would have sent exactly this. Because this
+          // route declares its own evidenceRealizations, the runtime resolves
+          // required tools from the route's own capability instead - "bash" is
+          // superseded, not blindly required, closing the hard bash bug.
           requiredToolNames: ["bash"],
           expectedEvidence: ["tests", "typecheck"],
-          requestedAuthority: "audited",
+          requestedAuthority: "read_only",
         }, {
           session,
           toolCall: { id: "tool-call-external-runtime-verification", name: "managed_agent.invoke", input: {} },
