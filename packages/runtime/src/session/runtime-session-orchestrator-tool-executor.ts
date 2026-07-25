@@ -72,6 +72,10 @@ function parseCommandShell(value: unknown): CommandShell | undefined {
   return undefined;
 }
 
+function isMcpToolName(toolName: string): boolean {
+  return toolName.startsWith("mcp:");
+}
+
 function toDangerousCommandRequest(
   toolName: string,
   input: Record<string, unknown>,
@@ -377,6 +381,7 @@ export class RuntimeSessionToolExecutor {
     private readonly requestApproval: (
       sessionId: string,
       description: string,
+      hasLiveAuthoritySource?: boolean,
     ) => Promise<{ approved: boolean; reason?: string }>,
     private readonly emitError: (sessionId: string, message: string) => void,
     private readonly callBuiltinTools?: ReadonlyMap<string, RuntimeBuiltinToolExecutor>,
@@ -526,6 +531,7 @@ export class RuntimeSessionToolExecutor {
             const approval = await this.requestApproval(
               session.id,
               `Tool "${normalizedToolCall.name}" requires approval: ${authResult.reason}`,
+              this.hasConfiguredAuthoritySource(normalizedToolCall.name, perCallConfig),
             );
             if (!approval.approved) {
               const content = `Approval denied: ${approval.reason ?? authResult.reason}`;
@@ -819,13 +825,29 @@ export class RuntimeSessionToolExecutor {
     return this.deps.capabilityMap?.get(name) ?? perCallConfig?.perCallCapabilities?.get(name);
   }
 
+  private resolveStaticAuthority(toolName: string, perCallConfig?: PerCallToolConfig): unknown {
+    return perCallConfig?.toolAuthority?.get(toolName);
+  }
+
+  /**
+   * Whether a tool name resolves through an operator-configured authority source
+   * (a static per-call authority entry or a toolAuthorizer) as opposed to the
+   * conservative deriveAuthorityFromEffect() fallback applied to unclassified
+   * `mcp:` capabilities. Only a configured source implies a live approval channel
+   * capable of eventually resolving an interactive approval request.
+   */
+  private hasConfiguredAuthoritySource(toolName: string, perCallConfig?: PerCallToolConfig): boolean {
+    return this.resolveStaticAuthority(toolName, perCallConfig) !== undefined
+      || Boolean(this.deps.toolAuthorizer);
+  }
+
   private resolveAuthorization(
     toolName: string,
     resolvedEffect: ResolvedInvocationEffect,
     capability: Capability | undefined,
     perCallConfig?: PerCallToolConfig,
   ): AuthorityDescriptor | undefined {
-    const authority = perCallConfig?.toolAuthority?.get(toolName);
+    const authority = this.resolveStaticAuthority(toolName, perCallConfig);
     if (authority !== undefined) {
       if (!this.isAuthorityDescriptor(authority)) {
         return {
@@ -853,10 +875,26 @@ export class RuntimeSessionToolExecutor {
         reason: authority.reason,
       };
     }
-    if (!this.deps.toolAuthorizer) {
-      return undefined;
+    if (this.deps.toolAuthorizer) {
+      return this.deps.toolAuthorizer.authorize(toolName, resolvedEffect);
     }
-    return this.deps.toolAuthorizer.authorize(toolName, resolvedEffect);
+    if (isMcpToolName(toolName)) {
+      // A dynamically-discovered MCP capability with no static authority entry
+      // and no configured authorizer must still resolve through the canonical
+      // effect-based policy instead of executing unchecked (fail closed).
+      // Scoped to `mcp:` names rather than applied universally: governance and
+      // work-item tools (work_governance.assess, goal.*, work_item.*,
+      // managed_agent.invoke) have no declared effect envelope in the builtin
+      // catalog, so a universal fallback would resolve every one of them to
+      // CONSERVATIVE_UNKNOWN_ENVELOPE -> approval-required, deadlocking
+      // governance itself. This is a workaround for that missing envelope
+      // coverage, not a claim that builtin/dev tools are inherently safe to
+      // run unchecked - once governance tools have declared envelopes, this
+      // fallback should apply universally and the `mcp:` namespace check
+      // should be deleted.
+      return deriveAuthorityFromEffect(resolvedEffect);
+    }
+    return undefined;
   }
 
   private resolveInvocationEffect(

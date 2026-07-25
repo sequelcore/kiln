@@ -301,7 +301,14 @@ export class RuntimeSessionOrchestrator {
     const toolExecutor = new RuntimeSessionToolExecutor(
       this.deps,
       this.deps.eventBus,
-      (sessionId, description) => this.approvalGate.requestApproval(sessionId, description),
+      (sessionId, description, hasLiveAuthoritySource = true) =>
+        hasLiveAuthoritySource
+          ? this.approvalGate.requestApproval(sessionId, description)
+          : Promise.resolve(this.approvalGate.requestImmediateDenial(
+              sessionId,
+              description,
+              "No approval authority is configured for this capability",
+            )),
       (sessionId, message) => this.telemetry.emitError(sessionId, message),
       callBuiltinTools,
     );

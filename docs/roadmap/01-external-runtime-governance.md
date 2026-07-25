@@ -220,15 +220,130 @@ chartered to do.
 
 ### Slice 2 - Recovery And Terminal Consistency
 
-Status: Queued behind Slice 1.
+Status: Threads 2, 3, and 4 closed. Thread 5 (attachment drift) remains open
+for Slice 3, as scoped by Slice 1's status note.
 
-Bind recovery evidence to the original goal, work item, attempt, and
-attachment. Define explicit supersession of obsolete failure evidence, and when
-a failed admission gate may be superseded while retaining both events in
-replay. Propagate or explicitly select the external-runtime attachment for a
-child; do not let the child heuristically target a different or absent
-instance. Fail closed when recovered evidence is incomplete. Final-answer
-eligibility must depend on canonical terminal state.
+Delivered three independent fixes, all keyed off `mcp:<server>:<kind>:<name>`,
+the pre-existing provider-neutral MCP dispatch-namespace convention (already
+used for MCP client routing in `packages/core/src/mcp/index.ts:144` and the
+tool executor's own `mcpClients` lookup) — not a vendor-specific branch:
+
+1. **Thread 4 closed** — `packages/runtime/src/session/runtime-session-orchestrator-tool-executor.ts`,
+   `resolveAuthorization()`. When a tool name is `mcp:`-namespaced and has
+   neither a static `toolAuthority` entry nor a `toolAuthorizer` configured,
+   it now falls back to the canonical `deriveAuthorityFromEffect()` policy
+   (`packages/core/src/engine/domain/action-effect.ts`) instead of returning
+   `undefined` and letting the caller skip authorization entirely. Because a
+   genuinely unregistered MCP capability has no live approval channel able to
+   grant an interactive approval, the `requestApproval` callback signature
+   gained an optional `hasLiveAuthoritySource` parameter
+   (`hasConfiguredAuthoritySource()` on the executor); when false, the new
+   `RuntimeSessionApprovalGate.requestImmediateDenial()`
+   (`runtime-session-orchestrator-approvals.ts`) still emits the full
+   `approval_requested`/`approval_received` event pair for replay/audit, then
+   resolves as denied immediately rather than leaving a pending approval
+   nothing can ever answer. Builtin/dev tool names are untouched (no `mcp:`
+   prefix, no fallback triggered) — zero risk to the existing builtin-tool
+   authorization surface. Closes
+   `packages/runtime/tests/session/runtime-session-orchestrator-tools.test.ts`,
+   "requires approval for an unregistered external-runtime mutation instead of
+   executing it unchecked" (flipped from `it.fails`).
+
+2. **Thread 3 closed** — `packages/runtime/src/session/governed-turn-outcome.ts`,
+   new `hasMcpSelectorWithNoSuccessfulExecution()` check inside
+   `deriveGovernedTurnOutcomeFromToolRecords()`: any `mcp:`-namespaced selector
+   attempted at least once and never once successful in the turn now marks the
+   outcome non-`"completed"`. This is a deliberately **separate, order-insensitive**
+   check (group by exact selector, require zero successes per group) rather than
+   folding `mcp:` names into the existing `isWorkGovernanceToolName()` terminal
+   fallback, which was the first implementation and was wrong: that fallback
+   picks the *latest* matching execution, so merging the two would let a
+   trailing successful MCP call mask an earlier failed governance-tool call
+   (fail-open — caught by an independent Opus design-debate review before this
+   was called done, not by the test suite; the original merged-filter version
+   passed the full 2918-test suite and would only have been caught by an
+   adversarial ordering nobody had written yet). Two permanent regression tests
+   guard both directions of that ordering failure (`does not let a trailing
+   successful MCP call mask an earlier failed governance-tool call`, `does not
+   flag a selector that failed once and then succeeded, regardless of call
+   order`), each verified to fail against the reverted merged-filter version
+   before being trusted. Closes
+   `packages/runtime/tests/session/governed-turn-outcome.test.ts`, "does not
+   let four failed external-runtime navigation calls produce a completed
+   outcome" (flipped from `it.fails`).
+
+3. **Thread 2 closed** — `packages/runtime/src/session/runtime-session-orchestrator-response.ts`,
+   `finalizeRuntimeSessionResponse()` now prepends a canonical-state qualifier
+   `ContentPart` ahead of the model's own `parts` when the computed outcome is
+   `"failed"` (not `"paused"` or `"cancelled"` — a budget-exhaustion pause is an
+   ordinary continuation, not a prose/canonical disagreement) **and** the turn
+   contains an unrecoverable managed-invocation blocking failure (new
+   `hasUnrecoverableManagedInvocationFailure()` in `governed-turn-outcome.ts`:
+   a blocking failure with no `managedInvocationRecovery` metadata at all, so
+   the parent had no supervised path forward and no awareness of it when
+   producing its final text). The original prose is kept, not discarded, so
+   operators retain it for diagnosis. Scope is deliberately narrower than "any
+   non-completed outcome": every other `"failed"` outcome already flowing
+   through this codebase (unresolved governed-work materialization, a
+   managed-invocation recovery still in progress, deterministic retry
+   exhaustion, ...) is reported through text written by the orchestrator or the
+   model *with knowledge of* that specific failure, by construction of the call
+   site producing it — confirmed by running the full
+   `runtime-session-orchestrator-tools.test.ts` suite, which regressed 10 then
+   5 pre-existing exact-text assertions under a naive "qualify every
+   non-completed outcome" version of this fix before landing on the
+   `hasUnrecoverableManagedInvocationFailure` scoping (mirroring the Slice 1
+   lesson that only full-suite runs catch this class of breakage). The
+   qualification is computed and applied to `session.addAssistantMessage()`
+   *before* the transcript write, not only to the returned value — an
+   independent Opus design-debate review caught that the first implementation
+   qualified only the returned response while conversation history (and
+   therefore transcript/replay) kept the raw unqualified claim, which would
+   have manufactured exactly the surface/transcript divergence Slice 3 must
+   prove absent. A permanent regression test
+   (`reconciles the transcript, not just the returned response, so replay
+   agrees with the surface`) guards this, verified to fail against the
+   response-only version before being trusted. Closes
+   `packages/runtime/tests/session/runtime-session-orchestrator-response.test.ts`,
+   describe "finalizeRuntimeSessionResponse (Roadmap 01 Slice 0)" (flipped from
+   `it.fails`).
+
+Process note: an independent Opus subagent design-debate review (matching the
+Slice 1 precedent) was run *after* an initial implementation of Threads 2-4
+already passed the full test suite. It found the Thread 3 fail-open inversion
+and the Thread 2 transcript-divergence bug above — neither had a failing test
+until new adversarial tests were written specifically to reproduce them. Both
+are now fixed and covered. It also flagged, as non-blocking, that the `mcp:`
+gate in Thread 4's `resolveAuthorization()` fallback exists because governance
+tools (`work_governance.assess`, `goal.*`, `work_item.*`,
+`managed_agent.invoke`) currently have no declared effect envelope — not
+because builtin/dev tools are inherently safe to run unchecked; documented
+in-code as a follow-up (give governance tools declared envelopes, then delete
+the `mcp:` namespace check and apply the fallback universally). Also flagged,
+not acted on for this slice: two downstream consumers of `OrchestrateResult.parts`
+(`packages/runtime/src/gateway/openai-responses-model-turn.ts`'s
+per-text-part-message mapping, and `message-pipeline.ts`'s grounding-verification
+input) may need an explicit decision about how a prepended synthetic part
+should be treated; no existing test exercises this interaction and the narrow
+`hasUnrecoverableManagedInvocationFailure` scope makes it rare, but Slice 3
+(cross-surface replay) should verify it explicitly rather than discover it in
+production.
+
+Verified across the whole affected surface: `@kilnai/core` 290 files/3573
+tests, `@kilnai/cli` 1519 tests (two pre-existing, unrelated failures
+confirmed via `git stash` before this work began — `tests/tools-command.test.ts`
+and a flaky order-dependent failure in `tests/commands/run-builtin-tools.test.ts`
+that reproduces on the unmodified base commit and passes in isolation),
+`@kilnai/runtime` 219 files/2921 tests (3 new regression tests added for the
+two debate-caught bugs) plus 1 expected-fail (thread 5, correctly still open
+in `packages/runtime/tests/gateway/managed-invocation-tool.test.ts`), typecheck
+clean across `gateway-contracts`, `core`, `runtime`, `sdk`, `cli`, `tui`,
+`native`.
+
+Not attempted in this slice: attachment propagation/selection for a managed
+child (Thread 5) and explicit supersession-with-dual-replay for a superseded
+admission gate remain open, per Slice 1's status note assigning attachment
+work to Slice 3.
 
 ### Slice 3 - Cross-Surface Replay
 

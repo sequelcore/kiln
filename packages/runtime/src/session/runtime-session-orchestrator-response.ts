@@ -1,11 +1,11 @@
-import { projectConversationForModel, sha256ContentIdentity } from "@kilnai/core";
+import { projectConversationForModel, sha256ContentIdentity, textPart } from "@kilnai/core";
 import type { ContentPart, ConversationToolResultProjectionPolicy, EffectivePromptManifest, ProviderAdapter, ToolCall } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./runtime-session-orchestrator.types.js";
 import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type OrchestratorResponseUsage, type ProviderRequestCachePartitionInput, type ProviderRequestRegionEvidence } from "./runtime-session-orchestrator-telemetry.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
-import { deriveRuntimeTurnOutcome } from "./governed-turn-outcome.js";
+import { deriveRuntimeTurnOutcome, hasUnrecoverableManagedInvocationFailure } from "./governed-turn-outcome.js";
 import type { SessionTurnOutcome } from "@kilnai/core";
 
 export interface FinalizeRuntimeSessionResponseInput {
@@ -32,10 +32,19 @@ export async function finalizeRuntimeSessionResponse(
 ): Promise<OrchestrateResult> {
   let escalation = input.preLlmEscalation;
 
-  input.session.addAssistantMessage(input.parts);
+  const outcome = input.outcome ?? deriveRuntimeTurnOutcome({
+    toolExecutions: input.toolExecutions,
+    stopReason: input.stopReason,
+  });
+  // Reconcile before the transcript is written, not just the returned value -
+  // conversation history, escalation detection, and every downstream surface
+  // must see the same qualified parts the caller receives, not the raw claim.
+  const parts = qualifyPartsForOutcome(input.parts, outcome, input.toolExecutions);
+
+  input.session.addAssistantMessage(parts);
 
   if (!escalation && input.deps.escalationDetector) {
-    const postSignal = input.deps.escalationDetector.checkPostLLM(input.session, input.parts);
+    const postSignal = input.deps.escalationDetector.checkPostLLM(input.session, parts);
     if (postSignal) escalation = postSignal;
   }
 
@@ -49,7 +58,7 @@ export async function finalizeRuntimeSessionResponse(
   }
 
   return {
-    parts: input.parts,
+    parts,
     inputTokens: input.usageTotals.inputTokens,
     outputTokens: input.usageTotals.outputTokens,
     cacheReadTokens: input.usageTotals.cacheReadTokens,
@@ -58,16 +67,48 @@ export async function finalizeRuntimeSessionResponse(
       ? { providerRequests: input.providerRequests }
       : {}),
     queued: false,
-    outcome: input.outcome ?? deriveRuntimeTurnOutcome({
-      toolExecutions: input.toolExecutions,
-      stopReason: input.stopReason,
-    }),
+    outcome,
     escalation,
     contextSummary,
     ...(input.stopReason !== undefined ? { stopReason: input.stopReason } : {}),
     toolExecutions: input.toolExecutions.length > 0 ? input.toolExecutions : undefined,
     routingDecision: input.routingDecision,
   };
+}
+
+/**
+ * Roadmap 01 (External Runtime Governance): canonical outcome must not disagree
+ * with an unqualified final answer. Scoped specifically to outcome === "failed"
+ * with an unrecoverable managed-invocation blocking failure (see
+ * hasUnrecoverableManagedInvocationFailure) - a failure with no recovery
+ * metadata at all, offering the parent no supervised path forward, so any
+ * free-text final answer produced afterward was written with no awareness of
+ * it and cannot be trusted to agree with it. Deliberately excludes "paused"
+ * (an ordinary tool-round-budget continuation, not a prose/canonical
+ * disagreement) and "cancelled". Every other "failed" outcome in this codebase
+ * (unresolved governed-work materialization, a managed-invocation recovery
+ * still in progress, retry exhaustion, ...) is already reported through text
+ * that was written with knowledge of that specific failure, by construction of
+ * the call site that produces it - qualifying those would be redundant noise,
+ * not a correction. Prepend a canonical-state qualifier rather than discarding
+ * the original parts, so operators retain the model's prose for diagnosis
+ * while it can no longer be mistaken for a confirmed-successful final answer.
+ */
+function qualifyPartsForOutcome(
+  parts: readonly ContentPart[],
+  outcome: SessionTurnOutcome,
+  toolExecutions: readonly ToolExecutionSummary[],
+): readonly ContentPart[] {
+  if (outcome !== "failed" || !hasUnrecoverableManagedInvocationFailure(toolExecutions)) {
+    return parts;
+  }
+  return [
+    textPart(
+      `Canonical state: ${outcome}. The response below has not been verified as complete `
+      + "and must not be treated as confirmation of success.",
+    ),
+    ...parts,
+  ];
 }
 
 export async function requestRuntimeSessionFallbackResponse(

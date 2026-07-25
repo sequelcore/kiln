@@ -2070,21 +2070,23 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       }));
     });
 
-    // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture.
+    // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture,
+    // closed in Slice 2 (Recovery And Terminal Consistency).
     // Fourth regression proof: "missing mutation-approval events... are observable
-    // regressions." resolveAuthorization() returns undefined when neither a static
+    // regressions." resolveAuthorization() returned undefined when neither a static
     // toolAuthority entry nor a toolAuthorizer covers the tool name (see
-    // runtime-session-orchestrator-tool-executor.ts:855-856). The caller only runs
-    // its approval/authorization branch `if (authResult)` - when it's undefined that
-    // branch is skipped entirely and execution proceeds unchecked. A live MCP server
-    // exposes tool names discovered at runtime, so an operator's approval-bound
-    // configuration for e.g. a scene-mutating tool can miss the newly-discovered
-    // exact selector and this silently degrades to no approval at all, unlike the
-    // explicitly-denied case above where a toolAuthorizer is always configured.
-    // Expected to fail until Roadmap 01 Slice 1 (Evidence Realization Contract)
-    // makes unclassified external capabilities fail closed instead of failing open;
-    // this .fails must flip to a plain `it` once that lands.
-    it.fails(
+    // runtime-session-orchestrator-tool-executor.ts, resolveAuthorization()). The
+    // caller only ran its approval/authorization branch `if (authResult)` - when it
+    // was undefined that branch was skipped entirely and execution proceeded
+    // unchecked. A live MCP server exposes tool names discovered at runtime, so an
+    // operator's approval-bound configuration for e.g. a scene-mutating tool can
+    // miss the newly-discovered exact selector; this used to silently degrade to no
+    // approval at all, unlike the explicitly-denied case above where a
+    // toolAuthorizer is always configured. Fixed by routing unclassified `mcp:`-
+    // namespaced tool calls with no static authority or authorizer through the
+    // canonical deriveAuthorityFromEffect() policy instead of skipping
+    // authorization entirely.
+    it(
       "requires approval for an unregistered external-runtime mutation instead of executing it unchecked",
       async () => {
         const selector = "mcp:studio:tool:apply_scene_edit";

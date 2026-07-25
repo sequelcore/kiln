@@ -44,6 +44,33 @@ export class RuntimeSessionApprovalGate {
     this.eventBus?.emit(event);
   }
 
+  /**
+   * Records a full approval-request/approval-received lifecycle for a mutation
+   * that requires confirmation but has no live approval channel to grant it
+   * (no operator-configured authority source). Emits both canonical events for
+   * replay/audit, then resolves immediately as denied instead of leaving a
+   * pending approval nothing can ever answer.
+   */
+  requestImmediateDenial(
+    sessionId: string,
+    description: string,
+    reason: string,
+  ): { approved: false; reason: string } {
+    const approvalId = this.nextApprovalId(sessionId);
+    this.emitApprovalRequested(description, sessionId, approvalId);
+    const event: ApprovalReceivedEvent = {
+      type: "approval_received",
+      approvalId,
+      taskId: "",
+      approved: false,
+      reason,
+      timestamp: new Date(),
+      sessionId,
+    };
+    this.eventBus?.emit(event);
+    return { approved: false, reason };
+  }
+
   continue(approvalId: string): void {
     this.emitApprovalReceived(true, "user approved", approvalId);
   }

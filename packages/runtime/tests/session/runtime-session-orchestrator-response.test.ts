@@ -68,18 +68,17 @@ describe("requestRuntimeSessionFallbackResponse", () => {
   });
 });
 
-// Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture.
+// Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture,
+// closed in Slice 2 (Recovery And Terminal Consistency).
 // Second regression proof: "a parent success message can currently disagree with
 // failed canonical execution state." governed-turn-outcome.ts already correctly
 // computes outcome:"failed" when an unresolved managed-invocation blocking failure
 // exists (see governed-turn-outcome.test.ts, "does not let terminal goal closeout
-// hide an unresolved managed invocation failure"). The gap is one level up: nothing
-// in finalizeRuntimeSessionResponse reconciles the free-text `parts` it returns
-// against that computed `outcome` — an unqualified success claim in `parts` is
-// returned completely unchanged whether the canonical turn succeeded or failed.
-// Expected to fail until Roadmap 01 Slice 2/3 (Recovery And Terminal Consistency /
-// Cross-Surface Replay) make final-answer eligibility depend on canonical state;
-// this .fails must flip to a plain `it` once that lands.
+// hide an unresolved managed invocation failure"). The gap was one level up:
+// nothing in finalizeRuntimeSessionResponse reconciled the free-text `parts` it
+// returns against that computed `outcome`. Fixed by prepending a canonical-state
+// qualifier part whenever outcome !== "completed", so the original prose is
+// preserved for diagnosis but can never stand unqualified as a success claim.
 describe("finalizeRuntimeSessionResponse (Roadmap 01 Slice 0)", () => {
   const unresolvedManagedInvocationFailure: ToolExecutionSummary = {
     toolName: "managed_agent.invoke",
@@ -93,7 +92,7 @@ describe("finalizeRuntimeSessionResponse (Roadmap 01 Slice 0)", () => {
     },
   };
 
-  it.fails(
+  it(
     "does not let a success-claiming final message stand when canonical outcome disagrees",
     async () => {
       const unqualifiedSuccessClaim = textParts(
@@ -115,6 +114,29 @@ describe("finalizeRuntimeSessionResponse (Roadmap 01 Slice 0)", () => {
       // Desired: a final answer must not stand unqualified when canonical state
       // remains failed or blocked.
       expect(result.parts).not.toEqual(unqualifiedSuccessClaim);
+    },
+  );
+
+  it(
+    "reconciles the transcript, not just the returned response, so replay agrees with the surface",
+    async () => {
+      const unqualifiedSuccessClaim = textParts(
+        "Navigation to both objectives succeeded and the console is clean.",
+      );
+      const testSession = session();
+
+      const result = await finalizeRuntimeSessionResponse({
+        deps: { provider: provider() },
+        session: testSession,
+        parts: unqualifiedSuccessClaim,
+        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        usageTotals: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        toolExecutions: [unresolvedManagedInvocationFailure],
+      });
+
+      const lastMessage = testSession.conversationHistory.at(-1);
+      expect(lastMessage?.parts).toEqual(result.parts);
+      expect(lastMessage?.parts).not.toEqual(unqualifiedSuccessClaim);
     },
   );
 });

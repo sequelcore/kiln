@@ -111,10 +111,43 @@ export function deriveGovernedTurnOutcomeFromToolRecords(
   if (hasStartedExecutionWithoutTerminalCloseout(toolExecutions)) {
     return "failed";
   }
+  if (hasMcpSelectorWithNoSuccessfulExecution(toolExecutions)) {
+    return "failed";
+  }
   const latestGovernanceExecution = (toolExecutions ?? [])
     .filter((execution) => isWorkGovernanceToolName(execution.toolName))
     .at(-1);
   return latestGovernanceExecution?.success === false ? "failed" : undefined;
+}
+
+/**
+ * Roadmap 01 (External Runtime Governance), Slice 2: a direct external-runtime
+ * (`mcp:`-namespaced) capability call that never once succeeded in this turn
+ * cannot support a positive verification claim. This is deliberately a
+ * separate, order-insensitive check rather than folding `mcp:` names into the
+ * governance-tool-name filter above: that filter picks the *latest* matching
+ * execution, so merging the two would let a trailing successful MCP call mask
+ * an earlier failed governance-tool call (fail-open), and symmetrically let a
+ * trailing failed MCP call mask an earlier legitimate successful closeout.
+ * Grouping by exact selector and requiring zero successes per group is immune
+ * to call ordering in either direction and cannot weaken an existing failure
+ * signal derived above.
+ */
+function hasMcpSelectorWithNoSuccessfulExecution(
+  toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
+): boolean {
+  const attemptedSelectors = new Set<string>();
+  const succeededSelectors = new Set<string>();
+  for (const execution of toolExecutions ?? []) {
+    if (!isMcpToolName(execution.toolName)) {
+      continue;
+    }
+    attemptedSelectors.add(execution.toolName);
+    if (execution.success) {
+      succeededSelectors.add(execution.toolName);
+    }
+  }
+  return [...attemptedSelectors].some((selector) => !succeededSelectors.has(selector));
 }
 
 function hasOpenGoalWithoutCloseout(
@@ -188,6 +221,26 @@ function hasUnresolvedManagedInvocationBlockingExecutionFailure(
   return executions.some((execution, index) =>
     isManagedInvocationBlockingExecutionFailure(execution)
     && !isManagedInvocationFailureRecovered(execution, executions.slice(index + 1)));
+}
+
+/**
+ * Roadmap 01 (External Runtime Governance), Slice 2: a managed-invocation
+ * blocking failure with no recovery metadata at all (e.g. a hard admission
+ * rejection like the Slice 0 bash-derivation regression) offers the parent no
+ * supervised path forward - any free-text final answer produced afterward was
+ * written with no awareness of the failure and cannot be trusted to agree with
+ * it. This is distinct from `hasUnresolvedManagedInvocationBlockingExecutionFailure`,
+ * which also flags failures that already carry `managedInvocationRecovery`
+ * guidance the parent is actively working through (e.g. a blocked work-item
+ * pause transition) - those cases already produce their own accurate,
+ * failure-aware text and must not be treated the same way.
+ */
+export function hasUnrecoverableManagedInvocationFailure(
+  toolExecutions: readonly GovernedTurnOutcomeToolRecord[] | undefined,
+): boolean {
+  return (toolExecutions ?? []).some((execution) =>
+    isManagedInvocationBlockingExecutionFailure(execution)
+    && !readRecord(execution.metadata?.managedInvocationRecovery));
 }
 
 function isManagedInvocationFailureRecovered(
@@ -530,6 +583,10 @@ function isManagedInvocationTerminalFailureStatus(status: unknown): boolean {
     || status === "timed-out"
     || status === "cancelled"
     || status === "skipped";
+}
+
+function isMcpToolName(toolName: string): boolean {
+  return toolName.startsWith("mcp:");
 }
 
 function isWorkGovernanceToolName(toolName: string): boolean {

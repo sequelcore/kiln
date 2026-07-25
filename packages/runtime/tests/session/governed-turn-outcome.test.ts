@@ -563,19 +563,26 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
     ])).toBeUndefined();
   });
 
-  // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture.
+  // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture,
+  // closed in Slice 2 (Recovery And Terminal Consistency).
   // Third regression proof: "failed calls cannot support positive verification
-  // claims." isWorkGovernanceToolName() only recognizes the fixed governance tool
+  // claims." isWorkGovernanceToolName() only recognized the fixed governance tool
   // set (work_governance.assess, goal.*, work_item.*); any other tool name -
   // including a parent's own direct external-runtime MCP calls such as
-  // navigate_actor - is invisible to this derivation regardless of success. A
+  // navigate_actor - was invisible to this derivation regardless of success. A
   // parent that bypasses managed invocation and calls external-runtime tools
-  // directly (as the incident this fixture encodes did) can have every single
-  // call fail without that ever surfacing as a non-"completed" outcome. Expected
-  // to fail until Roadmap 01 Slice 1 (Evidence Realization Contract) makes raw
-  // tool failures for admitted capability tools count as governance evidence;
-  // this .fails must flip to a plain `it` once that lands.
-  it.fails(
+  // directly (as the incident this fixture encodes did) could have every single
+  // call fail without that ever surfacing as a non-"completed" outcome. Fixed by
+  // a new, order-insensitive `hasMcpSelectorWithNoSuccessfulExecution` check: any
+  // `mcp:`-namespaced selector (the existing provider-neutral MCP dispatch-name
+  // convention) attempted at least once and never once successful marks the
+  // outcome non-"completed". Deliberately a separate check from the governance-
+  // tool-name fallback below rather than merged into it, since that fallback
+  // picks the *latest* matching execution - merging would let a trailing
+  // successful (or trailing failed) MCP call mask an unrelated governance-tool
+  // outcome depending on call order; see the two regression tests immediately
+  // below for both directions of that failure mode.
+  it(
     "does not let four failed external-runtime navigation calls produce a completed outcome",
     () => {
       const failedNavigationCalls: readonly GovernedTurnOutcomeToolRecord[] = [
@@ -590,6 +597,39 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
       }));
 
       expect(deriveGovernedTurnOutcomeFromToolRecords(failedNavigationCalls)).not.toBe(undefined);
+    },
+  );
+
+  it(
+    "does not let a trailing successful MCP call mask an earlier failed governance-tool call",
+    () => {
+      const executions: readonly GovernedTurnOutcomeToolRecord[] = [
+        record({ toolName: "work_governance.assess", success: false, output: "recommendation: orchestrate" }),
+        record({ toolName: "mcp:external-runtime:tool:read_console", success: true }),
+      ];
+
+      expect(deriveGovernedTurnOutcomeFromToolRecords(executions)).toBe("failed");
+    },
+  );
+
+  it(
+    "does not flag a selector that failed once and then succeeded, regardless of call order",
+    () => {
+      const executions: readonly GovernedTurnOutcomeToolRecord[] = [
+        record({
+          toolName: "work_item.complete",
+          success: true,
+          metadata: { id: "work-1", item: { id: "work-1", status: "completed" } },
+        }),
+        record({
+          toolName: "mcp:external-runtime:tool:read_console",
+          success: false,
+          metadata: { error: "transient read failure" },
+        }),
+        record({ toolName: "mcp:external-runtime:tool:read_console", success: true }),
+      ];
+
+      expect(deriveGovernedTurnOutcomeFromToolRecords(executions)).toBeUndefined();
     },
   );
 });
