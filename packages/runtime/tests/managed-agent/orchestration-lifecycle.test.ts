@@ -6,6 +6,7 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
 } from "@kilnai/core";
+import type { ManagedAgentAdmissionDecision } from "@kilnai/core";
 import {
   RuntimeManagedAgentInvocationService,
   runManagedAgentOrchestrationLifecycle,
@@ -448,8 +449,12 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     // through runOrchestrationBatch's capabilitySnapshotInput, the built
     // request never carries a requested attachment, and admission denies
     // with externalRuntimeAttachment.missing before any child starts.
-    const managedInvocation = createManagedInvocation();
+    const observedRequests: ManagedAgentRuntimeInvocationInput["request"][] = [];
+    const managedInvocation = createManagedInvocation({
+      requestObserver: (request) => observedRequests.push(request),
+    });
     const primaryRoute = managedInvocation.routes[0]!;
+    const decisions: ManagedAgentAdmissionDecision[] = [];
 
     await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: request(2),
@@ -461,7 +466,22 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         }],
       },
       profile: "foundation-apply-approved-writes",
+      lifecycleObserver: {
+        onAdmissionResolved: ({ decision }) => {
+          decisions.push(decision);
+        },
+      },
     })).rejects.toThrow(/externalRuntimeAttachment\.missing/);
+
+    expect(decisions.length).toBeGreaterThan(0);
+    for (const decision of decisions) {
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.missing"],
+      });
+    }
+    expect(observedRequests).toEqual([]);
+    expect(managedInvocation.invocationService?.list()).toEqual([]);
   });
 
   it("fails closed when no isolated lifecycle route is available", async () => {

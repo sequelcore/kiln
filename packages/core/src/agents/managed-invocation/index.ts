@@ -957,9 +957,23 @@ function requireExternalRuntimeAttachmentIdentity(
   }
   return {
     kind: "external-runtime",
-    runtimeId: requireText(input.runtimeId, "Managed invocation external runtime attachment runtimeId is required"),
-    attachmentId: requireText(input.attachmentId, "Managed invocation external runtime attachment attachmentId is required"),
+    runtimeId: requireOpaqueAttachmentIdentity(input.runtimeId, "Managed invocation external runtime attachment runtimeId is required"),
+    attachmentId: requireOpaqueAttachmentIdentity(input.attachmentId, "Managed invocation external runtime attachment attachmentId is required"),
   };
+}
+
+/**
+ * runtimeId and attachmentId are opaque external-runtime identifiers, not
+ * Kiln-owned names. Whitespace-only values are invalid, but any other value
+ * must be persisted and compared byte-for-byte: trimming would let a
+ * dispatch silently match a different physical instance than the caller
+ * addressed. This is deliberately not `requireText`, which normalises.
+ */
+function requireOpaqueAttachmentIdentity(value: string | undefined, message: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(message);
+  }
+  return value;
 }
 
 function requireCallerHarness(

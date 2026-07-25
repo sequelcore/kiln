@@ -1773,9 +1773,12 @@ function isCaseInsensitivePath(path: string): boolean {
 
 /**
  * Roadmap 01 Slice 3.1 (F6) - reads a route's declared external-runtime
- * attachment from real config, not just test fixtures. Trims and requires
- * both fields non-empty; a partially-configured attachment (e.g. blank
- * attachmentId) is rejected rather than silently treated as "no attachment".
+ * attachment from real config, not just test fixtures. Requires both fields
+ * non-empty; a partially-configured attachment (e.g. blank attachmentId) is
+ * rejected rather than silently treated as "no attachment". The identities
+ * are opaque, so a non-empty value is persisted exactly as configured -
+ * trimming here would make the route address a different instance than the
+ * operator declared.
  */
 function resolveRouteExternalRuntimeAttachment(
   routeConfig: KilnManagedAgentRouteConfig,
@@ -1784,14 +1787,17 @@ function resolveRouteExternalRuntimeAttachment(
   if (!config) {
     return undefined;
   }
-  const runtimeId = config.runtimeId?.trim();
-  const attachmentId = config.attachmentId?.trim();
-  if (!runtimeId || !attachmentId) {
+  const { runtimeId, attachmentId } = config;
+  if (!isOpaqueAttachmentIdentity(runtimeId) || !isOpaqueAttachmentIdentity(attachmentId)) {
     throw new Error(
       `Managed invocation route '${routeConfig.id}' externalRuntimeAttachment requires non-empty runtimeId and attachmentId.`,
     );
   }
   return { kind: "external-runtime", runtimeId, attachmentId };
+}
+
+function isOpaqueAttachmentIdentity(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function resolveCredentialRoute(

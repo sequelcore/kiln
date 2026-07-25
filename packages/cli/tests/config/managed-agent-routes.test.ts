@@ -933,6 +933,57 @@ describe("resolveManagedInvocationToolOptions", () => {
     })).rejects.toThrow("externalRuntimeAttachment requires non-empty runtimeId and attachmentId");
   });
 
+  it("rejects a blank external-runtime runtimeId as well as a blank attachmentId (F6)", async () => {
+    await expect(resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-readonly",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-readonly-plan"],
+        externalRuntimeAttachment: {
+          runtimeId: "",
+          attachmentId: "instance-a",
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+    })).rejects.toThrow("externalRuntimeAttachment requires non-empty runtimeId and attachmentId");
+  });
+
+  // The configured identity is opaque: config resolution validates that it is
+  // not whitespace-only, but must persist the operator's exact string so the
+  // admission gate compares what was actually configured.
+  it("preserves configured external-runtime identities byte-for-byte, including peripheral whitespace (F6)", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "codex-readonly",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-readonly-plan"],
+        externalRuntimeAttachment: {
+          runtimeId: " mcp-external-runtime ",
+          attachmentId: " instance-a",
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+    });
+
+    expect(result.managedInvocation?.routes[0]?.externalRuntimeAttachment).toEqual({
+      kind: "external-runtime",
+      runtimeId: " mcp-external-runtime ",
+      attachmentId: " instance-a",
+    });
+  });
+
   it("wires current resource_read hydration into resolved CLI harness routes", async () => {
     let capturedRun: { readonly system?: string; readonly prompt: string } | undefined;
     const readUris: string[] = [];

@@ -1132,6 +1132,74 @@ describe("managed agent invocation contracts", () => {
         ...makeRequest(),
         externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "   " },
       })).toThrow("Managed invocation external runtime attachment attachmentId is required");
+      expect(() => defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "   ", attachmentId: "instance-a" },
+      })).toThrow("Managed invocation external runtime attachment runtimeId is required");
+      expect(() => defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "" },
+      })).toThrow("Managed invocation external runtime attachment attachmentId is required");
+    });
+
+    // runtimeId and attachmentId are opaque. Validation rejects
+    // whitespace-only values, but a non-empty value must round-trip
+    // byte-for-byte: peripheral whitespace is part of the identity, never
+    // normalised away into an accidental match.
+    it("keeps a requested attachment that differs only by peripheral whitespace distinct from the route's", () => {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: " instance-a" },
+      });
+      expect(request.externalRuntimeAttachment?.attachmentId).toBe(" instance-a");
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.mismatch"],
+      });
+    });
+
+    it("keeps a requested runtimeId that differs only by peripheral whitespace distinct from the route's", () => {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime ", attachmentId: "instance-a" },
+      });
+      expect(request.externalRuntimeAttachment?.runtimeId).toBe("mcp-external-runtime ");
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      expect(decision).toMatchObject({
+        status: "denied",
+        missingCapabilities: ["externalRuntimeAttachment.mismatch"],
+      });
+    });
+
+    it("admits and persists an attachment whose identities carry peripheral whitespace on both sides, unmodified", () => {
+      const attachment = { kind: "external-runtime" as const, runtimeId: " mcp-external-runtime ", attachmentId: " instance-a" };
+      const request = defineManagedAgentInvocationRequest({
+        ...makeRequest(),
+        externalRuntimeAttachment: attachment,
+      });
+      const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), {
+        ...baseSnapshotInput,
+        externalRuntimeAttachment: attachment,
+      });
+      expect(decision.status).toBe("admitted");
+      if (decision.status === "admitted") {
+        expect(decision.capabilitySnapshot.externalRuntimeAttachment).toEqual(attachment);
+      }
+      const evidence = buildManagedAgentLifecycleEvidence(defineManagedAgentInvocationRecord({
+        ...makeCompletedRecordInput(),
+        capabilitySnapshot: buildManagedAgentCapabilitySnapshot(request, makeDescriptor(), {
+          ...baseSnapshotInput,
+          externalRuntimeAttachment: attachment,
+        }),
+      }));
+      expect(evidence.externalRuntimeAttachment).toEqual(attachment);
     });
 
     it("carries the attachment through buildManagedAgentLifecycleEvidence for terminal events (F4)", () => {

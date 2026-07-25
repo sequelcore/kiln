@@ -17,6 +17,7 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
+  evaluateManagedAgentAdmission,
 } from "@kilnai/core";
 import {
   ManagedInMemoryDevServerPortLeaseManager,
@@ -32,6 +33,7 @@ import {
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
   createManagedAgentInvocationResourceProvider,
+  validateManagedAgentRuntimeRecoveryCheckpoint,
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   ManagedAgentRuntimeAdapter,
@@ -4762,6 +4764,131 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(restartedWorktreeLeaseManager.release).toHaveBeenCalledTimes(1);
     expect(recoveryStore.entries.has("write-1")).toBe(false);
     expect(secondRecovery.recovered).toEqual([]);
+  });
+
+  // Roadmap 01 Slice 3.1 - the external-runtime attachment identity is opaque.
+  // Persistence, recovery, and re-admission must carry the operator's exact
+  // string; a normalising round-trip would silently retarget a recovered
+  // child at a different physical instance.
+  describe("external runtime attachment recovery and replay (Roadmap 01 Slice 3.1)", () => {
+    const WHITESPACE_ATTACHMENT = {
+      kind: "external-runtime" as const,
+      runtimeId: " mcp-external-runtime ",
+      attachmentId: " instance-a",
+    };
+
+    async function startAttachedInvocation(
+      recoveryStore: ReturnType<typeof makeRecoveryStore>,
+      attachment: typeof WHITESPACE_ATTACHMENT,
+    ) {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeIsolatedWorktreeRequest(),
+        externalRuntimeAttachment: attachment,
+      });
+      const terminal = deferred<ManagedAgentInvocationRecord>();
+      const service = new RuntimeManagedAgentInvocationService({
+        recoveryStore,
+        worktreeLeaseManager: {
+          acquire: vi.fn(async ({ lease }) => lease),
+          release: vi.fn(async ({ lease }) => lease),
+        },
+      });
+      const started = await service.start(request, {
+        descriptor: makeWriteDescriptor(),
+        invoke: vi.fn(async ({ request: invoked, admission }) => {
+          await terminal.promise;
+          return makeRecordForRequest(invoked, admission.capabilitySnapshot);
+        }),
+      }, {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
+        externalRuntimeAttachment: attachment,
+      });
+      return { request, service, started };
+    }
+
+    it("persists the attachment unnormalised in the recovery checkpoint request and capability snapshot", async () => {
+      const recoveryStore = makeRecoveryStore();
+      const { started } = await startAttachedInvocation(recoveryStore, WHITESPACE_ATTACHMENT);
+
+      expect(started.status).toBe("started");
+      const checkpoint = recoveryStore.entries.get("write-1");
+      expect(checkpoint?.request.externalRuntimeAttachment).toEqual(WHITESPACE_ATTACHMENT);
+      expect(checkpoint?.decision.status).toBe("admitted");
+      if (checkpoint?.decision.status === "admitted") {
+        expect(checkpoint.decision.capabilitySnapshot.externalRuntimeAttachment).toEqual(WHITESPACE_ATTACHMENT);
+      }
+      expect(validateManagedAgentRuntimeRecoveryCheckpoint(
+        JSON.parse(JSON.stringify(checkpoint)) as unknown,
+      ).request.externalRuntimeAttachment).toEqual(WHITESPACE_ATTACHMENT);
+    });
+
+    it("preserves the admitted attachment through restart recovery and its replayed capability snapshot", async () => {
+      const recoveryStore = makeRecoveryStore();
+      await startAttachedInvocation(recoveryStore, WHITESPACE_ATTACHMENT);
+
+      const restartedService = new RuntimeManagedAgentInvocationService({
+        recoveryStore,
+        worktreeLeaseManager: {
+          acquire: vi.fn(async ({ lease }) => lease),
+          release: vi.fn(async ({ lease }) => ({
+            ...lease,
+            healthStatus: "released" as const,
+            cleanupStatus: "completed" as const,
+          })),
+        },
+      });
+      const recovered = await restartedService.recoverPersistedInvocations({
+        now: new Date("2026-05-07T08:10:00.000Z"),
+      });
+      const joined = await restartedService.join("write-1");
+
+      expect(recovered.recovered[0]?.record?.capabilitySnapshot.externalRuntimeAttachment).toEqual(WHITESPACE_ATTACHMENT);
+      expect(recovered.recovered[0]?.request.externalRuntimeAttachment).toEqual(WHITESPACE_ATTACHMENT);
+      expect(joined.status).toBe("completed");
+      expect(joined.record.capabilitySnapshot.externalRuntimeAttachment).toEqual(WHITESPACE_ATTACHMENT);
+    });
+
+    it("rejects re-admission when the admitted snapshot attachment differs from the request's only by peripheral whitespace", async () => {
+      const request = defineManagedAgentInvocationRequest({
+        ...makeIsolatedWorktreeRequest(),
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      const admission = evaluateManagedAgentAdmission(request, makeWriteDescriptor(), {
+        capturedAt: "2026-05-07T08:00:00.000Z",
+        routeId: "opencode:managed-test-route",
+        routeSource: "explicit-managed-route",
+        externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a" },
+      });
+      expect(admission.status).toBe("admitted");
+      if (admission.status !== "admitted") return;
+
+      const adapter: ManagedAgentRuntimeAdapter = {
+        descriptor: makeWriteDescriptor(),
+        invoke: vi.fn(async ({ request: invoked, admission: admitted }) =>
+          makeRecordForRequest(invoked, admitted.capabilitySnapshot)),
+      };
+      const service = new RuntimeManagedAgentInvocationService({
+        worktreeLeaseManager: {
+          acquire: vi.fn(async ({ lease }) => lease),
+          release: vi.fn(async ({ lease }) => lease),
+        },
+      });
+
+      await expect(service.invokeAdmitted({
+        request,
+        adapter,
+        admission: {
+          ...admission,
+          capabilitySnapshot: {
+            ...admission.capabilitySnapshot,
+            externalRuntimeAttachment: { kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-a " },
+          },
+        },
+      })).rejects.toThrow(/externalRuntimeAttachment\.mismatch|must match the current core admission decision/);
+      expect(adapter.invoke).not.toHaveBeenCalled();
+    });
   });
 
   it("re-evaluates managed child authority freshness during persisted replay", async () => {

@@ -4017,15 +4017,22 @@ function parseExternalRuntimeAttachment(
   if (unknownKeys.length > 0) {
     return { ok: false, error: `${toolName} externalRuntimeAttachment has unsupported field(s): ${unknownKeys.join(", ")}.` };
   }
-  const runtimeId = readText(record.runtimeId);
+  const runtimeId = readOpaqueAttachmentIdentity(record.runtimeId);
   if (!runtimeId) {
     return { ok: false, error: `${toolName} externalRuntimeAttachment.runtimeId is required and must be non-empty.` };
   }
-  const attachmentId = readText(record.attachmentId);
+  const attachmentId = readOpaqueAttachmentIdentity(record.attachmentId);
   if (!attachmentId) {
     return { ok: false, error: `${toolName} externalRuntimeAttachment.attachmentId is required and must be non-empty.` };
   }
   return { ok: true, value: { runtimeId, attachmentId } };
+}
+
+// External-runtime attachment identities are opaque. Unlike readText, this
+// validates emptiness without normalising: the exact string the caller sent
+// is what admission compares and what evidence persists.
+function readOpaqueAttachmentIdentity(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
