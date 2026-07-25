@@ -5,6 +5,7 @@ import type {
   DefaultBuiltinToolRegistryOptions,
   ManagedAgentAdmissionProfile,
   ManagedAgentCredentialRoute,
+  ManagedAgentExternalRuntimeAttachmentIdentity,
   ManagedAgentMemoryScope,
   ManagedAgentAuthorityProfile,
   ManagedAgentRouteSource,
@@ -795,6 +796,7 @@ async function resolveRouteConfig(
     ...(builtinToolsProvider ? { builtinToolsProvider } : {}),
   });
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
+  const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     routeSource,
@@ -803,6 +805,7 @@ async function resolveRouteConfig(
     ...(voiceProfile ? { voiceProfile } : {}),
     adapter,
     surface: "cli-harness",
+    ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     taskSuitability: resolveTaskSuitability(
       routeConfig.provider,
       model,
@@ -856,6 +859,7 @@ async function resolveRemoteHarnessRouteConfig(
     ...(remoteHarness.limitations ? { limitations: remoteHarness.limitations } : {}),
   });
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
+  const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     routeSource: baseHealth.routeSource,
@@ -864,6 +868,7 @@ async function resolveRemoteHarnessRouteConfig(
     ...(voiceProfile ? { voiceProfile } : {}),
     adapter,
     surface: "remote-harness",
+    ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     providerModelProof: {
       status: "configured",
       source: "remote-harness-config",
@@ -1219,6 +1224,7 @@ async function resolveDirectRouteConfig(
     return unhealthy(baseHealth, profileResolution.reason);
   }
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
+  const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     routeSource: baseHealth.routeSource,
@@ -1227,6 +1233,7 @@ async function resolveDirectRouteConfig(
     ...(voiceProfile ? { voiceProfile } : {}),
     adapter,
     surface: "direct-provider",
+    ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     taskSuitability: resolveTaskSuitability(
       routeConfig.provider,
       model,
@@ -1762,6 +1769,29 @@ function normalizeComparablePath(path: string, caseInsensitive: boolean): string
 
 function isCaseInsensitivePath(path: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+}
+
+/**
+ * Roadmap 01 Slice 3.1 (F6) - reads a route's declared external-runtime
+ * attachment from real config, not just test fixtures. Trims and requires
+ * both fields non-empty; a partially-configured attachment (e.g. blank
+ * attachmentId) is rejected rather than silently treated as "no attachment".
+ */
+function resolveRouteExternalRuntimeAttachment(
+  routeConfig: KilnManagedAgentRouteConfig,
+): ManagedAgentExternalRuntimeAttachmentIdentity | undefined {
+  const config = routeConfig.externalRuntimeAttachment;
+  if (!config) {
+    return undefined;
+  }
+  const runtimeId = config.runtimeId?.trim();
+  const attachmentId = config.attachmentId?.trim();
+  if (!runtimeId || !attachmentId) {
+    throw new Error(
+      `Managed invocation route '${routeConfig.id}' externalRuntimeAttachment requires non-empty runtimeId and attachmentId.`,
+    );
+  }
+  return { kind: "external-runtime", runtimeId, attachmentId };
 }
 
 function resolveCredentialRoute(

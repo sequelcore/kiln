@@ -28,6 +28,7 @@ import type {
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentCapabilitySnapshotInput,
   ManagedAgentCredentialRoute,
+  ManagedAgentExternalRuntimeAttachmentIdentity,
   ManagedAgentMemoryScope,
   ManagedAgentInvocationContextMode,
   ManagedAgentInvocationContextSelection,
@@ -144,6 +145,15 @@ export interface ManagedInvocationToolRoute {
   readonly providerModelProof?: ManagedAgentCapabilitySnapshotInput["providerModelProof"];
   readonly taskSuitability?: readonly ModelTaskSuitability[];
   readonly profiles: Partial<Record<ManagedAgentAdmissionProfile, ManagedInvocationRouteProfile>>;
+  /**
+   * Roadmap 01 Slice 3.1 - External-runtime target identity. A property of
+   * the physical target, so it lives at route level (not per-profile): every
+   * admission profile of one route addresses the same attached instance.
+   * When declared, every dispatch against this route must request the exact
+   * same attachment or be denied - see `evaluateManagedAgentAdmission` in
+   * `@kilnai/core`.
+   */
+  readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
 }
 
 export interface ManagedInvocationUnavailableRoute {
@@ -287,6 +297,7 @@ interface ManagedInvocationToolInput {
   readonly profile: ManagedAgentAdmissionProfile;
   readonly routeId?: string;
   readonly providerRoute: ManagedAgentProviderRoute;
+  readonly externalRuntimeAttachment?: { readonly runtimeId: string; readonly attachmentId: string };
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly task: string;
   readonly summary: string;
@@ -350,6 +361,22 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         },
         required: ["providerId"],
         additionalProperties: false,
+      },
+      externalRuntimeAttachment: {
+        type: "object",
+        properties: {
+          runtimeId: {
+            type: "string",
+            description: "Provider-neutral external runtime family identifier (the <server> segment of mcp:<server>:<kind>:<name>).",
+          },
+          attachmentId: {
+            type: "string",
+            description: "Opaque identity of one physical attached external-runtime instance.",
+          },
+        },
+        required: ["runtimeId", "attachmentId"],
+        additionalProperties: false,
+        description: "Optional external-runtime instance this dispatch must target. When the selected route is attached to a specific external-runtime instance, this must match exactly or the dispatch is denied. Kiln never infers or defaults this value.",
       },
       requestedAuthority: {
         type: "string",
@@ -1572,6 +1599,15 @@ async function prepareManagedInvocationRequest(
     adapterKind: route.adapter.descriptor.adapterKind,
     executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
     ...(executionScope ? { executionScope } : {}),
+    ...(parsed.input.externalRuntimeAttachment
+      ? {
+          externalRuntimeAttachment: {
+            kind: "external-runtime" as const,
+            runtimeId: parsed.input.externalRuntimeAttachment.runtimeId,
+            attachmentId: parsed.input.externalRuntimeAttachment.attachmentId,
+          },
+        }
+      : {}),
     authority: {
       authorityProfileId: profileDefaults.authorityProfileId,
       permissionProfile: profileDefaults.permissionProfile,
@@ -1609,6 +1645,7 @@ async function prepareManagedInvocationRequest(
         routeId: route.routeId,
         routeSource: route.routeSource,
         callerIdentity,
+        ...(route.externalRuntimeAttachment ? { externalRuntimeAttachment: route.externalRuntimeAttachment } : {}),
         invocationCapabilityEvidence,
         routeHealth: {
           status: "healthy",
@@ -1776,8 +1813,14 @@ async function executeManagedInvocationTool(
     decision: startResult.decision,
   });
   if (startResult.status === "denied") {
+    const attachmentDenial = managedInvocationExternalRuntimeAttachmentDenial(
+      prepared.route.routeId,
+      prepared.route.externalRuntimeAttachment,
+      prepared.request.externalRuntimeAttachment,
+      startResult.decision.missingCapabilities,
+    );
     return {
-      output: `Managed invocation denied: ${startResult.decision.reason}`,
+      output: attachmentDenial?.output ?? `Managed invocation denied: ${startResult.decision.reason}`,
       isError: true,
       metadata: {
         toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -1798,6 +1841,9 @@ async function executeManagedInvocationTool(
         context: prepared.request.input.context,
         ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
         missingCapabilities: startResult.decision.missingCapabilities,
+        ...(attachmentDenial ? { errorCode: attachmentDenial.errorCode } : {}),
+        ...(attachmentDenial?.requestedAttachment ? { requestedAttachment: attachmentDenial.requestedAttachment } : {}),
+        ...(attachmentDenial?.routeAttachment ? { routeAttachment: attachmentDenial.routeAttachment } : {}),
         ...(startResult.decision.resourceLease
           ? {
               resourceLease: projectManagedInvocationResourceLeaseResources(
@@ -1817,7 +1863,7 @@ async function executeManagedInvocationTool(
           contextMode: prepared.parsed.contextMode,
           status: "denied",
           substantiveEvidence: false,
-          failureReason: startResult.decision.reason,
+          failureReason: attachmentDenial?.output ?? startResult.decision.reason,
         }),
       },
     };
@@ -1964,8 +2010,14 @@ async function executeManagedInvocationStartTool(
   }
 
   if (startResult.status === "denied") {
+    const attachmentDenial = managedInvocationExternalRuntimeAttachmentDenial(
+      prepared.route.routeId,
+      prepared.route.externalRuntimeAttachment,
+      prepared.request.externalRuntimeAttachment,
+      startResult.decision.missingCapabilities,
+    );
     return {
-      output: `Managed invocation denied: ${startResult.decision.reason}`,
+      output: attachmentDenial?.output ?? `Managed invocation denied: ${startResult.decision.reason}`,
       isError: true,
       metadata: {
         toolName: MANAGED_AGENT_START_TOOL_NAME,
@@ -1986,6 +2038,9 @@ async function executeManagedInvocationStartTool(
         context: prepared.request.input.context,
         ...(prepared.request.input.handoff ? { handoffContract: prepared.request.input.handoff } : {}),
         missingCapabilities: startResult.decision.missingCapabilities,
+        ...(attachmentDenial ? { errorCode: attachmentDenial.errorCode } : {}),
+        ...(attachmentDenial?.requestedAttachment ? { requestedAttachment: attachmentDenial.requestedAttachment } : {}),
+        ...(attachmentDenial?.routeAttachment ? { routeAttachment: attachmentDenial.routeAttachment } : {}),
         ...(startResult.decision.resourceLease
           ? {
               resourceLease: projectManagedInvocationResourceLeaseResources(
@@ -2005,7 +2060,7 @@ async function executeManagedInvocationStartTool(
           contextMode: prepared.request.input.context?.mode,
           status: "denied",
           substantiveEvidence: false,
-          failureReason: formatManagedInvocationAdmissionDenied(startResult.decision),
+          failureReason: attachmentDenial?.output ?? formatManagedInvocationAdmissionDenied(startResult.decision),
         }),
       },
     };
@@ -2994,6 +3049,50 @@ function formatManagedInvocationAdmissionDenied(
   return `${decision.reason}${suffix}`;
 }
 
+interface ManagedInvocationExternalRuntimeAttachmentDenial {
+  readonly errorCode:
+    | "external_runtime_attachment_mismatch"
+    | "external_runtime_attachment_missing"
+    | "external_runtime_attachment_unsupported_route";
+  readonly output: string;
+  readonly requestedAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
+  readonly routeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
+}
+
+// Roadmap 01 Slice 3.1 - the admission decision (denied/missingCapabilities)
+// is owned by evaluateManagedAgentAdmission in @kilnai/core; this only
+// formats the operator-facing diagnostic for the invoke/start tool surface.
+function managedInvocationExternalRuntimeAttachmentDenial(
+  routeId: string,
+  routeAttachment: ManagedAgentExternalRuntimeAttachmentIdentity | undefined,
+  requestedAttachment: ManagedAgentExternalRuntimeAttachmentIdentity | undefined,
+  missingCapabilities: readonly string[],
+): ManagedInvocationExternalRuntimeAttachmentDenial | undefined {
+  if (missingCapabilities.includes("externalRuntimeAttachment.mismatch") && routeAttachment && requestedAttachment) {
+    return {
+      errorCode: "external_runtime_attachment_mismatch",
+      output: `Managed invocation route '${routeId}' is attached to external runtime '${routeAttachment.runtimeId}:${routeAttachment.attachmentId}', but this dispatch requires '${requestedAttachment.runtimeId}:${requestedAttachment.attachmentId}'. Kiln does not retarget attachments. Re-issue against the route attached to the required instance, or correct \`externalRuntimeAttachment\`.`,
+      requestedAttachment,
+      routeAttachment,
+    };
+  }
+  if (missingCapabilities.includes("externalRuntimeAttachment.missing") && routeAttachment) {
+    return {
+      errorCode: "external_runtime_attachment_missing",
+      output: `Managed invocation route '${routeId}' is attached to external runtime '${routeAttachment.runtimeId}:${routeAttachment.attachmentId}'. This dispatch must state \`externalRuntimeAttachment\` explicitly; Kiln will not infer the target instance.`,
+      routeAttachment,
+    };
+  }
+  if (missingCapabilities.includes("externalRuntimeAttachment.unsupported-route") && requestedAttachment) {
+    return {
+      errorCode: "external_runtime_attachment_unsupported_route",
+      output: `Managed invocation route '${routeId}' does not declare an external runtime attachment, but this dispatch requires '${requestedAttachment.runtimeId}:${requestedAttachment.attachmentId}'. Re-issue against a route attached to the required instance, or omit \`externalRuntimeAttachment\`.`,
+      requestedAttachment,
+    };
+  }
+  return undefined;
+}
+
 function hasSubstantiveManagedInvocationEvidence(record: ManagedAgentInvocationRecord): boolean {
   if (record.lifecycleState !== "completed") {
     return false;
@@ -3571,6 +3670,10 @@ function parseInput(
   if (attemptId && !workItemId) {
     return { ok: false, error: `${toolName} workItemId is required when attemptId is supplied.` };
   }
+  const externalRuntimeAttachment = parseExternalRuntimeAttachment(input.externalRuntimeAttachment, toolName);
+  if (!externalRuntimeAttachment.ok) {
+    return { ok: false, error: externalRuntimeAttachment.error };
+  }
   return {
     ok: true,
     input: {
@@ -3582,6 +3685,7 @@ function parseInput(
         ...(readText(providerRoute?.model) ? { model: readText(providerRoute?.model) } : {}),
         ...(readText(providerRoute?.reasoningEffort) ? { reasoningEffort: readText(providerRoute?.reasoningEffort) } : {}),
       },
+      ...(externalRuntimeAttachment.value ? { externalRuntimeAttachment: externalRuntimeAttachment.value } : {}),
       ...(requestedAuthority.value ? { requestedAuthority: requestedAuthority.value } : {}),
       task,
       summary: readText(input.summary) ?? task,
@@ -3889,6 +3993,39 @@ function errorResult(
       ...metadata,
     },
   };
+}
+
+const EXTERNAL_RUNTIME_ATTACHMENT_FIELDS = new Set(["runtimeId", "attachmentId"]);
+
+// Roadmap 01 Slice 3.1 (F2) - JSON Schema additionalProperties: false only
+// constrains the model's tool call, never the runtime. Unknown or malformed
+// keys inside externalRuntimeAttachment must be rejected explicitly here,
+// never silently stripped - a stripped/misspelled field would otherwise let
+// a required-attachment check see absence and fail open through a typo.
+function parseExternalRuntimeAttachment(
+  value: unknown,
+  toolName: string,
+): { readonly ok: true; readonly value?: { readonly runtimeId: string; readonly attachmentId: string } } | { readonly ok: false; readonly error: string } {
+  if (value === undefined) {
+    return { ok: true };
+  }
+  const record = readRecord(value);
+  if (!record) {
+    return { ok: false, error: `${toolName} externalRuntimeAttachment must be an object with runtimeId and attachmentId.` };
+  }
+  const unknownKeys = Object.keys(record).filter((key) => !EXTERNAL_RUNTIME_ATTACHMENT_FIELDS.has(key));
+  if (unknownKeys.length > 0) {
+    return { ok: false, error: `${toolName} externalRuntimeAttachment has unsupported field(s): ${unknownKeys.join(", ")}.` };
+  }
+  const runtimeId = readText(record.runtimeId);
+  if (!runtimeId) {
+    return { ok: false, error: `${toolName} externalRuntimeAttachment.runtimeId is required and must be non-empty.` };
+  }
+  const attachmentId = readText(record.attachmentId);
+  if (!attachmentId) {
+    return { ok: false, error: `${toolName} externalRuntimeAttachment.attachmentId is required and must be non-empty.` };
+  }
+  return { ok: true, value: { runtimeId, attachmentId } };
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
