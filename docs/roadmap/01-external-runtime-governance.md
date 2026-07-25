@@ -347,10 +347,9 @@ work to Slice 3.
 
 ### Slice 3.1 - External Runtime Attachment Identity
 
-Status: Implemented - pending merge. Closes thread 5 (attachment drift), left
-open by Slice 1 and Slice 2's status notes, and Roadmap 01 issue #6, once
-PR #8 merges into `codex/cross-harness-gateway` (tracker #5 remains open for
-the remaining Slice 3 work below).
+Status: Closed. Thread 5 (attachment drift) and Roadmap 01 issue #6 closed
+when PR #8 merged into `codex/cross-harness-gateway`; tracker #5 remains open
+for the remaining Slice 3 work below.
 
 Made external-runtime attachment identity explicit, provider-neutral, and
 enforced at the canonical admission gate — "which physical external-runtime
