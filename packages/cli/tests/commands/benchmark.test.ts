@@ -1,4 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -83,6 +85,10 @@ function artifactIdFromUri(uri: string): string {
     throw new Error(`Unexpected benchmark artifact URI: ${uri}`);
   }
   return match[1]!;
+}
+
+function sha256(content: string | Buffer): string {
+  return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
 
 describe("benchmarkCommand", () => {
@@ -193,6 +199,221 @@ describe("benchmarkCommand", () => {
     expect(readFileSync(malformedOutputPath, "utf-8")).toContain("Publication status: blocked");
     expect(readFileSync(malformedOutputPath, "utf-8")).toContain("publication manifest must contain valid JSON");
     expect(readFileSync(malformedOutputPath, "utf-8")).toContain("publication manifest shape is invalid");
+  });
+
+  it("verifies publication artifacts from Git bytes instead of transformed worktree bytes", async () => {
+    const profile = KILN_BENCHMARK_PROFILES[0]!;
+    const repositoryRoot = join(root, "repository");
+    const evidenceRoot = join(repositoryRoot, "evidence");
+    const baselinePath = join(root, "git-bytes-baseline.json");
+    const manifestPath = join(repositoryRoot, "manifest.json");
+    const outputPath = join(root, "git-bytes-report.md");
+    mkdirSync(evidenceRoot, { recursive: true });
+    writeFileSync(baselinePath, JSON.stringify({
+      baselines: [{
+        profileId: profile.id,
+        profileVersion: profile.version,
+        datasetName: "git-bytes",
+        datasetVersion: "1",
+        k: profile.minimumK,
+        passAtK: 1,
+        scorers: profile.requiredScorers,
+        artifactUris: evidenceArtifacts().map((artifact) => artifact.uri),
+        evidenceArtifacts: evidenceArtifacts(),
+        configHash: "sha256:test",
+      }],
+    }), "utf-8");
+
+    const artifactPaths = {
+      methodology: "evidence/methodology.md",
+      fixture: "evidence/fixture.json",
+      limitations: "evidence/limitations.md",
+      report: "evidence/report.json",
+    } as const;
+    const methodology = "# Methodology\n\nSynthetic fixture.\n";
+    const limitations = "# Limitations\n\nSynthetic only.\n";
+    const benchmarkBaselinesSha256 = `sha256:${"b".repeat(64)}`;
+    const fixture = JSON.stringify({
+      schemaVersion: "verified-efficiency-reference-fixture-v1",
+      datasetVersion: "git-bytes-v1",
+      benchmarkBaselinesSha256,
+      pairs: [{
+        taskId: "task-1",
+        seed: "seed-1",
+        taskDefinitionHash: `sha256:${"1".repeat(64)}`,
+        baselineInputHash: `sha256:${"2".repeat(64)}`,
+        candidateInputHash: `sha256:${"2".repeat(64)}`,
+        baselineExecutionEnvelopeHash: `sha256:${"3".repeat(64)}`,
+        candidateExecutionEnvelopeHash: `sha256:${"4".repeat(64)}`,
+        baselineTokens: 10,
+        candidateTokens: 10,
+        baselineVerified: true,
+        candidateVerified: true,
+      }],
+      failedCaseIds: [],
+      omittedCaseIds: [],
+      hardInvariantFailures: [],
+    }, null, 2) + "\n";
+    const identity = {
+      kilnVersion: "test",
+      kilnCommit: "0".repeat(40),
+      harness: "synthetic",
+      harnessVersion: "1",
+      providerOrRoutePolicy: "none",
+      modelOrPolicy: "none",
+      reasoningEffort: "not-applicable",
+      sdkOrApiVersion: "test",
+      authorityProfileHash: `sha256:${"5".repeat(64)}`,
+      toolCatalogHash: `sha256:${"6".repeat(64)}`,
+      configurationHash: `sha256:${"7".repeat(64)}`,
+      environment: { runtime: "test" },
+    };
+    const confidence = { method: "synthetic", level: 0.95, lowerBound: 0 };
+    const report = JSON.stringify({
+      schemaVersion: "verified-efficiency-publication-report-v1",
+      claimKind: "none",
+      claim: "No public claim.",
+      identity,
+      datasetVersion: "git-bytes-v1",
+      configurationHash: identity.configurationHash,
+      methodologySha256: sha256(methodology),
+      fixtureSha256: sha256(fixture),
+      limitationsSha256: sha256(limitations),
+      benchmarkBaselinesSha256,
+      confidence,
+      economics: "subscription-non-comparable",
+      pairs: [{
+        taskId: "task-1",
+        seed: "seed-1",
+        taskDefinitionHash: `sha256:${"1".repeat(64)}`,
+        baselineInputHash: `sha256:${"2".repeat(64)}`,
+        candidateInputHash: `sha256:${"2".repeat(64)}`,
+        baselineExecutionEnvelopeHash: `sha256:${"3".repeat(64)}`,
+        candidateExecutionEnvelopeHash: `sha256:${"4".repeat(64)}`,
+        baseline: {
+          providerTotalTokens: 10,
+          measuredTokens: 10,
+          estimatedTokens: 0,
+          cachedTokens: 0,
+          cacheWrittenTokens: 0,
+          unknownTokens: 0,
+          avoidedTokens: 0,
+          qualityScore: 1,
+          verificationPassed: true,
+          costUsd: "unknown",
+          hardInvariantFailures: [],
+        },
+        candidate: {
+          providerTotalTokens: 10,
+          measuredTokens: 10,
+          estimatedTokens: 0,
+          cachedTokens: 0,
+          cacheWrittenTokens: 0,
+          unknownTokens: 0,
+          avoidedTokens: 0,
+          qualityScore: 1,
+          verificationPassed: true,
+          costUsd: "unknown",
+          hardInvariantFailures: [],
+        },
+      }],
+      failedCaseIds: [],
+      omittedCaseIds: [],
+      hardInvariantFailures: [],
+      limitations: ["Synthetic only."],
+      vendorDependencies: ["None."],
+    }, null, 2) + "\n";
+    const artifacts = {
+      [artifactPaths.methodology]: methodology,
+      [artifactPaths.fixture]: fixture,
+      [artifactPaths.limitations]: limitations,
+      [artifactPaths.report]: report,
+    };
+    for (const [path, content] of Object.entries(artifacts)) {
+      writeFileSync(join(repositoryRoot, path), content, "utf-8");
+    }
+    const manifest = {
+      schemaVersion: "verified-efficiency-publication-manifest-v1",
+      claim: { kind: "none", statement: "No public claim." },
+      identity,
+      design: {
+        pairedIdenticalTasks: true,
+        k: 1,
+        datasetVersion: "git-bytes-v1",
+        fixtureSetHash: sha256(fixture),
+        seeds: ["seed-1"],
+        confidence,
+        failedCaseIds: [],
+        omittedCaseIds: [],
+        hardInvariantFailures: [],
+      },
+      evidence: {
+        measuredEstimatedCachedAvoidedDistinct: true,
+        qualityNonInferior: true,
+        verificationNonInferior: true,
+        economics: "subscription-non-comparable",
+      },
+      exactCommands: ["synthetic"],
+      limitations: ["Synthetic only."],
+      vendorDependencies: ["None."],
+      artifacts: [
+        { kind: "methodology", path: artifactPaths.methodology, mediaType: "text/markdown", sha256: sha256(methodology) },
+        { kind: "fixture", path: artifactPaths.fixture, mediaType: "application/json", sha256: sha256(fixture) },
+        { kind: "limitations", path: artifactPaths.limitations, mediaType: "text/markdown", sha256: sha256(limitations) },
+        { kind: "report", path: artifactPaths.report, mediaType: "application/json", sha256: sha256(report) },
+      ],
+    };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+    const runGit = (args: readonly string[]): string => execFileSync("git", args, {
+      cwd: repositoryRoot,
+      encoding: "utf-8",
+      windowsHide: true,
+    });
+    runGit(["init", "--quiet"]);
+    runGit(["config", "user.email", "benchmark-test@example.invalid"]);
+    runGit(["config", "user.name", "Benchmark Test"]);
+    runGit(["config", "core.autocrlf", "false"]);
+    runGit(["add", "."]);
+    runGit(["commit", "--quiet", "-m", "test fixture"]);
+
+    for (const [path, content] of Object.entries(artifacts)) {
+      const worktreeContent = content.replace(/\n/gu, "\r\n");
+      writeFileSync(join(repositoryRoot, path), worktreeContent, "utf-8");
+      const blob = execFileSync("git", ["show", `HEAD:${path}`], { cwd: repositoryRoot });
+      expect(readFileSync(join(repositoryRoot, path)).equals(blob)).toBe(false);
+    }
+
+    await benchmarkCommand(MOCK_APP_CONFIG, "report", [
+      "--baseline", baselinePath,
+      "--output", outputPath,
+      "--publication-manifest", manifestPath,
+      "--repository-root", repositoryRoot,
+    ]);
+    const writtenReport = readFileSync(outputPath, "utf-8");
+    expect(writtenReport).toContain("Publication status: internal-evidence-only");
+    expect(writtenReport).toContain("Public claim allowed: no");
+    expect(writtenReport).not.toContain("publication artifact digest mismatch");
+
+    const untrackedPath = "evidence/untracked-methodology.md";
+    const untrackedContent = "# Untracked\r\n";
+    writeFileSync(join(repositoryRoot, untrackedPath), untrackedContent, "utf-8");
+    const untrackedManifestPath = join(root, "untracked-manifest.json");
+    const untrackedOutputPath = join(root, "untracked-report.md");
+    writeFileSync(untrackedManifestPath, JSON.stringify({
+      ...manifest,
+      artifacts: manifest.artifacts.map((artifact) => artifact.kind === "methodology"
+        ? { ...artifact, path: untrackedPath, sha256: sha256(untrackedContent) }
+        : artifact),
+    }), "utf-8");
+    await benchmarkCommand(MOCK_APP_CONFIG, "report", [
+      "--baseline", baselinePath,
+      "--output", untrackedOutputPath,
+      "--publication-manifest", untrackedManifestPath,
+      "--repository-root", repositoryRoot,
+    ]);
+    const untrackedReport = readFileSync(untrackedOutputPath, "utf-8");
+    expect(untrackedReport).toContain("Publication status: blocked");
+    expect(untrackedReport).toContain(`missing publication artifact ${untrackedPath}`);
   });
 
   it("fails closed when readiness has no baseline file", async () => {
