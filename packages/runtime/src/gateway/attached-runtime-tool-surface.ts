@@ -17,6 +17,7 @@ import type {
   ToolResourceTemplateDescriptor,
   SpecificationStateStore,
   ToolResultContentPart,
+  WorkItemStore,
 } from "@kilnai/core";
 import type { PlanStateStore, SessionPlan, WorkflowProfile } from "@kilnai/core";
 import {
@@ -553,6 +554,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
             "already-admitted",
           ),
           managedInvocationOptions,
+          coreSurface.workItemStore,
         ),
       );
     }
@@ -815,6 +817,7 @@ function createManagedDelegationWorkItemStartExecutor(
   finishExecutor: RuntimeBuiltinToolExecutor | undefined,
   managedInvocationExecutor: RuntimeBuiltinToolExecutor,
   managedInvocationOptions: ManagedInvocationToolOptions,
+  workItemStore: WorkItemStore | undefined,
 ): RuntimeBuiltinToolExecutor {
   return async (input, context) => {
     const managedInvocations: Record<string, unknown>[] = [];
@@ -851,11 +854,11 @@ function createManagedDelegationWorkItemStartExecutor(
       const managedResult = await managedInvocationExecutor(managedRequest, managedContext);
       const managedEnvelope = readRuntimeToolResultEnvelope(managedResult);
       if (!managedEnvelope || managedEnvelope.isError) {
-        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation failed before work item execution could start.");
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation failed before work item execution could start.", workItemStore);
       }
       const managedInvocationId = readTextFromUnknown(managedEnvelope.metadata?.invocationId);
       if (!managedInvocationId) {
-        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.");
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.", workItemStore);
       }
       managedInvocations.push({
         invocationId: managedInvocationId,
@@ -883,13 +886,13 @@ function createManagedDelegationWorkItemStartExecutor(
             },
           };
         }
-        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without a validated phase transition.");
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without a validated phase transition.", workItemStore);
       }
 
       if (completionTool === "work_item.update") {
         const updateInput = readRecord(phaseCompletion.workItemUpdateInputTemplate);
         if (!updateInput) {
-          return managedDelegationPausedResult(initialResult, managedEnvelope, "Validated intermediate phase did not provide a work-item transition.");
+          return managedDelegationPausedResult(initialResult, managedEnvelope, "Validated intermediate phase did not provide a work-item transition.", workItemStore);
         }
         if (!updateExecutor) {
           return managedPhaseTransitionRequiredResult(
@@ -912,7 +915,7 @@ function createManagedDelegationWorkItemStartExecutor(
         ?? readTextFromUnknown(readRecord(resumedEnvelope.metadata?.attempt)?.id);
       const finishTemplate = readRecord(phaseCompletion.workItemExecutionFinishInputTemplate);
       if (!attemptId || !finishTemplate || !finishExecutor) {
-        return managedDelegationPausedResult(resumedEnvelope, managedEnvelope, "Validated final phase could not be attached to an execution attempt.");
+        return managedDelegationPausedResult(resumedEnvelope, managedEnvelope, "Validated final phase could not be attached to an execution attempt.", workItemStore);
       }
       const finishedEnvelope = readRuntimeToolResultEnvelope(await finishExecutor({
         ...finishTemplate,
@@ -1161,10 +1164,11 @@ function managedDelegationPausedResult(
   initialResult: unknown,
   managedResult: RuntimeToolResultEnvelope | undefined,
   reason: string,
+  workItemStore: WorkItemStore | undefined,
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
   const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
-  const recovery = buildManagedDelegationRecovery(managedResult, initialOutput);
+  const recovery = buildManagedDelegationRecovery(managedResult, initialOutput, workItemStore);
   return {
     output: JSON.stringify({
       status: "paused",
@@ -1189,13 +1193,18 @@ function managedDelegationPausedResult(
 function buildManagedDelegationRecovery(
   managedResult: RuntimeToolResultEnvelope | undefined,
   initialOutput: Record<string, unknown> | undefined,
+  workItemStore: WorkItemStore | undefined,
 ): Record<string, unknown> | undefined {
   const request = readRecord(initialOutput?.managedInvocationRequest);
+  const workItemId = readTextFromUnknown(request?.workItemId);
+  const priorPauseRequirements = workItemId ? workItemStore?.get(workItemId)?.pauseRequirements : undefined;
   return buildManagedInvocationPhaseRecovery(
     request,
     managedInvocationFailureReasonFromStatus(
       managedResult?.metadata?.lifecycleState ?? managedResult?.metadata?.status,
     ),
+    undefined,
+    { priorPauseRequirements },
   );
 }
 

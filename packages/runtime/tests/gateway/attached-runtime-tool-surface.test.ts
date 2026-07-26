@@ -2488,6 +2488,116 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     });
   });
 
+  it("supersedes a prior blocking managed-invocation recovery requirement on the same work item instead of colliding with it", async () => {
+    const workItemStore = new WorkItemStore();
+    const goalRunStore = new GoalRunStore();
+    workItemStore.upsert({
+      id: "work-managed",
+      summary: "Execute governed managed work.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: [],
+      goalRunId: "goal-managed",
+      pauseRequirements: [{
+        id: "managed-invocation-capability:work-managed:phase-a",
+        kind: "capability",
+        summary: "Prior managed invocation attempt failed to hydrate a route.",
+        status: "pending",
+      }],
+    });
+    goalRunStore.create({
+      id: "goal-managed",
+      objective: "Execute governed managed work.",
+      ownerSessionId: "session-parent",
+      source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
+      workItemIds: ["work-managed"],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+    const startTool = makeManagedExecutionStartTool({
+      profile: "foundation-readonly-plan",
+      requestedAuthority: "read_only",
+      providerRoute: {
+        providerId: "openrouter",
+        model: "openrouter/free",
+      },
+      task: "Execute governed managed work.",
+      summary: "Execute governed managed work.",
+      goalRunId: "goal-managed",
+      workItemId: "work-managed",
+      expectedEvidence: ["managed-agent-review"],
+      executionPhase: {
+        id: "phase-b",
+        expectedEvidence: ["managed-agent-review"],
+        completionTool: "work_item.execution.finish",
+        finalPhase: true,
+        autoStartAllowed: true,
+      },
+    });
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { workItemStore, goalRunStore, additionalTools: [startTool] },
+      managedInvocation: {
+        routes: [],
+        unavailableRoutes: [{
+          routeId: "openrouter-readonly",
+          routeSource: "explicit-managed-route",
+          providerId: "openrouter",
+          model: "openrouter/free",
+          profiles: ["foundation-readonly-plan"],
+          reason: "Direct provider route is unavailable.",
+        }],
+      },
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-start-supersede",
+        name: "work_item.execution.start",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as {
+      readonly output: string;
+      readonly isError: boolean;
+      readonly metadata?: Record<string, unknown>;
+    };
+    const output = JSON.parse(result.output) as {
+      readonly recovery?: {
+        readonly blockedWorkItemUpdateInputTemplate?: {
+          readonly pauseRequirements?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+
+    expect(result.isError).toBe(true);
+    const pauseRequirements = output.recovery?.blockedWorkItemUpdateInputTemplate?.pauseRequirements ?? [];
+    expect(pauseRequirements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "managed-invocation-capability:work-managed:phase-a",
+          status: "superseded",
+          supersededByRequirementId: "managed-invocation-capability:work-managed:phase-b",
+        }),
+        expect.objectContaining({
+          id: "managed-invocation-capability:work-managed:phase-b",
+          status: "pending",
+        }),
+      ]),
+    );
+    expect(pauseRequirements).toHaveLength(2);
+  });
+
   it("blocks the work item without inventing an attempt when managed-delegation auto-start is unavailable", async () => {
     const startTool = makeManagedExecutionStartTool({
       profile: "foundation-readonly-plan",
