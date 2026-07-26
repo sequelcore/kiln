@@ -21,6 +21,10 @@ import {
   type ProviderRequestEvidence,
   projectConversationForModel,
 } from "@kilnai/core";
+import {
+  isManagedInvocationRecoveryPauseRequirementId,
+  MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID,
+} from "../agents/managed-invocation/phase-recovery.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import {
   admitProgressiveTool,
@@ -1489,21 +1493,11 @@ function readExecutionAttemptId(execution: ToolExecutionSummary): string | undef
     ?? readText(readRecord(execution.metadata?.executionAttempt)?.id);
 }
 
-// Must match the base id `phase-recovery.ts` derives handoff-recovery pause
-// requirement ids from (`${baseId}` or `${baseId}:${workItemId}[:discriminator]`
-// via `derivePauseRequirementId`). That module owns the canonical id family and
-// is outside this file's edit scope, so the base id is intentionally mirrored
-// here rather than imported.
-const MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID = "managed-invocation-handoff-recovery";
-
 function hasManagedInvocationHandoffRecoveryPause(item: Record<string, unknown>): boolean {
   return readRecordArray(item.pauseRequirements).some((pauseRequirement) => {
     const id = readText(pauseRequirement.id);
     return id !== undefined
-      && (
-        id === MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID
-        || id.startsWith(`${MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID}:`)
-      )
+      && isManagedInvocationRecoveryPauseRequirementId(id, MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID)
       && readText(pauseRequirement.status) === "pending";
   });
 }
