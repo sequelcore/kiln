@@ -496,6 +496,110 @@ describe("attached runtime builtin tool surface", () => {
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects a recovery invocation scoped to the wrong work item or a stale execution attempt before any mutation occurs", async () => {
+    const workItemStore = new WorkItemStore();
+    const goalRunStore = new GoalRunStore();
+    workItemStore.upsert({
+      id: "work-scoped",
+      summary: "Execute governed managed work.",
+      workflowProfile: "verification-heavy",
+      triggers: ["repository inspection"],
+      expectedEvidence: ["surface-map"],
+      verificationGates: [],
+      goalRunId: "goal-scoped",
+    });
+    workItemStore.upsert({
+      id: "work-other",
+      summary: "A different governed work item on the same session.",
+      workflowProfile: "verification-heavy",
+      triggers: ["repository inspection"],
+      expectedEvidence: ["surface-map"],
+      verificationGates: [],
+    });
+    goalRunStore.create({
+      id: "goal-scoped",
+      objective: "Inspect the repository without writes.",
+      ownerSessionId: "session-parent",
+      source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
+      workItemIds: ["work-scoped"],
+      authorityEnvelope: {
+        maximumAuthority: "read_only",
+        escalationPolicy: "deny",
+        reason: "Read-only inspection.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const workItemBeforeRejection = workItemStore.get("work-scoped");
+    const adapter = makeManagedAdapter();
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { workItemStore, goalRunStore },
+      managedInvocation: {
+        routes: [{
+          routeId: "opencode-readonly",
+          routeSource: "explicit-managed-route",
+          providerId: "opencode",
+          model: "opencode-default-model",
+          adapter,
+          profiles: {
+            "foundation-readonly-plan": {
+              authorityProfileId: "authority:opencode:readonly",
+              permissionProfile: "read-only",
+              allowedToolNames: ["read"],
+              workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
+              timeoutMs: 120000,
+              credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
+              memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
+            },
+          },
+        }],
+      },
+    });
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "tool-call-recovery-scope", name: "managed_agent.invoke", input: {} },
+    };
+    const invoke = runtimeSurface.callBuiltinTools.get("managed_agent.invoke");
+
+    // A recovery request naming a work item that is not governed by this goal
+    // must be rejected before any mutation - never retargeted onto it.
+    const wrongWorkItem = await invoke?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode" },
+      task: "Retry the failed managed invocation.",
+      goalRunId: "goal-scoped",
+      workItemId: "work-other",
+    }, context) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+
+    expect(wrongWorkItem).toMatchObject({
+      isError: true,
+      metadata: { errorCode: "governed_scope_mismatch" },
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(workItemStore.get("work-scoped")).toEqual(workItemBeforeRejection);
+    expect(workItemStore.get("work-other")).toMatchObject({ id: "work-other" });
+
+    // A recovery request naming a stale/non-active execution attempt on the
+    // correct work item must also be rejected before any mutation.
+    const staleAttempt = await invoke?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode" },
+      task: "Retry the failed managed invocation.",
+      goalRunId: "goal-scoped",
+      workItemId: "work-scoped",
+      attemptId: "goal-scoped:work-scoped:attempt:stale",
+    }, context) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+
+    expect(staleAttempt).toMatchObject({
+      isError: true,
+      metadata: { errorCode: "execution_attempt_not_found" },
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(workItemStore.get("work-scoped")).toEqual(workItemBeforeRejection);
+  });
+
   it("projects default runtime tools from the canonical core builtin surface", () => {
     const coreSurface = createDefaultBuiltinToolSurface();
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface();
