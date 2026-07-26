@@ -698,13 +698,15 @@ export class RuntimeSessionToolExecutor {
             resultSummary: evidence.diagnostic.slice(0, 200),
             sanitized: true,
           };
-          metadata = externalToolFailureMetadata({
-            selector: normalizedToolCall.name,
-            category: "failed",
-            diagnostic: evidence.diagnostic,
-            redacted: evidence.redacted,
-            blocked: evidence.blocked,
-          }) as unknown as Record<string, unknown>;
+          metadata = {
+            ...externalToolFailureMetadata({
+              selector: normalizedToolCall.name,
+              category: "failed",
+              diagnostic: evidence.diagnostic,
+              redacted: evidence.redacted,
+              blocked: evidence.blocked,
+            }),
+          };
           resourceLinks = undefined;
           resultOutput = undefined;
           contentParts = undefined;
@@ -808,13 +810,15 @@ export class RuntimeSessionToolExecutor {
           : undefined;
         const outputContent = evidence ? evidence.diagnostic : errMsg;
         const metadata = evidence
-          ? externalToolFailureMetadata({
-              selector: normalizedToolCall.name,
-              category: "failed",
-              diagnostic: evidence.diagnostic,
-              redacted: evidence.redacted,
-              blocked: evidence.blocked,
-            }) as unknown as Record<string, unknown>
+          ? {
+              ...externalToolFailureMetadata({
+                selector: normalizedToolCall.name,
+                category: "failed",
+                diagnostic: evidence.diagnostic,
+                redacted: evidence.redacted,
+                blocked: evidence.blocked,
+              }),
+            }
           : undefined;
         this.emitToolResult(
           session.id,
