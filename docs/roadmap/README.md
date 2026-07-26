@@ -18,6 +18,23 @@ are promoted. File numbers do not need to be renumbered solely to fill a removed
 slot; ordering is defined by this queue and changed only through an explicit
 roadmap reorganization.
 
+## Product Delivery Outcome
+
+Kiln's cross-harness product objective is a governed delivery flow from operator
+intent to durable repository closeout. An operator may originate and coordinate
+work from a web or connector-enabled surface, while admitted local harnesses
+perform bounded filesystem, process, test, and Git execution. The shared Kiln
+control plane must preserve one canonical goal, work-item, authority, execution,
+evidence, approval, and replay identity across branch, worktree, commit, pull
+request, CI, review, merge, and cleanup boundaries.
+
+This outcome is owned by [04 - Cross-Harness Integration](./04-cross-harness-integration.md),
+which must prove the complete web/connector-to-local-PR lifecycle and repeat the
+proof with another admitted local harness. Work Governance remains the canonical
+lifecycle contract; connectors, native harnesses, and repository systems are
+adapters or durable evidence surfaces, never independent policy or lifecycle
+owners.
+
 ## Execution Queue
 
 | Order | Track | State | Next bounded work |
@@ -25,7 +42,7 @@ roadmap reorganization.
 | 1 | [01 - External Runtime Governance](./01-external-runtime-governance.md) | Ready | Encode the deterministic MCP-only failing trace before policy changes. |
 | 2 | [02 - Managed Invocation Routing](./02-managed-invocation-routing.md) | Ready | Complete per-job account leases and lifecycle evidence. |
 | 3 | [03 - Model Gateway Lifecycle](./03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
-| 4 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Close OpenCode live parity, then migrate and prove the harness-neutral control-plane bridge. |
+| 4 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Close shared gateway and lease blockers, complete live adapter parity, then prove the governed web/connector-to-local-PR delivery flow. |
 | 5 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
 | 6 | [06 - Prompt Governance Plane](./06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
 | 7 | [07 - Stack Governance Plane](./07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
@@ -38,7 +55,7 @@ roadmap reorganization.
 - `01` owns provider-neutral external-runtime evidence realization and closeout consistency.
 - `02` owns managed-job routing, leases, account selection, lifecycle, result, and replay.
 - `03` owns the user-scoped Model Gateway process, configuration, authentication, and supervision.
-- `04` owns harness adapters, native projection, protocol parity, live cross-harness proof, and deferred federation research.
+- `04` owns harness adapters, native projection, protocol parity, live cross-harness proof, the governed web/connector-to-local-PR acceptance flow, and deferred federation research.
 - `05` decides whether a skill is healthy, compatible, trusted, and admitted.
 - `06` decides how admitted instructions and skill content enter provider prompts and become replayable evidence.
 - `07` owns desired stack policy and drift evidence; skills may consume its result but never own versions.
@@ -60,7 +77,10 @@ Every implementation track distinguishes:
 4. **Release ready** — exact committed candidate passes the release runbook and registry checks.
 
 A track must not describe live validation as incomplete code or describe passing
-source tests as release evidence.
+source tests as release evidence. For cross-harness repository delivery, neither
+a successful local edit nor a green pull request alone proves completion: the
+exact reviewed candidate, explicit authority gates, merge, replayable evidence,
+and closeout must all bind to the same governed work identity.
 
 ## Roadmap File Standard
 
@@ -77,7 +97,8 @@ that already belongs in architecture or release history.
 - Record dependencies as `Blocked`; do not hide them in prose.
 - No dead code, duplicate owners, prompt-only fixes, hidden fallbacks, or unsupported compatibility shims.
 - Live tests require explicit authority for credentials, quota, subscription, machine configuration, and destructive restore operations.
-- Update this index and the owning track atomically when state or priority changes.
+- Remote publication, readiness, merge, destructive restore, and cleanup remain separately authorized gates when the owning workflow requires them.
+- Update this index and the owning track atomically when state, priority, or the declared product delivery outcome changes.
 
 ## Release Position
 
