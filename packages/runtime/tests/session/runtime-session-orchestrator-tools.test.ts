@@ -1203,6 +1203,124 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
     );
   });
 
+  it("resolves managed invocation recovery when the blocked handoff pause id carries a deterministic per-attempt suffix", async () => {
+    const provider: ProviderAdapter = {
+      name: "mock",
+      createMessage: vi.fn()
+        .mockResolvedValueOnce({
+          parts: textParts("starting managed visual-reference phase"),
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [{ id: "tc-managed", name: "managed_agent.invoke", input: { workItemId: "work-1" } }],
+          stopReason: "tool_use",
+        })
+        .mockResolvedValueOnce({
+          parts: textParts("blocking because no qualifying evidence exists"),
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [{
+            id: "tc-update",
+            name: "work_item.update",
+            input: {
+              id: "work-1",
+              status: "blocked",
+              pauseRequirements: [{
+                id: "managed-invocation-handoff-recovery:work-1:invocation-9",
+                status: "pending",
+              }],
+            },
+          }],
+          stopReason: "tool_use",
+        })
+        .mockResolvedValueOnce({
+          parts: textParts("Blocked recovery transition recorded."),
+          inputTokens: 25,
+          outputTokens: 10,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          toolCalls: [],
+          stopReason: "end_turn",
+        }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const managedInvoke = vi.fn().mockResolvedValue({
+      output: JSON.stringify({ status: "handoff_not_substantive" }),
+      isError: true,
+      metadata: {
+        toolName: "managed_agent.invoke",
+        kind: "managed-invocation",
+        status: "handoff_not_substantive",
+        managedInvocationRecovery: {
+          status: "phase_evidence_required",
+          nextTool: "work_item.update",
+          workItemId: "work-1",
+          evidenceToRecord: ["visual-reference-research"],
+          blockedWorkItemUpdateInputTemplate: {
+            id: "work-1",
+            status: "blocked",
+            pauseRequirements: [{
+              id: "managed-invocation-handoff-recovery:work-1:invocation-9",
+              status: "pending",
+            }],
+          },
+        },
+      },
+    });
+    const workItemUpdate = vi.fn().mockResolvedValue({
+      output: JSON.stringify({
+        item: {
+          id: "work-1",
+          status: "blocked",
+          pauseRequirements: [{
+            id: "managed-invocation-handoff-recovery:work-1:invocation-9",
+            status: "pending",
+          }],
+        },
+      }),
+      isError: false,
+      metadata: {
+        toolName: "work_item.update",
+        kind: "work_item",
+        operation: "update",
+        id: "work-1",
+        item: {
+          id: "work-1",
+          status: "blocked",
+          pauseRequirements: [{
+            id: "managed-invocation-handoff-recovery:work-1:invocation-9",
+            status: "pending",
+          }],
+        },
+      },
+    });
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [
+        { name: "managed_agent.invoke", description: "Managed child invocation", inputSchema: {}, tags: new Set() },
+        { name: "work_item.update", description: "Update governed work item", inputSchema: {}, tags: new Set() },
+      ],
+      builtinTools: new Map([
+        ["managed_agent.invoke", managedInvoke],
+        ["work_item.update", workItemUpdate],
+      ]),
+      eventBus: new EventBus(100),
+      executionEnvelope: { toolRounds: { max: 1 } },
+    });
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("improve the GUI"));
+
+    expect(result.parts).toEqual(textParts("Blocked recovery transition recorded."));
+    expect(result.stopReason).toBe("end_turn");
+    expect(workItemUpdate).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify((provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0].messages)).toContain(
+      "Blocked transition template",
+    );
+  });
+
   it("resolves managed invocation recovery when a visual-reference gate is blocked with phase-specific pause evidence", async () => {
     const provider: ProviderAdapter = {
       name: "mock",
