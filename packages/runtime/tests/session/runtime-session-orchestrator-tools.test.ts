@@ -15,7 +15,8 @@ import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-or
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import type { ToolResultSanitizer, SanitizationResult } from "@kilnai/core";
+import type { ToolResultSanitizer, SanitizationResult, SafetyPipeline } from "@kilnai/core";
+import { ToolResultSanitizer as RealToolResultSanitizer } from "@kilnai/core";
 import type { AuditLog } from "@kilnai/core";
 
 async function waitForAssertion(assertion: () => void, timeoutMs = 1_000): Promise<void> {
@@ -3047,6 +3048,231 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(toolFn).not.toHaveBeenCalled();
       expect(sanitizer.sanitize).toHaveBeenCalledWith("cached raw output");
       expect(getReinjectedToolResultFromSecondCall(provider)).toBe("cached raw output");
+    });
+  });
+
+  describe("external tool failure redaction", () => {
+    it("an isError:true mcp: envelope uses ONLY redacted output and metadata", async () => {
+      const selector = "mcp:studio:tool:run_luau";
+      const provider = makeToolCallProvider({ id: "mcp-fail", name: selector, input: { code: "print('x')" } });
+      const rawSecret = "leaked credential Authorization: Bearer sk-live-secret1234567890";
+      const execute = vi.fn().mockResolvedValue({
+        isError: true,
+        output: rawSecret,
+        metadata: { vendorInternalCode: "ERR_42", rawPayload: rawSecret },
+      });
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 3, allowed: true, requiresApproval: false, reason: "admitted" }),
+      };
+      const sanitizer: ToolResultSanitizer = {
+        sanitizeForPersistedEvidence: vi.fn().mockResolvedValue({
+          content: "[REDACTED external tool failure]",
+          sanitized: true,
+          blocked: false,
+        }),
+      } as unknown as ToolResultSanitizer;
+      const capability: Capability = { name: selector, description: "Untrusted external tool", schema: {}, tags: [] };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: selector, description: capability.description, inputSchema: {}, tags: new Set() }],
+        mcpClients: [{ serverName: "studio", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
+        capabilityMap: new Map([[selector, capability]]),
+        toolAuthorizer: authorizer,
+        toolResultSanitizer: sanitizer,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("run"));
+
+      expect(sanitizer.sanitizeForPersistedEvidence).toHaveBeenCalledWith(rawSecret);
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: selector,
+        success: false,
+        output: "[REDACTED external tool failure]",
+        resultSummary: "[REDACTED external tool failure]",
+        metadata: {
+          kind: "external_tool_failure",
+          selector,
+          category: "failed",
+          diagnostic: "[REDACTED external tool failure]",
+          redacted: true,
+          blocked: false,
+        },
+      });
+      const serialized = JSON.stringify(result.toolExecutions?.[0]);
+      expect(serialized).not.toContain("sk-live-secret1234567890");
+      expect(serialized).not.toContain("vendorInternalCode");
+      expect(getReinjectedToolResultFromSecondCall(provider)).toBe("[REDACTED external tool failure]");
+    });
+
+    it("retains the exact qualified mcp: selector and a provider-neutral failure category", async () => {
+      const selector = "mcp:notion:page:archive";
+      const provider = makeToolCallProvider({ id: "mcp-selector", name: selector, input: {} });
+      const execute = vi.fn().mockResolvedValue({ isError: true, output: "archive failed" });
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 3, allowed: true, requiresApproval: false, reason: "admitted" }),
+      };
+      const sanitizer: ToolResultSanitizer = {
+        sanitizeForPersistedEvidence: vi.fn().mockResolvedValue({ content: "[REDACTED]", sanitized: true, blocked: false }),
+      } as unknown as ToolResultSanitizer;
+      const capability: Capability = { name: selector, description: "x", schema: {}, tags: [] };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: selector, description: capability.description, inputSchema: {}, tags: new Set() }],
+        mcpClients: [{ serverName: "notion", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
+        capabilityMap: new Map([[selector, capability]]),
+        toolAuthorizer: authorizer,
+        toolResultSanitizer: sanitizer,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("archive"));
+
+      expect(result.toolExecutions?.[0]?.metadata).toMatchObject({
+        kind: "external_tool_failure",
+        selector: "mcp:notion:page:archive",
+        category: "failed",
+      });
+    });
+
+    it("a thrown exception for an mcp: tool uses ONLY a redacted diagnostic; err.message never reaches resultSummary", async () => {
+      const selector = "mcp:studio:tool:apply_scene_edit";
+      const provider = makeToolCallProvider({ id: "mcp-throw", name: selector, input: { edit: "x" } });
+      const secretMessage = "connection failed: Authorization: Bearer sk-live-abcdefghij1234567890";
+      const execute = vi.fn().mockRejectedValue(new Error(secretMessage));
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 3, allowed: true, requiresApproval: false, reason: "admitted" }),
+      };
+      const sanitizer: ToolResultSanitizer = {
+        sanitizeForPersistedEvidence: vi.fn().mockResolvedValue({
+          content: "[REDACTED diagnostic]",
+          sanitized: true,
+          blocked: true,
+        }),
+      } as unknown as ToolResultSanitizer;
+      const capability: Capability = { name: selector, description: "x", schema: {}, tags: [] };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: selector, description: capability.description, inputSchema: {}, tags: new Set() }],
+        mcpClients: [{ serverName: "studio", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
+        capabilityMap: new Map([[selector, capability]]),
+        toolAuthorizer: authorizer,
+        toolResultSanitizer: sanitizer,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("run"));
+
+      expect(sanitizer.sanitizeForPersistedEvidence).toHaveBeenCalledWith(secretMessage);
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: selector,
+        success: false,
+        output: "[REDACTED diagnostic]",
+        resultSummary: "[REDACTED diagnostic]",
+      });
+      const serialized = JSON.stringify(result.toolExecutions?.[0]);
+      expect(serialized).not.toContain("sk-live-abcdefghij1234567890");
+      expect(getReinjectedToolResultFromSecondCall(provider)).toBe("[REDACTED diagnostic]");
+    });
+
+    it("a real safety pipeline throwing persists a safe fixed message for an mcp: failure, never the original content", async () => {
+      const selector = "mcp:studio:tool:run_luau";
+      const provider = makeToolCallProvider({ id: "mcp-pipeline-fail", name: selector, input: {} });
+      const rawSecret = "raw external payload containing sk-live-zzzz9999yyyy";
+      const execute = vi.fn().mockResolvedValue({ isError: true, output: rawSecret });
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 3, allowed: true, requiresApproval: false, reason: "admitted" }),
+      };
+      const pipeline = { evaluate: vi.fn().mockRejectedValue(new Error("pipeline down")) } as unknown as SafetyPipeline;
+      const sanitizer = new RealToolResultSanitizer({ pipeline });
+      const capability: Capability = { name: selector, description: "x", schema: {}, tags: [] };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: selector, description: capability.description, inputSchema: {}, tags: new Set() }],
+        mcpClients: [{ serverName: "studio", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
+        capabilityMap: new Map([[selector, capability]]),
+        toolAuthorizer: authorizer,
+        toolResultSanitizer: sanitizer,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("run"));
+
+      expect(result.toolExecutions?.[0]?.output).toBe(
+        "Tool result withheld: safety verification could not be completed for persisted evidence.",
+      );
+      expect(JSON.stringify(result.toolExecutions?.[0])).not.toContain(rawSecret);
+    });
+
+    it("falls back to a fixed diagnostic for an mcp: failure when no sanitizer is configured", async () => {
+      const selector = "mcp:studio:tool:run_luau";
+      const provider = makeToolCallProvider({ id: "mcp-no-sanitizer", name: selector, input: {} });
+      const rawSecret = "raw payload with sk-live-nosanitizer0000";
+      const execute = vi.fn().mockResolvedValue({ isError: true, output: rawSecret });
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 3, allowed: true, requiresApproval: false, reason: "admitted" }),
+      };
+      const capability: Capability = { name: selector, description: "x", schema: {}, tags: [] };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: selector, description: capability.description, inputSchema: {}, tags: new Set() }],
+        mcpClients: [{ serverName: "studio", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
+        capabilityMap: new Map([[selector, capability]]),
+        toolAuthorizer: authorizer,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("run"));
+
+      expect(result.toolExecutions?.[0]?.output).toBe(
+        "External tool failed; result withheld because safety verification could not be completed.",
+      );
+      expect(JSON.stringify(result.toolExecutions?.[0])).not.toContain(rawSecret);
+    });
+
+    it("keeps a thrown exception's raw err.message for non-MCP tools unchanged (regression guard)", async () => {
+      const provider = makeProvider(1);
+      const secretLikeMessage = "boom with a token abcdefg-should-remain-untouched";
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 2, allowed: true, requiresApproval: false, reason: "Audited execution" }),
+      };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockRejectedValue(new Error(secretLikeMessage))]]),
+        capabilityMap: makeCapabilityMap({ effectEnvelope: IDEMPOTENT_MUTATION_EFFECT }),
+        toolAuthorizer: authorizer,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: "get_data",
+        success: false,
+        output: secretLikeMessage,
+        resultSummary: secretLikeMessage.slice(0, 200),
+      });
+    });
+
+    it("keeps a successful mcp: result's metadata and output unchanged (regression guard)", async () => {
+      const selector = "mcp:second:tool:echo";
+      const provider = makeToolCallProvider({ id: "mcp-ok", name: selector, input: { value: "hello" } });
+      const execute = vi.fn().mockResolvedValue({ echoed: "hello" });
+      const authorizer: ToolAuthorizer = {
+        authorize: vi.fn().mockReturnValue({ level: 3, allowed: true, requiresApproval: false, reason: "admitted" }),
+      };
+      const capability: Capability = { name: selector, description: "x", schema: {}, tags: [] };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: selector, description: capability.description, inputSchema: {}, tags: new Set() }],
+        mcpClients: [{ serverName: "second", executeCapability: execute }] as unknown as readonly KilnMcpClient[],
+        capabilityMap: new Map([[selector, capability]]),
+        toolAuthorizer: authorizer,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("echo"));
+
+      expect(result.toolExecutions?.[0]).toMatchObject({
+        toolName: selector,
+        success: true,
+        output: JSON.stringify({ echoed: "hello" }),
+      });
+      expect(result.toolExecutions?.[0]?.metadata).toBeUndefined();
     });
   });
 
