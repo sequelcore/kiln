@@ -1,21 +1,68 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
+import { TextDecoder } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   evaluateVerifiedEfficiencyPublicationReadiness,
   type VerifiedEfficiencyPublicationManifest,
 } from "../../src/efficiency/index.js";
 
-const REPOSITORY_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+const TEST_DIRECTORY = fileURLToPath(new URL(".", import.meta.url));
+const REPOSITORY_ROOT = resolveRepositoryRoot();
 const MANIFEST_PATH = "docs/benchmarks/verified-efficiency-v1/manifest.json";
 const REPORT_PATH = "docs/benchmarks/verified-efficiency-v1/reports/reference-report.json";
 const FIXTURE_PATH = "packages/core/evals/benchmark/kiln-verified-efficiency-surface-v1.json";
 
+function resolveRepositoryRoot(): string | undefined {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: TEST_DIRECTORY,
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeRepositoryRelativePath(path: string, repositoryRoot: string): string | undefined {
+  if (path.trim().length === 0 || path.includes("\0")) return undefined;
+
+  const normalizedPath = path.replaceAll("\\", "/");
+  if (normalizedPath.startsWith("/") || /^[A-Za-z]:\//.test(normalizedPath)) return undefined;
+
+  const segments = normalizedPath.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return undefined;
+
+  const resolvedPath = resolve(repositoryRoot, normalizedPath);
+  const relativePath = relative(repositoryRoot, resolvedPath);
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith("../") ||
+    relativePath.startsWith("..\\") ||
+    isAbsolute(relativePath)
+  ) {
+    return undefined;
+  }
+
+  return normalizedPath;
+}
+
 function readRepositoryArtifact(path: string): string | undefined {
   try {
-    return readFileSync(resolve(REPOSITORY_ROOT, path), "utf8");
+    if (REPOSITORY_ROOT === undefined) return undefined;
+
+    const repositoryRelativePath = normalizeRepositoryRelativePath(path, REPOSITORY_ROOT);
+    if (repositoryRelativePath === undefined) return undefined;
+
+    const content = execFileSync("git", ["show", `HEAD:${repositoryRelativePath}`], {
+      cwd: REPOSITORY_ROOT,
+      encoding: "buffer",
+    });
+    const decoded = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content);
+    return Buffer.from(decoded, "utf8").equals(content) ? decoded : undefined;
   } catch {
     return undefined;
   }
