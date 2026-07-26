@@ -16,12 +16,12 @@ import type {
   SessionToolUsageSnapshot,
   ExecutionSessionToolResultResourceLink,
   WorkItemExecutionScopeTransition,
-  WorkItemExecutionFailureReason,
 } from "@kilnai/core";
 import {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
   deriveAuthorityFromEffect,
   executeWithRetry,
+  externalToolFailureMetadata,
   getBuiltinEffectEnvelope,
   getInvalidToolInputDetails,
   isFileToolResultMetadata,
@@ -78,32 +78,6 @@ function parseCommandShell(value: unknown): CommandShell | undefined {
 
 function isMcpToolName(toolName: string): boolean {
   return toolName.startsWith("mcp:");
-}
-
-/**
- * Mirrors @kilnai/core's `ExternalToolFailureResultMetadata`
- * (packages/core/src/tools/domain/tool-result-metadata.ts). Built inline
- * here, rather than imported, because that type's builder is not yet routed
- * through the core package's public export barrel (packages/core/src/tools/
- * index.ts) - see the Slice 3.2 writeup for the pending one-line follow-up.
- * Field-for-field allowlist: no vendor names, no tool-name branches, no
- * arbitrary payload passthrough from the raw external envelope.
- */
-function externalToolFailureMetadata(input: {
-  readonly selector: string;
-  readonly category: WorkItemExecutionFailureReason;
-  readonly diagnostic: string;
-  readonly redacted: boolean;
-  readonly blocked: boolean;
-}): Record<string, unknown> {
-  return {
-    kind: "external_tool_failure",
-    selector: input.selector,
-    category: input.category,
-    diagnostic: input.diagnostic,
-    redacted: input.redacted,
-    blocked: input.blocked,
-  };
 }
 
 function toDangerousCommandRequest(
@@ -730,7 +704,7 @@ export class RuntimeSessionToolExecutor {
             diagnostic: evidence.diagnostic,
             redacted: evidence.redacted,
             blocked: evidence.blocked,
-          });
+          }) as unknown as Record<string, unknown>;
           resourceLinks = undefined;
           resultOutput = undefined;
           contentParts = undefined;
@@ -840,7 +814,7 @@ export class RuntimeSessionToolExecutor {
               diagnostic: evidence.diagnostic,
               redacted: evidence.redacted,
               blocked: evidence.blocked,
-            })
+            }) as unknown as Record<string, unknown>
           : undefined;
         this.emitToolResult(
           session.id,
