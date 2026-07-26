@@ -34,6 +34,8 @@ import {
   projectManagedOrchestrationResultHandoff,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
+  WORK_ITEM_PAUSE_REQUIREMENT_KINDS,
+  WORK_ITEM_PAUSE_REQUIREMENT_STATUSES,
   WorkItemStore,
   workItemToolMetadata,
 } from "@kilnai/core";
@@ -94,14 +96,6 @@ const VISUAL_REFERENCE_PHASE_ROUTE = "visual-reference-research";
 const VISUAL_REFERENCE_PHASE_ROUTE_PLACEHOLDER = "<read-only web/frontend-reference capable route id>";
 const GOAL_AUTHORITY_LEVELS: readonly GoalRunAuthorityLevel[] = ["read_only", "audited", "destructive"];
 const GOAL_ESCALATION_POLICIES: readonly GoalRunEscalationPolicy[] = ["deny", "approval_required"];
-const WORK_ITEM_PAUSE_REQUIREMENT_KINDS: readonly WorkItemPauseRequirementKind[] = [
-  "operator_input",
-  "credentials",
-  "approval",
-  "authority_elevation",
-  "capability",
-];
-const WORK_ITEM_PAUSE_REQUIREMENT_STATUSES: readonly WorkItemPauseRequirementStatus[] = ["pending", "resolved"];
 const MANAGED_INVOCATION_PROFILES = [
   "foundation-readonly-plan",
   "foundation-propose-writes",
@@ -429,6 +423,10 @@ export class WorkItemUpdateTool implements DevTool {
             resolvedBy: { type: "string" },
             resolvedAt: { type: "string" },
             resolution: { type: "string" },
+            supersededByRequirementId: { type: "string" },
+            supersededAt: { type: "string" },
+            supersededBy: { type: "string" },
+            reason: { type: "string" },
           },
           required: ["id", "kind", "summary", "status"],
           additionalProperties: false,
@@ -2225,15 +2223,34 @@ function readPauseRequirements(value: unknown):
         message: '"pauseRequirements" entries require id, kind, summary, and status',
       };
     }
-    requirements.push({
-      id,
-      kind,
-      summary,
-      status,
-      ...(readText(record.resolvedBy) ? { resolvedBy: readText(record.resolvedBy) } : {}),
-      ...(readText(record.resolvedAt) ? { resolvedAt: readText(record.resolvedAt) } : {}),
-      ...(readText(record.resolution) ? { resolution: readText(record.resolution) } : {}),
-    });
+    if (status === "resolved") {
+      const resolvedBy = readText(record.resolvedBy);
+      const resolvedAt = readText(record.resolvedAt);
+      const resolution = readText(record.resolution);
+      if (!resolvedBy || !resolvedAt || !resolution) {
+        return {
+          ok: false,
+          message: '"pauseRequirements" entries with status "resolved" require resolvedBy, resolvedAt, and resolution',
+        };
+      }
+      requirements.push({ id, kind, summary, status, resolvedBy, resolvedAt, resolution });
+      continue;
+    }
+    if (status === "superseded") {
+      const supersededByRequirementId = readText(record.supersededByRequirementId);
+      const supersededAt = readText(record.supersededAt);
+      const supersededBy = readText(record.supersededBy);
+      const reason = readText(record.reason);
+      if (!supersededByRequirementId || !supersededAt || !supersededBy || !reason) {
+        return {
+          ok: false,
+          message: '"pauseRequirements" entries with status "superseded" require supersededByRequirementId, supersededAt, supersededBy, and reason',
+        };
+      }
+      requirements.push({ id, kind, summary, status, supersededByRequirementId, supersededAt, supersededBy, reason });
+      continue;
+    }
+    requirements.push({ id, kind, summary, status });
   }
   return { ok: true, requirements };
 }

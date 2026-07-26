@@ -78,6 +78,33 @@ describe("WorkItemsPanel", () => {
     expect(screen.getByText("invocation-1")).toBeInTheDocument();
   });
 
+  it("does not render a superseded pause requirement as a pending blocker", () => {
+    const items: WorkItemEntry[] = [
+      {
+        id: "work-superseded",
+        summary: "Resume governed execution after supersession",
+        status: "pending",
+        workflowProfile: "verification-heavy",
+        expectedEvidence: ["tests"],
+        providedEvidence: [],
+        verificationGates: [],
+        pauseRequirements: [
+          {
+            id: "credentials-1",
+            kind: "credentials",
+            summary: "Provide test service credentials",
+            status: "superseded",
+          },
+        ],
+        updatedAt: "2026-07-26T20:00:00.000Z",
+      },
+    ];
+
+    render(<WorkItemsPanel items={items} />);
+
+    expect(screen.queryByText("credentials: Provide test service credentials")).not.toBeInTheDocument();
+  });
+
   it("pulses only the most recently updated active work item", () => {
     const items: WorkItemEntry[] = [
       {

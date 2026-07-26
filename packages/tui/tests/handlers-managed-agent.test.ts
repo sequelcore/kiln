@@ -150,6 +150,57 @@ describe("TUI handler managed-agent projection", () => {
     ]);
   });
 
+  it("does not count a superseded pause requirement as pending for governed work items", () => {
+    const ctx = handlerContext();
+    const workUpdated = sessionEvent("evt-work-superseded", 1, "work_item_updated", {
+      workItem: {
+        id: "work-superseded",
+        summary: "Audit TUI superseded pause requirement handling.",
+        status: "pending",
+        workflowProfile: "verification-heavy",
+        pauseRequirements: [
+          {
+            id: "capability-1",
+            kind: "capability",
+            summary: "Route unavailable",
+            status: "superseded",
+            supersededByRequirementId: "capability-2",
+            supersededAt: "2026-07-26T10:00:00.000Z",
+            supersededBy: "operator",
+            reason: "Replaced by a broader requirement.",
+          },
+        ],
+        updatedAt: "2026-07-26T10:00:00.000Z",
+      },
+    });
+
+    handleActivity(
+      ctx,
+      "work_item_updated",
+      undefined,
+      undefined,
+      "pending",
+      undefined,
+      (workUpdated.payload as { readonly workItem: unknown }).workItem,
+      undefined,
+      undefined,
+      vi.fn(),
+      undefined,
+      {
+        sessionId: "session-1",
+        turnId: "session-1:turn:live",
+        sessionEvent: workUpdated,
+      },
+    );
+
+    expect(ctx.state.workItems).toEqual([
+      expect.objectContaining({
+        id: "work-superseded",
+        pendingPauseRequirementCount: 0,
+      }),
+    ]);
+  });
+
   it("feeds work-item adoption-gate session events into the live managed-agent cockpit state", () => {
     const renderSidebarManagedAgents = vi.fn();
     const ctx = handlerContext(renderSidebarManagedAgents);

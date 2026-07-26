@@ -2151,6 +2151,57 @@ describe("session-store", () => {
     ]));
   });
 
+  it("preserves a superseded pause requirement without dropping or coercing it", () => {
+    useSessionStore.getState().onSessionEvent({
+      eventId: "evt-work-superseded",
+      kilnSessionId: "session-live",
+      sequence: 1,
+      timestamp: "2026-07-26T20:00:00.000Z",
+      kind: "work_item_updated",
+      payload: {
+        operation: "update",
+        workItem: {
+          id: "work-superseded",
+          summary: "Run governed work after supersession.",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          expectedEvidence: ["tests"],
+          providedEvidence: [],
+          verificationGates: ["bun test"],
+          pauseRequirements: [
+            {
+              id: "approval-1",
+              kind: "approval",
+              summary: "Approve execution",
+              status: "superseded",
+              supersededByRequirementId: "approval-2",
+              supersededAt: "2026-07-26T20:00:00.000Z",
+              supersededBy: "operator",
+              reason: "Replaced by a broader approval requirement.",
+            },
+          ],
+          updatedAt: "2026-07-26T20:00:00.000Z",
+        },
+      },
+    });
+
+    const items = deriveWorkItems(useSessionStore.getState().timelineEntries);
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: "work-superseded",
+        pauseRequirements: [
+          expect.objectContaining({
+            id: "approval-1",
+            kind: "approval",
+            summary: "Approve execution",
+            status: "superseded",
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it("projects plan, goal, and materialization lifecycle events into the GUI timeline", () => {
     useSessionStore.getState().onSessionEvent({
       eventId: "evt-plan-submitted",

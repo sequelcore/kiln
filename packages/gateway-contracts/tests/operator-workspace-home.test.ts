@@ -330,6 +330,77 @@ describe("operator workspace home projection", () => {
     });
   });
 
+  it("does not count a superseded pause requirement as pending or blocking", () => {
+    const fixture = createOperatorCockpitBenchmarkFixture({
+      fixtureId: "workspace-home-superseded",
+      instanceCount: 1,
+      sessionCount: 1,
+      activeManagedSessionCount: 0,
+      childInvocationCount: 0,
+      eventCount: 1,
+      startedAt: "2026-07-26T12:00:00.000Z",
+    });
+    const workItemEvent: OperatorSessionEvent = {
+      eventId: "workspace-home-superseded:event:work",
+      kilnSessionId: "workspace-home-superseded:session:1",
+      sequence: 30,
+      timestamp: "2026-07-26T12:01:30.000Z",
+      kind: "work_item_updated",
+      payload: {
+        instanceId: "workspace-home-superseded:instance:1",
+        sessionId: "workspace-home-superseded:session:1",
+        workItem: {
+          id: "work-home-superseded-1",
+          summary: "Work item with a superseded pause requirement only",
+          status: "pending",
+          pauseRequirements: [
+            {
+              id: "pause-1",
+              kind: "capability",
+              summary: "Missing route",
+              status: "superseded",
+              supersededByRequirementId: "pause-2",
+              supersededAt: "2026-07-26T12:01:00.000Z",
+              supersededBy: "operator",
+              reason: "Replaced by a broader requirement.",
+            },
+          ],
+          updatedAt: "2026-07-26T12:01:30.000Z",
+        },
+      },
+    };
+    const cockpitProjection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-26T12:02:00.000Z",
+      attachTargets: [
+        {
+          instanceId: "workspace-home-superseded:instance:1",
+          label: "Local Operator",
+          kind: "local",
+          gatewayUrl: "http://127.0.0.1:4810",
+        },
+      ],
+      events: [...fixture.events, workItemEvent],
+    });
+    const cockpitView = createOperatorCockpitReadOnlyViewState({
+      projection: cockpitProjection,
+      viewState: {},
+    });
+
+    const home = createOperatorWorkspaceHomeProjection({
+      projectedAt: "2026-07-26T12:02:00.000Z",
+      cockpitView,
+      events: [...fixture.events, workItemEvent],
+    });
+
+    expect(home.work.blockedCount).toBe(0);
+    expect(home.work.items).toMatchObject([
+      {
+        workItemId: "work-home-superseded-1",
+        pendingPauseCount: 0,
+      },
+    ]);
+  });
+
   it("projects config setup diagnostics into workspace config health", () => {
     const health = createOperatorWorkspaceConfigHealthSummary({
       projectRoot: "C:/workspace/kiln",

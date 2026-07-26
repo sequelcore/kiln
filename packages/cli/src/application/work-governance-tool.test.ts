@@ -2269,6 +2269,61 @@ describe("work-governance-tool", () => {
     expect(paused?.output).toContain("capability");
   });
 
+  it("round-trips a superseded pause requirement through work_item.update", async () => {
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const updateTool = createWorkGovernanceTools(policy, { workItemStore })
+      .find((candidate) => candidate.name === "work_item.update");
+
+    const created = await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-superseded-requirement",
+        summary: "Execute after a superseded requirement is replaced.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        expectedEvidence: ["tests"],
+        pauseRequirements: [
+          {
+            id: "credential-access",
+            kind: "credentials",
+            summary: "Provide test service credentials.",
+            status: "superseded",
+            supersededByRequirementId: "credential-access-v2",
+            supersededAt: "2026-05-12T20:00:00.000Z",
+            supersededBy: "operator",
+            reason: "Replaced by a broader credential requirement.",
+          },
+          {
+            id: "credential-access-v2",
+            kind: "credentials",
+            summary: "Provide broader test service credentials.",
+            status: "pending",
+          },
+        ],
+      },
+    });
+
+    expect(created?.isError).toBe(false);
+    expect(workItemStore.get("work-superseded-requirement")?.pauseRequirements).toEqual([
+      {
+        id: "credential-access",
+        kind: "credentials",
+        summary: "Provide test service credentials.",
+        status: "superseded",
+        supersededByRequirementId: "credential-access-v2",
+        supersededAt: "2026-05-12T20:00:00.000Z",
+        supersededBy: "operator",
+        reason: "Replaced by a broader credential requirement.",
+      },
+      {
+        id: "credential-access-v2",
+        kind: "credentials",
+        summary: "Provide broader test service credentials.",
+        status: "pending",
+      },
+    ]);
+  });
+
   it("requires a managed invocation id before starting managed-delegation execution", async () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
