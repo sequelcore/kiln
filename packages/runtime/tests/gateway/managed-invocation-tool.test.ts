@@ -4672,7 +4672,7 @@ describe("managed invocation runtime tool", () => {
         id: "work-ui",
         status: "blocked",
         pauseRequirements: [{
-          id: "managed-invocation-handoff-recovery",
+          id: "managed-invocation-handoff-recovery:work-ui:visual-reference-research",
           kind: "operator_input",
           status: "pending",
         }],

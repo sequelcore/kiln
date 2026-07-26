@@ -16,6 +16,7 @@ import type {
   SessionToolUsageSnapshot,
   ExecutionSessionToolResultResourceLink,
   WorkItemExecutionScopeTransition,
+  WorkItemExecutionFailureReason,
 } from "@kilnai/core";
 import {
   CONSERVATIVE_UNKNOWN_ENVELOPE,
@@ -54,6 +55,9 @@ const MAX_STREAMED_TOOL_OUTPUT_CHARS = 64 * 1024;
 const MAX_TOOL_OUTPUT_CHUNK_CHARS = 8 * 1024;
 const RUNTIME_INVOCATION_EFFECT_RESOLVERS = buildRuntimeInvocationEffectResolvers();
 const TOOL_OUTPUT_TRUNCATION_MARKER = "\n… live output truncated; full terminal result follows …\n";
+const EXTERNAL_TOOL_FAILURE_DIAGNOSTIC_MAX_CHARS = 500;
+const EXTERNAL_TOOL_FAILURE_FALLBACK_DIAGNOSTIC =
+  "External tool failed; result withheld because safety verification could not be completed.";
 
 function parseCommandShell(value: unknown): CommandShell | undefined {
   if (typeof value !== "string") return undefined;
@@ -74,6 +78,32 @@ function parseCommandShell(value: unknown): CommandShell | undefined {
 
 function isMcpToolName(toolName: string): boolean {
   return toolName.startsWith("mcp:");
+}
+
+/**
+ * Mirrors @kilnai/core's `ExternalToolFailureResultMetadata`
+ * (packages/core/src/tools/domain/tool-result-metadata.ts). Built inline
+ * here, rather than imported, because that type's builder is not yet routed
+ * through the core package's public export barrel (packages/core/src/tools/
+ * index.ts) - see the Slice 3.2 writeup for the pending one-line follow-up.
+ * Field-for-field allowlist: no vendor names, no tool-name branches, no
+ * arbitrary payload passthrough from the raw external envelope.
+ */
+function externalToolFailureMetadata(input: {
+  readonly selector: string;
+  readonly category: WorkItemExecutionFailureReason;
+  readonly diagnostic: string;
+  readonly redacted: boolean;
+  readonly blocked: boolean;
+}): Record<string, unknown> {
+  return {
+    kind: "external_tool_failure",
+    selector: input.selector,
+    category: input.category,
+    diagnostic: input.diagnostic,
+    redacted: input.redacted,
+    blocked: input.blocked,
+  };
 }
 
 function toDangerousCommandRequest(
@@ -672,14 +702,46 @@ export class RuntimeSessionToolExecutor {
           executionAuthority,
         );
         const durationMs = Date.now() - startMs;
-        const sanitized = await this.sanitizeToolResult(execution.resultValue);
-        const metadata = extractToolResultMetadata(execution.resultValueRaw);
-        const resourceLinks = extractToolResultResourceLinks(metadata);
-        const resultOutput = extractToolResultOutput(execution.resultValueRaw);
-        const contentParts = sanitized.sanitized ? undefined : extractToolResultContentParts(execution.resultValueRaw);
         const envelopeIsError = extractToolResultIsError(execution.resultValueRaw);
         const isError = envelopeIsError === true;
         const success = !isError;
+        const isExternalFailure = isMcpToolName(normalizedToolCall.name) && isError;
+
+        let sanitized: { readonly resultValue: string; readonly resultSummary: string; readonly sanitized: boolean };
+        let metadata: Record<string, unknown> | undefined;
+        let resourceLinks: readonly ExecutionSessionToolResultResourceLink[] | undefined;
+        let resultOutput: string | undefined;
+        let contentParts: readonly ToolResultPayloadPart[] | undefined;
+
+        if (isExternalFailure) {
+          // Canonical external-tool-failure path: every field the model,
+          // events, and audit trail see is derived from the redacted
+          // diagnostic, never from the raw external envelope.
+          const rawContent = extractToolResultOutput(execution.resultValueRaw) ?? execution.resultValue;
+          const evidence = await this.buildExternalToolFailureEvidence(rawContent);
+          sanitized = {
+            resultValue: evidence.diagnostic,
+            resultSummary: evidence.diagnostic.slice(0, 200),
+            sanitized: true,
+          };
+          metadata = externalToolFailureMetadata({
+            selector: normalizedToolCall.name,
+            category: "failed",
+            diagnostic: evidence.diagnostic,
+            redacted: evidence.redacted,
+            blocked: evidence.blocked,
+          });
+          resourceLinks = undefined;
+          resultOutput = undefined;
+          contentParts = undefined;
+        } else {
+          sanitized = await this.sanitizeToolResult(execution.resultValue);
+          metadata = extractToolResultMetadata(execution.resultValueRaw);
+          resourceLinks = extractToolResultResourceLinks(metadata);
+          resultOutput = extractToolResultOutput(execution.resultValueRaw);
+          contentParts = sanitized.sanitized ? undefined : extractToolResultContentParts(execution.resultValueRaw);
+        }
+
         const resultSummary = (resultOutput ?? sanitized.resultValue).slice(0, 200);
         const executionScopeTransition = success
           ? extractExecutionScopeTransition(metadata)
@@ -762,17 +824,35 @@ export class RuntimeSessionToolExecutor {
       } catch (err) {
         const durationMs = Date.now() - startMs;
         const errMsg = err instanceof Error ? err.message : String(err);
+        const isExternalFailure = isMcpToolName(normalizedToolCall.name);
+        // An mcp: tool throwing must never surface err.message directly: it
+        // can echo raw, attacker-controlled, or secret-bearing content from
+        // the external server. Route it through the same fail-closed
+        // redaction as the isError:true envelope path instead.
+        const evidence = isExternalFailure
+          ? await this.buildExternalToolFailureEvidence(errMsg)
+          : undefined;
+        const outputContent = evidence ? evidence.diagnostic : errMsg;
+        const metadata = evidence
+          ? externalToolFailureMetadata({
+              selector: normalizedToolCall.name,
+              category: "failed",
+              diagnostic: evidence.diagnostic,
+              redacted: evidence.redacted,
+              blocked: evidence.blocked,
+            })
+          : undefined;
         this.emitToolResult(
           session.id,
           normalizedToolCall.id,
           normalizedToolCall.name,
           durationMs,
           false,
-          errMsg.slice(0, 200),
+          outputContent.slice(0, 200),
           true,
           undefined,
-          undefined,
-          undefined,
+          outputContent,
+          metadata,
           undefined,
           this.recordToolUsage(normalizedToolCall.name),
           resolvedEffect,
@@ -782,19 +862,23 @@ export class RuntimeSessionToolExecutor {
           toolCallId: normalizedToolCall.id,
           toolName: normalizedToolCall.name,
           input: normalizedToolCall.input,
+          ...(metadata ? { metadata } : {}),
           resolvedEffect,
           authority: authResult,
           durationMs,
           success: false,
-          output: errMsg,
-          resultSummary: errMsg.slice(0, 200),
+          output: outputContent,
+          resultSummary: outputContent.slice(0, 200),
         });
-        this.emitError(session.id, `Tool "${normalizedToolCall.name}" failed: ${err}`);
+        this.emitError(
+          session.id,
+          `Tool "${normalizedToolCall.name}" failed: ${isExternalFailure ? outputContent : err}`,
+        );
         this.appendAudit(normalizedToolCall.name, durationMs, "error", authResult);
         resultParts.push({
           type: "tool_result",
           toolUseId: normalizedToolCall.id,
-          content: `Error: ${errMsg}`,
+          content: isExternalFailure ? outputContent : `Error: ${errMsg}`,
           isError: true,
         });
       }
@@ -1123,16 +1207,27 @@ export class RuntimeSessionToolExecutor {
         return { hit: false };
       }
       let resultString = typeof cached === "string" ? cached : JSON.stringify(cached);
+      const isExternalCacheEntry = isMcpToolName(toolCall.name);
       if (this.deps.toolResultSanitizer) {
         try {
-          const sanitizationResult = await this.deps.toolResultSanitizer.sanitize(resultString);
+          const sanitizationResult = isExternalCacheEntry
+            ? await this.deps.toolResultSanitizer.sanitizeForPersistedEvidence(resultString)
+            : await this.deps.toolResultSanitizer.sanitize(resultString);
           if (sanitizationResult.sanitized) {
             resultString = sanitizationResult.content;
           }
         } catch (err) {
           const sanitizerError = err instanceof Error ? err.message : String(err);
           this.emitError(sessionId, `Tool result sanitizer failed for cached tool "${toolCall.name}": ${sanitizerError}`);
+          // Non-mcp cached results keep their existing fail-open behavior
+          // (unchanged regression contract); a cached mcp: result must never
+          // surface raw content, so it falls back to a fixed diagnostic.
+          if (isExternalCacheEntry) {
+            resultString = EXTERNAL_TOOL_FAILURE_FALLBACK_DIAGNOSTIC;
+          }
         }
+      } else if (isExternalCacheEntry) {
+        resultString = EXTERNAL_TOOL_FAILURE_FALLBACK_DIAGNOSTIC;
       }
       this.emitToolCacheHit(sessionId, toolCall.name, cacheTtl);
       this.emitToolResult(
@@ -1217,6 +1312,41 @@ export class RuntimeSessionToolExecutor {
       resultValue: typeof resultValueRaw === "string" ? resultValueRaw : JSON.stringify(resultValueRaw),
       retryAttempt,
     };
+  }
+
+  /**
+   * Canonical redaction path for evidence persisted from a failed external
+   * (`mcp:`) tool: unlike `sanitizeToolResult()`, this never returns raw
+   * content. With no sanitizer configured, or if the sanitizer path itself
+   * throws unexpectedly, a fixed safe diagnostic is used instead of the raw
+   * external payload.
+   */
+  private async buildExternalToolFailureEvidence(rawContent: string): Promise<{
+    readonly diagnostic: string;
+    readonly redacted: boolean;
+    readonly blocked: boolean;
+  }> {
+    if (!this.deps.toolResultSanitizer) {
+      return {
+        diagnostic: EXTERNAL_TOOL_FAILURE_FALLBACK_DIAGNOSTIC,
+        redacted: true,
+        blocked: true,
+      };
+    }
+    try {
+      const sanitized = await this.deps.toolResultSanitizer.sanitizeForPersistedEvidence(rawContent);
+      return {
+        diagnostic: sanitized.content.slice(0, EXTERNAL_TOOL_FAILURE_DIAGNOSTIC_MAX_CHARS),
+        redacted: sanitized.sanitized,
+        blocked: sanitized.blocked,
+      };
+    } catch {
+      return {
+        diagnostic: EXTERNAL_TOOL_FAILURE_FALLBACK_DIAGNOSTIC,
+        redacted: true,
+        blocked: true,
+      };
+    }
   }
 
   private async sanitizeToolResult(resultValue: unknown): Promise<{

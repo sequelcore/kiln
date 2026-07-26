@@ -1,12 +1,35 @@
 import { containsFrontendReferenceEvidence } from "@kilnai/core";
-import type { ManagedAgentResultHandoff, WorkItemExecutionFailureReason } from "@kilnai/core";
+import type {
+  ManagedAgentResultHandoff,
+  WorkItemExecutionFailureReason,
+  WorkItemPauseRequirement,
+  WorkItemPauseRequirementKind,
+  WorkItemPendingPauseRequirement,
+} from "@kilnai/core";
 
 export const VISUAL_REFERENCE_PHASE_ID = "visual-reference-research";
+
+/**
+ * Optional evidence a caller can supply so a rebuilt recovery pause
+ * requirement supersedes a prior one for the same work item instead of
+ * colliding with it (see `derivePauseRequirementId` /
+ * `supersedeRecoveryPauseRequirements` below). Not yet threaded through by
+ * every call site - callers that omit this still get a deterministic,
+ * unique-per-invocation id, they just cannot express supersession against
+ * requirements they never showed this function.
+ */
+export interface ManagedInvocationPhaseRecoveryEvidenceOptions {
+  readonly priorPauseRequirements?: readonly WorkItemPauseRequirement[];
+  readonly now?: () => string;
+}
+
+const MANAGED_INVOCATION_RECOVERY_ACTOR = "runtime:managed-invocation-recovery";
 
 export function buildManagedInvocationPhaseRecovery(
   request: Record<string, unknown> | undefined,
   failureReason: WorkItemExecutionFailureReason = "failed",
   resultHandoff?: ManagedAgentResultHandoff,
+  evidenceOptions?: ManagedInvocationPhaseRecoveryEvidenceOptions,
 ): Record<string, unknown> | undefined {
   return buildManagedInvocationPhaseAction(request, {
     status: "phase_evidence_required",
@@ -14,6 +37,8 @@ export function buildManagedInvocationPhaseRecovery(
     includeResultResources: resultHandoff !== undefined,
     ...(resultHandoff ? { resultHandoff } : {}),
     failureReason,
+    priorPauseRequirements: evidenceOptions?.priorPauseRequirements,
+    now: evidenceOptions?.now,
   });
 }
 
@@ -58,6 +83,7 @@ export function buildManagedInvocationPhaseCompletion(
 export function buildManagedInvocationPhaseHandoffRecovery(
   request: Record<string, unknown> | undefined,
   resultHandoff: ManagedAgentResultHandoff | undefined,
+  evidenceOptions?: ManagedInvocationPhaseRecoveryEvidenceOptions,
 ): Record<string, unknown> | undefined {
   if (resolvePhaseEvidenceDisposition(request, resultHandoff)) {
     return undefined;
@@ -68,6 +94,8 @@ export function buildManagedInvocationPhaseHandoffRecovery(
     includeResultResources: true,
     resultHandoff,
     failureReason: resultHandoff?.structuredResult?.status === "cancelled" ? "cancelled" : "failed",
+    priorPauseRequirements: evidenceOptions?.priorPauseRequirements,
+    now: evidenceOptions?.now,
   });
 }
 
@@ -81,6 +109,8 @@ function buildManagedInvocationPhaseAction(
     readonly failureReason?: WorkItemExecutionFailureReason;
     readonly invocationId?: string;
     readonly evidenceDisposition?: PhaseEvidenceDisposition;
+    readonly priorPauseRequirements?: readonly WorkItemPauseRequirement[];
+    readonly now?: () => string;
   },
 ): Record<string, unknown> | undefined {
   const phase = readRecord(request?.executionPhase);
@@ -140,13 +170,15 @@ function buildManagedInvocationPhaseAction(
           id: workItemId,
           status: "blocked",
           summary: `Managed invocation did not produce a verified handoff for ${summary}`,
-          pauseRequirements: [{
-            id: "managed-invocation-capability",
-            kind: "capability",
-            summary: options.resultHandoff?.summary
+          pauseRequirements: recoveryPauseRequirements(
+            MANAGED_INVOCATION_CAPABILITY_PAUSE_BASE_ID,
+            "capability",
+            options.resultHandoff?.summary
               ?? `Managed invocation ${options.failureReason ?? "failed"}: ${options.reason}`,
-            status: "pending",
-          }],
+            request,
+            options.priorPauseRequirements,
+            options.now,
+          ),
         },
         ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
       };
@@ -216,12 +248,14 @@ function buildManagedInvocationPhaseAction(
             id: workItemId,
             status: "blocked",
             summary: `Managed invocation recovery is blocked for ${summary}`,
-            pauseRequirements: [{
-              id: "managed-invocation-handoff-recovery",
-              kind: "operator_input",
-              summary: "Managed child completed without substantive phase evidence, and source resources did not contain qualifying governed evidence after inspection.",
-              status: "pending",
-            }],
+            pauseRequirements: recoveryPauseRequirements(
+              MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID,
+              "operator_input",
+              "Managed child completed without substantive phase evidence, and source resources did not contain qualifying governed evidence after inspection.",
+              request,
+              options.priorPauseRequirements,
+              options.now,
+            ),
           },
           blockedWhen: "Use blockedWorkItemUpdateInputTemplate if sourceResourceUris and local recovery cannot produce qualifying evidence. Do not record providedEvidence or continue execution in that case.",
         }
@@ -367,6 +401,83 @@ function visualReferenceRecoveryContract(requiredReadPaths: readonly string[]): 
       "If sourceResourceUris and local inspection still do not produce qualifying evidence, use blockedWorkItemUpdateInputTemplate instead of recording providedEvidence.",
     ],
   };
+}
+
+const MANAGED_INVOCATION_CAPABILITY_PAUSE_BASE_ID = "managed-invocation-capability";
+const MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID = "managed-invocation-handoff-recovery";
+
+/**
+ * Deterministic, replay-stable id for a recovery pause requirement: the same
+ * request always derives the same id, and two distinct invocation attempts
+ * (or distinct execution phases) derive distinct ids, so a retry can never
+ * silently overwrite a prior attempt's blocking evidence.
+ *
+ * Prefers `request.attemptId` - documented as "governed work item execution
+ * attempt id for final-phase failure closeout", i.e. exactly the
+ * completionTool === "work_item.execution.finish" site - falling back to the
+ * execution phase id for intermediate (work_item.update) phases. Neither is
+ * guaranteed present on every call; with neither, the id degrades to
+ * workItemId-only scoping, which can still collide across repeated failures
+ * of the same unscoped phase. Timestamps and counters are deliberately never
+ * used as part of this id: it must be derivable identically on replay.
+ */
+function derivePauseRequirementId(
+  baseId: string,
+  request: Record<string, unknown> | undefined,
+): string {
+  const workItemId = readText(request?.workItemId) ?? "unscoped";
+  const attemptId = readText(request?.attemptId);
+  const phase = readRecord(request?.executionPhase);
+  const phaseId = readText(phase?.id);
+  const discriminator = attemptId ?? phaseId;
+  return discriminator ? `${baseId}:${workItemId}:${discriminator}` : `${baseId}:${workItemId}`;
+}
+
+/**
+ * Builds the pause requirement list for a recovery template. When the
+ * caller supplies `priorPauseRequirements` (the work item's current list),
+ * any still-pending requirement from an earlier occurrence of this same
+ * recovery family (same `baseId` prefix) is transitioned to `superseded`
+ * and kept - never dropped, never silently overwritten - pointing at the
+ * new requirement's id. Replaying the exact same request is idempotent: it
+ * resolves to the same id, so no supersession or duplicate entry is added.
+ */
+function recoveryPauseRequirements(
+  baseId: string,
+  kind: WorkItemPauseRequirementKind,
+  summary: string,
+  request: Record<string, unknown> | undefined,
+  priorPauseRequirements: readonly WorkItemPauseRequirement[] | undefined,
+  now: (() => string) | undefined,
+): WorkItemPauseRequirement[] {
+  const id = derivePauseRequirementId(baseId, request);
+  const prior = priorPauseRequirements ?? [];
+  const alreadyPresent = prior.some((requirement) => requirement.id === id);
+  const clock = now ?? (() => new Date().toISOString());
+  const carried = prior.map((requirement): WorkItemPauseRequirement => {
+    if (
+      requirement.id === id
+      || requirement.status !== "pending"
+      || !requirement.id.startsWith(`${baseId}:`)
+    ) {
+      return requirement;
+    }
+    return {
+      id: requirement.id,
+      kind: requirement.kind,
+      summary: requirement.summary,
+      status: "superseded",
+      supersededByRequirementId: id,
+      supersededAt: clock(),
+      supersededBy: MANAGED_INVOCATION_RECOVERY_ACTOR,
+      reason: `Superseded by a new managed invocation recovery requirement (${id}).`,
+    };
+  });
+  if (alreadyPresent) {
+    return carried;
+  }
+  const newRequirement: WorkItemPendingPauseRequirement = { id, kind, summary, status: "pending" };
+  return [...carried, newRequirement];
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

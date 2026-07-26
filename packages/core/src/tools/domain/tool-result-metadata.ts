@@ -1,5 +1,12 @@
-import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemStatus } from "../../work-governance/index.js";
+import type {
+  GoalRun,
+  WorkItem,
+  WorkItemExecutionAttempt,
+  WorkItemExecutionFailureReason,
+  WorkItemStatus,
+} from "../../work-governance/index.js";
 import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
+import type { ManagedAgentExternalRuntimeAttachmentIdentity } from "../../agents/managed-invocation/index.js";
 import type { TemporalEventEvidenceRequirement, TemporalEvidenceDecision } from "./temporal-evidence.js";
 import type {
   WebSearchDomainPostcondition,
@@ -549,6 +556,45 @@ export interface ResourceToolResultMetadata<TToolName extends ResourceToolName =
     | "authorization_denied";
 }
 
+/**
+ * Provider-neutral disposition of a failed `mcp:`-namespaced external tool
+ * call. This is an ALLOWLIST, not a passthrough of the raw tool envelope's
+ * metadata: only the fields below may appear here. No vendor names, no
+ * tool-name branches, no arbitrary payloads. `diagnostic` must already be
+ * redacted and bounded by the caller before this is constructed.
+ */
+export type ExternalToolFailureCategory = WorkItemExecutionFailureReason;
+
+export interface ExternalToolFailureResultMetadata {
+  readonly kind: "external_tool_failure";
+  /** Exact qualified selector, e.g. `mcp:<server>:<kind>:<name>`. */
+  readonly selector: string;
+  readonly category: ExternalToolFailureCategory;
+  readonly attachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
+  readonly diagnostic: string;
+  readonly redacted: boolean;
+  readonly blocked: boolean;
+  readonly verbosity?: ToolOutputVerbosity;
+}
+
+export function externalToolFailureMetadata(
+  metadata: Omit<ExternalToolFailureResultMetadata, "kind">,
+): ExternalToolFailureResultMetadata {
+  if (!metadata.selector.startsWith("mcp:")) {
+    throw new Error("External tool failure metadata requires a qualified mcp: selector.");
+  }
+  return {
+    kind: "external_tool_failure",
+    selector: metadata.selector,
+    category: metadata.category,
+    diagnostic: metadata.diagnostic,
+    redacted: metadata.redacted,
+    blocked: metadata.blocked,
+    ...(metadata.attachment ? { attachment: metadata.attachment } : {}),
+    ...(metadata.verbosity ? { verbosity: metadata.verbosity } : {}),
+  };
+}
+
 export interface MemoryToolResultMetadata<TToolName extends MemoryToolName = MemoryToolName> {
   readonly toolName: TToolName;
   readonly kind: "memory";
@@ -581,7 +627,8 @@ export type ToolSpecificResultMetadata =
   | TaskStateToolResultMetadata
   | ElicitationToolResultMetadata
   | MemoryToolResultMetadata
-  | ResourceToolResultMetadata;
+  | ResourceToolResultMetadata
+  | ExternalToolFailureResultMetadata;
 
 export type ToolResultMetadata = ToolSpecificResultMetadata & ToolResultResourceLinkMetadata;
 
