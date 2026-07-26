@@ -3,13 +3,25 @@ import type { WorkItemPauseRequirement } from "@kilnai/core";
 import {
   buildManagedInvocationPhaseRecovery,
   buildManagedInvocationPhaseHandoffRecovery,
+  isManagedInvocationRecoveryPauseRequirementId,
+  MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID,
 } from "../../../src/agents/managed-invocation/phase-recovery.js";
 
+// Production shape note: `work-governance-tool.ts` (the real producer of the
+// `request` these functions receive) always sets `executionPhase.id`, but
+// NEVER sets `request.attemptId` at recovery-construction time - attemptId is
+// only read back from a managed invocation's own resumed output AFTER it has
+// already succeeded (attached-runtime-tool-surface.ts). These fixtures match
+// that real shape: a phase id, no attemptId. Per-attempt distinction comes
+// from `recoveryInvocationId`, the discriminator the real attached-runtime
+// caller derives from its own tool-call identity and passes through
+// `evidenceOptions` - never from a fabricated `attemptId`.
 function executionFinishRequest(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
     workItemId: "work-1",
     goalRunId: "goal-1",
     executionPhase: {
+      id: "final-phase",
       completionTool: "work_item.execution.finish",
       expectedEvidence: ["tests"],
     },
@@ -37,32 +49,50 @@ function readPauseRequirements(recovery: Record<string, unknown> | undefined): r
   return template?.pauseRequirements ?? [];
 }
 
+describe("isManagedInvocationRecoveryPauseRequirementId", () => {
+  it("matches the bare legacy literal and its suffixed derivations, and rejects unrelated ids", () => {
+    expect(isManagedInvocationRecoveryPauseRequirementId("managed-invocation-capability", "managed-invocation-capability")).toBe(true);
+    expect(isManagedInvocationRecoveryPauseRequirementId("managed-invocation-capability:work-1:x", "managed-invocation-capability")).toBe(true);
+    expect(isManagedInvocationRecoveryPauseRequirementId("managed-invocation-capability-other", "managed-invocation-capability")).toBe(false);
+    expect(isManagedInvocationRecoveryPauseRequirementId("operator-confirmation", "managed-invocation-capability")).toBe(false);
+  });
+});
+
 describe("buildManagedInvocationPhaseRecovery - execution.finish pause requirement id", () => {
-  it("derives a deterministic id from the request's attemptId", () => {
-    const recovery = buildManagedInvocationPhaseRecovery(
-      executionFinishRequest({ attemptId: "goal-1:work-1:attempt:1" }),
-      "failed",
-    );
+  it("derives a deterministic id from the caller-supplied recoveryInvocationId (request carries no attemptId, matching production)", () => {
+    const request = executionFinishRequest();
+    expect(request.attemptId).toBeUndefined();
+    const recovery = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
     const [requirement] = readPauseRequirements(recovery);
-    expect(requirement?.id).toBe("managed-invocation-capability:work-1:goal-1:work-1:attempt:1");
+    expect(requirement?.id).toBe("managed-invocation-capability:work-1:tool-call-1:managed-invocation:1");
   });
 
-  it("replaying the same request produces the identical id (determinism, no timestamps/counters)", () => {
-    const request = executionFinishRequest({ attemptId: "goal-1:work-1:attempt:1" });
-    const first = buildManagedInvocationPhaseRecovery(request, "failed");
-    const second = buildManagedInvocationPhaseRecovery(request, "failed");
+  it("replaying the same recovery attempt produces the identical id (determinism, no timestamps/counters)", () => {
+    const request = executionFinishRequest();
+    const first = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
+    const second = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
     expect(readPauseRequirements(first)[0]?.id).toBe(readPauseRequirements(second)[0]?.id);
   });
 
-  it("two distinct failed attempts on the same work item derive distinct ids", () => {
-    const attemptOne = buildManagedInvocationPhaseRecovery(
-      executionFinishRequest({ attemptId: "goal-1:work-1:attempt:1" }),
-      "failed",
-    );
-    const attemptTwo = buildManagedInvocationPhaseRecovery(
-      executionFinishRequest({ attemptId: "goal-1:work-1:attempt:2" }),
-      "failed",
-    );
+  it("two distinct real failed attempts of the SAME work item and SAME phase derive distinct ids", () => {
+    // Both attempts share the identical request (same work item, same phase,
+    // no attemptId) - exactly what the real attached-runtime recovery path
+    // builds on every failure of that phase. Only the caller-supplied
+    // recoveryInvocationId (derived from each distinct outer tool call)
+    // differs, mirroring two separate real retries.
+    const request = executionFinishRequest();
+    const attemptOne = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
+    const attemptTwo = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      recoveryInvocationId: "tool-call-2:managed-invocation:1",
+    });
     const idOne = readPauseRequirements(attemptOne)[0]?.id;
     const idTwo = readPauseRequirements(attemptTwo)[0]?.id;
     expect(idOne).toBeDefined();
@@ -72,27 +102,28 @@ describe("buildManagedInvocationPhaseRecovery - execution.finish pause requireme
 });
 
 describe("buildManagedInvocationPhaseRecovery - regression guard for the last-wins normalizer collision", () => {
-  it("keeps BOTH blocking requirements from two successive failed invocations on the same work item", () => {
-    const attemptOne = buildManagedInvocationPhaseRecovery(
-      executionFinishRequest({ attemptId: "goal-1:work-1:attempt:1" }),
-      "failed",
-    );
+  it("keeps BOTH blocking requirements from two successive failed invocations of the same work item and phase, without ever fabricating an attemptId", () => {
+    const request = executionFinishRequest();
+    const attemptOne = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
     const firstRequirement = readPauseRequirements(attemptOne)[0]!;
 
-    // The runtime persists this template's pauseRequirements to the work item;
-    // the second failed attempt is built while the work item still carries the
-    // first attempt's still-pending requirement.
-    const attemptTwo = buildManagedInvocationPhaseRecovery(
-      executionFinishRequest({ attemptId: "goal-1:work-1:attempt:2" }),
-      "failed",
-      undefined,
-      { priorPauseRequirements: [firstRequirement] },
-    );
+    // The runtime persists this template's pauseRequirements to the work
+    // item; a second real failure of the identical work item/phase is built
+    // while the work item still carries the first attempt's still-pending
+    // requirement. The only thing that differs between the two failures is
+    // the outer tool call that produced them - never a hand-supplied
+    // attemptId, which the real request never carries.
+    const attemptTwo = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      priorPauseRequirements: [firstRequirement],
+      recoveryInvocationId: "tool-call-2:managed-invocation:1",
+    });
     const requirements = readPauseRequirements(attemptTwo);
 
     // Both the (now superseded) first attempt's requirement and the new
-    // second attempt's requirement are present - neither was dropped nor
-    // silently overwritten.
+    // second attempt's requirement are present - neither was dropped,
+    // silently overwritten, nor collided into one id.
     expect(requirements).toHaveLength(2);
     expect(requirements.find((requirement) => requirement.id === firstRequirement.id)).toMatchObject({
       status: "superseded",
@@ -101,25 +132,44 @@ describe("buildManagedInvocationPhaseRecovery - regression guard for the last-wi
       status: "pending",
     });
   });
+
+  it("a genuinely new failure after a prior requirement in this family was already resolved still yields a live pending blocker", () => {
+    const resolvedPrior: WorkItemPauseRequirement = {
+      id: "managed-invocation-capability:work-1:tool-call-1:managed-invocation:1",
+      kind: "capability",
+      summary: "Prior managed invocation failure, since resolved by the operator.",
+      status: "resolved",
+    };
+    const recovery = buildManagedInvocationPhaseRecovery(executionFinishRequest(), "failed", undefined, {
+      priorPauseRequirements: [resolvedPrior],
+      recoveryInvocationId: "tool-call-2:managed-invocation:1",
+    });
+    const requirements = readPauseRequirements(recovery);
+
+    // The resolved prior requirement is left exactly as it was - never
+    // resuperseded or mutated - and the new, genuinely distinct failure still
+    // produces a live pending blocker rather than silently stopping blocking.
+    expect(requirements).toHaveLength(2);
+    expect(requirements.find((requirement) => requirement.id === resolvedPrior.id)).toEqual(resolvedPrior);
+    expect(requirements.find((requirement) => requirement.id !== resolvedPrior.id)).toMatchObject({
+      status: "pending",
+    });
+  });
 });
 
 describe("buildManagedInvocationPhaseRecovery - supersession", () => {
   it("a new recovery requirement supersedes the prior one and links to its id", () => {
-    const attemptOne = buildManagedInvocationPhaseRecovery(
-      executionFinishRequest({ attemptId: "goal-1:work-1:attempt:1" }),
-      "failed",
-    );
+    const request = executionFinishRequest();
+    const attemptOne = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
     const firstRequirement = readPauseRequirements(attemptOne)[0]!;
 
-    const attemptTwo = buildManagedInvocationPhaseRecovery(
-      executionFinishRequest({ attemptId: "goal-1:work-1:attempt:2" }),
-      "failed",
-      undefined,
-      {
-        priorPauseRequirements: [firstRequirement],
-        now: () => "2026-07-01T00:00:00.000Z",
-      },
-    );
+    const attemptTwo = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      priorPauseRequirements: [firstRequirement],
+      recoveryInvocationId: "tool-call-2:managed-invocation:1",
+      now: () => "2026-07-01T00:00:00.000Z",
+    });
     const requirements = readPauseRequirements(attemptTwo);
     const superseded = requirements.find((requirement) => requirement.id === firstRequirement.id);
     const replacement = requirements.find((requirement) => requirement.id !== firstRequirement.id)!;
@@ -131,13 +181,16 @@ describe("buildManagedInvocationPhaseRecovery - supersession", () => {
     });
   });
 
-  it("does not duplicate or resupersede when the exact same request is replayed", () => {
-    const request = executionFinishRequest({ attemptId: "goal-1:work-1:attempt:1" });
-    const first = buildManagedInvocationPhaseRecovery(request, "failed");
+  it("does not duplicate or resupersede when the exact same recovery attempt is replayed", () => {
+    const request = executionFinishRequest();
+    const first = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
     const firstRequirement = readPauseRequirements(first)[0]!;
 
     const replay = buildManagedInvocationPhaseRecovery(request, "failed", undefined, {
       priorPauseRequirements: [firstRequirement],
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
     });
     const requirements = readPauseRequirements(replay);
 
@@ -152,23 +205,41 @@ describe("buildManagedInvocationPhaseRecovery - supersession", () => {
       summary: "Confirm whether to continue.",
       status: "pending",
     };
-    const recovery = buildManagedInvocationPhaseRecovery(
-      executionFinishRequest({ attemptId: "goal-1:work-1:attempt:1" }),
-      "failed",
-      undefined,
-      { priorPauseRequirements: [unrelated] },
-    );
+    const recovery = buildManagedInvocationPhaseRecovery(executionFinishRequest(), "failed", undefined, {
+      priorPauseRequirements: [unrelated],
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
     const requirements = readPauseRequirements(recovery);
     expect(requirements).toHaveLength(2);
     expect(requirements.find((requirement) => requirement.id === "operator-confirmation")).toEqual(unrelated);
   });
+
+  it("supersedes a legacy bare-literal pause requirement id persisted before per-attempt scoping existed", () => {
+    const legacyPrior: WorkItemPauseRequirement = {
+      id: "managed-invocation-capability",
+      kind: "capability",
+      summary: "Legacy pre-supersession blocking requirement.",
+      status: "pending",
+    };
+    const recovery = buildManagedInvocationPhaseRecovery(executionFinishRequest(), "failed", undefined, {
+      priorPauseRequirements: [legacyPrior],
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
+    const requirements = readPauseRequirements(recovery);
+
+    expect(requirements).toHaveLength(2);
+    expect(requirements.find((requirement) => requirement.id === legacyPrior.id)).toMatchObject({
+      status: "superseded",
+      supersededByRequirementId: expect.stringContaining("managed-invocation-capability:work-1:"),
+    });
+  });
 });
 
 describe("buildManagedInvocationPhaseHandoffRecovery - intermediate phase pause requirement id", () => {
-  it("derives a deterministic id from the request's execution phase id", () => {
+  it("derives a deterministic id from the request's execution phase id when no recoveryInvocationId is supplied", () => {
     const recovery = buildManagedInvocationPhaseHandoffRecovery(updateRequest(), undefined);
     const [requirement] = readPauseRequirements(recovery);
-    expect(requirement?.id).toBe("managed-invocation-handoff-recovery:work-1:visual-reference-research");
+    expect(requirement?.id).toBe(`${MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID}:work-1:visual-reference-research`);
   });
 
   it("two distinct execution phases on the same work item derive distinct ids", () => {
@@ -183,26 +254,46 @@ describe("buildManagedInvocationPhaseHandoffRecovery - intermediate phase pause 
     expect(readPauseRequirements(first)[0]?.id).not.toBe(readPauseRequirements(second)[0]?.id);
   });
 
-  it("supersedes a prior handoff-recovery requirement for a retried phase, keeping both", () => {
+  it("two distinct real failures of the SAME phase derive distinct ids via recoveryInvocationId and keep both blockers", () => {
+    // Same request every time (same phase, no attemptId) - only the caller's
+    // recoveryInvocationId differs between two genuinely separate retries of
+    // this phase, exactly mirroring the attached-runtime recovery path.
     const request = updateRequest();
-    const attemptOne = buildManagedInvocationPhaseHandoffRecovery(request, undefined);
+    const attemptOne = buildManagedInvocationPhaseHandoffRecovery(request, undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
     const firstRequirement = readPauseRequirements(attemptOne)[0]!;
 
-    // A retry of the SAME phase re-derives the same id (idempotent replay);
-    // simulate a genuinely distinct retry via a different attemptId-bearing
-    // request so the ids diverge, matching how the runtime would carry state
-    // forward for a phase that failed, was retried under a new attempt, and
-    // failed again.
-    const attemptTwo = buildManagedInvocationPhaseHandoffRecovery(
-      updateRequest({ attemptId: "goal-1:work-1:attempt:2" }),
-      undefined,
-      { priorPauseRequirements: [firstRequirement] },
-    );
+    const attemptTwo = buildManagedInvocationPhaseHandoffRecovery(request, undefined, {
+      priorPauseRequirements: [firstRequirement],
+      recoveryInvocationId: "tool-call-2:managed-invocation:1",
+    });
     const requirements = readPauseRequirements(attemptTwo);
-    // attemptId takes precedence over phase id in id derivation, so this
-    // resolves to a distinct id from the first (phase-id-only) attempt.
+
     expect(requirements).toHaveLength(2);
     expect(requirements.find((requirement) => requirement.id === firstRequirement.id)).toMatchObject({
+      status: "superseded",
+    });
+    expect(requirements.find((requirement) => requirement.id !== firstRequirement.id)).toMatchObject({
+      status: "pending",
+    });
+  });
+
+  it("supersedes a legacy bare-literal handoff-recovery pause requirement id", () => {
+    const legacyPrior: WorkItemPauseRequirement = {
+      id: MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID,
+      kind: "operator_input",
+      summary: "Legacy pre-supersession handoff-recovery requirement.",
+      status: "pending",
+    };
+    const recovery = buildManagedInvocationPhaseHandoffRecovery(updateRequest(), undefined, {
+      priorPauseRequirements: [legacyPrior],
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
+    const requirements = readPauseRequirements(recovery);
+
+    expect(requirements).toHaveLength(2);
+    expect(requirements.find((requirement) => requirement.id === legacyPrior.id)).toMatchObject({
       status: "superseded",
     });
   });

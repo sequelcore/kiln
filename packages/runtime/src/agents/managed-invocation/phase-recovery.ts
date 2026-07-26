@@ -20,6 +20,17 @@ export const VISUAL_REFERENCE_PHASE_ID = "visual-reference-research";
  */
 export interface ManagedInvocationPhaseRecoveryEvidenceOptions {
   readonly priorPauseRequirements?: readonly WorkItemPauseRequirement[];
+  /**
+   * A replay-stable identity for THIS specific recovery construction attempt
+   * - e.g. derived from the managed invocation's own tool-call identity -
+   * supplied by callers that have one. `request.attemptId` is only ever
+   * populated at the `work_item.execution.finish` closeout site AFTER a
+   * managed invocation has already resumed successfully; it does not exist
+   * at failure-construction time on the attached-runtime recovery path, so
+   * callers on that path must supply this instead of relying on the
+   * `attemptId` fallback to distinguish one failed attempt from another.
+   */
+  readonly recoveryInvocationId?: string;
   readonly now?: () => string;
 }
 
@@ -38,6 +49,7 @@ export function buildManagedInvocationPhaseRecovery(
     ...(resultHandoff ? { resultHandoff } : {}),
     failureReason,
     priorPauseRequirements: evidenceOptions?.priorPauseRequirements,
+    recoveryInvocationId: evidenceOptions?.recoveryInvocationId,
     now: evidenceOptions?.now,
   });
 }
@@ -95,6 +107,7 @@ export function buildManagedInvocationPhaseHandoffRecovery(
     resultHandoff,
     failureReason: resultHandoff?.structuredResult?.status === "cancelled" ? "cancelled" : "failed",
     priorPauseRequirements: evidenceOptions?.priorPauseRequirements,
+    recoveryInvocationId: evidenceOptions?.recoveryInvocationId,
     now: evidenceOptions?.now,
   });
 }
@@ -110,6 +123,7 @@ function buildManagedInvocationPhaseAction(
     readonly invocationId?: string;
     readonly evidenceDisposition?: PhaseEvidenceDisposition;
     readonly priorPauseRequirements?: readonly WorkItemPauseRequirement[];
+    readonly recoveryInvocationId?: string;
     readonly now?: () => string;
   },
 ): Record<string, unknown> | undefined {
@@ -177,6 +191,7 @@ function buildManagedInvocationPhaseAction(
               ?? `Managed invocation ${options.failureReason ?? "failed"}: ${options.reason}`,
             request,
             options.priorPauseRequirements,
+            options.recoveryInvocationId,
             options.now,
           ),
         },
@@ -254,6 +269,7 @@ function buildManagedInvocationPhaseAction(
               "Managed child completed without substantive phase evidence, and source resources did not contain qualifying governed evidence after inspection.",
               request,
               options.priorPauseRequirements,
+              options.recoveryInvocationId,
               options.now,
             ),
           },
@@ -404,7 +420,19 @@ function visualReferenceRecoveryContract(requiredReadPaths: readonly string[]): 
 }
 
 const MANAGED_INVOCATION_CAPABILITY_PAUSE_BASE_ID = "managed-invocation-capability";
-const MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID = "managed-invocation-handoff-recovery";
+export const MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID = "managed-invocation-handoff-recovery";
+
+/**
+ * True when `id` belongs to the recovery pause requirement family rooted at
+ * `baseId`: either the bare legacy literal (persisted before per-attempt
+ * scoping existed) or one of its `${baseId}:`-prefixed derivations. Exported
+ * so every caller that needs to recognise this family (e.g. the session
+ * orchestrator's handoff-recovery resolution check) shares one owner for the
+ * id scheme instead of mirroring the base id and match rule locally.
+ */
+export function isManagedInvocationRecoveryPauseRequirementId(id: string, baseId: string): boolean {
+  return id === baseId || id.startsWith(`${baseId}:`);
+}
 
 /**
  * Deterministic, replay-stable id for a recovery pause requirement: the same
@@ -412,24 +440,30 @@ const MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID = "managed-invocation-ha
  * (or distinct execution phases) derive distinct ids, so a retry can never
  * silently overwrite a prior attempt's blocking evidence.
  *
- * Prefers `request.attemptId` - documented as "governed work item execution
- * attempt id for final-phase failure closeout", i.e. exactly the
- * completionTool === "work_item.execution.finish" site - falling back to the
- * execution phase id for intermediate (work_item.update) phases. Neither is
- * guaranteed present on every call; with neither, the id degrades to
- * workItemId-only scoping, which can still collide across repeated failures
- * of the same unscoped phase. Timestamps and counters are deliberately never
- * used as part of this id: it must be derivable identically on replay.
+ * Prefers the caller-supplied `recoveryInvocationId` - a replay-stable
+ * per-attempt identity the caller derives from the managed invocation's own
+ * tool-call identity - because `request.attemptId` is only ever populated
+ * AFTER a managed invocation has already resumed successfully (at the
+ * `work_item.execution.finish` closeout site); it does not exist yet at
+ * failure-construction time on the attached-runtime recovery path, so relying
+ * on it there would let two distinct failed attempts of the same work
+ * item/phase collide on one id. Falls back to `request.attemptId`, then the
+ * execution phase id, for callers that do not supply `recoveryInvocationId`.
+ * With none of the three, the id degrades to workItemId-only scoping, which
+ * can still collide across repeated failures of the same unscoped phase.
+ * Timestamps and counters are deliberately never used as part of this id: it
+ * must be derivable identically on replay.
  */
 function derivePauseRequirementId(
   baseId: string,
   request: Record<string, unknown> | undefined,
+  recoveryInvocationId: string | undefined,
 ): string {
   const workItemId = readText(request?.workItemId) ?? "unscoped";
   const attemptId = readText(request?.attemptId);
   const phase = readRecord(request?.executionPhase);
   const phaseId = readText(phase?.id);
-  const discriminator = attemptId ?? phaseId;
+  const discriminator = recoveryInvocationId ?? attemptId ?? phaseId;
   return discriminator ? `${baseId}:${workItemId}:${discriminator}` : `${baseId}:${workItemId}`;
 }
 
@@ -437,10 +471,12 @@ function derivePauseRequirementId(
  * Builds the pause requirement list for a recovery template. When the
  * caller supplies `priorPauseRequirements` (the work item's current list),
  * any still-pending requirement from an earlier occurrence of this same
- * recovery family (same `baseId` prefix) is transitioned to `superseded`
- * and kept - never dropped, never silently overwritten - pointing at the
- * new requirement's id. Replaying the exact same request is idempotent: it
- * resolves to the same id, so no supersession or duplicate entry is added.
+ * recovery family (the bare `baseId` legacy literal, or any `${baseId}:`
+ * derivation - see `isManagedInvocationRecoveryPauseRequirementId`) is
+ * transitioned to `superseded` and kept - never dropped, never silently
+ * overwritten - pointing at the new requirement's id. Replaying the exact
+ * same request is idempotent: it resolves to the same id, so no supersession
+ * or duplicate entry is added.
  */
 function recoveryPauseRequirements(
   baseId: string,
@@ -448,9 +484,10 @@ function recoveryPauseRequirements(
   summary: string,
   request: Record<string, unknown> | undefined,
   priorPauseRequirements: readonly WorkItemPauseRequirement[] | undefined,
+  recoveryInvocationId: string | undefined,
   now: (() => string) | undefined,
 ): WorkItemPauseRequirement[] {
-  const id = derivePauseRequirementId(baseId, request);
+  const id = derivePauseRequirementId(baseId, request, recoveryInvocationId);
   const prior = priorPauseRequirements ?? [];
   const alreadyPresent = prior.some((requirement) => requirement.id === id);
   const clock = now ?? (() => new Date().toISOString());
@@ -458,7 +495,7 @@ function recoveryPauseRequirements(
     if (
       requirement.id === id
       || requirement.status !== "pending"
-      || !requirement.id.startsWith(`${baseId}:`)
+      || !isManagedInvocationRecoveryPauseRequirementId(requirement.id, baseId)
     ) {
       return requirement;
     }

@@ -2686,20 +2686,320 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
     expect(result.isError).toBe(true);
     const pauseRequirements = output.recovery?.blockedWorkItemUpdateInputTemplate?.pauseRequirements ?? [];
+    // The new recovery's id is scoped by this call's own tool-call identity
+    // (recoveryInvocationId), not the phase id - `request.attemptId` is never
+    // populated at this failure-construction site, so phase-recovery.ts must
+    // not rely on it (see phase-recovery.test.ts and the same-phase-retry
+    // regression test below for the collision this replaced).
     expect(pauseRequirements).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "managed-invocation-capability:work-managed:phase-a",
           status: "superseded",
-          supersededByRequirementId: "managed-invocation-capability:work-managed:phase-b",
+          supersededByRequirementId: "managed-invocation-capability:work-managed:tool-call-start-supersede:managed-invocation:1",
         }),
         expect.objectContaining({
-          id: "managed-invocation-capability:work-managed:phase-b",
+          id: "managed-invocation-capability:work-managed:tool-call-start-supersede:managed-invocation:1",
           status: "pending",
         }),
       ]),
     );
     expect(pauseRequirements).toHaveLength(2);
+  });
+
+  it("keeps two distinct, both-retained blockers for two successive real failures of the SAME work item and SAME phase (regression: request never carries attemptId)", async () => {
+    const workItem = {
+      id: "work-managed",
+      summary: "Execute governed managed work.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: [],
+      goalRunId: "goal-managed",
+    } as const;
+    const goalRun = {
+      id: "goal-managed",
+      objective: "Execute governed managed work.",
+      ownerSessionId: "session-parent",
+      source: { kind: "operator_direct" as const, turnId: "session-parent:turn:1" },
+      workItemIds: ["work-managed"],
+      authorityEnvelope: {
+        maximumAuthority: "audited" as const,
+        escalationPolicy: "approval_required" as const,
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    };
+    const executionPhase = {
+      id: "phase-b",
+      expectedEvidence: ["managed-agent-review"],
+      completionTool: "work_item.execution.finish",
+      finalPhase: true,
+      autoStartAllowed: true,
+    };
+    const unavailableManagedInvocation = {
+      routes: [],
+      unavailableRoutes: [{
+        routeId: "openrouter-readonly",
+        routeSource: "explicit-managed-route" as const,
+        providerId: "openrouter",
+        model: "openrouter/free",
+        profiles: ["foundation-readonly-plan"] as const,
+        reason: "Direct provider route is unavailable.",
+      }],
+    };
+    const triggerFailure = async (toolCallId: string, workItemStore: WorkItemStore, goalRunStore: GoalRunStore) => {
+      const startTool = makeManagedExecutionStartTool({
+        profile: "foundation-readonly-plan",
+        requestedAuthority: "read_only",
+        providerRoute: { providerId: "openrouter", model: "openrouter/free" },
+        task: "Execute governed managed work.",
+        summary: "Execute governed managed work.",
+        goalRunId: "goal-managed",
+        workItemId: "work-managed",
+        expectedEvidence: ["managed-agent-review"],
+        executionPhase,
+      });
+      const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+        builtinToolOptions: { workItemStore, goalRunStore, additionalTools: [startTool] },
+        managedInvocation: unavailableManagedInvocation,
+      });
+      const context: RuntimeBuiltinToolExecutionContext = {
+        session: makeRuntimeSession(),
+        toolCall: { id: toolCallId, name: "work_item.execution.start", input: {} },
+      };
+      const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+        goalRunId: "goal-managed",
+        governanceRecommendation: "orchestrate",
+      }, context) as { readonly output: string; readonly isError: boolean };
+      const output = JSON.parse(result.output) as {
+        readonly recovery?: {
+          readonly blockedWorkItemUpdateInputTemplate?: {
+            readonly pauseRequirements?: readonly Record<string, unknown>[];
+          };
+        };
+      };
+      return output.recovery?.blockedWorkItemUpdateInputTemplate?.pauseRequirements ?? [];
+    };
+
+    // First real failure of work-managed/phase-b.
+    const goalRunStoreOne = new GoalRunStore();
+    goalRunStoreOne.create(goalRun);
+    const workItemStoreOne = new WorkItemStore();
+    workItemStoreOne.upsert(workItem);
+    const firstPauseRequirements = await triggerFailure("tool-call-attempt-1", workItemStoreOne, goalRunStoreOne);
+    expect(firstPauseRequirements).toHaveLength(1);
+    const firstRequirement = firstPauseRequirements[0]!;
+    expect(firstRequirement).toMatchObject({ status: "pending" });
+
+    // The runtime persists that pending requirement onto the work item, then
+    // the SAME work item and SAME phase fails again for a second real,
+    // independent time.
+    const goalRunStoreTwo = new GoalRunStore();
+    goalRunStoreTwo.create(goalRun);
+    const workItemStoreTwo = new WorkItemStore();
+    workItemStoreTwo.upsert({ ...workItem, pauseRequirements: [firstRequirement as never] });
+    const secondPauseRequirements = await triggerFailure("tool-call-attempt-2", workItemStoreTwo, goalRunStoreTwo);
+
+    expect(secondPauseRequirements).toHaveLength(2);
+    expect(secondPauseRequirements.find((requirement) => requirement.id === firstRequirement.id)).toMatchObject({
+      status: "superseded",
+    });
+    const secondRequirement = secondPauseRequirements.find((requirement) => requirement.id !== firstRequirement.id)!;
+    expect(secondRequirement).toMatchObject({ status: "pending" });
+    expect(secondRequirement.id).not.toBe(firstRequirement.id);
+  });
+
+  it("still produces a live pending blocker for a genuinely new failure after a prior same-phase requirement was already resolved", async () => {
+    const workItemStore = new WorkItemStore();
+    const goalRunStore = new GoalRunStore();
+    const resolvedPriorId = "managed-invocation-capability:work-managed:tool-call-attempt-1:managed-invocation:1";
+    workItemStore.upsert({
+      id: "work-managed",
+      summary: "Execute governed managed work.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: [],
+      goalRunId: "goal-managed",
+      pauseRequirements: [{
+        id: resolvedPriorId,
+        kind: "capability",
+        summary: "Prior managed invocation attempt failed; operator resolved it.",
+        status: "resolved",
+      } as never],
+    });
+    goalRunStore.create({
+      id: "goal-managed",
+      objective: "Execute governed managed work.",
+      ownerSessionId: "session-parent",
+      source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
+      workItemIds: ["work-managed"],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    });
+    const startTool = makeManagedExecutionStartTool({
+      profile: "foundation-readonly-plan",
+      requestedAuthority: "read_only",
+      providerRoute: { providerId: "openrouter", model: "openrouter/free" },
+      task: "Execute governed managed work.",
+      summary: "Execute governed managed work.",
+      goalRunId: "goal-managed",
+      workItemId: "work-managed",
+      expectedEvidence: ["managed-agent-review"],
+      executionPhase: {
+        id: "phase-b",
+        expectedEvidence: ["managed-agent-review"],
+        completionTool: "work_item.execution.finish",
+        finalPhase: true,
+        autoStartAllowed: true,
+      },
+    });
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { workItemStore, goalRunStore, additionalTools: [startTool] },
+      managedInvocation: {
+        routes: [],
+        unavailableRoutes: [{
+          routeId: "openrouter-readonly",
+          routeSource: "explicit-managed-route",
+          providerId: "openrouter",
+          model: "openrouter/free",
+          profiles: ["foundation-readonly-plan"],
+          reason: "Direct provider route is unavailable.",
+        }],
+      },
+    });
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "tool-call-attempt-3", name: "work_item.execution.start", input: {} },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      goalRunId: "goal-managed",
+      governanceRecommendation: "orchestrate",
+    }, context) as { readonly output: string; readonly isError: boolean };
+    const output = JSON.parse(result.output) as {
+      readonly recovery?: {
+        readonly blockedWorkItemUpdateInputTemplate?: {
+          readonly pauseRequirements?: readonly Record<string, unknown>[];
+        };
+      };
+    };
+    const pauseRequirements = output.recovery?.blockedWorkItemUpdateInputTemplate?.pauseRequirements ?? [];
+
+    // The already-resolved prior requirement is untouched, and the new,
+    // genuinely distinct failure still produces a live pending blocker -
+    // it must not silently stop blocking just because an unrelated earlier
+    // requirement in this family happens to already be resolved.
+    expect(pauseRequirements.find((requirement) => requirement.id === resolvedPriorId)).toMatchObject({
+      status: "resolved",
+    });
+    const newRequirement = pauseRequirements.find((requirement) => requirement.id !== resolvedPriorId);
+    expect(newRequirement).toMatchObject({ status: "pending" });
+    expect(newRequirement?.id).not.toBe(resolvedPriorId);
+  });
+
+  it("replaying the identical recovery attempt is idempotent and does not duplicate", async () => {
+    const goalRun = {
+      id: "goal-managed",
+      objective: "Execute governed managed work.",
+      ownerSessionId: "session-parent",
+      source: { kind: "operator_direct" as const, turnId: "session-parent:turn:1" },
+      workItemIds: ["work-managed"],
+      authorityEnvelope: {
+        maximumAuthority: "audited" as const,
+        escalationPolicy: "approval_required" as const,
+        reason: "Approved plan.",
+      },
+      routePolicy: { workflowProfile: "managed-agent-change" },
+      evidenceRequirements: [],
+    };
+    const workItem = {
+      id: "work-managed",
+      summary: "Execute governed managed work.",
+      workflowProfile: "managed-agent-change",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-agent-review"],
+      verificationGates: [],
+      goalRunId: "goal-managed",
+    } as const;
+    const executionPhase = {
+      id: "phase-b",
+      expectedEvidence: ["managed-agent-review"],
+      completionTool: "work_item.execution.finish",
+      finalPhase: true,
+      autoStartAllowed: true,
+    };
+    const unavailableManagedInvocation = {
+      routes: [],
+      unavailableRoutes: [{
+        routeId: "openrouter-readonly",
+        routeSource: "explicit-managed-route" as const,
+        providerId: "openrouter",
+        model: "openrouter/free",
+        profiles: ["foundation-readonly-plan"] as const,
+        reason: "Direct provider route is unavailable.",
+      }],
+    };
+    const triggerFailure = async (workItemStore: WorkItemStore, goalRunStore: GoalRunStore) => {
+      const startTool = makeManagedExecutionStartTool({
+        profile: "foundation-readonly-plan",
+        requestedAuthority: "read_only",
+        providerRoute: { providerId: "openrouter", model: "openrouter/free" },
+        task: "Execute governed managed work.",
+        summary: "Execute governed managed work.",
+        goalRunId: "goal-managed",
+        workItemId: "work-managed",
+        expectedEvidence: ["managed-agent-review"],
+        executionPhase,
+      });
+      const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+        builtinToolOptions: { workItemStore, goalRunStore, additionalTools: [startTool] },
+        managedInvocation: unavailableManagedInvocation,
+      });
+      // The identical outer tool call id both times: a true replay of the
+      // same recovery attempt, not a new one.
+      const context: RuntimeBuiltinToolExecutionContext = {
+        session: makeRuntimeSession(),
+        toolCall: { id: "tool-call-replay", name: "work_item.execution.start", input: {} },
+      };
+      const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+        goalRunId: "goal-managed",
+        governanceRecommendation: "orchestrate",
+      }, context) as { readonly output: string; readonly isError: boolean };
+      const output = JSON.parse(result.output) as {
+        readonly recovery?: {
+          readonly blockedWorkItemUpdateInputTemplate?: {
+            readonly pauseRequirements?: readonly Record<string, unknown>[];
+          };
+        };
+      };
+      return output.recovery?.blockedWorkItemUpdateInputTemplate?.pauseRequirements ?? [];
+    };
+
+    const goalRunStoreOne = new GoalRunStore();
+    goalRunStoreOne.create(goalRun);
+    const workItemStoreOne = new WorkItemStore();
+    workItemStoreOne.upsert(workItem);
+    const firstPauseRequirements = await triggerFailure(workItemStoreOne, goalRunStoreOne);
+    expect(firstPauseRequirements).toHaveLength(1);
+    const firstRequirement = firstPauseRequirements[0]!;
+    expect(firstRequirement).toMatchObject({ status: "pending" });
+
+    const goalRunStoreTwo = new GoalRunStore();
+    goalRunStoreTwo.create(goalRun);
+    const workItemStoreTwo = new WorkItemStore();
+    workItemStoreTwo.upsert({ ...workItem, pauseRequirements: [firstRequirement as never] });
+    const replayedPauseRequirements = await triggerFailure(workItemStoreTwo, goalRunStoreTwo);
+
+    expect(replayedPauseRequirements).toHaveLength(1);
+    expect(replayedPauseRequirements[0]).toEqual(firstRequirement);
   });
 
   it("blocks the work item without inventing an attempt when managed-delegation auto-start is unavailable", async () => {

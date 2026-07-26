@@ -840,12 +840,21 @@ function createManagedDelegationWorkItemStartExecutor(
       }
       if (phaseId) visitedPhaseIds.add(phaseId);
       phaseIndex += 1;
+      // Replay-stable identity for THIS managed-invocation attempt: derived
+      // from the outer work_item.execution.start tool call's own id plus the
+      // phase index within this call, so two distinct outer calls (e.g. a
+      // real retry after a failure) never derive the same id, while an exact
+      // replay of the same outer call always does. Threaded into recovery
+      // pause requirement construction below instead of relying on
+      // request.attemptId, which is never populated at this failure-recovery
+      // construction site (see phase-recovery.ts derivePauseRequirementId).
+      const recoveryInvocationId = context ? `${context.toolCall.id}:managed-invocation:${phaseIndex}` : undefined;
       const managedContext = context
         ? {
           ...context,
           toolCall: {
             ...context.toolCall,
-            id: `${context.toolCall.id}:managed-invocation:${phaseIndex}`,
+            id: recoveryInvocationId!,
             name: MANAGED_AGENT_INVOKE_TOOL.name,
             input: managedRequest,
           },
@@ -854,11 +863,11 @@ function createManagedDelegationWorkItemStartExecutor(
       const managedResult = await managedInvocationExecutor(managedRequest, managedContext);
       const managedEnvelope = readRuntimeToolResultEnvelope(managedResult);
       if (!managedEnvelope || managedEnvelope.isError) {
-        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation failed before work item execution could start.", workItemStore);
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation failed before work item execution could start.", workItemStore, recoveryInvocationId);
       }
       const managedInvocationId = readTextFromUnknown(managedEnvelope.metadata?.invocationId);
       if (!managedInvocationId) {
-        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.", workItemStore);
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without an invocation id.", workItemStore, recoveryInvocationId);
       }
       managedInvocations.push({
         invocationId: managedInvocationId,
@@ -886,13 +895,13 @@ function createManagedDelegationWorkItemStartExecutor(
             },
           };
         }
-        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without a validated phase transition.", workItemStore);
+        return managedDelegationPausedResult(initialResult, managedEnvelope, "Managed child invocation completed without a validated phase transition.", workItemStore, recoveryInvocationId);
       }
 
       if (completionTool === "work_item.update") {
         const updateInput = readRecord(phaseCompletion.workItemUpdateInputTemplate);
         if (!updateInput) {
-          return managedDelegationPausedResult(initialResult, managedEnvelope, "Validated intermediate phase did not provide a work-item transition.", workItemStore);
+          return managedDelegationPausedResult(initialResult, managedEnvelope, "Validated intermediate phase did not provide a work-item transition.", workItemStore, recoveryInvocationId);
         }
         if (!updateExecutor) {
           return managedPhaseTransitionRequiredResult(
@@ -915,7 +924,7 @@ function createManagedDelegationWorkItemStartExecutor(
         ?? readTextFromUnknown(readRecord(resumedEnvelope.metadata?.attempt)?.id);
       const finishTemplate = readRecord(phaseCompletion.workItemExecutionFinishInputTemplate);
       if (!attemptId || !finishTemplate || !finishExecutor) {
-        return managedDelegationPausedResult(resumedEnvelope, managedEnvelope, "Validated final phase could not be attached to an execution attempt.", workItemStore);
+        return managedDelegationPausedResult(resumedEnvelope, managedEnvelope, "Validated final phase could not be attached to an execution attempt.", workItemStore, recoveryInvocationId);
       }
       const finishedEnvelope = readRuntimeToolResultEnvelope(await finishExecutor({
         ...finishTemplate,
@@ -1165,10 +1174,11 @@ function managedDelegationPausedResult(
   managedResult: RuntimeToolResultEnvelope | undefined,
   reason: string,
   workItemStore: WorkItemStore | undefined,
+  recoveryInvocationId?: string,
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
   const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
-  const recovery = buildManagedDelegationRecovery(managedResult, initialOutput, workItemStore);
+  const recovery = buildManagedDelegationRecovery(managedResult, initialOutput, workItemStore, recoveryInvocationId);
   return {
     output: JSON.stringify({
       status: "paused",
@@ -1194,6 +1204,7 @@ function buildManagedDelegationRecovery(
   managedResult: RuntimeToolResultEnvelope | undefined,
   initialOutput: Record<string, unknown> | undefined,
   workItemStore: WorkItemStore | undefined,
+  recoveryInvocationId: string | undefined,
 ): Record<string, unknown> | undefined {
   const request = readRecord(initialOutput?.managedInvocationRequest);
   const workItemId = readTextFromUnknown(request?.workItemId);
@@ -1204,7 +1215,7 @@ function buildManagedDelegationRecovery(
       managedResult?.metadata?.lifecycleState ?? managedResult?.metadata?.status,
     ),
     undefined,
-    { priorPauseRequirements },
+    { priorPauseRequirements, recoveryInvocationId },
   );
 }
 
