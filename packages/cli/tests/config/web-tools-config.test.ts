@@ -48,35 +48,40 @@ describe("web tool config", () => {
   });
 
   it("projects provider-specific retrieval capabilities into neutral registrations", () => {
-    const tavily = createWebToolSurfaceOptions({
-      config: config({
-        enabled: true,
-        netPolicy: "full",
-        searchProvider: { type: "tavily", apiKeyEnv: "TAVILY_API_KEY" },
-      }),
-      projectPath: "/project",
-    });
-    const searxng = createWebToolSurfaceOptions({
-      config: config({
-        enabled: true,
-        netPolicy: "full",
-        searchProvider: { type: "searxng", url: "https://searx.example.com" },
-      }),
-      projectPath: "/project",
-    });
+    process.env.KILN_TEST_TAVILY_KEY = "tvly-test";
+    try {
+      const tavily = createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "full",
+          searchProvider: { type: "tavily", apiKeyEnv: "KILN_TEST_TAVILY_KEY" },
+        }),
+        projectPath: "/project",
+      });
+      const searxng = createWebToolSurfaceOptions({
+        config: config({
+          enabled: true,
+          netPolicy: "full",
+          searchProvider: { type: "searxng", url: "https://searx.example.com" },
+        }),
+        projectPath: "/project",
+      });
 
-    expect(tavily.webSearch?.searchProviders?.[0]?.capabilities).toMatchObject({
-      provider: "tavily",
-      recencyFilter: "enforced",
-      topics: ["general", "news", "finance", "research"],
-      highPrecisionSearch: true,
-    });
-    expect(searxng.webSearch?.searchProviders?.[0]?.capabilities).toMatchObject({
-      provider: "searxng",
-      recencyFilter: "unsupported",
-      topics: ["general"],
-      highPrecisionSearch: false,
-    });
+      expect(tavily.webSearch?.searchProviders?.[0]?.capabilities).toMatchObject({
+        provider: "tavily",
+        recencyFilter: "enforced",
+        topics: ["general", "news", "finance", "research"],
+        highPrecisionSearch: true,
+      });
+      expect(searxng.webSearch?.searchProviders?.[0]?.capabilities).toMatchObject({
+        provider: "searxng",
+        recencyFilter: "unsupported",
+        topics: ["general"],
+        highPrecisionSearch: false,
+      });
+    } finally {
+      delete process.env.KILN_TEST_TAVILY_KEY;
+    }
   });
 
   it("executes configured provider fallback after a strict domain contract violation", async () => {
