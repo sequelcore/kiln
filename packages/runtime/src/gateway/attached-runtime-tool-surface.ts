@@ -822,7 +822,6 @@ function createManagedDelegationWorkItemStartExecutor(
   return async (input, context) => {
     const managedInvocations: Record<string, unknown>[] = [];
     const visitedPhaseIds = new Set<string>();
-    let phaseIndex = 0;
     while (true) {
       const initialResult = await startExecutor(input, context);
       const managedPause = parseManagedDelegationPause(initialResult);
@@ -839,22 +838,13 @@ function createManagedDelegationWorkItemStartExecutor(
         };
       }
       if (phaseId) visitedPhaseIds.add(phaseId);
-      phaseIndex += 1;
-      // Replay-stable identity for THIS managed-invocation attempt: derived
-      // from the outer work_item.execution.start tool call's own id plus the
-      // phase index within this call, so two distinct outer calls (e.g. a
-      // real retry after a failure) never derive the same id, while an exact
-      // replay of the same outer call always does. Threaded into recovery
-      // pause requirement construction below instead of relying on
-      // request.attemptId, which is never populated at this failure-recovery
-      // construction site (see phase-recovery.ts derivePauseRequirementId).
-      const recoveryInvocationId = context ? `${context.toolCall.id}:managed-invocation:${phaseIndex}` : undefined;
+      const recoveryInvocationId = deriveRecoveryInvocationId(context, phaseId);
       const managedContext = context
         ? {
           ...context,
           toolCall: {
             ...context.toolCall,
-            id: recoveryInvocationId!,
+            id: recoveryInvocationId,
             name: MANAGED_AGENT_INVOKE_TOOL.name,
             input: managedRequest,
           },
@@ -1169,12 +1159,56 @@ function parseManagedDelegationPause(result: unknown): { readonly request: Recor
   return request ? { request } : undefined;
 }
 
+/**
+ * Replay-stable identity for a single managed-invocation recovery attempt.
+ *
+ * Scoped by the STABLE execution phase id, never a same-run loop ordinal:
+ * an ordinal changes across replays whenever an earlier phase in the same
+ * wrapper run has since completed and been persisted (so a later phase's
+ * position in the loop shifts), which would derive a different id for the
+ * identical logical failure. The phase id does not move.
+ *
+ * Combined with the outer work_item.execution.start tool call's own id, so
+ * two distinct outer calls (a real retry after a failure) never derive the
+ * same id, while an exact replay of the same outer call always does.
+ *
+ * `context.toolCall.id` is taken from the provider boundary and is not
+ * guaranteed non-empty (e.g. a `function_call` item missing both `call_id`
+ * and `id` normalizes to `""` - see codex-oauth.ts). An empty or missing
+ * tool call id (or a request with no phase id) means no replay-stable
+ * per-attempt identity is available at all: silently falling back to
+ * phase-id-only (or workItemId-only) scoping would let two distinct real
+ * failures collide on one id again, which is exactly the evidence-loss bug
+ * this mechanism exists to prevent. Rather than throw mid-recovery (which
+ * would discard the failure evidence being constructed) or silently degrade
+ * into that collision, this explicitly marks the recovery "unscoped" with a
+ * fresh, guaranteed-unique value. That deliberately sacrifices idempotent-
+ * replay deduplication in this narrow degraded case only: an extra retained
+ * pending blocker (over-blocking) is the correct tradeoff against silently
+ * losing failure evidence to a collision (under-blocking).
+ */
+function deriveRecoveryInvocationId(
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  phaseId: string | undefined,
+): string {
+  const toolCallId = context?.toolCall.id;
+  const usableToolCallId = typeof toolCallId === "string" && toolCallId.trim().length > 0
+    ? toolCallId.trim()
+    : undefined;
+  if (!usableToolCallId) {
+    return `unscoped-recovery:${crypto.randomUUID()}`;
+  }
+  return phaseId
+    ? `${usableToolCallId}:managed-invocation:${phaseId}`
+    : `${usableToolCallId}:managed-invocation`;
+}
+
 function managedDelegationPausedResult(
   initialResult: unknown,
   managedResult: RuntimeToolResultEnvelope | undefined,
   reason: string,
   workItemStore: WorkItemStore | undefined,
-  recoveryInvocationId?: string,
+  recoveryInvocationId: string,
 ): RuntimeToolResultEnvelope {
   const initialEnvelope = readRuntimeToolResultEnvelope(initialResult);
   const initialOutput = initialEnvelope ? parseJsonRecord(initialEnvelope.output) : undefined;
@@ -1204,7 +1238,7 @@ function buildManagedDelegationRecovery(
   managedResult: RuntimeToolResultEnvelope | undefined,
   initialOutput: Record<string, unknown> | undefined,
   workItemStore: WorkItemStore | undefined,
-  recoveryInvocationId: string | undefined,
+  recoveryInvocationId: string,
 ): Record<string, unknown> | undefined {
   const request = readRecord(initialOutput?.managedInvocationRequest);
   const workItemId = readTextFromUnknown(request?.workItemId);
