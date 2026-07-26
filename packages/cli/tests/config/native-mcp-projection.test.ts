@@ -281,7 +281,7 @@ describe("native MCP projection lifecycle", () => {
 
     await expect(syncNativeMcpProjections(emptyResolution(), root, {
       includeKilnControlPlane: true,
-    })).rejects.toThrow(".kiln\\kiln.yaml");
+    })).rejects.toThrow(join(".kiln", "kiln.yaml"));
 
     expect(existsSync(join(root, ".codex", "config.toml"))).toBe(false);
     expect(existsSync(join(root, ".mcp.json"))).toBe(false);
