@@ -106,6 +106,31 @@ describe("assertValidToolCallIds", () => {
     );
   });
 
+  it("rejects an id with leading or trailing whitespace instead of silently accepting it padded", () => {
+    // The documented invariant is "trimmed, non-empty, unique". An id that round-trips
+    // padded (e.g. from Anthropic or non-streaming OpenAI) must not silently pass.
+    expect(() => assertValidToolCallIds(
+      [toolCall(" call_1 ")],
+      { adapter: "test-adapter" },
+    )).toThrow(/untrimmed tool call id/);
+  });
+
+  it("throws a KilnError with adapter/index/id context on untrimmed ids", async () => {
+    const { KilnError } = await import("../../src/engine/errors.js");
+    try {
+      assertValidToolCallIds([toolCall(" call_1 ")], { adapter: "test-adapter" });
+      expect.unreachable("expected assertValidToolCallIds to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(KilnError);
+      expect((error as InstanceType<typeof KilnError>).code).toBe("TOOL_CALL_IDENTITY_INVALID");
+      expect((error as InstanceType<typeof KilnError>).context).toMatchObject({
+        adapter: "test-adapter",
+        index: 0,
+        id: " call_1 ",
+      });
+    }
+  });
+
   it("survives a JSON serialize/deserialize round trip with identity unchanged", () => {
     const original: readonly ToolCall[] = [toolCall("call_1"), toolCall("call_2")];
     const roundTripped = JSON.parse(JSON.stringify(original)) as ToolCall[];

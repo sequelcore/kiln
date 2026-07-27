@@ -191,6 +191,15 @@ export function assertValidToolCallIds(
         },
       );
     }
+    if (trimmedId !== toolCall.id) {
+      throw new KilnError(
+        "TOOL_CALL_IDENTITY_INVALID",
+        `${context.adapter} produced an untrimmed tool call id at index ${index}.`,
+        {
+          context: { adapter: context.adapter, index, id: toolCall.id },
+        },
+      );
+    }
 
     const priorIndex = seenAtIndex.get(trimmedId);
     if (priorIndex !== undefined) {
