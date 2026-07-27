@@ -132,6 +132,22 @@ describe("ProviderAdapterOneRoundDispatcher", () => {
     expect(provider.createMessage).not.toHaveBeenCalled();
   });
 
+  it("fails closed on duplicate tool call ids from the raw adapter instead of projecting them", async () => {
+    // The one-round bridge projects adapter-produced tool calls directly into the model-turn
+    // result; identity must be validated here too, not only by the built-in adapters.
+    const provider = adapter({
+      toolCalls: [
+        { id: "dup", name: "lookup", input: { q: "a" } },
+        { id: "dup", name: "lookup", input: { q: "b" } },
+      ],
+    });
+    const dispatcher = new ProviderAdapterOneRoundDispatcher({ account, providerId: "anthropic", adapter: provider });
+
+    await expect(dispatcher.dispatchOneRound(input())).rejects.toMatchObject({
+      code: "TOOL_CALL_IDENTITY_INVALID",
+    });
+  });
+
   it("rejects route and account mismatches before dispatch", async () => {
     const provider = adapter();
     const dispatcher = new ProviderAdapterOneRoundDispatcher({ account, providerId: "anthropic", adapter: provider });

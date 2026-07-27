@@ -1,4 +1,5 @@
 import {
+  assertValidToolCallIds,
   type AccountRef,
   type AgentMessage,
   type AgentResponse,
@@ -65,6 +66,10 @@ export class ProviderAdapterOneRoundDispatcher implements ModelGatewayOneRoundDi
 
     const projection = buildFunctionToolProjection(input.turn.tools ?? []);
     const response = await this.#adapter.createMessage(toCreateMessageOptions(input, projection));
+    // ProviderAdapter is an open boundary; this bridge projects adapter-produced tool calls
+    // directly into the model-gateway turn result, so identity must be validated here too
+    // rather than trusting the adapter's own convention.
+    assertValidToolCallIds(response.toolCalls, { adapter: this.#providerId });
     return toModelTurnResult(response, projection);
   }
 }
