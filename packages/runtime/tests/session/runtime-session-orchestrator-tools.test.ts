@@ -241,6 +241,43 @@ function makeCapabilityMap(overrides?: Partial<Capability>): ReadonlyMap<string,
 }
 
 describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
+  it("fails closed on blank/duplicate tool call ids from a custom adapter before persisting or executing them", async () => {
+    // ProviderAdapter is an open boundary -- any implementation, not just the built-in ones,
+    // must have its tool call identity validated before results enter the runtime.
+    const getData = vi.fn().mockResolvedValue("should never run");
+    const provider: ProviderAdapter = {
+      name: "custom-adapter",
+      createMessage: vi.fn().mockResolvedValue({
+        parts: textParts("using tool"),
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [
+          { id: "", name: "get_data", input: { query: "a" } },
+          { id: "", name: "get_data", input: { query: "b" } },
+        ],
+        stopReason: "tool_use",
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+      builtinTools: new Map([["get_data", getData]]),
+    });
+    const session = makeSession();
+
+    await expect(orchestrator.processMessage(session, textParts("go"))).rejects.toMatchObject({
+      code: "TOOL_CALL_IDENTITY_INVALID",
+    });
+
+    expect(getData).not.toHaveBeenCalled();
+    expect(
+      session.conversationHistory.some((message) => message.parts.some((part) => part.type === "tool_use")),
+    ).toBe(false);
+  });
+
   it("forces one bounded recovery round before allowing an exact-date answer", async () => {
     const provider: ProviderAdapter = {
       name: "mock",

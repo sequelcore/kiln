@@ -10,7 +10,7 @@ import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { withRetry } from "./retry.js";
 import type { RetryOptions } from "./retry.js";
-import { normalizeToolInput } from "../tool-call-input.js";
+import { assertValidToolCallIds, buildSyntheticToolCallId, normalizeToolInput } from "../tool-call-input.js";
 import {
   collectCanonicalToolNames,
   createProviderToolNameCodec,
@@ -121,7 +121,21 @@ interface OpenAIStreamChoice {
 }
 
 interface OpenAIStreamChunk {
+  readonly id?: string;
   readonly choices: readonly OpenAIStreamChoice[];
+}
+
+/**
+ * Accumulator for one streamed tool call. `providerId`/`chunkId` track which sources have
+ * already contributed to `id` so a later, conflicting delta can be detected instead of
+ * silently discarded or silently overwriting a previously reconciled identity.
+ */
+interface StreamedToolCallBuffer {
+  id: string;
+  name: string;
+  arguments: string;
+  providerId?: string;
+  chunkId?: string;
 }
 
 export abstract class OpenAICompatAdapter implements ProviderAdapter {
@@ -179,10 +193,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       return;
     }
 
-    const toolBuffers = new Map<
-      number,
-      { id: string; name: string; arguments: string }
-    >();
+    const toolBuffers = new Map<number, StreamedToolCallBuffer>();
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -204,19 +215,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
           const data = trimmed.slice(6);
           if (data === "[DONE]") {
             // Flush any remaining tool calls
-            for (const [, buf] of toolBuffers) {
-              yield {
-                type: "tool_use",
-                content: JSON.stringify({
-                  id: buf.id,
-                  name: request.toolNames.toCanonicalName(buf.name),
-                  input: normalizeToolInput(
-                    request.toolNames.toCanonicalName(buf.name),
-                    buf.arguments || "{}",
-                  ),
-                }),
-              };
-            }
+            yield* this.flushStreamedToolCalls(toolBuffers, request.toolNames);
             toolBuffers.clear();
             yield { type: "done", content: "" };
             return;
@@ -236,9 +235,10 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
             for (const tc of delta.tool_calls) {
               let buf = toolBuffers.get(tc.index);
               if (!buf) {
-                buf = { id: tc.id ?? "", name: tc.function?.name ?? "", arguments: "" };
+                buf = { id: "", name: tc.function?.name ?? "", arguments: "" };
                 toolBuffers.set(tc.index, buf);
               }
+              this.reconcileStreamedToolCallId(buf, tc.id, chunk.id, tc.index);
               if (tc.function?.arguments) {
                 buf.arguments += tc.function.arguments;
               }
@@ -251,20 +251,77 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     }
 
     // Flush remaining tool calls if stream ended without [DONE]
-    for (const [, buf] of toolBuffers) {
-      yield {
-        type: "tool_use",
-        content: JSON.stringify({
-          id: buf.id,
-          name: request.toolNames.toCanonicalName(buf.name),
-          input: normalizeToolInput(
-            request.toolNames.toCanonicalName(buf.name),
-            buf.arguments || "{}",
-          ),
-        }),
-      };
-    }
+    yield* this.flushStreamedToolCalls(toolBuffers, request.toolNames);
     yield { type: "done", content: "" };
+  }
+
+  /**
+   * Reconciles a streamed OpenAI-compatible delta into the buffered call's identity. A native
+   * `tc.id` always wins over a synthesized one -- this lets a buffer that started without an id
+   * (no `tc.id`, no chunk id on the first delta) adopt a native id supplied on a later delta,
+   * instead of failing at flush even though a stable id eventually arrived. Once a native id or
+   * a chunk id has been observed for this buffer, any later delta contradicting it (a different
+   * native id, or a different chunk id backing the synthesized id) is a malformed stream and
+   * fails closed rather than being silently absorbed or overwritten.
+   */
+  private reconcileStreamedToolCallId(
+    buf: StreamedToolCallBuffer,
+    providerId: string | undefined,
+    chunkId: string | undefined,
+    index: number,
+  ): void {
+    const trimmedProviderId = providerId?.trim();
+    if (trimmedProviderId) {
+      if (buf.providerId !== undefined && buf.providerId !== trimmedProviderId) {
+        throw new KilnError(
+          "TOOL_CALL_IDENTITY_INVALID",
+          `${this.name} sent conflicting native tool call ids ("${buf.providerId}" and "${trimmedProviderId}") at stream index ${index}.`,
+          { context: { adapter: this.name, index, id: buf.providerId, conflictingId: trimmedProviderId } },
+        );
+      }
+      buf.providerId = trimmedProviderId;
+      buf.id = trimmedProviderId;
+      return;
+    }
+
+    if (buf.providerId !== undefined) {
+      // A native id already anchors this buffer; deltas without one carry no new identity.
+      return;
+    }
+
+    if (chunkId) {
+      if (buf.chunkId !== undefined && buf.chunkId !== chunkId) {
+        throw new KilnError(
+          "TOOL_CALL_IDENTITY_INVALID",
+          `${this.name} sent conflicting chunk ids ("${buf.chunkId}" and "${chunkId}") for the same buffered tool call at stream index ${index}.`,
+          { context: { adapter: this.name, index, id: buf.chunkId, conflictingId: chunkId } },
+        );
+      }
+      buf.chunkId = chunkId;
+      buf.id = buildSyntheticToolCallId(chunkId, String(index));
+    }
+  }
+
+  /**
+   * Validates every buffered tool call's identity as a single collection (once per flush,
+   * matching the adapter's buffering model) before yielding `tool_use` events for it.
+   */
+  private *flushStreamedToolCalls(
+    toolBuffers: ReadonlyMap<number, StreamedToolCallBuffer>,
+    toolNames: ProviderToolNameCodec,
+  ): Generator<AgentStreamEvent> {
+    if (toolBuffers.size === 0) {
+      return;
+    }
+    const toolCalls: ToolCall[] = [...toolBuffers.values()].map((buf) => ({
+      id: buf.id,
+      name: toolNames.toCanonicalName(buf.name),
+      input: normalizeToolInput(toolNames.toCanonicalName(buf.name), buf.arguments || "{}"),
+    }));
+    assertValidToolCallIds(toolCalls, { adapter: this.name });
+    for (const toolCall of toolCalls) {
+      yield { type: "tool_use", content: JSON.stringify(toolCall) };
+    }
   }
 
   private mapPartsToOpenAI(parts: readonly ContentPart[]): OpenAIContent {
@@ -436,6 +493,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         ),
       }),
     );
+    assertValidToolCallIds(toolCalls, { adapter: this.name });
 
     return {
       parts: [textPart(content)],

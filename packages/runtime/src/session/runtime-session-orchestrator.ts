@@ -12,6 +12,7 @@ import type {
 } from "@kilnai/core";
 import {
   accountedWorkItemEvidence,
+  assertValidToolCallIds,
   extractText,
   getInvalidToolInputDetails,
   KilnError,
@@ -416,6 +417,10 @@ export class RuntimeSessionOrchestrator {
         ...(providerExecutionContext ? { executionContext: providerExecutionContext } : {}),
       });
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
+      // ProviderAdapter is an open boundary -- any implementation, not only the built-in
+      // adapters, must have its tool call identity validated before results enter the runtime
+      // (added to session history, executed, or projected by the model-gateway bridge).
+      assertValidToolCallIds(response.toolCalls, { adapter: routing.effectiveProvider.name });
 
       const usageTotals = this.telemetry.recordResponse(
         session.id,
