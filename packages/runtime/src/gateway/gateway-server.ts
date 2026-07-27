@@ -411,6 +411,7 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     whatsapp: whatsappConfig,
     tenantAdmin: tenantAdminConfig,
   });
+  const guiDistPath = resolveGuiDistPath(options?.guiDistPath);
 
   // Initialize OTel exporter if observability is configured
   // @opentelemetry/sdk-trace-base and @opentelemetry/exporter-trace-otlp-http are user-installed
@@ -1051,7 +1052,6 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
     : undefined;
 
   const studioDistPath = options?.studioDistPath ?? (options?.devMode ? resolveStudioDist() : undefined);
-  const guiDistPath = resolveGuiDistPath(options?.guiDistPath);
 
   // Initialize dev-mode swarm coordination store.
   let swarmMemoryRepository: SqliteMemoryRepository | undefined;

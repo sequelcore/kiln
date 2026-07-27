@@ -97,15 +97,47 @@ modelGateway:
       - { id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
 `, "utf8");
     process.env.REPLAY_SECRET = secret; process.env.BEARER_TOKEN = "synthetic-bearer-token-at-least-32-bytes";
-    let watcherStopped = false; let dedupClosed = false;
+    const missingGuiDist = join(root, "missing-gui-dist");
+    let watcherStartCalls = 0; let modelListenerCallsBeforeGuiValidation = 0; let intervalCreationCalls = 0; let watcherStopsBeforeGuiValidation = 0; let dedupClosesBeforeGuiValidation = 0;
+    const originalWatcherStart = CredentialWatcher.prototype.start; const originalWatcherStopBeforeGuiValidation = CredentialWatcher.prototype.stop; const originalDedupCloseBeforeGuiValidation = WebhookDedup.prototype.close;
+    const originalSetInterval = globalThis.setInterval;
+    CredentialWatcher.prototype.start = async function () { watcherStartCalls += 1; };
+    CredentialWatcher.prototype.stop = function () { watcherStopsBeforeGuiValidation += 1; return originalWatcherStopBeforeGuiValidation.call(this); };
+    WebhookDedup.prototype.close = function () { dedupClosesBeforeGuiValidation += 1; return originalDedupCloseBeforeGuiValidation.call(this); };
+    globalThis.setInterval = (() => { intervalCreationCalls += 1; return 0 as unknown as ReturnType<typeof setInterval>; }) as typeof setInterval;
+    let guiValidationError: unknown;
+    try {
+      await startGateway(startupConfig, { guiDistPath: missingGuiDist, modelGatewayListener: () => { modelListenerCallsBeforeGuiValidation += 1; throw new Error("Model listener must not run before GUI validation."); } });
+    } catch (error) {
+      guiValidationError = error;
+    } finally {
+      CredentialWatcher.prototype.start = originalWatcherStart;
+      CredentialWatcher.prototype.stop = originalWatcherStopBeforeGuiValidation;
+      WebhookDedup.prototype.close = originalDedupCloseBeforeGuiValidation;
+      globalThis.setInterval = originalSetInterval;
+    }
+    const expectedGuiValidationError = `GUI bundle missing at ${join(missingGuiDist, "index.html")}. Install @kilnai/gui or provide a built GUI dist path.`;
+    if (!(guiValidationError instanceof Error) || guiValidationError.message !== expectedGuiValidationError) throw new Error(`Expected missing GUI bundle error "${expectedGuiValidationError}", observed "${guiValidationError instanceof Error ? guiValidationError.message : String(guiValidationError)}".`);
+    if (watcherStartCalls !== 0) throw new Error(`CredentialWatcher started ${watcherStartCalls} time(s) before GUI validation; observed error "${guiValidationError.message}".`);
+    if (modelListenerCallsBeforeGuiValidation !== 0) throw new Error(`Model Gateway listener ran ${modelListenerCallsBeforeGuiValidation} time(s) before GUI validation; observed error "${guiValidationError.message}".`);
+    if (intervalCreationCalls !== 0) throw new Error(`Startup created ${intervalCreationCalls} timer(s) before GUI validation; observed error "${guiValidationError.message}".`);
+    if (watcherStopsBeforeGuiValidation !== 0 || dedupClosesBeforeGuiValidation !== 0) throw new Error(`Missing GUI validation required rollback (watcher stops: ${watcherStopsBeforeGuiValidation}, deduplicator closes: ${dedupClosesBeforeGuiValidation}); observed error "${guiValidationError.message}".`);
+
+    const guiDist = join(root, "gui-dist");
+    await mkdir(guiDist);
+    await writeFile(join(guiDist, "index.html"), "<!doctype html><title>Kiln</title>", "utf8");
+    let modelListenerCalls = 0; let lateFailureObserved = false; let watcherStopCalls = 0; let dedupCloseCalls = 0; let lateFailureError: unknown;
     const originalWatcherStop = CredentialWatcher.prototype.stop; const originalDedupClose = WebhookDedup.prototype.close;
-    CredentialWatcher.prototype.stop = function () { watcherStopped = true; return originalWatcherStop.call(this); };
-    WebhookDedup.prototype.close = function () { dedupClosed = true; return originalDedupClose.call(this); };
-    let lateFailureObserved = false;
-    try { await startGateway(startupConfig, { modelGatewayListener: () => { throw new Error("synthetic model bind failure"); } }); }
-    catch (error) { lateFailureObserved = error instanceof Error && error.message.includes("synthetic model bind failure"); }
+    CredentialWatcher.prototype.stop = function () { watcherStopCalls += 1; return originalWatcherStop.call(this); };
+    WebhookDedup.prototype.close = function () { dedupCloseCalls += 1; return originalDedupClose.call(this); };
+    try { await startGateway(startupConfig, { guiDistPath: guiDist, modelGatewayListener: () => { modelListenerCalls += 1; throw new Error("synthetic model bind failure"); } }); }
+    catch (error) { lateFailureError = error; lateFailureObserved = error instanceof Error && error.message.includes("synthetic model bind failure"); }
     finally { CredentialWatcher.prototype.stop = originalWatcherStop; WebhookDedup.prototype.close = originalDedupClose; }
-    if (!lateFailureObserved || !watcherStopped || !dedupClosed) throw new Error("Late model-listener startup failure did not close all initialized resources.");
+    const observedLateFailure = lateFailureError instanceof Error ? lateFailureError.message : String(lateFailureError);
+    if (modelListenerCalls !== 1) throw new Error(`Expected Model Gateway listener to run once, observed ${modelListenerCalls} call(s); observed error "${observedLateFailure}".`);
+    if (!lateFailureObserved) throw new Error(`Expected synthetic model bind failure, observed error "${observedLateFailure}".`);
+    if (watcherStopCalls !== 1) throw new Error(`Expected CredentialWatcher.stop once after late startup failure, observed ${watcherStopCalls} call(s); observed error "${observedLateFailure}".`);
+    if (dedupCloseCalls !== 1) throw new Error(`Expected WebhookDedup.close once after late startup failure, observed ${dedupCloseCalls} call(s); observed error "${observedLateFailure}".`);
     console.log("real Bun SQLite durability, fencing, recovery, permissions, and startup cleanup checks passed");
   } finally { await rm(root, { recursive: true, force: true }); }
 }
