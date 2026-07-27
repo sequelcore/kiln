@@ -96,6 +96,8 @@ export type KilnErrorCode =
   // Tool execution (Phase 5b)
   | "TOOL_RATE_LIMITED"
   | "WEBHOOK_TOOL_FAILED"
+  // Tool call identity (cross-harness gateway)
+  | "TOOL_CALL_IDENTITY_INVALID"
   // Integration tools
   | "INTEGRATION_TOOL_FAILED"
   | "INTEGRATION_ADAPTER_NOT_FOUND"

@@ -215,6 +215,9 @@ export {
   normalizeToolCall,
   normalizeToolInput,
   getInvalidToolInputDetails,
+  assertValidToolCallIds,
+  buildSyntheticToolCallId,
+  SYNTHETIC_TOOL_CALL_ID_PREFIX,
 } from "./tool-call-input.js";
 export type { InvalidToolInputDetails } from "./tool-call-input.js";
 export {
