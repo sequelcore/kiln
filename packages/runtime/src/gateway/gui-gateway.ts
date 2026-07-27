@@ -2149,6 +2149,13 @@ class GuiActivityStreamer {
   private memoryLatticeHandler: ((event: KilnEvent) => void) | null = null;
   private lastKnownKilnSessionId: string | undefined;
   private outOfTurnBrowserEvidenceSequence = 0;
+  /**
+   * Fallback ordinal for tool_use/tool_result events forwarded outside any active turn capture
+   * (e.g. an orphaned event arriving after `endTurnCapture`). Deterministic per connection --
+   * never a timestamp or random value -- because nothing in this no-capture path is persisted
+   * or replayed; it only feeds the live activity stream to the connected browser.
+   */
+  private noCaptureToolOrdinal = 0;
   private approvalBridge: {
     approve: (approvalId: string) => void;
     reject: (approvalId: string, reason: string) => void;
@@ -2455,7 +2462,7 @@ class GuiActivityStreamer {
     } else if (event.type === "tool_use") {
       const toolCallId = event.toolCallId ?? (this.capture
         ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}`
-        : `${event.toolName ?? "tool"}_${Date.now()}`);
+        : `${event.toolName ?? "tool"}:no-capture:${++this.noCaptureToolOrdinal}`);
       if (this.capture) {
         const pending = this.capture.pendingToolCallIds.get(event.toolName) ?? [];
         pending.push(toolCallId);
@@ -2500,7 +2507,9 @@ class GuiActivityStreamer {
         }
       } else {
         toolCallId = pending?.shift()
-          ?? (this.capture ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}` : `${event.toolName ?? "tool"}_${Date.now()}`);
+          ?? (this.capture
+            ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}`
+            : `${event.toolName ?? "tool"}:no-capture:${++this.noCaptureToolOrdinal}`);
       }
       if (pending && pending.length === 0 && this.capture) {
         this.capture.pendingToolCallIds.delete(event.toolName);
