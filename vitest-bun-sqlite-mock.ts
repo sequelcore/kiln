@@ -4,15 +4,12 @@
  * File-path databases share a single in-memory better-sqlite3 instance keyed by
  * path, avoiding OS file locks that cause EBUSY on Windows during test cleanup.
  */
-import { closeSync, constants, mkdirSync, openSync } from "node:fs";
-import { dirname } from "node:path";
+import { closeSync, constants, openSync } from "node:fs";
 import BetterSqlite3 from "better-sqlite3";
 
 const shared = new Map<string, { db: BetterSqlite3.Database; refs: number }>();
 
 function materializeFilePath(path: string): void {
-  const parent = dirname(path);
-  if (parent !== ".") mkdirSync(parent, { recursive: true });
   const descriptor = openSync(path, constants.O_CREAT | constants.O_WRONLY, 0o600);
   closeSync(descriptor);
 }
