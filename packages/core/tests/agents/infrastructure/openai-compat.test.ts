@@ -509,6 +509,121 @@ describe("OpenAIAdapter", () => {
       }),
     });
   });
+
+  describe("tool call identity", () => {
+    it("synthesizes a streamed id from the chunk id + tc.index when the provider omits tc.id", async () => {
+      const chunk = JSON.stringify({
+        id: "chatcmpl-omitted-id-1",
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              function: { name: "search", arguments: '{"query":"test"}' },
+            }],
+          },
+        }],
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: mockSSEStream([chunk]),
+      }));
+
+      const events: AgentStreamEvent[] = [];
+      for await (const event of adapter.streamMessage(makeOptions({ tools: [makeToolDef()] }))) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({
+        type: "tool_use",
+        content: JSON.stringify({
+          id: "synth1:chatcmpl-omitted-id-1:0",
+          name: "search",
+          input: { query: "test" },
+        }),
+      });
+    });
+
+    it("rejects a streamed tool call when neither tc.id nor a chunk id is available", async () => {
+      const chunk = JSON.stringify({
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              function: { name: "search", arguments: '{"query":"test"}' },
+            }],
+          },
+        }],
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: mockSSEStream([chunk]),
+      }));
+
+      await expect(async () => {
+        for await (const _event of adapter.streamMessage(makeOptions({ tools: [makeToolDef()] }))) {
+          // consume
+        }
+      }).rejects.toMatchObject({ code: "TOOL_CALL_IDENTITY_INVALID" });
+    });
+
+    it("rejects duplicate ids within one non-streaming response", async () => {
+      const body = makeOpenAIResponse({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [
+              { id: "call_dup", type: "function", function: { name: "search", arguments: '{"query":"a"}' } },
+              { id: "call_dup", type: "function", function: { name: "search", arguments: '{"query":"b"}' } },
+            ],
+          },
+        }],
+      });
+      vi.stubGlobal("fetch", mockFetchResponse(body));
+
+      await expect(adapter.createMessage(makeOptions({ tools: [makeToolDef()] }))).rejects.toMatchObject({
+        code: "TOOL_CALL_IDENTITY_INVALID",
+      });
+    });
+
+    it("rejects a whitespace-only tool call id in a non-streaming response", async () => {
+      const body = makeOpenAIResponse({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [
+              { id: "   ", type: "function", function: { name: "search", arguments: '{"query":"a"}' } },
+            ],
+          },
+        }],
+      });
+      vi.stubGlobal("fetch", mockFetchResponse(body));
+
+      await expect(adapter.createMessage(makeOptions({ tools: [makeToolDef()] }))).rejects.toMatchObject({
+        code: "TOOL_CALL_IDENTITY_INVALID",
+      });
+    });
+
+    it("preserves a valid provider id unchanged (regression guard)", async () => {
+      const body = makeOpenAIResponse({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [
+              { id: "call_valid_1", type: "function", function: { name: "search", arguments: '{"query":"a"}' } },
+            ],
+          },
+        }],
+      });
+      vi.stubGlobal("fetch", mockFetchResponse(body));
+
+      const response = await adapter.createMessage(makeOptions({ tools: [makeToolDef()] }));
+      expect(response.toolCalls).toEqual([
+        { id: "call_valid_1", name: "search", input: { query: "a" } },
+      ]);
+    });
+  });
 });
 
 describe("DeepSeekAdapter", () => {

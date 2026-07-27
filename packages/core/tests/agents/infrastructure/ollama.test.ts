@@ -317,6 +317,69 @@ describe("OllamaAdapter", () => {
     });
   });
 
+  describe("tool call identity", () => {
+    function toolCallResponse(names: string[]) {
+      return {
+        ok: true,
+        json: async () => ({
+          message: {
+            content: "",
+            tool_calls: names.map((name) => ({
+              function: { name, arguments: { query: "test" } },
+            })),
+          },
+          done: true,
+          prompt_eval_count: 20,
+          eval_count: 10,
+        }),
+      };
+    }
+
+    it("derives a deterministic id from the request body + tool-call ordinal", async () => {
+      mockFetch.mockResolvedValueOnce(toolCallResponse(["search"]));
+      const adapter = new OllamaAdapter();
+      const options = makeOptions({ tools: [makeToolDef()] });
+      const response = await adapter.createMessage(options);
+
+      expect(response.toolCalls).toHaveLength(1);
+      expect(response.toolCalls[0]!.id).toMatch(/^synth1:[0-9a-f]{64}:0$/);
+    });
+
+    it("produces the identical id across two independent normalizations of the same request", async () => {
+      const options = makeOptions({ tools: [makeToolDef()] });
+
+      mockFetch.mockResolvedValueOnce(toolCallResponse(["search"]));
+      const first = await new OllamaAdapter().createMessage(options);
+
+      mockFetch.mockResolvedValueOnce(toolCallResponse(["search"]));
+      const second = await new OllamaAdapter().createMessage(options);
+
+      expect(first.toolCalls[0]!.id).toBe(second.toolCalls[0]!.id);
+    });
+
+    it("produces distinct ids for distinct tool-call ordinals in the same response", async () => {
+      mockFetch.mockResolvedValueOnce(toolCallResponse(["search", "search"]));
+      const adapter = new OllamaAdapter();
+      const response = await adapter.createMessage(makeOptions({ tools: [makeToolDef()] }));
+
+      expect(response.toolCalls).toHaveLength(2);
+      expect(response.toolCalls[0]!.id).not.toBe(response.toolCalls[1]!.id);
+    });
+
+    it("produces a different id when the request body differs", async () => {
+      mockFetch.mockResolvedValueOnce(toolCallResponse(["search"]));
+      const first = await new OllamaAdapter().createMessage(makeOptions({ tools: [makeToolDef()] }));
+
+      mockFetch.mockResolvedValueOnce(toolCallResponse(["search"]));
+      const second = await new OllamaAdapter().createMessage(makeOptions({
+        messages: [{ role: "user", parts: textParts("A different prompt") }],
+        tools: [makeToolDef()],
+      }));
+
+      expect(first.toolCalls[0]!.id).not.toBe(second.toolCalls[0]!.id);
+    });
+  });
+
   describe("streamMessage", () => {
     it("yields text events from NDJSON", async () => {
       const body = makeStreamBody([
