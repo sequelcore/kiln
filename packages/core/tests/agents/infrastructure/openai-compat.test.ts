@@ -605,6 +605,86 @@ describe("OpenAIAdapter", () => {
       });
     });
 
+    it("adopts a native id that arrives on a later delta instead of keeping the first-observed synthetic id", async () => {
+      // First delta has no tc.id and no chunk id -> would previously buffer id "" and fail
+      // at flush. A later delta for the same index supplies a native id; that must win.
+      const chunk1 = JSON.stringify({
+        choices: [{
+          delta: { tool_calls: [{ index: 0, function: { name: "search", arguments: '{"query":' } }] },
+        }],
+      });
+      const chunk2 = JSON.stringify({
+        choices: [{
+          delta: { tool_calls: [{ index: 0, id: "call_native", function: { arguments: '"test"}' } }] },
+        }],
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: mockSSEStream([chunk1, chunk2]),
+      }));
+
+      const events: AgentStreamEvent[] = [];
+      for await (const event of adapter.streamMessage(makeOptions({ tools: [makeToolDef()] }))) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({
+        type: "tool_use",
+        content: JSON.stringify({ id: "call_native", name: "search", input: { query: "test" } }),
+      });
+    });
+
+    it("rejects a stream that reuses one index for two conflicting native tool call ids", async () => {
+      const chunk1 = JSON.stringify({
+        choices: [{
+          delta: { tool_calls: [{ index: 0, id: "call-A", function: { name: "search", arguments: "{}" } }] },
+        }],
+      });
+      const chunk2 = JSON.stringify({
+        choices: [{
+          delta: { tool_calls: [{ index: 0, id: "call-B", function: { arguments: "{}" } }] },
+        }],
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: mockSSEStream([chunk1, chunk2]),
+      }));
+
+      await expect(async () => {
+        for await (const _event of adapter.streamMessage(makeOptions({ tools: [makeToolDef()] }))) {
+          // consume
+        }
+      }).rejects.toMatchObject({ code: "TOOL_CALL_IDENTITY_INVALID" });
+    });
+
+    it("rejects a stream where the chunk id backing a synthetic id changes mid-buffer", async () => {
+      const chunk1 = JSON.stringify({
+        id: "chatcmpl-A",
+        choices: [{
+          delta: { tool_calls: [{ index: 0, function: { name: "search", arguments: "{}" } }] },
+        }],
+      });
+      const chunk2 = JSON.stringify({
+        id: "chatcmpl-B",
+        choices: [{
+          delta: { tool_calls: [{ index: 0, function: { arguments: "{}" } }] },
+        }],
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: mockSSEStream([chunk1, chunk2]),
+      }));
+
+      await expect(async () => {
+        for await (const _event of adapter.streamMessage(makeOptions({ tools: [makeToolDef()] }))) {
+          // consume
+        }
+      }).rejects.toMatchObject({ code: "TOOL_CALL_IDENTITY_INVALID" });
+    });
+
     it("preserves a valid provider id unchanged (regression guard)", async () => {
       const body = makeOpenAIResponse({
         choices: [{
