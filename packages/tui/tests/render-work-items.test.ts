@@ -25,8 +25,15 @@ describe("TUI work item sidebar rendering", () => {
         expectedEvidence: ["surface-map", "tests"],
         providedEvidence: ["surface-map"],
         missingEvidence: ["tests"],
+        missingGoalEvidence: ["goal-review"],
+        missingVerificationGates: ["managed review"],
+        failedVerificationGates: ["typecheck"],
         missingResidualRisk: true,
         pendingPauseRequirementCount: 1,
+        referenceRoots: [],
+        verificationGates: [],
+        pauseRequirements: [],
+        executionAttempts: [],
         updatedAt: new Date("2026-06-24T10:00:00.000Z"),
       },
     ];
@@ -37,7 +44,11 @@ describe("TUI work item sidebar rendering", () => {
     renderSidebarWork(state, defaultTheme, ui as never);
 
     expect(ui.sidebarWorkText.content).toContain("auth:authority:foundation-readonly-plan");
-    expect(ui.sidebarWorkText.content).toContain("missing:tests,residual-risk");
+    expect(ui.sidebarWorkText.content).toContain("missing:tests");
+    expect(ui.sidebarWorkText.content).toContain("missing-goal:goal-review");
+    expect(ui.sidebarWorkText.content).toContain("missing-gates:managed review");
+    expect(ui.sidebarWorkText.content).toContain("failed-gates:typecheck");
+    expect(ui.sidebarWorkText.content).toContain("missing:residual-risk");
     expect(ui.sidebarWorkText.content).toContain("res:kiln://session/work-items/work-visible");
   });
 });

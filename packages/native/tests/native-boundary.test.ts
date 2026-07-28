@@ -667,7 +667,7 @@ describe("native operator surface foundation", () => {
       },
     ];
 
-    expect(selectNativeWorkItems(events)).toEqual([
+    expect(selectNativeWorkItems(events)).toMatchObject([
       {
         id: "work-visible",
         resourceUri: "kiln://session/work-items/work-visible",
@@ -678,7 +678,8 @@ describe("native operator surface foundation", () => {
         assignedAgentProfile: "foundation-readonly-plan",
         expectedEvidence: ["surface-map", "tests"],
         providedEvidence: ["surface-map"],
-        missingEvidence: ["tests", "residual-risk"],
+        missingEvidence: ["tests"],
+        missingResidualRisk: true,
         pendingPauseRequirementCount: 1,
         updatedAt: "2026-06-24T10:00:00.000Z",
       },

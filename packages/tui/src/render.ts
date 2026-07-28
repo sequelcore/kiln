@@ -268,17 +268,15 @@ function fmtWorkItem(item: WorkItem, index: number): string {
   const paused = item.pendingPauseRequirementCount && item.pendingPauseRequirementCount > 0
     ? ` pause:${item.pendingPauseRequirementCount}`
     : "";
-  const missing = [
-    ...(item.missingEvidence ?? []),
-    ...(item.missingResidualRisk ? ["residual-risk"] : []),
-  ];
   const lines = [`${prefix}${agent}${item.status} ${evidence}${attempt}${paused} ${summary}`];
   if (item.authorityProfile) {
     lines.push(`  auth:${item.authorityProfile}`);
   }
-  if (missing.length > 0) {
-    lines.push(`  missing:${missing.join(",")}`);
-  }
+  if (item.missingEvidence.length > 0) lines.push(`  missing:${item.missingEvidence.join(",")}`);
+  if (item.missingGoalEvidence.length > 0) lines.push(`  missing-goal:${item.missingGoalEvidence.join(",")}`);
+  if (item.missingVerificationGates.length > 0) lines.push(`  missing-gates:${item.missingVerificationGates.join(",")}`);
+  if (item.failedVerificationGates.length > 0) lines.push(`  failed-gates:${item.failedVerificationGates.join(",")}`);
+  if (item.missingResidualRisk) lines.push("  missing:residual-risk");
   if (item.resourceUri) {
     lines.push(`  res:${item.resourceUri}`);
   }

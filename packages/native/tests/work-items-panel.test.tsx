@@ -17,8 +17,16 @@ describe("native work items panel", () => {
             assignedAgentProfile: "foundation-readonly-plan",
             expectedEvidence: ["surface-map", "tests"],
             providedEvidence: ["surface-map"],
-            missingEvidence: ["tests", "residual-risk"],
+            missingEvidence: ["tests"],
+            missingGoalEvidence: ["goal-review"],
+            missingVerificationGates: ["managed review"],
+            failedVerificationGates: ["typecheck"],
+            missingResidualRisk: true,
             pendingPauseRequirementCount: 1,
+            referenceRoots: [],
+            verificationGates: [],
+            pauseRequirements: [],
+            executionAttempts: [],
             updatedAt: "2026-06-24T10:00:00.000Z",
           },
         ]}
@@ -28,7 +36,11 @@ describe("native work items panel", () => {
     expect(markup).toContain("work-visible");
     expect(markup).toContain("authority:foundation-readonly-plan");
     expect(markup).toContain("kiln://session/work-items/work-visible");
-    expect(markup).toContain("Missing: tests, residual-risk");
+    expect(markup).toContain("Missing: tests");
+    expect(markup).toContain("Missing goal evidence: goal-review");
+    expect(markup).toContain("Missing verification gates: managed review");
+    expect(markup).toContain("Failed verification gates: typecheck");
+    expect(markup).toContain("Missing residual-risk disposition");
     expect(markup).toContain("Pause requirements");
     expect(markup).toContain("<dd>1</dd>");
   });

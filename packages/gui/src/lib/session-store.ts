@@ -383,11 +383,15 @@ function toolCallIdFromDetails(details: unknown): string | null {
 function workItemFromPayload(
   payload: Record<string, unknown>,
   previous?: WorkItemEntry,
+  sessionId?: string,
+  turnId?: string,
 ): WorkItemEntry | null {
   return projectOperatorGovernedWorkItemSnapshot({
     workItem: payload.workItem,
     evidence: payload,
     ...(previous ? { previous } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(turnId ? { turnId } : {}),
     observedAt: nowIso(),
   });
 }
@@ -408,15 +412,6 @@ function isWorkflowLifecycleTimelineEventKind(kind: OperatorSessionEventKind): b
     || kind === "goal.failed"
     || kind === "goal.cancelled"
     || kind === "work_items.materialized";
-}
-
-function mergeWorkItemEntry(previous: WorkItemEntry | undefined, next: WorkItemEntry): WorkItemEntry {
-  return {
-    ...next,
-    referenceRoots: next.referenceRoots ?? previous?.referenceRoots,
-    pauseRequirements: next.pauseRequirements ?? previous?.pauseRequirements,
-    executionAttempts: next.executionAttempts ?? previous?.executionAttempts,
-  };
 }
 
 const USD_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -680,6 +675,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
+        sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
         ...(event.turnId ? { turnId: event.turnId } : {}),
         title: presentation.title,
         summary: presentation.summary,
@@ -844,6 +840,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
+        sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
         ...(event.turnId ? { turnId: event.turnId } : {}),
         title: presentation.title,
         summary: presentation.summary,
@@ -1271,9 +1268,15 @@ export function deriveWorkItems(entries: readonly TimelineEntry[]): readonly Wor
       continue;
     }
     const workItemId = readString(isObjectRecord(payload.workItem) ? payload.workItem.id : undefined);
-    const item = workItemFromPayload(payload, workItemId ? items.get(workItemId) : undefined);
+    const itemKey = workItemId ? `${entry.sessionId ?? ""}\u001f${workItemId}` : undefined;
+    const item = workItemFromPayload(
+      payload,
+      itemKey ? items.get(itemKey) : undefined,
+      entry.sessionId,
+      entry.turnId,
+    );
     if (item) {
-      items.set(item.id, mergeWorkItemEntry(items.get(item.id), item));
+      items.set(`${item.sessionId ?? ""}\u001f${item.id}`, item);
     }
   }
   return [...items.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
@@ -2189,6 +2192,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
+            sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
             ...timelineTurnId(event),
             title: presentation.title,
             summary: presentation.summary,
@@ -2435,6 +2439,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
+            sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
             ...timelineTurnId(event),
             title: presentation.title,
             summary: presentation.summary,

@@ -2,6 +2,7 @@ import type {
   GuiInboundFrame,
   GuiOutboundFrame,
   OperatorCockpitManagedAgentDrilldownTarget,
+  OperatorGovernedWorkItemProjection,
   OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 import {
@@ -21,20 +22,7 @@ export interface NativeGatewayCockpitFrameState {
   readonly error?: string;
 }
 
-export interface NativeWorkItemSummary {
-  readonly id: string;
-  readonly resourceUri: string;
-  readonly summary: string;
-  readonly status: string;
-  readonly workflowProfile: string;
-  readonly authorityProfile?: string;
-  readonly assignedAgentProfile?: string;
-  readonly expectedEvidence: readonly string[];
-  readonly providedEvidence: readonly string[];
-  readonly missingEvidence: readonly string[];
-  readonly pendingPauseRequirementCount: number;
-  readonly updatedAt: string;
-}
+export type NativeWorkItemSummary = OperatorGovernedWorkItemProjection;
 
 export function resolveNativeGatewayCockpitWebSocketUrl(
   gatewayUrl: string,
@@ -87,26 +75,7 @@ export function selectNativeManagedAgentDrilldownTarget(
 }
 
 export function selectNativeWorkItems(events: readonly OperatorSessionEvent[]): readonly NativeWorkItemSummary[] {
-  return projectOperatorGovernedWorkItems(events).map((item) => ({
-    id: item.id,
-    resourceUri: item.resourceUri,
-    summary: item.summary,
-    status: item.status,
-    workflowProfile: item.workflowProfile,
-    ...(item.authorityProfile ? { authorityProfile: item.authorityProfile } : {}),
-    ...(item.assignedAgentProfile ? { assignedAgentProfile: item.assignedAgentProfile } : {}),
-    expectedEvidence: item.expectedEvidence,
-    providedEvidence: item.providedEvidence,
-    missingEvidence: [...new Set([
-      ...item.missingEvidence,
-      ...item.missingGoalEvidence,
-      ...item.missingVerificationGates,
-      ...item.failedVerificationGates,
-      ...(item.missingResidualRisk ? ["residual-risk"] : []),
-    ])],
-    pendingPauseRequirementCount: item.pendingPauseRequirementCount,
-    updatedAt: item.updatedAt,
-  }));
+  return projectOperatorGovernedWorkItems(events);
 }
 
 export function createNativeManagedAgentCancelControlFrame(input: {

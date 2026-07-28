@@ -64,6 +64,7 @@ describe("native managed-agent cockpit panel", () => {
         pendingPauseCount: 1,
       }],
     });
+    expect(cockpit.workspaceHome.work.blockedCount).toBe(1);
   });
 
   it("renders active and review child state from shared read-only cockpit view-state", () => {

@@ -2253,6 +2253,8 @@ describe("session-store", () => {
 
     expect(deriveWorkItems(useSessionStore.getState().timelineEntries)).toMatchObject([{
       id: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
+      sessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+      turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
       status: "blocked",
       pendingPauseRequirementCount: 1,
       missingEvidence: ["runtime-observation"],

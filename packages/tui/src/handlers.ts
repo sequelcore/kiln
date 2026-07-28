@@ -439,9 +439,6 @@ function toWorkItem(
   }
   return {
     ...projected,
-    expectedEvidence: [...projected.expectedEvidence],
-    providedEvidence: [...projected.providedEvidence],
-    missingEvidence: [...projected.missingEvidence],
     updatedAt: new Date(projected.updatedAt),
   };
 }

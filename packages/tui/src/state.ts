@@ -10,6 +10,9 @@ import type {
   OperatorWorkspaceHomeProjection,
   ContextUsageProjection,
 } from "@kilnai/gateway-contracts";
+import type {
+  OperatorGovernedWorkItemProjection,
+} from "@kilnai/gateway-contracts";
 import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
   EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
@@ -154,24 +157,7 @@ export interface ChangedFile {
 }
 
 /** Governed work item summary for sidebar display. */
-export interface WorkItem {
-  sessionId?: string;
-  turnId?: string;
-  id: string;
-  resourceUri?: string;
-  summary: string;
-  status: string;
-  workflowProfile: string;
-  authorityProfile?: string;
-  assignedAgentProfile?: string;
-  expectedEvidence: string[];
-  providedEvidence: string[];
-  latestAttemptStatus?: string;
-  latestAttemptMode?: string;
-  latestManagedInvocationId?: string;
-  pendingPauseRequirementCount?: number;
-  missingEvidence?: string[];
-  missingResidualRisk?: boolean;
+export interface WorkItem extends Omit<OperatorGovernedWorkItemProjection, "updatedAt"> {
   updatedAt: Date;
 }
 
