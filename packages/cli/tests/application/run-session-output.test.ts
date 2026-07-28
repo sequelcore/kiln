@@ -13,6 +13,7 @@ const DOMAIN: DomainConfig = {
   multishotExamples: "",
   phaseExamples: "",
 };
+const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
 
 function makeContext(): SessionContext {
   return {
@@ -57,11 +58,44 @@ describe("runSession output routing", () => {
     const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((() => true) as never);
     const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Read", input: { path: "README.md" } },
-      { type: "tool_output_delta", toolCallId: "read-1", toolName: "Read", stream: "stdout", delta: "reading\n", chunkIndex: 0 },
-      { type: "tool_result", toolName: "Read", output: "ok" },
-      { type: "tool_use", toolCallId: "bash-1", toolName: "bash", input: { command: "bunx vitest run" } },
-      { type: "tool_result", toolCallId: "bash-1", toolName: "bash", output: "blocked", isError: true },
+      {
+        type: "tool_use",
+        toolCallId: "read-1",
+        toolCallScopeId: TOOL_CALL_SCOPE_ID,
+        toolName: "Read",
+        input: { path: "README.md" },
+      },
+      {
+        type: "tool_output_delta",
+        toolCallId: "read-1",
+        toolCallScopeId: TOOL_CALL_SCOPE_ID,
+        toolName: "Read",
+        stream: "stdout",
+        delta: "reading\n",
+        chunkIndex: 0,
+      },
+      {
+        type: "tool_result",
+        toolCallId: "read-1",
+        toolCallScopeId: TOOL_CALL_SCOPE_ID,
+        toolName: "Read",
+        output: "ok",
+      },
+      {
+        type: "tool_use",
+        toolCallId: "bash-1",
+        toolCallScopeId: TOOL_CALL_SCOPE_ID,
+        toolName: "bash",
+        input: { command: "bunx vitest run" },
+      },
+      {
+        type: "tool_result",
+        toolCallId: "bash-1",
+        toolCallScopeId: TOOL_CALL_SCOPE_ID,
+        toolName: "bash",
+        output: "blocked",
+        isError: true,
+      },
       { type: "text_delta", content: "Only four bullets.\n" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);

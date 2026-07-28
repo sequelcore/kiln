@@ -79,6 +79,7 @@ import {
   type GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import {
+  assertScopedExecutionSessionToolEvent,
   GoalRunStore,
   WorkItemStore,
   createSessionBuiltinToolOptions,
@@ -594,7 +595,6 @@ export async function makeMultiProviderSessionFactory(
         let assistantContent = "";
         let assistantDeltaIndex = 0;
         const pendingToolCallIds = new Map<string, string[]>();
-        let syntheticToolOrdinal = 0;
         const priorTranscript = await transcriptStore.readTranscript(capturedId);
         const appendTranscriptEvent = async (event: PersistedTranscriptEventDraft): Promise<void> => {
           await transcriptStore.appendNext(capturedId, event);
@@ -656,7 +656,9 @@ export async function makeMultiProviderSessionFactory(
                 }, transcriptSurface, turnId),
               );
             } else if (event.type === "tool_use") {
-              const toolCallId = event.toolCallId ?? `${turnId}:tool:${++syntheticToolOrdinal}`;
+              assertScopedExecutionSessionToolEvent(event);
+              const toolCallId = event.toolCallId;
+              const toolCallScopeId = event.toolCallScopeId;
               const managedProvider = extractManagedProviderRouteIdFromToolUse(event.toolName, event.input);
               if (managedProvider) {
                 providersUsed.add(managedProvider);
@@ -667,41 +669,33 @@ export async function makeMultiProviderSessionFactory(
               await appendTranscriptEvent(
                 toPersistedTranscriptEvent(capturedId, 0, "tool_use", {
                   toolCallId,
+                  toolCallScopeId,
                   toolName: event.toolName,
                   input: event.input,
                 }, transcriptSurface, turnId, options.executionScope),
               );
             } else if (event.type === "tool_result") {
+              assertScopedExecutionSessionToolEvent(event);
               const pending = pendingToolCallIds.get(event.toolName);
-              let toolCallId: string | undefined;
-              if (event.toolCallId) {
-                toolCallId = event.toolCallId;
-                const pendingIndex = pending?.indexOf(event.toolCallId) ?? -1;
-                if (pending && pendingIndex >= 0) {
-                  pending.splice(pendingIndex, 1);
-                }
-              } else {
-                toolCallId = pending?.shift();
+              const toolCallId = event.toolCallId;
+              const toolCallScopeId = event.toolCallScopeId;
+              const pendingIndex = pending?.indexOf(event.toolCallId) ?? -1;
+              if (pending && pendingIndex >= 0) {
+                pending.splice(pendingIndex, 1);
               }
               if (pending && pending.length === 0) {
                 pendingToolCallIds.delete(event.toolName);
               }
-              if (!toolCallId) {
-                toolCallId = `${turnId}:tool:${++syntheticToolOrdinal}`;
-                await appendTranscriptEvent(
-                  toPersistedTranscriptEvent(capturedId, 0, "tool_use", {
-                    toolCallId,
-                    toolName: event.toolName,
-                  }, transcriptSurface, turnId, options.executionScope),
-                );
-              }
-              const toolResultPayload = buildOperatorToolResultPayload({
+              const toolResultPayload = {
+                toolCallScopeId,
+                ...buildOperatorToolResultPayload({
                   toolCallId,
                   toolName: event.toolName,
                   output: event.output,
                   ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
                   ...(event.isError !== undefined ? { isError: event.isError } : {}),
-              });
+                }),
+              };
               const persistedToolResult = toPersistedTranscriptEvent(
                 capturedId,
                 0,

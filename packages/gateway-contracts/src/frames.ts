@@ -750,6 +750,7 @@ export interface GuiInteractiveUseSnapshot {
   readonly updatedAt: string;
   readonly kilnSessionId?: string;
   readonly toolCallId?: string;
+  readonly toolCallScopeId?: string;
   readonly toolName?: string;
   readonly provider?: string;
   readonly gatewayTargetId?: string;
@@ -789,6 +790,7 @@ export interface GuiBrowserSessionState {
   readonly updatedAt: string;
   readonly kilnSessionId?: string;
   readonly toolCallId?: string;
+  readonly toolCallScopeId?: string;
   readonly toolName?: string;
   readonly provider?: string;
   readonly gatewayTargetId?: string;

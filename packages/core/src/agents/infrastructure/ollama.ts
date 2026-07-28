@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ProviderAdapter,
   CreateMessageOptions,
@@ -8,6 +9,7 @@ import type {
 import type { ContentPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
+import { assertValidToolCallIds, buildSyntheticToolCallId } from "../tool-call-input.js";
 
 export const LLAMA3 = "llama3.1";
 export const CODELLAMA = "codellama";
@@ -75,14 +77,16 @@ export class OllamaAdapter implements ProviderAdapter {
 
     const toolCalls: ToolCall[] = [];
     if (data.message.tool_calls) {
-      for (const tc of data.message.tool_calls) {
+      const requestHash = hashOllamaRequestBody(body);
+      for (const [ordinal, tc] of data.message.tool_calls.entries()) {
         toolCalls.push({
-          id: crypto.randomUUID(),
+          id: buildSyntheticToolCallId(requestHash, String(ordinal), hashOllamaToolCall(tc)),
           name: tc.function.name,
           input: tc.function.arguments,
         });
       }
     }
+    assertValidToolCallIds(toolCalls, { adapter: this.name });
 
     return {
       parts: [textPart(data.message.content)],
@@ -230,4 +234,41 @@ function unsupportedModality(modality: string, reason: string): KilnError {
     retryable: false,
     context: { provider: "ollama", modality },
   });
+}
+
+/**
+ * Ollama's wire protocol carries no tool call id at all, so identity must be synthesized.
+ * Hashes the exact request body sent to Ollama (deterministic key order, no timestamps or
+ * randomness) -- re-normalizing the same logical request yields the identical hash, and the
+ * caller combines it with the tool call's ordinal within the response to distinguish sibling
+ * calls in one turn.
+ */
+function hashOllamaRequestBody(body: Record<string, unknown>): string {
+  return createHash("sha256").update(stableStringify(body)).digest("hex");
+}
+
+/**
+ * Ollama's generation is nondeterministic: a fixed request can return a different tool call
+ * at the same ordinal on different attempts. The request hash + ordinal alone would collide
+ * two distinct generated calls onto the same synthetic id, so the derivation also folds in a
+ * hash of the tool call's own content (name + arguments). Re-normalizing the same *persisted*
+ * response still yields the same hash -- this only distinguishes genuinely different outputs.
+ */
+function hashOllamaToolCall(toolCall: OllamaToolCall): string {
+  return createHash("sha256")
+    .update(stableStringify({ name: toolCall.function.name, arguments: toolCall.function.arguments }))
+    .digest("hex");
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

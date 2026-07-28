@@ -6,6 +6,7 @@ describe("interactive use GUI frame projection", () => {
     expect(projectInteractiveUseFrameFromToolResult({
       kilnSessionId: "session-1",
       toolCallId: "tool-1",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "browser_observe",
       timestamp: "2026-05-08T12:00:00.000Z",
       status: "succeeded",
@@ -37,6 +38,7 @@ describe("interactive use GUI frame projection", () => {
         status: "succeeded",
         kilnSessionId: "session-1",
         toolCallId: "tool-1",
+        toolCallScopeId: "turn-1:response:1",
         toolName: "browser_observe",
         provider: "playwright",
         sessionId: "browser-1",
@@ -50,8 +52,9 @@ describe("interactive use GUI frame projection", () => {
       browserSession: {
         target: "browser",
         status: "succeeded",
-        kilnSessionId: "session-1",
-        toolCallId: "tool-1",
+      kilnSessionId: "session-1",
+      toolCallId: "tool-1",
+      toolCallScopeId: "turn-1:response:1",
         toolName: "browser_observe",
         provider: "playwright",
         sessionId: "browser-1",
@@ -77,8 +80,9 @@ describe("interactive use GUI frame projection", () => {
 
   it("ignores non-interactive metadata", () => {
     expect(projectInteractiveUseFrameFromToolResult({
-      kilnSessionId: "session-1",
-      toolCallId: "tool-1",
+        kilnSessionId: "session-1",
+        toolCallId: "tool-1",
+        toolCallScopeId: "turn-1:response:1",
       toolName: "read",
       timestamp: "2026-05-08T12:00:00.000Z",
       status: "succeeded",

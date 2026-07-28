@@ -5,6 +5,7 @@ const BROWSER_STREAM_UNAVAILABLE_REASON = "No live browser stream transport is c
 export interface InteractiveUseToolResultFrameInput {
   readonly kilnSessionId?: string;
   readonly toolCallId?: string;
+  readonly toolCallScopeId?: string;
   readonly toolName?: string;
   readonly timestamp: string;
   readonly status: GuiInteractiveUseSnapshot["status"];
@@ -33,6 +34,7 @@ export function projectInteractiveUseFrameFromToolResult(
     updatedAt: input.timestamp,
     ...(input.kilnSessionId ? { kilnSessionId: input.kilnSessionId } : {}),
     ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
+    ...(input.toolCallScopeId ? { toolCallScopeId: input.toolCallScopeId } : {}),
     ...(input.toolName ? { toolName: input.toolName } : {}),
     ...stringField("provider", metadata.provider),
     ...stringField("sessionId", metadata.sessionId),
@@ -89,6 +91,7 @@ function browserSessionStateFromSnapshot(
     updatedAt: snapshot.updatedAt,
     ...(snapshot.kilnSessionId ? { kilnSessionId: snapshot.kilnSessionId } : {}),
     ...(snapshot.toolCallId ? { toolCallId: snapshot.toolCallId } : {}),
+    ...(snapshot.toolCallScopeId ? { toolCallScopeId: snapshot.toolCallScopeId } : {}),
     ...(snapshot.toolName ? { toolName: snapshot.toolName } : {}),
     ...(snapshot.provider ? { provider: snapshot.provider } : {}),
     ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),

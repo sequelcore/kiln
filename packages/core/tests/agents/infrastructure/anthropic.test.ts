@@ -327,6 +327,35 @@ describe("AnthropicAdapter", () => {
       });
     });
 
+    it("rejects duplicate tool_use ids within one response", async () => {
+      mockCreate.mockResolvedValueOnce(
+        makeMessageResponse({
+          content: [
+            { type: "tool_use", id: "toolu_dup", name: "search", input: { query: "a" } },
+            { type: "tool_use", id: "toolu_dup", name: "search", input: { query: "b" } },
+          ],
+        }),
+      );
+
+      await expect(adapter.createMessage(makeOptions())).rejects.toMatchObject({
+        code: "TOOL_CALL_IDENTITY_INVALID",
+      });
+    });
+
+    it("rejects a whitespace-only tool_use id", async () => {
+      mockCreate.mockResolvedValueOnce(
+        makeMessageResponse({
+          content: [
+            { type: "tool_use", id: "   ", name: "search", input: { query: "a" } },
+          ],
+        }),
+      );
+
+      await expect(adapter.createMessage(makeOptions())).rejects.toMatchObject({
+        code: "TOOL_CALL_IDENTITY_INVALID",
+      });
+    });
+
     it("handles null cache token counts", async () => {
       mockCreate.mockResolvedValueOnce(
         makeMessageResponse({
@@ -713,6 +742,43 @@ describe("AnthropicAdapter", () => {
 
       const params = mockCreate.mock.calls[0]![0];
       expect(params.stream).toBe(true);
+    });
+
+    it("rejects a streamed response that emits two tool_use blocks with the same id", async () => {
+      const streamEvents = [
+        { type: "message_start", message: makeMessageResponse() },
+        {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", id: "toolu_dup_stream", name: "search", input: {} },
+        },
+        {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: '{"query":"a"}' },
+        },
+        { type: "content_block_stop", index: 0 },
+        {
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "tool_use", id: "toolu_dup_stream", name: "search", input: {} },
+        },
+        {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "input_json_delta", partial_json: '{"query":"b"}' },
+        },
+        { type: "content_block_stop", index: 1 },
+        { type: "message_stop" },
+      ];
+
+      mockCreate.mockResolvedValueOnce(createAsyncIterable(streamEvents));
+
+      await expect(async () => {
+        for await (const _event of adapter.streamMessage(makeOptions())) {
+          // consume
+        }
+      }).rejects.toMatchObject({ code: "TOOL_CALL_IDENTITY_INVALID" });
     });
   });
 });

@@ -377,6 +377,7 @@ export class RuntimeSessionToolExecutor {
   private currentSession: RuntimeSession | undefined;
   private currentExecutionScope: PerCallToolConfig["executionScope"];
   private activeExecutionScope: PerCallToolConfig["executionScope"];
+  private currentToolCallScopeId: string | undefined;
   private readonly turnToolCallCounts = new Map<string, number>();
 
   constructor(
@@ -394,9 +395,11 @@ export class RuntimeSessionToolExecutor {
   async executeToolCalls(
     session: RuntimeSession,
     toolCalls: readonly ToolCall[],
+    toolCallScopeId: string,
     perCallConfig?: PerCallToolConfig,
   ): Promise<RuntimeSessionToolExecutionResult> {
     this.currentSession = session;
+    this.currentToolCallScopeId = toolCallScopeId;
     if (perCallConfig?.executionScope) {
       this.activeExecutionScope = perCallConfig.executionScope;
     }
@@ -866,6 +869,7 @@ export class RuntimeSessionToolExecutor {
     } finally {
       this.currentSession = undefined;
       this.currentExecutionScope = undefined;
+      this.currentToolCallScopeId = undefined;
     }
   }
 
@@ -1543,9 +1547,11 @@ export class RuntimeSessionToolExecutor {
     resolvedEffect?: ResolvedInvocationEffect,
     authority?: AuthorityDescriptor,
   ): void {
+    const toolCallScopeId = this.requireCurrentToolCallScopeId();
     const event: ToolCalledEvent = {
       type: "tool_called",
       toolCallId,
+      toolCallScopeId,
       toolName,
       timestamp: new Date(),
       sessionId,
@@ -1597,9 +1603,11 @@ export class RuntimeSessionToolExecutor {
     resolvedEffect?: ResolvedInvocationEffect,
     authority?: AuthorityDescriptor,
   ): void {
+    const toolCallScopeId = this.requireCurrentToolCallScopeId();
     const event: ToolResultEvent = {
       type: "tool_result",
       toolCallId,
+      toolCallScopeId,
       toolName,
       durationMs,
       success,
@@ -1628,9 +1636,11 @@ export class RuntimeSessionToolExecutor {
     chunkIndex: number,
   ): void {
     if (delta.length === 0) return;
+    const toolCallScopeId = this.requireCurrentToolCallScopeId();
     const event: ToolOutputEvent = {
       type: "tool_output",
       toolCallId,
+      toolCallScopeId,
       toolName,
       stream,
       delta,
@@ -1640,6 +1650,13 @@ export class RuntimeSessionToolExecutor {
       ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
     };
     this.eventBus?.emit(event);
+  }
+
+  private requireCurrentToolCallScopeId(): string {
+    if (!this.currentToolCallScopeId) {
+      throw new Error("Tool-call scope identity is required while executing tool calls");
+    }
+    return this.currentToolCallScopeId;
   }
 
   private recordToolUsage(toolName: string): SessionToolUsageSnapshot {

@@ -241,6 +241,43 @@ function makeCapabilityMap(overrides?: Partial<Capability>): ReadonlyMap<string,
 }
 
 describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
+  it("fails closed on blank/duplicate tool call ids from a custom adapter before persisting or executing them", async () => {
+    // ProviderAdapter is an open boundary -- any implementation, not just the built-in ones,
+    // must have its tool call identity validated before results enter the runtime.
+    const getData = vi.fn().mockResolvedValue("should never run");
+    const provider: ProviderAdapter = {
+      name: "custom-adapter",
+      createMessage: vi.fn().mockResolvedValue({
+        parts: textParts("using tool"),
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        toolCalls: [
+          { id: "", name: "get_data", input: { query: "a" } },
+          { id: "", name: "get_data", input: { query: "b" } },
+        ],
+        stopReason: "tool_use",
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider,
+      tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+      builtinTools: new Map([["get_data", getData]]),
+    });
+    const session = makeSession();
+
+    await expect(orchestrator.processMessage(session, textParts("go"))).rejects.toMatchObject({
+      code: "TOOL_CALL_IDENTITY_INVALID",
+    });
+
+    expect(getData).not.toHaveBeenCalled();
+    expect(
+      session.conversationHistory.some((message) => message.parts.some((part) => part.type === "tool_use")),
+    ).toBe(false);
+  });
+
   it("forces one bounded recovery round before allowing an exact-date answer", async () => {
     const provider: ProviderAdapter = {
       name: "mock",
@@ -2108,17 +2145,76 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           expect.objectContaining({
             type: "tool_called",
             toolCallId: "tc-1",
+            toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/),
             toolName: "get_data",
           }),
           expect.objectContaining({
             type: "tool_result",
             toolCallId: "tc-1",
+            toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/),
             toolName: "get_data",
             success: false,
             isError: true,
             resultSummary: "Authorization denied: Authorization denied",
           }),
         ]);
+    });
+
+    it("assigns one stable scope per model response across multiple tool rounds", async () => {
+      let responseOrdinal = 0;
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(() => {
+          responseOrdinal += 1;
+          if (responseOrdinal <= 2) {
+            return {
+              parts: textParts(`round ${responseOrdinal}`),
+              inputTokens: 10,
+              outputTokens: 5,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              toolCalls: [{
+                id: `tc-${responseOrdinal}`,
+                name: "get_data",
+                input: { query: `query-${responseOrdinal}` },
+              }],
+              stopReason: "tool_use",
+            };
+          }
+          return {
+            parts: textParts("done"),
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [],
+            stopReason: "end_turn",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const eventBus = new EventBus(100);
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        eventBus,
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch twice"));
+
+      expect(eventBus.history()
+        .filter((event) => event.type === "tool_called" || event.type === "tool_result")
+        .map((event) => ({
+          type: event.type,
+          toolCallId: event.toolCallId,
+          toolCallScopeId: event.toolCallScopeId,
+        }))).toEqual([
+        { type: "tool_called", toolCallId: "tc-1", toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/) },
+        { type: "tool_result", toolCallId: "tc-1", toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/) },
+        { type: "tool_called", toolCallId: "tc-2", toolCallScopeId: expect.stringMatching(/:turn:1:response:2$/) },
+        { type: "tool_result", toolCallId: "tc-2", toolCallScopeId: expect.stringMatching(/:turn:1:response:2$/) },
+      ]);
     });
 
     it("dispatches a qualified MCP selector only to its owning server", async () => {
@@ -2265,6 +2361,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           expect.objectContaining({
             type: "tool_output",
             toolCallId: "tc-1",
+            toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/),
             toolName: "get_data",
             stream: "stdout",
             delta: "first\n",
@@ -2273,6 +2370,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           expect.objectContaining({
             type: "tool_output",
             toolCallId: "tc-1",
+            toolCallScopeId: expect.stringMatching(/:turn:1:response:1$/),
             toolName: "get_data",
             stream: "stderr",
             delta: "second\n",
@@ -4699,16 +4797,16 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
 
       await executor.executeToolCalls(session, [
         { id: "start-1", name: "work_item.execution.start", input: {} },
-      ]);
+      ], "turn-1:response:1");
       await executor.executeToolCalls(session, [
         { id: "read-1", name: "read", input: { path: "README.md" } },
-      ]);
+      ], "turn-1:response:2");
       await executor.executeToolCalls(session, [
         { id: "finish-1", name: "work_item.execution.finish", input: {} },
-      ]);
+      ], "turn-1:response:3");
       await executor.executeToolCalls(session, [
         { id: "read-2", name: "read", input: { path: "README.md" } },
-      ]);
+      ], "turn-1:response:4");
 
       const lifecycleEvents = eventBus.history()
         .filter((event) => event.type === "tool_called" || event.type === "tool_result");
@@ -4759,6 +4857,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const result = await executor.executeToolCalls(
         makeSession(),
         [{ id: "tc-1", name: "get_data", input: { query: "test" } }],
+        "turn-1:response:1",
         { toolAllowlist: new Set(["other_tool"]) },
       );
 

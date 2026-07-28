@@ -10,7 +10,7 @@ import { textPart, extractText } from "../../engine/domain/content.js";
 import type { ContentPart } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { CodexOAuthAuth } from "./codex-oauth-auth.js";
-import { normalizeToolInput } from "../tool-call-input.js";
+import { assertValidToolCallIds, buildSyntheticToolCallId, normalizeToolInput } from "../tool-call-input.js";
 import {
   collectCanonicalToolNames,
   createProviderToolNameCodec,
@@ -624,7 +624,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     const outputItems = response.output ?? [];
     const functionCallItems = outputItems.filter((item) => item.type === "function_call");
 
-    for (const item of outputItems) {
+    for (const [outputIndex, item] of outputItems.entries()) {
       if (item.type === "message") {
         const text = (item.content ?? [])
           .filter((content) => content.type === "output_text" && typeof content.text === "string")
@@ -640,12 +640,14 @@ export class CodexOAuthAdapter implements ProviderAdapter {
       if (item.type === "function_call") {
         const canonicalName = toolNames.toCanonicalName(item.name ?? "");
         toolCalls.push({
-          id: item.call_id ?? item.id ?? "",
+          id: this.deriveCodexToolCallId(item, response.id, outputIndex),
           name: canonicalName,
           input: normalizeToolInput(canonicalName, item.arguments, toolSchemas.get(canonicalName)),
         });
       }
     }
+
+    assertValidToolCallIds(toolCalls, { adapter: this.name });
 
     return {
       parts,
@@ -661,6 +663,31 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         outputPer1M: 0,
       },
     };
+  }
+
+  /**
+   * Derives a replay-stable tool call id from Codex's own coordinates, in priority order:
+   * `call_id`, then item `id`, then `response.id` + the item's position in `response.output`.
+   * Falls through to an empty string (rejected by `assertValidToolCallIds`) only when Codex
+   * supplies none of those coordinates -- there is nothing stable left to synthesize from.
+   */
+  private deriveCodexToolCallId(
+    item: ResponsesOutputItem,
+    responseId: string | undefined,
+    outputIndex: number,
+  ): string {
+    const callId = item.call_id?.trim();
+    if (callId) {
+      return callId;
+    }
+    const itemId = item.id?.trim();
+    if (itemId) {
+      return itemId;
+    }
+    if (responseId) {
+      return buildSyntheticToolCallId(responseId, String(outputIndex));
+    }
+    return "";
   }
 
   private async consumeStreamingResponse(response: Response, hasTools: boolean): Promise<ResponsesResponse> {

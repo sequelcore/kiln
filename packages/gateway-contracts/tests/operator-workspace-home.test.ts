@@ -32,6 +32,7 @@ describe("operator workspace home projection", () => {
       payload: {
         instanceId: "workspace-home:instance:1",
         sessionId: "workspace-home:session:1",
+        toolCallScopeId: "workspace-home:response:1",
         toolCallId: "workspace-home:tool:read-many",
         toolName: "read_many",
         output: JSON.stringify({
@@ -317,6 +318,7 @@ describe("operator workspace home projection", () => {
             gatewayTargetId: "workspace-home:instance:1",
             instanceId: "workspace-home:instance:1",
             sessionId: "workspace-home:session:1",
+            toolCallScopeId: "workspace-home:response:1",
             toolCallId: "workspace-home:tool:read-many",
             resourceUri: "kiln://artifacts/workspace-home/content",
           },

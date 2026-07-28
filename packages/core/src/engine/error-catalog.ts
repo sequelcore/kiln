@@ -531,6 +531,14 @@ export function getErrorSuggestion(
       return { suggestion, docUrl: docUrl(code) };
     }
 
+    case "TOOL_CALL_IDENTITY_INVALID": {
+      const adapter = context?.adapter;
+      let suggestion = "A provider adapter produced a blank or duplicate tool call id.";
+      if (adapter) suggestion += ` Adapter: "${adapter}".`;
+      suggestion += " This is a fail-closed invariant violation, not something to silently repair -- fix the adapter's id derivation.";
+      return { suggestion, docUrl: docUrl(code) };
+    }
+
     case "INTEGRATION_TOOL_FAILED": {
       const provider = context?.provider;
       const operation = context?.operation;

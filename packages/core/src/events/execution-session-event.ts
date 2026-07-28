@@ -142,6 +142,7 @@ export type ExecutionSessionEvent = (
       readonly toolName: string;
       readonly input: unknown;
       readonly toolCallId?: string;
+      readonly toolCallScopeId?: string;
       readonly source?: "native" | "mcp";
       readonly mcpSelector?: string;
     }
@@ -151,6 +152,7 @@ export type ExecutionSessionEvent = (
       readonly output: string;
       readonly outputSummary?: string;
       readonly toolCallId?: string;
+      readonly toolCallScopeId?: string;
       readonly isError?: boolean;
       readonly metadata?: Record<string, unknown>;
       readonly resourceLinks?: readonly ExecutionSessionToolResultResourceLink[];
@@ -159,6 +161,7 @@ export type ExecutionSessionEvent = (
   | {
       readonly type: "tool_output_delta";
       readonly toolCallId: string;
+      readonly toolCallScopeId?: string;
       readonly toolName: string;
       readonly stream: "stdout" | "stderr";
       readonly delta: string;
@@ -206,3 +209,25 @@ export type ExecutionSessionEvent = (
     }
   | { readonly type: "error"; readonly code: string; readonly message: string; readonly isRetryable: boolean }
 ) & { readonly executionScope?: SessionExecutionScope };
+
+export type ScopedExecutionSessionToolEvent = Extract<
+  ExecutionSessionEvent,
+  { readonly type: "tool_use" | "tool_output_delta" | "tool_result" }
+> & {
+  readonly toolCallId: string;
+  readonly toolCallScopeId: string;
+};
+
+export function assertScopedExecutionSessionToolEvent(
+  event: Extract<
+    ExecutionSessionEvent,
+    { readonly type: "tool_use" | "tool_output_delta" | "tool_result" }
+  >,
+): asserts event is ScopedExecutionSessionToolEvent {
+  if (typeof event.toolCallId !== "string" || event.toolCallId.trim().length === 0) {
+    throw new TypeError(`Execution ${event.type} event requires a non-empty toolCallId.`);
+  }
+  if (typeof event.toolCallScopeId !== "string" || event.toolCallScopeId.trim().length === 0) {
+    throw new TypeError(`Execution ${event.type} event requires a non-empty toolCallScopeId.`);
+  }
+}

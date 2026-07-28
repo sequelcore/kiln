@@ -194,6 +194,21 @@ MCP configuration, register host metadata, or package instructions, but the
 concrete tool call still resolves through the canonical runtime authority and
 execution path before any local action happens.
 
+## Tool Call Identity
+
+Canonical tool execution identity is `(toolCallScopeId, toolCallId)`.
+`toolCallId` comes from the provider response, while the runtime creates
+`toolCallScopeId` once at the model-response boundary that admitted that call.
+The same provider call ID may therefore appear in different scopes without
+collision.
+
+Every canonical start, output, and terminal event preserves both values.
+Persistence, replay, and audit projections fail closed when either value is
+missing; they do not use event IDs, tool names, or stream order as identity
+substitutes. Native harness adapters that cannot expose truthful response
+coordinates remain explicitly incapable of persisted tool correlation rather
+than fabricating a scope.
+
 ## MCP Resource Boundary
 
 MCP resources are the read-only context plane. They expose stable snapshots and

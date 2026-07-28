@@ -386,6 +386,7 @@ describe("session-store", () => {
       timestamp: "2026-04-30T14:00:00.000Z",
       kind: "tool_call_started",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-live",
         toolName: "patch",
         input: { patch: "*** Begin Patch" },
@@ -422,6 +423,7 @@ describe("session-store", () => {
       timestamp: "2026-04-30T14:00:00.000Z",
       kind: "tool_call_started",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "command-1",
         toolName: "bash",
         input: { command: "bun test" },
@@ -434,6 +436,7 @@ describe("session-store", () => {
       timestamp: "2026-04-30T14:00:01.000Z",
       kind: "tool_call_output_delta",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "command-1",
         toolName: "bash",
         stream: "stdout",
@@ -448,6 +451,7 @@ describe("session-store", () => {
       timestamp: "2026-04-30T14:00:02.000Z",
       kind: "tool_call_output_delta",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "command-1",
         toolName: "bash",
         stream: "stderr",
@@ -461,6 +465,7 @@ describe("session-store", () => {
     expect(toolEntries[0]).toMatchObject({
       eventKind: "tool_call_started",
       details: expect.objectContaining({
+        toolCallScopeId: "response-1",
         toolCallId: "command-1",
         liveOutput: "RUN tests\nwarning\n",
       }),
@@ -508,6 +513,7 @@ describe("session-store", () => {
       timestamp: "2026-04-30T14:01:00.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-live",
         toolName: "write",
         outputSummary: "1 file changed",
@@ -544,6 +550,7 @@ describe("session-store", () => {
       timestamp: "2026-05-08T14:01:00.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-error",
         toolName: "computer_observe",
         outputSummary: JSON.stringify({
@@ -725,6 +732,7 @@ describe("session-store", () => {
       timestamp: "2026-05-07T08:10:00.000Z",
       kind: "tool_call_started",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-managed",
         toolName: "managed_agent.invoke",
         input: {
@@ -748,6 +756,7 @@ describe("session-store", () => {
       timestamp: "2026-05-07T08:10:01.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-managed",
         toolName: "managed_agent.invoke",
         outputSummary: JSON.stringify({
@@ -897,6 +906,7 @@ describe("session-store", () => {
           kind: "tool_call_started",
           turnId: "turn-1",
           payload: {
+            toolCallScopeId: "response-1",
             toolCallId: "tool-restore-1",
             toolName: "read",
             input: { path: "docs/plan.md" },
@@ -910,6 +920,7 @@ describe("session-store", () => {
           kind: "tool_call_started",
           turnId: "turn-1",
           payload: {
+            toolCallScopeId: "response-1",
             toolCallId: "tool-restore-1",
             toolName: "read",
             input: { path: "duplicate-must-not-replace.md" },
@@ -926,6 +937,7 @@ describe("session-store", () => {
       kind: "tool_call_started",
       turnId: "turn-1",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-restore-1",
         toolName: "read",
         input: { path: "docs/plan.md" },
@@ -939,6 +951,7 @@ describe("session-store", () => {
       kind: "tool_call_completed",
       turnId: "turn-1",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-restore-1",
         toolName: "read",
         output: "plan contents",
@@ -983,6 +996,7 @@ describe("session-store", () => {
       kind: "tool_call_completed",
       turnId: "turn-interrupted",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-interrupted-1",
         toolName: "shell",
         status: { state: "cancelled" },
@@ -1005,6 +1019,7 @@ describe("session-store", () => {
           kind: "tool_call_started",
           turnId: "turn-interrupted",
           payload: {
+            toolCallScopeId: "response-1",
             toolCallId: "tool-interrupted-1",
             toolName: "shell",
             input: { command: "bun run build" },
@@ -1214,6 +1229,7 @@ describe("session-store", () => {
       timestamp: "2026-04-28T19:10:00.000Z",
       kind: "tool_call_started",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-foreign",
         toolName: "write",
         input: { path: "foreign.txt" },
@@ -1271,6 +1287,7 @@ describe("session-store", () => {
       timestamp: "2026-04-23T19:00:02.000Z",
       kind: "tool_call_started",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-live",
         toolName: "write",
         input: { path: "demo.txt" },
@@ -1331,6 +1348,7 @@ describe("session-store", () => {
       timestamp: "2026-04-23T19:00:06.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-live",
         toolName: "patch",
         outputSummary: JSON.stringify({
@@ -1486,6 +1504,7 @@ describe("session-store", () => {
       timestamp: "2026-04-30T10:00:00.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-read",
         toolName: "read",
         outputSummary: JSON.stringify({
@@ -1540,6 +1559,7 @@ describe("session-store", () => {
       timestamp: "2026-07-14T20:59:04.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-work-item-start",
         toolName: "work_item.execution.start",
         output: JSON.stringify({
@@ -1590,6 +1610,7 @@ describe("session-store", () => {
       timestamp: "2026-07-14T21:24:46.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-goal-create",
         toolName: "goal.create",
         output: JSON.stringify({
@@ -1650,6 +1671,7 @@ describe("session-store", () => {
       eventId: "evt-work-item-update",
       sequence: 1,
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-work-item-update",
         toolName: "work_item.update",
         output: JSON.stringify({
@@ -1672,6 +1694,7 @@ describe("session-store", () => {
       eventId: "evt-goal-create",
       sequence: 2,
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-goal-create",
         toolName: "goal.create",
         output: JSON.stringify({
@@ -1692,6 +1715,7 @@ describe("session-store", () => {
       eventId: "evt-work-item-start",
       sequence: 3,
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-work-item-start",
         toolName: "work_item.execution.start",
         output: JSON.stringify({
@@ -1712,6 +1736,7 @@ describe("session-store", () => {
       eventId: "evt-read-failed",
       sequence: 4,
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-read",
         toolName: "read",
         output: "ENOENT: no such file or directory, open 'C:\\repo\\missing.ts'",
@@ -1750,6 +1775,7 @@ describe("session-store", () => {
       timestamp: "2026-04-30T10:01:00.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-read-live",
         toolName: "read",
         output: JSON.stringify({
@@ -1803,6 +1829,7 @@ describe("session-store", () => {
           timestamp: "2026-04-30T10:02:01.000Z",
           kind: "tool_call_completed",
           payload: {
+            toolCallScopeId: "response-1",
             toolCallId: "tool-tree",
             toolName: "tree",
             output: JSON.stringify({
@@ -2791,7 +2818,12 @@ describe("session-store", () => {
           sequence: 5,
           timestamp: "2026-04-21T10:03:00.000Z",
           kind: "tool_call_started",
-          payload: { toolCallId: "tool-1", toolName: "rg", input: { pattern: "resume" } },
+          payload: {
+            toolCallScopeId: "response-1",
+            toolCallId: "tool-1",
+            toolName: "rg",
+            input: { pattern: "resume" },
+          },
         },
         {
           eventId: "evt-6",
@@ -2800,6 +2832,7 @@ describe("session-store", () => {
           timestamp: "2026-04-21T10:03:01.000Z",
           kind: "tool_call_completed",
           payload: {
+            toolCallScopeId: "response-1",
             toolCallId: "tool-1",
             toolName: "rg",
             outputSummary: "1 match",
@@ -3134,6 +3167,7 @@ describe("session-store", () => {
           timestamp: "2026-05-08T20:57:55.000Z",
           kind: "tool_call_completed",
           payload: {
+            toolCallScopeId: "response-1",
             toolCallId: "tool-browser",
             toolName: "browser_observe",
             output: "Full tool output is available as resource links.",
@@ -3160,6 +3194,7 @@ describe("session-store", () => {
       target: "browser",
       status: "succeeded",
       kilnSessionId: "session-browser",
+      toolCallScopeId: "response-1",
       toolCallId: "tool-browser",
       toolName: "browser_observe",
       provider: "playwright",
@@ -3173,6 +3208,7 @@ describe("session-store", () => {
       target: "browser",
       status: "succeeded",
       kilnSessionId: "session-browser",
+      toolCallScopeId: "response-1",
       toolCallId: "tool-browser",
       toolName: "browser_observe",
       provider: "playwright",
@@ -3206,6 +3242,7 @@ describe("session-store", () => {
       timestamp: "2026-05-08T23:11:00.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-browser-live",
         toolName: "browser_observe",
         output: "Full tool output is available as resource links.",
@@ -3230,6 +3267,7 @@ describe("session-store", () => {
       target: "browser",
       status: "succeeded",
       kilnSessionId: "session-browser-live",
+      toolCallScopeId: "response-1",
       toolCallId: "tool-browser-live",
       toolName: "browser_observe",
       provider: "playwright",
@@ -3243,6 +3281,7 @@ describe("session-store", () => {
       target: "browser",
       status: "succeeded",
       kilnSessionId: "session-browser-live",
+      toolCallScopeId: "response-1",
       toolCallId: "tool-browser-live",
       toolName: "browser_observe",
       provider: "playwright",
@@ -3288,6 +3327,7 @@ describe("session-store", () => {
       timestamp: "2026-05-08T23:12:00.000Z",
       kind: "tool_call_completed",
       payload: {
+        toolCallScopeId: "response-1",
         toolCallId: "tool-computer-live",
         toolName: "computer_observe",
         output: "Window observed.",

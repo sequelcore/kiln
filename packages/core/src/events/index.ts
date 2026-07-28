@@ -28,7 +28,9 @@ export type {
   ProviderRequestToolMaterializationDecisionEvidence,
   ProviderRequestToolProjectionEvidence,
   ProviderRequestToolProjectionSetEvidence,
+  ScopedExecutionSessionToolEvent,
 } from "./execution-session-event.js";
+export { assertScopedExecutionSessionToolEvent } from "./execution-session-event.js";
 
 /** Streaming granularity levels, from coarsest to finest */
 export type StreamLevel = "state" | "phase" | "tool" | "token";
@@ -215,6 +217,7 @@ export interface CostUpdateEvent extends KilnEvent {
 export interface ToolCalledEvent extends KilnEvent {
   readonly type: "tool_called";
   readonly toolCallId: string;
+  readonly toolCallScopeId: string;
   readonly toolName: string;
   readonly taskId?: string;
   readonly workerIndex?: number;
@@ -230,6 +233,7 @@ export interface ToolCalledEvent extends KilnEvent {
 export interface ToolOutputEvent extends KilnEvent {
   readonly type: "tool_output";
   readonly toolCallId: string;
+  readonly toolCallScopeId: string;
   readonly toolName: string;
   readonly stream: "stdout" | "stderr";
   readonly delta: string;
@@ -268,6 +272,7 @@ export interface TaskCompletedEvent extends KilnEvent {
 export interface ToolResultEvent extends KilnEvent {
   readonly type: "tool_result";
   readonly toolCallId: string;
+  readonly toolCallScopeId: string;
   readonly toolName: string;
   readonly taskId?: string;
   readonly durationMs: number;
@@ -827,6 +832,7 @@ export type {
   CanonicalProviderRoutedEvent,
   CanonicalMultimodalRoutedEvent,
   CanonicalToolCallStartedEvent,
+  CanonicalToolCallOutputDeltaEvent,
   CanonicalToolCallCompletedEvent,
   CanonicalApprovalRequestedEvent,
   CanonicalApprovalResolvedEvent,

@@ -11,6 +11,7 @@ export type WorkflowToolCallState = "running" | "completed" | "failed";
 
 export interface WorkflowToolCallActivity {
   readonly toolCallId: string;
+  readonly toolCallScopeId: string;
   readonly toolName: string;
   readonly state: WorkflowToolCallState;
   readonly startedAt?: string;
@@ -67,7 +68,9 @@ export interface WorkflowActivityProjection {
 }
 
 interface MutableToolCall {
+  identityKey: string;
   toolCallId: string;
+  toolCallScopeId: string;
   toolName: string;
   state: WorkflowToolCallState;
   startedAt?: string;
@@ -228,8 +231,20 @@ function goalFromRecord(record: Record<string, unknown>): ToolResultGoalPresenta
   };
 }
 
-function toolCallId(payload: Record<string, unknown>, event: OperatorSessionEvent): string | undefined {
-  return readString(payload.toolCallId) ?? (event.kind.startsWith("tool_call_") ? event.eventId : undefined);
+function toolCallIdentity(
+  payload: Record<string, unknown>,
+  event: OperatorSessionEvent,
+): { readonly key: string; readonly toolCallId: string; readonly toolCallScopeId: string } {
+  const toolCallId = readString(payload.toolCallId);
+  const toolCallScopeId = readString(payload.toolCallScopeId);
+  if (!toolCallId || !toolCallScopeId) {
+    throw new TypeError(`Tool event "${event.eventId}" requires scoped tool identity.`);
+  }
+  return {
+    key: `${toolCallScopeId}\0${toolCallId}`,
+    toolCallId,
+    toolCallScopeId,
+  };
 }
 
 function managedInvocationId(event: OperatorSessionEvent): string | undefined {
@@ -275,6 +290,7 @@ function workflowSnapshot(event: OperatorSessionEvent): {
 function freezeToolCall(tool: MutableToolCall): WorkflowToolCallActivity {
   return {
     toolCallId: tool.toolCallId,
+    toolCallScopeId: tool.toolCallScopeId,
     toolName: tool.toolName,
     state: tool.state,
     ...(tool.startedAt ? { startedAt: tool.startedAt } : {}),
@@ -406,14 +422,15 @@ export function projectWorkflowActivity(
     }
 
     if (event.kind !== "tool_call_started" && event.kind !== "tool_call_completed") continue;
-    const id = toolCallId(payload, event);
-    if (!id) continue;
-    const previous = tools.get(id);
+    const identity = toolCallIdentity(payload, event);
+    const previous = tools.get(identity.key);
     const name = readString(payload.toolName) ?? previous?.toolName ?? "tool";
     const presentation = presentOperatorSessionEvent(event);
     const invocationId = managedInvocationId(event) ?? previous?.managedInvocationId;
     const next: MutableToolCall = {
-      toolCallId: id,
+      identityKey: identity.key,
+      toolCallId: identity.toolCallId,
+      toolCallScopeId: identity.toolCallScopeId,
       toolName: name,
       state: event.kind === "tool_call_started" ? "running" : completedToolState(payload),
       ...(event.kind === "tool_call_started"
@@ -426,7 +443,7 @@ export function projectWorkflowActivity(
       ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       eventIds: [...(previous?.eventIds ?? []), event.eventId],
     };
-    tools.set(id, next);
+    tools.set(identity.key, next);
   }
 
   for (const tool of tools.values()) {
@@ -438,24 +455,24 @@ export function projectWorkflowActivity(
         : undefined;
     const attempt = attemptId ? attempts.get(attemptId) : undefined;
     if (attempt) {
-      if (!attempt.toolCallIds.includes(tool.toolCallId)) attempt.toolCallIds.push(tool.toolCallId);
+      if (!attempt.toolCallIds.includes(tool.identityKey)) attempt.toolCallIds.push(tool.identityKey);
       continue;
     }
     if (scope?.kind === "work_item") {
       const item = workItems.get(scope.workItemId);
-      if (item && !item.toolCallIds.includes(tool.toolCallId)) item.toolCallIds.push(tool.toolCallId);
+      if (item && !item.toolCallIds.includes(tool.identityKey)) item.toolCallIds.push(tool.identityKey);
       continue;
     }
     if (scope?.kind === "goal") {
       const goal = goals.get(scope.goalRunId);
-      if (goal && !goal.toolCallIds.includes(tool.toolCallId)) goal.toolCallIds.push(tool.toolCallId);
+      if (goal && !goal.toolCallIds.includes(tool.identityKey)) goal.toolCallIds.push(tool.identityKey);
     }
   }
 
   const structuredToolCallIds = new Set<string>();
   for (const tool of tools.values()) {
     if (!tool.eventIds.some((eventId) => consumedEventIds.has(eventId))) continue;
-    structuredToolCallIds.add(tool.toolCallId);
+    structuredToolCallIds.add(tool.identityKey);
     for (const eventId of tool.eventIds) consumedEventIds.add(eventId);
   }
 
@@ -540,7 +557,7 @@ export function projectWorkflowActivity(
     for (const eventId of tool.eventIds) consumedEventIds.add(eventId);
   }
   const unscopedToolCalls = [...tools.values()]
-    .filter((tool) => !structuredToolCallIds.has(tool.toolCallId) && !scopedToolCallIds.has(tool.toolCallId))
+    .filter((tool) => !structuredToolCallIds.has(tool.identityKey) && !scopedToolCallIds.has(tool.identityKey))
     .map(freezeToolCall)
     .sort((left, right) => left.firstSequence - right.firstSequence);
   const foregroundGoal = [...projectedGoals].reverse().find(

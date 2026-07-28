@@ -730,6 +730,7 @@ function createBenchmarkPayload(input: {
   if (input.kind === "tool_call_completed") {
     return {
       ...base,
+      toolCallScopeId: `${input.sessionId}:response:${input.sequence}`,
       toolCallId: `${input.sessionId}:tool:${input.sequence}`,
       toolName: "synthetic_tool",
       outputSummary: `Completed tool work for session ${input.sessionOrdinal}`,
@@ -738,6 +739,7 @@ function createBenchmarkPayload(input: {
   }
   return {
     ...base,
+    toolCallScopeId: `${input.sessionId}:response:${input.sequence}`,
     toolCallId: `${input.sessionId}:tool:${input.sequence}`,
     toolName: "synthetic_tool",
     input: {

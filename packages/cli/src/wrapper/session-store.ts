@@ -416,6 +416,13 @@ export type PersistedTranscriptEventDraft = Omit<PersistedTranscriptEvent, 'sequ
   readonly sequence?: number;
 };
 
+export class IncompatibleTranscriptError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'IncompatibleTranscriptError';
+  }
+}
+
 const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   'turn_started',
   'user_message',
@@ -514,6 +521,59 @@ function isPersistedTranscriptEvent(value: unknown): value is PersistedTranscrip
   return true;
 }
 
+function requiredToolIdentityField(
+  event: PersistedTranscriptEvent,
+  field: 'toolCallId' | 'toolCallScopeId',
+): string {
+  const value = event.payload[field];
+  if (typeof value !== 'string' || value.trim().length === 0 || value !== value.trim()) {
+    throw new IncompatibleTranscriptError(
+      `Transcript event "${event.eventId}" requires a trimmed, non-empty ${field}.`,
+    );
+  }
+  return value;
+}
+
+function validateTranscriptToolIdentities(events: readonly PersistedTranscriptEvent[]): void {
+  const started = new Set<string>();
+  const completed = new Set<string>();
+  for (const event of [...events].sort((left, right) => left.sequence - right.sequence)) {
+    if (event.kind !== 'tool_call_started' && event.kind !== 'tool_call_completed') {
+      continue;
+    }
+    const toolCallId = requiredToolIdentityField(event, 'toolCallId');
+    const toolCallScopeId = requiredToolIdentityField(event, 'toolCallScopeId');
+    const identity = `${toolCallScopeId}\0${toolCallId}`;
+    if (event.kind === 'tool_call_started') {
+      if (started.has(identity)) {
+        throw new IncompatibleTranscriptError(
+          `Transcript contains duplicate tool call identity "${toolCallId}" in scope "${toolCallScopeId}".`,
+        );
+      }
+      started.add(identity);
+      continue;
+    }
+    if (!started.has(identity)) {
+      throw new IncompatibleTranscriptError(
+        `Transcript tool result "${event.eventId}" has no matching scoped tool start.`,
+      );
+    }
+    if (completed.has(identity)) {
+      throw new IncompatibleTranscriptError(
+        `Transcript contains duplicate tool result identity "${toolCallId}" in scope "${toolCallScopeId}".`,
+      );
+    }
+    completed.add(identity);
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && error.code === 'ENOENT';
+}
+
 export class TranscriptStore {
   private readonly baseDir: string;
   private readonly appendQueues = new Map<string, Promise<void>>();
@@ -537,13 +597,11 @@ export class TranscriptStore {
   }
 
   async append(sessionId: string, event: PersistedTranscriptEvent): Promise<void> {
-    try {
-      const dir = this.sessionDir(sessionId);
-      await mkdir(dir, { recursive: true });
-      await appendFile(join(dir, 'transcript.jsonl'), JSON.stringify(event) + '\n', 'utf-8');
-    } catch {
-      // fail-open
-    }
+    const existing = await this.readTranscript(sessionId);
+    validateTranscriptToolIdentities([...existing, event]);
+    const dir = this.sessionDir(sessionId);
+    await mkdir(dir, { recursive: true });
+    await appendFile(join(dir, 'transcript.jsonl'), JSON.stringify(event) + '\n', 'utf-8');
   }
 
   async appendNext(sessionId: string, event: PersistedTranscriptEventDraft): Promise<PersistedTranscriptEvent | null> {
@@ -581,32 +639,32 @@ export class TranscriptStore {
     sessionId: string,
     drafts: readonly PersistedTranscriptEventDraft[],
   ): Promise<readonly PersistedTranscriptEvent[]> {
-    try {
-      const dir = this.sessionDir(sessionId);
-      await mkdir(dir, { recursive: true });
-      const existing = await this.readTranscript(sessionId);
-      const existingEventIds = new Set(existing.map((event) => event.eventId));
-      let sequence = existing.reduce((highest, event) => Math.max(highest, event.sequence), 0);
-      const events: PersistedTranscriptEvent[] = [];
-      for (const draft of drafts) {
-        if (existingEventIds.has(draft.eventId)) {
-          continue;
-        }
-        sequence += 1;
-        const event = {
-          ...draft,
-          sequence,
-        };
-        if (isPersistedTranscriptEvent(event)) {
-          events.push(event);
-          existingEventIds.add(event.eventId);
-        }
+    const dir = this.sessionDir(sessionId);
+    await mkdir(dir, { recursive: true });
+    const existing = await this.readTranscript(sessionId);
+    const existingEventIds = new Set(existing.map((event) => event.eventId));
+    let sequence = existing.reduce((highest, event) => Math.max(highest, event.sequence), 0);
+    const events: PersistedTranscriptEvent[] = [];
+    for (const draft of drafts) {
+      if (existingEventIds.has(draft.eventId)) {
+        continue;
       }
-      await writeTranscriptEvents(dir, events);
-      return events;
-    } catch {
-      return [];
+      sequence += 1;
+      const event = {
+        ...draft,
+        sequence,
+      };
+      if (!isPersistedTranscriptEvent(event)) {
+        throw new IncompatibleTranscriptError(
+          `Transcript event "${draft.eventId}" does not satisfy the persisted event contract.`,
+        );
+      }
+      events.push(event);
+      existingEventIds.add(event.eventId);
     }
+    validateTranscriptToolIdentities([...existing, ...events]);
+    await writeTranscriptEvents(dir, events);
+    return events;
   }
 
   async finalize(sessionId: string, updates: Partial<PersistedSessionMeta>): Promise<void> {
@@ -645,22 +703,32 @@ export class TranscriptStore {
   async readTranscript(sessionId: string): Promise<PersistedTranscriptEvent[]> {
     try {
       const content = await readFile(join(this.sessionDir(sessionId), 'transcript.jsonl'), 'utf-8');
-      return content
+      const events = content
         .split('\n')
         .filter((line) => line.trim() !== '')
-        .flatMap((line) => {
+        .map((line, index) => {
           try {
             const parsed = JSON.parse(line) as unknown;
             if (isPersistedTranscriptEvent(parsed)) {
-              return [parsed];
+              return parsed;
             }
-            return [];
-          } catch {
-            return [];
+            throw new IncompatibleTranscriptError(
+              `Transcript line ${index + 1} does not satisfy the persisted event contract.`,
+            );
+          } catch (error) {
+            if (error instanceof IncompatibleTranscriptError) {
+              throw error;
+            }
+            throw new IncompatibleTranscriptError(`Transcript line ${index + 1} is not valid JSON.`);
           }
         });
-    } catch {
-      return [];
+      validateTranscriptToolIdentities(events);
+      return events;
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return [];
+      }
+      throw error;
     }
   }
 

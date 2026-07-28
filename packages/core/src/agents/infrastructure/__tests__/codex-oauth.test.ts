@@ -3831,4 +3831,195 @@ describe("CodexOAuthAdapter", () => {
       );
     });
   });
+
+  describe("tool call identity", () => {
+    it("synthesizes an id from response.id + output index when call_id and id are both absent", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_no_native_id_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  name: "read",
+                  arguments: "{\"filePath\":\"a.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls).toHaveLength(1);
+      expect(response.toolCalls[0]?.id).toBe("synth1:resp_no_native_id_1:0");
+    });
+
+    it("re-normalizing the same response yields the identical synthesized id", async () => {
+      const sseFor = () => sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_replay_stable_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  name: "read",
+                  arguments: "{\"filePath\":\"a.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]);
+
+      mockFetch.mockResolvedValueOnce(sseFor());
+      const { adapter: firstAdapter } = await createAdapter();
+      const first = await firstAdapter.createMessage(createOptions());
+
+      mockFetch.mockResolvedValueOnce(sseFor());
+      const { adapter: secondAdapter } = await createAdapter();
+      const second = await secondAdapter.createMessage(createOptions());
+
+      expect(first.toolCalls[0]?.id).toBe(second.toolCalls[0]?.id);
+    });
+
+    it("assigns distinct synthesized ids to distinct function calls in one response", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_distinct_calls_1",
+              status: "completed",
+              output: [
+                { type: "function_call", name: "read", arguments: "{\"filePath\":\"a.txt\"}" },
+                { type: "function_call", name: "read", arguments: "{\"filePath\":\"b.txt\"}" },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      expect(response.toolCalls.map((call) => call.id)).toEqual([
+        "synth1:resp_distinct_calls_1:0",
+        "synth1:resp_distinct_calls_1:1",
+      ]);
+    });
+
+    it("rejects when call_id, id, and response.id are all absent -- nothing stable to synthesize from", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              status: "completed",
+              output: [
+                { type: "function_call", name: "read", arguments: "{\"filePath\":\"a.txt\"}" },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "TOOL_CALL_IDENTITY_INVALID",
+      });
+    });
+
+    it("rejects two missing-id calls in one Codex stream instead of silently collapsing them", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              status: "completed",
+              output: [
+                { type: "function_call", name: "read", arguments: "{\"filePath\":\"a.txt\"}" },
+                { type: "function_call", name: "read", arguments: "{\"filePath\":\"b.txt\"}" },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(adapter.createMessage(createOptions())).rejects.toMatchObject({
+        code: "TOOL_CALL_IDENTITY_INVALID",
+      });
+    });
+
+    it("streaming: two missing-id function calls do not collapse into a single tool_use event", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              status: "completed",
+              output: [
+                { type: "function_call", name: "read", arguments: "{\"filePath\":\"a.txt\"}" },
+                { type: "function_call", name: "read", arguments: "{\"filePath\":\"b.txt\"}" },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+
+      await expect(async () => {
+        for await (const _event of adapter.streamMessage(createOptions())) {
+          // consume
+        }
+      }).rejects.toMatchObject({ code: "TOOL_CALL_IDENTITY_INVALID" });
+    });
+
+    it("rejects a whitespace-only call_id rather than treating it as present", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([
+        {
+          event: "response.completed",
+          data: {
+            response: {
+              id: "resp_whitespace_id_1",
+              status: "completed",
+              output: [
+                {
+                  type: "function_call",
+                  call_id: "   ",
+                  name: "read",
+                  arguments: "{\"filePath\":\"a.txt\"}",
+                },
+              ],
+              usage: { input_tokens: 1, output_tokens: 1 },
+            },
+          },
+        },
+      ]));
+
+      const { adapter } = await createAdapter();
+      const response = await adapter.createMessage(createOptions());
+
+      // Falls through to id/response.id + index synthesis rather than the blank call_id.
+      expect(response.toolCalls[0]?.id).toBe("synth1:resp_whitespace_id_1:0");
+    });
+  });
 });

@@ -11,7 +11,7 @@ import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { withRetry } from "./retry.js";
 import type { RetryOptions } from "./retry.js";
-import { normalizeToolInput } from "../tool-call-input.js";
+import { assertValidToolCallIds, normalizeToolInput } from "../tool-call-input.js";
 
 export const CLAUDE_OPUS = "claude-opus-4-6";
 export const CLAUDE_SONNET = "claude-sonnet-4-6";
@@ -69,6 +69,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     );
 
     const toolInputBuffers = new Map<number, { id: string; name: string; json: string }>();
+    const emittedToolCalls: ToolCall[] = [];
 
     for await (const event of stream as AsyncIterable<Anthropic.Messages.RawMessageStreamEvent>) {
       switch (event.type) {
@@ -102,14 +103,14 @@ export class AnthropicAdapter implements ProviderAdapter {
         case "content_block_stop": {
           const buffer = toolInputBuffers.get(event.index);
           if (buffer) {
-            yield {
-              type: "tool_use",
-              content: JSON.stringify({
-                id: buffer.id,
-                name: buffer.name,
-                input: normalizeToolInput(buffer.name, buffer.json || "{}"),
-              }),
+            const toolCall: ToolCall = {
+              id: buffer.id,
+              name: buffer.name,
+              input: normalizeToolInput(buffer.name, buffer.json || "{}"),
             };
+            emittedToolCalls.push(toolCall);
+            assertValidToolCallIds(emittedToolCalls, { adapter: this.name });
+            yield { type: "tool_use", content: JSON.stringify(toolCall) };
             toolInputBuffers.delete(event.index);
           }
           break;
@@ -308,6 +309,8 @@ export class AnthropicAdapter implements ProviderAdapter {
         });
       }
     }
+
+    assertValidToolCallIds(toolCalls, { adapter: this.name });
 
     // Only add fallback empty text if there are no tool calls and no text
     const parts = responseParts.length > 0

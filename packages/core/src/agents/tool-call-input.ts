@@ -1,6 +1,18 @@
+import { KilnError } from "../engine/errors.js";
 import type { ToolCall } from "./index.js";
 
 const INVALID_TOOL_INPUT_MARKER = "__kilnInvalidToolInput";
+
+/**
+ * Prefix marking a tool call id as adapter-synthesized rather than provider-supplied.
+ * Versioned so future synthesis strategies can be distinguished from this one.
+ */
+export const SYNTHETIC_TOOL_CALL_ID_PREFIX = "synth1:";
+
+/** Builds a versioned synthetic tool call id from immutable, replay-stable coordinates. */
+export function buildSyntheticToolCallId(...coordinates: readonly string[]): string {
+  return `${SYNTHETIC_TOOL_CALL_ID_PREFIX}${coordinates.join(":")}`;
+}
 
 export interface InvalidToolInputDetails {
   readonly reason: string;
@@ -153,6 +165,54 @@ export function getInvalidToolInputDetails(
     reason,
     raw: marker.raw,
   };
+}
+
+/**
+ * Enforces the core tool-call identity invariant: every id in `toolCalls` is trimmed,
+ * non-empty, and unique within this collection (a single normalized response/stream flush).
+ *
+ * This is the single point where the invariant is enforced -- adapters own deriving a
+ * candidate id from stable provider coordinates; this function owns validating the result.
+ * Throws a KilnError (fail-closed) rather than silently repairing blank or duplicate ids.
+ */
+export function assertValidToolCallIds(
+  toolCalls: readonly ToolCall[],
+  context: { readonly adapter: string },
+): void {
+  const seenAtIndex = new Map<string, number>();
+  for (const [index, toolCall] of toolCalls.entries()) {
+    const trimmedId = toolCall.id.trim();
+    if (trimmedId.length === 0) {
+      throw new KilnError(
+        "TOOL_CALL_IDENTITY_INVALID",
+        `${context.adapter} produced a blank tool call id at index ${index}.`,
+        {
+          context: { adapter: context.adapter, index, id: toolCall.id },
+        },
+      );
+    }
+    if (trimmedId !== toolCall.id) {
+      throw new KilnError(
+        "TOOL_CALL_IDENTITY_INVALID",
+        `${context.adapter} produced an untrimmed tool call id at index ${index}.`,
+        {
+          context: { adapter: context.adapter, index, id: toolCall.id },
+        },
+      );
+    }
+
+    const priorIndex = seenAtIndex.get(trimmedId);
+    if (priorIndex !== undefined) {
+      throw new KilnError(
+        "TOOL_CALL_IDENTITY_INVALID",
+        `${context.adapter} produced duplicate tool call id "${trimmedId}" at indexes ${priorIndex} and ${index}.`,
+        {
+          context: { adapter: context.adapter, index, priorIndex, id: trimmedId },
+        },
+      );
+    }
+    seenAtIndex.set(trimmedId, index);
+  }
 }
 
 export function normalizeToolCall(toolCall: ToolCall): ToolCall {

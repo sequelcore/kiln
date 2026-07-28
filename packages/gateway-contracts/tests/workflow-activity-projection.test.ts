@@ -15,7 +15,9 @@ function event(
     kind,
     turnId: "turn-1",
     source: { actor: kind.startsWith("tool_") ? "tool" : "runtime", surface: "runtime" },
-    payload,
+    payload: kind === "tool_call_started" || kind === "tool_call_completed"
+      ? { toolCallScopeId: "response-1", ...payload }
+      : payload,
   };
 }
 
@@ -315,5 +317,31 @@ describe("workflow activity projection", () => {
     ]);
     expect(projection.unscopedToolCalls).toEqual([]);
     expect(projection.consumedEventIds).toEqual(["event-1", "event-2", "event-3"]);
+  });
+
+  it("keeps reused provider ids distinct across response scopes", () => {
+    const projection = projectWorkflowActivity([
+      event(1, "tool_call_started", {
+        toolCallScopeId: "response-1",
+        toolCallId: "read-1",
+        toolName: "read",
+      }),
+      event(2, "tool_call_completed", {
+        toolCallScopeId: "response-1",
+        toolCallId: "read-1",
+        toolName: "read",
+        status: { state: "succeeded" },
+      }),
+      event(3, "tool_call_started", {
+        toolCallScopeId: "response-2",
+        toolCallId: "read-1",
+        toolName: "read",
+      }),
+    ]);
+
+    expect(projection.unscopedToolCalls).toMatchObject([
+      { toolCallScopeId: "response-1", toolCallId: "read-1", state: "completed" },
+      { toolCallScopeId: "response-2", toolCallId: "read-1", state: "running" },
+    ]);
   });
 });

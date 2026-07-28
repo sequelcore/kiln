@@ -102,6 +102,7 @@ describe("runtime work item session events", () => {
       runtimeEvents: [
         {
           type: "tool_called",
+          toolCallScopeId: "turn-1:response:1",
           sessionId: session.id,
           toolCallId: "work-item-update-1",
           timestamp,
@@ -112,6 +113,7 @@ describe("runtime work item session events", () => {
         },
         {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           sessionId: session.id,
           toolCallId: "work-item-update-1",
           timestamp,
@@ -227,6 +229,7 @@ describe("runtime work item session events", () => {
       runtimeEvents: [
         {
           type: "tool_called",
+          toolCallScopeId: "turn-1:response:1",
           sessionId: session.id,
           toolCallId: "work-item-execution-start-1",
           timestamp,
@@ -235,6 +238,7 @@ describe("runtime work item session events", () => {
         },
         {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           sessionId: session.id,
           toolCallId: "work-item-execution-start-1",
           timestamp,
@@ -251,6 +255,7 @@ describe("runtime work item session events", () => {
         },
         {
           type: "tool_called",
+          toolCallScopeId: "turn-1:response:1",
           sessionId: session.id,
           toolCallId: "work-item-execution-finish-1",
           timestamp,
@@ -259,6 +264,7 @@ describe("runtime work item session events", () => {
         },
         {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           sessionId: session.id,
           toolCallId: "work-item-execution-finish-1",
           timestamp,

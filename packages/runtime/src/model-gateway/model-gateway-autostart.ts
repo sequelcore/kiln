@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, win32 } from "node:path";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import type { ModelGatewayLaunchDescriptor } from "./model-gateway-supervisor.js";
 
@@ -64,7 +64,7 @@ export class WindowsModelGatewayAutostartAdapter {
     const current = await this.status();
     if (current.state === "foreign") return current;
     if (current.state === "installed" && current.digest === digest) return current;
-    const xmlPath = join(this.#runtimeDir, "autostart-task.xml");
+    const xmlPath = win32.join(this.#runtimeDir, "autostart-task.xml");
     await this.#writeXml(xmlPath, createTaskXml({ launch, digest, userId: this.#userId }));
     try {
       const result = await this.#run(["/Create", "/TN", this.#taskName, "/XML", xmlPath, "/F"]);

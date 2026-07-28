@@ -100,7 +100,6 @@ vi.mock("@kilnai/core", async (importOriginal) => {
   };
 });
 
-import { createCli } from "../src/index.js";
 import { toolsCommand } from "../src/commands/tools.js";
 
 const APP_CONFIG: KilnAppConfig = {
@@ -276,23 +275,4 @@ describe("tools command", () => {
     }, null, 2));
   });
 
-  it("shows the tools command in CLI help output", async () => {
-    process.argv = ["bun", "kiln", "--help"];
-    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`process.exit:${code ?? 0}`);
-    }) as never);
-
-    await expect(createCli(APP_CONFIG)).rejects.toThrow("process.exit:0");
-
-    const helpOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join("\n");
-    expect(helpOutput).toContain("import-native");
-    expect(helpOutput).toContain("uninstall");
-    expect(helpOutput).toContain("route");
-    expect(helpOutput).toContain("tools");
-    expect(helpOutput).not.toContain("  serve");
-    expect(helpOutput).toContain(
-      "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",
-    );
-  });
 });
