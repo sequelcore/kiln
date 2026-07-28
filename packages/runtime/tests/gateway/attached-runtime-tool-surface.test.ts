@@ -496,7 +496,7 @@ describe("attached runtime builtin tool surface", () => {
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects a recovery invocation scoped to the wrong work item or a stale execution attempt before any mutation occurs", async () => {
+  it("rejects recovery scoped to the wrong work item, stale attempt, or different external-runtime attachment before mutation", async () => {
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     workItemStore.upsert({
@@ -530,17 +530,30 @@ describe("attached runtime builtin tool surface", () => {
       routePolicy: { workflowProfile: "verification-heavy" },
       evidenceRequirements: [],
     });
+    const activeAttempt = workItemStore.startExecutionAttempt({
+      id: "work-scoped",
+      goalRunId: "goal-scoped",
+      executionMode: "managed_delegation",
+      summary: "Recover the failed managed invocation.",
+    });
+    expect(activeAttempt).toBeDefined();
     const workItemBeforeRejection = workItemStore.get("work-scoped");
     const adapter = makeManagedAdapter();
+    const routeAttachment = {
+      kind: "external-runtime" as const,
+      runtimeId: "mcp:studio",
+      attachmentId: "instance-a",
+    };
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: { workItemStore, goalRunStore },
       managedInvocation: {
         routes: [{
           routeId: "opencode-readonly",
           routeSource: "explicit-managed-route",
-          providerId: "opencode",
-          model: "opencode-default-model",
-          adapter,
+           providerId: "opencode",
+           model: "opencode-default-model",
+           adapter,
+           externalRuntimeAttachment: routeAttachment,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly",
@@ -595,6 +608,38 @@ describe("attached runtime builtin tool surface", () => {
     expect(staleAttempt).toMatchObject({
       isError: true,
       metadata: { errorCode: "execution_attempt_not_found" },
+    });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(workItemStore.get("work-scoped")).toEqual(workItemBeforeRejection);
+
+    // The governed scope and active attempt are valid here. Only the physical
+    // external-runtime attachment differs, so canonical admission must reject
+    // the recovery rather than retargeting it.
+    const wrongAttachment = await invoke?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-readonly",
+      providerRoute: { providerId: "opencode" },
+      task: "Retry the failed managed invocation.",
+      goalRunId: "goal-scoped",
+      workItemId: "work-scoped",
+      attemptId: activeAttempt!.attempt.id,
+      externalRuntimeAttachment: {
+        runtimeId: routeAttachment.runtimeId,
+        attachmentId: "instance-b",
+      },
+    }, context) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+
+    expect(wrongAttachment).toMatchObject({
+      isError: true,
+      metadata: {
+        errorCode: "external_runtime_attachment_mismatch",
+        requestedAttachment: {
+          kind: "external-runtime",
+          runtimeId: routeAttachment.runtimeId,
+          attachmentId: "instance-b",
+        },
+        routeAttachment,
+      },
     });
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(workItemStore.get("work-scoped")).toEqual(workItemBeforeRejection);

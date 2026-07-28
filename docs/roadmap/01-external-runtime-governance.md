@@ -443,8 +443,9 @@ Status: In progress. Recovery pause requirements now retain superseded
 requirements, link each one to its replacement, derive replay-stable identities
 from the validated outer tool-call and phase identities, and project the same
 state through CLI, GUI, TUI, native, gateway contracts, session outcomes, and
-canonical replay. Approval-event parity and the remaining terminal-consistency
-work below remain open.
+canonical replay. Slice 2 already owns canonical approval-request and
+approval-resolution events; cross-surface approval parity and the remaining
+terminal-consistency work below remain open.
 
 Prove GUI, TUI, CLI, SDK, and replay agree; preserve redacted server/tool
 failure category and identity; require approval request/resolution events for

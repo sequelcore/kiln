@@ -463,6 +463,11 @@ export function createAttachedRuntimeBuiltinToolSurface(
   const managedInvocation = managedInvocationAttachment
     ? {
         ...managedInvocationAttachment,
+        options: {
+          ...managedInvocationAttachment.options,
+          pauseRequirementResolver: managedInvocationAttachment.options.pauseRequirementResolver
+            ?? ((workItemId: string) => coreSurface.workItemStore?.get(workItemId)?.pauseRequirements),
+        },
         governedScopeAdmission: managedInvocationAttachment.governedScopeAdmission
           ?? createManagedInvocationGovernedScopeAdmission(coreSurface),
       }

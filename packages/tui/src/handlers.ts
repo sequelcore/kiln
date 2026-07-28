@@ -476,7 +476,8 @@ function readPendingPauseRequirementCount(value: unknown): number | undefined {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
       return false;
     }
-    return (entry as Record<string, unknown>).status === "pending";
+    const status = (entry as Record<string, unknown>).status;
+    return status !== "resolved" && status !== "superseded";
   }).length;
 }
 

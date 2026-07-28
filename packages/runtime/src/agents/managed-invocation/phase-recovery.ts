@@ -172,6 +172,7 @@ function buildManagedInvocationPhaseAction(
         ...(goalRunId ? { goalRunId } : {}),
         evidenceToRecord,
         ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+        ...(requiredReadPaths.length > 0 ? { requiredReadPaths } : {}),
         ...(sourceResourceUris.length > 0
           ? {
               sourceResourceUris,
@@ -179,6 +180,7 @@ function buildManagedInvocationPhaseAction(
               inspection: "Use resource_read on sourceResourceUris when the managed handoff content is needed before recording failure evidence.",
             }
           : {}),
+        ...(visualReferenceRecovery ?? {}),
         blockedWorkItemUpdateInputTemplate: {
           id: workItemId,
           status: "blocked",

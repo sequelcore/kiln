@@ -554,7 +554,7 @@ function workItemHasPendingPauseRequirement(item: Record<string, unknown>): bool
       return false;
     }
     const status = (candidate as Record<string, unknown>).status;
-    return status === undefined || status === "pending";
+    return status !== "resolved" && status !== "superseded";
   });
 }
 

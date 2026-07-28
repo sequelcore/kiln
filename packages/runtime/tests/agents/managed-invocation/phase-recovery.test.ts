@@ -4,6 +4,7 @@ import {
   buildManagedInvocationPhaseRecovery,
   buildManagedInvocationPhaseHandoffRecovery,
   isManagedInvocationRecoveryPauseRequirementId,
+  managedInvocationFailureReasonFromStatus,
   MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID,
 } from "../../../src/agents/managed-invocation/phase-recovery.js";
 
@@ -58,6 +59,22 @@ describe("isManagedInvocationRecoveryPauseRequirementId", () => {
   });
 });
 
+describe("managedInvocationFailureReasonFromStatus", () => {
+  it.each([
+    ["denied", "denied"],
+    ["unavailable", "unavailable"],
+    ["timed_out", "timed_out"],
+    ["timed-out", "timed_out"],
+    ["cancelled", "cancelled"],
+    ["skipped", "skipped"],
+    ["failed", "failed"],
+    ["future-status", "failed"],
+    [undefined, "failed"],
+  ] as const)("maps %s to %s", (status, expected) => {
+    expect(managedInvocationFailureReasonFromStatus(status)).toBe(expected);
+  });
+});
+
 describe("buildManagedInvocationPhaseRecovery - execution.finish pause requirement id", () => {
   it("derives a deterministic id from the caller-supplied recoveryInvocationId (request carries no attemptId, matching production)", () => {
     const request = executionFinishRequest();
@@ -98,6 +115,32 @@ describe("buildManagedInvocationPhaseRecovery - execution.finish pause requireme
     expect(idOne).toBeDefined();
     expect(idTwo).toBeDefined();
     expect(idOne).not.toBe(idTwo);
+  });
+
+  it("preserves required read paths and visual recovery guidance for final-phase recovery", () => {
+    const recovery = buildManagedInvocationPhaseRecovery(executionFinishRequest({
+      requiredReadPaths: [
+        "references/product-ui",
+        "packages/gui/src",
+      ],
+      executionPhase: {
+        id: "visual-reference-research",
+        completionTool: "work_item.execution.finish",
+        expectedEvidence: ["visual-reference-research"],
+      },
+    }), "failed", undefined, {
+      recoveryInvocationId: "tool-call-1:managed-invocation:1",
+    });
+
+    expect(recovery).toMatchObject({
+      requiredReadPaths: [
+        "references/product-ui",
+        "packages/gui/src",
+      ],
+      localRecoveryInstructions: expect.arrayContaining([
+        expect.stringContaining("Inspect each required read path"),
+      ]),
+    });
   });
 });
 

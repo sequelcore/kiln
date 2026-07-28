@@ -2178,7 +2178,7 @@ describe("session-store", () => {
     ]));
   });
 
-  it("preserves a superseded pause requirement without dropping or coercing it", () => {
+  it("preserves supersession evidence and fails closed on a missing requirement status", () => {
     useSessionStore.getState().onSessionEvent({
       eventId: "evt-work-superseded",
       kilnSessionId: "session-live",
@@ -2206,6 +2206,11 @@ describe("session-store", () => {
               supersededBy: "operator",
               reason: "Replaced by a broader approval requirement.",
             },
+            {
+              id: "approval-2",
+              kind: "approval",
+              summary: "Malformed successor without a status",
+            },
           ],
           updatedAt: "2026-07-26T20:00:00.000Z",
         },
@@ -2223,6 +2228,14 @@ describe("session-store", () => {
             kind: "approval",
             summary: "Approve execution",
             status: "superseded",
+            supersededByRequirementId: "approval-2",
+            supersededAt: "2026-07-26T20:00:00.000Z",
+            supersededBy: "operator",
+            reason: "Replaced by a broader approval requirement.",
+          }),
+          expect.objectContaining({
+            id: "approval-2",
+            status: "pending",
           }),
         ],
       }),

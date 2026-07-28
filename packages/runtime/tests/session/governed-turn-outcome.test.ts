@@ -364,6 +364,35 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
     ])).toBe("failed");
   });
 
+  it("fails closed when a pause requirement has an absent or unknown status", () => {
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_item.update",
+        success: true,
+        metadata: {
+          id: "work-malformed-requirement",
+          item: {
+            id: "work-malformed-requirement",
+            status: "pending",
+            pauseRequirements: [
+              {
+                id: "capability-missing-status",
+                kind: "capability",
+                summary: "Missing status must remain blocking.",
+              },
+              {
+                id: "capability-unknown-status",
+                kind: "capability",
+                summary: "Unknown status must remain blocking.",
+                status: "future-status",
+              },
+            ],
+          },
+        },
+      }),
+    ])).toBe("failed");
+  });
+
   it("completes once the requirement that superseded a prior blocking requirement is itself resolved", () => {
     expect(deriveGovernedTurnOutcomeFromToolRecords([
       record({

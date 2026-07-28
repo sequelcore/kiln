@@ -150,7 +150,7 @@ describe("TUI handler managed-agent projection", () => {
     ]);
   });
 
-  it("does not count a superseded pause requirement as pending for governed work items", () => {
+  it("excludes superseded requirements and fails closed on missing status for governed work items", () => {
     const ctx = handlerContext();
     const workUpdated = sessionEvent("evt-work-superseded", 1, "work_item_updated", {
       workItem: {
@@ -168,6 +168,11 @@ describe("TUI handler managed-agent projection", () => {
             supersededAt: "2026-07-26T10:00:00.000Z",
             supersededBy: "operator",
             reason: "Replaced by a broader requirement.",
+          },
+          {
+            id: "capability-2",
+            kind: "capability",
+            summary: "Malformed requirement without a status",
           },
         ],
         updatedAt: "2026-07-26T10:00:00.000Z",
@@ -196,7 +201,7 @@ describe("TUI handler managed-agent projection", () => {
     expect(ctx.state.workItems).toEqual([
       expect.objectContaining({
         id: "work-superseded",
-        pendingPauseRequirementCount: 0,
+        pendingPauseRequirementCount: 1,
       }),
     ]);
   });

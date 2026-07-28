@@ -12,6 +12,7 @@ import {
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
   MemoryArtifactResourceStore,
+  WorkItemStore,
   textParts,
 } from "@kilnai/core";
 import {
@@ -477,24 +478,34 @@ function makeSurface(
   artifactStore?: MemoryArtifactResourceStore,
   options: { readonly observeRuntimeAuthority?: boolean } = {},
 ) {
-  const observeRuntimeAuthority = options.observeRuntimeAuthority ?? true;
   return createAttachedRuntimeBuiltinToolSurface({
     ...(artifactStore ? { builtinToolOptions: { artifactResources: { store: artifactStore } } } : {}),
-    managedInvocation: {
-      ...(sessionEventSink ? { sessionEventSink } : {}),
-      ...(artifactStore ? { artifactStore } : {}),
-      invocationService: observeRuntimeAuthority
-        ? makeObservedRuntimeInvocationService({
-          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
-            allowedRouteIds: ["credential-route:opencode:primary"],
-          }),
-        })
-        : new RuntimeManagedAgentInvocationService({
-          credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
-            allowedRouteIds: ["credential-route:opencode:primary"],
-          }),
+    managedInvocation: makeSurfaceOptions(adapter, sessionEventSink, artifactStore, options),
+  });
+}
+
+function makeSurfaceOptions(
+  adapter: ManagedAgentRuntimeAdapter,
+  sessionEventSink?: ManagedInvocationSessionEventSink,
+  artifactStore?: MemoryArtifactResourceStore,
+  options: { readonly observeRuntimeAuthority?: boolean } = {},
+): ManagedInvocationToolOptions {
+  const observeRuntimeAuthority = options.observeRuntimeAuthority ?? true;
+  return {
+    ...(sessionEventSink ? { sessionEventSink } : {}),
+    ...(artifactStore ? { artifactStore } : {}),
+    invocationService: observeRuntimeAuthority
+      ? makeObservedRuntimeInvocationService({
+        credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+          allowedRouteIds: ["credential-route:opencode:primary"],
         }),
-      routes: [{
+      })
+      : new RuntimeManagedAgentInvocationService({
+        credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+          allowedRouteIds: ["credential-route:opencode:primary"],
+        }),
+      }),
+    routes: [{
         routeId: "opencode-readonly",
         routeSource: "explicit-managed-route",
         providerId: "opencode",
@@ -522,8 +533,7 @@ function makeSurface(
           },
         },
       }],
-    },
-  });
+  };
 }
 
 function makeManagedRoute(
@@ -4145,6 +4155,83 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
+  it("retains and supersedes two successive direct managed failures on the canonical work item", async () => {
+    const workItemStore = new WorkItemStore();
+    workItemStore.upsert({
+      id: "work-recovery-chain",
+      summary: "Recover successive managed failures.",
+      workflowProfile: "verification-heavy",
+      triggers: ["managed-agents"],
+      expectedEvidence: ["managed-orchestration:result-handoff"],
+      verificationGates: [],
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { workItemStore },
+      managedInvocation: makeSurfaceOptions(makeTimedOutAdapter()),
+    });
+    const invoke = surface.callBuiltinTools.get("managed_agent.invoke")!;
+    const input = {
+      profile: "foundation-readonly-plan",
+      providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+      requestedAuthority: "read_only",
+      task: "Execute the final managed child phase.",
+      summary: "Execute the final managed child phase.",
+      goalRunId: "goal-recovery-chain",
+      workItemId: "work-recovery-chain",
+      expectedEvidence: ["managed-orchestration:result-handoff"],
+      executionPhase: {
+        id: "managed-review-closeout",
+        expectedEvidence: ["managed-orchestration:result-handoff"],
+        requiredToolNames: ["read"],
+        completionTool: "work_item.execution.finish",
+        finalPhase: true,
+        autoStartAllowed: true,
+      },
+    } as const;
+
+    const invokeFailure = async (toolCallId: string) => {
+      const result = await invoke(input, {
+        session: makeSession(),
+        toolCall: { id: toolCallId, name: "managed_agent.invoke", input: {} },
+      });
+      const output = JSON.parse(result.output) as {
+        readonly recovery: {
+          readonly blockedWorkItemUpdateInputTemplate: {
+            readonly summary: string;
+            readonly status: "blocked";
+            readonly pauseRequirements: NonNullable<ReturnType<WorkItemStore["get"]>>["pauseRequirements"];
+          };
+        };
+      };
+      const current = workItemStore.get("work-recovery-chain")!;
+      workItemStore.upsert({
+        ...current,
+        ...output.recovery.blockedWorkItemUpdateInputTemplate,
+      });
+      return workItemStore.get("work-recovery-chain")!.pauseRequirements;
+    };
+
+    const firstRequirements = await invokeFailure("tool-call-recovery-chain-1");
+    expect(firstRequirements).toHaveLength(1);
+    expect(firstRequirements[0]).toMatchObject({
+      status: "pending",
+      id: expect.stringContaining("managed-invocation-capability:work-recovery-chain:"),
+    });
+
+    const secondRequirements = await invokeFailure("tool-call-recovery-chain-2");
+    expect(secondRequirements).toHaveLength(2);
+    expect(secondRequirements[0]).toMatchObject({
+      id: firstRequirements[0]!.id,
+      status: "superseded",
+      supersededByRequirementId: secondRequirements[1]!.id,
+    });
+    expect(secondRequirements[1]).toMatchObject({
+      status: "pending",
+      id: expect.stringContaining("managed-invocation-capability:work-recovery-chain:"),
+    });
+    expect(secondRequirements[1]!.id).not.toBe(firstRequirements[0]!.id);
+  });
+
   it("returns a phase completion handoff when an explicit intermediate managed child succeeds", async () => {
     const phaseSummary = "Captured product UI screenshot from https://example.com/vllm-studio-demo with artifact kiln://artifacts/screenshots/vllm-studio-ui.";
     const surface = makeSurface(makeAdapterWithHandoff(phaseSummary));
@@ -4672,7 +4759,7 @@ describe("managed invocation runtime tool", () => {
         id: "work-ui",
         status: "blocked",
         pauseRequirements: [{
-          id: "managed-invocation-handoff-recovery:work-ui:visual-reference-research",
+          id: expect.stringContaining("managed-invocation-handoff-recovery:work-ui:"),
           kind: "operator_input",
           status: "pending",
         }],
