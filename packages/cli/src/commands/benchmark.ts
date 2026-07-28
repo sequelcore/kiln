@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BenchmarkBaselineRunner,
@@ -102,7 +102,7 @@ function writeBenchmarkReport(args: readonly string[]): void {
     throw new Error("benchmark report requires --output <path>.");
   }
   const publicationManifestPath = readFlag(args, "--publication-manifest");
-  const repositoryRoot = resolve(readFlag(args, "--repository-root") ?? process.cwd());
+  const repositoryRoot = resolveRepositoryRoot(readFlag(args, "--repository-root") ?? process.cwd());
   let publicationManifest: unknown;
   let publicationParseIssue: string | undefined;
   if (publicationManifestPath) {
@@ -151,35 +151,68 @@ function writeBenchmarkReport(args: readonly string[]): void {
   });
 }
 
-function readRepositoryArtifact(repositoryRoot: string, path: string): string | undefined {
+function readRepositoryArtifact(repositoryRoot: string | undefined, path: string): string | undefined {
+  return readRepositoryGitArtifact(repositoryRoot, path, "HEAD");
+}
+
+function readRepositoryArtifactAtCommit(
+  repositoryRoot: string | undefined,
+  path: string,
+  commit: string,
+): string | undefined {
+  if (!/^[a-f0-9]{40}$/u.test(commit)) return undefined;
+  return readRepositoryGitArtifact(repositoryRoot, path, commit);
+}
+
+function resolveRepositoryRoot(path: string): string | undefined {
   try {
-    const realRoot = realpathSync(repositoryRoot);
-    const realArtifact = realpathSync(resolve(realRoot, path));
-    const relativePath = relative(realRoot, realArtifact);
-    if (relativePath === "" || relativePath.startsWith("..") || isAbsolute(relativePath)) return undefined;
-    return readFileSync(realArtifact, "utf-8");
+    const realRoot = realpathSync(resolve(path));
+    const topLevel = execFileSync("git", ["-C", realRoot, "rev-parse", "--show-toplevel"], {
+      encoding: "utf-8",
+      timeout: 10_000,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return realpathSync(topLevel) === realRoot ? realRoot : undefined;
   } catch {
     return undefined;
   }
 }
 
-function readRepositoryArtifactAtCommit(
-  repositoryRoot: string,
+function readRepositoryGitArtifact(
+  repositoryRoot: string | undefined,
   path: string,
-  commit: string,
+  revision: string,
 ): string | undefined {
+  const repositoryPath = normalizeRepositoryArtifactPath(path);
+  if (!repositoryRoot || !repositoryPath) return undefined;
   try {
-    const realRoot = realpathSync(repositoryRoot);
-    const repositoryPath = path.replace(/\\/gu, "/");
-    return execFileSync("git", ["-C", realRoot, "show", `${commit}:${repositoryPath}`], {
-      encoding: "utf-8",
+    const content = execFileSync("git", ["-C", repositoryRoot, "cat-file", "blob", `${revision}:${repositoryPath}`], {
       timeout: 10_000,
       windowsHide: true,
       maxBuffer: 16 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
     });
+    const decoded = content.toString("utf-8");
+    return Buffer.from(decoded, "utf-8").equals(content) ? decoded : undefined;
   } catch {
     return undefined;
   }
+}
+
+function normalizeRepositoryArtifactPath(path: string): string | undefined {
+  if (path.trim() === ""
+    || path.includes("\0")
+    || isAbsolute(path)
+    || win32.isAbsolute(path)
+    || path.startsWith("\\")
+    || path.startsWith("//")) {
+    return undefined;
+  }
+  const normalized = path.replace(/\\/gu, "/");
+  const segments = normalized.split("/");
+  if (segments.includes("..") || segments.some((segment) => segment === "" || segment === ".")) return undefined;
+  return normalized;
 }
 
 function projectBfclCommand(args: readonly string[]): void {
