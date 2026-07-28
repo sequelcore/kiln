@@ -50,7 +50,21 @@ export type WorkItemPauseRequirementKind =
   | "approval"
   | "authority_elevation"
   | "capability";
-export type WorkItemPauseRequirementStatus = "pending" | "resolved";
+export type WorkItemPauseRequirementStatus = "pending" | "resolved" | "superseded";
+
+export const WORK_ITEM_PAUSE_REQUIREMENT_KINDS: readonly WorkItemPauseRequirementKind[] = [
+  "operator_input",
+  "credentials",
+  "approval",
+  "authority_elevation",
+  "capability",
+];
+
+export const WORK_ITEM_PAUSE_REQUIREMENT_STATUSES: readonly WorkItemPauseRequirementStatus[] = [
+  "pending",
+  "resolved",
+  "superseded",
+];
 export type VerificationGateResultStatus = "passed" | "failed" | "skipped";
 
 export const MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET = "slice-6-handoff-review-adoption";
@@ -195,15 +209,35 @@ export interface VerificationGateResult {
   readonly completedAt?: string;
 }
 
-export interface WorkItemPauseRequirement {
+interface WorkItemPauseRequirementBase {
   readonly id: string;
   readonly kind: WorkItemPauseRequirementKind;
   readonly summary: string;
-  readonly status: WorkItemPauseRequirementStatus;
-  readonly resolvedBy?: string;
-  readonly resolvedAt?: string;
-  readonly resolution?: string;
 }
+
+export interface WorkItemPendingPauseRequirement extends WorkItemPauseRequirementBase {
+  readonly status: "pending";
+}
+
+export interface WorkItemResolvedPauseRequirement extends WorkItemPauseRequirementBase {
+  readonly status: "resolved";
+  readonly resolvedBy: string;
+  readonly resolvedAt: string;
+  readonly resolution: string;
+}
+
+export interface WorkItemSupersededPauseRequirement extends WorkItemPauseRequirementBase {
+  readonly status: "superseded";
+  readonly supersededByRequirementId: string;
+  readonly supersededAt: string;
+  readonly supersededBy: string;
+  readonly reason: string;
+}
+
+export type WorkItemPauseRequirement =
+  | WorkItemPendingPauseRequirement
+  | WorkItemResolvedPauseRequirement
+  | WorkItemSupersededPauseRequirement;
 
 export interface WorkItemExecutionAttempt {
   readonly id: string;
@@ -1296,12 +1330,51 @@ function normalizePauseRequirements(
 ): readonly WorkItemPauseRequirement[] {
   const byId = new Map<string, WorkItemPauseRequirement>();
   for (const requirement of requirements) {
-    if (byId.has(requirement.id)) {
-      continue;
-    }
     byId.set(requirement.id, requirement);
   }
-  return [...byId.values()];
+  const normalized = [...byId.values()];
+  const knownIds = new Set(normalized.map((requirement) => requirement.id));
+  for (const requirement of normalized) {
+    if (requirement.status !== "superseded") {
+      continue;
+    }
+    if (requirement.supersededByRequirementId === requirement.id) {
+      throw new Error(
+        `Work item pause requirement '${requirement.id}' cannot be superseded by itself.`,
+      );
+    }
+    if (!knownIds.has(requirement.supersededByRequirementId)) {
+      throw new Error(
+        `Work item pause requirement '${requirement.id}' is superseded by unknown requirement '${requirement.supersededByRequirementId}'.`,
+      );
+    }
+  }
+  assertNoPauseRequirementSupersessionCycles(normalized);
+  return normalized;
+}
+
+function assertNoPauseRequirementSupersessionCycles(
+  requirements: readonly WorkItemPauseRequirement[],
+): void {
+  const supersededBy = new Map<string, string>();
+  for (const requirement of requirements) {
+    if (requirement.status === "superseded") {
+      supersededBy.set(requirement.id, requirement.supersededByRequirementId);
+    }
+  }
+  for (const startId of supersededBy.keys()) {
+    const visited = new Set<string>();
+    let current = startId;
+    while (supersededBy.has(current)) {
+      if (visited.has(current)) {
+        throw new Error(
+          `Work item pause requirements contain a supersession cycle starting at '${startId}'.`,
+        );
+      }
+      visited.add(current);
+      current = supersededBy.get(current)!;
+    }
+  }
 }
 
 function normalizeFeedbackRepairSource(

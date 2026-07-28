@@ -48,6 +48,7 @@ import type {
   CanonicalSessionEvent,
   ToolDefinition,
   KilnWorkGovernanceEvidence,
+  WorkItemPauseRequirement,
 } from "@kilnai/core";
 import { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
 import type { PresentationIntent } from "@kilnai/gateway-contracts";
@@ -179,7 +180,12 @@ export interface ManagedInvocationToolOptions {
   readonly contextResolver?: ManagedInvocationContextResolver;
   readonly maxParallelChildren?: number;
   readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly pauseRequirementResolver?: ManagedInvocationPauseRequirementResolver;
 }
+
+export type ManagedInvocationPauseRequirementResolver = (
+  workItemId: string,
+) => readonly WorkItemPauseRequirement[] | undefined;
 
 export type ManagedInvocationToolOptionsWithService = ManagedInvocationToolOptions & {
   readonly invocationService: RuntimeManagedAgentInvocationService;
@@ -1895,6 +1901,7 @@ async function executeManagedInvocationTool(
     contextMode: prepared.parsed.contextMode,
     request: prepared.request,
     record: result.record,
+    pauseRequirementResolver: options.pauseRequirementResolver,
     progressEvents: terminalSnapshot?.progressEvents,
     ...(prepared.canonicalizedForbiddenInputFields
       ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
@@ -1982,6 +1989,7 @@ async function executeManagedInvocationStartTool(
         contextMode: terminalizedSnapshot.decision.capabilitySnapshot.contextMode,
         request: terminalizedSnapshot.request,
         record,
+        pauseRequirementResolver: options.pauseRequirementResolver,
         progressEvents: terminalizedSnapshot.progressEvents,
         ...(prepared.canonicalizedForbiddenInputFields
           ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
@@ -2614,6 +2622,7 @@ async function executeManagedInvocationJoinTool(
     contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
     request: visibility.snapshot.request,
     record,
+    pauseRequirementResolver: options.pauseRequirementResolver,
     progressEvents: terminalSnapshot?.progressEvents,
     sessionEventIds: terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value }),
   });
@@ -2683,6 +2692,7 @@ async function executeManagedInvocationCancelTool(
     contextMode: visibility.snapshot.decision.capabilitySnapshot.contextMode,
     request: visibility.snapshot.request,
     record,
+    pauseRequirementResolver: options.pauseRequirementResolver,
     expectedTerminalLifecycleState: "cancelled",
     progressEvents: cancelledSnapshot?.progressEvents,
     sessionEventIds: terminalSessionEventIdsForResult({ events, context: session.context, invocationId: invocationId.value }),
@@ -2805,6 +2815,7 @@ function terminalManagedInvocationResult(input: {
   readonly contextMode?: ManagedAgentInvocationContextMode;
   readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
   readonly record: ManagedAgentInvocationRecord;
+  readonly pauseRequirementResolver?: ManagedInvocationPauseRequirementResolver;
   readonly expectedTerminalLifecycleState?: ManagedAgentInvocationRecord["lifecycleState"];
   readonly progressEvents?: ManagedAgentRuntimeInvocationSnapshot["progressEvents"];
   readonly canonicalizedForbiddenInputFields?: readonly string[];
@@ -2815,17 +2826,29 @@ function terminalManagedInvocationResult(input: {
     || input.record.lifecycleState === "completed"
     || input.record.lifecycleState === input.expectedTerminalLifecycleState;
   const terminalError = !acceptedTerminalLifecycleState;
+  const priorPauseRequirements = resolvePriorPauseRequirements(
+    input.pauseRequirementResolver,
+    input.rawInput,
+    input.request,
+  );
   const recovery = terminalError
-    ? buildManagedInvocationPhaseRecovery(
-        input.rawInput,
-        managedInvocationFailureReasonFromStatus(input.record.lifecycleState),
-        input.record.resultHandoff,
-      )
+      ? buildManagedInvocationPhaseRecovery(
+          input.rawInput,
+          managedInvocationFailureReasonFromStatus(input.record.lifecycleState),
+          input.record.resultHandoff,
+          {
+            priorPauseRequirements,
+            recoveryInvocationId: input.record.invocationId,
+          },
+        )
     : undefined;
   const shouldValidateSubstantiveHandoff = !terminalError && input.record.lifecycleState === "completed";
   const handoffRecovery = !shouldValidateSubstantiveHandoff
     ? undefined
-    : buildManagedInvocationPhaseHandoffRecovery(input.rawInput, input.record.resultHandoff);
+    : buildManagedInvocationPhaseHandoffRecovery(input.rawInput, input.record.resultHandoff, {
+        priorPauseRequirements,
+        recoveryInvocationId: input.record.invocationId,
+      });
   const phaseCompletion = !shouldValidateSubstantiveHandoff
     ? undefined
     : buildManagedInvocationPhaseCompletion(input.rawInput, input.record.resultHandoff, input.record.invocationId);
@@ -2928,6 +2951,18 @@ function terminalManagedInvocationResult(input: {
       }),
     },
   };
+}
+
+function resolvePriorPauseRequirements(
+  resolver: ManagedInvocationPauseRequirementResolver | undefined,
+  rawInput: Record<string, unknown>,
+  request: ManagedAgentInvocationRequest,
+): readonly WorkItemPauseRequirement[] | undefined {
+  const scopeWorkItemId = request.executionScope?.kind === "work_item"
+    ? request.executionScope.workItemId
+    : undefined;
+  const workItemId = readText(rawInput.workItemId) ?? scopeWorkItemId;
+  return workItemId ? resolver?.(workItemId) : undefined;
 }
 
 function projectManagedInvocationResultResourceLinks(

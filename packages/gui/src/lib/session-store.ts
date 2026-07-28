@@ -101,6 +101,10 @@ export interface WorkItemPauseRequirementEntry {
   readonly kind: string;
   readonly summary: string;
   readonly status: string;
+  readonly supersededByRequirementId?: string;
+  readonly supersededAt?: string;
+  readonly supersededBy?: string;
+  readonly reason?: string;
 }
 
 export interface WorkItemExecutionAttemptEntry {
@@ -463,9 +467,21 @@ function readWorkItemPauseRequirements(value: unknown): readonly WorkItemPauseRe
     const id = readString(record?.id);
     const kind = readString(record?.kind);
     const summary = readString(record?.summary);
-    const status = readString(record?.status);
-    return id && kind && summary && status
-      ? [{ id, kind, summary, status }]
+    const rawStatus = readString(record?.status);
+    const status = rawStatus === "resolved" || rawStatus === "superseded"
+      ? rawStatus
+      : "pending";
+    return id && kind && summary
+      ? [{
+          id,
+          kind,
+          summary,
+          status,
+          supersededByRequirementId: readString(record?.supersededByRequirementId) ?? undefined,
+          supersededAt: readString(record?.supersededAt) ?? undefined,
+          supersededBy: readString(record?.supersededBy) ?? undefined,
+          reason: readString(record?.reason) ?? undefined,
+        }]
       : [];
   });
 }

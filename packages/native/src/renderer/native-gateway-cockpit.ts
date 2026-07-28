@@ -250,7 +250,10 @@ function countPendingPauseRequirements(value: unknown): number {
   if (!Array.isArray(value)) {
     return 0;
   }
-  return value.filter((entry) => asRecord(entry).status === "pending").length;
+  return value.filter((entry) => {
+    const status = asRecord(entry).status;
+    return status !== "resolved" && status !== "superseded";
+  }).length;
 }
 
 function readManagedInvocationId(payload: Record<string, unknown>): string | undefined {

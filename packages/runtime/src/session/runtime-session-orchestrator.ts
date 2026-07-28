@@ -22,6 +22,10 @@ import {
   type ProviderRequestEvidence,
   projectConversationForModel,
 } from "@kilnai/core";
+import {
+  isManagedInvocationRecoveryPauseRequirementId,
+  MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID,
+} from "../agents/managed-invocation/phase-recovery.js";
 import type { RuntimeSession } from "./runtime-session.js";
 import {
   admitProgressiveTool,
@@ -1498,10 +1502,12 @@ function readExecutionAttemptId(execution: ToolExecutionSummary): string | undef
 }
 
 function hasManagedInvocationHandoffRecoveryPause(item: Record<string, unknown>): boolean {
-  return readRecordArray(item.pauseRequirements).some((pauseRequirement) =>
-    readText(pauseRequirement.id) === "managed-invocation-handoff-recovery"
-    && readText(pauseRequirement.status) === "pending"
-  );
+  return readRecordArray(item.pauseRequirements).some((pauseRequirement) => {
+    const id = readText(pauseRequirement.id);
+    return id !== undefined
+      && isManagedInvocationRecoveryPauseRequirementId(id, MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID)
+      && readText(pauseRequirement.status) === "pending";
+  });
 }
 
 function resolvesBlockedManagedInvocationTransition(

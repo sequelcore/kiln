@@ -685,6 +685,48 @@ describe("native operator surface foundation", () => {
     ]);
   });
 
+  it("excludes superseded requirements and fails closed on missing status in native work item visibility", () => {
+    const events: OperatorSessionEvent[] = [
+      {
+        eventId: "event-work-superseded",
+        kilnSessionId: "session-1",
+        sequence: 1,
+        timestamp: "2026-07-26T10:00:00.000Z",
+        kind: "work_item_updated",
+        payload: {
+          workItem: {
+            id: "work-superseded",
+            summary: "Audit native superseded pause requirement handling.",
+            status: "pending",
+            workflowProfile: "verification-heavy",
+            pauseRequirements: [
+              {
+                id: "capability-1",
+                kind: "capability",
+                summary: "Route unavailable",
+                status: "superseded",
+                supersededByRequirementId: "capability-2",
+                supersededAt: "2026-07-26T10:00:00.000Z",
+                supersededBy: "operator",
+                reason: "Replaced by a broader requirement.",
+              },
+              {
+                id: "capability-2",
+                kind: "capability",
+                summary: "Malformed requirement without a status",
+              },
+            ],
+            updatedAt: "2026-07-26T10:00:00.000Z",
+          },
+        },
+      },
+    ];
+
+    const items = selectNativeWorkItems(events);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.pendingPauseRequirementCount).toBe(1);
+  });
+
   it("marks native gateway cockpit attach as closed without dropping read-only event state", () => {
     const managedEvent: OperatorSessionEvent = {
       eventId: "event-managed-started",

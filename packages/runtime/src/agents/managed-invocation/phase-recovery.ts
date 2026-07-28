@@ -1,12 +1,45 @@
 import { containsFrontendReferenceEvidence } from "@kilnai/core";
-import type { ManagedAgentResultHandoff, WorkItemExecutionFailureReason } from "@kilnai/core";
+import type {
+  ManagedAgentResultHandoff,
+  WorkItemExecutionFailureReason,
+  WorkItemPauseRequirement,
+  WorkItemPauseRequirementKind,
+  WorkItemPendingPauseRequirement,
+} from "@kilnai/core";
 
 export const VISUAL_REFERENCE_PHASE_ID = "visual-reference-research";
+
+/**
+ * Optional evidence a caller can supply so a rebuilt recovery pause
+ * requirement supersedes a prior one for the same work item instead of
+ * colliding with it (see `derivePauseRequirementId` /
+ * `recoveryPauseRequirements` below). Callers that omit prior requirements
+ * still get a deterministic id, but cannot express supersession against
+ * requirements they did not provide.
+ */
+export interface ManagedInvocationPhaseRecoveryEvidenceOptions {
+  readonly priorPauseRequirements?: readonly WorkItemPauseRequirement[];
+  /**
+   * A replay-stable identity for THIS specific recovery construction attempt
+   * - e.g. derived from the managed invocation's own tool-call identity -
+   * supplied by callers that have one. `request.attemptId` is only ever
+   * populated at the `work_item.execution.finish` closeout site AFTER a
+   * managed invocation has already resumed successfully; it does not exist
+   * at failure-construction time on the attached-runtime recovery path, so
+   * callers on that path must supply this instead of relying on the
+   * `attemptId` fallback to distinguish one failed attempt from another.
+   */
+  readonly recoveryInvocationId?: string;
+  readonly now?: () => string;
+}
+
+const MANAGED_INVOCATION_RECOVERY_ACTOR = "runtime:managed-invocation-recovery";
 
 export function buildManagedInvocationPhaseRecovery(
   request: Record<string, unknown> | undefined,
   failureReason: WorkItemExecutionFailureReason = "failed",
   resultHandoff?: ManagedAgentResultHandoff,
+  evidenceOptions?: ManagedInvocationPhaseRecoveryEvidenceOptions,
 ): Record<string, unknown> | undefined {
   return buildManagedInvocationPhaseAction(request, {
     status: "phase_evidence_required",
@@ -14,6 +47,9 @@ export function buildManagedInvocationPhaseRecovery(
     includeResultResources: resultHandoff !== undefined,
     ...(resultHandoff ? { resultHandoff } : {}),
     failureReason,
+    priorPauseRequirements: evidenceOptions?.priorPauseRequirements,
+    recoveryInvocationId: evidenceOptions?.recoveryInvocationId,
+    now: evidenceOptions?.now,
   });
 }
 
@@ -58,6 +94,7 @@ export function buildManagedInvocationPhaseCompletion(
 export function buildManagedInvocationPhaseHandoffRecovery(
   request: Record<string, unknown> | undefined,
   resultHandoff: ManagedAgentResultHandoff | undefined,
+  evidenceOptions?: ManagedInvocationPhaseRecoveryEvidenceOptions,
 ): Record<string, unknown> | undefined {
   if (resolvePhaseEvidenceDisposition(request, resultHandoff)) {
     return undefined;
@@ -68,6 +105,9 @@ export function buildManagedInvocationPhaseHandoffRecovery(
     includeResultResources: true,
     resultHandoff,
     failureReason: resultHandoff?.structuredResult?.status === "cancelled" ? "cancelled" : "failed",
+    priorPauseRequirements: evidenceOptions?.priorPauseRequirements,
+    recoveryInvocationId: evidenceOptions?.recoveryInvocationId,
+    now: evidenceOptions?.now,
   });
 }
 
@@ -81,6 +121,9 @@ function buildManagedInvocationPhaseAction(
     readonly failureReason?: WorkItemExecutionFailureReason;
     readonly invocationId?: string;
     readonly evidenceDisposition?: PhaseEvidenceDisposition;
+    readonly priorPauseRequirements?: readonly WorkItemPauseRequirement[];
+    readonly recoveryInvocationId?: string;
+    readonly now?: () => string;
   },
 ): Record<string, unknown> | undefined {
   const phase = readRecord(request?.executionPhase);
@@ -129,6 +172,7 @@ function buildManagedInvocationPhaseAction(
         ...(goalRunId ? { goalRunId } : {}),
         evidenceToRecord,
         ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+        ...(requiredReadPaths.length > 0 ? { requiredReadPaths } : {}),
         ...(sourceResourceUris.length > 0
           ? {
               sourceResourceUris,
@@ -136,17 +180,21 @@ function buildManagedInvocationPhaseAction(
               inspection: "Use resource_read on sourceResourceUris when the managed handoff content is needed before recording failure evidence.",
             }
           : {}),
+        ...(visualReferenceRecovery ?? {}),
         blockedWorkItemUpdateInputTemplate: {
           id: workItemId,
           status: "blocked",
           summary: `Managed invocation did not produce a verified handoff for ${summary}`,
-          pauseRequirements: [{
-            id: "managed-invocation-capability",
-            kind: "capability",
-            summary: options.resultHandoff?.summary
+          pauseRequirements: recoveryPauseRequirements(
+            MANAGED_INVOCATION_CAPABILITY_PAUSE_BASE_ID,
+            "capability",
+            options.resultHandoff?.summary
               ?? `Managed invocation ${options.failureReason ?? "failed"}: ${options.reason}`,
-            status: "pending",
-          }],
+            request,
+            options.priorPauseRequirements,
+            options.recoveryInvocationId,
+            options.now,
+          ),
         },
         ...(readText(phase.instruction) ? { instruction: readText(phase.instruction) } : {}),
       };
@@ -216,12 +264,15 @@ function buildManagedInvocationPhaseAction(
             id: workItemId,
             status: "blocked",
             summary: `Managed invocation recovery is blocked for ${summary}`,
-            pauseRequirements: [{
-              id: "managed-invocation-handoff-recovery",
-              kind: "operator_input",
-              summary: "Managed child completed without substantive phase evidence, and source resources did not contain qualifying governed evidence after inspection.",
-              status: "pending",
-            }],
+            pauseRequirements: recoveryPauseRequirements(
+              MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID,
+              "operator_input",
+              "Managed child completed without substantive phase evidence, and source resources did not contain qualifying governed evidence after inspection.",
+              request,
+              options.priorPauseRequirements,
+              options.recoveryInvocationId,
+              options.now,
+            ),
           },
           blockedWhen: "Use blockedWorkItemUpdateInputTemplate if sourceResourceUris and local recovery cannot produce qualifying evidence. Do not record providedEvidence or continue execution in that case.",
         }
@@ -367,6 +418,103 @@ function visualReferenceRecoveryContract(requiredReadPaths: readonly string[]): 
       "If sourceResourceUris and local inspection still do not produce qualifying evidence, use blockedWorkItemUpdateInputTemplate instead of recording providedEvidence.",
     ],
   };
+}
+
+const MANAGED_INVOCATION_CAPABILITY_PAUSE_BASE_ID = "managed-invocation-capability";
+export const MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID = "managed-invocation-handoff-recovery";
+
+/**
+ * True when `id` belongs to the recovery pause requirement family rooted at
+ * `baseId`: one of its `${baseId}:`-prefixed derivations. Exported so every
+ * caller that needs to recognise this family (e.g. the session
+ * orchestrator's handoff-recovery resolution check) shares one owner for the
+ * id scheme instead of mirroring the base id and match rule locally.
+ */
+export function isManagedInvocationRecoveryPauseRequirementId(id: string, baseId: string): boolean {
+  return id.startsWith(`${baseId}:`);
+}
+
+/**
+ * Deterministic, replay-stable id for a recovery pause requirement: the same
+ * request always derives the same id, and two distinct invocation attempts
+ * (or distinct execution phases) derive distinct ids, so a retry can never
+ * silently overwrite a prior attempt's blocking evidence.
+ *
+ * Prefers the caller-supplied `recoveryInvocationId` - a replay-stable
+ * per-attempt identity the caller derives from the managed invocation's own
+ * tool-call identity - because `request.attemptId` is only ever populated
+ * AFTER a managed invocation has already resumed successfully (at the
+ * `work_item.execution.finish` closeout site); it does not exist yet at
+ * failure-construction time on the attached-runtime recovery path, so relying
+ * on it there would let two distinct failed attempts of the same work
+ * item/phase collide on one id. Falls back to `request.attemptId`, then the
+ * execution phase id, for callers that do not supply `recoveryInvocationId`.
+ * With none of the three, the id degrades to workItemId-only scoping, which
+ * can still collide across repeated failures of the same unscoped phase.
+ * Timestamps and counters are deliberately never used as part of this id: it
+ * must be derivable identically on replay.
+ */
+function derivePauseRequirementId(
+  baseId: string,
+  request: Record<string, unknown> | undefined,
+  recoveryInvocationId: string | undefined,
+): string {
+  const workItemId = readText(request?.workItemId) ?? "unscoped";
+  const attemptId = readText(request?.attemptId);
+  const phase = readRecord(request?.executionPhase);
+  const phaseId = readText(phase?.id);
+  const discriminator = recoveryInvocationId ?? attemptId ?? phaseId;
+  return discriminator ? `${baseId}:${workItemId}:${discriminator}` : `${baseId}:${workItemId}`;
+}
+
+/**
+ * Builds the pause requirement list for a recovery template. When the
+ * caller supplies `priorPauseRequirements` (the work item's current list),
+ * any still-pending requirement from an earlier occurrence of this same
+   * recovery family (a `${baseId}:` derivation - see
+   * `isManagedInvocationRecoveryPauseRequirementId`) is
+ * transitioned to `superseded` and kept - never dropped, never silently
+ * overwritten - pointing at the new requirement's id. Replaying the exact
+ * same request is idempotent: it resolves to the same id, so no supersession
+ * or duplicate entry is added.
+ */
+function recoveryPauseRequirements(
+  baseId: string,
+  kind: WorkItemPauseRequirementKind,
+  summary: string,
+  request: Record<string, unknown> | undefined,
+  priorPauseRequirements: readonly WorkItemPauseRequirement[] | undefined,
+  recoveryInvocationId: string | undefined,
+  now: (() => string) | undefined,
+): WorkItemPauseRequirement[] {
+  const id = derivePauseRequirementId(baseId, request, recoveryInvocationId);
+  const prior = priorPauseRequirements ?? [];
+  const alreadyPresent = prior.some((requirement) => requirement.id === id);
+  const clock = now ?? (() => new Date().toISOString());
+  const carried = prior.map((requirement): WorkItemPauseRequirement => {
+    if (
+      requirement.id === id
+      || requirement.status !== "pending"
+      || !isManagedInvocationRecoveryPauseRequirementId(requirement.id, baseId)
+    ) {
+      return requirement;
+    }
+    return {
+      id: requirement.id,
+      kind: requirement.kind,
+      summary: requirement.summary,
+      status: "superseded",
+      supersededByRequirementId: id,
+      supersededAt: clock(),
+      supersededBy: MANAGED_INVOCATION_RECOVERY_ACTOR,
+      reason: `Superseded by a new managed invocation recovery requirement (${id}).`,
+    };
+  });
+  if (alreadyPresent) {
+    return carried;
+  }
+  const newRequirement: WorkItemPendingPauseRequirement = { id, kind, summary, status: "pending" };
+  return [...carried, newRequirement];
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

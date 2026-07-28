@@ -342,8 +342,7 @@ clean across `gateway-contracts`, `core`, `runtime`, `sdk`, `cli`, `tui`,
 
 Not attempted in this slice: attachment propagation/selection for a managed
 child (Thread 5) and explicit supersession-with-dual-replay for a superseded
-admission gate remain open, per Slice 1's status note assigning attachment
-work to Slice 3.
+admission gate were deferred to Slice 3.
 
 ### Slice 3.1 - External Runtime Attachment Identity
 
@@ -440,7 +439,13 @@ confirmed via `git stash` before this work began), typecheck clean across
 
 ### Slice 3 - Cross-Surface Replay
 
-Status: Queued behind Slice 3.1 above.
+Status: In progress. Recovery pause requirements now retain superseded
+requirements, link each one to its replacement, derive replay-stable identities
+from the validated outer tool-call and phase identities, and project the same
+state through CLI, GUI, TUI, native, gateway contracts, session outcomes, and
+canonical replay. Slice 2 already owns canonical approval-request and
+approval-resolution events; cross-surface approval parity and the remaining
+terminal-consistency work below remain open.
 
 Prove GUI, TUI, CLI, SDK, and replay agree; preserve redacted server/tool
 failure category and identity; require approval request/resolution events for

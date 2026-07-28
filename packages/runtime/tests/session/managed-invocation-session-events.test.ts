@@ -858,4 +858,88 @@ describe("appendManagedInvocationSessionEvents", () => {
       },
     });
   });
+
+  it("replays a failed attempt and its recovery attempt in stable order without rewriting the original failure", () => {
+    const session = makeSession("session-parent-recovery-replay");
+    const failedRequest = defineManagedAgentInvocationRequest({
+      ...makeRequest(session.id, `${session.id}:turn:1`),
+      invocationId: "invocation-attempt-1",
+    });
+    const failedRecord = defineManagedAgentInvocationRecord({
+      ...makeRecord("failed"),
+      invocationId: failedRequest.invocationId,
+      parentSessionId: session.id,
+      parentTurnId: failedRequest.parentTurnId,
+      capabilitySnapshot: makeCapabilitySnapshot(failedRequest),
+    });
+    const failedEvents = appendManagedInvocationSessionEvents({
+      session,
+      request: failedRequest,
+      decision: {
+        ...makeAdmittedDecision(failedRequest),
+        invocationId: failedRequest.invocationId,
+        capabilitySnapshot: failedRecord.capabilitySnapshot,
+      },
+      record: failedRecord,
+      timestamp: new Date("2026-07-26T10:00:00.000Z"),
+    });
+
+    const recoveryRequest = defineManagedAgentInvocationRequest({
+      ...makeRequest(session.id, `${session.id}:turn:2`),
+      invocationId: "invocation-attempt-2",
+    });
+    const recoveryRecord = defineManagedAgentInvocationRecord({
+      ...makeRecord("completed"),
+      invocationId: recoveryRequest.invocationId,
+      parentSessionId: session.id,
+      parentTurnId: recoveryRequest.parentTurnId,
+      capabilitySnapshot: makeCapabilitySnapshot(recoveryRequest),
+    });
+    const recoveryEvents = appendManagedInvocationSessionEvents({
+      session,
+      request: recoveryRequest,
+      decision: {
+        ...makeAdmittedDecision(recoveryRequest),
+        invocationId: recoveryRequest.invocationId,
+        capabilitySnapshot: recoveryRecord.capabilitySnapshot,
+      },
+      record: recoveryRecord,
+      timestamp: new Date("2026-07-26T10:05:00.000Z"),
+    });
+
+    // Both attempts' events are visible, in the exact order they were appended.
+    expect(session.sessionEvents).toHaveLength(6);
+    expect(session.sessionEvents).toEqual([...failedEvents, ...recoveryEvents]);
+
+    // Sequence numbers are strictly increasing across both attempts - this
+    // is what "stable replay order" means for canonical session events.
+    const sequences = session.sessionEvents.map((event) => event.sequence);
+    expect(sequences).toEqual([...sequences].sort((a, b) => a - b));
+    expect(new Set(sequences).size).toBe(sequences.length);
+
+    // The first attempt's failure is still visible, unaltered, after the
+    // recovery attempt is appended - recovery never rewrites history.
+    const failedTerminal = session.sessionEvents.find((event) =>
+      event.kind === "agent_invocation_failed" && event.invocationId === "invocation-attempt-1");
+    expect(failedTerminal).toBeDefined();
+    expect(failedTerminal).toMatchObject({
+      kind: "agent_invocation_failed",
+      invocationId: "invocation-attempt-1",
+      errorCode: "ENGINE_FAILURE",
+    });
+
+    // The recovery attempt is a distinct, successful lineage.
+    const recoveryTerminal = session.sessionEvents.find((event) =>
+      event.kind === "agent_invocation_completed" && event.invocationId === "invocation-attempt-2");
+    expect(recoveryTerminal).toBeDefined();
+    expect(recoveryTerminal).toMatchObject({
+      kind: "agent_invocation_completed",
+      invocationId: "invocation-attempt-2",
+    });
+
+    // The failed attempt's terminal event precedes the recovery attempt's
+    // terminal event in the replay order.
+    expect(session.sessionEvents.indexOf(failedTerminal!))
+      .toBeLessThan(session.sessionEvents.indexOf(recoveryTerminal!));
+  });
 });

@@ -330,6 +330,106 @@ describe("deriveGovernedTurnOutcomeFromToolRecords", () => {
     ])).toBe("failed");
   });
 
+  it("stays blocked when a superseded pause requirement's successor is still pending", () => {
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_item.update",
+        success: true,
+        metadata: {
+          id: "work-superseded",
+          item: {
+            id: "work-superseded",
+            status: "blocked",
+            pauseRequirements: [
+              {
+                id: "managed-invocation-capability:work-superseded:attempt-1",
+                kind: "capability",
+                summary: "First recovery attempt could not hydrate a route.",
+                status: "superseded",
+                supersededByRequirementId: "managed-invocation-capability:work-superseded:attempt-2",
+                supersededAt: "2026-07-26T20:00:00.000Z",
+                supersededBy: "runtime:managed-invocation-recovery",
+                reason: "Superseded by a new managed invocation recovery requirement.",
+              },
+              {
+                id: "managed-invocation-capability:work-superseded:attempt-2",
+                kind: "capability",
+                summary: "Second recovery attempt could not hydrate a route.",
+                status: "pending",
+              },
+            ],
+          },
+        },
+      }),
+    ])).toBe("failed");
+  });
+
+  it("fails closed when a pause requirement has an absent or unknown status", () => {
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_item.update",
+        success: true,
+        metadata: {
+          id: "work-malformed-requirement",
+          item: {
+            id: "work-malformed-requirement",
+            status: "pending",
+            pauseRequirements: [
+              {
+                id: "capability-missing-status",
+                kind: "capability",
+                summary: "Missing status must remain blocking.",
+              },
+              {
+                id: "capability-unknown-status",
+                kind: "capability",
+                summary: "Unknown status must remain blocking.",
+                status: "future-status",
+              },
+            ],
+          },
+        },
+      }),
+    ])).toBe("failed");
+  });
+
+  it("completes once the requirement that superseded a prior blocking requirement is itself resolved", () => {
+    expect(deriveGovernedTurnOutcomeFromToolRecords([
+      record({
+        toolName: "work_item.update",
+        success: true,
+        metadata: {
+          id: "work-superseded",
+          item: {
+            id: "work-superseded",
+            status: "pending",
+            pauseRequirements: [
+              {
+                id: "managed-invocation-capability:work-superseded:attempt-1",
+                kind: "capability",
+                summary: "First recovery attempt could not hydrate a route.",
+                status: "superseded",
+                supersededByRequirementId: "managed-invocation-capability:work-superseded:attempt-2",
+                supersededAt: "2026-07-26T20:00:00.000Z",
+                supersededBy: "runtime:managed-invocation-recovery",
+                reason: "Superseded by a new managed invocation recovery requirement.",
+              },
+              {
+                id: "managed-invocation-capability:work-superseded:attempt-2",
+                kind: "capability",
+                summary: "Second recovery attempt could not hydrate a route.",
+                status: "resolved",
+                resolvedBy: "operator",
+                resolvedAt: "2026-07-26T20:05:00.000Z",
+                resolution: "Route capability restored.",
+              },
+            ],
+          },
+        },
+      }),
+    ])).toBeUndefined();
+  });
+
   it("treats unavailable managed invocations as terminal blocking failures", () => {
     const unavailableChild = record({
       toolName: "managed_agent.invoke",
