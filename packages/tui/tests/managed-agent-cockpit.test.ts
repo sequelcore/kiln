@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { OperatorSessionEvent } from "@kilnai/gateway-contracts";
+import {
+  createOperatorCockpitReadOnlyViewState,
+  projectOperatorCockpitReadOnlyView,
+  type OperatorSessionEvent,
+} from "@kilnai/gateway-contracts";
+import {
+  EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
+  externalRuntimeGovernanceEvents,
+} from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
 import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
   EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
@@ -28,6 +36,29 @@ function event(
 }
 
 describe("TUI managed-agent cockpit projection", () => {
+  it("formats canonical external-runtime attachment and redacted failure evidence", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T09:01:00.000Z",
+      attachTargets: [{
+        instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
+        label: "Synthetic external runtime",
+        kind: "local",
+      }],
+      events: externalRuntimeGovernanceEvents,
+    });
+    const viewState = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    }).managedAgents;
+
+    const output = formatManagedAgentCockpitLines(viewState).join("\n");
+
+    expect(output).toContain(
+      `attachment ${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.runtimeId}/${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.attachmentId}`,
+    );
+    expect(output).toContain(EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic);
+  });
+
   it("normalizes managed invocation events and projects them through shared cockpit view state", () => {
     const started = event("evt-started", 2, "agent_invocation_started", {
       invocationId: "child-running",

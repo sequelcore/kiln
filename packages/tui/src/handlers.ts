@@ -17,8 +17,8 @@ import {
   formatOperatorEventValue,
   ContextUsageProjectionSchema,
   operatorIdentityInitials,
-  projectAgentProfileIdentity,
   projectManagedAgentIdentity,
+  projectOperatorGovernedWorkItemSnapshot,
   type GuiSessionTurnOutcome,
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
@@ -423,69 +423,27 @@ function appendManagedAgentProjectionEvent(
   ctx.renderSidebarManagedAgents?.();
 }
 
-function toWorkItem(input: unknown, sessionId?: string, turnId?: string): WorkItem | null {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return null;
-  }
-  const record = input as Record<string, unknown>;
-  const id = readText(record.id);
-  const summary = readText(record.summary);
-  const status = readText(record.status);
-  const workflowProfile = readText(record.workflowProfile);
-  const agentIdentity = projectAgentProfileIdentity(readText(record.assignedAgentProfile));
-  if (!id || !summary || !status || !workflowProfile) {
+function toWorkItem(
+  input: unknown,
+  sessionId?: string,
+  turnId?: string,
+): WorkItem | null {
+  const projected = projectOperatorGovernedWorkItemSnapshot({
+    workItem: input,
+    ...(sessionId ? { sessionId } : {}),
+    ...(turnId ? { turnId } : {}),
+    observedAt: new Date().toISOString(),
+  });
+  if (!projected) {
     return null;
   }
   return {
-    sessionId,
-    turnId,
-    id,
-    resourceUri: readText(record.resourceUri) ?? `kiln://session/work-items/${encodeURIComponent(id)}`,
-    summary,
-    status,
-    workflowProfile,
-    authorityProfile: readText(record.authorityProfile),
-    ...(agentIdentity ? { assignedAgentProfile: agentIdentity.label } : {}),
-    expectedEvidence: readTextArray(record.expectedEvidence),
-    providedEvidence: readTextArray(record.providedEvidence),
-    latestAttemptStatus: readText(record.latestAttemptStatus),
-    latestAttemptMode: readText(record.latestAttemptMode),
-    latestManagedInvocationId: readText(record.latestManagedInvocationId),
-    pendingPauseRequirementCount: readPendingPauseRequirementCount(record.pauseRequirements),
-    missingEvidence: readTextArray(record.missingEvidence),
-    missingResidualRisk: record.missingResidualRisk === true,
-    updatedAt: readDate(record.updatedAt) ?? new Date(),
+    ...projected,
+    expectedEvidence: [...projected.expectedEvidence],
+    providedEvidence: [...projected.providedEvidence],
+    missingEvidence: [...projected.missingEvidence],
+    updatedAt: new Date(projected.updatedAt),
   };
-}
-
-function readText(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function readTextArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.flatMap((entry) => readText(entry) ? [readText(entry)!] : [])
-    : [];
-}
-
-function readPendingPauseRequirementCount(value: unknown): number | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  return value.filter((entry) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return false;
-    }
-    const status = (entry as Record<string, unknown>).status;
-    return status !== "resolved" && status !== "superseded";
-  }).length;
-}
-
-function readDate(value: unknown): Date | undefined {
-  const text = readText(value);
-  if (!text) return undefined;
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 /**

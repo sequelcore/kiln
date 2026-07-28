@@ -14,6 +14,9 @@ import {
   createOperatorWorkspaceHomeProjection,
 } from "../src/operator-workspace-home.js";
 import {
+  normalizeManagedAgentOperatorReplayEvents,
+} from "../src/operator-cockpit-projection.js";
+import {
   EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
   externalRuntimeGovernanceEvents,
 } from "./fixtures/external-runtime-governance.js";
@@ -42,6 +45,7 @@ describe("operator workspace home projection", () => {
 
     expect(cockpitProjection.invocations[0]).toMatchObject({
       managedInvocationId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+      status: "failed",
       externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
     });
     expect(cockpitProjection.toolSummaries[0]).toMatchObject({
@@ -55,6 +59,15 @@ describe("operator workspace home projection", () => {
         redacted: true,
         blocked: true,
       },
+    });
+    expect(cockpitView.managedAgents.items[0]).toMatchObject({
+      externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
+      externalToolFailures: [{
+        selector: "mcp:synthetic-runtime:tool:navigate_actor",
+        diagnostic: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic,
+        redacted: true,
+        blocked: true,
+      }],
     });
     expect(home.work).toMatchObject({
       totalCount: 1,
@@ -75,6 +88,62 @@ describe("operator workspace home projection", () => {
     });
   });
 
+  it("replays the same external-runtime governance disposition without losing evidence", () => {
+    const replayedEvents = normalizeManagedAgentOperatorReplayEvents(
+      externalRuntimeGovernanceEvents,
+      { defaultInstanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId },
+    );
+    const replayProjection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T09:01:00.000Z",
+      attachTargets: [{
+        instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
+        label: "Synthetic external runtime",
+        kind: "local",
+      }],
+      events: replayedEvents,
+    });
+    const replayView = createOperatorCockpitReadOnlyViewState({
+      projection: replayProjection,
+      viewState: {},
+    });
+    const replayHome = createOperatorWorkspaceHomeProjection({
+      projectedAt: "2026-07-28T09:01:00.000Z",
+      cockpitView: replayView,
+      events: replayedEvents,
+    });
+
+    expect(replayedEvents.map((event) => event.kind)).toEqual(
+      externalRuntimeGovernanceEvents.map((event) => event.kind),
+    );
+    expect(replayView.managedAgents.items[0]).toMatchObject({
+      externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
+      externalToolFailures: [{
+        selector: "mcp:synthetic-runtime:tool:navigate_actor",
+        diagnostic: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic,
+      }],
+    });
+    expect(replayHome).toMatchObject({
+      work: {
+        blockedCount: 1,
+        activeGoalCount: 1,
+        items: [{
+          workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
+          pendingPauseCount: 1,
+        }],
+      },
+      approvals: {
+        pendingCount: 0,
+        resolvedCount: 1,
+      },
+    });
+    expect(replayedEvents.find((event) => event.kind === "assistant_message")?.payload).toMatchObject({
+      content: "The external-runtime action failed; canonical work remains blocked.",
+    });
+    expect(replayedEvents.find((event) => event.kind === "turn_completed")?.payload).toMatchObject({
+      outcome: "failed",
+    });
+  });
+
   it("fails closed when a well-formed pause requirement has an unknown status", () => {
     const malformedStatusEvent: OperatorSessionEvent = {
       eventId: "workspace-home-unknown-status:event:work",
@@ -90,6 +159,7 @@ describe("operator workspace home projection", () => {
           summary: "Do not lose an unknown blocker",
           status: "pending",
           workflowProfile: "verification-heavy",
+          authorityProfile: "authority:workspace-write",
           pauseRequirements: [{
             id: "workspace-home-unknown-status:pause",
             kind: "capability",
@@ -119,6 +189,41 @@ describe("operator workspace home projection", () => {
 
     expect(home.work.blockedCount).toBe(1);
     expect(home.work.items[0]?.pendingPauseCount).toBe(1);
+  });
+
+  it("fails closed when governed work has no explicit authority disposition", () => {
+    const event: OperatorSessionEvent = {
+      eventId: "workspace-home-missing-authority:event:work",
+      kilnSessionId: "workspace-home-missing-authority:session",
+      sequence: 1,
+      timestamp: "2026-07-28T09:03:00.000Z",
+      kind: "work_item_updated",
+      payload: {
+        instanceId: "local",
+        sessionId: "workspace-home-missing-authority:session",
+        workItem: {
+          id: "workspace-home-missing-authority:work",
+          summary: "Require explicit authority before execution",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+        },
+      },
+    };
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T09:03:01.000Z",
+      attachTargets: [{ instanceId: "local", label: "Local", kind: "local" }],
+      events: [event],
+    });
+    const home = createOperatorWorkspaceHomeProjection({
+      projectedAt: projection.projectedAt,
+      cockpitView: createOperatorCockpitReadOnlyViewState({
+        projection,
+        viewState: {},
+      }),
+      events: [event],
+    });
+
+    expect(home.work.blockedCount).toBe(1);
   });
 
   it("summarizes gateway targets, sessions, managed agents, resources, and attention from shared cockpit state", () => {
@@ -461,6 +566,8 @@ describe("operator workspace home projection", () => {
           id: "work-home-superseded-1",
           summary: "Work item with a superseded pause requirement only",
           status: "pending",
+          workflowProfile: "verification-heavy",
+          authorityProfile: "authority:workspace-write",
           pauseRequirements: [
             {
               id: "pause-1",

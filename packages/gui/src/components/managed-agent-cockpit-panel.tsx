@@ -294,6 +294,29 @@ function ManagedAgentWorktreeConflict(props: { readonly item: OperatorCockpitMan
   );
 }
 
+function ManagedAgentExternalRuntimeEvidence(props: { readonly item: OperatorCockpitManagedAgentViewItem }) {
+  const attachment = props.item.externalRuntimeAttachment;
+  const failures = props.item.externalToolFailures ?? [];
+  if (!attachment && failures.length === 0) {
+    return null;
+  }
+  return (
+    <section className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <p className="font-medium">External runtime evidence</p>
+      {attachment ? (
+        <p className="mt-1 font-mono text-[10.5px] text-destructive/80">
+          {attachment.runtimeId} / {attachment.attachmentId}
+        </p>
+      ) : null}
+      {failures.map((failure) => (
+        <p key={`${failure.selector}:${failure.category}`} className="mt-1 text-xs leading-5 text-destructive/80">
+          {failure.selector}: {failure.diagnostic}
+        </p>
+      ))}
+    </section>
+  );
+}
+
 function ManagedAgentItem(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
   readonly onOpenResource?: ManagedAgentCockpitPanelProps["onOpenResource"];
@@ -404,6 +427,7 @@ function ManagedAgentItem(props: {
           </p>
         </div>
       ) : null}
+      <ManagedAgentExternalRuntimeEvidence item={item} />
       <ManagedAgentWorktreeConflict item={item} />
       <ManagedAgentNextAction item={item} />
       <ManagedAgentResources item={item} onOpenResource={props.onOpenResource} />

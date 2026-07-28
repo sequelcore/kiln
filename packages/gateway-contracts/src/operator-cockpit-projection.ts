@@ -18,6 +18,9 @@ import type {
 import {
   OperatorGatewayTargetIdentitySchema,
 } from "./operator-cockpit-target.js";
+import {
+  projectOperatorGovernedWorkItemSnapshot,
+} from "./operator-governed-work.js";
 
 export const OPERATOR_COCKPIT_ATTACH_TARGET_KINDS = [
   "local",
@@ -621,6 +624,7 @@ export function projectOperatorCockpitReadOnlyView(
         instanceId,
         sessionId,
         eventId: event.eventId,
+        ...(managedInvocationId ? { managedInvocationId } : {}),
         toolCallId,
         toolCallScopeId,
       };
@@ -1808,9 +1812,29 @@ function normalizeCanonicalManagedAgentEvent(
   }
   if (MANAGED_AGENT_WORK_ITEM_EVENT_KINDS.includes(event.kind)) {
     const gate = asRecord(payload.managedOrchestrationAdoptionGate);
-    if (!isManagedOrchestrationAdoptionGate(gate)) {
+    const workItem = projectOperatorGovernedWorkItemSnapshot({
+      workItem: payload.workItem,
+      evidence: payload,
+      sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
+      ...(event.turnId ? { turnId: event.turnId } : {}),
+      observedAt: event.timestamp,
+    });
+    if (!workItem && !isManagedOrchestrationAdoptionGate(gate)) {
       return [];
     }
+    return [{
+      ...event,
+      payload: {
+        ...payload,
+        instanceId: readString(payload.instanceId) ?? options.defaultInstanceId,
+        sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
+      },
+    }];
+  }
+  if (
+    MANAGED_AGENT_GOVERNANCE_REPLAY_EVENT_KINDS.includes(event.kind)
+    || isManagedExternalToolReplayEvent(event.kind, payload)
+  ) {
     return [{
       ...event,
       payload: {
@@ -2112,10 +2136,36 @@ const MANAGED_AGENT_WORK_ITEM_EVENT_KINDS: readonly OperatorSessionEventKind[] =
   "work_item_execution_finished",
 ];
 
+const MANAGED_AGENT_GOVERNANCE_REPLAY_EVENT_KINDS: readonly OperatorSessionEventKind[] = [
+  "approval_requested",
+  "approval_resolved",
+  "goal.created",
+  "goal.updated",
+  "goal.completed",
+  "goal.failed",
+  "goal.cancelled",
+  "assistant_message",
+  "error_recorded",
+  "turn_completed",
+];
+
 function isManagedAgentReplayEventKind(kind: string): kind is OperatorSessionEventKind {
-  return kind === "tool_call_completed"
+  return kind === "tool_call_started"
+    || kind === "tool_call_completed"
     || MANAGED_AGENT_EVENT_KINDS.includes(kind as OperatorSessionEventKind)
-    || MANAGED_AGENT_WORK_ITEM_EVENT_KINDS.includes(kind as OperatorSessionEventKind);
+    || MANAGED_AGENT_WORK_ITEM_EVENT_KINDS.includes(kind as OperatorSessionEventKind)
+    || MANAGED_AGENT_GOVERNANCE_REPLAY_EVENT_KINDS.includes(kind as OperatorSessionEventKind);
+}
+
+function isManagedExternalToolReplayEvent(
+  kind: OperatorSessionEventKind,
+  payload: Record<string, unknown>,
+): boolean {
+  return (kind === "tool_call_started" || kind === "tool_call_completed")
+    && readString(payload.toolName)?.startsWith("mcp:") === true
+    && readString(payload.managedInvocationId) !== null
+    && readString(payload.toolCallId) !== null
+    && readString(payload.toolCallScopeId) !== null;
 }
 
 function matchesManagedAgentReplayEnvelopeSession(event: ManagedAgentOperatorReplayEnvelope): boolean {

@@ -7,6 +7,7 @@ import type {
   OperatorCockpitInvocationProjection,
   OperatorCockpitReadOnlyProjection,
   OperatorSessionEvent,
+  OperatorWorkspaceHomeProjection,
 } from "@kilnai/gateway-contracts";
 import {
   createOperatorCockpitReadOnlyViewState,
@@ -107,7 +108,7 @@ export async function managedAgentCommand(
     case "list": {
       console.log(args.includes("--json")
         ? JSON.stringify({ sessionId, managedAgents, workspaceHome, invocations: projection.invocations }, null, 2)
-        : formatManagedAgentList(sessionId, managedAgents));
+        : formatManagedAgentList(sessionId, managedAgents, workspaceHome));
       return;
     }
     case "status": {
@@ -115,8 +116,8 @@ export async function managedAgentCommand(
       const invocation = findInvocation(projection, invocationId);
       const item = findManagedAgentViewItem(managedAgents, invocationId);
       console.log(args.includes("--json")
-        ? JSON.stringify({ sessionId, invocation }, null, 2)
-        : formatManagedAgentStatus(sessionId, item, invocation));
+        ? JSON.stringify({ sessionId, managedAgent: item, invocation, workspaceHome }, null, 2)
+        : formatManagedAgentStatus(sessionId, item, invocation, workspaceHome));
       return;
     }
     case "transcript": {
@@ -395,6 +396,7 @@ function findManagedAgentViewItem(
 function formatManagedAgentList(
   sessionId: string,
   viewState: OperatorCockpitManagedAgentViewState,
+  workspaceHome: OperatorWorkspaceHomeProjection,
 ): string {
   if (viewState.items.length === 0) {
     return `No managed children found for session ${sessionId}.`;
@@ -402,6 +404,7 @@ function formatManagedAgentList(
   return [
     `Managed children for session ${sessionId}:`,
     `attention: ${viewState.attentionCount}  active: ${viewState.activeCount}`,
+    formatManagedAgentGovernanceSummary(workspaceHome),
     ...viewState.items.map((item) => formatManagedAgentListRow(item)),
   ].join("\n");
 }
@@ -415,6 +418,12 @@ function formatManagedAgentListRow(item: OperatorCockpitManagedAgentViewItem): s
     item.parentTurnId ? `parent:${item.parentTurnId}` : undefined,
     item.routeId ? `route:${item.routeId}` : undefined,
     item.routeSource ? `source:${item.routeSource}` : undefined,
+    item.externalRuntimeAttachment
+      ? `attachment:${item.externalRuntimeAttachment.runtimeId}/${item.externalRuntimeAttachment.attachmentId}`
+      : undefined,
+    ...(item.externalToolFailures ?? []).map((failure) => (
+      `external-failure:${failure.selector}:${failure.category}`
+    )),
     item.providerRoute ?? "unknown-provider",
     item.dirtyWorkspaceReviewRequired ? "review:required" : undefined,
     item.worktreeConflict?.status ? `conflict:${item.worktreeConflict.status}` : undefined,
@@ -428,6 +437,7 @@ function formatManagedAgentStatus(
   sessionId: string,
   item: OperatorCockpitManagedAgentViewItem,
   invocation: OperatorCockpitInvocationProjection,
+  workspaceHome: OperatorWorkspaceHomeProjection,
 ): string {
   return [
     `Managed child: ${invocation.managedInvocationId}`,
@@ -438,9 +448,16 @@ function formatManagedAgentStatus(
     invocation.parentTurnId ? `Parent turn: ${invocation.parentTurnId}` : undefined,
     invocation.routeId ? `Route: ${invocation.routeId}` : undefined,
     invocation.routeSource ? `Route source: ${invocation.routeSource}` : undefined,
+    invocation.externalRuntimeAttachment
+      ? `External runtime: ${invocation.externalRuntimeAttachment.runtimeId}/${invocation.externalRuntimeAttachment.attachmentId}`
+      : undefined,
+    ...(item.externalToolFailures ?? []).map((failure) => (
+      `External failure: ${failure.selector} | ${failure.category} | ${failure.diagnostic}`
+    )),
     `Provider: ${invocation.providerRoute ?? "unknown"}`,
     `Events: ${invocation.eventCount}`,
     `Resources: ${item.resourceUris.length}`,
+    formatManagedAgentGovernanceSummary(workspaceHome),
     invocation.sourceResourceUris.length > 0 ? `Source resources: ${invocation.sourceResourceUris.join(", ")}` : undefined,
     `Cancel: ${item.cancelControl.status} · ${item.cancelControl.reason}`,
     invocation.resourceLease ? `Lease: ${invocation.resourceLease.leaseId}` : undefined,
@@ -451,6 +468,10 @@ function formatManagedAgentStatus(
     ...formatManagedAgentWorktreeConflictLines(invocation),
     ...formatManagedAgentAdoptionGateStatusLines(invocation),
   ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function formatManagedAgentGovernanceSummary(home: OperatorWorkspaceHomeProjection): string {
+  return `Governed work: ${home.work.blockedCount} blocked / ${home.work.totalCount} total | approvals: ${home.approvals.pendingCount} pending`;
 }
 
 function formatManagedAgentWorktreeReviewLines(

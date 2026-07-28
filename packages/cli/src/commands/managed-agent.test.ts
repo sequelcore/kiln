@@ -11,6 +11,10 @@ import {
   type ManagedAgentGatewaySocket,
 } from "./managed-agent.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import {
+  EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
+  externalRuntimeGovernanceEvents,
+} from "../../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
 
 const roots: string[] = [];
 
@@ -215,6 +219,75 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
   });
 
+  it("keeps canonical external-runtime governance state in list and status surfaces", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    for (const event of externalRuntimeGovernanceEvents) {
+      await transcriptStore.append(EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId, event);
+    }
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "list",
+      ["--session", EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId],
+      { projectPath: root, projectedAt: () => "2026-07-28T09:01:00.000Z" },
+    );
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "status",
+      [
+        EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+        "--session",
+        EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+      ],
+      { projectPath: root, projectedAt: () => "2026-07-28T09:01:00.000Z" },
+    );
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "status",
+      [
+        EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+        "--session",
+        EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+        "--json",
+      ],
+      { projectPath: root, projectedAt: () => "2026-07-28T09:01:00.000Z" },
+    );
+
+    expect(log.mock.calls[0]?.[0]).toContain(
+      `attachment:${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.runtimeId}/${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.attachmentId}`,
+    );
+    expect(log.mock.calls[0]?.[0]).toContain("Governed work: 1 blocked / 1 total");
+    expect(log.mock.calls[1]?.[0]).toContain(EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic);
+    expect(log.mock.calls[1]?.[0]).toContain("Governed work: 1 blocked / 1 total");
+    const statusJson = JSON.parse(String(log.mock.calls[2]?.[0])) as Record<string, unknown>;
+    expect(statusJson).toMatchObject({
+      managedAgent: {
+        externalToolFailures: [{
+          diagnostic: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic,
+          redacted: true,
+        }],
+      },
+      invocation: {
+        externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
+      },
+      workspaceHome: {
+        work: {
+          blockedCount: 1,
+          items: [{
+            workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
+            pendingPauseCount: 1,
+          }],
+        },
+        approvals: {
+          pendingCount: 0,
+          resolvedCount: 1,
+        },
+      },
+    });
+  });
+
   it("resolves project state from the canonical root when invoked with a nested project path", async () => {
     const root = await tempRoot();
     const packageCliPath = join(root, "packages", "cli");
@@ -377,6 +450,7 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[0]?.[0]).toBe([
       "Managed children for session session-1:",
       "attention: 4  active: 0",
+      "Governed work: 0 blocked / 0 total | approvals: 0 pending",
       "child-timeout             timed_out     failed      timed_out     codex-oauth/gpt-5.5  resources:2  cancel:unavailable",
       "child-stale               stale         failed      stale         opencode/minimax-m2.5  resources:2  cancel:unavailable",
       "child-failed              failed        failed      failed        codex-oauth/gpt-5.5  resources:3  cancel:unavailable",
@@ -391,6 +465,7 @@ describe("managed-agent command", () => {
       "Provider: codex-oauth/gpt-5.5",
       "Events: 1",
       "Resources: 2",
+      "Governed work: 0 blocked / 0 total | approvals: 0 pending",
       "Cancel: unavailable · Managed invocation is not active.",
     ].join("\n"));
     expect(log.mock.calls[2]?.[0]).toBe([
@@ -402,6 +477,7 @@ describe("managed-agent command", () => {
       "Provider: codex-oauth/gpt-5.5",
       "Events: 1",
       "Resources: 3",
+      "Governed work: 0 blocked / 0 total | approvals: 0 pending",
       "Source resources: kiln://session/work-items/child-failed-source",
       "Cancel: unavailable · Managed invocation is not active.",
     ].join("\n"));

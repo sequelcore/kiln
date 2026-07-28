@@ -38,12 +38,25 @@ export type {
 } from "./types.js";
 
 export {
+  createOperatorCockpitReadOnlyViewState,
+  createOperatorWorkspaceHomeProjection,
   KilnConfigSetupSnapshotSchema,
+  normalizeManagedAgentOperatorReplayEvents,
+  projectOperatorCockpitReadOnlyView,
+  projectOperatorGovernedWorkItemSnapshot,
+  projectOperatorGovernedWorkItems,
   VerifiedEfficiencyEvidenceProjectionSchema,
   formatVerifiedEfficiencyEvidence,
 } from "@kilnai/gateway-contracts";
 
 export type {
+  OperatorCockpitExternalToolFailureProjection,
+  OperatorCockpitInvocationProjection,
+  OperatorCockpitManagedAgentViewItem,
+  OperatorCockpitReadOnlyProjection,
+  OperatorCockpitReadOnlyViewState,
+  OperatorGovernedWorkItemProjection,
+  OperatorWorkspaceHomeProjection,
   OperatorResourceReadRequest,
   OperatorResourceReadResult,
   OperatorResourceReadContent,

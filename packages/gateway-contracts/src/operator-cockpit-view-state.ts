@@ -1,4 +1,5 @@
 import type {
+  OperatorCockpitExternalToolFailureProjection,
   OperatorCockpitInvocationProjection,
   OperatorCockpitReadOnlyProjection,
   OperatorCockpitSessionProjection,
@@ -106,6 +107,7 @@ export interface OperatorCockpitManagedAgentViewItem {
   readonly routeSource?: string;
   readonly providerRoute?: string;
   readonly externalRuntimeAttachment?: OperatorCockpitInvocationProjection["externalRuntimeAttachment"];
+  readonly externalToolFailures?: readonly OperatorCockpitExternalToolFailureProjection[];
   readonly timeoutMs?: number;
   readonly timeoutSource?: string;
   readonly attentionState: OperatorCockpitManagedAgentAttentionState;
@@ -203,6 +205,14 @@ function projectManagedAgentItem(
 ): OperatorCockpitManagedAgentViewItem {
   const resourceUris = uniqueStrings(invocation.evidenceResourceUris);
   const attentionState = managedAgentAttentionState(invocation);
+  const externalToolFailures = projection.toolSummaries.flatMap((tool) => (
+    tool.instanceId === invocation.instanceId
+    && tool.sessionId === invocation.sessionId
+    && tool.target.managedInvocationId === invocation.managedInvocationId
+    && tool.externalFailure
+      ? [tool.externalFailure]
+      : []
+  ));
   return {
     managedInvocationId: invocation.managedInvocationId,
     ...(invocation.target.gatewayTargetId !== undefined ? { gatewayTargetId: invocation.target.gatewayTargetId } : {}),
@@ -219,6 +229,7 @@ function projectManagedAgentItem(
     ...(invocation.externalRuntimeAttachment !== undefined
       ? { externalRuntimeAttachment: invocation.externalRuntimeAttachment }
       : {}),
+    ...(externalToolFailures.length > 0 ? { externalToolFailures } : {}),
     ...(invocation.timeoutMs !== undefined ? { timeoutMs: invocation.timeoutMs } : {}),
     ...(invocation.timeoutSource !== undefined ? { timeoutSource: invocation.timeoutSource } : {}),
     attentionState,

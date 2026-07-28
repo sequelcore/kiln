@@ -1,7 +1,7 @@
 import type { OperatorSessionEvent } from "../../src/frames.js";
 
 export const EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE = {
-  instanceId: "external-runtime-parity:instance",
+  instanceId: "local",
   sessionId: "external-runtime-parity:session",
   invocationId: "external-runtime-parity:invocation",
   workItemId: "external-runtime-parity:work-item",
@@ -121,6 +121,7 @@ export const externalRuntimeGovernanceEvents: readonly OperatorSessionEvent[] = 
     payload: {
       instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
       sessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+      managedInvocationId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
       toolCallId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallId,
       toolCallScopeId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
       toolName: "mcp:synthetic-runtime:tool:navigate_actor",
@@ -136,6 +137,7 @@ export const externalRuntimeGovernanceEvents: readonly OperatorSessionEvent[] = 
     payload: {
       instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
       sessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+      managedInvocationId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
       toolCallId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallId,
       toolCallScopeId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
       toolName: "mcp:synthetic-runtime:tool:navigate_actor",
@@ -157,10 +159,29 @@ export const externalRuntimeGovernanceEvents: readonly OperatorSessionEvent[] = 
     },
   },
   {
-    eventId: "external-runtime-parity:event:work-updated",
+    eventId: "external-runtime-parity:event:invocation-failed",
     kilnSessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
     sequence: 6,
     timestamp: "2026-07-28T09:00:05.000Z",
+    kind: "agent_invocation_failed",
+    turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
+    payload: {
+      instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
+      sessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+      managedInvocationId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+      invocationId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+      lifecycleState: "failed",
+      status: "failed",
+      capabilitySnapshot: {
+        externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
+      },
+    },
+  },
+  {
+    eventId: "external-runtime-parity:event:work-updated",
+    kilnSessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+    sequence: 7,
+    timestamp: "2026-07-28T09:00:06.000Z",
     kind: "work_item_updated",
     turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
     payload: {
@@ -183,7 +204,7 @@ export const externalRuntimeGovernanceEvents: readonly OperatorSessionEvent[] = 
             summary: "The first navigation attempt failed.",
             status: "superseded",
             supersededByRequirementId: "external-runtime-parity:pause:2",
-            supersededAt: "2026-07-28T09:00:05.000Z",
+            supersededAt: "2026-07-28T09:00:06.000Z",
             supersededBy: "runtime:managed-invocation-recovery",
             reason: "A new recovery attempt replaced this blocker.",
           },
@@ -194,7 +215,7 @@ export const externalRuntimeGovernanceEvents: readonly OperatorSessionEvent[] = 
             status: "pending",
           },
         ],
-        updatedAt: "2026-07-28T09:00:05.000Z",
+        updatedAt: "2026-07-28T09:00:06.000Z",
       },
       missingEvidence: ["runtime-observation"],
       failedVerificationGates: ["synthetic-runtime-navigation"],
@@ -203,8 +224,8 @@ export const externalRuntimeGovernanceEvents: readonly OperatorSessionEvent[] = 
   {
     eventId: "external-runtime-parity:event:goal-updated",
     kilnSessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
-    sequence: 7,
-    timestamp: "2026-07-28T09:00:06.000Z",
+    sequence: 8,
+    timestamp: "2026-07-28T09:00:07.000Z",
     kind: "goal.updated",
     turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
     payload: {
@@ -219,14 +240,27 @@ export const externalRuntimeGovernanceEvents: readonly OperatorSessionEvent[] = 
   {
     eventId: "external-runtime-parity:event:assistant-message",
     kilnSessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
-    sequence: 8,
-    timestamp: "2026-07-28T09:00:07.000Z",
+    sequence: 9,
+    timestamp: "2026-07-28T09:00:08.000Z",
     kind: "assistant_message",
     turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
     payload: {
       instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
       sessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
       content: "The external-runtime action failed; canonical work remains blocked.",
+    },
+  },
+  {
+    eventId: "external-runtime-parity:event:turn-completed",
+    kilnSessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+    sequence: 10,
+    timestamp: "2026-07-28T09:00:09.000Z",
+    kind: "turn_completed",
+    turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
+    payload: {
+      instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
+      sessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+      outcome: "failed",
     },
   },
 ];

@@ -6,6 +6,10 @@ import {
   createNativeCockpitReadOnlyViewState,
 } from "../src/shared/native-cockpit-contract.js";
 import { ManagedAgentCockpitPanel } from "../src/renderer/managed-agent-cockpit-panel.js";
+import {
+  EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
+  externalRuntimeGovernanceEvents,
+} from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
 
 function managedEvent(
   eventId: string,
@@ -29,6 +33,39 @@ function managedEvent(
 }
 
 describe("native managed-agent cockpit panel", () => {
+  it("renders canonical external-runtime attachment and redacted failure evidence", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:external-runtime-parity",
+      projectedAt: "2026-07-28T09:01:00.000Z",
+      attachTargets: [{
+        instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
+        label: "Synthetic external runtime",
+        kind: "local",
+      }],
+      events: externalRuntimeGovernanceEvents,
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:external-runtime-parity",
+      projection: projection.view,
+      viewState: {},
+      events: externalRuntimeGovernanceEvents,
+    });
+
+    const markup = renderToStaticMarkup(<ManagedAgentCockpitPanel cockpit={cockpit} />);
+
+    expect(markup).toContain(
+      `${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.runtimeId}/${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.attachmentId}`,
+    );
+    expect(markup).toContain(EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic);
+    expect(cockpit.workspaceHome.work).toMatchObject({
+      blockedCount: 1,
+      items: [{
+        workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
+        pendingPauseCount: 1,
+      }],
+    });
+  });
+
   it("renders active and review child state from shared read-only cockpit view-state", () => {
     const projection = createNativeCockpitReadOnlyProjection({
       surfaceId: "native:local",

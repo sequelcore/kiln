@@ -280,6 +280,7 @@ export type {
   OperatorCockpitAttachTargetKind,
   OperatorCockpitAttachTransport,
   OperatorCockpitCostProjection,
+  OperatorCockpitExternalToolFailureProjection,
   OperatorCockpitInstanceProjection,
   OperatorCockpitInvocationProjection,
   OperatorCockpitInvocationDiagnosticPointerProjection,
@@ -368,6 +369,18 @@ export {
   createEmptyOperatorWorkspaceHomeProjection,
   createOperatorWorkspaceHomeProjection,
 } from "./operator-workspace-home.js";
+
+export type {
+  OperatorGovernedWorkExecutionAttempt,
+  OperatorGovernedWorkItemProjection,
+  OperatorGovernedWorkItemSnapshotInput,
+  OperatorGovernedWorkPauseRequirement,
+} from "./operator-governed-work.js";
+export {
+  isOperatorGovernedWorkItemBlocking,
+  projectOperatorGovernedWorkItemSnapshot,
+  projectOperatorGovernedWorkItems,
+} from "./operator-governed-work.js";
 
 export type {
   OperatorCockpitAction,
