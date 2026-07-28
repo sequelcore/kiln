@@ -13,8 +13,114 @@ import {
   createOperatorWorkspaceConfigHealthSummary,
   createOperatorWorkspaceHomeProjection,
 } from "../src/operator-workspace-home.js";
+import {
+  EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
+  externalRuntimeGovernanceEvents,
+} from "./fixtures/external-runtime-governance.js";
 
 describe("operator workspace home projection", () => {
+  it("preserves external-runtime governance evidence in one canonical projection", () => {
+    const cockpitProjection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T09:01:00.000Z",
+      attachTargets: [{
+        instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
+        label: "Synthetic external runtime",
+        kind: "local",
+      }],
+      events: externalRuntimeGovernanceEvents,
+    });
+    const cockpitView = createOperatorCockpitReadOnlyViewState({
+      projection: cockpitProjection,
+      viewState: {},
+    });
+
+    const home = createOperatorWorkspaceHomeProjection({
+      projectedAt: "2026-07-28T09:01:00.000Z",
+      cockpitView,
+      events: externalRuntimeGovernanceEvents,
+    });
+
+    expect(cockpitProjection.invocations[0]).toMatchObject({
+      managedInvocationId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+      externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
+    });
+    expect(cockpitProjection.toolSummaries[0]).toMatchObject({
+      toolCallId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallId,
+      status: "failed",
+      externalFailure: {
+        selector: "mcp:synthetic-runtime:tool:navigate_actor",
+        category: "failed",
+        attachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
+        diagnostic: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic,
+        redacted: true,
+        blocked: true,
+      },
+    });
+    expect(home.work).toMatchObject({
+      totalCount: 1,
+      activeCount: 1,
+      blockedCount: 1,
+      missingEvidenceCount: 1,
+      goalCount: 1,
+      activeGoalCount: 1,
+      items: [{
+        workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
+        pendingPauseCount: 1,
+        failedVerificationGateCount: 1,
+      }],
+    });
+    expect(home.approvals).toMatchObject({
+      pendingCount: 0,
+      resolvedCount: 1,
+    });
+  });
+
+  it("fails closed when a well-formed pause requirement has an unknown status", () => {
+    const malformedStatusEvent: OperatorSessionEvent = {
+      eventId: "workspace-home-unknown-status:event:work",
+      kilnSessionId: "workspace-home-unknown-status:session",
+      sequence: 1,
+      timestamp: "2026-07-28T09:02:00.000Z",
+      kind: "work_item_updated",
+      payload: {
+        instanceId: "local",
+        sessionId: "workspace-home-unknown-status:session",
+        workItem: {
+          id: "workspace-home-unknown-status:work",
+          summary: "Do not lose an unknown blocker",
+          status: "pending",
+          workflowProfile: "verification-heavy",
+          pauseRequirements: [{
+            id: "workspace-home-unknown-status:pause",
+            kind: "capability",
+            summary: "The producer emitted an unsupported disposition.",
+            status: "future-status",
+          }],
+        },
+      },
+    };
+    const cockpitProjection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T09:02:01.000Z",
+      attachTargets: [{
+        instanceId: "local",
+        label: "Local",
+        kind: "local",
+      }],
+      events: [malformedStatusEvent],
+    });
+    const home = createOperatorWorkspaceHomeProjection({
+      projectedAt: "2026-07-28T09:02:01.000Z",
+      cockpitView: createOperatorCockpitReadOnlyViewState({
+        projection: cockpitProjection,
+        viewState: {},
+      }),
+      events: [malformedStatusEvent],
+    });
+
+    expect(home.work.blockedCount).toBe(1);
+    expect(home.work.items[0]?.pendingPauseCount).toBe(1);
+  });
+
   it("summarizes gateway targets, sessions, managed agents, resources, and attention from shared cockpit state", () => {
     const fixture = createOperatorCockpitBenchmarkFixture({
       fixtureId: "workspace-home",

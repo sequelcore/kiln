@@ -633,7 +633,10 @@ function readWorkItemSummary(
     ...(workflowProfile ? { workflowProfile } : {}),
     ...(authorityProfile ? { authorityProfile } : {}),
     ...(assignedAgentProfile ? { assignedAgentProfile } : {}),
-    pendingPauseCount: readRecordArray(workItem.pauseRequirements).filter((entry) => readString(entry.status) === "pending").length,
+    pendingPauseCount: readRecordArray(workItem.pauseRequirements).filter((entry) => {
+      const status = readString(entry.status);
+      return status !== "resolved" && status !== "superseded";
+    }).length,
     missingEvidenceCount,
     failedVerificationGateCount: readStringArray(payload.failedVerificationGates).length,
   };

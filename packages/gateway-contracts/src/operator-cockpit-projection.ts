@@ -1,4 +1,5 @@
 import type {
+  OperatorManagedAgentExternalRuntimeAttachmentIdentity,
   OperatorManagedAgentResourceLeaseSnapshot,
   OperatorSessionEvent,
   OperatorSessionEventKind,
@@ -167,6 +168,7 @@ export interface OperatorCockpitInvocationProjection {
   readonly routeId?: string;
   readonly routeSource?: string;
   readonly providerRoute?: string;
+  readonly externalRuntimeAttachment?: OperatorManagedAgentExternalRuntimeAttachmentIdentity;
   readonly timeoutMs?: number;
   readonly timeoutSource?: string;
   readonly resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
@@ -320,7 +322,17 @@ export interface OperatorCockpitToolSummaryProjection {
   readonly eventCount: number;
   readonly resourceLinkCount: number;
   readonly resourceLinks: readonly OperatorCockpitResourceLinkProjection[];
+  readonly externalFailure?: OperatorCockpitExternalToolFailureProjection;
   readonly latestEventId: string;
+}
+
+export interface OperatorCockpitExternalToolFailureProjection {
+  readonly selector: string;
+  readonly category: string;
+  readonly attachment?: OperatorManagedAgentExternalRuntimeAttachmentIdentity;
+  readonly diagnostic: string;
+  readonly redacted: boolean;
+  readonly blocked: boolean;
 }
 
 export interface OperatorCockpitCostProjection {
@@ -380,6 +392,7 @@ interface InvocationAccumulator {
   routeId?: string;
   routeSource?: string;
   providerRoute?: string;
+  externalRuntimeAttachment?: OperatorManagedAgentExternalRuntimeAttachmentIdentity;
   timeoutMs?: number;
   timeoutSource?: string;
   resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
@@ -402,6 +415,7 @@ interface ToolAccumulator {
   readonly sessionId: string;
   readonly target: OperatorCockpitActionTarget;
   readonly resourceLinks: Map<string, OperatorCockpitResourceLinkProjection>;
+  externalFailure?: OperatorCockpitExternalToolFailureProjection;
   status: OperatorCockpitToolStatus;
   eventCount: number;
   latestEventId: string;
@@ -566,6 +580,8 @@ export function projectOperatorCockpitReadOnlyView(
       invocation.routeId = readRouteId(payload) ?? invocation.routeId;
       invocation.routeSource = readRouteSource(payload) ?? invocation.routeSource;
       invocation.providerRoute = readProviderRoute(payload) ?? invocation.providerRoute;
+      invocation.externalRuntimeAttachment = readExternalRuntimeAttachment(payload)
+        ?? invocation.externalRuntimeAttachment;
       invocation.timeoutMs = readTimeoutMs(payload) ?? invocation.timeoutMs;
       invocation.timeoutSource = readTimeoutSource(payload) ?? invocation.timeoutSource;
       invocation.resourceLease = readResourceLease(payload) ?? invocation.resourceLease;
@@ -620,6 +636,7 @@ export function projectOperatorCockpitReadOnlyView(
       tool.eventCount += 1;
       tool.latestEventId = event.eventId;
       tool.status = readToolStatus(event, payload);
+      tool.externalFailure = readExternalToolFailure(payload) ?? tool.externalFailure;
       addResourceLinks(tool.resourceLinks, resourceLinks);
       const identityKey = projectionKey(toolCallScopeId, toolCallId);
       instance.tools.add(identityKey);
@@ -907,6 +924,9 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     ...(input.routeId !== undefined ? { routeId: input.routeId } : {}),
     ...(input.routeSource !== undefined ? { routeSource: input.routeSource } : {}),
     ...(input.providerRoute !== undefined ? { providerRoute: input.providerRoute } : {}),
+    ...(input.externalRuntimeAttachment !== undefined
+      ? { externalRuntimeAttachment: input.externalRuntimeAttachment }
+      : {}),
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.timeoutSource !== undefined ? { timeoutSource: input.timeoutSource } : {}),
     ...(input.resourceLease !== undefined ? { resourceLease: input.resourceLease } : {}),
@@ -938,6 +958,7 @@ function projectTool(input: ToolAccumulator): OperatorCockpitToolSummaryProjecti
     eventCount: input.eventCount,
     resourceLinkCount: input.resourceLinks.size,
     resourceLinks: Array.from(input.resourceLinks.values()).sort(compareResourceLinks),
+    ...(input.externalFailure !== undefined ? { externalFailure: input.externalFailure } : {}),
     latestEventId: input.latestEventId,
   };
 }
@@ -1141,6 +1162,60 @@ function readRouteSource(payload: Record<string, unknown>): string | null {
   return readString(payload.routeSource)
     ?? readString(capabilitySnapshot.routeSource)
     ?? readString(lifecycle.routeSource);
+}
+
+function readExternalRuntimeAttachment(
+  payload: Record<string, unknown>,
+): OperatorManagedAgentExternalRuntimeAttachmentIdentity | null {
+  const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  const lifecycle = asRecord(evidence.lifecycle);
+  return readExternalRuntimeAttachmentValue(capabilitySnapshot.externalRuntimeAttachment)
+    ?? readExternalRuntimeAttachmentValue(lifecycle.externalRuntimeAttachment);
+}
+
+function readExternalRuntimeAttachmentValue(
+  value: unknown,
+): OperatorManagedAgentExternalRuntimeAttachmentIdentity | null {
+  const record = asRecord(value);
+  const runtimeId = readString(record.runtimeId);
+  const attachmentId = readString(record.attachmentId);
+  if (record.kind !== "external-runtime" || !runtimeId || !attachmentId) {
+    return null;
+  }
+  return {
+    kind: "external-runtime",
+    runtimeId,
+    attachmentId,
+  };
+}
+
+function readExternalToolFailure(
+  payload: Record<string, unknown>,
+): OperatorCockpitExternalToolFailureProjection | null {
+  const metadata = asRecord(payload.metadata);
+  const selector = readString(metadata.selector);
+  const category = readString(metadata.category);
+  const diagnostic = readString(metadata.diagnostic);
+  if (
+    metadata.kind !== "external_tool_failure"
+    || !selector?.startsWith("mcp:")
+    || !category
+    || !diagnostic
+    || typeof metadata.redacted !== "boolean"
+    || typeof metadata.blocked !== "boolean"
+  ) {
+    return null;
+  }
+  const attachment = readExternalRuntimeAttachmentValue(metadata.attachment);
+  return {
+    selector,
+    category,
+    ...(attachment ? { attachment } : {}),
+    diagnostic,
+    redacted: metadata.redacted,
+    blocked: metadata.blocked,
+  };
 }
 
 function readChildSessionId(payload: Record<string, unknown>): string | null {
@@ -2139,8 +2214,10 @@ function readToolStatus(
   event: OperatorSessionEvent,
   payload: Record<string, unknown>,
 ): OperatorCockpitToolStatus {
-  const state = readString(payload.state);
+  const status = asRecord(payload.status);
+  const state = readString(payload.state) ?? readString(status.state);
   if (state === "succeeded" || state === "failed" || state === "running") return state;
+  if (readExternalToolFailure(payload)) return "failed";
   if (event.kind === "tool_call_started") return "running";
   if (event.kind === "tool_call_completed") return "succeeded";
   return "unknown";

@@ -105,6 +105,7 @@ export interface OperatorCockpitManagedAgentViewItem {
   readonly routeId?: string;
   readonly routeSource?: string;
   readonly providerRoute?: string;
+  readonly externalRuntimeAttachment?: OperatorCockpitInvocationProjection["externalRuntimeAttachment"];
   readonly timeoutMs?: number;
   readonly timeoutSource?: string;
   readonly attentionState: OperatorCockpitManagedAgentAttentionState;
@@ -215,6 +216,9 @@ function projectManagedAgentItem(
     ...(invocation.routeId !== undefined ? { routeId: invocation.routeId } : {}),
     ...(invocation.routeSource !== undefined ? { routeSource: invocation.routeSource } : {}),
     ...(invocation.providerRoute !== undefined ? { providerRoute: invocation.providerRoute } : {}),
+    ...(invocation.externalRuntimeAttachment !== undefined
+      ? { externalRuntimeAttachment: invocation.externalRuntimeAttachment }
+      : {}),
     ...(invocation.timeoutMs !== undefined ? { timeoutMs: invocation.timeoutMs } : {}),
     ...(invocation.timeoutSource !== undefined ? { timeoutSource: invocation.timeoutSource } : {}),
     attentionState,
