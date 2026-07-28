@@ -15,9 +15,10 @@ import {
   type DefaultBuiltinToolRegistryOptions,
   defineTurnTemporalContext,
   type TurnTemporalContext,
+  assertScopedExecutionSessionToolEvent,
+  type ExecutionSessionEvent,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
-import type { ExecutionSessionEvent } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
@@ -2132,8 +2133,6 @@ class GuiActivityStreamer {
   private capture: {
     sessionId: string;
     nextSequence: number;
-    toolOrdinal: number;
-    pendingToolCallIds: Map<string, string[]>;
     assistantMessageId: string;
     fileChanges: RuntimeTurnFileChange[];
     approvalTransitions: RuntimeTurnApprovalTransition[];
@@ -2155,7 +2154,6 @@ class GuiActivityStreamer {
    * never a timestamp or random value -- because nothing in this no-capture path is persisted
    * or replayed; it only feeds the live activity stream to the connected browser.
    */
-  private noCaptureToolOrdinal = 0;
   private approvalBridge: {
     approve: (approvalId: string) => void;
     reject: (approvalId: string, reason: string) => void;
@@ -2178,8 +2176,6 @@ class GuiActivityStreamer {
     this.capture = {
       sessionId,
       nextSequence,
-      toolOrdinal: 0,
-      pendingToolCallIds: new Map<string, string[]>(),
       assistantMessageId: `${sessionId}:live:assistant`,
       fileChanges: [],
       approvalTransitions: [],
@@ -2460,19 +2456,13 @@ class GuiActivityStreamer {
         ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_use") {
-      const toolCallId = event.toolCallId ?? (this.capture
-        ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}`
-        : `${event.toolName ?? "tool"}:no-capture:${++this.noCaptureToolOrdinal}`);
-      if (this.capture) {
-        const pending = this.capture.pendingToolCallIds.get(event.toolName) ?? [];
-        pending.push(toolCallId);
-        this.capture.pendingToolCallIds.set(event.toolName, pending);
-      }
+      assertScopedExecutionSessionToolEvent(event);
       this.emitSessionEvent({
         kind: "tool_call_started",
         timestamp: new Date().toISOString(),
         payload: {
-          toolCallId,
+          toolCallId: event.toolCallId,
+          toolCallScopeId: event.toolCallScopeId,
           toolName: event.toolName ?? "unknown",
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
           ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
@@ -2484,11 +2474,13 @@ class GuiActivityStreamer {
         toolName: event.toolName,
       });
     } else if (event.type === "tool_output_delta") {
+      assertScopedExecutionSessionToolEvent(event);
       this.emitSessionEvent({
         kind: "tool_call_output_delta",
         timestamp: new Date().toISOString(),
         payload: {
           toolCallId: event.toolCallId,
+          toolCallScopeId: event.toolCallScopeId,
           toolName: event.toolName,
           stream: event.stream,
           delta: event.delta,
@@ -2497,23 +2489,7 @@ class GuiActivityStreamer {
         ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_result") {
-      const pending = this.capture?.pendingToolCallIds.get(event.toolName);
-      let toolCallId: string;
-      if (event.toolCallId) {
-        toolCallId = event.toolCallId;
-        const pendingIndex = pending?.indexOf(event.toolCallId) ?? -1;
-        if (pending && pendingIndex >= 0) {
-          pending.splice(pendingIndex, 1);
-        }
-      } else {
-        toolCallId = pending?.shift()
-          ?? (this.capture
-            ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}`
-            : `${event.toolName ?? "tool"}:no-capture:${++this.noCaptureToolOrdinal}`);
-      }
-      if (pending && pending.length === 0 && this.capture) {
-        this.capture.pendingToolCallIds.delete(event.toolName);
-      }
+      assertScopedExecutionSessionToolEvent(event);
       if (this.capture) {
         this.capture.toolCompletions.push({
           toolName: event.toolName ?? "unknown",
@@ -2526,21 +2502,25 @@ class GuiActivityStreamer {
       this.emitSessionEvent({
         kind: "tool_call_completed",
         timestamp: new Date().toISOString(),
-        payload: buildOperatorToolResultPayload({
-          toolCallId,
-          toolName: event.toolName ?? "unknown",
-          output: event.output,
-          outputSummary: event.outputSummary,
-          isError: event.isError,
-          metadata: event.metadata,
-          resourceLinks: event.resourceLinks,
-          toolUsage: event.toolUsage,
-        }),
+        payload: {
+          toolCallScopeId: event.toolCallScopeId,
+          ...buildOperatorToolResultPayload({
+            toolCallId: event.toolCallId,
+            toolName: event.toolName ?? "unknown",
+            output: event.output,
+            outputSummary: event.outputSummary,
+            isError: event.isError,
+            metadata: event.metadata,
+            resourceLinks: event.resourceLinks,
+            toolUsage: event.toolUsage,
+          }),
+        },
         ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       const interactiveFrame = projectInteractiveUseFrameFromToolResult({
         ...(this.capture?.sessionId ? { kilnSessionId: this.capture.sessionId } : {}),
-        toolCallId,
+        toolCallId: event.toolCallId,
+        toolCallScopeId: event.toolCallScopeId,
         toolName: event.toolName ?? "unknown",
         timestamp: new Date().toISOString(),
         status: event.isError ? "failed" : "succeeded",

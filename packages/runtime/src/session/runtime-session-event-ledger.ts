@@ -17,6 +17,7 @@ import type {
   WorkItem,
   WorkItemExecutionAttempt,
   ToolCalledEvent,
+  ToolOutputEvent,
   ToolResultEvent,
   ContextAuditEntry,
   ContextUsageProjection,
@@ -45,6 +46,7 @@ type CapturedRuntimeLedgerEvent =
   | ModelRoutedEvent
   | MultimodalRoutedEvent
   | ToolCalledEvent
+  | ToolOutputEvent
   | ToolResultEvent;
 
 interface RuntimeContinuitySnapshot {
@@ -225,12 +227,14 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       }
       case "tool_called": {
         const toolCallId = requireRuntimeToolCallId(runtimeEvent, turnId);
+        const toolCallScopeId = requireRuntimeToolCallScopeId(runtimeEvent, turnId);
         events.push(createSessionEvent<"tool_call_started">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
           kind: "tool_call_started",
           turnId,
           toolCallId,
+          toolCallScopeId,
           toolName: runtimeEvent.toolName,
           input: runtimeEvent.toolInput,
           ...(runtimeEvent.executionScope ? { executionScope: runtimeEvent.executionScope } : {}),
@@ -240,14 +244,36 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
         }));
         break;
       }
+      case "tool_output": {
+        const toolCallId = requireRuntimeToolCallId(runtimeEvent, turnId);
+        const toolCallScopeId = requireRuntimeToolCallScopeId(runtimeEvent, turnId);
+        events.push(createSessionEvent<"tool_call_output_delta">({
+          kilnSessionId: session.id,
+          sequence: nextSequence(),
+          kind: "tool_call_output_delta",
+          turnId,
+          toolCallId,
+          toolCallScopeId,
+          toolName: runtimeEvent.toolName,
+          stream: runtimeEvent.stream,
+          delta: runtimeEvent.delta,
+          chunkIndex: runtimeEvent.chunkIndex,
+          ...(runtimeEvent.executionScope ? { executionScope: runtimeEvent.executionScope } : {}),
+          source: makeSource("tool", "runtime", "orchestrator"),
+          timestamp: runtimeEvent.timestamp,
+        }));
+        break;
+      }
       case "tool_result": {
         const toolCallId = requireRuntimeToolCallId(runtimeEvent, turnId);
+        const toolCallScopeId = requireRuntimeToolCallScopeId(runtimeEvent, turnId);
         events.push(createSessionEvent<"tool_call_completed">({
           kilnSessionId: session.id,
           sequence: nextSequence(),
           kind: "tool_call_completed",
           turnId,
           toolCallId,
+          toolCallScopeId,
           toolName: runtimeEvent.toolName,
           ...(runtimeEvent.executionScope ? { executionScope: runtimeEvent.executionScope } : {}),
           status: toSessionToolStatus(runtimeEvent),
@@ -988,7 +1014,7 @@ function projectGoalEvents(input: {
 }
 
 function requireRuntimeToolCallId(
-  runtimeEvent: ToolCalledEvent | ToolResultEvent,
+  runtimeEvent: ToolCalledEvent | ToolOutputEvent | ToolResultEvent,
   turnId: string,
 ): string {
   if (typeof runtimeEvent.toolCallId === "string" && runtimeEvent.toolCallId.trim().length > 0) {
@@ -996,6 +1022,18 @@ function requireRuntimeToolCallId(
   }
   throw new Error(
     `Runtime ${runtimeEvent.type} event for tool "${runtimeEvent.toolName}" in turn "${turnId}" is missing toolCallId.`,
+  );
+}
+
+function requireRuntimeToolCallScopeId(
+  runtimeEvent: ToolCalledEvent | ToolOutputEvent | ToolResultEvent,
+  turnId: string,
+): string {
+  if (typeof runtimeEvent.toolCallScopeId === "string" && runtimeEvent.toolCallScopeId.trim().length > 0) {
+    return runtimeEvent.toolCallScopeId;
+  }
+  throw new Error(
+    `Runtime ${runtimeEvent.type} event for tool "${runtimeEvent.toolName}" in turn "${turnId}" is missing toolCallScopeId.`,
   );
 }
 

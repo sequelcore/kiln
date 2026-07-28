@@ -8,8 +8,8 @@ describe("conversation turn projection", () => {
   it("anchors tool events to the following assistant turn when tools arrive before text", () => {
     const items = projectConversationTurnItems([
       { id: "user-1", kind: "message", role: "user", turnId: "turn-1" },
-      { id: "tool-start", kind: "event", eventKind: "tool_call_started", toolCallId: "tool-1", turnId: "turn-1" },
-      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", turnId: "turn-1" },
+      { id: "tool-start", kind: "event", eventKind: "tool_call_started", toolCallId: "tool-1", toolCallScopeId: "response-1", turnId: "turn-1" },
+      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", toolCallScopeId: "response-1", turnId: "turn-1" },
       { id: "assistant-1", kind: "message", role: "assistant", turnId: "turn-1" },
     ]);
 
@@ -22,8 +22,8 @@ describe("conversation turn projection", () => {
   it("can keep tool events as standalone conversation rows", () => {
     const items = projectConversationTurnItems([
       { id: "user-1", kind: "message", role: "user", turnId: "turn-1" },
-      { id: "tool-start", kind: "event", eventKind: "tool_call_started", toolCallId: "tool-1", turnId: "turn-1" },
-      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", turnId: "turn-1" },
+      { id: "tool-start", kind: "event", eventKind: "tool_call_started", toolCallId: "tool-1", toolCallScopeId: "response-1", turnId: "turn-1" },
+      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", toolCallScopeId: "response-1", turnId: "turn-1" },
       { id: "assistant-1", kind: "message", role: "assistant", turnId: "turn-1" },
     ], { anchorToolEventsToAssistant: false });
 
@@ -38,7 +38,7 @@ describe("conversation turn projection", () => {
     const items = projectConversationTurnItems([
       { id: "user-1", kind: "message", role: "user", turnId: "turn-1" },
       { id: "assistant-1", kind: "message", role: "assistant", turnId: "turn-1" },
-      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", turnId: "turn-1" },
+      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", toolCallScopeId: "response-1", turnId: "turn-1" },
       { id: "user-2", kind: "message", role: "user", turnId: "turn-2" },
     ]);
 
@@ -53,7 +53,7 @@ describe("conversation turn projection", () => {
     const items = projectConversationTurnItems(
       [
         { id: "user-1", kind: "message", role: "user", turnId: "turn-1" },
-        { id: "tool-start", kind: "event", eventKind: "tool_call_started", toolCallId: "tool-1", turnId: "turn-1" },
+        { id: "tool-start", kind: "event", eventKind: "tool_call_started", toolCallId: "tool-1", toolCallScopeId: "response-1", turnId: "turn-1" },
       ],
       { activity: { phase: "tool_running", toolName: "patch" } },
     );
@@ -67,7 +67,7 @@ describe("conversation turn projection", () => {
   it("does not attach tool events across explicit turn boundaries", () => {
     const items = projectConversationTurnItems([
       { id: "user-1", kind: "message", role: "user", turnId: "turn-1" },
-      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", turnId: "turn-1" },
+      { id: "tool-done", kind: "event", eventKind: "tool_call_completed", toolCallId: "tool-1", toolCallScopeId: "response-1", turnId: "turn-1" },
       { id: "assistant-2", kind: "message", role: "assistant", turnId: "turn-2" },
     ]);
 
@@ -82,5 +82,18 @@ describe("conversation turn projection", () => {
     expect(operatorEventAnchorsAssistantTurn("tool_call_started")).toBe(true);
     expect(operatorEventAnchorsAssistantTurn("tool_call_completed")).toBe(true);
     expect(operatorEventAnchorsAssistantTurn("provider_routed")).toBe(false);
+  });
+
+  it("does not collapse a reused provider id across response scopes", () => {
+    const items = projectConversationTurnItems([
+      { id: "start-1", kind: "event", eventKind: "tool_call_started", toolCallId: "call-1", toolCallScopeId: "response-1" },
+      { id: "done-1", kind: "event", eventKind: "tool_call_completed", toolCallId: "call-1", toolCallScopeId: "response-1" },
+      { id: "start-2", kind: "event", eventKind: "tool_call_started", toolCallId: "call-1", toolCallScopeId: "response-2" },
+    ], { anchorToolEventsToAssistant: false });
+
+    expect(items).toEqual([
+      { kind: "event", entryId: "done-1" },
+      { kind: "event", entryId: "start-2" },
+    ]);
   });
 });

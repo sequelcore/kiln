@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
+import {
+  IncompatibleTranscriptError,
+  SessionStore,
+  TranscriptStore,
+} from "../../src/wrapper/session-store.js";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -323,7 +327,7 @@ describe("TranscriptStore", () => {
     ]);
   });
 
-  it("does not parse legacy wrapped transcript lines", async () => {
+  it("rejects legacy wrapped transcript lines", async () => {
     const sessionId = "kiln-gui:_gui:user-1:1776916220893";
 
     await store.init(sessionId, {
@@ -350,7 +354,8 @@ describe("TranscriptStore", () => {
       "utf-8",
     );
 
-    const transcript = await store.readTranscript(sessionId);
-    expect(transcript).toEqual([]);
+    await expect(store.readTranscript(sessionId)).rejects.toBeInstanceOf(
+      IncompatibleTranscriptError,
+    );
   });
 });

@@ -2943,6 +2943,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_called",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-write",
           toolName: "write",
           toolInput: { filePath: "src/demo.txt", content: "hello" },
@@ -2951,6 +2952,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-write",
           toolName: "write",
           durationMs: 12,
@@ -3059,6 +3061,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-work-start-failed",
           toolName: "work_item.execution.start",
           durationMs: 120000,
@@ -3387,6 +3390,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-assess",
           toolName: "work_governance.assess",
           durationMs: 2,
@@ -3399,6 +3403,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-work-item-update",
           toolName: "work_item.update",
           durationMs: 2,
@@ -3425,6 +3430,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-managed-scout",
           toolName: "managed_agent.invoke",
           durationMs: 31000,
@@ -3648,6 +3654,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async () => {
         eventBus.emit({
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-work-start-paused",
           toolName: "work_item.execution.start",
           durationMs: 2,
@@ -3665,6 +3672,7 @@ describe("processAdmittedTurn", () => {
         });
         eventBus.emit({
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-managed-scout",
           toolName: "managed_agent.invoke",
           durationMs: 31000,
@@ -3978,6 +3986,7 @@ describe("processAdmittedTurn", () => {
         processMessage: vi.fn().mockImplementation(async () => {
           eventBus.emit({
             type: "tool_result",
+            toolCallScopeId: "turn-1:response:1",
             toolCallId: `tool-managed-${status}`,
             toolName: "managed_agent.invoke",
             durationMs: 120000,

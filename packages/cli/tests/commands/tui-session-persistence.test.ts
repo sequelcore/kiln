@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionStore, TranscriptStore, type SessionRecord } from "../../src/wrapper/session-store.js";
 import { createSessionEvent, InMemoryContextArtifactCache, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
 
+const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
+
 const {
   mockGatewaySessionCtor,
   mockWaitForGateway,
@@ -707,7 +709,16 @@ describe("makeMultiProviderSessionFactory", () => {
         dispose: vi.fn().mockResolvedValue(undefined),
         run: vi.fn().mockImplementation(async function* () {
           yield {
+            type: "tool_use",
+            toolCallId: "call-full-output",
+            toolCallScopeId: TOOL_CALL_SCOPE_ID,
+            toolName: "read",
+            input: { filePath: "docs/architecture/session-model.md" },
+          };
+          yield {
             type: "tool_result",
+            toolCallId: "call-full-output",
+            toolCallScopeId: TOOL_CALL_SCOPE_ID,
             toolName: "read",
             output: fullOutput,
             outputSummary: fullOutput.slice(0, 40),
@@ -725,7 +736,8 @@ describe("makeMultiProviderSessionFactory", () => {
     const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
     const toolEvent = appendedEvents.find((event) => event.kind === "tool_call_completed");
     expect(toolEvent?.payload).toMatchObject({
-      toolCallId: "sess-full-output:turn:1:tool:1",
+      toolCallId: "call-full-output",
+      toolCallScopeId: TOOL_CALL_SCOPE_ID,
       toolName: "read",
       output: "# Session Model\n\nKiln session identity is provider-agnostic.",
       outputSummary: fullOutput.slice(0, 40),
@@ -849,8 +861,20 @@ describe("makeMultiProviderSessionFactory", () => {
         providerSessionId: "prov-managed-events",
         dispose: vi.fn().mockResolvedValue(undefined),
         run: vi.fn().mockImplementation(async function* () {
-          yield { type: "tool_use", toolCallId: "call-managed-start", toolName: "managed_agent.start", input: {} };
-          yield { type: "tool_result", toolCallId: "call-managed-start", toolName: "managed_agent.start", output: "{}" };
+          yield {
+            type: "tool_use",
+            toolCallId: "call-managed-start",
+            toolCallScopeId: TOOL_CALL_SCOPE_ID,
+            toolName: "managed_agent.start",
+            input: {},
+          };
+          yield {
+            type: "tool_result",
+            toolCallId: "call-managed-start",
+            toolCallScopeId: TOOL_CALL_SCOPE_ID,
+            toolName: "managed_agent.start",
+            output: "{}",
+          };
         }),
       }),
     } as unknown as ReturnType<typeof import("../../src/wrapper/session-registry.js").createDefaultRegistry>["registry"];
@@ -1138,9 +1162,12 @@ describe("makeMultiProviderSessionFactory", () => {
         providerSessionId: "prov-governed-failed",
         dispose: vi.fn().mockResolvedValue(undefined),
         run: vi.fn().mockImplementation(async function* () {
-          yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
-          yield { type: "tool_result", toolName: "managed_agent.invoke", output: timedOutManagedInvocation };
-          yield { type: "tool_result", toolName: "work_item.update", output: openWorkItem };
+          yield { type: "tool_use", toolCallId: "call-assess", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_governance.assess", input: {} };
+          yield { type: "tool_result", toolCallId: "call-assess", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_governance.assess", output: "recommendation: orchestrate" };
+          yield { type: "tool_use", toolCallId: "call-invoke", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "managed_agent.invoke", input: {} };
+          yield { type: "tool_result", toolCallId: "call-invoke", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "managed_agent.invoke", output: timedOutManagedInvocation };
+          yield { type: "tool_use", toolCallId: "call-work-update", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_item.update", input: {} };
+          yield { type: "tool_result", toolCallId: "call-work-update", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_item.update", output: openWorkItem };
           yield { type: "text_delta", content: "Continuing with repository inspection next." };
           yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "failed", isPreflightCrash: false };
         }),
@@ -1191,8 +1218,10 @@ describe("makeMultiProviderSessionFactory", () => {
         providerSessionId: "prov-governance-advisory",
         dispose: vi.fn().mockResolvedValue(undefined),
         run: vi.fn().mockImplementation(async function* () {
-          yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
-          yield { type: "tool_result", toolName: "web_search", output: "1 source for kiln docs\n1. Kiln docs https://docs.example.com/kiln" };
+          yield { type: "tool_use", toolCallId: "call-assess", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_governance.assess", input: {} };
+          yield { type: "tool_result", toolCallId: "call-assess", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_governance.assess", output: "recommendation: orchestrate" };
+          yield { type: "tool_use", toolCallId: "call-search", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "web_search", input: {} };
+          yield { type: "tool_result", toolCallId: "call-search", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "web_search", output: "1 source for kiln docs\n1. Kiln docs https://docs.example.com/kiln" };
           yield { type: "text_delta", content: "Research complete with cited sources." };
           yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "completed", isPreflightCrash: false };
         }),
@@ -1280,8 +1309,10 @@ describe("makeMultiProviderSessionFactory", () => {
         providerSessionId: "prov-governed-open-start",
         dispose: vi.fn().mockResolvedValue(undefined),
         run: vi.fn().mockImplementation(async function* () {
-          yield { type: "tool_result", toolName: "work_governance.assess", output: "recommendation: orchestrate" };
-          yield { type: "tool_result", toolName: "work_item.execution.start", output: openExecutionStart };
+          yield { type: "tool_use", toolCallId: "call-assess", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_governance.assess", input: {} };
+          yield { type: "tool_result", toolCallId: "call-assess", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_governance.assess", output: "recommendation: orchestrate" };
+          yield { type: "tool_use", toolCallId: "call-execution-start", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_item.execution.start", input: {} };
+          yield { type: "tool_result", toolCallId: "call-execution-start", toolCallScopeId: TOOL_CALL_SCOPE_ID, toolName: "work_item.execution.start", output: openExecutionStart };
           yield { type: "text_delta", content: "Execution has started; implementation is still pending." };
           yield { type: "completed", totalUsd: 0, durationMs: 10, outcome: "failed", isPreflightCrash: false };
         }),
@@ -1415,10 +1446,17 @@ describe("makeMultiProviderSessionFactory", () => {
         providerSessionId: "prov-linked-tool",
         dispose: vi.fn().mockResolvedValue(undefined),
         run: vi.fn().mockImplementation(async function* () {
-          yield { type: "tool_use", toolCallId: "call-read-1", toolName: "read", input: { filePath: "im_alive.txt" } };
+          yield {
+            type: "tool_use",
+            toolCallId: "call-read-1",
+            toolCallScopeId: TOOL_CALL_SCOPE_ID,
+            toolName: "read",
+            input: { filePath: "im_alive.txt" },
+          };
           yield {
             type: "tool_result",
             toolCallId: "call-read-1",
+            toolCallScopeId: TOOL_CALL_SCOPE_ID,
             toolName: "read",
             output: fullOutput,
             outputSummary: "im alive and testing diff",
@@ -1438,11 +1476,13 @@ describe("makeMultiProviderSessionFactory", () => {
     const completed = appendedEvents.find((event) => event.kind === "tool_call_completed");
     expect(started?.payload).toMatchObject({
       toolCallId: "call-read-1",
+      toolCallScopeId: TOOL_CALL_SCOPE_ID,
       toolName: "read",
       input: { filePath: "im_alive.txt" },
     });
     expect(completed?.payload).toMatchObject({
       toolCallId: "call-read-1",
+      toolCallScopeId: TOOL_CALL_SCOPE_ID,
       toolName: "read",
       output: "im alive and testing diff",
       status: { state: "succeeded" },
@@ -1574,6 +1614,7 @@ describe("makeMultiProviderSessionFactory", () => {
           yield {
             type: "tool_use",
             toolCallId: "call-managed",
+            toolCallScopeId: TOOL_CALL_SCOPE_ID,
             toolName: "managed_agent.invoke",
             input: {
               providerRoute: {
@@ -1585,6 +1626,7 @@ describe("makeMultiProviderSessionFactory", () => {
           yield {
             type: "tool_result",
             toolCallId: "call-managed",
+            toolCallScopeId: TOOL_CALL_SCOPE_ID,
             toolName: "managed_agent.invoke",
             output: JSON.stringify({ status: "completed" }),
           };

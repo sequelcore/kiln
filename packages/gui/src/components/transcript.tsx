@@ -1747,6 +1747,11 @@ function toolCallIdFromTimelineEntry(entry: TimelineEventEntry): string | null {
   return readString(details?.toolCallId);
 }
 
+function toolCallScopeIdFromTimelineEntry(entry: TimelineEventEntry): string | null {
+  const details = asRecord(entry.details);
+  return readString(details?.toolCallScopeId);
+}
+
 function toConversationProjectionInput(entry: TimelineEntry): ConversationProjectionInput {
   if (entry.type === "message") {
     return {
@@ -1758,12 +1763,14 @@ function toConversationProjectionInput(entry: TimelineEntry): ConversationProjec
     };
   }
   const toolCallId = toolCallIdFromTimelineEntry(entry);
+  const toolCallScopeId = toolCallScopeIdFromTimelineEntry(entry);
   return {
     id: entry.id,
     kind: "event",
     eventKind: entry.eventKind,
     ...(entry.turnId ? { turnId: entry.turnId } : {}),
     ...(toolCallId ? { toolCallId } : {}),
+    ...(toolCallScopeId ? { toolCallScopeId } : {}),
   };
 }
 

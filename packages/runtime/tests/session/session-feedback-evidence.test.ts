@@ -30,6 +30,7 @@ describe("runtime session feedback evidence", () => {
       runtimeEvents: [
         {
           type: "tool_called",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-shell-typecheck",
           toolName: "shell_command",
           toolInput: { command: "bun run --filter @kilnai/runtime typecheck" },
@@ -37,6 +38,7 @@ describe("runtime session feedback evidence", () => {
         },
         {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-shell-typecheck",
           toolName: "shell_command",
           durationMs: 3000,

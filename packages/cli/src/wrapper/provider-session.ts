@@ -155,6 +155,7 @@ function toolCalledToSessionEvent(event: ToolCalledEvent): Extract<ExecutionSess
     toolName: event.toolName,
     input: event.toolInput ?? {},
     toolCallId: event.toolCallId,
+    toolCallScopeId: event.toolCallScopeId,
     ...(isMcp ? { source: "mcp" as const, mcpSelector: event.toolName } : {}),
   };
 }
@@ -163,6 +164,7 @@ function toolOutputToSessionEvent(event: ToolOutputEvent): Extract<ExecutionSess
   return {
     type: "tool_output_delta",
     toolCallId: event.toolCallId,
+    toolCallScopeId: event.toolCallScopeId,
     toolName: event.toolName,
     stream: event.stream,
     delta: event.delta,
@@ -175,6 +177,7 @@ function toolResultToSessionEvent(event: ToolResultEvent): Extract<ExecutionSess
   return {
     type: "tool_result",
     toolCallId: event.toolCallId,
+    toolCallScopeId: event.toolCallScopeId,
     toolName: event.toolName,
     output,
     ...(event.resultSummary !== undefined && event.resultSummary !== output ? { outputSummary: event.resultSummary } : {}),

@@ -8,6 +8,7 @@ import type {
   ApprovalMemoryRecord,
 } from "../wrapper/index.js";
 import {
+  assertScopedExecutionSessionToolEvent,
   resolveExecutionCostEvidence,
   type ExecutionCostEvidence,
   type ProviderRequestEvidence,
@@ -203,6 +204,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             break;
           }
           case "tool_use": {
+            assertScopedExecutionSessionToolEvent(event);
             const decision = permissionEvaluator.evaluateTool(event.toolName);
             const stableSessionId = options.sessionId;
             let matchedToolApprovalMemory: ApprovalMemoryRecord | null = null;
@@ -216,7 +218,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                 transcript.push({
                   seq: ++transcriptSeq,
                   ts: new Date().toISOString(),
-                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                  event: {
+                    type: "tool_use",
+                    toolCallId: event.toolCallId,
+                    toolCallScopeId: event.toolCallScopeId,
+                    toolName: `${event.toolName} [DENIED]`,
+                  },
                 });
                 attemptError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
                 lastError = attemptError;
@@ -238,7 +245,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                 transcript.push({
                   seq: ++transcriptSeq,
                   ts: new Date().toISOString(),
-                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                  event: {
+                    type: "tool_use",
+                    toolCallId: event.toolCallId,
+                    toolCallScopeId: event.toolCallScopeId,
+                    toolName: `${event.toolName} [DENIED]`,
+                  },
                 });
                 attemptError = `Provider ${providerId} denied MCP tool "${event.toolName}" by policy`;
                 lastError = attemptError;
@@ -265,7 +277,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                   transcript.push({
                     seq: ++transcriptSeq,
                     ts: new Date().toISOString(),
-                    event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                    event: {
+                      type: "tool_use",
+                      toolCallId: event.toolCallId,
+                      toolCallScopeId: event.toolCallScopeId,
+                      toolName: `${event.toolName} [DENIED]`,
+                    },
                   });
                   attemptError = `Provider ${providerId} denied command "${command}" by policy`;
                   lastError = attemptError;
@@ -283,7 +300,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                 transcript.push({
                   seq: ++transcriptSeq,
                   ts: new Date().toISOString(),
-                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                  event: {
+                    type: "tool_use",
+                    toolCallId: event.toolCallId,
+                    toolCallScopeId: event.toolCallScopeId,
+                    toolName: `${event.toolName} [DENIED]`,
+                  },
                 });
                 attemptError = `Provider ${providerId} denied file path "${filePath}" by policy`;
                 lastError = attemptError;
@@ -304,7 +326,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                 transcript.push({
                   seq: ++transcriptSeq,
                   ts: new Date().toISOString(),
-                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                  event: {
+                    type: "tool_use",
+                    toolCallId: event.toolCallId,
+                    toolCallScopeId: event.toolCallScopeId,
+                    toolName: `${event.toolName} [DENIED]`,
+                  },
                 });
                 attemptError = `Provider ${providerId} denied tool "${event.toolName}" by policy`;
                 lastError = attemptError;
@@ -324,7 +351,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                 transcript.push({
                   seq: ++transcriptSeq,
                   ts: new Date().toISOString(),
-                  event: { type: "tool_use", toolName: `${event.toolName} [DENIED]` },
+                  event: {
+                    type: "tool_use",
+                    toolCallId: event.toolCallId,
+                    toolCallScopeId: event.toolCallScopeId,
+                    toolName: `${event.toolName} [DENIED]`,
+                  },
                 });
                 attemptError = `Provider ${providerId} denied command "${command}" by policy`;
                 lastError = attemptError;
@@ -337,7 +369,13 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             transcript.push({
               seq: ++transcriptSeq,
               ts: new Date().toISOString(),
-              event: { type: "tool_use", toolName: event.toolName, input: event.input },
+              event: {
+                type: "tool_use",
+                toolCallId: event.toolCallId,
+                toolCallScopeId: event.toolCallScopeId,
+                toolName: event.toolName,
+                input: event.input,
+              },
             });
             if (event.toolName === "submit_plan") {
               const submitted = extractPlanFromToolInput(event.input);
@@ -366,6 +404,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             break;
           }
           case "tool_result": {
+            assertScopedExecutionSessionToolEvent(event);
             const pendingEvidenceIndex = pendingToolEvidence.findIndex((candidate) =>
               event.toolCallId
                 ? candidate.toolCallId === event.toolCallId
@@ -387,10 +426,11 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               ts: new Date().toISOString(),
               event: {
                 type: "tool_result",
+                toolCallId: event.toolCallId,
+                toolCallScopeId: event.toolCallScopeId,
                 toolName: event.toolName,
                 output: event.output,
                 ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
-                ...(event.toolCallId !== undefined ? { toolCallId: event.toolCallId } : {}),
                 ...(event.isError !== undefined ? { isError: event.isError } : {}),
               },
             });

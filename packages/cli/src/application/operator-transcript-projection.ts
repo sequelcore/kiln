@@ -8,12 +8,20 @@ import { buildOperatorToolResultPayload } from "@kilnai/gateway-contracts";
 import type { PersistedTranscriptEventDraft } from "../wrapper/session-store.js";
 
 export type OperatorTranscriptEntryEvent =
-  | Extract<ExecutionSessionEvent, { readonly type: "text_delta" | "tool_result" }>
+  | Extract<ExecutionSessionEvent, { readonly type: "text_delta" }>
+  | (
+      Extract<ExecutionSessionEvent, { readonly type: "tool_result" }>
+      & {
+        readonly toolCallId: string;
+        readonly toolCallScopeId: string;
+      }
+    )
   | {
       readonly type: "tool_use";
       readonly toolName: string;
       readonly input?: unknown;
-      readonly toolCallId?: string;
+      readonly toolCallId: string;
+      readonly toolCallScopeId: string;
       readonly source?: "native" | "mcp";
       readonly mcpSelector?: string;
     };
@@ -53,13 +61,14 @@ export function projectOperatorTranscriptEntryToDraft(input: {
   readonly event: OperatorTranscriptEntryEvent;
   readonly source: SessionEventSource;
 }): PersistedTranscriptEventDraft {
+  assertOperatorTranscriptToolIdentity(input.event);
   return {
     eventId: input.eventId,
     kilnSessionId: input.kilnSessionId,
     timestamp: input.timestamp,
     kind: operatorTranscriptKindForEntry(input.event),
     source: input.source,
-    payload: operatorTranscriptPayload(input.event, input.eventId),
+    payload: operatorTranscriptPayload(input.event),
   };
 }
 
@@ -185,7 +194,6 @@ function operatorTranscriptKindForEntry(event: OperatorTranscriptEntryEvent): Ca
 
 function operatorTranscriptPayload(
   event: OperatorTranscriptEntryEvent,
-  fallbackToolCallId: string,
 ): Record<string, unknown> {
   switch (event.type) {
     case "text_delta":
@@ -196,6 +204,8 @@ function operatorTranscriptPayload(
     case "tool_use":
       return {
         type: event.type,
+        toolCallId: event.toolCallId,
+        toolCallScopeId: event.toolCallScopeId,
         toolName: event.toolName,
         ...(event.input !== undefined ? { input: event.input } : {}),
         ...(event.source !== undefined ? { source: event.source } : {}),
@@ -205,8 +215,9 @@ function operatorTranscriptPayload(
       const toolName = event.toolName ?? "unknown";
       return {
         type: event.type,
+        toolCallScopeId: event.toolCallScopeId,
         ...buildOperatorToolResultPayload({
-          toolCallId: event.toolCallId ?? fallbackToolCallId,
+          toolCallId: event.toolCallId,
           toolName,
           output: event.output ?? "",
           ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
@@ -217,6 +228,18 @@ function operatorTranscriptPayload(
         }),
       };
     }
+  }
+}
+
+function assertOperatorTranscriptToolIdentity(event: OperatorTranscriptEntryEvent): void {
+  if (event.type !== "tool_use" && event.type !== "tool_result") {
+    return;
+  }
+  if (typeof event.toolCallId !== "string" || event.toolCallId.trim().length === 0) {
+    throw new TypeError("Operator transcript tool events require a non-empty toolCallId.");
+  }
+  if (typeof event.toolCallScopeId !== "string" || event.toolCallScopeId.trim().length === 0) {
+    throw new TypeError("Operator transcript tool events require a non-empty toolCallScopeId.");
   }
 }
 

@@ -17,6 +17,10 @@ const DOMAIN: DomainConfig = {
   phaseExamples: "",
 };
 const KILN_SESSION_ID = "kiln-session-1";
+const TOOL_CALL_IDENTITY = {
+  toolCallId: "call-1",
+  toolCallScopeId: "turn-1:response:1",
+} as const;
 
 function makeContext(): SessionContext {
   return {
@@ -166,7 +170,7 @@ describe("runSession tool permission gating", () => {
     const preToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "ls" } },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -209,7 +213,7 @@ describe("runSession tool permission gating", () => {
     expect(preToolUse).not.toHaveBeenCalled();
     expect(result.transcript).toContainEqual(
       expect.objectContaining({
-        event: { type: "tool_use", toolName: "Bash [DENIED]" },
+        event: { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash [DENIED]" },
       }),
     );
   });
@@ -220,7 +224,7 @@ describe("runSession tool permission gating", () => {
     const preToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Read", input: { filePath: "project/.env" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Read", input: { filePath: "project/.env" } },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -265,7 +269,7 @@ describe("runSession tool permission gating", () => {
     expect(preToolUse).not.toHaveBeenCalled();
     expect(result.transcript).toContainEqual(
       expect.objectContaining({
-        event: { type: "tool_use", toolName: "Read [DENIED]" },
+        event: { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Read [DENIED]" },
       }),
     );
   });
@@ -276,7 +280,7 @@ describe("runSession tool permission gating", () => {
     const preToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Write", input: { path: "project/.env", content: "x" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Write", input: { path: "project/.env", content: "x" } },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -321,7 +325,7 @@ describe("runSession tool permission gating", () => {
     expect(preToolUse).not.toHaveBeenCalled();
     expect(result.transcript).toContainEqual(
       expect.objectContaining({
-        event: { type: "tool_use", toolName: "Write [DENIED]" },
+        event: { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Write [DENIED]" },
       }),
     );
   });
@@ -333,8 +337,8 @@ describe("runSession tool permission gating", () => {
     const postToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Read", input: { path: "project/docs/readme.md" } },
-      { type: "tool_result", toolName: "Read", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Read", input: { path: "project/docs/readme.md" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Read", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -400,8 +404,8 @@ describe("runSession tool permission gating", () => {
     });
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
-      { type: "tool_result", toolName: "Bash", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "ls" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Bash", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -446,7 +450,7 @@ describe("runSession tool permission gating", () => {
     expect(reportFailure).not.toHaveBeenCalled();
     expect(result.transcript).toContainEqual(
       expect.objectContaining({
-        event: expect.objectContaining({ type: "tool_use", toolName: "Bash" }),
+        event: expect.objectContaining({ ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash" }),
       }),
     );
 
@@ -472,7 +476,7 @@ describe("runSession tool permission gating", () => {
     });
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -542,8 +546,8 @@ describe("runSession tool permission gating", () => {
     });
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
-      { type: "tool_result", toolName: "Read", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Read", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ], "provider-session-42");
 
@@ -603,8 +607,8 @@ describe("runSession tool permission gating", () => {
     });
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Write", input: { filePath: "README.md", content: "ok" } },
-      { type: "tool_result", toolName: "Write", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Write", input: { filePath: "README.md", content: "ok" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Write", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -656,8 +660,8 @@ describe("runSession tool permission gating", () => {
     const postToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Bash", input: { command: "ls" } },
-      { type: "tool_result", toolName: "Bash", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "ls" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Bash", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -705,7 +709,7 @@ describe("runSession tool permission gating", () => {
     const preToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -764,7 +768,7 @@ describe("runSession tool permission gating", () => {
     const preToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -809,7 +813,7 @@ describe("runSession tool permission gating", () => {
     expect(preToolUse).not.toHaveBeenCalled();
     expect(result.transcript).toContainEqual(
       expect.objectContaining({
-        event: { type: "tool_use", toolName: "Bash [DENIED]" },
+        event: { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash [DENIED]" },
       }),
     );
   });
@@ -829,8 +833,8 @@ describe("runSession tool permission gating", () => {
     });
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
-      { type: "tool_result", toolName: "Bash", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Bash", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -901,8 +905,8 @@ describe("runSession tool permission gating", () => {
     });
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
-      { type: "tool_result", toolName: "Bash", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Bash", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ], "provider-session-42");
 
@@ -956,8 +960,8 @@ describe("runSession tool permission gating", () => {
     const postToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "bash", input: { command: "git status" } },
-      { type: "tool_result", toolName: "bash", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "bash", input: { command: "git status" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "bash", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -1007,7 +1011,7 @@ describe("runSession tool permission gating", () => {
     const preToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -1068,6 +1072,7 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       {
+        ...TOOL_CALL_IDENTITY,
         type: "tool_use",
         toolName: "memory_store",
         input: {},
@@ -1116,7 +1121,7 @@ describe("runSession tool permission gating", () => {
     expect(preToolUse).not.toHaveBeenCalled();
     expect(result.transcript).toContainEqual(
       expect.objectContaining({
-        event: { type: "tool_use", toolName: "memory_store [DENIED]" },
+        event: { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "memory_store [DENIED]" },
       }),
     );
   });
@@ -1129,13 +1134,14 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       {
+        ...TOOL_CALL_IDENTITY,
         type: "tool_use",
         toolName: "memory_store",
         input: { key: "a", value: "b" },
         source: "mcp",
         mcpSelector: "  MeMoRy_Store ",
       },
-      { type: "tool_result", toolName: "memory_store", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "memory_store", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -1187,12 +1193,13 @@ describe("runSession tool permission gating", () => {
 
     const session = createSessionFromEvents([
       {
+        ...TOOL_CALL_IDENTITY,
         type: "tool_use",
         toolName: "Memory_Store",
         input: { key: "a", value: "b" },
         source: "mcp",
       },
-      { type: "tool_result", toolName: "Memory_Store", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "Memory_Store", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
@@ -1243,8 +1250,8 @@ describe("runSession tool permission gating", () => {
     const postToolUse = vi.fn();
 
     const session = createSessionFromEvents([
-      { type: "tool_use", toolName: "memory_store", input: { key: "a", value: "b" }, source: "mcp" },
-      { type: "tool_result", toolName: "memory_store", output: "ok" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "memory_store", input: { key: "a", value: "b" }, source: "mcp" },
+      { ...TOOL_CALL_IDENTITY, type: "tool_result", toolName: "memory_store", output: "ok" },
       { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
     ]);
 
