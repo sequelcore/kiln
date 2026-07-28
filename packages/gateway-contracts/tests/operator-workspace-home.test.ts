@@ -43,12 +43,27 @@ describe("operator workspace home projection", () => {
       events: externalRuntimeGovernanceEvents,
     });
 
-    expect(cockpitProjection.invocations[0]).toMatchObject({
+    expect(cockpitProjection.sessions[0]?.authority).toBe(
+      EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.authorityProfile.authorityProfileId,
+    );
+    expect(cockpitProjection.invocations.find(
+      (invocation) => invocation.managedInvocationId === EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+    )).toMatchObject({
       managedInvocationId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
       status: "failed",
       externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
     });
-    expect(cockpitProjection.toolSummaries[0]).toMatchObject({
+    expect(cockpitProjection.invocations.find(
+      (invocation) =>
+        invocation.managedInvocationId === EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.recoveryInvocationId,
+    )).toMatchObject({
+      managedInvocationId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.recoveryInvocationId,
+      status: "completed",
+      externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
+    });
+    expect(cockpitProjection.toolSummaries.find(
+      (tool) => tool.toolCallId === EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallId,
+    )).toMatchObject({
       toolCallId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallId,
       status: "failed",
       externalFailure: {
@@ -60,7 +75,15 @@ describe("operator workspace home projection", () => {
         blocked: true,
       },
     });
-    expect(cockpitView.managedAgents.items[0]).toMatchObject({
+    expect(cockpitProjection.toolSummaries.find(
+      (tool) => tool.toolCallId === EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.recoveryToolCallId,
+    )).toMatchObject({
+      toolCallId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.recoveryToolCallId,
+      status: "succeeded",
+    });
+    expect(cockpitView.managedAgents.items.find(
+      (item) => item.managedInvocationId === EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+    )).toMatchObject({
       externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
       externalToolFailures: [{
         selector: "mcp:synthetic-runtime:tool:navigate_actor",
@@ -71,20 +94,22 @@ describe("operator workspace home projection", () => {
     });
     expect(home.work).toMatchObject({
       totalCount: 1,
-      activeCount: 1,
-      blockedCount: 1,
-      missingEvidenceCount: 1,
+      activeCount: 0,
+      blockedCount: 0,
+      missingEvidenceCount: 0,
       goalCount: 1,
-      activeGoalCount: 1,
+      activeGoalCount: 0,
       items: [{
         workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
-        pendingPauseCount: 1,
-        failedVerificationGateCount: 1,
+        status: "completed",
+        authorityProfile: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.authorityProfile.authorityProfileId,
+        pendingPauseCount: 0,
+        failedVerificationGateCount: 0,
       }],
     });
     expect(home.approvals).toMatchObject({
       pendingCount: 0,
-      resolvedCount: 1,
+      resolvedCount: 2,
     });
   });
 
@@ -115,7 +140,9 @@ describe("operator workspace home projection", () => {
     expect(replayedEvents.map((event) => event.kind)).toEqual(
       externalRuntimeGovernanceEvents.map((event) => event.kind),
     );
-    expect(replayView.managedAgents.items[0]).toMatchObject({
+    expect(replayView.managedAgents.items.find(
+      (item) => item.managedInvocationId === EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+    )).toMatchObject({
       externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
       externalToolFailures: [{
         selector: "mcp:synthetic-runtime:tool:navigate_actor",
@@ -124,23 +151,38 @@ describe("operator workspace home projection", () => {
     });
     expect(replayHome).toMatchObject({
       work: {
-        blockedCount: 1,
-        activeGoalCount: 1,
+        blockedCount: 0,
+        activeGoalCount: 0,
         items: [{
           workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
-          pendingPauseCount: 1,
+          status: "completed",
+          pendingPauseCount: 0,
         }],
       },
       approvals: {
         pendingCount: 0,
-        resolvedCount: 1,
+        resolvedCount: 2,
       },
     });
-    expect(replayedEvents.find((event) => event.kind === "assistant_message")?.payload).toMatchObject({
+    expect(replayedEvents.find(
+      (event) => event.eventId === "external-runtime-parity:event:assistant-message",
+    )?.payload).toMatchObject({
       content: "The external-runtime action failed; canonical work remains blocked.",
     });
-    expect(replayedEvents.find((event) => event.kind === "turn_completed")?.payload).toMatchObject({
+    expect(replayedEvents.find(
+      (event) => event.eventId === "external-runtime-parity:event:turn-completed",
+    )?.payload).toMatchObject({
       outcome: "failed",
+    });
+    expect(replayedEvents.find(
+      (event) => event.eventId === "external-runtime-parity:event:recovery-assistant-message",
+    )?.payload).toMatchObject({
+      content: "Recovery verified the external-runtime action; canonical work is complete.",
+    });
+    expect(replayedEvents.find(
+      (event) => event.eventId === "external-runtime-parity:event:recovery-turn-completed",
+    )?.payload).toMatchObject({
+      outcome: "completed",
     });
   });
 

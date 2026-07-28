@@ -138,7 +138,9 @@ export interface StartGuiGatewayOptions {
   readonly getSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>;
   readonly executeSetupAction?: (action: KilnConfigSetupAction) => Promise<KilnConfigSetupActionResult>;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
+  readonly discoverOperatorProviders?: () => Promise<readonly GuiProviderDiscoveryResult[]>;
   readonly initialOperatorDiscovery?: readonly GuiProviderDiscoveryResult[];
+  readonly initialOperatorDiscoveryFreshness?: "fresh" | "stale";
   readonly onOperatorDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
   readonly listSessions?: () => Promise<readonly GuiSessionSummary[]>;
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
@@ -451,6 +453,11 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     mountGuiStaticAssets(app, resolveGuiDistPath(options.guiDistPath));
   }
   const transportOptions = options.operatorTransport;
+  const initialOperatorDiscovery = options.initialOperatorDiscovery
+    ? options.initialOperatorDiscoveryFreshness === "fresh"
+      ? options.initialOperatorDiscovery
+      : markGuiProviderDiscoveryStale(options.initialOperatorDiscovery)
+    : undefined;
   const operatorTerminalCapability = transportOptions && options.workingDirectory
     ? crypto.randomUUID()
     : undefined;
@@ -465,12 +472,13 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   const { upgradeWebSocket, websocket } = (await loadBunHonoAdapters()).createBunWebSocket();
   const operatorCatalog = transportOptions
     ? createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
-      () => resolveOperatorDiscovery(options.getProviderAvailability),
+      () => options.discoverOperatorProviders
+        ? options.discoverOperatorProviders()
+        : resolveOperatorDiscovery(options.getProviderAvailability),
       [],
       {
-        initialDiscovery: options.initialOperatorDiscovery
-          ? markGuiProviderDiscoveryStale(options.initialOperatorDiscovery)
-          : undefined,
+        initialDiscovery: initialOperatorDiscovery,
+        initialFreshness: options.initialOperatorDiscoveryFreshness,
         onDiscoveryResolved: options.onOperatorDiscoveryResolved,
       },
     )
@@ -1836,6 +1844,7 @@ function wireOperatorTransport(
                 },
                 publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
                   events.filter((event) => event.kind === "context_usage_observed"
+                    || event.kind === "cost_updated"
                     || (event.kind === "turn_completed" && event.outcome === "cancelled")),
                 ),
               });

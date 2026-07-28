@@ -68,7 +68,10 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(table).toBeVisible();
     await expect(table.locator("th").first()).toHaveCSS("font-weight", "600");
     await expect(table.locator("td", { hasText: "fixed" })).toBeVisible();
-    await expect(table.locator("..")).toHaveCSS("overflow-x", "auto");
+    const tableViewport = assistant
+      .locator('[data-markdown-table-scroll]')
+      .locator('[data-slot="scroll-area-viewport"]');
+    await expect(tableViewport).toHaveCSS("overflow-x", "scroll");
   });
 
   test("shows a compact long-thread navigation rail without covering latest controls", async ({ page }) => {
@@ -119,9 +122,11 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(distantTurn).toHaveAttribute("data-selected", "true");
     await expect(distantTurn.locator('[data-role="thread-anchor-preview"]')).toBeVisible();
     await expect(distantTurn.locator('[data-role="thread-anchor-preview"]')).toContainText("Reply");
-    const selectedWidth = await distantTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
-    const currentWidth = await firstTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
-    expect(selectedWidth).toBeGreaterThan(currentWidth);
+    await expect.poll(async () => {
+      const selectedWidth = await distantTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
+      const currentWidth = await firstTurn.locator(".thread-navigation-mark").evaluate((element) => element.getBoundingClientRect().width);
+      return selectedWidth > currentWidth;
+    }).toBe(true);
     await expect(distantTurn.locator(".thread-navigation-mark")).toHaveCSS("opacity", "1");
     const currentBackground = await currentAnchors.locator(".thread-navigation-mark").evaluate((element) => (
       getComputedStyle(element).backgroundColor
@@ -270,7 +275,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(tool.getByRole("region", { name: "Text output" })).toHaveCount(0);
   });
 
-  test("renders governed tool results as work, goal, task, and diagnostic UI", async ({ page }) => {
+  test("renders governed tool results as foreground goal, work, task, and diagnostic UI", async ({ page }) => {
     await page.goto("/");
     await waitForGuiReady(page);
 
@@ -279,15 +284,16 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await composer.fill("governed tool presentation visual check");
     await composer.press("Enter");
 
-    const goal = page.locator('[data-role="workflow-activity"]');
+    const goal = page.locator('[data-role="active-goal-dock"]');
     await expect(goal).toHaveCount(1, { timeout: 15_000 });
-    await expect(goal.getByRole("button", { name: /Perform evidence-backed UX verification\..*1 work items/u })).toBeVisible();
-    await expect(goal.getByRole("list", { name: "Goal work items" })).toContainText("Inspect composer activity ownership.");
-    await expect(goal).toContainText("1 / 2");
-    await expect(goal.getByRole("progressbar", { name: "Evidence completion for work-1" })).toBeVisible();
+    await goal.getByRole("button", { name: "Open goal progress: Perform evidence-backed UX verification." }).click();
+    const goalProgress = page.getByRole("list", { name: "Goal progress" });
+    await expect(goalProgress).toContainText("Inspect composer activity ownership.");
+    await expect(page.getByText("0 of 1 work items completed")).toBeVisible();
     await expect(page.getByRole("button", { name: /work_item\.(?:update|execution\.start)/u })).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
-    const readHeader = page.getByRole("button", { name: /read\. Failed\./u });
+    const readHeader = page.getByRole("button", { name: /Failed to read files\. Failed\./u });
     await expect(readHeader).toBeVisible();
     const readTool = readHeader.locator("..");
     await expect(readTool.getByRole("alert")).toContainText("Read failed");

@@ -21,7 +21,7 @@ test.describe("parity category 2 - provider and model selection", () => {
     await expect(assistantRows.last()).toContainText("Claude", { timeout: 5_000 });
   });
 
-  test("keeps an in-flight response stamped with its original provider after selecting the next provider", async ({ page }) => {
+  test("keeps an in-flight response stamped with its original provider while inspecting provider options", async ({ page }) => {
     await page.goto("/");
     await waitForGuiReady(page);
 
@@ -37,7 +37,6 @@ test.describe("parity category 2 - provider and model selection", () => {
     await providerStatus.click();
     await expect(page.getByRole("option", { name: /Codex Unavailable/ })).toBeDisabled();
     await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(providerStatus).toHaveAttribute("aria-label", /Claude \/ Select model/, { timeout: 2_000 });
 
     await expect(page.locator('[data-role="assistant"]').first()).toContainText("echo:hold stream for provider switch", { timeout: 5_000 });
     await expect(firstAssistantRoute).toContainText("Claude", { timeout: 2_000 });

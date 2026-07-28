@@ -1406,6 +1406,13 @@ describe("session-store", () => {
         expect.objectContaining({ type: "event", eventKind: "approval_resolved" }),
       ]),
     );
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      eventKind: "cost_updated",
+      presentationDetails: expect.arrayContaining([
+        { label: "Input tokens", value: "10" },
+        { label: "Output tokens", value: "5" },
+      ]),
+    }));
     expect(state.respondingProvider).toBe("codex-oauth");
     expect(state.respondingModel).toBe("gpt-5.4-mini");
     expect(deriveToolCallLog(state.timelineEntries)).toEqual([
@@ -2247,18 +2254,26 @@ describe("session-store", () => {
   });
 
   it("derives governed work from the canonical external-runtime parity fixture", () => {
-    for (const event of externalRuntimeGovernanceEvents) {
-      useSessionStore.getState().onSessionEvent(event);
-    }
+    useSessionStore.getState().viewSessionDetail({
+      id: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+      meta: {
+        kilnSessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+        title: "External runtime recovery",
+        task: "Verify the synthetic external runtime",
+        startedAt: "2026-07-28T09:00:00.000Z",
+      },
+      events: externalRuntimeGovernanceEvents,
+    });
 
     expect(deriveWorkItems(useSessionStore.getState().timelineEntries)).toMatchObject([{
       id: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
       sessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
-      turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
-      status: "blocked",
-      pendingPauseRequirementCount: 1,
-      missingEvidence: ["runtime-observation"],
-      failedVerificationGates: ["synthetic-runtime-navigation"],
+      turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.recoveryTurnId,
+      status: "completed",
+      pendingPauseRequirementCount: 0,
+      providedEvidence: ["runtime-observation"],
+      missingEvidence: [],
+      failedVerificationGates: [],
       pauseRequirements: [
         {
           id: "external-runtime-parity:pause:1",
@@ -2267,7 +2282,7 @@ describe("session-store", () => {
         },
         {
           id: "external-runtime-parity:pause:2",
-          status: "pending",
+          status: "resolved",
         },
       ],
     }]);
@@ -3007,6 +3022,13 @@ describe("session-store", () => {
     });
     expect(state.messages).toHaveLength(2);
     expect(state.timelineEntries).toHaveLength(10);
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      eventKind: "cost_updated",
+      presentationDetails: expect.arrayContaining([
+        { label: "Input tokens", value: "42" },
+        { label: "Output tokens", value: "21" },
+      ]),
+    }));
     expect(state.messages[0]).toMatchObject({
       role: "user",
       content: "What was this session about?",

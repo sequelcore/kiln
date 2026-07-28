@@ -414,17 +414,6 @@ function isWorkflowLifecycleTimelineEventKind(kind: OperatorSessionEventKind): b
     || kind === "work_items.materialized";
 }
 
-const USD_FORMATTER = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  minimumFractionDigits: 4,
-  maximumFractionDigits: 4,
-});
-
-function formatUsd(value: number): string {
-  return USD_FORMATTER.format(value);
-}
-
 function areSessionSummariesEqual(
   current: readonly GuiSessionSummary[],
   next: readonly GuiSessionSummary[],
@@ -781,6 +770,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       const provider = providerIdentity(payload);
       const usage = isObjectRecord(payload.usage) ? payload.usage : null;
       const cost = isObjectRecord(payload.cost) ? payload.cost : null;
+      const presentation = presentOperatorEventPayload(event.kind, payload);
       const deltaUsd = readNumber(cost?.deltaUsd) ?? 0;
       const inputDelta = readNumber(usage?.inputTokens) ?? 0;
       const outputDelta = readNumber(usage?.outputTokens) ?? 0;
@@ -793,9 +783,10 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
-        title: "Cost updated",
-        summary: `${formatUsd(deltaUsd)} · ${inputDelta}↑ ${outputDelta}↓`,
-        tone: "info",
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        presentationDetails: presentation.details,
         details: {
           provider,
           usage,
@@ -2373,6 +2364,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (event.kind === "cost_updated") {
       const cost = isObjectRecord(payload.cost) ? payload.cost : null;
       const usage = isObjectRecord(payload.usage) ? payload.usage : null;
+      const provider = providerIdentity(payload);
+      const presentation = presentOperatorEventPayload(event.kind, payload);
       state.onActivity({
         type: "activity",
         activity: "cost_update",
@@ -2390,11 +2383,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
-            title: "Cost updated",
-            summary: `${formatUsd(readNumber(cost?.deltaUsd) ?? 0)} · ${readNumber(usage?.inputTokens) ?? 0}↑ ${readNumber(usage?.outputTokens) ?? 0}↓`,
-            tone: "info",
+            title: presentation.title,
+            summary: presentation.summary,
+            tone: presentation.tone,
+            presentationDetails: presentation.details,
             details: {
-              provider: providerIdentity(payload),
+              provider,
               usage,
               cost,
             },
