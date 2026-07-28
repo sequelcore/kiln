@@ -49,6 +49,7 @@ export type CanonicalSessionEventKind =
   | "provider_routed"
   | "multimodal_routed"
   | "tool_call_started"
+  | "tool_call_output_delta"
   | "tool_call_completed"
   | "approval_requested"
   | "approval_resolved"
@@ -331,13 +332,24 @@ export interface CanonicalMultimodalRoutedEvent extends SessionEventEnvelope<"mu
 
 export interface CanonicalToolCallStartedEvent extends SessionEventEnvelope<"tool_call_started"> {
   readonly toolCallId: string;
+  readonly toolCallScopeId: string;
   readonly toolName: string;
   readonly input?: Record<string, unknown>;
   readonly metadata?: Record<string, unknown>;
 }
 
+export interface CanonicalToolCallOutputDeltaEvent extends SessionEventEnvelope<"tool_call_output_delta"> {
+  readonly toolCallId: string;
+  readonly toolCallScopeId: string;
+  readonly toolName: string;
+  readonly stream: "stdout" | "stderr";
+  readonly delta: string;
+  readonly chunkIndex: number;
+}
+
 export interface CanonicalToolCallCompletedEvent extends SessionEventEnvelope<"tool_call_completed"> {
   readonly toolCallId: string;
+  readonly toolCallScopeId: string;
   readonly toolName: string;
   readonly status: SessionToolStatus;
   readonly durationMs: number;
@@ -608,6 +620,7 @@ export interface CanonicalSessionEventMap {
   provider_routed: CanonicalProviderRoutedEvent;
   multimodal_routed: CanonicalMultimodalRoutedEvent;
   tool_call_started: CanonicalToolCallStartedEvent;
+  tool_call_output_delta: CanonicalToolCallOutputDeltaEvent;
   tool_call_completed: CanonicalToolCallCompletedEvent;
   approval_requested: CanonicalApprovalRequestedEvent;
   approval_resolved: CanonicalApprovalResolvedEvent;

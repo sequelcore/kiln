@@ -2507,12 +2507,14 @@ describe("startGuiGateway static mount", () => {
       run: async function* () {
         yield {
           type: "tool_use",
+          toolCallScopeId: "turn-1:response:1",
           toolName: "managed_agent.start",
           input: toolInput,
           toolCallId,
         };
         yield {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolName: "managed_agent.start",
           output: toolOutput,
           outputSummary: toolOutput,
@@ -2622,6 +2624,7 @@ describe("startGuiGateway static mount", () => {
       ]);
       expect(completedPayload).toMatchObject({
         toolCallId,
+        toolCallScopeId: "turn-1:response:1",
         toolName: "managed_agent.start",
         output: toolOutput,
         outputSummary: toolOutput,
@@ -2793,12 +2796,14 @@ describe("startGuiGateway static mount", () => {
       run: async function* () {
         yield {
           type: "tool_use",
+          toolCallScopeId: "turn-1:response:1",
           toolName: "managed_agent.start",
           input: toolInput,
           toolCallId,
         };
         yield {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolName: "managed_agent.start",
           output: toolOutput,
           outputSummary: toolOutput,
@@ -3199,12 +3204,14 @@ describe("startGuiGateway static mount", () => {
       run: async function* () {
         yield {
           type: "tool_use",
+          toolCallScopeId: "turn-1:response:1",
           toolName: "managed_agent.start",
           input: startInput,
           toolCallId,
         };
         yield {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolName: "managed_agent.start",
           output: toolOutput,
           outputSummary: toolOutput,

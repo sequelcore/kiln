@@ -62,6 +62,7 @@ describe("Orchestrator native tool execution path", () => {
     );
 
     const result = await orchestrator.executeDevTool({
+      toolCallScopeId: "turn-1:response:1",
       name: "echo",
       input: { message: "hello" },
     });
@@ -81,6 +82,7 @@ describe("Orchestrator native tool execution path", () => {
     const called = toolEvents[0] as ToolCalledEvent;
     expect(called.type).toBe("tool_called");
     expect(called.toolCallId).toEqual(expect.any(String));
+    expect(called.toolCallScopeId).toBe("turn-1:response:1");
     expect(called.toolName).toBe("echo");
     expect(called.toolInput).toEqual({ message: "hello" });
     expect(called.taskId).toBe("execute native tool");
@@ -101,6 +103,7 @@ describe("Orchestrator native tool execution path", () => {
     const executed = toolEvents[2] as ToolResultEvent;
     expect(executed.type).toBe("tool_result");
     expect(executed.toolCallId).toBe(called.toolCallId);
+    expect(executed.toolCallScopeId).toBe(called.toolCallScopeId);
     expect(executed.toolName).toBe("echo");
     expect(executed.taskId).toBe("execute native tool");
     expect(executed.success).toBe(true);
@@ -128,6 +131,7 @@ describe("Orchestrator native tool execution path", () => {
 
     await orchestrator.executeDevTool({
       toolCallId: "provider-tool-call-1",
+      toolCallScopeId: "turn-1:response:1",
       name: "echo",
       input: { message: "hello" },
     });
@@ -140,11 +144,13 @@ describe("Orchestrator native tool execution path", () => {
     expect(toolEvents[0]).toMatchObject({
       type: "tool_called",
       toolCallId: "provider-tool-call-1",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "echo",
     });
     expect(toolEvents[1]).toMatchObject({
       type: "tool_result",
       toolCallId: "provider-tool-call-1",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "echo",
       success: true,
     });
@@ -162,6 +168,7 @@ describe("Orchestrator native tool execution path", () => {
     await expect(
       orchestrator.executeDevTool({
         toolCallId: "provider-tool-call-failed",
+        toolCallScopeId: "turn-1:response:1",
         name: "explode",
         input: {},
       }),
@@ -192,6 +199,7 @@ describe("Orchestrator native tool execution path", () => {
 
     await expect(
       orchestrator.executeDevTool({
+        toolCallScopeId: "turn-1:response:1",
         name: "missing",
         input: {},
       }),
@@ -216,6 +224,7 @@ describe("Orchestrator native tool execution path", () => {
 
     await expect(
       orchestrator.executeDevTool({
+        toolCallScopeId: "turn-1:response:1",
         name: "write",
         input: { filePath: "x.txt", content: "x" },
       }),
@@ -264,6 +273,7 @@ describe("Orchestrator native tool execution path", () => {
     );
 
     const result = await orchestrator.executeDevTool({
+      toolCallScopeId: "turn-1:response:1",
       name: "inspect",
       input: {},
       role: "worker",
@@ -291,6 +301,7 @@ describe("Orchestrator native tool execution path", () => {
 
     await expect(
       orchestrator.executeDevTool({
+        toolCallScopeId: "turn-1:response:1",
         name: "echo",
         input: { message: "hello" },
         authority: {

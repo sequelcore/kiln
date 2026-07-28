@@ -79,6 +79,7 @@ describe("timeline visibility", () => {
 
   it("uses canonical session-event presentation instead of re-projecting reduced timeline details", () => {
     const event = sessionEvent("tool_call_completed", 1, {
+      toolCallScopeId: "response-1",
       toolCallId: "tool-1",
       toolName: "web_search",
       status: "success",

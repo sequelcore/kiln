@@ -912,12 +912,14 @@ describe("TUI gateway message fail-closed behavior", () => {
         run: async function* () {
           yield {
             type: "tool_use" as const,
+            toolCallScopeId: "turn-1:response:1",
             toolCallId: "call-rich",
             toolName: "managed_agent.invoke",
             input: { profile: "foundation-readonly-plan" },
           };
           yield {
             type: "tool_result" as const,
+            toolCallScopeId: "turn-1:response:1",
             toolCallId: "call-rich",
             toolName: "managed_agent.invoke",
             output: "child completed",
@@ -987,6 +989,7 @@ describe("TUI gateway message fail-closed behavior", () => {
       }));
       expect(completedPayload).toMatchObject({
         toolCallId: "call-rich",
+        toolCallScopeId: "turn-1:response:1",
         toolName: "managed_agent.invoke",
         output: "child completed",
         metadata: {

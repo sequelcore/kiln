@@ -37,9 +37,10 @@ import {
   type VoiceConfig,
   defineTurnTemporalContext,
   type TurnTemporalContext,
+  assertScopedExecutionSessionToolEvent,
+  type ExecutionSessionEvent,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
-import type { ExecutionSessionEvent } from "@kilnai/core";
 import type { CliSessionFactory } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
@@ -1064,8 +1065,6 @@ class TuiActivityStreamer {
   private capture: {
     sessionId: string;
     nextSequence: number;
-    toolOrdinal: number;
-    pendingToolCallIds: Map<string, string[]>;
     fileChanges: RuntimeTurnFileChange[];
     approvalTransitions: RuntimeTurnApprovalTransition[];
     authorityDecisions: RuntimeTurnAuthorityDecision[];
@@ -1100,8 +1099,6 @@ class TuiActivityStreamer {
     this.capture = {
       sessionId,
       nextSequence,
-      toolOrdinal: 0,
-      pendingToolCallIds: new Map<string, string[]>(),
       fileChanges: [],
       approvalTransitions: [],
       authorityDecisions: [],
@@ -1355,19 +1352,13 @@ class TuiActivityStreamer {
         ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_use") {
-      const toolCallId = event.toolCallId ?? (this.capture
-        ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}`
-        : `${event.toolName ?? "tool"}_${Date.now()}`);
-      if (this.capture) {
-        const pending = this.capture.pendingToolCallIds.get(event.toolName) ?? [];
-        pending.push(toolCallId);
-        this.capture.pendingToolCallIds.set(event.toolName, pending);
-      }
+      assertScopedExecutionSessionToolEvent(event);
       this.emitSessionEvent({
         kind: "tool_call_started",
         timestamp: new Date().toISOString(),
         payload: {
-          toolCallId,
+          toolCallId: event.toolCallId,
+          toolCallScopeId: event.toolCallScopeId,
           toolName: event.toolName ?? "unknown",
           input: (event.input && typeof event.input === "object" ? event.input : {}) as Record<string, unknown>,
           ...resolveAttachedRuntimeToolCallMetadata(this.toolCallMetadata, event.toolName, event.input),
@@ -1379,11 +1370,13 @@ class TuiActivityStreamer {
         toolName: event.toolName,
       });
     } else if (event.type === "tool_output_delta") {
+      assertScopedExecutionSessionToolEvent(event);
       this.emitSessionEvent({
         kind: "tool_call_output_delta",
         timestamp: new Date().toISOString(),
         payload: {
           toolCallId: event.toolCallId,
+          toolCallScopeId: event.toolCallScopeId,
           toolName: event.toolName,
           stream: event.stream,
           delta: event.delta,
@@ -1392,21 +1385,7 @@ class TuiActivityStreamer {
         ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
     } else if (event.type === "tool_result") {
-      const pending = this.capture?.pendingToolCallIds.get(event.toolName);
-      let toolCallId: string;
-      if (event.toolCallId) {
-        toolCallId = event.toolCallId;
-        const pendingIndex = pending?.indexOf(event.toolCallId) ?? -1;
-        if (pending && pendingIndex >= 0) {
-          pending.splice(pendingIndex, 1);
-        }
-      } else {
-        toolCallId = pending?.shift()
-          ?? (this.capture ? `${this.capture.sessionId}:live:tool:${++this.capture.toolOrdinal}` : `${event.toolName ?? "tool"}_${Date.now()}`);
-      }
-      if (pending && pending.length === 0 && this.capture) {
-        this.capture.pendingToolCallIds.delete(event.toolName);
-      }
+      assertScopedExecutionSessionToolEvent(event);
       if (this.capture) {
         this.capture.toolCompletions.push({
           toolName: event.toolName ?? "unknown",
@@ -1419,16 +1398,19 @@ class TuiActivityStreamer {
       this.emitSessionEvent({
         kind: "tool_call_completed",
         timestamp: new Date().toISOString(),
-        payload: buildOperatorToolResultPayload({
-          toolCallId,
-          toolName: event.toolName ?? "unknown",
-          output: event.output,
-          outputSummary: event.outputSummary,
-          isError: event.isError,
-          metadata: event.metadata,
-          resourceLinks: event.resourceLinks,
-          toolUsage: event.toolUsage,
-        }),
+        payload: {
+          toolCallScopeId: event.toolCallScopeId,
+          ...buildOperatorToolResultPayload({
+            toolCallId: event.toolCallId,
+            toolName: event.toolName ?? "unknown",
+            output: event.output,
+            outputSummary: event.outputSummary,
+            isError: event.isError,
+            metadata: event.metadata,
+            resourceLinks: event.resourceLinks,
+            toolUsage: event.toolUsage,
+          }),
+        },
         ...(event.executionScope ? { executionScope: event.executionScope } : {}),
       });
       this.emitActivityPhase({ phase: "idle" });

@@ -42,7 +42,9 @@ function workflowEvent(
     kind,
     turnId: "turn-1",
     source: { actor: "tool", surface: "gui" },
-    payload,
+    payload: kind === "tool_call_started" || kind === "tool_call_completed"
+      ? { toolCallScopeId: "response-1", ...payload }
+      : payload,
     ...(executionScope ? { executionScope } : {}),
   };
 }
@@ -531,7 +533,7 @@ describe("Transcript", () => {
             title: "Using read",
             summary: "Execution in progress",
             tone: "running",
-            details: { toolCallId: "call_read_1" },
+            details: { toolCallId: "call_read_1", toolCallScopeId: "turn-1:response:1" },
           },
           {
             id: "timeline:event:tool-completed",
@@ -541,7 +543,11 @@ describe("Transcript", () => {
             title: "Completed read",
             summary: "# Session Model",
             tone: "success",
-            details: { toolCallId: "call_read_1", status: "succeeded" },
+            details: {
+              toolCallId: "call_read_1",
+              toolCallScopeId: "turn-1:response:1",
+              status: "succeeded",
+            },
           },
           messageEntry("2", "assistant", "Here is the summary."),
         ]}
@@ -575,7 +581,11 @@ describe("Transcript", () => {
             title: "Completed read",
             summary: "# Session Model",
             tone: "success",
-            details: { toolCallId: "call_read_1", status: "succeeded" },
+            details: {
+              toolCallId: "call_read_1",
+              toolCallScopeId: "turn-1:response:1",
+              status: "succeeded",
+            },
           },
           {
             id: "timeline:event:tool-patch",
@@ -1900,7 +1910,7 @@ describe("Transcript", () => {
             title: "Using patch",
             summary: "Execution in progress",
             tone: "running",
-            details: { toolCallId: "call_patch_1" },
+            details: { toolCallId: "call_patch_1", toolCallScopeId: "turn-1:response:1" },
           },
           {
             id: "timeline:event:tool-completed",
@@ -1910,7 +1920,11 @@ describe("Transcript", () => {
             title: "Completed patch",
             summary: "1 file changed",
             tone: "success",
-            details: { toolCallId: "call_patch_1", status: "succeeded" },
+            details: {
+              toolCallId: "call_patch_1",
+              toolCallScopeId: "turn-1:response:1",
+              status: "succeeded",
+            },
           },
         ]}
       />,
@@ -2006,7 +2020,7 @@ describe("Transcript", () => {
             title: "Using patch",
             summary: "Execution in progress",
             tone: "running",
-            details: { toolCallId: "call_patch_1" },
+            details: { toolCallId: "call_patch_1", toolCallScopeId: "turn-1:response:1" },
           },
         ]}
       />,
@@ -2120,7 +2134,7 @@ describe("Transcript", () => {
             title: "Using read",
             summary: "Execution in progress",
             tone: "running",
-            details: { toolCallId: "call_read_1" },
+            details: { toolCallId: "call_read_1", toolCallScopeId: "turn-1:response:1" },
           },
           {
             id: "timeline:event:tool-failed",

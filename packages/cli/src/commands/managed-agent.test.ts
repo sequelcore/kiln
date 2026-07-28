@@ -969,7 +969,37 @@ async function appendGuiManagedToolEvidenceEvents(
     requestedAuthority: "read_only",
     authorityProfileId: "authority:codex-oauth-readonly:foundation-readonly-plan",
   };
-  await transcriptStore.append(sessionId, {
+  const appendToolCompletion = async (
+    event: Parameters<TranscriptStore["append"]>[1],
+  ): Promise<void> => {
+    const toolCallId = event.payload.toolCallId;
+    const toolName = event.payload.toolName;
+    if (typeof toolCallId !== "string" || typeof toolName !== "string" || !event.turnId) {
+      throw new Error("Managed tool evidence fixture requires canonical tool identity.");
+    }
+    const toolCallScopeId = `${event.turnId}:response:1`;
+    await transcriptStore.append(sessionId, {
+      ...event,
+      eventId: `${event.eventId}:started`,
+      sequence: event.sequence * 2 - 1,
+      kind: "tool_call_started",
+      payload: {
+        toolCallId,
+        toolCallScopeId,
+        toolName,
+        input: {},
+      },
+    });
+    await transcriptStore.append(sessionId, {
+      ...event,
+      sequence: event.sequence * 2,
+      payload: {
+        ...event.payload,
+        toolCallScopeId,
+      },
+    });
+  };
+  await appendToolCompletion({
     eventId: "event-gui-start-1",
     kilnSessionId: sessionId,
     sequence: 1,
@@ -999,7 +1029,7 @@ async function appendGuiManagedToolEvidenceEvents(
       status: { state: "succeeded" },
     },
   });
-  await transcriptStore.append(sessionId, {
+  await appendToolCompletion({
     eventId: "event-gui-start-2",
     kilnSessionId: sessionId,
     sequence: 2,
@@ -1029,7 +1059,7 @@ async function appendGuiManagedToolEvidenceEvents(
       status: { state: "succeeded" },
     },
   });
-  await transcriptStore.append(sessionId, {
+  await appendToolCompletion({
     eventId: "event-gui-join-1",
     kilnSessionId: sessionId,
     sequence: 3,
@@ -1072,7 +1102,7 @@ async function appendGuiManagedToolEvidenceEvents(
       status: { state: "failed" },
     },
   });
-  await transcriptStore.append(sessionId, {
+  await appendToolCompletion({
     eventId: "event-gui-list",
     kilnSessionId: sessionId,
     sequence: 4,

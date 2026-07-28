@@ -64,6 +64,7 @@ export const OperatorCockpitActionTargetSchema = z.object({
   workItemId: z.string().min(1).optional(),
   managedInvocationId: z.string().min(1).optional(),
   toolCallId: z.string().min(1).optional(),
+  toolCallScopeId: z.string().min(1).optional(),
 });
 
 export type OperatorCockpitActionTarget = z.infer<typeof OperatorCockpitActionTargetSchema>;

@@ -29,6 +29,7 @@ describe("runtime config mutation session events", () => {
       runtimeEvents: [
         {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-config-propose",
           sessionId: session.id,
           timestamp: proposedAt,
@@ -45,6 +46,7 @@ describe("runtime config mutation session events", () => {
         },
         {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-config-apply",
           sessionId: session.id,
           timestamp: appliedAt,
@@ -117,6 +119,7 @@ describe("runtime config mutation session events", () => {
       runtimeEvents: [
         {
           type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-config-apply-failed",
           sessionId: session.id,
           timestamp,

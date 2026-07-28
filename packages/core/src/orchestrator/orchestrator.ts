@@ -343,7 +343,11 @@ export class Orchestrator {
    * If no explicit sandbox is provided and a role is present, use the role sandbox policy.
    */
   async executeDevTool(
-    request: DevToolExecutionRequest & { readonly role?: string; readonly cwd?: string },
+    request: DevToolExecutionRequest & {
+      readonly toolCallScopeId: string;
+      readonly role?: string;
+      readonly cwd?: string;
+    },
   ): Promise<DevToolExecutionResult> {
     return this._devToolSupport.executeDevTool(request);
   }

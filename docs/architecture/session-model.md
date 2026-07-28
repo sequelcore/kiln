@@ -308,11 +308,21 @@ assistant turn or render as standalone operational rows; both modes consume the
 same projection and canonical identities. A surface must not infer grouping,
 execution identity, or completion from tool name or presentation order.
 
-One tool execution is correlated by `toolCallId` from start through success,
-failure, interruption, replay, and restore. `eventId` identifies each immutable
-session event and deduplicates repeated persisted or live delivery. Restored and
-live projections must therefore produce the same row identity, ordering, and
-terminal evidence without manufacturing repair events.
+One tool execution is correlated by the composite identity
+`(toolCallScopeId, toolCallId)` from start through success, failure,
+interruption, replay, and restore. Provider call IDs are only unique inside the
+model response that produced them. The runtime owns `toolCallScopeId` creation
+at that response boundary and every downstream event, persistence adapter, and
+projection must preserve it unchanged.
+
+`eventId` identifies each immutable session event and deduplicates repeated
+persisted or live delivery; it is not a tool-call correlation fallback.
+Persistence and replay reject tool lifecycle records without either part of the
+composite identity. They must not infer identity from event order, tool name,
+turn position, or an event ID. Transcripts written before this contract are
+incompatible input rather than candidates for compatibility repair. Restored
+and live projections must therefore produce the same row identity, ordering,
+and terminal evidence without manufacturing repair events.
 
 Completed tool-start rows may collapse into their matching completion event so
 normal transcript surfaces show the final evidence instead of duplicated

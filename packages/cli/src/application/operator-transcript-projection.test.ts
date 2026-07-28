@@ -39,6 +39,8 @@ describe("operator transcript projection", () => {
   it("projects runtime tool results into canonical transcript drafts", () => {
     const event = {
       type: "tool_result" as const,
+      toolCallId: "call-1",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "managed_agent.invoke",
       output: JSON.stringify({
         output: "done",
@@ -68,7 +70,8 @@ describe("operator transcript projection", () => {
       },
       payload: {
         type: "tool_result",
-        toolCallId: "event-1",
+        toolCallId: "call-1",
+        toolCallScopeId: "turn-1:response:1",
         toolName: "managed_agent.invoke",
         output: "done",
         outputSummary: "done",
@@ -82,10 +85,27 @@ describe("operator transcript projection", () => {
     });
   });
 
+  it("rejects tool events without canonical scoped identity", () => {
+    const event = {
+      type: "tool_result" as const,
+      toolName: "managed_agent.invoke",
+      output: "done",
+    };
+
+    expect(() => projectOperatorTranscriptEntryToDraft({
+      eventId: "event-1",
+      kilnSessionId: "session-1",
+      timestamp: "2026-06-30T00:00:00.000Z",
+      event,
+      source: operatorTranscriptSourceForEntry(event, "cli", "run-command"),
+    })).toThrow(/toolCallId/);
+  });
+
   it("preserves rich runtime tool-result evidence in canonical transcript drafts", () => {
     const event = {
       type: "tool_result" as const,
       toolCallId: "call-rich",
+      toolCallScopeId: "turn-1:response:2",
       toolName: "managed_agent.invoke",
       output: "child completed",
       metadata: {
@@ -115,6 +135,7 @@ describe("operator transcript projection", () => {
     expect(draft.payload).toMatchObject({
       type: "tool_result",
       toolCallId: "call-rich",
+      toolCallScopeId: "turn-1:response:2",
       toolName: "managed_agent.invoke",
       output: "child completed",
       metadata: {
@@ -143,6 +164,7 @@ describe("operator transcript projection", () => {
       event: {
         type: "tool_result",
         toolCallId: "call-finish",
+        toolCallScopeId: "turn-1:response:3",
         toolName: "work_item.execution.finish",
         output: "completed",
         metadata: {

@@ -272,6 +272,7 @@ export class RuntimeSessionOrchestrator {
 
     const admittedUserParts = routing.transformedUserParts ?? userParts;
     session.addUserMessage(admittedUserParts);
+    const turnId = resolveRuntimeTurnId(session, perCallConfig);
 
     const toolExecutions: ToolExecutionSummary[] = [...(routing.preModelToolExecutions ?? [])];
     if (routing.delegatedMultimodalResult) {
@@ -327,7 +328,7 @@ export class RuntimeSessionOrchestrator {
       const governedWorkProgress = readGovernedWorkMaterializationProgress(
         perCallConfig?.governedWorkRequirement,
         toolExecutions,
-        resolveRuntimeTurnId(session, perCallConfig),
+        turnId,
       );
       const pendingTransitionForRound = pendingManagedInvocationTransition(toolExecutions);
       const transitionOnlyRound = isToolRoundBudgetExhausted(round, executionEnvelope);
@@ -421,6 +422,7 @@ export class RuntimeSessionOrchestrator {
       // adapters, must have its tool call identity validated before results enter the runtime
       // (added to session history, executed, or projected by the model-gateway bridge).
       assertValidToolCallIds(response.toolCalls, { adapter: routing.effectiveProvider.name });
+      const toolCallScopeId = `${turnId}:response:${round + 1}`;
 
       const usageTotals = this.telemetry.recordResponse(
         session.id,
@@ -597,6 +599,7 @@ export class RuntimeSessionOrchestrator {
       const execution = await toolExecutor.executeToolCalls(
         session,
         executableToolCalls,
+        toolCallScopeId,
         transitionOnlyRound && pendingTransitionForRound
           ? withManagedInvocationTransitionToolAllowlist(perCallConfig, pendingTransitionForRound)
           : perCallConfig,
@@ -662,7 +665,7 @@ export class RuntimeSessionOrchestrator {
     const governedWorkProgress = readGovernedWorkMaterializationProgress(
       perCallConfig?.governedWorkRequirement,
       toolExecutions,
-      resolveRuntimeTurnId(session, perCallConfig),
+      turnId,
     );
     if (governedWorkProgress && !governedWorkProgress.goalCreated) {
       this.telemetry.emitError(session.id, "Governed work materialization requirement was not satisfied");

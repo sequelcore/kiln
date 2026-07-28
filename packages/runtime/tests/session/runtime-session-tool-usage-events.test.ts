@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ToolCalledEvent, ToolResultEvent } from "@kilnai/core";
+import type { ToolCalledEvent, ToolOutputEvent, ToolResultEvent } from "@kilnai/core";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
@@ -17,6 +17,7 @@ describe("runtime session tool usage events", () => {
       type: "tool_called",
       sessionId: session.id,
       toolCallId: "web-search-1",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "web_search",
       toolInput: { query: "agent harness tools" },
       timestamp: startedAt,
@@ -25,6 +26,7 @@ describe("runtime session tool usage events", () => {
       type: "tool_result",
       sessionId: session.id,
       toolCallId: "web-search-1",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "web_search",
       durationMs: 42,
       success: true,
@@ -47,6 +49,17 @@ describe("runtime session tool usage events", () => {
       },
       timestamp: completedAt,
     };
+    const toolOutput: ToolOutputEvent = {
+      type: "tool_output",
+      sessionId: session.id,
+      toolCallId: "web-search-1",
+      toolCallScopeId: "turn-1:response:1",
+      toolName: "web_search",
+      stream: "stdout",
+      delta: "source 1\n",
+      chunkIndex: 0,
+      timestamp: new Date("2026-06-29T12:00:00.500Z"),
+    };
 
     appendCanonicalTurnEvents({
       session,
@@ -58,13 +71,23 @@ describe("runtime session tool usage events", () => {
       turnStartedAt: startedAt,
       turnCompletedAt: completedAt,
       continuity: { strategy: "none" },
-      runtimeEvents: [toolCalled, toolResult],
+      runtimeEvents: [toolCalled, toolOutput, toolResult],
     });
 
     const completed = session.sessionEvents.find((event) => event.kind === "tool_call_completed");
+    const output = session.sessionEvents.find((event) => event.kind === "tool_call_output_delta");
 
+    expect(output).toMatchObject({
+      kind: "tool_call_output_delta",
+      toolCallId: "web-search-1",
+      toolCallScopeId: "turn-1:response:1",
+      stream: "stdout",
+      delta: "source 1\n",
+      chunkIndex: 0,
+    });
     expect(completed).toMatchObject({
       kind: "tool_call_completed",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "web_search",
       metadata: {
         toolName: "web_search",
@@ -96,6 +119,7 @@ describe("runtime session tool usage events", () => {
       type: "tool_called",
       sessionId: session.id,
       toolCallId: "search-first",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "web_search",
       toolInput: { query: "first" },
       timestamp: startedAt,
@@ -104,6 +128,7 @@ describe("runtime session tool usage events", () => {
       type: "tool_called",
       sessionId: session.id,
       toolCallId: "search-second",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "web_search",
       toolInput: { query: "second" },
       timestamp: new Date("2026-06-29T12:00:00.100Z"),
@@ -112,6 +137,7 @@ describe("runtime session tool usage events", () => {
       type: "tool_result",
       sessionId: session.id,
       toolCallId: "search-second",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "web_search",
       durationMs: 20,
       success: false,
@@ -123,6 +149,7 @@ describe("runtime session tool usage events", () => {
       type: "tool_result",
       sessionId: session.id,
       toolCallId: "search-first",
+      toolCallScopeId: "turn-1:response:1",
       toolName: "web_search",
       durationMs: 40,
       success: true,
@@ -149,11 +176,13 @@ describe("runtime session tool usage events", () => {
         ? {
             kind: event.kind,
             toolCallId: event.toolCallId,
+            toolCallScopeId: event.toolCallScopeId,
             input: event.input,
           }
         : {
             kind: event.kind,
             toolCallId: event.toolCallId,
+            toolCallScopeId: event.toolCallScopeId,
             status: event.status.state,
             durationMs: event.durationMs,
             output: event.output,
@@ -163,16 +192,19 @@ describe("runtime session tool usage events", () => {
       {
         kind: "tool_call_started",
         toolCallId: "search-first",
+        toolCallScopeId: "turn-1:response:1",
         input: { query: "first" },
       },
       {
         kind: "tool_call_started",
         toolCallId: "search-second",
+        toolCallScopeId: "turn-1:response:1",
         input: { query: "second" },
       },
       {
         kind: "tool_call_completed",
         toolCallId: "search-second",
+        toolCallScopeId: "turn-1:response:1",
         status: "failed",
         durationMs: 20,
         output: "second failed",
@@ -180,6 +212,7 @@ describe("runtime session tool usage events", () => {
       {
         kind: "tool_call_completed",
         toolCallId: "search-first",
+        toolCallScopeId: "turn-1:response:1",
         status: "succeeded",
         durationMs: 40,
         output: "first succeeded",
@@ -211,6 +244,7 @@ describe("runtime session tool usage events", () => {
           type: "tool_called",
           sessionId: session.id,
           toolCallId: "persisted-tool-1",
+          toolCallScopeId: "persisted-turn:response:1",
           toolName: "read_file",
           toolInput: { path: "docs/plan.md" },
           timestamp: new Date("2026-06-29T12:00:00.250Z"),
@@ -219,6 +253,7 @@ describe("runtime session tool usage events", () => {
           type: "tool_result",
           sessionId: session.id,
           toolCallId: "persisted-tool-1",
+          toolCallScopeId: "persisted-turn:response:1",
           toolName: "read_file",
           durationMs: 1000,
           success: true,
@@ -231,9 +266,10 @@ describe("runtime session tool usage events", () => {
     expect(events.filter((event) => event.kind.startsWith("tool_call")).map((event) => ({
       kind: event.kind,
       toolCallId: event.toolCallId,
+      toolCallScopeId: event.toolCallScopeId,
     }))).toEqual([
-      { kind: "tool_call_started", toolCallId: "persisted-tool-1" },
-      { kind: "tool_call_completed", toolCallId: "persisted-tool-1" },
+      { kind: "tool_call_started", toolCallId: "persisted-tool-1", toolCallScopeId: "persisted-turn:response:1" },
+      { kind: "tool_call_completed", toolCallId: "persisted-tool-1", toolCallScopeId: "persisted-turn:response:1" },
     ]);
   });
 
@@ -295,5 +331,46 @@ describe("runtime session tool usage events", () => {
         timestamp: startedAt,
       } as unknown as ToolResultEvent],
     })).toThrow(/missing toolCallId/);
+  });
+
+  it.each([
+    {
+      type: "tool_called" as const,
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      toolInput: { query: "missing scope" },
+    },
+    {
+      type: "tool_result" as const,
+      toolCallId: "tool-1",
+      toolName: "web_search",
+      durationMs: 10,
+      success: true,
+    },
+  ])("fails fast when $type is missing tool-call scope identity", (runtimeEvent) => {
+    const session = new RuntimeSession({
+      appName: "app",
+      tenantId: "tenant",
+      userId: "user",
+      systemPrompt: "Be useful.",
+    });
+    const startedAt = new Date("2026-06-29T12:00:00.000Z");
+
+    expect(() => appendCanonicalTurnEvents({
+      session,
+      channel: "gui",
+      userMessageContent: "Run a search.",
+      assistantMessageContent: "Finished.",
+      turnOutcome: "completed",
+      queued: false,
+      turnStartedAt: startedAt,
+      turnCompletedAt: new Date("2026-06-29T12:00:00.500Z"),
+      continuity: { strategy: "none" },
+      runtimeEvents: [{
+        ...runtimeEvent,
+        sessionId: session.id,
+        timestamp: startedAt,
+      } as unknown as ToolCalledEvent | ToolResultEvent],
+    })).toThrow(/missing toolCallScopeId/);
   });
 });

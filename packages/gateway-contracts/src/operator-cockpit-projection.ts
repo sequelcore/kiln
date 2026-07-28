@@ -311,6 +311,7 @@ export type OperatorCockpitToolStatus =
 
 export interface OperatorCockpitToolSummaryProjection {
   readonly toolCallId: string;
+  readonly toolCallScopeId: string;
   readonly toolName: string;
   readonly instanceId: string;
   readonly sessionId: string;
@@ -395,6 +396,7 @@ interface InvocationAccumulator {
 
 interface ToolAccumulator {
   readonly toolCallId: string;
+  readonly toolCallScopeId: string;
   readonly toolName: string;
   readonly instanceId: string;
   readonly sessionId: string;
@@ -481,7 +483,14 @@ export function projectOperatorCockpitReadOnlyView(
     const sessionId = readString(payload.sessionId) ?? event.kilnSessionId;
     const managedInvocationId = readString(payload.managedInvocationId);
     const toolCallId = readString(payload.toolCallId);
+    const toolCallScopeId = readString(payload.toolCallScopeId);
     const toolName = readString(payload.toolName);
+    if (
+      (event.kind === "tool_call_started" || event.kind === "tool_call_completed")
+      && (!toolCallId || !toolCallScopeId)
+    ) {
+      throw new TypeError(`Operator cockpit tool event ${event.eventId} requires scoped tool identity.`);
+    }
     const gatewayTarget = normalizeGatewayTargetIdentity(instance.target);
     const target: OperatorCockpitActionTarget = {
       gatewayTargetId: gatewayTarget.targetId,
@@ -490,6 +499,7 @@ export function projectOperatorCockpitReadOnlyView(
       eventId: event.eventId,
       ...(managedInvocationId ? { managedInvocationId } : {}),
       ...(toolCallId ? { toolCallId } : {}),
+      ...(toolCallScopeId ? { toolCallScopeId } : {}),
     };
     const presentation = presentOperatorSessionEvent(event);
     const costDeltaUsd = readCostDeltaUsd(payload);
@@ -589,16 +599,18 @@ export function projectOperatorCockpitReadOnlyView(
       session.invocations.add(managedInvocationId);
     }
 
-    if (toolCallId && toolName) {
+    if (toolCallId && toolCallScopeId && toolName) {
       const toolTarget: OperatorCockpitActionTarget = {
         gatewayTargetId: gatewayTarget.targetId,
         instanceId,
         sessionId,
         eventId: event.eventId,
         toolCallId,
+        toolCallScopeId,
       };
       const tool = getOrCreateTool(tools, {
         toolCallId,
+        toolCallScopeId,
         toolName,
         instanceId,
         sessionId,
@@ -609,8 +621,9 @@ export function projectOperatorCockpitReadOnlyView(
       tool.latestEventId = event.eventId;
       tool.status = readToolStatus(event, payload);
       addResourceLinks(tool.resourceLinks, resourceLinks);
-      instance.tools.add(toolCallId);
-      session.tools.add(toolCallId);
+      const identityKey = projectionKey(toolCallScopeId, toolCallId);
+      instance.tools.add(identityKey);
+      session.tools.add(identityKey);
     }
 
     inputTokens += readNumber(payload.inputTokens) ?? 0;
@@ -817,6 +830,7 @@ function getOrCreateTool(
   tools: Map<string, ToolAccumulator>,
   input: {
     readonly toolCallId: string;
+    readonly toolCallScopeId: string;
     readonly toolName: string;
     readonly instanceId: string;
     readonly sessionId: string;
@@ -824,11 +838,12 @@ function getOrCreateTool(
     readonly latestEventId: string;
   },
 ): ToolAccumulator {
-  const key = projectionKey(input.instanceId, input.sessionId, input.toolCallId);
+  const key = projectionKey(input.instanceId, input.sessionId, input.toolCallScopeId, input.toolCallId);
   const existing = tools.get(key);
   if (existing) return existing;
   const created: ToolAccumulator = {
     toolCallId: input.toolCallId,
+    toolCallScopeId: input.toolCallScopeId,
     toolName: input.toolName,
     instanceId: input.instanceId,
     sessionId: input.sessionId,
@@ -914,6 +929,7 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
 function projectTool(input: ToolAccumulator): OperatorCockpitToolSummaryProjection {
   return {
     toolCallId: input.toolCallId,
+    toolCallScopeId: input.toolCallScopeId,
     toolName: input.toolName,
     instanceId: input.instanceId,
     sessionId: input.sessionId,

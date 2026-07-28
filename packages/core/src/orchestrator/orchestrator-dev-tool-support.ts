@@ -63,6 +63,7 @@ export class OrchestratorDevToolSupport {
 
   async executeDevTool(
     request: DevToolExecutionRequest & {
+      readonly toolCallScopeId: string;
       readonly role?: string;
       readonly cwd?: string;
       readonly authority?: AuthorityDescriptor;
@@ -75,6 +76,7 @@ export class OrchestratorDevToolSupport {
     const calledEvent: ToolCalledEvent = {
       type: "tool_called",
       toolCallId,
+      toolCallScopeId: request.toolCallScopeId,
       toolName: request.name,
       toolInput: request.input,
       taskId,
@@ -113,6 +115,7 @@ export class OrchestratorDevToolSupport {
       const resultEvent: ToolResultEvent = {
         type: "tool_result",
         toolCallId,
+        toolCallScopeId: request.toolCallScopeId,
         toolName: request.name,
         taskId,
         durationMs: Date.now() - startedAt,
@@ -155,6 +158,7 @@ export class OrchestratorDevToolSupport {
         const resultEvent: ToolResultEvent = {
           type: "tool_result",
           toolCallId,
+          toolCallScopeId: request.toolCallScopeId,
           toolName: request.name,
           taskId,
           durationMs: Date.now() - startedAt,
@@ -176,6 +180,7 @@ export class OrchestratorDevToolSupport {
       const resultEvent: ToolResultEvent = {
         type: "tool_result",
         toolCallId,
+        toolCallScopeId: request.toolCallScopeId,
         toolName: request.name,
         taskId,
         durationMs: Date.now() - startedAt,

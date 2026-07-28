@@ -51,6 +51,7 @@ export type ToolCallStatus = "running" | "success" | "error";
 
 export interface ToolCallEntry {
   readonly callId: string;
+  readonly scopeId: string;
   readonly toolName: string;
   readonly input: Record<string, unknown>;
   readonly result?: string;
@@ -547,6 +548,24 @@ function areSessionSummariesEqual(
   return true;
 }
 
+function toolCallScopeIdFromDetails(details: unknown): string | null {
+  const record = isObjectRecord(details) ? details : null;
+  if (!record) return null;
+  return readString(record.toolCallScopeId);
+}
+
+function requiredScopedToolIdentity(
+  payload: Record<string, unknown>,
+  eventId: string,
+): { readonly callId: string; readonly scopeId: string; readonly key: string } {
+  const callId = readString(payload.toolCallId);
+  const scopeId = readString(payload.toolCallScopeId);
+  if (!callId || !scopeId) {
+    throw new TypeError(`Tool event "${eventId}" requires scoped tool identity.`);
+  }
+  return { callId, scopeId, key: `${scopeId}\0${callId}` };
+}
+
 function appendSessionEvent(
   events: readonly GuiSessionEvent[],
   event: GuiSessionEvent,
@@ -743,12 +762,13 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     }
 
     if (event.kind === "tool_call_started") {
-      const toolCallId = readString(payload.toolCallId) ?? event.eventId;
+      const identity = requiredScopedToolIdentity(payload, event.eventId);
       const toolName = readString(payload.toolName) ?? "tool";
       const input = isObjectRecord(payload.input) ? payload.input : {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
-      toolCalls.set(toolCallId, {
-        callId: toolCallId,
+      toolCalls.set(identity.key, {
+        callId: identity.callId,
+        scopeId: identity.scopeId,
         toolName,
         input,
         status: "running",
@@ -767,7 +787,8 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         presentationDetails: presentation.details,
         toolPresentation: presentation.toolPresentation,
         details: {
-          toolCallId,
+          toolCallId: identity.callId,
+          toolCallScopeId: identity.scopeId,
           toolName,
           input,
         },
@@ -777,11 +798,13 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
 
     if (event.kind === "tool_call_output_delta") {
       const toolCallId = readString(payload.toolCallId);
+      const toolCallScopeId = readString(payload.toolCallScopeId);
       const delta = readString(payload.delta);
-      if (!toolCallId || delta === null) continue;
+      if (!toolCallId || !toolCallScopeId || delta === null) continue;
       const entryIndex = timelineEntries.findIndex((entry) => entry.type === "event"
         && entry.eventKind === "tool_call_started"
-        && toolCallIdFromDetails(entry.details) === toolCallId);
+        && toolCallIdFromDetails(entry.details) === toolCallId
+        && toolCallScopeIdFromDetails(entry.details) === toolCallScopeId);
       if (entryIndex < 0) continue;
       const entry = timelineEntries[entryIndex]! as TimelineEventEntry;
       const details = isObjectRecord(entry.details) ? entry.details : {};
@@ -796,8 +819,8 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
     }
 
     if (event.kind === "tool_call_completed") {
-      const toolCallId = readString(payload.toolCallId) ?? event.eventId;
-      const toolName = readString(payload.toolName) ?? toolCalls.get(toolCallId)?.toolName ?? "tool";
+      const identity = requiredScopedToolIdentity(payload, event.eventId);
+      const toolName = readString(payload.toolName) ?? toolCalls.get(identity.key)?.toolName ?? "tool";
       const status = isObjectRecord(payload.status) ? payload.status : null;
       const presentation = presentOperatorEventPayload(event.kind, payload);
       const projectedInteractiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(detail.id, event, payload, status);
@@ -805,13 +828,14 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       browserSessionState = projectedInteractiveUseSnapshot
         ? browserSessionStateFromSnapshot(projectedInteractiveUseSnapshot)
         : browserSessionState;
-      toolCalls.set(toolCallId, {
-        callId: toolCallId,
+      toolCalls.set(identity.key, {
+        callId: identity.callId,
+        scopeId: identity.scopeId,
         toolName,
-        input: toolCalls.get(toolCallId)?.input ?? {},
+        input: toolCalls.get(identity.key)?.input ?? {},
         result: presentation.summary ?? eventPayloadText(payload) ?? undefined,
         status: toolEntryStatusFromPresentation(status?.state, presentation.tone),
-        startedAt: toolCalls.get(toolCallId)?.startedAt ?? event.timestamp,
+        startedAt: toolCalls.get(identity.key)?.startedAt ?? event.timestamp,
         completedAt: event.timestamp,
       });
       timelineEntries.push({
@@ -827,9 +851,10 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         presentationDetails: presentation.details,
         toolPresentation: presentation.toolPresentation,
         details: {
-          toolCallId,
+          toolCallId: identity.callId,
+          toolCallScopeId: identity.scopeId,
           toolName,
-          input: toolCalls.get(toolCallId)?.input ?? {},
+          input: toolCalls.get(identity.key)?.input ?? {},
           result: presentation.summary ?? eventPayloadText(payload) ?? undefined,
           status: presentation.tone === "error" ? "failed" : status?.state,
         },
@@ -1232,6 +1257,7 @@ function toolInputFromDetails(details: unknown): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(detailRecord).filter(([key]) => (
       key !== "toolCallId"
+      && key !== "toolCallScopeId"
       && key !== "toolName"
       && key !== "status"
       && key !== "result"
@@ -1244,11 +1270,13 @@ export function deriveToolCallLog(entries: readonly TimelineEntry[]): readonly T
   for (const entry of entries) {
     if (entry.type !== "event") continue;
     if (entry.eventKind === "tool_call_started") {
-      const callId = toolCallIdFromDetails(entry.details) ?? entry.id;
+      const details = isObjectRecord(entry.details) ? entry.details : {};
+      const identity = requiredScopedToolIdentity(details, entry.id);
       const input = toolInputFromDetails(entry.details);
       const toolName = toolNameFromDetails(entry.details, entry.title);
-      toolCalls.set(callId, {
-        callId,
+      toolCalls.set(identity.key, {
+        callId: identity.callId,
+        scopeId: identity.scopeId,
         toolName,
         input,
         status: "running",
@@ -1258,10 +1286,11 @@ export function deriveToolCallLog(entries: readonly TimelineEntry[]): readonly T
     }
     if (entry.eventKind === "tool_call_completed") {
       const details = isObjectRecord(entry.details) ? entry.details : null;
-      const callId = toolCallIdFromDetails(details) ?? entry.id;
-      const previous = toolCalls.get(callId);
-      toolCalls.set(callId, {
-        callId,
+      const identity = requiredScopedToolIdentity(details ?? {}, entry.id);
+      const previous = toolCalls.get(identity.key);
+      toolCalls.set(identity.key, {
+        callId: identity.callId,
+        scopeId: identity.scopeId,
         toolName: toolNameFromDetails(details, entry.title, previous?.toolName),
         input: isObjectRecord(details?.input) ? details.input : previous?.input ?? {},
         result: readString(details?.result) ?? entry.summary ?? undefined,
@@ -1606,6 +1635,7 @@ function interactiveSnapshotFromPersistedToolEvent(
     updatedAt: event.timestamp,
     kilnSessionId: sessionId,
     ...stringField("toolCallId", readString(payload.toolCallId)),
+    ...stringField("toolCallScopeId", readString(payload.toolCallScopeId)),
     ...stringField("toolName", readString(payload.toolName)),
     ...stringField("provider", readString(metadata.provider)),
     ...stringField("sessionId", readString(metadata.sessionId)),
@@ -1634,6 +1664,7 @@ function browserSessionStateFromSnapshot(
     updatedAt: snapshot.updatedAt,
     ...(snapshot.kilnSessionId ? { kilnSessionId: snapshot.kilnSessionId } : {}),
     ...(snapshot.toolCallId ? { toolCallId: snapshot.toolCallId } : {}),
+    ...(snapshot.toolCallScopeId ? { toolCallScopeId: snapshot.toolCallScopeId } : {}),
     ...(snapshot.toolName ? { toolName: snapshot.toolName } : {}),
     ...(snapshot.provider ? { provider: snapshot.provider } : {}),
     ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
@@ -2243,6 +2274,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     if (event.kind === "tool_call_started") {
+      const identity = requiredScopedToolIdentity(payload, event.eventId);
       const toolName = readString(payload.toolName) ?? "tool";
       const input = isObjectRecord(payload.input) ? payload.input : {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
@@ -2263,7 +2295,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             presentationDetails: presentation.details,
             toolPresentation: presentation.toolPresentation,
             details: {
-              toolCallId: readString(payload.toolCallId) ?? event.eventId,
+              toolCallId: identity.callId,
+              toolCallScopeId: identity.scopeId,
               toolName,
               input,
             },
@@ -2280,13 +2313,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     if (event.kind === "tool_call_output_delta") {
       const toolCallId = readString(payload.toolCallId);
+      const toolCallScopeId = readString(payload.toolCallScopeId);
       const delta = readString(payload.delta);
-      if (!toolCallId || delta === null) return;
+      if (!toolCallId || !toolCallScopeId || delta === null) return;
       const current = get();
       set({
         timelineEntries: current.timelineEntries.map((entry) => {
           if (entry.type !== "event" || entry.eventKind !== "tool_call_started"
-            || toolCallIdFromDetails(entry.details) !== toolCallId) {
+            || toolCallIdFromDetails(entry.details) !== toolCallId
+            || toolCallScopeIdFromDetails(entry.details) !== toolCallScopeId) {
             return entry;
           }
           const details = isObjectRecord(entry.details) ? entry.details : {};
@@ -2303,12 +2338,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
 
     if (event.kind === "tool_call_completed") {
+      const identity = requiredScopedToolIdentity(payload, event.eventId);
       const status = isObjectRecord(payload.status) ? payload.status : null;
       const interactiveUseSnapshot = interactiveSnapshotFromPersistedToolEvent(event.kilnSessionId, event, payload, status);
       const browserSessionState = browserSessionStateFromSnapshot(interactiveUseSnapshot);
       const current = get();
       const priorToolCalls = deriveToolCallLog(current.timelineEntries);
-      const priorInput = priorToolCalls.find((entry) => entry.callId === (readString(payload.toolCallId) ?? event.eventId))?.input ?? {};
+      const priorInput = priorToolCalls.find((entry) =>
+        entry.callId === identity.callId && entry.scopeId === identity.scopeId
+      )?.input ?? {};
       const presentation = presentOperatorEventPayload(event.kind, payload);
       set({
         timelineEntries: [
@@ -2326,7 +2364,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             presentationDetails: presentation.details,
             toolPresentation: presentation.toolPresentation,
             details: {
-              toolCallId: readString(payload.toolCallId) ?? event.eventId,
+              toolCallId: identity.callId,
+              toolCallScopeId: identity.scopeId,
               toolName: readString(payload.toolName) ?? "tool",
               input: priorInput,
               result: presentation.summary ?? eventPayloadText(payload) ?? undefined,

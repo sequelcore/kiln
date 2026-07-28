@@ -14,6 +14,7 @@ export interface ConversationProjectionEventInput {
   readonly eventKind: string;
   readonly turnId?: string;
   readonly toolCallId?: string;
+  readonly toolCallScopeId?: string;
 }
 
 export type ConversationProjectionInput =
@@ -162,20 +163,33 @@ export function projectConversationTurnItems<TPhase extends string = string>(
 function removeCompletedStartedToolEvents(
   entries: readonly ConversationProjectionInput[],
 ): readonly ConversationProjectionInput[] {
-  const completedToolCallIds = new Set<string>();
+  const completedToolCallIdentities = new Set<string>();
   for (const entry of entries) {
-    if (entry.kind !== "event" || entry.eventKind !== "tool_call_completed" || !entry.toolCallId) continue;
-    completedToolCallIds.add(entry.toolCallId);
+    if (entry.kind !== "event" || entry.eventKind !== "tool_call_completed") continue;
+    const identity = scopedToolIdentity(entry);
+    if (identity) completedToolCallIdentities.add(identity);
   }
-  if (completedToolCallIds.size === 0) {
+  if (completedToolCallIdentities.size === 0) {
     return [...entries];
   }
   return entries.filter((entry) => (
     entry.kind !== "event"
     || entry.eventKind !== "tool_call_started"
-    || !entry.toolCallId
-    || !completedToolCallIds.has(entry.toolCallId)
+    || scopedToolIdentity(entry) === undefined
+    || !completedToolCallIdentities.has(scopedToolIdentity(entry)!)
   ));
+}
+
+function scopedToolIdentity(entry: ConversationProjectionEventInput): string | undefined {
+  if (
+    typeof entry.toolCallId !== "string"
+    || entry.toolCallId.trim().length === 0
+    || typeof entry.toolCallScopeId !== "string"
+    || entry.toolCallScopeId.trim().length === 0
+  ) {
+    return undefined;
+  }
+  return `${entry.toolCallScopeId}\0${entry.toolCallId}`;
 }
 
 function turnIdsCompatible(left: string | undefined, right: string | undefined): boolean {
