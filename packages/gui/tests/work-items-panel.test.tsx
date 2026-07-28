@@ -9,6 +9,50 @@ describe("WorkItemsPanel", () => {
     useUiStore.getState().setTheme("kiln-dark");
   });
 
+  it("keeps repeated work-item ids distinct across canonical sessions", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const base = {
+      id: "work-shared",
+      status: "blocked",
+      workflowProfile: "verification-heavy",
+      authorityProfile: "authority:workspace-write",
+      referenceRoots: [],
+      expectedEvidence: [],
+      providedEvidence: [],
+      verificationGates: [],
+      pauseRequirements: [],
+      executionAttempts: [],
+      pendingPauseRequirementCount: 0,
+      missingEvidence: [],
+      missingGoalEvidence: [],
+      missingVerificationGates: [],
+      failedVerificationGates: [],
+      missingResidualRisk: false,
+    } satisfies Omit<WorkItemEntry, "sessionId" | "summary" | "resourceUri" | "updatedAt">;
+    const items: WorkItemEntry[] = [
+      {
+        ...base,
+        sessionId: "session-a",
+        summary: "Session A work",
+        resourceUri: "kiln://session-a/work-items/work-shared",
+        updatedAt: "2026-07-28T10:00:00.000Z",
+      },
+      {
+        ...base,
+        sessionId: "session-b",
+        summary: "Session B work",
+        resourceUri: "kiln://session-b/work-items/work-shared",
+        updatedAt: "2026-07-28T10:01:00.000Z",
+      },
+    ];
+
+    render(<WorkItemsPanel items={items} />);
+
+    expect(screen.getByText("Session A work")).toBeInTheDocument();
+    expect(screen.getByText("Session B work")).toBeInTheDocument();
+    expect(consoleError.mock.calls.flat().join(" ")).not.toContain("same key");
+  });
+
   it("renders assigned agent profiles with stable identity marks", () => {
     const items: WorkItemEntry[] = [
       {

@@ -439,19 +439,39 @@ confirmed via `git stash` before this work began), typecheck clean across
 
 ### Slice 3 - Cross-Surface Replay
 
-Status: In progress. Recovery pause requirements now retain superseded
-requirements, link each one to its replacement, derive replay-stable identities
-from the validated outer tool-call and phase identities, and project the same
-state through CLI, GUI, TUI, native, gateway contracts, session outcomes, and
-canonical replay. Slice 2 already owns canonical approval-request and
-approval-resolution events; cross-surface approval parity and the remaining
-terminal-consistency work below remain open.
+Status: Slice 3.3 complete. Final Roadmap 01 promotion and closeout remain
+bounded to issue #25.
 
-Prove GUI, TUI, CLI, SDK, and replay agree; preserve redacted server/tool
-failure category and identity; require approval request/resolution events for
-approval-bound mutations; assert continuation summaries retain one canonical
-thread identity without duplicated key prefixes; verify list/status calls
-cannot lose or contradict a work item within the same canonical session.
+Delivered one synthetic portable session fixture that retains explicit
+external-runtime attachment identity, a redacted failed external-tool call, a
+superseded recovery requirement and its live successor, approval request and
+resolution, an active goal, failed terminal outcome, and non-contradictory
+assistant prose. Canonical transcript normalization now preserves that evidence
+instead of reducing replay to managed-invocation lifecycle events.
+
+`projectOperatorGovernedWorkItems` is the single cross-surface work-item merge
+and fail-closed disposition owner. It distinguishes omitted fields in partial
+execution snapshots from explicitly empty fields, treats unknown pause status
+as pending, treats absent or unknown authority as blocking, and preserves
+separate missing-evidence, goal-evidence, verification-gate, failed-gate, and
+residual-risk categories. GUI, TUI, native, CLI, SDK, workspace home, and
+canonical replay consume that owner. CLI list/status and GUI/TUI/native
+presentation retain attachment, actionable redacted failure evidence, and
+per-work-item blocking detail.
+
+Verification completed for Slice 3.3:
+
+- `@kilnai/gateway-contracts`: 28 files, 266 tests.
+- `@kilnai/sdk`: 10 files, 69 tests.
+- `@kilnai/gui`: 51 files, 500 tests.
+- `@kilnai/tui`: 8 files, 57 tests.
+- `@kilnai/native`: 4 files, 48 tests.
+- `@kilnai/cli`: the full suite passes deterministically with the known
+  high-contention `run-builtin-tools.test.ts` isolated to one worker (39/39);
+  all remaining CLI tests pass with two workers.
+- Workspace typecheck and `git diff --check` pass.
+- Findings-first managed-agent and cross-surface reviews report no unresolved
+  high or medium findings.
 
 ## Promotion Gates
 

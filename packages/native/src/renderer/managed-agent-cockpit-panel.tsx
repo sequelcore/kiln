@@ -135,6 +135,12 @@ export function ManagedAgentCockpitPanel({
                   <dd>{item.routeSource ?? "unknown"}</dd>
                 </div>
                 <div>
+                  <dt>Attachment</dt>
+                  <dd>{item.externalRuntimeAttachment
+                    ? `${item.externalRuntimeAttachment.runtimeId}/${item.externalRuntimeAttachment.attachmentId}`
+                    : "not attached"}</dd>
+                </div>
+                <div>
                   <dt>Parent turn</dt>
                   <dd>{item.parentTurnId ?? "unknown"}</dd>
                 </div>
@@ -163,6 +169,12 @@ export function ManagedAgentCockpitPanel({
                   <dd>{item.cancelControl.status}</dd>
                 </div>
               </dl>
+              {(item.externalToolFailures ?? []).map((failure) => (
+                <p className="resource-line" key={`${failure.selector}:${failure.category}`}>
+                  <span>External failure</span>
+                  <code>{failure.selector}: {failure.diagnostic}</code>
+                </p>
+              ))}
               {item.transcriptUri ? (
                 <p className="resource-line">
                   <span>Transcript</span>

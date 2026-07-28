@@ -188,6 +188,12 @@ function formatManagedAgentItemLines(item: OperatorCockpitManagedAgentViewItem):
   if (item.routeSource || item.timeoutMs !== undefined || item.timeoutSource) {
     lines.push(`  route-source ${item.routeSource ?? "--"} timeout ${item.timeoutMs !== undefined ? `${item.timeoutMs}ms` : "--"} source:${item.timeoutSource ?? "--"}`);
   }
+  if (item.externalRuntimeAttachment) {
+    lines.push(`  attachment ${item.externalRuntimeAttachment.runtimeId}/${item.externalRuntimeAttachment.attachmentId}`);
+  }
+  for (const failure of item.externalToolFailures ?? []) {
+    lines.push(`  external-failure ${failure.selector} ${failure.category}: ${failure.diagnostic}`);
+  }
   if (item.transcriptUri) {
     lines.push(`  tx ${item.transcriptUri}`);
   }
@@ -210,6 +216,12 @@ function formatManagedAgentDrilldownLines(
     `drilldown ${item.managedInvocationId}`,
     `  lifecycle ${item.lifecycleState ?? "unknown"}`,
     `  latest ${item.latestEventId}`,
+    ...(item.externalRuntimeAttachment
+      ? [`  attachment ${item.externalRuntimeAttachment.runtimeId}/${item.externalRuntimeAttachment.attachmentId}`]
+      : []),
+    ...(item.externalToolFailures ?? []).map((failure) => (
+      `  external-failure ${failure.selector} ${failure.category}: ${failure.diagnostic}`
+    )),
     `  replay ${drilldown.replay.entry.eventId}`,
     `  prev ${drilldown.replay.previousEventId ?? "--"} next ${drilldown.replay.nextEventId ?? "--"}`,
     ...formatManagedAgentWorktreeConflictLines(item),

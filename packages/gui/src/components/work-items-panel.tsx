@@ -62,7 +62,7 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
   return (
     <section aria-label="Work items" className="h-full min-h-0 overflow-y-auto bg-card">
       <ul className="flex flex-col gap-2 p-4">
-        {props.items.map((item) => {
+        {props.items.map((item, index) => {
           const missing = [
             ...(item.missingEvidence ?? []),
             ...(item.missingGoalEvidence ?? []),
@@ -159,7 +159,7 @@ export function WorkItemsPanel(props: WorkItemsPanelProps) {
               </Task>
           );
           return (
-            <li key={item.id}>
+            <li key={item.sessionId ? `${item.sessionId}\u001f${item.id}` : `${item.id}\u001f${index}`}>
               {item.id === emphasizedWorkItemId ? (
                 <BorderBeam
                   active

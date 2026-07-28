@@ -55,6 +55,18 @@ export function NativeWorkItemsPanel(props: NativeWorkItemsPanelProps): ReactEle
               {item.missingEvidence.length > 0 ? (
                 <p className="work-item-warning">Missing: {item.missingEvidence.join(", ")}</p>
               ) : null}
+              {item.missingGoalEvidence.length > 0 ? (
+                <p className="work-item-warning">Missing goal evidence: {item.missingGoalEvidence.join(", ")}</p>
+              ) : null}
+              {item.missingVerificationGates.length > 0 ? (
+                <p className="work-item-warning">Missing verification gates: {item.missingVerificationGates.join(", ")}</p>
+              ) : null}
+              {item.failedVerificationGates.length > 0 ? (
+                <p className="work-item-warning">Failed verification gates: {item.failedVerificationGates.join(", ")}</p>
+              ) : null}
+              {item.missingResidualRisk ? (
+                <p className="work-item-warning">Missing residual-risk disposition</p>
+              ) : null}
             </li>
           ))}
         </ul>

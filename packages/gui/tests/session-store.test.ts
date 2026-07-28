@@ -7,6 +7,10 @@ import {
   deriveWorkItems,
   useSessionStore,
 } from "../src/lib/session-store.js";
+import {
+  EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
+  externalRuntimeGovernanceEvents,
+} from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
 
 function resetSessionStore(): void {
   useSessionStore.setState({
@@ -2240,6 +2244,33 @@ describe("session-store", () => {
         ],
       }),
     ]);
+  });
+
+  it("derives governed work from the canonical external-runtime parity fixture", () => {
+    for (const event of externalRuntimeGovernanceEvents) {
+      useSessionStore.getState().onSessionEvent(event);
+    }
+
+    expect(deriveWorkItems(useSessionStore.getState().timelineEntries)).toMatchObject([{
+      id: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
+      sessionId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.sessionId,
+      turnId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.toolCallScopeId,
+      status: "blocked",
+      pendingPauseRequirementCount: 1,
+      missingEvidence: ["runtime-observation"],
+      failedVerificationGates: ["synthetic-runtime-navigation"],
+      pauseRequirements: [
+        {
+          id: "external-runtime-parity:pause:1",
+          status: "superseded",
+          supersededByRequirementId: "external-runtime-parity:pause:2",
+        },
+        {
+          id: "external-runtime-parity:pause:2",
+          status: "pending",
+        },
+      ],
+    }]);
   });
 
   it("projects plan, goal, and materialization lifecycle events into the GUI timeline", () => {

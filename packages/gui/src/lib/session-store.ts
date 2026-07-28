@@ -23,6 +23,9 @@ import type {
   OperatorSessionEventKind,
   ToolResultPresentation,
   ContextUsageProjection,
+  OperatorGovernedWorkExecutionAttempt,
+  OperatorGovernedWorkItemProjection,
+  OperatorGovernedWorkPauseRequirement,
 } from "@kilnai/gateway-contracts";
 import {
   formatOperatorEventValue,
@@ -30,6 +33,7 @@ import {
   presentOperatorEventPayload,
   ContextUsageProjectionSchema,
   VerifiedEfficiencyEvidenceProjectionSchema,
+  projectOperatorGovernedWorkItemSnapshot,
 } from "@kilnai/gateway-contracts";
 import {
   deriveSessionContinuity,
@@ -72,49 +76,9 @@ export interface ChangedFileEntry {
   readonly recordedAt: string;
 }
 
-export interface WorkItemEntry {
-  readonly id: string;
-  readonly resourceUri?: string;
-  readonly summary: string;
-  readonly status: string;
-  readonly workflowProfile: string;
-  readonly risk?: string;
-  readonly surface?: string;
-  readonly assignedAgentProfile?: string;
-  readonly authorityProfile?: string;
-  readonly referenceRoots?: readonly string[];
-  readonly expectedEvidence: readonly string[];
-  readonly providedEvidence: readonly string[];
-  readonly verificationGates: readonly string[];
-  readonly pauseRequirements?: readonly WorkItemPauseRequirementEntry[];
-  readonly executionAttempts?: readonly WorkItemExecutionAttemptEntry[];
-  readonly missingEvidence?: readonly string[];
-  readonly missingGoalEvidence?: readonly string[];
-  readonly missingVerificationGates?: readonly string[];
-  readonly failedVerificationGates?: readonly string[];
-  readonly missingResidualRisk?: boolean;
-  readonly updatedAt: string;
-}
-
-export interface WorkItemPauseRequirementEntry {
-  readonly id: string;
-  readonly kind: string;
-  readonly summary: string;
-  readonly status: string;
-  readonly supersededByRequirementId?: string;
-  readonly supersededAt?: string;
-  readonly supersededBy?: string;
-  readonly reason?: string;
-}
-
-export interface WorkItemExecutionAttemptEntry {
-  readonly id: string;
-  readonly status: string;
-  readonly executionMode: string;
-  readonly startedAt?: string;
-  readonly completedAt?: string;
-  readonly managedInvocationId?: string;
-}
+export type WorkItemEntry = OperatorGovernedWorkItemProjection;
+export type WorkItemPauseRequirementEntry = OperatorGovernedWorkPauseRequirement;
+export type WorkItemExecutionAttemptEntry = OperatorGovernedWorkExecutionAttempt;
 
 export type ProviderCatalogStatus = GuiProviderCatalogStatus;
 
@@ -416,95 +380,19 @@ function toolCallIdFromDetails(details: unknown): string | null {
   return readString(record.toolCallId);
 }
 
-function readStringArray(value: unknown): readonly string[] {
-  return Array.isArray(value)
-    ? value.flatMap((entry) => readString(entry) ? [readString(entry)!] : [])
-    : [];
-}
-
-function workItemFromPayload(payload: Record<string, unknown>): WorkItemEntry | null {
-  const item = isObjectRecord(payload.workItem) ? payload.workItem : null;
-  if (!item) return null;
-  const id = readString(item.id);
-  const summary = readString(item.summary);
-  const status = readString(item.status);
-  const workflowProfile = readString(item.workflowProfile);
-  if (!id || !summary || !status || !workflowProfile) {
-    return null;
-  }
-  const referenceRoots = readStringArray(item.referenceRoots);
-  return {
-    id,
-    resourceUri: `kiln://session/work-items/${encodeURIComponent(id)}`,
-    summary,
-    status,
-    workflowProfile,
-    risk: readString(item.risk) ?? undefined,
-    surface: readString(item.surface) ?? undefined,
-    assignedAgentProfile: readString(item.assignedAgentProfile) ?? undefined,
-    authorityProfile: readString(item.authorityProfile) ?? undefined,
-    referenceRoots: referenceRoots.length > 0 ? referenceRoots : undefined,
-    expectedEvidence: readStringArray(item.expectedEvidence),
-    providedEvidence: readStringArray(item.providedEvidence),
-    verificationGates: readStringArray(item.verificationGates),
-    pauseRequirements: readWorkItemPauseRequirements(item.pauseRequirements),
-    executionAttempts: readWorkItemExecutionAttempts(item.executionAttempts),
-    missingEvidence: readStringArray(payload.missingEvidence),
-    missingGoalEvidence: readStringArray(payload.missingGoalEvidence),
-    missingVerificationGates: readStringArray(payload.missingVerificationGates),
-    failedVerificationGates: readStringArray(payload.failedVerificationGates),
-    missingResidualRisk: payload.missingResidualRisk === true,
-    updatedAt: readString(item.updatedAt) ?? nowIso(),
-  };
-}
-
-function readWorkItemPauseRequirements(value: unknown): readonly WorkItemPauseRequirementEntry[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  return value.flatMap((entry) => {
-    const record = isObjectRecord(entry) ? entry : null;
-    const id = readString(record?.id);
-    const kind = readString(record?.kind);
-    const summary = readString(record?.summary);
-    const rawStatus = readString(record?.status);
-    const status = rawStatus === "resolved" || rawStatus === "superseded"
-      ? rawStatus
-      : "pending";
-    return id && kind && summary
-      ? [{
-          id,
-          kind,
-          summary,
-          status,
-          supersededByRequirementId: readString(record?.supersededByRequirementId) ?? undefined,
-          supersededAt: readString(record?.supersededAt) ?? undefined,
-          supersededBy: readString(record?.supersededBy) ?? undefined,
-          reason: readString(record?.reason) ?? undefined,
-        }]
-      : [];
-  });
-}
-
-function readWorkItemExecutionAttempts(value: unknown): readonly WorkItemExecutionAttemptEntry[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  return value.flatMap((entry) => {
-    const record = isObjectRecord(entry) ? entry : null;
-    const id = readString(record?.id);
-    const status = readString(record?.status);
-    const executionMode = readString(record?.executionMode);
-    return id && status && executionMode
-      ? [{
-        id,
-        status,
-        executionMode,
-        startedAt: readString(record?.startedAt) ?? undefined,
-        completedAt: readString(record?.completedAt) ?? undefined,
-        managedInvocationId: readString(record?.managedInvocationId) ?? undefined,
-      }]
-      : [];
+function workItemFromPayload(
+  payload: Record<string, unknown>,
+  previous?: WorkItemEntry,
+  sessionId?: string,
+  turnId?: string,
+): WorkItemEntry | null {
+  return projectOperatorGovernedWorkItemSnapshot({
+    workItem: payload.workItem,
+    evidence: payload,
+    ...(previous ? { previous } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(turnId ? { turnId } : {}),
+    observedAt: nowIso(),
   });
 }
 
@@ -524,15 +412,6 @@ function isWorkflowLifecycleTimelineEventKind(kind: OperatorSessionEventKind): b
     || kind === "goal.failed"
     || kind === "goal.cancelled"
     || kind === "work_items.materialized";
-}
-
-function mergeWorkItemEntry(previous: WorkItemEntry | undefined, next: WorkItemEntry): WorkItemEntry {
-  return {
-    ...next,
-    referenceRoots: next.referenceRoots ?? previous?.referenceRoots,
-    pauseRequirements: next.pauseRequirements ?? previous?.pauseRequirements,
-    executionAttempts: next.executionAttempts ?? previous?.executionAttempts,
-  };
 }
 
 const USD_FORMATTER = new Intl.NumberFormat("en-US", {
@@ -796,6 +675,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
+        sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
         ...(event.turnId ? { turnId: event.turnId } : {}),
         title: presentation.title,
         summary: presentation.summary,
@@ -960,6 +840,7 @@ function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         eventKind: event.kind,
         createdAt: event.timestamp,
         sequence: event.sequence,
+        sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
         ...(event.turnId ? { turnId: event.turnId } : {}),
         title: presentation.title,
         summary: presentation.summary,
@@ -1386,9 +1267,16 @@ export function deriveWorkItems(entries: readonly TimelineEntry[]): readonly Wor
     if (!payload) {
       continue;
     }
-    const item = workItemFromPayload(payload);
+    const workItemId = readString(isObjectRecord(payload.workItem) ? payload.workItem.id : undefined);
+    const itemKey = workItemId ? `${entry.sessionId ?? ""}\u001f${workItemId}` : undefined;
+    const item = workItemFromPayload(
+      payload,
+      itemKey ? items.get(itemKey) : undefined,
+      entry.sessionId,
+      entry.turnId,
+    );
     if (item) {
-      items.set(item.id, mergeWorkItemEntry(items.get(item.id), item));
+      items.set(`${item.sessionId ?? ""}\u001f${item.id}`, item);
     }
   }
   return [...items.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
@@ -2304,6 +2192,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
+            sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
             ...timelineTurnId(event),
             title: presentation.title,
             summary: presentation.summary,
@@ -2550,6 +2439,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             eventKind: event.kind,
             createdAt: event.timestamp,
             sequence: event.sequence,
+            sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
             ...timelineTurnId(event),
             title: presentation.title,
             summary: presentation.summary,

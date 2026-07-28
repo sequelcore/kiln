@@ -2,7 +2,11 @@ import type {
   GuiInboundFrame,
   GuiOutboundFrame,
   OperatorCockpitManagedAgentDrilldownTarget,
+  OperatorGovernedWorkItemProjection,
   OperatorSessionEvent,
+} from "@kilnai/gateway-contracts";
+import {
+  projectOperatorGovernedWorkItems,
 } from "@kilnai/gateway-contracts";
 
 export type NativeGatewayCockpitConnectionState = "planned" | "open" | "closed" | "error";
@@ -18,20 +22,7 @@ export interface NativeGatewayCockpitFrameState {
   readonly error?: string;
 }
 
-export interface NativeWorkItemSummary {
-  readonly id: string;
-  readonly resourceUri: string;
-  readonly summary: string;
-  readonly status: string;
-  readonly workflowProfile: string;
-  readonly authorityProfile?: string;
-  readonly assignedAgentProfile?: string;
-  readonly expectedEvidence: readonly string[];
-  readonly providedEvidence: readonly string[];
-  readonly missingEvidence: readonly string[];
-  readonly pendingPauseRequirementCount: number;
-  readonly updatedAt: string;
-}
+export type NativeWorkItemSummary = OperatorGovernedWorkItemProjection;
 
 export function resolveNativeGatewayCockpitWebSocketUrl(
   gatewayUrl: string,
@@ -84,49 +75,7 @@ export function selectNativeManagedAgentDrilldownTarget(
 }
 
 export function selectNativeWorkItems(events: readonly OperatorSessionEvent[]): readonly NativeWorkItemSummary[] {
-  const items = new Map<string, NativeWorkItemSummary>();
-  for (const event of [...events].sort(compareSessionEvents)) {
-    if (
-      event.kind !== "work_item_updated"
-      && event.kind !== "work_item_execution_started"
-      && event.kind !== "work_item_execution_finished"
-    ) {
-      continue;
-    }
-    const payload = asRecord(event.payload);
-    const workItem = asRecord(payload.workItem);
-    const id = readString(workItem.id);
-    const summary = readString(workItem.summary);
-    const status = readString(workItem.status);
-    const workflowProfile = readString(workItem.workflowProfile);
-    if (!id || !summary || !status || !workflowProfile) {
-      continue;
-    }
-    const expectedEvidence = readStringArray(workItem.expectedEvidence);
-    const providedEvidence = readStringArray(workItem.providedEvidence);
-    const authorityProfile = readString(workItem.authorityProfile);
-    const assignedAgentProfile = readString(workItem.assignedAgentProfile);
-    const missingEvidence = [...new Set([
-      ...readStringArray(workItem.missingEvidence),
-      ...expectedEvidence.filter((evidence) => !providedEvidence.includes(evidence)),
-      ...(workItem.missingResidualRisk === true ? ["residual-risk"] : []),
-    ])];
-    items.set(id, {
-      id,
-      resourceUri: readString(workItem.resourceUri) ?? `kiln://session/work-items/${encodeURIComponent(id)}`,
-      summary,
-      status,
-      workflowProfile,
-      ...(authorityProfile ? { authorityProfile } : {}),
-      ...(assignedAgentProfile ? { assignedAgentProfile } : {}),
-      expectedEvidence,
-      providedEvidence,
-      missingEvidence,
-      pendingPauseRequirementCount: countPendingPauseRequirements(workItem.pauseRequirements),
-      updatedAt: readString(workItem.updatedAt) ?? event.timestamp,
-    });
-  }
-  return [...items.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return projectOperatorGovernedWorkItems(events);
 }
 
 export function createNativeManagedAgentCancelControlFrame(input: {
@@ -234,26 +183,6 @@ function compareSessionEvents(a: OperatorSessionEvent, b: OperatorSessionEvent):
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function readStringArray(value: unknown): readonly string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.flatMap((entry) => {
-    const text = readString(entry);
-    return text ? [text] : [];
-  });
-}
-
-function countPendingPauseRequirements(value: unknown): number {
-  if (!Array.isArray(value)) {
-    return 0;
-  }
-  return value.filter((entry) => {
-    const status = asRecord(entry).status;
-    return status !== "resolved" && status !== "superseded";
-  }).length;
 }
 
 function readManagedInvocationId(payload: Record<string, unknown>): string | undefined {

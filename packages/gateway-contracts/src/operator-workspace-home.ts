@@ -16,6 +16,11 @@ import type {
   KilnConfigSourceStatus,
   KilnProjectionTargetStatus,
 } from "./config-status.js";
+import {
+  isOperatorGovernedWorkItemBlocking,
+  projectOperatorGovernedWorkItems,
+  type OperatorGovernedWorkItemProjection,
+} from "./operator-governed-work.js";
 
 export interface OperatorWorkspaceGatewayTargetSummary {
   readonly instanceId: string;
@@ -423,7 +428,7 @@ function createWorkSummary(events: readonly OperatorSessionEvent[]): OperatorWor
   if (events.length === 0) {
     return EMPTY_WORK_SUMMARY;
   }
-  const workItems = new Map<string, OperatorWorkspaceWorkItemSummary>();
+  const workItems = projectOperatorGovernedWorkItems(events);
   const goals = new Map<string, string>();
 
   for (const event of events) {
@@ -436,20 +441,13 @@ function createWorkSummary(events: readonly OperatorSessionEvent[]): OperatorWor
       }
       continue;
     }
-    if (!isWorkItemEvent(event)) {
-      continue;
-    }
-    const workItem = readWorkItemSummary(event, payload);
-    if (workItem) {
-      workItems.set(workItem.workItemId, workItem);
-    }
   }
 
-  const items = [...workItems.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const items = workItems.map(toWorkspaceWorkItemSummary);
   return {
     totalCount: items.length,
     activeCount: items.filter((item) => !isTerminalWorkStatus(item.status)).length,
-    blockedCount: items.filter((item) => isBlockedWorkItem(item)).length,
+    blockedCount: workItems.filter(isOperatorGovernedWorkItemBlocking).length,
     missingEvidenceCount: items.reduce((total, item) => total + item.missingEvidenceCount, 0),
     goalCount: goals.size,
     activeGoalCount: [...goals.values()].filter((status) => status === "active").length,
@@ -603,57 +601,30 @@ function createGatewayHealthSummary(input: readonly {
   };
 }
 
-function readWorkItemSummary(
-  event: OperatorSessionEvent,
-  payload: Record<string, unknown>,
-): OperatorWorkspaceWorkItemSummary | null {
-  const workItem = asRecord(payload.workItem);
-  const workItemId = readString(workItem.id);
-  const summary = readString(workItem.summary);
-  const status = readString(workItem.status);
-  if (!workItemId || !summary || !status) {
-    return null;
-  }
-  const workflowProfile = readString(workItem.workflowProfile);
-  const authorityProfile = readString(workItem.authorityProfile);
-  const assignedAgentProfile = readString(workItem.assignedAgentProfile);
-  const missingEvidenceCount = [
-    ...readStringArray(payload.missingEvidence),
-    ...readStringArray(payload.missingGoalEvidence),
-    ...readStringArray(payload.missingVerificationGates),
-    ...(payload.missingResidualRisk === true ? ["residual-risk"] : []),
-  ].length;
+function toWorkspaceWorkItemSummary(
+  workItem: OperatorGovernedWorkItemProjection,
+): OperatorWorkspaceWorkItemSummary {
   return {
-    workItemId,
-    sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
-    summary,
-    status,
-    resourceUri: `kiln://session/work-items/${encodeURIComponent(workItemId)}`,
-    updatedAt: readString(workItem.updatedAt) ?? event.timestamp,
-    ...(workflowProfile ? { workflowProfile } : {}),
-    ...(authorityProfile ? { authorityProfile } : {}),
-    ...(assignedAgentProfile ? { assignedAgentProfile } : {}),
-    pendingPauseCount: readRecordArray(workItem.pauseRequirements).filter((entry) => readString(entry.status) === "pending").length,
-    missingEvidenceCount,
-    failedVerificationGateCount: readStringArray(payload.failedVerificationGates).length,
+    workItemId: workItem.id,
+    sessionId: workItem.sessionId ?? "unknown",
+    summary: workItem.summary,
+    status: workItem.status,
+    resourceUri: workItem.resourceUri,
+    updatedAt: workItem.updatedAt,
+    ...(workItem.workflowProfile ? { workflowProfile: workItem.workflowProfile } : {}),
+    ...(workItem.authorityProfile ? { authorityProfile: workItem.authorityProfile } : {}),
+    ...(workItem.assignedAgentProfile ? { assignedAgentProfile: workItem.assignedAgentProfile } : {}),
+    pendingPauseCount: workItem.pendingPauseRequirementCount,
+    missingEvidenceCount: workItem.missingEvidence.length
+      + workItem.missingGoalEvidence.length
+      + workItem.missingVerificationGates.length
+      + (workItem.missingResidualRisk ? 1 : 0),
+    failedVerificationGateCount: workItem.failedVerificationGates.length,
   };
-}
-
-function isWorkItemEvent(event: OperatorSessionEvent): boolean {
-  return event.kind === "work_item_updated"
-    || event.kind === "work_item_execution_started"
-    || event.kind === "work_item_execution_finished";
 }
 
 function isTerminalWorkStatus(status: string): boolean {
   return status === "completed" || status === "cancelled";
-}
-
-function isBlockedWorkItem(item: OperatorWorkspaceWorkItemSummary): boolean {
-  return item.status === "blocked"
-    || item.pendingPauseCount > 0
-    || item.failedVerificationGateCount > 0
-    || item.missingEvidenceCount > 0;
 }
 
 function goalStatusFromEventKind(kind: string): string {
@@ -759,22 +730,4 @@ function readFirstRecord(...values: readonly unknown[]): Record<string, unknown>
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
-function readStringArray(value: unknown): readonly string[] {
-  return Array.isArray(value)
-    ? value.flatMap((entry) => {
-      const stringValue = readString(entry);
-      return stringValue ? [stringValue] : [];
-    })
-    : [];
-}
-
-function readRecordArray(value: unknown): readonly Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.flatMap((entry) => {
-      const record = asRecord(entry);
-      return Object.keys(record).length > 0 ? [record] : [];
-    })
-    : [];
 }

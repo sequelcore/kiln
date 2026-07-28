@@ -1,9 +1,41 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ManagedAgentCockpitPanel } from "../src/components/managed-agent-cockpit-panel.js";
-import type { OperatorCockpitManagedAgentViewState } from "@kilnai/gateway-contracts";
+import {
+  createOperatorCockpitReadOnlyViewState,
+  projectOperatorCockpitReadOnlyView,
+  type OperatorCockpitManagedAgentViewState,
+} from "@kilnai/gateway-contracts";
+import {
+  EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
+  externalRuntimeGovernanceEvents,
+} from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
 
 describe("ManagedAgentCockpitPanel", () => {
+  it("renders canonical external-runtime attachment and redacted failure evidence", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T09:01:00.000Z",
+      attachTargets: [{
+        instanceId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.instanceId,
+        label: "Synthetic external runtime",
+        kind: "local",
+      }],
+      events: externalRuntimeGovernanceEvents,
+    });
+    const viewState = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    }).managedAgents;
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} />);
+
+    expect(screen.getByText("External runtime evidence")).toBeInTheDocument();
+    expect(screen.getByText(
+      `${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.runtimeId} / ${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.attachmentId}`,
+    )).toBeInTheDocument();
+    expect(screen.getAllByText(/External runtime navigation failed after redaction/u)).not.toHaveLength(0);
+  });
+
   it("renders shared managed-child view state with review and active controls", () => {
     const onOpenResource = vi.fn();
     const viewState: OperatorCockpitManagedAgentViewState = {
