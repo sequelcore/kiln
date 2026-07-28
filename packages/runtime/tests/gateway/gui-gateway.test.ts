@@ -1069,9 +1069,7 @@ describe("startGuiGateway static mount", () => {
   it("starts listening before operator provider discovery resolves", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockImplementation(() => new Promise(() => undefined));
+    const discoverOperatorProviders = vi.fn(() => new Promise<never>(() => undefined));
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
         port: port ?? 4810,
@@ -1087,6 +1085,7 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
+        discoverOperatorProviders,
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -1100,9 +1099,67 @@ describe("startGuiGateway static mount", () => {
 
       expect(gateway.operatorModels).toEqual({});
       expect(gateway.operatorDiscovery).toEqual([]);
-      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
+      expect(discoverOperatorProviders).toHaveBeenCalledTimes(1);
     } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("seeds the welcome frame from injected operator discovery", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const discovery = buildGuiOperatorDiscoveryResults({
+      opencodeModels: [],
+      codexModels: [],
+      providerAvailability: {
+        claude: true,
+        codex: false,
+        opencode: false,
+      },
+      lastCheckedAt: "2026-07-28T09:00:00.000Z",
+    });
+    const discoverOperatorProviders = vi.fn(async () => discovery);
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        discoverOperatorProviders,
+        initialOperatorDiscovery: discovery,
+        initialOperatorDiscoveryFreshness: "fresh",
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "claude",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection();
+      await handlers.onOpen!(new Event("open"), wsCtx);
+      const welcome = mockWs.send.mock.calls
+        .map(([payload]) => JSON.parse(payload as string) as { type: string; activeProvider?: string })
+        .find((frame) => frame.type === "welcome");
+
+      expect(discoverOperatorProviders).toHaveBeenCalled();
+      expect(welcome).toMatchObject({
+        type: "welcome",
+        activeProvider: "claude",
+      });
+    } finally {
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });
     }
@@ -2650,7 +2707,7 @@ describe("startGuiGateway static mount", () => {
       });
       expect(completedPayload?.metadata).toEqual(expectedMetadata);
       expect(managedLifecycleFrames).toEqual([]);
-      expect(sessionEventFrames.some((frame) => frame.event?.kind === "cost_updated")).toBe(false);
+      expect(sessionEventFrames.some((frame) => frame.event?.kind === "cost_updated")).toBe(true);
       expect(sessionEventFrames.some((frame) => frame.event?.kind === "lifecycle_attribution_recorded")).toBe(false);
       expect(factory).toHaveBeenCalledTimes(1);
     } finally {

@@ -21,6 +21,7 @@ test.describe("parity category 3 - cost and telemetry", () => {
     await expect(page.locator('[data-role="assistant"]').last()).toContainText("Reply", { timeout: 5_000 });
 
     await page.getByRole("button", { name: "Activity" }).click();
+    await page.getByRole("button", { name: /Cost updated/u }).click();
     const detail = page.getByRole("region", { name: "Selected activity detail" });
     await expect(detail).toContainText("Input tokens", { timeout: 5_000 });
     await expect(detail).toContainText("Output tokens");

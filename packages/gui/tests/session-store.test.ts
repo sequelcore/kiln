@@ -1406,6 +1406,13 @@ describe("session-store", () => {
         expect.objectContaining({ type: "event", eventKind: "approval_resolved" }),
       ]),
     );
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      eventKind: "cost_updated",
+      presentationDetails: expect.arrayContaining([
+        { label: "Input tokens", value: "10" },
+        { label: "Output tokens", value: "5" },
+      ]),
+    }));
     expect(state.respondingProvider).toBe("codex-oauth");
     expect(state.respondingModel).toBe("gpt-5.4-mini");
     expect(deriveToolCallLog(state.timelineEntries)).toEqual([
@@ -3015,6 +3022,13 @@ describe("session-store", () => {
     });
     expect(state.messages).toHaveLength(2);
     expect(state.timelineEntries).toHaveLength(10);
+    expect(state.timelineEntries).toContainEqual(expect.objectContaining({
+      eventKind: "cost_updated",
+      presentationDetails: expect.arrayContaining([
+        { label: "Input tokens", value: "42" },
+        { label: "Output tokens", value: "21" },
+      ]),
+    }));
     expect(state.messages[0]).toMatchObject({
       role: "user",
       content: "What was this session about?",

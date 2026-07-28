@@ -22,20 +22,18 @@ roadmap reorganization.
 
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [01 - External Runtime Governance](./01-external-runtime-governance.md) | Ready | Complete the bounded architecture promotion and end-to-end closeout in issue #25. |
-| 2 | [02 - Managed Invocation Routing](./02-managed-invocation-routing.md) | Ready | Complete per-job account leases and lifecycle evidence. |
-| 3 | [03 - Model Gateway Lifecycle](./03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
-| 4 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Close OpenCode live parity, then migrate and prove the harness-neutral control-plane bridge. |
-| 5 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
-| 6 | [06 - Prompt Governance Plane](./06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
-| 7 | [07 - Stack Governance Plane](./07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
-| 8 | [08 - Remote Operator Pairing](./08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
-| 9 | [09 - Rust Optimization Guardrail](./09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 10 | [10 - Native Operator Surface](./10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
+| 1 | [02 - Managed Invocation Routing](./02-managed-invocation-routing.md) | Ready | Complete per-job account leases and lifecycle evidence. |
+| 2 | [03 - Model Gateway Lifecycle](./03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
+| 3 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Close OpenCode live parity, then migrate and prove the harness-neutral control-plane bridge. |
+| 4 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
+| 5 | [06 - Prompt Governance Plane](./06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
+| 6 | [07 - Stack Governance Plane](./07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
+| 7 | [08 - Remote Operator Pairing](./08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
+| 8 | [09 - Rust Optimization Guardrail](./09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 9 | [10 - Native Operator Surface](./10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
 
 ## Dependency Rules
 
-- `01` owns provider-neutral external-runtime evidence realization and closeout consistency.
 - `02` owns managed-job routing, leases, account selection, lifecycle, result, and replay.
 - `03` owns the user-scoped Model Gateway process, configuration, authentication, and supervision.
 - `04` owns harness adapters, native projection, protocol parity, live cross-harness proof, and deferred federation research.

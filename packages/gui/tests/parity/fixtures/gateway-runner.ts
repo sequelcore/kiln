@@ -1,14 +1,23 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startGuiGateway, type CliSessionFactory } from "@kilnai/runtime";
+import {
+  buildGuiOperatorDiscoveryResults,
+  startGuiGateway,
+  type CliSessionFactory,
+} from "../../../../runtime/src/index.js";
 import {
   InMemoryContextArtifactCache,
   SqliteMemoryRepository,
   type CreateMemoryRecordInput,
   type MemoryProvenance,
 } from "@kilnai/core";
-import type { GuiSessionDetail, GuiSessionSummary, KilnConfigSetupSnapshot } from "@kilnai/gateway-contracts";
+import type {
+  GuiProviderDiscoveryResult,
+  GuiSessionDetail,
+  GuiSessionSummary,
+  KilnConfigSetupSnapshot,
+} from "@kilnai/gateway-contracts";
 
 function parseGatewayPort(): number {
   const raw = process.env.GUI_GATEWAY_PORT ?? "0";
@@ -100,6 +109,17 @@ const sessionSummaries: GuiSessionSummary[] = [
   },
 ];
 
+const operatorDiscovery: readonly GuiProviderDiscoveryResult[] = buildGuiOperatorDiscoveryResults({
+  opencodeModels: [],
+  codexModels: [],
+  providerAvailability: {
+    claude: true,
+    codex: false,
+    opencode: false,
+  },
+  lastCheckedAt: "2026-07-28T09:00:00.000Z",
+});
+
 const restoredSessionDetail: GuiSessionDetail = {
   id: "claude-session-1",
   meta: {
@@ -129,6 +149,7 @@ const restoredSessionDetail: GuiSessionDetail = {
       turnId: "parity-turn-1",
       payload: {
         toolCallId: "parity-tool-1",
+        toolCallScopeId: "parity-turn-1",
         toolName: "read",
         input: { path: "docs/plan.md" },
       },
@@ -142,6 +163,7 @@ const restoredSessionDetail: GuiSessionDetail = {
       turnId: "parity-turn-1",
       payload: {
         toolCallId: "parity-tool-1",
+        toolCallScopeId: "parity-turn-1",
         toolName: "read",
         input: { path: "duplicate-must-not-render.md" },
       },
@@ -155,6 +177,7 @@ const restoredSessionDetail: GuiSessionDetail = {
       turnId: "parity-turn-1",
       payload: {
         toolCallId: "parity-tool-1",
+        toolCallScopeId: "parity-turn-1",
         toolName: "read",
         output: "Persisted parity plan contents",
         status: { state: "succeeded" },
@@ -169,6 +192,7 @@ const restoredSessionDetail: GuiSessionDetail = {
       turnId: "parity-turn-1",
       payload: {
         toolCallId: "parity-tool-1",
+        toolCallScopeId: "parity-turn-1",
         toolName: "read",
         output: "Duplicate terminal payload",
         status: { state: "succeeded" },
@@ -277,6 +301,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
       .length ?? 1;
     const prompt = options.prompt.trim();
     const chunks = responseChunks(prompt, userTurns);
+    const toolCallScopeId = `parity-e2e-tool-scope:${userTurns}`;
 
     if (prompt.toLowerCase().includes("tool continuity browser check")) {
       await delay(800);
@@ -285,12 +310,14 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         toolName: "read",
         input: { path: "docs/plan.md" },
         toolCallId: "parity-live-tool-1",
+        toolCallScopeId,
       };
       yield {
         type: "tool_use",
         toolName: "read",
         input: { path: "docs/roadmap/02-public-release-ui-debt.md" },
         toolCallId: "parity-live-tool-2",
+        toolCallScopeId,
       };
       await delay(2_500);
       yield {
@@ -299,6 +326,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         output: "Second tool failed",
         outputSummary: "Second tool failed",
         toolCallId: "parity-live-tool-2",
+        toolCallScopeId,
         isError: true,
       };
       yield {
@@ -307,6 +335,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         output: "First tool result",
         outputSummary: "First tool result",
         toolCallId: "parity-live-tool-1",
+        toolCallScopeId,
         isError: false,
       };
     }
@@ -317,6 +346,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         toolName: "work_item.execution.start",
         input: { workItemId: "inspect-composer-activity-ownership" },
         toolCallId: "parity-paused-work-item",
+        toolCallScopeId,
       };
       await delay(250);
       yield {
@@ -332,6 +362,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         }),
         outputSummary: "Work item execution paused",
         toolCallId: "parity-paused-work-item",
+        toolCallScopeId,
         isError: false,
       };
     }
@@ -342,6 +373,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         toolName: "goal.create",
         input: { objective: "Review the GUI" },
         toolCallId: "parity-goal-create-diagnostic",
+        toolCallScopeId,
       };
       await delay(250);
       yield {
@@ -361,6 +393,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         }),
         outputSummary: "Goal input is invalid",
         toolCallId: "parity-goal-create-diagnostic",
+        toolCallScopeId,
         isError: false,
       };
     }
@@ -371,6 +404,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         toolName: "work_item.update",
         input: { summary: "Inspect composer activity ownership." },
         toolCallId: "parity-work-item-update",
+        toolCallScopeId,
       };
       yield {
         type: "tool_result",
@@ -386,13 +420,36 @@ const fakeSessionFactory: CliSessionFactory = () => ({
             authorityProfile: "foundation-readonly-plan",
             expectedEvidence: ["surface-map", "tests"],
             providedEvidence: ["surface-map"],
+            verificationGates: ["browser-render"],
+            dependencies: [],
             pauseRequirements: [],
+            createdAt: "2026-07-28T09:00:00.000Z",
+            updatedAt: "2026-07-28T09:00:00.000Z",
+            sequence: 1,
           },
           nextRequiredTools: ["goal.create", "work_item.execution.start"],
         }),
         outputSummary: "Work item updated",
-        metadata: { kind: "work_item", operation: "update" },
+        metadata: {
+          kind: "work_item",
+          operation: "update",
+          item: {
+            id: "work-1",
+            summary: "Inspect composer activity ownership.",
+            status: "pending",
+            workflowProfile: "verification-heavy",
+            authorityProfile: "foundation-readonly-plan",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+            verificationGates: ["browser-render"],
+            dependencies: [],
+            createdAt: "2026-07-28T09:00:00.000Z",
+            updatedAt: "2026-07-28T09:00:00.000Z",
+            sequence: 1,
+          },
+        },
         toolCallId: "parity-work-item-update",
+        toolCallScopeId,
         isError: false,
       };
       yield {
@@ -400,6 +457,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         toolName: "goal.create",
         input: { objective: "Perform evidence-backed UX verification." },
         toolCallId: "parity-goal-create",
+        toolCallScopeId,
       };
       yield {
         type: "tool_result",
@@ -408,6 +466,8 @@ const fakeSessionFactory: CliSessionFactory = () => ({
           goal: {
             id: "goal-1",
             objective: "Perform evidence-backed UX verification.",
+            ownerSessionId: "parity-e2e-session",
+            source: { kind: "operator", id: "parity-e2e" },
             planId: "interactive-ux-verification",
             status: "active",
             workItemIds: ["work-1"],
@@ -416,12 +476,39 @@ const fakeSessionFactory: CliSessionFactory = () => ({
             evidenceRequirements: [
               { id: "repo-inspection", description: "Inspect the requested files.", required: true },
             ],
+            evidence: [],
             currentPhase: "prepare",
+            createdAt: "2026-07-28T09:00:01.000Z",
+            updatedAt: "2026-07-28T09:00:01.000Z",
+            sequence: 1,
           },
         }),
         outputSummary: "Goal created",
-        metadata: { kind: "goal", operation: "create" },
+        metadata: {
+          kind: "goal",
+          operation: "create",
+          goal: {
+            id: "goal-1",
+            objective: "Perform evidence-backed UX verification.",
+            ownerSessionId: "parity-e2e-session",
+            source: { kind: "operator", id: "parity-e2e" },
+            planId: "interactive-ux-verification",
+            status: "active",
+            workItemIds: ["work-1"],
+            authorityEnvelope: { maximumAuthority: "read_only", escalationPolicy: "deny" },
+            routePolicy: { workflowProfile: "verification-heavy" },
+            evidenceRequirements: [
+              { id: "repo-inspection", description: "Inspect the requested files.", required: true },
+            ],
+            evidence: [],
+            currentPhase: "prepare",
+            createdAt: "2026-07-28T09:00:01.000Z",
+            updatedAt: "2026-07-28T09:00:01.000Z",
+            sequence: 1,
+          },
+        },
         toolCallId: "parity-goal-create",
+        toolCallScopeId,
         isError: false,
       };
       yield {
@@ -429,6 +516,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         toolName: "work_item.execution.start",
         input: { workItemId: "work-1" },
         toolCallId: "parity-work-item-start",
+        toolCallScopeId,
       };
       yield {
         type: "tool_result",
@@ -439,13 +527,48 @@ const fakeSessionFactory: CliSessionFactory = () => ({
             id: "work-1",
             summary: "Inspect composer activity ownership.",
             status: "in_progress",
+            workflowProfile: "verification-heavy",
             expectedEvidence: ["surface-map", "tests"],
             providedEvidence: ["surface-map"],
+            verificationGates: ["browser-render"],
+            dependencies: [],
+            createdAt: "2026-07-28T09:00:00.000Z",
+            updatedAt: "2026-07-28T09:00:02.000Z",
+            sequence: 2,
           },
         }),
         outputSummary: "Work item execution started",
-        metadata: { kind: "work_item", operation: "execution_started" },
+        metadata: {
+          kind: "work_item",
+          operation: "execution_started",
+          item: {
+            id: "work-1",
+            summary: "Inspect composer activity ownership.",
+            status: "in_progress",
+            workflowProfile: "verification-heavy",
+            authorityProfile: "foundation-readonly-plan",
+            expectedEvidence: ["surface-map", "tests"],
+            providedEvidence: ["surface-map"],
+            verificationGates: ["browser-render"],
+            dependencies: [],
+            createdAt: "2026-07-28T09:00:00.000Z",
+            updatedAt: "2026-07-28T09:00:02.000Z",
+            sequence: 2,
+          },
+          attempt: {
+            id: "work-1:attempt:1",
+            workItemId: "work-1",
+            goalRunId: "goal-1",
+            status: "running",
+            executionMode: "direct",
+            startedAt: "2026-07-28T09:00:02.000Z",
+            providedEvidence: ["surface-map"],
+            missingEvidence: ["tests"],
+            missingResidualRisk: false,
+          },
+        },
         toolCallId: "parity-work-item-start",
+        toolCallScopeId,
         isError: false,
       };
       yield {
@@ -453,6 +576,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         toolName: "read",
         input: { path: "C:\\repo\\missing.ts" },
         toolCallId: "parity-read-failed",
+        toolCallScopeId,
       };
       yield {
         type: "tool_result",
@@ -461,6 +585,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
         outputSummary: "File not found",
         metadata: { kind: "file", operation: "read", filePath: "C:\\repo\\missing.ts", code: "ENOENT" },
         toolCallId: "parity-read-failed",
+        toolCallScopeId,
         isError: true,
       };
     }
@@ -491,7 +616,7 @@ const fakeSessionFactory: CliSessionFactory = () => ({
 });
 
 let activeProvider = "claude";
-let activeModel = "claude-sonnet-4-6";
+let activeModel = "";
 let continuationSessionId: string | null = null;
 
 const contextArtifactCache = new InMemoryContextArtifactCache();
@@ -546,6 +671,9 @@ async function main(): Promise<void> {
         : {},
     }),
     getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
+    initialOperatorDiscovery: operatorDiscovery,
+    initialOperatorDiscoveryFreshness: "fresh",
+    discoverOperatorProviders: async () => operatorDiscovery,
     getSetupSnapshot: async () => setupSnapshot,
     listSessions: async () => sessionSummaries.slice(0, 20),
     getSessionDetail: async (sessionId) => sessionId === restoredSessionDetail.id

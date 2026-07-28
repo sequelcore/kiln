@@ -102,6 +102,7 @@ describe("operator workspace home projection", () => {
       items: [{
         workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
         status: "completed",
+        authorityProfile: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.authorityProfile.authorityProfileId,
         pendingPauseCount: 0,
         failedVerificationGateCount: 0,
       }],
