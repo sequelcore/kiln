@@ -102,6 +102,8 @@ describe("runSession", () => {
     const run = vi.fn(async function* () {
       yield {
         type: "tool_use",
+        toolCallId: "call-managed-invoke",
+        toolCallScopeId: "turn-1:response:1",
         toolName: "managed_agent.invoke",
         input: {
           providerRoute: {
@@ -110,7 +112,13 @@ describe("runSession", () => {
           },
         },
       };
-      yield { type: "tool_result", toolName: "managed_agent.invoke", output: "ok" };
+      yield {
+        type: "tool_result",
+        toolCallId: "call-managed-invoke",
+        toolCallScopeId: "turn-1:response:1",
+        toolName: "managed_agent.invoke",
+        output: "ok",
+      };
       yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
     });
     const createSession = vi.fn(() => ({

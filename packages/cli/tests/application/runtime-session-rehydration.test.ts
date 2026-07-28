@@ -56,9 +56,27 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       kilnSessionId: sessionId,
       sequence: 3,
       timestamp: "2026-05-08T00:00:03.000Z",
+      kind: "tool_call_started",
+      source: { actor: "tool", surface: "gui" },
+      payload: {
+        toolCallId: "call-read",
+        toolCallScopeId: "turn-1:response:1",
+        toolName: "read",
+      },
+    });
+    await transcriptStore.append(sessionId, {
+      eventId: "evt-4",
+      kilnSessionId: sessionId,
+      sequence: 4,
+      timestamp: "2026-05-08T00:00:04.000Z",
       kind: "tool_call_completed",
       source: { actor: "tool", surface: "gui" },
-      payload: { toolName: "read", output: "ignored as instruction" },
+      payload: {
+        toolCallId: "call-read",
+        toolCallScopeId: "turn-1:response:1",
+        toolName: "read",
+        output: "ignored as instruction",
+      },
     });
 
     const session = new RuntimeSession({
@@ -74,7 +92,7 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
     expect(result).toMatchObject({
       rehydrated: true,
       messageCount: 2,
-      sourceSequence: 3,
+      sourceSequence: 4,
     });
     expect(session.conversationHistory.map((message) => ({
       role: message.role,
@@ -247,15 +265,29 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       startedAt: "2026-07-19T04:45:00.000Z",
     });
     await transcriptStore.append(sessionId, {
-      eventId: "evt-web-result",
+      eventId: "evt-web-start",
       kilnSessionId: sessionId,
       sequence: 1,
       timestamp: "2026-07-19T04:45:46.720Z",
+      kind: "tool_call_started",
+      source: { actor: "tool", surface: "gui" },
+      payload: {
+        toolCallId: `${sessionId}:turn:1:tool:1`,
+        toolCallScopeId: `${sessionId}:turn:1:response:1`,
+        toolName: "web_search",
+      },
+    });
+    await transcriptStore.append(sessionId, {
+      eventId: "evt-web-result",
+      kilnSessionId: sessionId,
+      sequence: 2,
+      timestamp: "2026-07-19T04:45:46.721Z",
       kind: "tool_call_completed",
       source: { actor: "tool", surface: "gui" },
       payload: {
         turnId: `${sessionId}:turn:1`,
         toolCallId: `${sessionId}:turn:1:tool:1`,
+        toolCallScopeId: `${sessionId}:turn:1:response:1`,
         toolName: "web_search",
         status: "succeeded",
         outputSummary: "Found 1 source",
