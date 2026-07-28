@@ -22,7 +22,7 @@ roadmap reorganization.
 
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [01 - External Runtime Governance](./01-external-runtime-governance.md) | Ready | Complete cross-surface parity and final closeout after Slice 3.2 integration. |
+| 1 | [01 - External Runtime Governance](./01-external-runtime-governance.md) | Ready | Complete the bounded architecture promotion and end-to-end closeout in issue #25. |
 | 2 | [02 - Managed Invocation Routing](./02-managed-invocation-routing.md) | Ready | Complete per-job account leases and lifecycle evidence. |
 | 3 | [03 - Model Gateway Lifecycle](./03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
 | 4 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Close OpenCode live parity, then migrate and prove the harness-neutral control-plane bridge. |
