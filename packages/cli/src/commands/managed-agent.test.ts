@@ -258,11 +258,13 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[0]?.[0]).toContain(
       `attachment:${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.runtimeId}/${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.attachmentId}`,
     );
-    expect(log.mock.calls[0]?.[0]).toContain("Governed work: 1 blocked / 1 total");
-    expect(log.mock.calls[0]?.[0]).toContain("failed-gates:synthetic-runtime-navigation");
+    expect(log.mock.calls[0]?.[0]).toContain("Governed work: 0 blocked / 1 total");
+    expect(log.mock.calls[0]?.[0]).toContain("completed");
     expect(log.mock.calls[1]?.[0]).toContain(EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic);
-    expect(log.mock.calls[1]?.[0]).toContain("Governed work: 1 blocked / 1 total");
-    expect(log.mock.calls[1]?.[0]).toContain("missing:runtime-observation");
+    expect(log.mock.calls[1]?.[0]).toContain("Governed work: 0 blocked / 1 total");
+    expect(log.mock.calls[1]?.[0]).toContain(
+      `Work item: ${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId} | completed`,
+    );
     const statusJson = JSON.parse(String(log.mock.calls[2]?.[0])) as Record<string, unknown>;
     expect(statusJson).toMatchObject({
       managedAgent: {
@@ -276,15 +278,16 @@ describe("managed-agent command", () => {
       },
       workspaceHome: {
         work: {
-          blockedCount: 1,
+          blockedCount: 0,
           items: [{
             workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
-            pendingPauseCount: 1,
+            status: "completed",
+            pendingPauseCount: 0,
           }],
         },
         approvals: {
           pendingCount: 0,
-          resolvedCount: 1,
+          resolvedCount: 2,
         },
       },
     });

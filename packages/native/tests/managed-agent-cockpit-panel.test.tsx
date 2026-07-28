@@ -58,13 +58,14 @@ describe("native managed-agent cockpit panel", () => {
     );
     expect(markup).toContain(EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic);
     expect(cockpit.workspaceHome.work).toMatchObject({
-      blockedCount: 1,
+      blockedCount: 0,
       items: [{
         workItemId: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
-        pendingPauseCount: 1,
+        status: "completed",
+        pendingPauseCount: 0,
       }],
     });
-    expect(cockpit.workspaceHome.work.blockedCount).toBe(1);
+    expect(cockpit.workspaceHome.work.blockedCount).toBe(0);
   });
 
   it("renders active and review child state from shared read-only cockpit view-state", () => {

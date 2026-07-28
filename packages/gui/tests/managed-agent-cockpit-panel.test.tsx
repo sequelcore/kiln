@@ -29,10 +29,10 @@ describe("ManagedAgentCockpitPanel", () => {
 
     render(<ManagedAgentCockpitPanel viewState={viewState} />);
 
-    expect(screen.getByText("External runtime evidence")).toBeInTheDocument();
-    expect(screen.getByText(
+    expect(screen.getAllByText("External runtime evidence")).toHaveLength(2);
+    expect(screen.getAllByText(
       `${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.runtimeId} / ${EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment.attachmentId}`,
-    )).toBeInTheDocument();
+    )).toHaveLength(2);
     expect(screen.getAllByText(/External runtime navigation failed after redaction/u)).not.toHaveLength(0);
   });
 

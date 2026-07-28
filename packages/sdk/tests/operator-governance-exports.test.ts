@@ -38,18 +38,21 @@ describe("SDK operator governance exports", () => {
 
     expect(projectOperatorGovernedWorkItems(events)[0]).toMatchObject({
       id: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.workItemId,
-      status: "blocked",
-      pendingPauseRequirementCount: 1,
+      status: "completed",
+      providedEvidence: ["runtime-observation"],
+      pendingPauseRequirementCount: 0,
     });
-    expect(cockpitView.managedAgents.items[0]).toMatchObject({
+    expect(cockpitView.managedAgents.items.find(
+      (item) => item.managedInvocationId === EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.invocationId,
+    )).toMatchObject({
       externalRuntimeAttachment: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.attachment,
       externalToolFailures: [{
         diagnostic: EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE.safeFailureDiagnostic,
       }],
     });
     expect(home).toMatchObject({
-      work: { blockedCount: 1, activeGoalCount: 1 },
-      approvals: { pendingCount: 0, resolvedCount: 1 },
+      work: { blockedCount: 0, activeGoalCount: 0 },
+      approvals: { pendingCount: 0, resolvedCount: 2 },
     });
   });
 });

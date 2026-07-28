@@ -58,6 +58,10 @@ is documented by concern, not as a single monolith.
   lifecycle tools, parallel orchestration, leases, resource projection, remote
   harness routes, write evidence, terminal events, and replay invariants.
 
+- `external-runtime-governance.md`
+  Provider-neutral external-runtime attachment, authority, approval, failure,
+  recovery, replay, terminal consistency, and cross-surface parity.
+
 - `lifecycle-attribution.md`
   Provider-neutral token and cost attribution over canonical session events:
   source classes, reconciliation, replay, request neutrality, managed-route
