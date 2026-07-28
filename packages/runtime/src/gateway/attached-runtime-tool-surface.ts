@@ -1172,20 +1172,9 @@ function parseManagedDelegationPause(result: unknown): { readonly request: Recor
  * two distinct outer calls (a real retry after a failure) never derive the
  * same id, while an exact replay of the same outer call always does.
  *
- * `context.toolCall.id` is taken from the provider boundary and is not
- * guaranteed non-empty (e.g. a `function_call` item missing both `call_id`
- * and `id` normalizes to `""` - see codex-oauth.ts). An empty or missing
- * tool call id (or a request with no phase id) means no replay-stable
- * per-attempt identity is available at all: silently falling back to
- * phase-id-only (or workItemId-only) scoping would let two distinct real
- * failures collide on one id again, which is exactly the evidence-loss bug
- * this mechanism exists to prevent. Rather than throw mid-recovery (which
- * would discard the failure evidence being constructed) or silently degrade
- * into that collision, this explicitly marks the recovery "unscoped" with a
- * fresh, guaranteed-unique value. That deliberately sacrifices idempotent-
- * replay deduplication in this narrow degraded case only: an extra retained
- * pending blocker (over-blocking) is the correct tradeoff against silently
- * losing failure evidence to a collision (under-blocking).
+ * The provider boundary validates `context.toolCall.id` before execution.
+ * Direct callers of this lower-level surface must satisfy the same invariant;
+ * accepting an absent or invalid id would make recovery non-replayable.
  */
 function deriveRecoveryInvocationId(
   context: RuntimeBuiltinToolExecutionContext | undefined,
@@ -1196,7 +1185,7 @@ function deriveRecoveryInvocationId(
     ? toolCallId.trim()
     : undefined;
   if (!usableToolCallId) {
-    return `unscoped-recovery:${crypto.randomUUID()}`;
+    throw new Error("Managed invocation recovery requires a non-empty tool call id.");
   }
   return phaseId
     ? `${usableToolCallId}:managed-invocation:${phaseId}`

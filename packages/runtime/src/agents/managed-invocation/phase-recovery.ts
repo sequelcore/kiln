@@ -13,10 +13,9 @@ export const VISUAL_REFERENCE_PHASE_ID = "visual-reference-research";
  * Optional evidence a caller can supply so a rebuilt recovery pause
  * requirement supersedes a prior one for the same work item instead of
  * colliding with it (see `derivePauseRequirementId` /
- * `supersedeRecoveryPauseRequirements` below). Not yet threaded through by
- * every call site - callers that omit this still get a deterministic,
- * unique-per-invocation id, they just cannot express supersession against
- * requirements they never showed this function.
+ * `recoveryPauseRequirements` below). Callers that omit prior requirements
+ * still get a deterministic id, but cannot express supersession against
+ * requirements they did not provide.
  */
 export interface ManagedInvocationPhaseRecoveryEvidenceOptions {
   readonly priorPauseRequirements?: readonly WorkItemPauseRequirement[];
@@ -424,14 +423,13 @@ export const MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID = "managed-invoca
 
 /**
  * True when `id` belongs to the recovery pause requirement family rooted at
- * `baseId`: either the bare legacy literal (persisted before per-attempt
- * scoping existed) or one of its `${baseId}:`-prefixed derivations. Exported
- * so every caller that needs to recognise this family (e.g. the session
+ * `baseId`: one of its `${baseId}:`-prefixed derivations. Exported so every
+ * caller that needs to recognise this family (e.g. the session
  * orchestrator's handoff-recovery resolution check) shares one owner for the
  * id scheme instead of mirroring the base id and match rule locally.
  */
 export function isManagedInvocationRecoveryPauseRequirementId(id: string, baseId: string): boolean {
-  return id === baseId || id.startsWith(`${baseId}:`);
+  return id.startsWith(`${baseId}:`);
 }
 
 /**
@@ -471,8 +469,8 @@ function derivePauseRequirementId(
  * Builds the pause requirement list for a recovery template. When the
  * caller supplies `priorPauseRequirements` (the work item's current list),
  * any still-pending requirement from an earlier occurrence of this same
- * recovery family (the bare `baseId` legacy literal, or any `${baseId}:`
- * derivation - see `isManagedInvocationRecoveryPauseRequirementId`) is
+   * recovery family (a `${baseId}:` derivation - see
+   * `isManagedInvocationRecoveryPauseRequirementId`) is
  * transitioned to `superseded` and kept - never dropped, never silently
  * overwritten - pointing at the new requirement's id. Replaying the exact
  * same request is idempotent: it resolves to the same id, so no supersession

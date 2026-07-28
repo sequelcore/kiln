@@ -50,8 +50,8 @@ function readPauseRequirements(recovery: Record<string, unknown> | undefined): r
 }
 
 describe("isManagedInvocationRecoveryPauseRequirementId", () => {
-  it("matches the bare legacy literal and its suffixed derivations, and rejects unrelated ids", () => {
-    expect(isManagedInvocationRecoveryPauseRequirementId("managed-invocation-capability", "managed-invocation-capability")).toBe(true);
+  it("matches scoped derivations and rejects unscoped or unrelated ids", () => {
+    expect(isManagedInvocationRecoveryPauseRequirementId("managed-invocation-capability", "managed-invocation-capability")).toBe(false);
     expect(isManagedInvocationRecoveryPauseRequirementId("managed-invocation-capability:work-1:x", "managed-invocation-capability")).toBe(true);
     expect(isManagedInvocationRecoveryPauseRequirementId("managed-invocation-capability-other", "managed-invocation-capability")).toBe(false);
     expect(isManagedInvocationRecoveryPauseRequirementId("operator-confirmation", "managed-invocation-capability")).toBe(false);
@@ -213,26 +213,6 @@ describe("buildManagedInvocationPhaseRecovery - supersession", () => {
     expect(requirements).toHaveLength(2);
     expect(requirements.find((requirement) => requirement.id === "operator-confirmation")).toEqual(unrelated);
   });
-
-  it("supersedes a legacy bare-literal pause requirement id persisted before per-attempt scoping existed", () => {
-    const legacyPrior: WorkItemPauseRequirement = {
-      id: "managed-invocation-capability",
-      kind: "capability",
-      summary: "Legacy pre-supersession blocking requirement.",
-      status: "pending",
-    };
-    const recovery = buildManagedInvocationPhaseRecovery(executionFinishRequest(), "failed", undefined, {
-      priorPauseRequirements: [legacyPrior],
-      recoveryInvocationId: "tool-call-1:managed-invocation:1",
-    });
-    const requirements = readPauseRequirements(recovery);
-
-    expect(requirements).toHaveLength(2);
-    expect(requirements.find((requirement) => requirement.id === legacyPrior.id)).toMatchObject({
-      status: "superseded",
-      supersededByRequirementId: expect.stringContaining("managed-invocation-capability:work-1:"),
-    });
-  });
 });
 
 describe("buildManagedInvocationPhaseHandoffRecovery - intermediate phase pause requirement id", () => {
@@ -276,25 +256,6 @@ describe("buildManagedInvocationPhaseHandoffRecovery - intermediate phase pause 
     });
     expect(requirements.find((requirement) => requirement.id !== firstRequirement.id)).toMatchObject({
       status: "pending",
-    });
-  });
-
-  it("supersedes a legacy bare-literal handoff-recovery pause requirement id", () => {
-    const legacyPrior: WorkItemPauseRequirement = {
-      id: MANAGED_INVOCATION_HANDOFF_RECOVERY_PAUSE_BASE_ID,
-      kind: "operator_input",
-      summary: "Legacy pre-supersession handoff-recovery requirement.",
-      status: "pending",
-    };
-    const recovery = buildManagedInvocationPhaseHandoffRecovery(updateRequest(), undefined, {
-      priorPauseRequirements: [legacyPrior],
-      recoveryInvocationId: "tool-call-1:managed-invocation:1",
-    });
-    const requirements = readPauseRequirements(recovery);
-
-    expect(requirements).toHaveLength(2);
-    expect(requirements.find((requirement) => requirement.id === legacyPrior.id)).toMatchObject({
-      status: "superseded",
     });
   });
 });

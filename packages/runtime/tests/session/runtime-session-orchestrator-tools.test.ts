@@ -439,7 +439,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
               id: "work-1",
               status: "blocked",
               pauseRequirements: [{
-                id: "managed-invocation-handoff-recovery",
+                id: "managed-invocation-handoff-recovery:work-1:recovery-1",
                 kind: "operator_input",
                 summary: "Managed child completed without substantive phase evidence.",
                 status: "pending",
@@ -489,7 +489,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
             id: "work-1",
             status: "blocked",
             pauseRequirements: [{
-              id: "managed-invocation-handoff-recovery",
+              id: "managed-invocation-handoff-recovery:work-1:recovery-1",
               kind: "operator_input",
               summary: "Managed child completed without substantive phase evidence.",
               status: "pending",
@@ -510,7 +510,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           id: "work-1",
           status: "blocked",
           pauseRequirements: [{
-            id: "managed-invocation-handoff-recovery",
+            id: "managed-invocation-handoff-recovery:work-1:recovery-1",
             kind: "operator_input",
             summary: "Managed child completed without substantive phase evidence.",
             status: "pending",
@@ -528,7 +528,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           id: "work-1",
           status: "blocked",
           pauseRequirements: [{
-            id: "managed-invocation-handoff-recovery",
+            id: "managed-invocation-handoff-recovery:work-1:recovery-1",
             kind: "operator_input",
             summary: "Managed child completed without substantive phase evidence.",
             status: "pending",
@@ -1148,7 +1148,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
               id: "work-1",
               status: "blocked",
               pauseRequirements: [{
-                id: "managed-invocation-handoff-recovery",
+                id: "managed-invocation-handoff-recovery:work-1:recovery-1",
                 status: "pending",
               }],
             },
@@ -1182,7 +1182,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
             id: "work-1",
             status: "blocked",
             pauseRequirements: [{
-              id: "managed-invocation-handoff-recovery",
+              id: "managed-invocation-handoff-recovery:work-1:recovery-1",
               status: "pending",
             }],
           },
@@ -1195,7 +1195,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           id: "work-1",
           status: "blocked",
           pauseRequirements: [{
-            id: "managed-invocation-handoff-recovery",
+            id: "managed-invocation-handoff-recovery:work-1:recovery-1",
             status: "pending",
           }],
         },
@@ -1210,7 +1210,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
           id: "work-1",
           status: "blocked",
           pauseRequirements: [{
-            id: "managed-invocation-handoff-recovery",
+            id: "managed-invocation-handoff-recovery:work-1:recovery-1",
             status: "pending",
           }],
         },
@@ -1427,7 +1427,7 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
             id: "work-1",
             status: "blocked",
             pauseRequirements: [{
-              id: "managed-invocation-handoff-recovery",
+              id: "managed-invocation-handoff-recovery:work-1:recovery-1",
               status: "pending",
             }],
           },

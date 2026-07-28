@@ -3004,12 +3004,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(replayedPauseRequirements[0]).toEqual(firstRequirement);
   });
 
-  it("does not collide when the outer tool call id is empty or blank - two successive failures still yield two distinct, both-retained blockers", async () => {
-    // A provider may legitimately emit a `function_call` item with neither
-    // `call_id` nor `id`, which normalizes to an empty string tool call id
-    // (see packages/core/src/agents/infrastructure/codex-oauth.ts). This
-    // must never silently degrade into phase-id-only scoping, which would
-    // reproduce the original same-phase collision.
+  it("fails closed when recovery is invoked with an empty tool call id", async () => {
     const goalRun = {
       id: "goal-managed",
       objective: "Execute governed managed work.",
@@ -3067,52 +3062,25 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         builtinToolOptions: { workItemStore, goalRunStore, additionalTools: [startTool] },
         managedInvocation: unavailableManagedInvocation,
       });
-      // Empty tool call id: exactly what an under-populated provider
-      // `function_call` normalizes to.
       const context: RuntimeBuiltinToolExecutionContext = {
         session: makeRuntimeSession(),
         toolCall: { id: "", name: "work_item.execution.start", input: {} },
       };
-      const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      return runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
         goalRunId: "goal-managed",
         governanceRecommendation: "orchestrate",
-      }, context) as { readonly output: string; readonly isError: boolean };
-      const output = JSON.parse(result.output) as {
-        readonly recovery?: {
-          readonly blockedWorkItemUpdateInputTemplate?: {
-            readonly pauseRequirements?: readonly Record<string, unknown>[];
-          };
-        };
-      };
-      return output.recovery?.blockedWorkItemUpdateInputTemplate?.pauseRequirements ?? [];
+      }, context);
     };
 
     const goalRunStoreOne = new GoalRunStore();
     goalRunStoreOne.create(goalRun);
     const workItemStoreOne = new WorkItemStore();
     workItemStoreOne.upsert(workItem);
-    const firstPauseRequirements = await triggerFailure(workItemStoreOne, goalRunStoreOne);
-    expect(firstPauseRequirements).toHaveLength(1);
-    const firstRequirement = firstPauseRequirements[0]!;
-    expect(firstRequirement).toMatchObject({ status: "pending" });
-    expect(firstRequirement.id).toMatch(/^managed-invocation-capability:work-managed:unscoped-recovery:/);
-
-    const goalRunStoreTwo = new GoalRunStore();
-    goalRunStoreTwo.create(goalRun);
-    const workItemStoreTwo = new WorkItemStore();
-    workItemStoreTwo.upsert({ ...workItem, pauseRequirements: [firstRequirement as never] });
-    const secondPauseRequirements = await triggerFailure(workItemStoreTwo, goalRunStoreTwo);
-
-    expect(secondPauseRequirements).toHaveLength(2);
-    expect(secondPauseRequirements.find((requirement) => requirement.id === firstRequirement.id)).toMatchObject({
-      status: "superseded",
-    });
-    const secondRequirement = secondPauseRequirements.find((requirement) => requirement.id !== firstRequirement.id)!;
-    expect(secondRequirement).toMatchObject({ status: "pending" });
-    expect(secondRequirement.id).not.toBe(firstRequirement.id);
+    await expect(triggerFailure(workItemStoreOne, goalRunStoreOne))
+      .rejects.toThrow("Managed invocation recovery requires a non-empty tool call id.");
   });
 
-  it("does not collide when the tool execution context is absent entirely - two successive failures still yield two distinct, both-retained blockers", async () => {
+  it("fails closed when recovery is invoked without tool execution context", async () => {
     const goalRun = {
       id: "goal-managed",
       objective: "Execute governed managed work.",
@@ -3170,43 +3138,18 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         builtinToolOptions: { workItemStore, goalRunStore, additionalTools: [startTool] },
         managedInvocation: unavailableManagedInvocation,
       });
-      const result = await runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
+      return runtimeSurface.callBuiltinTools.get("work_item.execution.start")?.({
         goalRunId: "goal-managed",
         governanceRecommendation: "orchestrate",
-      }, undefined) as { readonly output: string; readonly isError: boolean };
-      const output = JSON.parse(result.output) as {
-        readonly recovery?: {
-          readonly blockedWorkItemUpdateInputTemplate?: {
-            readonly pauseRequirements?: readonly Record<string, unknown>[];
-          };
-        };
-      };
-      return output.recovery?.blockedWorkItemUpdateInputTemplate?.pauseRequirements ?? [];
+      }, undefined);
     };
 
     const goalRunStoreOne = new GoalRunStore();
     goalRunStoreOne.create(goalRun);
     const workItemStoreOne = new WorkItemStore();
     workItemStoreOne.upsert(workItem);
-    const firstPauseRequirements = await triggerFailure(workItemStoreOne, goalRunStoreOne);
-    expect(firstPauseRequirements).toHaveLength(1);
-    const firstRequirement = firstPauseRequirements[0]!;
-    expect(firstRequirement).toMatchObject({ status: "pending" });
-    expect(firstRequirement.id).toMatch(/^managed-invocation-capability:work-managed:unscoped-recovery:/);
-
-    const goalRunStoreTwo = new GoalRunStore();
-    goalRunStoreTwo.create(goalRun);
-    const workItemStoreTwo = new WorkItemStore();
-    workItemStoreTwo.upsert({ ...workItem, pauseRequirements: [firstRequirement as never] });
-    const secondPauseRequirements = await triggerFailure(workItemStoreTwo, goalRunStoreTwo);
-
-    expect(secondPauseRequirements).toHaveLength(2);
-    expect(secondPauseRequirements.find((requirement) => requirement.id === firstRequirement.id)).toMatchObject({
-      status: "superseded",
-    });
-    const secondRequirement = secondPauseRequirements.find((requirement) => requirement.id !== firstRequirement.id)!;
-    expect(secondRequirement).toMatchObject({ status: "pending" });
-    expect(secondRequirement.id).not.toBe(firstRequirement.id);
+    await expect(triggerFailure(workItemStoreOne, goalRunStoreOne))
+      .rejects.toThrow("Managed invocation recovery requires a non-empty tool call id.");
   });
 
   it("scopes the recovery id by the stable phase identity, not the same-run loop position, so a replay after an earlier phase already persisted derives the identical id", async () => {
