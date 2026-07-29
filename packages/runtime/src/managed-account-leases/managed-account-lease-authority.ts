@@ -1,12 +1,17 @@
 import { Database } from "bun:sqlite";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createAccountPolicyId,
   createAccountRef,
+  createManagedAccountAffinityKey,
   defineManagedAccountLeaseEvidence,
   defineModelGatewayAccountRejection,
   selectModelGatewayAccount,
   type AccountPolicyId,
+  type AccountRef,
+  type ManagedAccountAffinityCommitOutcome,
+  type ManagedAccountAffinityKey,
+  type ManagedAccountAffinityPolicy,
   type ManagedAccountLeaseEvidence,
   type ModelGatewayAccountCandidate,
   type ModelGatewayAffinity,
@@ -36,14 +41,21 @@ export interface ManagedAccountLeaseIdentity {
   readonly runtimeInvocationId: string;
 }
 
+export type ManagedAccountAffinityRequest =
+  | { readonly continuity: "none" }
+  | {
+    readonly continuity: "prefer" | "require";
+    readonly scope: "session" | "turn";
+    readonly allowRebind?: boolean;
+    readonly key: ManagedAccountAffinityKey;
+  };
+
 export interface ManagedAccountLeaseAcquireInput {
   readonly accountPolicyId: AccountPolicyId;
   readonly route: ModelGatewayRoute;
   readonly jobId: string;
   readonly runtimeInvocationId: string;
-  readonly work: "new" | "existing";
-  readonly affinity?: ModelGatewayAffinity;
-  readonly allowAffinityRebind?: boolean;
+  readonly affinityRequest: ManagedAccountAffinityRequest;
   readonly candidates: readonly ManagedAccountCandidateBinding[];
 }
 
@@ -66,6 +78,7 @@ export interface ManagedAccountLeaseRecoveryInput {
 
 export interface ManagedAccountCandidateResolution {
   readonly route: ModelGatewayRoute;
+  readonly affinityPolicy: ManagedAccountAffinityPolicy;
   readonly candidates: readonly ManagedAccountCandidateBinding[];
 }
 
@@ -78,6 +91,7 @@ export interface ManagedAccountCandidatePort {
 
 export interface ManagedAccountLeaseAuthority {
   acquire(input: ManagedAccountLeaseAcquireInput): Promise<ManagedAccountLeaseAcquireResult>;
+  finalizeSuccessful(input: ManagedAccountLeaseIdentity): ManagedAccountLeaseSuccessfulFinalization;
   markSettlementPending(
     input: ManagedAccountLeaseIdentity & { readonly diagnosticUri?: string },
   ): ManagedAccountLeaseEvidence;
@@ -87,6 +101,11 @@ export interface ManagedAccountLeaseAuthority {
   ): ManagedAccountLeaseEvidence;
   recover(input: ManagedAccountLeaseRecoveryInput): readonly ManagedAccountLeaseEvidence[];
   get(leaseId: string): ManagedAccountLeaseEvidence | undefined;
+}
+
+export interface ManagedAccountLeaseSuccessfulFinalization {
+  readonly lease: ManagedAccountLeaseEvidence;
+  readonly affinityCommitOutcome?: ManagedAccountAffinityCommitOutcome;
 }
 
 export interface SqliteManagedAccountLeaseAuthorityOptions {
@@ -117,6 +136,14 @@ type LeaseRow = {
   purpose: "new" | "affinity";
   resource_uris: string;
   diagnostic_uris: string;
+  affinity_key: string | null;
+  affinity_expected_capacity_identity: string | null;
+  affinity_commit_outcome: ManagedAccountAffinityCommitOutcome | null;
+};
+
+type AffinityRow = {
+  affinity_key: string;
+  capacity_identity: string;
 };
 
 const CAPACITY_CONSUMING_STATES = [
@@ -171,9 +198,19 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
           affinity_outcome TEXT,
           purpose TEXT NOT NULL,
           resource_uris TEXT NOT NULL,
-          diagnostic_uris TEXT NOT NULL
+          diagnostic_uris TEXT NOT NULL,
+          affinity_key TEXT,
+          affinity_expected_capacity_identity TEXT,
+          affinity_commit_outcome TEXT
+        );
+        CREATE TABLE IF NOT EXISTS managed_account_affinities (
+          affinity_key TEXT PRIMARY KEY,
+          capacity_identity TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
         );
       `);
+      this.#migrateSliceOneSchema();
       this.#claimOwner();
     } catch (error) {
       this.#db.close();
@@ -197,12 +234,15 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
         throw new Error("Managed account lease job already has an account selection.");
       }
       const bindings = new Map(input.candidates.map((binding) => [binding.candidate.account, binding]));
-      const candidates = input.candidates.map((binding) => this.#candidateWithCurrentCapacity(binding, input.work));
+      const affinity = this.#resolveAffinity(input);
+      if (affinity.status === "unavailable") return affinity.result;
+      const candidates = input.candidates.map((binding) =>
+        this.#candidateWithCurrentCapacity(binding, affinity.work));
       const selection = selectModelGatewayAccount({
         route: input.route,
-        work: input.work,
-        ...(input.affinity !== undefined ? { affinity: input.affinity } : {}),
-        ...(input.allowAffinityRebind === true ? { allowAffinityRebind: true } : {}),
+        work: affinity.work,
+        ...(affinity.accountAffinity !== undefined ? { affinity: affinity.accountAffinity } : {}),
+        ...(affinity.allowRebind ? { allowAffinityRebind: true } : {}),
         candidates,
       });
       if (selection.selected === undefined) {
@@ -217,6 +257,7 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
       const leaseId = randomUUID();
       const acquiredAt = new Date(this.#now()).toISOString();
       const affinityOutcome = selection.affinity?.outcome;
+      const selectionReason = selection.selected.reason;
       const resourceUris = [`kiln://managed-accounts/leases/${encodeURIComponent(leaseId)}`];
       this.#db.query(`
         INSERT INTO account_leases (
@@ -224,8 +265,9 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
           route_scope, job_id, runtime_invocation_id, credential_revision_id,
           owner_id, acquired_at, lifecycle_state, released_at, selection_reason,
           candidate_rejections, affinity_outcome, purpose, resource_uris,
-          diagnostic_uris
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          diagnostic_uris, affinity_key, affinity_expected_capacity_identity,
+          affinity_commit_outcome
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(
         leaseId,
         input.accountPolicyId,
@@ -241,12 +283,15 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
         acquiredAt,
         "held",
         null,
-        selection.selected.reason,
+        selectionReason,
         JSON.stringify(selection.rejections),
         affinityOutcome ?? null,
-        input.work === "existing" ? "affinity" : "new",
+        affinity.work === "existing" ? "affinity" : "new",
         JSON.stringify(resourceUris),
         "[]",
+        affinity.key ?? null,
+        affinity.expectedCapacityIdentity,
+        null,
       );
       const row = this.#rowForLease(leaseId);
       if (row === null) throw new Error("Managed account lease persistence failed.");
@@ -254,6 +299,43 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
         status: "acquired",
         identity: identityFromRow(row),
         lease: evidenceFromRow(row),
+      };
+    });
+  }
+
+  finalizeSuccessful(input: ManagedAccountLeaseIdentity): ManagedAccountLeaseSuccessfulFinalization {
+    return this.#transaction(() => {
+      this.#heartbeat();
+      const row = this.#requireOwnedIdentity(input);
+      if (row.lifecycle_state === "released") {
+        return {
+          lease: evidenceFromRow(row),
+          ...(row.affinity_commit_outcome !== null
+            ? { affinityCommitOutcome: row.affinity_commit_outcome }
+            : {}),
+        };
+      }
+      if (row.lifecycle_state !== "held") {
+        throw new Error(
+          `Managed account successful finalization requires held state, received ${row.lifecycle_state}.`,
+        );
+      }
+
+      const affinityCommitOutcome = row.affinity_key === null
+        ? undefined
+        : this.#commitAffinity(row);
+      const releasedAt = new Date(this.#now()).toISOString();
+      const released = this.#db.query(`
+        UPDATE account_leases
+        SET lifecycle_state='released', released_at=?, affinity_commit_outcome=?
+        WHERE lease_id=? AND owner_id=? AND lifecycle_state!='released'
+      `).run(releasedAt, affinityCommitOutcome ?? null, row.lease_id, this.#ownerId);
+      if (released.changes !== 1) {
+        throw new Error("Managed account lease successful finalization lost its release fence.");
+      }
+      return {
+        lease: evidenceFromRow(this.#requiredRow(row.lease_id)),
+        ...(affinityCommitOutcome !== undefined ? { affinityCommitOutcome } : {}),
       };
     });
   }
@@ -374,7 +456,7 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
 
   #candidateWithCurrentCapacity(
     binding: ManagedAccountCandidateBinding,
-    work: ManagedAccountLeaseAcquireInput["work"],
+    work: "new" | "existing",
   ): ModelGatewayAccountCandidate {
     validateCandidateBinding(binding);
     const placeholders = CAPACITY_CONSUMING_STATES.map(() => "?").join(",");
@@ -394,6 +476,124 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
       pressure: binding.candidate.pressure + total / binding.capacity.maxConcurrency,
       reservedForNewWork: binding.candidate.reservedForNewWork || reservedCapacityUnavailable,
     };
+  }
+
+  #resolveAffinity(input: ManagedAccountLeaseAcquireInput):
+    | {
+      readonly status: "ready";
+      readonly work: "new" | "existing";
+      readonly key?: ManagedAccountAffinityKey;
+      readonly expectedCapacityIdentity: string | null;
+      readonly accountAffinity?: ModelGatewayAffinity;
+      readonly allowRebind: boolean;
+    }
+    | {
+      readonly status: "unavailable";
+      readonly result: ManagedAccountLeaseAcquireResult & { readonly status: "unavailable" };
+    } {
+    if (input.affinityRequest.continuity === "none") {
+      return {
+        status: "ready",
+        work: "new",
+        expectedCapacityIdentity: null,
+        allowRebind: false,
+      };
+    }
+
+    const key = createManagedAccountAffinityKey(input.affinityRequest.key);
+    const affinity = this.#db.query<AffinityRow, [string]>(`
+      SELECT affinity_key, capacity_identity
+      FROM managed_account_affinities
+      WHERE affinity_key=?
+    `).get(key);
+    if (!affinity) {
+      if (input.affinityRequest.continuity === "require") {
+        return {
+          status: "unavailable",
+          result: {
+            status: "unavailable",
+            rejections: [],
+          },
+        };
+      }
+      return {
+        status: "ready",
+        work: "new",
+        key,
+        expectedCapacityIdentity: null,
+        allowRebind: false,
+      };
+    }
+
+    const binding = input.candidates.find((candidate) =>
+      candidate.capacityIdentity === affinity.capacity_identity);
+    if (!binding) {
+      return {
+        status: "ready",
+        work: "existing",
+        key,
+        expectedCapacityIdentity: affinity.capacity_identity,
+        accountAffinity: {
+          account: missingAffinityAccountRef(affinity.capacity_identity),
+          route: input.route,
+        },
+        allowRebind: input.affinityRequest.allowRebind === true,
+      };
+    }
+
+    return {
+      status: "ready",
+      work: "existing",
+      key,
+      expectedCapacityIdentity: affinity.capacity_identity,
+      accountAffinity: {
+        account: binding.candidate.account,
+        route: input.route,
+      },
+      allowRebind: input.affinityRequest.allowRebind === true,
+    };
+  }
+
+  #commitAffinity(row: LeaseRow): ManagedAccountAffinityCommitOutcome {
+    const key = createManagedAccountAffinityKey(row.affinity_key!);
+    const current = this.#db.query<AffinityRow, [string]>(`
+      SELECT affinity_key, capacity_identity
+      FROM managed_account_affinities
+      WHERE affinity_key=?
+    `).get(key);
+    if (current?.capacity_identity === row.capacity_identity) {
+      return "already-matched";
+    }
+    if ((current?.capacity_identity ?? null) !== row.affinity_expected_capacity_identity) {
+      return "conflict";
+    }
+
+    const now = new Date(this.#now()).toISOString();
+    if (!current) {
+      const inserted = this.#db.query(`
+        INSERT INTO managed_account_affinities(
+          affinity_key, capacity_identity, created_at, updated_at
+        ) VALUES(?,?,?,?)
+      `).run(key, row.capacity_identity, now, now);
+      if (inserted.changes !== 1) {
+        throw new Error("Managed account affinity first-bind fence was lost.");
+      }
+    } else {
+      const updated = this.#db.query(`
+        UPDATE managed_account_affinities
+        SET capacity_identity=?, updated_at=?
+        WHERE affinity_key=? AND capacity_identity=?
+      `).run(
+        row.capacity_identity,
+        now,
+        key,
+        row.affinity_expected_capacity_identity,
+      );
+      if (updated.changes !== 1) {
+        throw new Error("Managed account affinity rebind fence was lost.");
+      }
+    }
+    return "won";
   }
 
   #requireOwnedIdentity(input: ManagedAccountLeaseIdentity): LeaseRow {
@@ -427,6 +627,26 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
     `).all(...CAPACITY_CONSUMING_STATES);
   }
 
+  #migrateSliceOneSchema(): void {
+    this.#db.transaction(() => {
+      const columns = new Set(
+        this.#db.query<{ name: string }, []>("PRAGMA table_info(account_leases)").all()
+          .map((column) => column.name),
+      );
+      if (!columns.has("affinity_key")) {
+        this.#db.exec("ALTER TABLE account_leases ADD COLUMN affinity_key TEXT;");
+      }
+      if (!columns.has("affinity_expected_capacity_identity")) {
+        this.#db.exec(
+          "ALTER TABLE account_leases ADD COLUMN affinity_expected_capacity_identity TEXT;",
+        );
+      }
+      if (!columns.has("affinity_commit_outcome")) {
+        this.#db.exec("ALTER TABLE account_leases ADD COLUMN affinity_commit_outcome TEXT;");
+      }
+    }).immediate();
+  }
+
   #claimOwner(): void {
     this.#transaction(() => {
       const now = this.#now();
@@ -458,6 +678,12 @@ function validateAcquireInput(input: ManagedAccountLeaseAcquireInput): void {
   requireRoute(input.route);
   requireCanonicalText(input.jobId, "Managed account lease job id is required.");
   requireCanonicalText(input.runtimeInvocationId, "Managed account lease runtime invocation id is required.");
+  if (input.affinityRequest.continuity !== "none") {
+    createManagedAccountAffinityKey(input.affinityRequest.key);
+    if (input.affinityRequest.scope !== "session" && input.affinityRequest.scope !== "turn") {
+      throw new TypeError("Managed account affinity scope must be session or turn.");
+    }
+  }
   if (input.candidates.length === 0) return;
   const accounts = new Set<string>();
   for (const binding of input.candidates) {
@@ -467,6 +693,14 @@ function validateAcquireInput(input: ManagedAccountLeaseAcquireInput): void {
     }
     accounts.add(binding.candidate.account);
   }
+}
+
+function missingAffinityAccountRef(capacityIdentity: string): AccountRef {
+  const digest = createHash("sha256")
+    .update("kiln-missing-managed-account-affinity-v1:")
+    .update(capacityIdentity)
+    .digest("hex");
+  return createAccountRef(`configured:missing-affinity:${digest}`);
 }
 
 function validateCandidateBinding(binding: ManagedAccountCandidateBinding): void {
@@ -518,6 +752,9 @@ function evidenceFromRow(row: LeaseRow): ManagedAccountLeaseEvidence {
     selectionReason: row.selection_reason,
     candidateRejections: parseCandidateRejections(row.candidate_rejections),
     ...(row.affinity_outcome !== null ? { affinityOutcome: row.affinity_outcome } : {}),
+    ...(row.affinity_commit_outcome !== null
+      ? { affinityCommitOutcome: row.affinity_commit_outcome }
+      : {}),
     acquiredAt: row.acquired_at,
     lifecycleState: row.lifecycle_state,
     ...(row.released_at !== null ? { releasedAt: row.released_at } : {}),

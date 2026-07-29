@@ -161,6 +161,43 @@ describe("managed agent invocation contracts", () => {
     expect(evidence).not.toHaveProperty("workingDirectoryPath");
   });
 
+  it("validates the canonical managed affinity commit outcome", () => {
+    const base = {
+      leaseId: "account-lease-1",
+      accountPolicyId: "managed-codex",
+      accountRef: "configured:primary:opaque",
+      route: {
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-terra",
+        scope: "virtual:managed-codex",
+      },
+      jobId: "job-1",
+      runtimeInvocationId: "invocation-1",
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure" as const,
+      acquiredAt: "2026-07-28T22:30:00.000Z",
+      lifecycleState: "released" as const,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
+      diagnosticUris: [],
+    };
+
+    expect(defineManagedAccountLeaseEvidence({
+      ...base,
+      affinityCommitOutcome: "won",
+    })).toMatchObject({ affinityCommitOutcome: "won" });
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      affinityCommitOutcome: "overwritten" as "won",
+    })).toThrow("Unsupported managed account affinity commit outcome");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      lifecycleState: "held",
+      releasedAt: undefined,
+      affinityCommitOutcome: "conflict",
+    })).toThrow("affinity commit outcome requires released state");
+  });
+
   it("validates account lease terminal and identity invariants", () => {
     const base = {
       leaseId: "account-lease-1",

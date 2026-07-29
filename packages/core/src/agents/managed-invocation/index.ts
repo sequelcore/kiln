@@ -677,6 +677,38 @@ export const MANAGED_ACCOUNT_LEASE_LIFECYCLE_STATES = [
 
 export type ManagedAccountLeaseLifecycleState = typeof MANAGED_ACCOUNT_LEASE_LIFECYCLE_STATES[number];
 
+export const MANAGED_ACCOUNT_AFFINITY_COMMIT_OUTCOMES = [
+  "won",
+  "already-matched",
+  "conflict",
+] as const;
+
+export type ManagedAccountAffinityCommitOutcome =
+  typeof MANAGED_ACCOUNT_AFFINITY_COMMIT_OUTCOMES[number];
+
+export type ManagedAccountAffinityPolicy =
+  | {
+    readonly continuity: "none";
+  }
+  | {
+    readonly continuity: "prefer" | "require";
+    readonly scope: "session" | "turn";
+    readonly allowRebind?: boolean;
+  };
+
+declare const managedAccountAffinityKeyBrand: unique symbol;
+
+export type ManagedAccountAffinityKey = string & {
+  readonly [managedAccountAffinityKeyBrand]: true;
+};
+
+export function createManagedAccountAffinityKey(value: string): ManagedAccountAffinityKey {
+  if (!/^[a-f0-9]{64}$/.test(value)) {
+    throw new TypeError("Managed account affinity key must be an opaque SHA-256 digest");
+  }
+  return value as ManagedAccountAffinityKey;
+}
+
 export interface ManagedAccountLeaseEvidence {
   readonly leaseId: string;
   readonly accountPolicyId: AccountPolicyId;
@@ -688,6 +720,7 @@ export interface ManagedAccountLeaseEvidence {
   readonly selectionReason: ModelGatewayAccountSelection["reason"];
   readonly candidateRejections: readonly ModelGatewayAccountRejection[];
   readonly affinityOutcome?: ModelGatewayAffinityOutcome;
+  readonly affinityCommitOutcome?: ManagedAccountAffinityCommitOutcome;
   readonly acquiredAt: string;
   readonly lifecycleState: ManagedAccountLeaseLifecycleState;
   readonly releasedAt?: string;
@@ -706,6 +739,7 @@ export interface ManagedAccountLeaseEvidenceInput {
   readonly selectionReason: ModelGatewayAccountSelection["reason"];
   readonly candidateRejections?: readonly ModelGatewayAccountRejection[];
   readonly affinityOutcome?: ModelGatewayAffinityOutcome;
+  readonly affinityCommitOutcome?: ManagedAccountAffinityCommitOutcome;
   readonly acquiredAt: string;
   readonly lifecycleState: ManagedAccountLeaseLifecycleState;
   readonly releasedAt?: string;
@@ -731,6 +765,9 @@ export function defineManagedAccountLeaseEvidence(
   }
   if (releasedAt !== undefined && Date.parse(releasedAt) < Date.parse(acquiredAt)) {
     throw new Error("Managed account lease released timestamp cannot precede acquisition");
+  }
+  if (input.affinityCommitOutcome !== undefined && lifecycleState !== "released") {
+    throw new Error("Managed account lease affinity commit outcome requires released state");
   }
   if (!/^[a-f0-9]{64}$/.test(input.credentialRevisionId)) {
     throw new Error("Managed account lease credential revision identity must be a SHA-256 digest");
@@ -767,6 +804,9 @@ export function defineManagedAccountLeaseEvidence(
     })),
     ...(input.affinityOutcome !== undefined
       ? { affinityOutcome: requireManagedAccountAffinityOutcome(input.affinityOutcome) }
+      : {}),
+    ...(input.affinityCommitOutcome !== undefined
+      ? { affinityCommitOutcome: requireManagedAccountAffinityCommitOutcome(input.affinityCommitOutcome) }
       : {}),
     acquiredAt,
     lifecycleState,
@@ -881,6 +921,15 @@ function requireManagedAccountAffinityOutcome(
 ): ModelGatewayAffinityOutcome {
   if (value !== "honored" && value !== "missing" && value !== "rejected" && value !== "rebound") {
     throw new Error(`Unsupported managed account lease affinity outcome: ${String(value)}`);
+  }
+  return value;
+}
+
+function requireManagedAccountAffinityCommitOutcome(
+  value: ManagedAccountAffinityCommitOutcome,
+): ManagedAccountAffinityCommitOutcome {
+  if (!MANAGED_ACCOUNT_AFFINITY_COMMIT_OUTCOMES.includes(value)) {
+    throw new Error(`Unsupported managed account affinity commit outcome: ${String(value)}`);
   }
   return value;
 }

@@ -40,6 +40,71 @@ describe("operator cockpit read-only projection", () => {
     });
   });
 
+  it("projects successful managed affinity commit evidence without deriving policy", () => {
+    const completed = structuredClone(managedAccountLeaseEvents[1]) as OperatorSessionEvent;
+    const payload = completed.payload as Record<string, unknown> & {
+      lifecycleState: string;
+      managedInvocationEvidence: {
+        lifecycle: {
+          accountLease: {
+            affinityCommitOutcome?: string;
+            diagnosticUris: string[];
+            lifecycleState: string;
+            releasedAt?: string;
+          };
+        };
+      };
+    };
+    completed.kind = "agent_invocation_completed";
+    payload.lifecycleState = "completed";
+    payload.managedInvocationEvidence.lifecycle.accountLease.affinityCommitOutcome = "won";
+    payload.managedInvocationEvidence.lifecycle.accountLease.diagnosticUris = [];
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ACCOUNT_LEASE_FIXTURE.instanceId,
+        label: "Synthetic managed account runtime",
+        kind: "local",
+      }],
+      events: [completed],
+    });
+
+    expect(projection.invocations[0]?.accountLease).toMatchObject({
+      accountRef: MANAGED_ACCOUNT_LEASE_FIXTURE.accountRef,
+      lifecycleState: "released",
+      affinityCommitOutcome: "won",
+    });
+
+    payload.managedInvocationEvidence.lifecycle.accountLease.lifecycleState = "held";
+    delete payload.managedInvocationEvidence.lifecycle.accountLease.releasedAt;
+    const premature = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ACCOUNT_LEASE_FIXTURE.instanceId,
+        label: "Synthetic managed account runtime",
+        kind: "local",
+      }],
+      events: [completed],
+    });
+    expect(premature.invocations[0]?.accountLease).toBeUndefined();
+
+    payload.managedInvocationEvidence.lifecycle.accountLease.lifecycleState = "released";
+    payload.managedInvocationEvidence.lifecycle.accountLease.releasedAt =
+      MANAGED_ACCOUNT_LEASE_FIXTURE.releasedAt;
+    payload.managedInvocationEvidence.lifecycle.accountLease.affinityCommitOutcome = "overwritten";
+    const rejected = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ACCOUNT_LEASE_FIXTURE.instanceId,
+        label: "Synthetic managed account runtime",
+        kind: "local",
+      }],
+      events: [completed],
+    });
+    expect(rejected.invocations[0]?.accountLease).toBeUndefined();
+  });
+
   it("projects canonical events into target-aware cockpit views without mutation authority", () => {
     const fixture = createOperatorCockpitBenchmarkFixture({
       fixtureId: "read-only",

@@ -47,6 +47,7 @@ export interface ConfiguredManagedAccountRuntimeOptions {
   readonly config: ModelGatewayConfig;
   readonly credentialRootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly now?: () => Date;
 }
 
 type ExecutionAccount =
@@ -63,6 +64,7 @@ implements ManagedAccountCandidatePort, ManagedAccountExecutionBindingPort {
   readonly #codexPool: CodexOAuthCredentialPoolService;
   readonly #openCodePool: OpenCodeCredentialPoolService;
   readonly #directPool: DirectProviderCredentialPoolService;
+  readonly #now: () => Date;
   #config: ModelGatewayConfig;
 
   constructor(options: ConfiguredManagedAccountRuntimeOptions) {
@@ -73,6 +75,7 @@ implements ManagedAccountCandidatePort, ManagedAccountExecutionBindingPort {
       rootDir: options.credentialRootDir,
       env: options.env,
     });
+    this.#now = options.now ?? (() => new Date());
   }
 
   updateConfig(config: ModelGatewayConfig): void {
@@ -89,13 +92,18 @@ implements ManagedAccountCandidatePort, ManagedAccountExecutionBindingPort {
     ) {
       throw new Error(`Managed account policy '${policyId}' does not match the admitted provider route.`);
     }
+    const now = this.#now();
+    if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+      throw new TypeError("Managed account usage clock must return a valid Date.");
+    }
     const executionAccounts = await this.#listExecutionAccounts(model.providerId);
-    const usage = await this.#listUsage(model.providerId);
+    const usage = await this.#listUsage(model.providerId, now);
     const bound = buildModelGatewayBoundCandidates({
       virtualModel: model,
       accounts: this.#config.accounts,
       executionAccounts,
       usage,
+      now,
       pressure: () => 0,
       reservedForNewWork: () => false,
     });
@@ -105,6 +113,13 @@ implements ManagedAccountCandidatePort, ManagedAccountExecutionBindingPort {
         providerModelId: model.providerModelId,
         scope: `virtual:${model.id}`,
       },
+      affinityPolicy: model.affinity.continuity === "none"
+        ? { continuity: "none" }
+        : {
+            continuity: model.affinity.continuity,
+            scope: requireAffinityScope(model.affinity.scope),
+            ...(model.affinity.allowRebind === undefined ? {} : { allowRebind: model.affinity.allowRebind }),
+          },
       candidates: bound.map((entry) => ({
         candidate: {
           ...entry.candidate,
@@ -191,8 +206,8 @@ implements ManagedAccountCandidatePort, ManagedAccountExecutionBindingPort {
     return [];
   }
 
-  async #listUsage(providerId: DirectProviderId): Promise<readonly ProviderUsageSnapshot[]> {
-    return providerId === "codex-oauth" ? this.#codexPool.listUsage() : [];
+  async #listUsage(providerId: DirectProviderId, now: Date): Promise<readonly ProviderUsageSnapshot[]> {
+    return providerId === "codex-oauth" ? this.#codexPool.listUsage(now) : [];
   }
 
   async #createSelectedAdapter(
@@ -257,5 +272,10 @@ function selectedDirectAdapter(credential: DirectProviderExecutionCredential, mo
 
 function requireApiKey(value: string | undefined): string {
   if (!value) throw new Error("Selected managed provider credential requires an API key.");
+  return value;
+}
+
+function requireAffinityScope(value: "session" | "turn" | undefined): "session" | "turn" {
+  if (value === undefined) throw new Error("Managed account affinity continuity requires an explicit scope.");
   return value;
 }
