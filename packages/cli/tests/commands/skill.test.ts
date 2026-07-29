@@ -35,16 +35,20 @@ Follow best practices when reviewing code.
 describe("skillCommand", () => {
   let tmpDir: string;
   let originalCwd: string;
+  let originalXdgConfigHome: string | undefined;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-skill-"));
     originalCwd = process.cwd();
+    originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = join(tmpDir, "config");
     process.chdir(tmpDir);
     mockExit.mockClear();
   });
 
   afterEach(() => {
     process.chdir(originalCwd);
+    process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

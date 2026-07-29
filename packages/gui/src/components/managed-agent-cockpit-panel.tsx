@@ -399,6 +399,18 @@ function ManagedAgentItem(props: {
                 <dd className="truncate">timeout {timeoutLabel}</dd>
               </div>
             ) : null}
+            {item.accountLease ? (
+              <>
+                <div className="min-w-0">
+                  <dt className="sr-only">Account</dt>
+                  <dd className="truncate">account {item.accountLease.accountRef}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="sr-only">Account lease</dt>
+                  <dd className="truncate">account lease {item.accountLease.lifecycleState}</dd>
+                </div>
+              </>
+            ) : null}
           </dl>
         </div>
         <Button

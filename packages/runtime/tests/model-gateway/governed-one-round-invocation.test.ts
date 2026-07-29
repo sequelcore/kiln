@@ -9,7 +9,7 @@ import {
 
 const route: ModelGatewayRoute = { providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" };
 const candidate = (id: string): ModelGatewayAccountCandidate => ({
-  account: createAccountRef(id), route, health: "healthy", pressure: 0, reservedForNewWork: false,
+  account: createAccountRef(id), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false,
 });
 const customInput = "echo  one\r\n  two";
 const modelResult: ModelTurnResult = {

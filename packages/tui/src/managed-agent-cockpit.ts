@@ -191,6 +191,9 @@ function formatManagedAgentItemLines(item: OperatorCockpitManagedAgentViewItem):
   if (item.externalRuntimeAttachment) {
     lines.push(`  attachment ${item.externalRuntimeAttachment.runtimeId}/${item.externalRuntimeAttachment.attachmentId}`);
   }
+  if (item.accountLease) {
+    lines.push(`  account ${item.accountLease.accountRef} lease:${item.accountLease.lifecycleState} selection:${item.accountLease.selectionReason}`);
+  }
   for (const failure of item.externalToolFailures ?? []) {
     lines.push(`  external-failure ${failure.selector} ${failure.category}: ${failure.diagnostic}`);
   }

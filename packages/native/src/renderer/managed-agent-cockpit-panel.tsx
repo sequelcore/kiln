@@ -168,6 +168,16 @@ export function ManagedAgentCockpitPanel({
                   <dt>Cancel</dt>
                   <dd>{item.cancelControl.status}</dd>
                 </div>
+                <div>
+                  <dt>Account</dt>
+                  <dd>{item.accountLease?.accountRef ?? "not leased"}</dd>
+                </div>
+                <div>
+                  <dt>Account lease</dt>
+                  <dd>{item.accountLease
+                    ? `${item.accountLease.lifecycleState} / ${item.accountLease.selectionReason}`
+                    : "not applicable"}</dd>
+                </div>
               </dl>
               {(item.externalToolFailures ?? []).map((failure) => (
                 <p className="resource-line" key={`${failure.selector}:${failure.category}`}>

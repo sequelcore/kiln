@@ -10,6 +10,10 @@ import {
   EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
   externalRuntimeGovernanceEvents,
 } from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
+import {
+  MANAGED_ACCOUNT_LEASE_FIXTURE,
+  managedAccountLeaseEvents,
+} from "../../gateway-contracts/tests/fixtures/managed-account-lease.js";
 
 function managedEvent(
   eventId: string,
@@ -33,6 +37,36 @@ function managedEvent(
 }
 
 describe("native managed-agent cockpit panel", () => {
+  it("renders canonical managed account lease evidence", () => {
+    const projection = createNativeCockpitReadOnlyProjection({
+      surfaceId: "native:account-lease-parity",
+      projectedAt: "2026-07-28T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ACCOUNT_LEASE_FIXTURE.instanceId,
+        label: "Synthetic account lease",
+        kind: "local",
+      }],
+      events: managedAccountLeaseEvents,
+    });
+    const cockpit = createNativeCockpitReadOnlyViewState({
+      surfaceId: "native:account-lease-parity",
+      projection: projection.view,
+      viewState: {},
+      events: managedAccountLeaseEvents,
+    });
+
+    const markup = renderToStaticMarkup(<ManagedAgentCockpitPanel cockpit={cockpit} />);
+    expect(markup).toContain(MANAGED_ACCOUNT_LEASE_FIXTURE.accountRef);
+    expect(markup).toContain(MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState);
+    expect(cockpit.view.managedAgents.items[0]?.accountLease).toMatchObject({
+      leaseId: MANAGED_ACCOUNT_LEASE_FIXTURE.leaseId,
+      accountPolicyId: MANAGED_ACCOUNT_LEASE_FIXTURE.accountPolicyId,
+      accountRef: MANAGED_ACCOUNT_LEASE_FIXTURE.accountRef,
+      lifecycleState: MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState,
+      selectionReason: MANAGED_ACCOUNT_LEASE_FIXTURE.selectionReason,
+    });
+  });
+
   it("renders canonical external-runtime attachment and redacted failure evidence", () => {
     const projection = createNativeCockpitReadOnlyProjection({
       surfaceId: "native:external-runtime-parity",

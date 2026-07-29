@@ -130,6 +130,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   const activeInvocationServices = new Map<string, NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"]>>();
 
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
+  const managedJobStore = new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs"));
   const service = new ManagedJobApplicationService({
     project: { resolve: async () => project },
     governance: {
@@ -197,8 +198,16 @@ export async function createNativeHarnessManagedJobApplicationComposition(
         await invocationService.cancel(jobId, reason);
       },
     },
-    store: new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs")),
+    store: managedJobStore,
   });
+  const recoveredInvocations = await managedInvocation.invocationService?.recoverPersistedInvocations();
+  for (const accountLease of recoveredInvocations?.accountLeases ?? []) {
+    const managedJob = await managedJobStore.get(accountLease.runtimeInvocationId);
+    if (managedJob?.version !== 4 || managedJob.projectId !== project.id) {
+      continue;
+    }
+    await managedJobStore.recordAccountLease(accountLease.runtimeInvocationId, accountLease);
+  }
   await service.recoverInterrupted();
   const application: NativeHarnessManagedJobApplicationPort = {
     submit: (input) => service.start(input),
@@ -218,10 +227,11 @@ function routeForProfile(resolution: ManagedInvocationRouteResolution["managedIn
   const admissionProfileId = selectAdmissionProfile(route);
   if (!admissionProfileId) return undefined;
   const routeProfile = route.profiles[admissionProfileId];
-  if (!routeProfile) return undefined;
+  if (!routeProfile || !route.accountPolicyId) return undefined;
   const observedAt = new Date();
   return {
     id: route.routeId,
+    accountPolicyId: route.accountPolicyId,
     admissionProfileId,
     supportedAdmissionProfileIds: Object.keys(route.profiles),
     providerId: route.providerId,

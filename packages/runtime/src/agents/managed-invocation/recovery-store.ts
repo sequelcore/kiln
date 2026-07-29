@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   defineManagedAgentCapabilitySnapshot,
+  defineManagedAccountLeaseEvidence,
   defineManagedAgentInvocationRecord,
   defineManagedAgentInvocationRequest,
 } from "@kilnai/core";
@@ -11,6 +13,7 @@ import type {
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
   ManagedAgentLifecycleState,
+  ManagedAccountLeaseEvidence,
   ManagedAgentResourceLeaseEvidence,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
@@ -24,7 +27,7 @@ export type ManagedAgentRuntimeRecoveryLeaseStage =
   | "credential-route";
 
 export interface ManagedAgentRuntimeRecoveryCheckpoint {
-  readonly version: 1;
+  readonly version: 2;
   readonly lifecycleState: ManagedAgentLifecycleState;
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
@@ -35,6 +38,7 @@ export interface ManagedAgentRuntimeRecoveryCheckpoint {
   readonly acquiredLeaseStages: readonly ManagedAgentRuntimeRecoveryLeaseStage[];
   readonly releasedLeaseStages: readonly ManagedAgentRuntimeRecoveryLeaseStage[];
   readonly adapterStarted: boolean;
+  readonly accountLease?: ManagedAccountLeaseEvidence;
   readonly record?: ManagedAgentInvocationRecord;
   readonly error?: {
     readonly message: string;
@@ -54,6 +58,7 @@ export interface ManagedFilesystemRuntimeRecoveryStoreConfig {
 
 export class ManagedFilesystemRuntimeRecoveryStore implements ManagedAgentRuntimeRecoveryStore {
   private readonly rootPath: string;
+  private mutation: Promise<void> = Promise.resolve();
 
   constructor(config: ManagedFilesystemRuntimeRecoveryStoreConfig) {
     if (config.rootPath.trim().length === 0) {
@@ -64,26 +69,31 @@ export class ManagedFilesystemRuntimeRecoveryStore implements ManagedAgentRuntim
 
   async save(checkpoint: ManagedAgentRuntimeRecoveryCheckpoint): Promise<void> {
     const validated = validateManagedAgentRuntimeRecoveryCheckpoint(checkpoint);
-    await mkdir(this.rootPath, { recursive: true });
-    const rootPath = await this.resolvedRootPath();
-    const targetPath = this.checkpointPath(rootPath, validated.request.invocationId);
-    const tempPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(validated, null, 2)}\n`, "utf-8");
-    await rename(tempPath, targetPath);
+    await this.enqueueMutation(async () => {
+      await mkdir(this.rootPath, { recursive: true });
+      const rootPath = await this.resolvedRootPath();
+      const targetPath = this.checkpointPath(rootPath, validated.request.invocationId);
+      const tempPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
+      await writeFile(tempPath, `${JSON.stringify(validated, null, 2)}\n`, "utf-8");
+      await rename(tempPath, targetPath);
+    });
   }
 
   async delete(invocationId: string): Promise<void> {
-    try {
-      const rootPath = await this.resolvedRootPath();
-      await unlink(this.checkpointPath(rootPath, invocationId));
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== "ENOENT") {
-        throw error;
+    await this.enqueueMutation(async () => {
+      try {
+        const rootPath = await this.resolvedRootPath();
+        await unlink(this.checkpointPath(rootPath, invocationId));
+      } catch (error) {
+        if (!isNodeError(error) || error.code !== "ENOENT") {
+          throw error;
+        }
       }
-    }
+    });
   }
 
   async listRecoverable(): Promise<readonly ManagedAgentRuntimeRecoveryCheckpoint[]> {
+    await this.mutation;
     let fileNames: string[];
     try {
       fileNames = await readdir(this.rootPath);
@@ -156,13 +166,19 @@ export class ManagedFilesystemRuntimeRecoveryStore implements ManagedAgentRuntim
       reason: error instanceof Error ? error.message : "Managed runtime recovery checkpoint is invalid",
     }, null, 2)}\n`, "utf-8");
   }
+
+  private async enqueueMutation(operation: () => Promise<void>): Promise<void> {
+    const pending = this.mutation.then(operation, operation);
+    this.mutation = pending.catch(() => undefined);
+    await pending;
+  }
 }
 
 export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): ManagedAgentRuntimeRecoveryCheckpoint {
   if (!isRecord(input)) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint must be an object");
   }
-  if (input.version !== 1) {
+  if (input.version !== 2) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint version is not supported");
   }
   if (
@@ -176,10 +192,23 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
   ) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint lifecycle state is not recoverable");
   }
+
+  const rawDecision = isRecord(input.decision) ? input.decision : {};
+  const rawCapabilitySnapshot = isRecord(rawDecision.capabilitySnapshot)
+    ? rawDecision.capabilitySnapshot
+    : {};
+  if (typeof rawCapabilitySnapshot.routeSource !== "string") {
+    throw new ManagedAgentRuntimeAdmissionError("Unsupported managed capability snapshot route source");
+  }
+  const rawRequest = isRecord(input.request) ? input.request : {};
+  const rawAuthority = isRecord(rawRequest.authority) ? rawRequest.authority : {};
+  if (Object.prototype.hasOwnProperty.call(rawAuthority, "timeoutSource")) {
+    throw new ManagedAgentRuntimeAdmissionError("Unsupported managed invocation timeout source");
+  }
   const decision = validateAdmittedDecision(input.decision);
   const request = defineManagedAgentInvocationRequest(input.request as ManagedAgentInvocationRequest);
   const checkpoint: ManagedAgentRuntimeRecoveryCheckpoint = {
-    version: 1,
+    version: 2,
     lifecycleState: input.lifecycleState,
     request,
     decision,
@@ -192,6 +221,9 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
     acquiredLeaseStages: validateLeaseStages(input.acquiredLeaseStages, "Managed runtime recovery checkpoint requires acquired lease stages"),
     releasedLeaseStages: validateLeaseStages(input.releasedLeaseStages, "Managed runtime recovery checkpoint requires released lease stages"),
     adapterStarted: input.adapterStarted === true,
+    ...(input.accountLease !== undefined
+      ? { accountLease: defineManagedAccountLeaseEvidence(input.accountLease as ManagedAccountLeaseEvidence) }
+      : {}),
     ...(input.record !== undefined ? { record: defineManagedAgentInvocationRecord(input.record as ManagedAgentInvocationRecord) } : {}),
     ...(isRecord(input.error) && typeof input.error.message === "string" ? { error: { message: input.error.message } } : {}),
     updatedAt: validateIsoTimestamp(input.updatedAt, "Managed runtime recovery checkpoint update timestamp is required"),
@@ -215,6 +247,19 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
   }
   if (checkpoint.decision.authorityProfileId !== checkpoint.request.authority.authorityProfileId) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint decision authority profile does not match request");
+  }
+  if (
+    checkpoint.request.authority.credentialRoute.mode === "account-leased"
+    && checkpoint.adapterStarted
+    && checkpoint.accountLease === undefined
+  ) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint requires account lease evidence");
+  }
+  if (
+    checkpoint.accountLease !== undefined
+    && checkpoint.accountLease.runtimeInvocationId !== checkpoint.request.invocationId
+  ) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery account lease invocation identity does not match");
   }
   return checkpoint;
 }

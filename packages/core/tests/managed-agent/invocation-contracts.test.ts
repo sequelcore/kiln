@@ -8,6 +8,7 @@ import {
   defineManagedAgentInvocationRecord,
   buildManagedAgentCapabilitySnapshot,
   buildManagedAgentAuthorityEvidence,
+  defineManagedAccountLeaseEvidence,
   assertManagedAgentResultHandoffContract,
   evaluateManagedAgentAdmission,
   getManagedAgentCrossHarnessInvocationCapability,
@@ -108,6 +109,124 @@ function makeDescriptor(): ManagedAgentAdapterDescriptor {
 }
 
 describe("managed agent invocation contracts", () => {
+  it("defines sanitized account lease evidence independently from runtime resource leases", () => {
+    const evidence = defineManagedAccountLeaseEvidence({
+      leaseId: "account-lease-1",
+      accountPolicyId: "managed-codex",
+      accountRef: "configured:primary:opaque",
+      route: {
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-terra",
+        scope: "virtual:managed-codex",
+      },
+      jobId: "job-1",
+      runtimeInvocationId: "invocation-1",
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure",
+      candidateRejections: [{
+        account: "configured:secondary:opaque",
+        reason: "unhealthy",
+      }],
+      acquiredAt: "2026-07-28T22:30:00.000Z",
+      lifecycleState: "held",
+      resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
+      diagnosticUris: [],
+    });
+
+    expect(evidence).toEqual({
+      leaseId: "account-lease-1",
+      accountPolicyId: "managed-codex",
+      accountRef: "configured:primary:opaque",
+      route: {
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-terra",
+        scope: "virtual:managed-codex",
+      },
+      jobId: "job-1",
+      runtimeInvocationId: "invocation-1",
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure",
+      candidateRejections: [{
+        account: "configured:secondary:opaque",
+        reason: "unhealthy",
+      }],
+      acquiredAt: "2026-07-28T22:30:00.000Z",
+      lifecycleState: "held",
+      resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
+      diagnosticUris: [],
+    });
+    expect(evidence).not.toHaveProperty("credential");
+    expect(evidence).not.toHaveProperty("token");
+    expect(evidence).not.toHaveProperty("ownerId");
+    expect(evidence).not.toHaveProperty("workingDirectoryPath");
+  });
+
+  it("validates account lease terminal and identity invariants", () => {
+    const base = {
+      leaseId: "account-lease-1",
+      accountPolicyId: "managed-codex",
+      accountRef: "configured:primary:opaque",
+      route: {
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-terra",
+        scope: "virtual:managed-codex",
+      },
+      jobId: "job-1",
+      runtimeInvocationId: "invocation-1",
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure" as const,
+      acquiredAt: "2026-07-28T22:30:00.000Z",
+      lifecycleState: "released" as const,
+      resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
+      diagnosticUris: [],
+    };
+
+    expect(() => defineManagedAccountLeaseEvidence(base)).toThrow("released timestamp is required");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:29:59.000Z",
+    })).toThrow("released timestamp cannot precede acquisition");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      lifecycleState: "held",
+      releasedAt: "2026-07-28T22:31:00.000Z",
+    })).toThrow("released timestamp requires a terminal release state");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      credentialRevisionId: "raw-token",
+    })).toThrow("credential revision identity must be a SHA-256 digest");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      accountRef: " configured:primary:opaque ",
+    })).toThrow("account reference must be canonical");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      accountRef: "raw-provider-token",
+    })).toThrow("account reference must be canonical");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      resourceUris: ["file:///operator/home/credentials.json"],
+    })).toThrow("resource URI is outside its canonical namespace");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      diagnosticUris: ["kiln://managed-accounts/leases/account-lease-1/operator-path"],
+    })).toThrow("diagnostic URI is outside its canonical namespace");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      lifecycleState: "settlement-pending",
+    })).toThrow("settlement-pending state requires canonical diagnostic evidence");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      lifecycleState: "held",
+      diagnosticUris: ["kiln://managed-accounts/leases/account-lease-1/release-failed"],
+    })).toThrow("held state has incompatible diagnostic evidence");
+  });
+
   it("defines the canonical background-child lifecycle vocabulary without admission-only states", () => {
     expect(MANAGED_AGENT_LIFECYCLE_STATES).toEqual([
       "pending",
@@ -165,6 +284,27 @@ describe("managed agent invocation contracts", () => {
           access: "read-only",
         },
       },
+    });
+  });
+
+  it("keeps account-leased authority distinct from runtime-selected credential routing", () => {
+    const input = makeRequest();
+    const request = defineManagedAgentInvocationRequest({
+      ...input,
+      authority: {
+        ...input.authority,
+        credentialRoute: {
+          mode: "account-leased",
+          routeId: "credential-route:codex-oauth:managed",
+          accountPolicyId: "managed-codex",
+        },
+      },
+    });
+
+    expect(request.authority.credentialRoute).toEqual({
+      mode: "account-leased",
+      routeId: "credential-route:codex-oauth:managed",
+      accountPolicyId: "managed-codex",
     });
   });
 

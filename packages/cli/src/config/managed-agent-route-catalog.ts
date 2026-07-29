@@ -6,6 +6,7 @@ import {
 } from "./managed-agent-provider-models.js";
 import {
   createManagedInvocationToolOptionsCatalog,
+  createManagedAccountRuntimeComposition,
   resolveManagedInvocationToolOptions,
   type ManagedAgentRouteConfigSource,
   type ManagedInvocationToolOptionsCatalog,
@@ -38,16 +39,28 @@ export async function createStagedManagedInvocationRouteCatalog(
   const mark = createRouteCatalogStartupMarker();
   mark("route-catalog-entered");
   const currentConfig = () => options.reloadConfig?.() ?? config;
+  let managedAccountComposition = config
+    ? createManagedAccountRuntimeComposition(config, context.cwd)
+    : undefined;
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
-  const resolve = (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) =>
-    resolveManagedInvocationToolOptions(currentConfig(), {
+  const resolve = (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) => {
+    const nextConfig = currentConfig();
+    if (!managedAccountComposition && nextConfig) {
+      managedAccountComposition = createManagedAccountRuntimeComposition(nextConfig, context.cwd);
+    }
+    if (managedAccountComposition && nextConfig?.modelGateway) {
+      managedAccountComposition.updateConfig(nextConfig.modelGateway);
+    }
+    return resolveManagedInvocationToolOptions(nextConfig, {
       ...context,
+      ...(managedAccountComposition ? { managedAccountComposition } : {}),
       ...(invocationService ? { invocationService } : {}),
       ...(invocationServiceKey ? { invocationServiceKey } : {}),
       providerModelEligibility: providerModelCatalogDiagnostics,
       includeUnavailableRoutes: true,
     });
+  };
   mark("route-catalog-initial-resolve-started");
   const initial = await resolve(PENDING_MANAGED_AGENT_PROVIDER_MODEL_CATALOG_DIAGNOSTICS);
   mark("route-catalog-initial-resolve-finished", {

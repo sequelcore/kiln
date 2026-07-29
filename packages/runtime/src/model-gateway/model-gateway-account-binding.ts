@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   createAccountRef,
   type ModelGatewayAccountCandidate,
@@ -19,6 +20,24 @@ export interface ModelGatewayAccountBinding {
   readonly providerId: string;
   readonly credentialId: string;
   readonly execution: ModelGatewayExecutionAccountIdentity;
+}
+
+export function createModelGatewayCredentialRevisionId(
+  binding: Pick<ModelGatewayAccountBinding, "providerId" | "credentialId" | "execution">,
+): string {
+  const hash = createHash("sha256");
+  for (const value of [
+    binding.providerId,
+    binding.credentialId,
+    binding.execution.fileIdentity,
+    binding.execution.revision,
+  ]) {
+    const bytes = Buffer.from(value, "utf8");
+    hash.update(`${bytes.byteLength}:`);
+    hash.update(bytes);
+    hash.update(";");
+  }
+  return hash.digest("hex");
 }
 
 export interface ModelGatewayBoundCandidate {
@@ -90,6 +109,7 @@ export function buildModelGatewayBoundCandidates(
         account,
         route,
         health: usageEvidence.health,
+        leaseCapacity: "available",
         pressure: input.pressure(account),
         reservedForNewWork: input.reservedForNewWork(account),
       }),

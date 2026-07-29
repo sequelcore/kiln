@@ -51,6 +51,7 @@ export {
 
 export type {
   OperatorCockpitExternalToolFailureProjection,
+  OperatorCockpitInvocationAccountLeaseProjection,
   OperatorCockpitInvocationProjection,
   OperatorCockpitManagedAgentViewItem,
   OperatorCockpitReadOnlyProjection,

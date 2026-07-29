@@ -82,13 +82,15 @@ export function createManagedDirectProviderAdapterFactory(
       throw new Error(`Direct provider route '${route.id}' requires a tool-call-capable model; '${provider}/${model}' is not eligible.`);
     }
 
-    const providerAdapter = await createProvider({
-      provider,
-      model: executionProfile.model,
-      configEnv: options.configEnv,
-      runtimeEnv: options.runtimeEnv,
-      processEnv: options.processEnv,
-    });
+    const providerAdapter = route.credentials?.mode === "runtime-selected"
+      ? unboundManagedProvider(provider)
+      : await createProvider({
+        provider,
+        model: executionProfile.model,
+        configEnv: options.configEnv,
+        runtimeEnv: options.runtimeEnv,
+        processEnv: options.processEnv,
+      });
     const builtinToolSurface = resolveBuiltinToolSurface();
     const admittedMcpSelectors = new Set(
       (route.tools?.allowed ?? []).filter((name) => name.startsWith("mcp:")),
@@ -145,6 +147,19 @@ export function createManagedDirectProviderAdapterFactory(
       ...(executionEnvelope ? { executionEnvelope } : {}),
       ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
+  };
+}
+
+function unboundManagedProvider(provider: DirectProviderId): ProviderAdapter {
+  const fail = (): never => {
+    throw new Error(`Managed provider '${provider}' cannot execute before account lease binding.`);
+  };
+  return {
+    name: provider,
+    createMessage: async () => fail(),
+    streamMessage: async function* () {
+      fail();
+    },
   };
 }
 

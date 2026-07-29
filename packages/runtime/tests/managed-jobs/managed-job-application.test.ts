@@ -32,7 +32,6 @@ const authority = {
 } as const;
 
 const query = { project: { id: "kiln" }, callerId: "codex-app:caller-001" } as const;
-const historicalQuery = { project: { id: "kiln" }, callerId: "codex-app" } as const;
 
 function successfulRuntimeResult(input: {
   readonly jobId: string;
@@ -53,9 +52,43 @@ function successfulRuntimeResult(input: {
   };
 }
 
+async function observeAccountLease(
+  input: {
+    readonly jobId: string;
+    readonly route: { readonly accountPolicyId: string; readonly providerId: string };
+    readonly accountLeaseObserver: ManagedJobApplicationOptions["runtime"]["invoke"] extends (input: infer T) => unknown
+      ? T extends { readonly accountLeaseObserver: infer O } ? O : never
+      : never;
+  },
+  lifecycleState: "held" | "settlement-pending" | "released" = "released",
+): Promise<void> {
+  await input.accountLeaseObserver({
+    leaseId: `lease-${input.jobId}`,
+    accountPolicyId: input.route.accountPolicyId,
+    accountRef: "configured:account-a",
+    route: {
+      providerId: input.route.providerId,
+      providerModelId: "qwen3.6-plus",
+      scope: `virtual:${input.route.accountPolicyId}`,
+    },
+    jobId: input.jobId,
+    runtimeInvocationId: input.jobId,
+    credentialRevisionId: "a".repeat(64),
+    selectionReason: "least-pressure",
+    acquiredAt: now.toISOString(),
+    lifecycleState,
+    ...(lifecycleState === "released" ? { releasedAt: now.toISOString() } : {}),
+    resourceUris: [`kiln://managed-accounts/leases/lease-${input.jobId}`],
+    diagnosticUris: lifecycleState === "settlement-pending"
+      ? [`kiln://managed-accounts/leases/lease-${input.jobId}/settlement-pending`]
+      : [],
+  });
+}
+
 function admittedRoute(routeId: string, overrides: Record<string, unknown> = {}) {
   return {
     id: routeId,
+    accountPolicyId: "managed-opencode",
     admissionProfileId: "foundation-readonly-plan",
     supportedAdmissionProfileIds: ["foundation-readonly-plan"],
     providerId: "opencode-go",
@@ -68,6 +101,10 @@ function admittedRoute(routeId: string, overrides: Record<string, unknown> = {})
 }
 
 function createOptions(overrides: Partial<ManagedJobApplicationOptions> = {}): ManagedJobApplicationOptions {
+  const runtime = overrides.runtime ?? {
+    invoke: async (input: Parameters<ManagedJobApplicationOptions["runtime"]["invoke"]>[0]) => successfulRuntimeResult(input),
+  };
+  const { runtime: _runtime, ...remainingOverrides } = overrides;
   return {
     project: { resolve: async () => ({ id: "kiln" }) },
     governance: {
@@ -76,11 +113,18 @@ function createOptions(overrides: Partial<ManagedJobApplicationOptions> = {}): M
     },
     profiles: { resolve: async (id) => id === "scout" ? { id, routeId: "opencode-go-scout-readonly" } : id === "researcher" ? { id, routeId: "opencode-go-researcher-readonly" } : undefined },
     routes: { resolve: async (profile) => admittedRoute(profile.routeId) },
-    runtime: { invoke: async (input) => successfulRuntimeResult(input) },
+    runtime: {
+      invoke: async (input) => {
+        const result = await runtime.invoke(input);
+        await observeAccountLease(input, result.state === "timed_out" ? "settlement-pending" : "released");
+        return result;
+      },
+      ...(runtime.cancel ? { cancel: runtime.cancel.bind(runtime) } : {}),
+    },
     store: new InMemoryManagedJobStore(),
     clock: () => now,
     idGenerator: () => "job-000000001",
-    ...overrides,
+    ...remainingOverrides,
   };
 }
 
@@ -125,6 +169,15 @@ describe("ManagedJobApplicationService", () => {
     const result = await service.getResult(query, submitted.id);
 
     expect(submitted).toMatchObject({ id: "job-000000001", state: "succeeded", projectId: "kiln", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", timeoutSource: "explicit-route" });
+    expect(submitted).toMatchObject({
+      version: 4,
+      accountLease: {
+        accountPolicyId: "managed-opencode",
+        accountRef: "configured:account-a",
+        lifecycleState: "released",
+      },
+      accountLeaseHistory: [{ lifecycleState: "released" }],
+    });
     expect(status).toEqual(submitted);
     expect(result).toMatchObject({
       availability: "available",
@@ -134,6 +187,21 @@ describe("ManagedJobApplicationService", () => {
       handoff: { summary: "done", resourceUris: [], memoryWriteProposalUris: [] },
     });
     expect(runtime.invoke).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job-000000001", route: expect.objectContaining({ providerId: "opencode-go" }) }));
+  });
+
+  it("fails closed when Runtime omits the required account lease observation", async () => {
+    const options = createOptions();
+    const service = new ManagedJobApplicationService({
+      ...options,
+      runtime: { invoke: async (input) => successfulRuntimeResult(input) },
+    });
+
+    await expect(service.submit(request)).resolves.toMatchObject({
+      version: 4,
+      state: "failed",
+      diagnostic: "account_lease_unavailable",
+      accountLeaseHistory: [],
+    });
   });
 
   it("uses the existing Runtime invocation owner for a configured opencode-go direct route", async () => {
@@ -416,7 +484,7 @@ describe("ManagedJobApplicationService", () => {
     await expect(timedOut.getResult(query, timedOutJob.id)).resolves.toMatchObject({ availability: "failed", lifecycleState: "timed_out", diagnostic: "provider_timeout" });
 
     const store = new InMemoryManagedJobStore();
-    await store.reserve({ job: { version: 2, id: "job-interrupted", state: "running", projectId: "kiln", callerId: query.callerId, configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString() } });
+    await store.reserve({ job: { version: 3, id: "job-interrupted", state: "running", projectId: "kiln", callerId: query.callerId, configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString(), lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }, { sequence: 2, state: "running", observedAt: now.toISOString() }] } });
     const recovered = new ManagedJobApplicationService(createOptions({ store }));
     await recovered.recoverInterrupted();
     await expect(recovered.getResult(query, "job-interrupted")).resolves.toMatchObject({ availability: "failed", lifecycleState: "interrupted", diagnostic: "invocation_failed" });
@@ -439,20 +507,129 @@ describe("ManagedJobApplicationService", () => {
     const store = new InMemoryManagedJobStore();
     const service = new ManagedJobApplicationService(createOptions({ store }));
     const job = await service.submit(request);
-    await expect(store.completeSuccess(job.id, (job as Extract<typeof job, { version: 2 }>).result!, now.toISOString())).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(store.completeSuccess(job.id, job.result!, now.toISOString())).rejects.toMatchObject({ code: "invalid_transition" });
   });
 
-  it("preserves valid v1 records as historical successful jobs with a stable unavailable result", async () => {
+  it("reads the concrete V3 migration format without fabricating account evidence", async () => {
     const store = new InMemoryManagedJobStore();
     await store.reserve({ job: {
-      version: 1, id: "cdb98e81-002b-44a4-aac9-e08b2f861a6b", state: "succeeded", projectId: "kiln", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString(),
+      version: 3, id: "cdb98e81-002b-44a4-aac9-e08b2f861a6b", state: "failed", projectId: "kiln", callerId: query.callerId, configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString(), diagnostic: "provider_rejected", lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }, { sequence: 2, state: "failed", observedAt: now.toISOString(), diagnostic: "provider_rejected" }],
     } });
     const service = new ManagedJobApplicationService(createOptions({ store }));
-    await expect(service.getResult(historicalQuery, "cdb98e81-002b-44a4-aac9-e08b2f861a6b")).resolves.toEqual(expect.objectContaining({
-      availability: "unavailable",
-      lifecycleState: "succeeded",
-      diagnostic: "result_unavailable",
+    await expect(service.getResult(query, "cdb98e81-002b-44a4-aac9-e08b2f861a6b")).resolves.toEqual(expect.objectContaining({
+      availability: "failed",
+      lifecycleState: "failed",
+      diagnostic: "provider_rejected",
     }));
+    await expect(service.getReplay(query, "cdb98e81-002b-44a4-aac9-e08b2f861a6b")).resolves.toMatchObject({
+      availability: "available",
+      accountLeaseHistory: [],
+    });
+  });
+
+  it("persists lease-only aggregate updates without fabricating lifecycle transitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-job-lease-"));
+    try {
+      const store = new FilesystemManagedJobStore(root);
+      const options = createOptions();
+      const service = new ManagedJobApplicationService({
+        ...options,
+        store,
+        runtime: { invoke: async (input) => successfulRuntimeResult(input) },
+      });
+      const job = await service.submit(request);
+      const observedAt = new Date(now.getTime() + 1000).toISOString();
+      await store.recordAccountLease(job.id, {
+        leaseId: `lease-${job.id}`,
+        accountPolicyId: "managed-opencode",
+        accountRef: "configured:account-a",
+        route: { providerId: "opencode-go", providerModelId: "qwen3.6-plus", scope: "virtual:managed-opencode" },
+        jobId: job.id,
+        runtimeInvocationId: job.id,
+        credentialRevisionId: "a".repeat(64),
+        selectionReason: "least-pressure",
+        acquiredAt: now.toISOString(),
+        lifecycleState: "held",
+        resourceUris: [`kiln://managed-accounts/leases/lease-${job.id}`],
+        diagnosticUris: [],
+      }, observedAt);
+
+      const restored = await new FilesystemManagedJobStore(root).get(job.id);
+      expect(restored).toMatchObject({
+        updatedAt: observedAt,
+        accountLease: { lifecycleState: "held" },
+      });
+      expect(restored?.lifecycle.at(-1)?.observedAt).toBe(now.toISOString());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects lease evidence regression and immutable acquisition drift", async () => {
+    const store = new InMemoryManagedJobStore();
+    const options = createOptions();
+    const service = new ManagedJobApplicationService({
+      ...options,
+      store,
+      runtime: { invoke: async (input) => successfulRuntimeResult(input) },
+    });
+    const job = await service.submit(request);
+    const base = {
+      leaseId: `lease-${job.id}`,
+      accountPolicyId: "managed-opencode",
+      accountRef: "configured:account-a",
+      route: { providerId: "opencode-go", providerModelId: "qwen3.6-plus", scope: "virtual:managed-opencode" },
+      jobId: job.id,
+      runtimeInvocationId: job.id,
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure" as const,
+      acquiredAt: now.toISOString(),
+      resourceUris: [`kiln://managed-accounts/leases/lease-${job.id}`],
+      diagnosticUris: [],
+    };
+    await store.recordAccountLease(job.id, { ...base, lifecycleState: "held" }, new Date(now.getTime() + 1000).toISOString());
+    await expect(store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "held",
+      diagnosticUris: [`kiln://managed-accounts/leases/lease-${job.id}/release-failed`],
+    }, new Date(now.getTime() + 1500).toISOString())).rejects.toThrow("incompatible diagnostic evidence");
+    const pendingUri = `kiln://managed-accounts/leases/lease-${job.id}/settlement-pending`;
+    const unknownUri = `kiln://managed-accounts/leases/lease-${job.id}/settlement-unknown`;
+    await store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "settlement-pending",
+      diagnosticUris: [pendingUri],
+    }, new Date(now.getTime() + 1600).toISOString());
+    const enriched = await store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "settlement-pending",
+      diagnosticUris: [pendingUri, unknownUri],
+    }, new Date(now.getTime() + 1700).toISOString());
+    const reordered = await store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "settlement-pending",
+      diagnosticUris: [unknownUri, pendingUri],
+    }, new Date(now.getTime() + 1800).toISOString());
+    expect(reordered).toEqual(enriched);
+    expect(reordered.accountLeaseHistory).toHaveLength(3);
+    await store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "released",
+      releasedAt: new Date(now.getTime() + 2000).toISOString(),
+      diagnosticUris: [pendingUri, unknownUri],
+    }, new Date(now.getTime() + 2000).toISOString());
+
+    await expect(store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "held",
+    }, new Date(now.getTime() + 3000).toISOString())).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(store.recordAccountLease(job.id, {
+      ...base,
+      acquiredAt: new Date(now.getTime() + 1).toISOString(),
+      lifecycleState: "released",
+      releasedAt: new Date(now.getTime() + 3000).toISOString(),
+      diagnosticUris: [pendingUri, unknownUri],
+    }, new Date(now.getTime() + 3000).toISOString())).rejects.toMatchObject({ code: "invalid_transition" });
   });
 
   it("persists the same immutable result across restart and fails closed for corrupt result evidence", async () => {
@@ -480,7 +657,7 @@ describe("ManagedJobApplicationService", () => {
 
   it("recovers persisted nonterminal work as interrupted and preserves parent-child separation", async () => {
     const store = new InMemoryManagedJobStore();
-    await store.reserve({ job: { version: 1, id: "job-running", state: "queued", projectId: "kiln", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString(), parent: { invocationId: "parent-invocation", turnId: "parent-turn" } } });
+    await store.reserve({ job: { version: 3, id: "job-running", state: "queued", projectId: "kiln", callerId: query.callerId, configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", admissionId: "admission-001", timeoutSource: "default", requestFingerprint: "a".repeat(64), idempotencyKeyHash: "b".repeat(64), createdAt: now.toISOString(), updatedAt: now.toISOString(), lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }], parent: { invocationId: "parent-invocation", turnId: "parent-turn" } } });
     const service = new ManagedJobApplicationService(createOptions({ store }));
     const recovered = await service.recoverInterrupted();
     expect(recovered).toMatchObject([{ id: "job-running", state: "interrupted", parent: { invocationId: "parent-invocation", turnId: "parent-turn" } }]);

@@ -18,7 +18,7 @@ function makeService(): ManagedAgentRuntimeRecoveryDaemonService & {
 } {
   return {
     recoverStaleInvocations: vi.fn(async () => emptyRecovery()),
-    recoverPersistedInvocations: vi.fn(async () => emptyRecovery()),
+    recoverPersistedInvocations: vi.fn(async () => ({ recovered: [], accountLeases: [] })),
   };
 }
 
@@ -87,7 +87,7 @@ describe("ManagedAgentRuntimeRecoveryDaemon", () => {
     const result = await daemon.runOnce({ recoverPersisted: true });
 
     expect(result).toEqual({
-      persisted: { recovered: [] },
+      persisted: { recovered: [], accountLeases: [] },
       stale: { recovered: [] },
     });
     expect(service.recoverPersistedInvocations).toHaveBeenCalledWith({
@@ -211,7 +211,7 @@ describe("ManagedAgentRuntimeRecoveryDaemon", () => {
 
     await expect(staleOnly).resolves.toEqual({ stale: { recovered: [] } });
     await expect(persisted).resolves.toEqual({
-      persisted: { recovered: [] },
+      persisted: { recovered: [], accountLeases: [] },
       stale: { recovered: [] },
     });
     expect(service.recoverPersistedInvocations).toHaveBeenCalledTimes(1);

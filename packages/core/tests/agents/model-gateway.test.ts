@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceAttemptCommit,
   createAccountRef,
+  createAccountPolicyId,
   createAttemptCommit,
   reassignAttemptAccount,
   reserveAccountForNewWork,
@@ -30,12 +31,18 @@ const candidate = (
   account: createAccountRef(id),
   route: route(),
   health: "healthy",
+  leaseCapacity: "available",
   pressure: 0,
   reservedForNewWork: false,
   ...options,
 });
 
 describe("model gateway account selection", () => {
+  it("creates one canonical opaque account policy identity", () => {
+    expect(createAccountPolicyId(" managed-codex ")).toBe("managed-codex");
+    expect(() => createAccountPolicyId("   ")).toThrow("AccountPolicyId must not be empty");
+  });
+
   it("prefers a healthy compatible existing affinity over a lower-pressure un-affined account", () => {
     const selected = selectModelGatewayAccount({
       route: route(),
@@ -55,6 +62,29 @@ describe("model gateway account selection", () => {
     });
 
     expect(selected).toMatchObject({ selected: { account: createAccountRef("account-a"), reason: "least-pressure" } });
+  });
+
+  it("retains deterministic rejection evidence when another candidate is selected", () => {
+    const selected = selectModelGatewayAccount({
+      route: route(),
+      work: "new",
+      candidates: [
+        candidate("account-b", { health: "unhealthy" }),
+        candidate("account-a", { pressure: 0 }),
+      ],
+    });
+
+    expect(selected).toEqual({
+      selected: {
+        account: createAccountRef("account-a"),
+        route: route(),
+        reason: "least-pressure",
+      },
+      rejections: [{
+        account: createAccountRef("account-b"),
+        reason: "unhealthy",
+      }],
+    });
   });
 
   it("rejects duplicate account snapshots instead of depending on input ordering", () => {
@@ -83,6 +113,22 @@ describe("model gateway account selection", () => {
       affinity: { account: createAccountRef("account-a"), route: route() },
       candidates: [reserved],
     })).toMatchObject({ selected: { account: createAccountRef("account-a"), reason: "existing-affinity" } });
+  });
+
+  it("rejects exhausted lease capacity for both new and existing-affinity work", () => {
+    const exhausted = candidate("account-a", { leaseCapacity: "unavailable" });
+
+    expect(selectModelGatewayAccount({ route: route(), work: "new", candidates: [exhausted] }))
+      .toMatchObject({ rejections: [{ account: "account-a", reason: "lease-conflict" }] });
+    expect(selectModelGatewayAccount({
+      route: route(),
+      work: "existing",
+      affinity: { account: createAccountRef("account-a"), route: route() },
+      candidates: [exhausted],
+    })).toMatchObject({
+      rejections: [{ account: "account-a", reason: "lease-conflict" }],
+      affinity: { outcome: "rejected", reason: "lease-conflict" },
+    });
   });
 
   it("fails closed when existing work's affinity is unavailable instead of silently rebinding", () => {

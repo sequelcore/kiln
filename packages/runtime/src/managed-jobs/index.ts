@@ -1,8 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { ManagedAgentAuthorityProfile, ManagedAgentCapabilitySnapshotInput, ManagedAgentInvocationRequest, ManagedAgentResultHandoff } from "@kilnai/core";
 import {
+  defineManagedAccountLeaseEvidence,
+  type ManagedAccountLeaseEvidence,
+  type ManagedAgentAuthorityProfile,
+  type ManagedAgentCapabilitySnapshotInput,
+  type ManagedAgentInvocationRequest,
+  type ManagedAgentResultHandoff,
+} from "@kilnai/core";
+import {
+  ManagedAccountLeaseUnavailableError,
   RuntimeManagedAgentInvocationService,
 } from "../agents/managed-invocation/index.js";
 import type { ManagedAgentRuntimeAdapter } from "../agents/managed-invocation/index.js";
@@ -35,6 +43,7 @@ export type ManagedJobDiagnosticCode =
   | "invalid_transition"
   | "provider_rejected"
   | "provider_timeout"
+  | "account_lease_unavailable"
   | "invocation_failed"
   | "unauthorized_job"
   | "result_pending"
@@ -77,6 +86,7 @@ export interface ManagedJobProfile {
 }
 export interface ManagedJobRoute {
   readonly id: string;
+  readonly accountPolicyId: string;
   readonly admissionProfileId: string;
   readonly supportedAdmissionProfileIds: readonly string[];
   readonly providerId: string;
@@ -97,8 +107,7 @@ export interface ManagedJobRoute {
   readonly authority: ManagedAgentAuthorityProfile;
 }
 
-export interface ManagedJobRecordV1 {
-  readonly version: 1;
+interface ManagedJobRecordBase {
   readonly id: string;
   readonly state: ManagedJobState;
   readonly projectId: string;
@@ -135,12 +144,6 @@ export interface ManagedJobResult {
   readonly resultHandoff: ManagedAgentResultHandoff;
 }
 
-export interface ManagedJobRecordV2 extends Omit<ManagedJobRecordV1, "version"> {
-  readonly version: 2;
-  readonly callerId: string;
-  readonly result?: ManagedJobResult;
-}
-
 export interface ManagedJobLifecycleEntry {
   readonly sequence: number;
   readonly state: ManagedJobState;
@@ -148,12 +151,20 @@ export interface ManagedJobLifecycleEntry {
   readonly diagnostic?: ManagedJobDiagnosticCode;
 }
 
-export interface ManagedJobRecordV3 extends Omit<ManagedJobRecordV2, "version"> {
+export interface ManagedJobRecordV3 extends ManagedJobRecordBase {
   readonly version: 3;
+  readonly callerId: string;
+  readonly result?: ManagedJobResult;
   readonly lifecycle: readonly ManagedJobLifecycleEntry[];
 }
 
-export type ManagedJobRecord = ManagedJobRecordV1 | ManagedJobRecordV2 | ManagedJobRecordV3;
+export interface ManagedJobRecordV4 extends Omit<ManagedJobRecordV3, "version"> {
+  readonly version: 4;
+  readonly accountLease?: ManagedAccountLeaseEvidence;
+  readonly accountLeaseHistory: readonly ManagedAccountLeaseEvidence[];
+}
+
+export type ManagedJobRecord = ManagedJobRecordV3 | ManagedJobRecordV4;
 export type ManagedJobResultAvailability = "pending" | "available" | "unavailable" | "failed" | "unresolved";
 export interface ManagedJobResultQuery {
   readonly jobId: string;
@@ -167,6 +178,7 @@ export interface ManagedJobResultQuery {
   readonly provenance?: ManagedJobResult["provenance"];
   readonly handoff?: ManagedAgentResultHandoff;
   readonly diagnostic?: ManagedJobDiagnosticCode;
+  readonly accountLease?: ManagedAccountLeaseEvidence;
 }
 
 export interface ManagedJobReplayQuery {
@@ -180,6 +192,8 @@ export interface ManagedJobReplayQuery {
   readonly lifecycle: readonly ManagedJobLifecycleEntry[];
   readonly resultAvailability: ManagedJobResultAvailability;
   readonly diagnostic?: ManagedJobDiagnosticCode;
+  readonly accountLease?: ManagedAccountLeaseEvidence;
+  readonly accountLeaseHistory: readonly ManagedAccountLeaseEvidence[];
 }
 
 export interface ManagedJobProjectPort { resolve(): Promise<TrustedManagedJobProject>; }
@@ -190,7 +204,7 @@ export interface ManagedJobGovernancePort {
 export interface ManagedJobProfilePort { resolve(id: string): Promise<ManagedJobProfile | undefined>; }
 export interface ManagedJobRoutePort { resolve(profile: ManagedJobProfile): Promise<ManagedJobRoute | undefined>; }
 export interface ManagedJobRuntimeInvocationPort {
-  invoke(input: { readonly jobId: string; readonly project: TrustedManagedJobProject; readonly objective: string; readonly profile: ManagedJobProfile; readonly route: ManagedJobRoute; readonly parent?: ManagedJobSubmission["parent"] }): Promise<
+  invoke(input: { readonly jobId: string; readonly project: TrustedManagedJobProject; readonly objective: string; readonly profile: ManagedJobProfile; readonly route: ManagedJobRoute; readonly parent?: ManagedJobSubmission["parent"]; readonly accountLeaseObserver: (evidence: ManagedAccountLeaseEvidence) => Promise<void> }): Promise<
     | { readonly state: "succeeded"; readonly result?: ManagedJobRuntimeResult }
     | { readonly state: "failed" | "timed_out" }
   >;
@@ -223,7 +237,22 @@ export function createRuntimeManagedJobInvocationPort(input: {
     async invoke(invocation) {
       const resolved = await input.resolver.resolve(invocation);
       if (resolved.request.invocationId !== invocation.jobId) throw new ManagedJobApplicationError("invocation_failed", "Bind the Runtime invocation identity to the canonical managed-job identifier.");
-      const result = await input.service.invoke(resolved.request, resolved.adapter, resolved.capabilitySnapshot);
+      const result = await input.service.invoke(
+        resolved.request,
+        resolved.adapter,
+        resolved.capabilitySnapshot,
+        {
+          accountLeaseObserver: invocation.accountLeaseObserver,
+        },
+      ).catch((error: unknown) => {
+        if (error instanceof ManagedAccountLeaseUnavailableError) {
+          throw new ManagedJobApplicationError(
+            "account_lease_unavailable",
+            "Wait for managed account settlement or repair account eligibility evidence.",
+          );
+        }
+        throw error;
+      });
       if (result.status === "denied") throw new ManagedJobApplicationError("provider_rejected", "Review the Runtime managed-agent admission diagnostic.");
       const record = result.record;
       return {
@@ -261,6 +290,7 @@ export interface ManagedJobStore {
   get(id: string): Promise<ManagedJobRecord | undefined>;
   transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord>;
   completeSuccess(id: string, result: ManagedJobResult, updatedAt?: string): Promise<ManagedJobRecord>;
+  recordAccountLease(id: string, evidence: ManagedAccountLeaseEvidence, updatedAt?: string): Promise<ManagedJobRecord>;
   listNonterminal(): Promise<readonly ManagedJobRecord[]>;
 }
 
@@ -313,8 +343,8 @@ export class ManagedJobApplicationService {
 
     const now = this.now();
     const requestFingerprint = fingerprint({ objective: request.objective, configuredAgentProfileId: request.configuredAgentProfileId, parent: request.parent });
-    const job: ManagedJobRecordV3 = {
-      version: 3,
+    const job: ManagedJobRecordV4 = {
+      version: 4,
       id: this.newJobId(),
       state: "queued",
       projectId: project.id,
@@ -331,6 +361,7 @@ export class ManagedJobApplicationService {
       createdAt: now,
       updatedAt: now,
       lifecycle: [{ sequence: 1, state: "queued", observedAt: now }],
+      accountLeaseHistory: [],
       ...(request.parent ? { parent: request.parent } : {}),
     };
     const reservation = await this.reserve(job);
@@ -354,9 +385,22 @@ export class ManagedJobApplicationService {
     route: ManagedJobRoute,
   ): Promise<ManagedJobRecord> {
     try {
-      const result = await this.options.runtime.invoke({ jobId: running.id, project, objective: request.objective, profile, route, ...(request.parent ? { parent: request.parent } : {}) });
+      const result = await this.options.runtime.invoke({
+        jobId: running.id,
+        project,
+        objective: request.objective,
+        profile,
+        route,
+        accountLeaseObserver: async (evidence) => {
+          await this.options.store.recordAccountLease(running.id, evidence, this.now());
+        },
+        ...(request.parent ? { parent: request.parent } : {}),
+      });
       const current = await this.options.store.get(running.id);
       if (current?.state === "cancelled") return current;
+      if (current?.version !== 4 || current.accountLease === undefined) {
+        return this.transition(running.id, "failed", "account_lease_unavailable");
+      }
       if (result.state === "succeeded") {
         if (!result.result) return this.transition(running.id, "failed", "result_persistence_failure");
         return await this.completeSuccess(running, result.result, request.objective);
@@ -383,7 +427,6 @@ export class ManagedJobApplicationService {
   async getResult(context: TrustedManagedJobQueryContext, id: string): Promise<ManagedJobResultQuery> {
     const job = await this.getStatus(context, id);
     if (job.state === "queued" || job.state === "running") return resultQuery(job, "pending", "result_pending");
-    if (job.version === 1) return resultQuery(job, "unavailable", "result_unavailable");
     if (job.state !== "succeeded") return resultQuery(job, "failed", job.diagnostic ?? "invocation_failed");
     if (!job.result) return resultQuery(job, "unresolved", "result_persistence_failure");
     return resultQuery(job, "available");
@@ -406,7 +449,7 @@ export class ManagedJobApplicationService {
 
   async getReplay(context: TrustedManagedJobQueryContext, id: string): Promise<ManagedJobReplayQuery> {
     const job = await this.getStatus(context, id);
-    if (job.version !== 3) {
+    if (job.version !== 3 && job.version !== 4) {
       return replayQuery(job, "unavailable", [], "replay_unavailable");
     }
     return replayQuery(job, "available", job.lifecycle);
@@ -464,13 +507,7 @@ export class ManagedJobApplicationService {
     if (!isRecord(context) || !isRecord(context.project) || !isIdentifier(context.project.id) || !isIdentifier(context.callerId)) {
       throw new ManagedJobApplicationError("invalid_request", "Use a trusted caller and project query context.");
     }
-    const callerAuthorized = job.version !== 1
-      ? job.callerId === context.callerId
-      // Slice 3B records never stored a caller. Their sole bounded historical
-      // read rule is the canonical Codex App identity plus the owned project.
-      // Remove this branch after the known v1 records have expired or migrated.
-      : context.callerId === "codex-app";
-    if (job.projectId !== context.project.id || !callerAuthorized) {
+    if (job.projectId !== context.project.id || job.callerId !== context.callerId) {
       throw new ManagedJobApplicationError("unauthorized_job", "Use the trusted caller and project that own this managed job.");
     }
   }
@@ -504,35 +541,61 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
     if (!canTransition(current.state, state)) throw new ManagedJobApplicationError("invalid_transition", "Keep terminal managed-job states immutable.");
     const timestamp = updatedAt ?? new Date().toISOString();
     if (!isIso(timestamp) || Date.parse(timestamp) < Date.parse(current.updatedAt)) throw new ManagedJobApplicationError("invalid_transition", "Use monotonic managed-job timestamps.");
-    const next: ManagedJobRecord = current.version === 3
-      ? {
-          ...current,
-          state,
-          updatedAt: timestamp,
-          lifecycle: [...current.lifecycle, lifecycleEntry(current.lifecycle.length + 1, state, timestamp, diagnostic)],
-          ...(diagnostic ? { diagnostic } : {}),
-        }
-      : { ...current, state, updatedAt: timestamp, ...(diagnostic ? { diagnostic } : {}) };
+    const next: ManagedJobRecord = {
+      ...current,
+      state,
+      updatedAt: timestamp,
+      lifecycle: [...current.lifecycle, lifecycleEntry(current.lifecycle.length + 1, state, timestamp, diagnostic)],
+      ...(diagnostic ? { diagnostic } : {}),
+    };
     this.jobs.set(id, next);
     return cloneManagedJob(next);
   }
   async completeSuccess(id: string, result: ManagedJobResult, updatedAt?: string): Promise<ManagedJobRecord> {
     const current = this.jobs.get(id);
     if (!current) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
-    if (current.version === 1 || current.state !== "running" || current.result !== undefined) throw new ManagedJobApplicationError("invalid_transition", "Keep terminal managed-job results immutable.");
+    if (current.state !== "running" || current.result !== undefined) throw new ManagedJobApplicationError("invalid_transition", "Keep terminal managed-job results immutable.");
     const timestamp = updatedAt ?? new Date().toISOString();
     if (!isIso(timestamp) || Date.parse(timestamp) < Date.parse(current.updatedAt) || !isValidManagedJobResult(result, current, timestamp)) {
       throw new ManagedJobApplicationError("result_corrupt", "Persist only validated canonical Runtime result evidence.");
     }
-    const next: ManagedJobRecordV2 | ManagedJobRecordV3 = current.version === 3
-      ? {
-          ...current,
-          state: "succeeded",
-          result,
-          updatedAt: timestamp,
-          lifecycle: [...current.lifecycle, lifecycleEntry(current.lifecycle.length + 1, "succeeded", timestamp)],
-        }
-      : { ...current, state: "succeeded", result, updatedAt: timestamp };
+    const next: ManagedJobRecordV3 | ManagedJobRecordV4 = {
+      ...current,
+      state: "succeeded",
+      result,
+      updatedAt: timestamp,
+      lifecycle: [...current.lifecycle, lifecycleEntry(current.lifecycle.length + 1, "succeeded", timestamp)],
+    };
+    this.jobs.set(id, next);
+    return cloneManagedJob(next);
+  }
+  async recordAccountLease(id: string, evidence: ManagedAccountLeaseEvidence, updatedAt?: string): Promise<ManagedJobRecord> {
+    const current = this.jobs.get(id);
+    if (!current) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
+    if (current.version !== 4) throw new ManagedJobApplicationError("invalid_transition", "Account lease evidence requires a canonical V4 managed job.");
+    const canonical = defineManagedAccountLeaseEvidence(evidence);
+    if (canonical.jobId !== current.id || canonical.runtimeInvocationId !== current.id) {
+      throw new ManagedJobApplicationError("invalid_transition", "Bind account lease evidence to the canonical managed-job identity.");
+    }
+    if (current.accountLease && !sameManagedAccountLeaseIdentity(current.accountLease, canonical)) {
+      throw new ManagedJobApplicationError("invalid_transition", "Keep one immutable account selection per managed job.");
+    }
+    if (current.accountLease && JSON.stringify(current.accountLease) === JSON.stringify(canonical)) {
+      return cloneManagedJob(current);
+    }
+    if (current.accountLease && !isValidManagedAccountLeaseTransition(current.accountLease, canonical)) {
+      throw new ManagedJobApplicationError("invalid_transition", "Keep managed account lease evidence monotonic and terminal states immutable.");
+    }
+    const timestamp = updatedAt ?? new Date().toISOString();
+    if (!isIso(timestamp) || Date.parse(timestamp) < Date.parse(current.updatedAt)) {
+      throw new ManagedJobApplicationError("invalid_transition", "Use monotonic managed-job timestamps.");
+    }
+    const next: ManagedJobRecordV4 = {
+      ...current,
+      accountLease: canonical,
+      accountLeaseHistory: [...current.accountLeaseHistory, canonical],
+      updatedAt: timestamp,
+    };
     this.jobs.set(id, next);
     return cloneManagedJob(next);
   }
@@ -557,6 +620,9 @@ export class FilesystemManagedJobStore implements ManagedJobStore {
   }
   async completeSuccess(id: string, result: ManagedJobResult, updatedAt?: string): Promise<ManagedJobRecord> {
     return this.withLock(async () => { const memory = await this.loadMemory(); const job = await memory.completeSuccess(id, result, updatedAt); await this.saveMemory(memory); return job; });
+  }
+  async recordAccountLease(id: string, evidence: ManagedAccountLeaseEvidence, updatedAt?: string): Promise<ManagedJobRecord> {
+    return this.withLock(async () => { const memory = await this.loadMemory(); const job = await memory.recordAccountLease(id, evidence, updatedAt); await this.saveMemory(memory); return job; });
   }
   async listNonterminal(): Promise<readonly ManagedJobRecord[]> { return (await this.loadMemory()).listNonterminal(); }
   private async loadMemory(): Promise<InMemoryManagedJobStore> {
@@ -616,17 +682,17 @@ function parseManagedJobSubmission(value: unknown): ManagedJobSubmission {
 }
 function validateStoredJob(value: unknown): ManagedJobRecord {
   const base = ["version", "id", "state", "projectId", "configuredAgentProfileId", "admissionProfileId", "routeId", "providerId", "governanceSource", "admissionId", "timeoutSource", "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic"];
-  const allowed = value && isRecord(value) && value.version === 3
-    ? [...base, "callerId", "result", "lifecycle"]
-    : value && isRecord(value) && value.version === 2
-      ? [...base, "callerId", "result"]
-      : base;
-  if (!isRecord(value) || !hasOnly(value, allowed) || (value.version !== 1 && value.version !== 2 && value.version !== 3) || !isIdentifier(value.id) || !MANAGED_JOB_STATES.includes(value.state as ManagedJobState) || !isIdentifier(value.projectId) || !isIdentifier(value.configuredAgentProfileId) || !isIdentifier(value.admissionProfileId) || !isIdentifier(value.routeId) || !isIdentifier(value.providerId) || !isIdentifier(value.governanceSource) || !isIdentifier(value.admissionId) || (value.timeoutSource !== "default" && value.timeoutSource !== "explicit-route") || !isHash(value.requestFingerprint) || !isHash(value.idempotencyKeyHash) || !isIso(value.createdAt) || !isIso(value.updatedAt) || Date.parse(value.createdAt) > Date.parse(value.updatedAt) || (value.parent !== undefined && (!isRecord(value.parent) || !hasOnly(value.parent, ["invocationId", "turnId"]) || !isIdentifier(value.parent.invocationId) || !isIdentifier(value.parent.turnId))) || (value.diagnostic !== undefined && !isDiagnostic(value.diagnostic))) throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
-  if (value.version === 1) return value as unknown as ManagedJobRecordV1;
-  if (!isIdentifier(value.callerId) || (value.result !== undefined && !isValidManagedJobResult(value.result, value as unknown as ManagedJobRecordV2, value.updatedAt)) || (value.state === "succeeded" && value.result === undefined) || (value.state !== "succeeded" && value.result !== undefined)) {
+  const allowed = value && isRecord(value) && value.version === 4
+    ? [...base, "callerId", "result", "lifecycle", "accountLease", "accountLeaseHistory"]
+    : [...base, "callerId", "result", "lifecycle"];
+  if (!isRecord(value) || !hasOnly(value, allowed) || (value.version !== 3 && value.version !== 4) || !isIdentifier(value.id) || !MANAGED_JOB_STATES.includes(value.state as ManagedJobState) || !isIdentifier(value.projectId) || !isIdentifier(value.configuredAgentProfileId) || !isIdentifier(value.admissionProfileId) || !isIdentifier(value.routeId) || !isIdentifier(value.providerId) || !isIdentifier(value.governanceSource) || !isIdentifier(value.admissionId) || (value.timeoutSource !== "default" && value.timeoutSource !== "explicit-route") || !isHash(value.requestFingerprint) || !isHash(value.idempotencyKeyHash) || !isIso(value.createdAt) || !isIso(value.updatedAt) || Date.parse(value.createdAt) > Date.parse(value.updatedAt) || (value.parent !== undefined && (!isRecord(value.parent) || !hasOnly(value.parent, ["invocationId", "turnId"]) || !isIdentifier(value.parent.invocationId) || !isIdentifier(value.parent.turnId))) || (value.diagnostic !== undefined && !isDiagnostic(value.diagnostic))) throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
+  if (!isIdentifier(value.callerId) || (value.result !== undefined && !isValidManagedJobResult(value.result, value as unknown as ManagedJobRecord, value.updatedAt)) || (value.state === "succeeded" && value.result === undefined) || (value.state !== "succeeded" && value.result !== undefined)) {
     throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
   }
-  if (value.version === 3 && !isValidLifecycle(value.lifecycle, value.state as ManagedJobState, value.createdAt, value.updatedAt)) {
+  if (!isValidLifecycle(value.lifecycle, value.state as ManagedJobState, value.createdAt, value.updatedAt)) {
+    throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
+  }
+  if (value.version === 4 && !isValidManagedAccountLeaseHistory(value.accountLease, value.accountLeaseHistory, value.id)) {
     throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
   }
   return value as unknown as ManagedJobRecord;
@@ -647,11 +713,78 @@ function isValidLifecycle(value: unknown, state: ManagedJobState, createdAt: str
   }
   const first = value[0] as unknown as ManagedJobLifecycleEntry;
   const last = value[value.length - 1] as unknown as ManagedJobLifecycleEntry;
-  return first.state === "queued" && Date.parse(first.observedAt) === Date.parse(createdAt) && last.state === state && Date.parse(last.observedAt) === Date.parse(updatedAt);
+  return first.state === "queued"
+    && Date.parse(first.observedAt) === Date.parse(createdAt)
+    && last.state === state
+    && Date.parse(last.observedAt) <= Date.parse(updatedAt);
+}
+function isValidManagedAccountLeaseHistory(
+  current: unknown,
+  history: unknown,
+  jobId: string,
+): boolean {
+  if (!Array.isArray(history)) return false;
+  if (history.length === 0) return current === undefined;
+  try {
+    const canonical = history.map((entry) => defineManagedAccountLeaseEvidence(entry as ManagedAccountLeaseEvidence));
+    if (canonical.some((entry) => entry.jobId !== jobId || entry.runtimeInvocationId !== jobId)) return false;
+    if (canonical.some((entry) => !sameManagedAccountLeaseIdentity(canonical[0]!, entry))) return false;
+    for (let index = 1; index < canonical.length; index += 1) {
+      if (!isValidManagedAccountLeaseTransition(canonical[index - 1]!, canonical[index]!)) return false;
+    }
+    if (current === undefined) return false;
+    const canonicalCurrent = defineManagedAccountLeaseEvidence(current as ManagedAccountLeaseEvidence);
+    return JSON.stringify(canonicalCurrent) === JSON.stringify(canonical[canonical.length - 1]);
+  } catch {
+    return false;
+  }
+}
+function isValidManagedAccountLeaseTransition(
+  previous: ManagedAccountLeaseEvidence,
+  next: ManagedAccountLeaseEvidence,
+): boolean {
+  if (
+    JSON.stringify(previous) === JSON.stringify(next)
+    || previous.acquiredAt !== next.acquiredAt
+    || previous.selectionReason !== next.selectionReason
+    || previous.affinityOutcome !== next.affinityOutcome
+    || JSON.stringify(previous.candidateRejections) !== JSON.stringify(next.candidateRejections)
+    || JSON.stringify(previous.resourceUris) !== JSON.stringify(next.resourceUris)
+    || previous.diagnosticUris.some((uri) => !next.diagnosticUris.includes(uri))
+    || (
+      previous.lifecycleState === next.lifecycleState
+      && next.diagnosticUris.length <= previous.diagnosticUris.length
+    )
+  ) {
+    return false;
+  }
+  const allowed: Readonly<Record<ManagedAccountLeaseEvidence["lifecycleState"], readonly ManagedAccountLeaseEvidence["lifecycleState"][]>> = {
+    held: ["settlement-pending", "released", "release-failed", "leaked"],
+    "settlement-pending": ["settlement-pending", "released", "release-failed", "leaked"],
+    released: [],
+    "release-failed": [],
+    leaked: [],
+  };
+  return allowed[previous.lifecycleState].includes(next.lifecycleState);
+}
+function sameManagedAccountLeaseIdentity(
+  left: ManagedAccountLeaseEvidence,
+  right: ManagedAccountLeaseEvidence,
+): boolean {
+  return left.leaseId === right.leaseId
+    && left.accountPolicyId === right.accountPolicyId
+    && left.accountRef === right.accountRef
+    && left.jobId === right.jobId
+    && left.runtimeInvocationId === right.runtimeInvocationId
+    && left.credentialRevisionId === right.credentialRevisionId
+    && left.route.providerId === right.route.providerId
+    && left.route.providerModelId === right.route.providerModelId
+    && left.route.scope === right.route.scope;
 }
 function isFreshEvidence(value: ManagedJobGovernanceEvidence, now: Date): boolean { return isIso(value.issuedAt) && isIso(value.validUntil) && Date.parse(value.issuedAt) <= now.getTime() && now.getTime() <= Date.parse(value.validUntil); }
 function isAdmittedRoute(route: ManagedJobRoute, profile: ManagedJobProfile, now: Date): boolean {
   return isIdentifier(route.id)
+    && isIdentifier(route.accountPolicyId)
     && route.id === profile.routeId
     && isIdentifier(route.admissionProfileId)
     && route.supportedAdmissionProfileIds.every(isIdentifier)
@@ -762,7 +895,7 @@ function looksLikeRawProviderPayload(value: string): boolean {
   return /(?:\{\s*"[^"\n]{1,200}"\s*:|\[\s*\{)/u.test(value);
 }
 function resultQuery(job: ManagedJobRecord, availability: ManagedJobResultAvailability, diagnostic?: ManagedJobDiagnosticCode): ManagedJobResultQuery {
-  const result = job.version === 1 ? undefined : job.result;
+  const result = job.result;
   return {
     jobId: job.id,
     availability,
@@ -772,6 +905,7 @@ function resultQuery(job: ManagedJobRecord, availability: ManagedJobResultAvaila
     routeId: job.routeId,
     providerId: job.providerId,
     ...(result ? { completedAt: result.completedAt, provenance: { ...result.provenance }, handoff: normalizeManagedJobResultHandoff(result.resultHandoff) } : {}),
+    ...(job.version === 4 && job.accountLease ? { accountLease: defineManagedAccountLeaseEvidence(job.accountLease) } : {}),
     ...(diagnostic ? { diagnostic } : {}),
   };
 }
@@ -779,7 +913,7 @@ function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery[
   const resultAvailability: ManagedJobResultAvailability = job.state === "queued" || job.state === "running"
     ? "pending"
     : job.state === "succeeded"
-      ? job.version !== 1 && job.result ? "available" : "unavailable"
+      ? job.result ? "available" : "unavailable"
       : "failed";
   return {
     jobId: job.id,
@@ -790,6 +924,10 @@ function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery[
     routeId: job.routeId,
     providerId: job.providerId,
     lifecycle,
+    accountLeaseHistory: job.version === 4
+      ? job.accountLeaseHistory.map(defineManagedAccountLeaseEvidence)
+      : [],
+    ...(job.version === 4 && job.accountLease ? { accountLease: defineManagedAccountLeaseEvidence(job.accountLease) } : {}),
     resultAvailability,
     ...(diagnostic ? { diagnostic } : {}),
   };
@@ -797,7 +935,7 @@ function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery[
 function cloneManagedJob(value: ManagedJobRecord): ManagedJobRecord { return structuredClone(value); }
 function isIdentifier(value: unknown): value is string { return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(value); }
 function isHash(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value); }
-function isDiagnostic(value: unknown): value is ManagedJobDiagnosticCode { return typeof value === "string" && ["invalid_request", "project_identity_unavailable", "governance_unavailable", "governance_not_authoritative", "admission_denied", "profile_unavailable", "route_unavailable", "idempotency_conflict", "job_persistence_unavailable", "job_persistence_corrupt", "unknown_job", "invalid_transition", "provider_rejected", "provider_timeout", "invocation_failed", "unauthorized_job", "result_pending", "result_unavailable", "result_persistence_failure", "result_corrupt", "cancelled", "replay_unavailable"].includes(value); }
+function isDiagnostic(value: unknown): value is ManagedJobDiagnosticCode { return typeof value === "string" && ["invalid_request", "project_identity_unavailable", "governance_unavailable", "governance_not_authoritative", "admission_denied", "profile_unavailable", "route_unavailable", "idempotency_conflict", "job_persistence_unavailable", "job_persistence_corrupt", "unknown_job", "invalid_transition", "provider_rejected", "provider_timeout", "account_lease_unavailable", "invocation_failed", "unauthorized_job", "result_pending", "result_unavailable", "result_persistence_failure", "result_corrupt", "cancelled", "replay_unavailable"].includes(value); }
 function isIso(value: unknown): value is string { return typeof value === "string" && !Number.isNaN(Date.parse(value)); }
 function fingerprint(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

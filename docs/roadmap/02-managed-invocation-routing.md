@@ -1,7 +1,7 @@
 # 02 - Managed Invocation Routing
 
 Status: Active delivery track
-Execution: Ready - complete per-job account leases and reliable lifecycle evidence.
+Execution: Slice 1 complete; prepare deterministic multi-account proof.
 Created: 2026-07-23
 
 ## Objective
@@ -43,13 +43,15 @@ remain evidence-driven rather than speculative.
 
 ### Slice 1 - Per-Job Account Leases
 
-Status: Ready.
+Status: Complete in issue #28.
 
-Acquire the lease when the managed job starts, not when an adapter factory is
-constructed. Persist selection reason and sanitized account reference. Retain a
-lease after timeout until execution settles; release on success, failure,
-cancellation, and cleanup. Preserve affinity and allow rebind only by explicit
-virtual-model policy.
+Managed jobs acquire one durable Runtime-owned account lease after admission and
+before provider dispatch. Selected credentials are revision-fenced and bypass
+pooled selection. Canonical V4 job, invocation, replay, Gateway, CLI, GUI, TUI,
+Native, MCP, and SDK evidence carries the sanitized account lifecycle. Capacity
+follows settlement: timeout and cancellation remain settlement-pending, restart
+never frees unknown external work, and release failure or unmatchable recovery
+continues consuming capacity.
 
 ### Slice 2 - Deterministic Multi-Account Proof
 

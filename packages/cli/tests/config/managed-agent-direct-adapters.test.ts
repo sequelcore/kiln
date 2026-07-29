@@ -23,6 +23,26 @@ function provider(): ProviderAdapter {
 }
 
 describe("createManagedDirectProviderAdapterFactory", () => {
+  it("does not construct a pooled provider for runtime-selected routes", async () => {
+    const createProviderAdapter = vi.fn(async () => provider());
+    const factory = createManagedDirectProviderAdapterFactory({ createProviderAdapter });
+
+    const adapter = await factory({
+      id: "openai-managed",
+      kind: "direct",
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"],
+      credentials: {
+        mode: "runtime-selected",
+        accountPolicyId: "managed-openai",
+      },
+    });
+
+    expect(adapter).toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
+    expect(createProviderAdapter).not.toHaveBeenCalled();
+  });
+
   it("builds a direct managed runtime adapter from a tool-capable direct provider route", async () => {
     const createProviderAdapter = vi.fn(async (_options: DirectProviderAdapterOptions) => provider());
     const factory = createManagedDirectProviderAdapterFactory({

@@ -147,10 +147,16 @@ function resolveCredentialRoute(
   }
 
   return {
-    credentialRoute: {
-      mode: "runtime-selected",
-      routeId,
-    },
+    credentialRoute: requestRoute.mode === "account-leased"
+      ? {
+        mode: "account-leased",
+        routeId,
+        accountPolicyId: requestRoute.accountPolicyId,
+      }
+      : {
+        mode: "runtime-selected",
+        routeId,
+      },
     credentialRouteId: routeId,
   };
 }

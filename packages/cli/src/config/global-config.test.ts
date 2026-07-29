@@ -158,6 +158,54 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("Invalid global modelGateway");
   });
 
+  it("binds runtime-selected managed routes to one matching direct account policy", () => {
+    existsSyncMock.mockReturnValue(true);
+    const config = [
+      'version: "1"',
+      "modelGateway:",
+      "  port: 4819",
+      "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }]",
+      "  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_SECRET }",
+      "  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }",
+      "  principals:",
+      "    - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [managed-codex] }",
+      "  virtualModels:",
+      "    - { id: managed-codex, providerId: codex-oauth, providerModelId: gpt-5.6-terra, accountIds: [account], capabilities: [text], affinity: { continuity: none } }",
+      "managedAgents:",
+      "  routes:",
+      "    - id: codex-readonly",
+      "      kind: direct",
+      "      provider: codex-oauth",
+      "      model: gpt-5.6-terra",
+      "      credentials: { mode: runtime-selected, accountPolicyId: managed-codex }",
+    ];
+    readFileSyncMock.mockReturnValue(config.join("\n"));
+    expect(readGlobalConfig()?.managedAgents?.routes?.[0]?.credentials).toEqual({
+      mode: "runtime-selected",
+      accountPolicyId: "managed-codex",
+    });
+
+    readFileSyncMock.mockReturnValue(config.map((line) =>
+      line === "      kind: direct" ? "      kind: harness" : line).join("\n"));
+    expect(() => readGlobalConfig()).toThrow(
+      "managedAgents.routes[0] runtime-selected credentials require a direct route",
+    );
+
+    readFileSyncMock.mockReturnValue(config.map((line) =>
+      line.includes("accountPolicyId: managed-codex")
+        ? "      credentials: { mode: runtime-selected, accountPolicyId: missing-policy }"
+        : line).join("\n"));
+    expect(() => readGlobalConfig()).toThrow(
+      "managedAgents.routes[0].credentials.accountPolicyId must reference modelGateway.virtualModels",
+    );
+
+    readFileSyncMock.mockReturnValue(config.map((line) =>
+      line === "      model: gpt-5.6-terra" ? "      model: gpt-5.6-mini" : line).join("\n"));
+    expect(() => readGlobalConfig()).toThrow(
+      "managedAgents.routes[0] provider and model must match its modelGateway account policy",
+    );
+  });
+
   it("readGlobalConfig() rejects non-canonical configs", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(["version: \"2\"", "provider: codex"].join("\n"));
@@ -449,6 +497,8 @@ describe("global-config", () => {
         "      kind: direct",
         "      provider: codex-oauth",
         "      model: gpt-5.4-mini",
+        "      credentials:",
+        "        mode: credentialless",
         "      voiceProfile: reviewer-voice",
       ].join("\n"),
     );
@@ -662,6 +712,8 @@ describe("global-config", () => {
         "    - id: codex-approved-write",
         "      kind: harness",
         "      provider: codex",
+        "      credentials:",
+        "        mode: credentialless",
         "      profiles:",
         "        - foundation-apply-approved-writes",
         "      writeAuthority:",
@@ -692,6 +744,8 @@ describe("global-config", () => {
         "    - id: codex-approved-write",
         "      kind: harness",
         "      provider: codex",
+        "      credentials:",
+        "        mode: credentialless",
         "      writeAuthority:",
         "        approval:",
         "          mode: auto",
@@ -718,6 +772,8 @@ describe("global-config", () => {
         "    - id: codex-approved-write",
         "      kind: harness",
         "      provider: codex",
+        "      credentials:",
+        "        mode: credentialless",
         "      workingDirectory: isolated-worktree",
         "      profiles:",
         "        - foundation-apply-approved-writes",
@@ -756,6 +812,8 @@ describe("global-config", () => {
         "    - id: codex-oauth-sandbox-readonly",
         "      kind: direct",
         "      provider: codex-oauth",
+        "      credentials:",
+        "        mode: credentialless",
         "      workingDirectory: sandbox",
       ].join("\n"),
     );
@@ -777,6 +835,8 @@ describe("global-config", () => {
         "      kind: harness",
         "      provider: codex-cloud",
         "      model: gpt-5.5",
+        "      credentials:",
+        "        mode: credentialless",
         "      workingDirectory: sandbox",
         "      remoteHarness:",
         "        invokeUrl: https://remote.example.test/managed-agent/invoke",
@@ -802,6 +862,8 @@ describe("global-config", () => {
         "    - id: codex-cloud-remote-readonly",
         "      kind: direct",
         "      provider: codex-cloud",
+        "      credentials:",
+        "        mode: credentialless",
         "      remoteHarness:",
         "        invokeUrl: https://remote.example.test/managed-agent/invoke",
         "        cancelUrl: https://remote.example.test/managed-agent/cancel",
@@ -818,6 +880,8 @@ describe("global-config", () => {
         "    - id: codex-cloud-remote-readonly",
         "      kind: harness",
         "      provider: codex-cloud",
+        "      credentials:",
+        "        mode: credentialless",
         "      remoteHarness:",
         "        invokeUrl: https://remote.example.test/managed-agent/invoke",
         "        cancelUrl: ''",
@@ -834,6 +898,8 @@ describe("global-config", () => {
         "    - id: codex-cloud-remote-readonly",
         "      kind: harness",
         "      provider: codex-cloud",
+        "      credentials:",
+        "        mode: credentialless",
         "      remoteHarness:",
         "        invokeUrl: http://remote.example.test/managed-agent/invoke",
         "        cancelUrl: https://remote.example.test/managed-agent/cancel",

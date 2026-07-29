@@ -110,6 +110,7 @@ export interface OperatorCockpitManagedAgentViewItem {
   readonly externalToolFailures?: readonly OperatorCockpitExternalToolFailureProjection[];
   readonly timeoutMs?: number;
   readonly timeoutSource?: string;
+  readonly accountLease?: OperatorCockpitInvocationProjection["accountLease"];
   readonly attentionState: OperatorCockpitManagedAgentAttentionState;
   readonly dirtyWorkspaceReviewRequired: boolean;
   readonly worktreeConflictBlocked: boolean;
@@ -232,6 +233,7 @@ function projectManagedAgentItem(
     ...(externalToolFailures.length > 0 ? { externalToolFailures } : {}),
     ...(invocation.timeoutMs !== undefined ? { timeoutMs: invocation.timeoutMs } : {}),
     ...(invocation.timeoutSource !== undefined ? { timeoutSource: invocation.timeoutSource } : {}),
+    ...(invocation.accountLease !== undefined ? { accountLease: invocation.accountLease } : {}),
     attentionState,
     dirtyWorkspaceReviewRequired: invocation.resourceLease?.worktreeReview?.status === "required",
     worktreeConflictBlocked: invocation.resourceLease?.worktreeConflict?.status === "blocked",
@@ -332,6 +334,9 @@ function managedAgentAttentionState(
     invocation.resourceLease?.worktreeConflict?.status === "blocked" ||
     invocation.resourceLease?.healthStatus === "leaked" ||
     invocation.resourceLease?.cleanupStatus === "failed" ||
+    invocation.accountLease?.lifecycleState === "settlement-pending" ||
+    invocation.accountLease?.lifecycleState === "release-failed" ||
+    invocation.accountLease?.lifecycleState === "leaked" ||
     (invocation.adoptionGate?.required === true
       && invocation.adoptionGate.status !== "adopted"
       && invocation.adoptionGate.status !== "not_required")

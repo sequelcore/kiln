@@ -8,6 +8,27 @@ export type {
   OpenAIResponsesTrustedPrincipal,
 } from "./gateway/openai-responses-routes.js";
 export {
+  ConfiguredManagedAccountRuntime,
+} from "./managed-account-leases/configured-managed-account-runtime.js";
+export type {
+  ConfiguredManagedAccountRuntimeOptions,
+} from "./managed-account-leases/configured-managed-account-runtime.js";
+export {
+  SqliteManagedAccountLeaseAuthority,
+} from "./managed-account-leases/managed-account-lease-authority.js";
+export type {
+  ManagedAccountCandidateBinding,
+  ManagedAccountCandidatePort,
+  ManagedAccountCandidateResolution,
+  ManagedAccountLeaseAuthority,
+  ManagedAccountLeaseAcquireInput,
+  ManagedAccountLeaseAcquireResult,
+  ManagedAccountLeaseIdentity,
+  ManagedAccountLeaseRecoveryInput,
+  SqliteManagedAccountLeaseAuthorityOptions,
+} from "./managed-account-leases/managed-account-lease-authority.js";
+
+export {
   GovernedOneRoundCommittedError,
   GovernedOneRoundInvocationError,
   invokeGovernedOneRound,
@@ -22,7 +43,10 @@ export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatew
 export type { LocalModelGatewayStoreAccount, LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
 export { createModelGatewayIngress } from "./model-gateway/model-gateway-ingress.js";
 export type { ModelGatewayIngressHandle, ModelGatewayIngressOptions } from "./model-gateway/model-gateway-ingress.js";
-export { buildModelGatewayBoundCandidates } from "./model-gateway/model-gateway-account-binding.js";
+export {
+  buildModelGatewayBoundCandidates,
+  createModelGatewayCredentialRevisionId,
+} from "./model-gateway/model-gateway-account-binding.js";
 export type { ModelGatewayBoundCandidate, ModelGatewayAccountBinding, ModelGatewayBoundUsageEvidence } from "./model-gateway/model-gateway-account-binding.js";
 export {
   MODEL_GATEWAY_HEALTH_PATH,
@@ -292,6 +316,7 @@ export type {
   ManagedAgentWorktreeLeaseReleaseInput,
   ManagedGitWorktreeLeaseManagerConfig,
   ManagedAgentRuntimeAdapter,
+  ManagedAccountExecutionBindingPort,
   ManagedAgentRuntimeAuthorityObserver,
   ManagedAgentRuntimeInvocationInput,
   ManagedAgentRuntimeInvocationResult,

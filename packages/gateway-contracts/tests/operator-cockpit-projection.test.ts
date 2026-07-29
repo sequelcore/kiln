@@ -10,8 +10,36 @@ import {
   normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
 } from "../src/operator-cockpit-projection.js";
+import {
+  MANAGED_ACCOUNT_LEASE_FIXTURE,
+  managedAccountLeaseEvents,
+} from "./fixtures/managed-account-lease.js";
 
 describe("operator cockpit read-only projection", () => {
+  it("projects the shared canonical managed account lease fixture", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ACCOUNT_LEASE_FIXTURE.instanceId,
+        label: "Synthetic managed account runtime",
+        kind: "local",
+      }],
+      events: managedAccountLeaseEvents,
+    });
+
+    expect(projection.invocations[0]?.accountLease).toMatchObject({
+      leaseId: MANAGED_ACCOUNT_LEASE_FIXTURE.leaseId,
+      accountPolicyId: MANAGED_ACCOUNT_LEASE_FIXTURE.accountPolicyId,
+      accountRef: MANAGED_ACCOUNT_LEASE_FIXTURE.accountRef,
+      lifecycleState: MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState,
+      selectionReason: MANAGED_ACCOUNT_LEASE_FIXTURE.selectionReason,
+      candidateRejections: [{
+        accountRef: "configured:fixture-rejected:opaque",
+        reason: "unhealthy",
+      }],
+    });
+  });
+
   it("projects canonical events into target-aware cockpit views without mutation authority", () => {
     const fixture = createOperatorCockpitBenchmarkFixture({
       fixtureId: "read-only",
@@ -363,6 +391,24 @@ describe("operator cockpit read-only projection", () => {
               resourceUris: ["kiln://resources/context.md"],
               diagnosticUris: ["kiln://artifacts/lifecycle-child-1/lease-diagnostics"],
             },
+            accountLease: {
+              leaseId: "account-lease-1",
+              accountPolicyId: "managed-opencode",
+              accountRef: "configured:account-a",
+              route: {
+                providerId: "opencode",
+                providerModelId: "sonic",
+                scope: "virtual:managed-opencode",
+              },
+              jobId: "lifecycle:child:1",
+              runtimeInvocationId: "lifecycle:child:1",
+              credentialRevisionId: "a".repeat(64),
+              selectionReason: "least-pressure",
+              acquiredAt: "2026-05-21T12:00:00.000Z",
+              lifecycleState: "settlement-pending",
+              resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
+              diagnosticUris: ["kiln://managed-accounts/leases/account-lease-1/settlement-pending"],
+            },
           },
         },
       },
@@ -393,7 +439,17 @@ describe("operator cockpit read-only projection", () => {
         resourceUris: ["kiln://resources/context.md"],
         diagnosticUris: ["kiln://artifacts/lifecycle-child-1/lease-diagnostics"],
       },
+      accountLease: {
+        leaseId: "account-lease-1",
+        accountPolicyId: "managed-opencode",
+        accountRef: "configured:account-a",
+        lifecycleState: "settlement-pending",
+      },
     });
+    expect(projection.invocations[0]?.evidenceResourceUris).toEqual(expect.arrayContaining([
+      "kiln://managed-accounts/leases/account-lease-1",
+      "kiln://managed-accounts/leases/account-lease-1/settlement-pending",
+    ]));
   });
 
   it("projects terminal lifecycle resource lease evidence when no capability snapshot is attached", () => {

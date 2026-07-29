@@ -1,5 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
-import { ManagedJobApplicationService } from "@kilnai/runtime";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { basename, dirname, resolve } from "node:path";
+import { defineManagedAccountLeaseEvidence } from "@kilnai/core";
+import {
+  FilesystemManagedJobStore,
+  ManagedJobApplicationService,
+  RuntimeManagedAgentInvocationService,
+} from "@kilnai/runtime";
+
+vi.mock("../../src/config/config-merger.js", () => ({
+  loadResolvedKilnMcpConfiguration: vi.fn(() => ({
+    servers: {},
+    diagnostics: [],
+  })),
+}));
 
 vi.mock("../../src/application/config-status.js", () => ({
   readConfigStatusSnapshot: vi.fn(async () => {
@@ -27,9 +41,33 @@ vi.mock("../../src/application/config-status.js", () => ({
               writes: false,
             },
             memory: { access: "read-only" },
-            credentials: { mode: "runtime-selected" },
+            credentials: {
+              mode: "runtime-selected",
+              accountPolicyId: "managed-codex",
+            },
           },
         ],
+      },
+      modelGateway: {
+        port: 4819,
+        accounts: [{
+          id: "test-account",
+          providerId: "codex-oauth",
+          credentialId: "synthetic-test-credential",
+          maxConcurrency: 1,
+          reservedAffinitySlots: 0,
+        }],
+        replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
+        surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
+        principals: [],
+        virtualModels: [{
+          id: "managed-codex",
+          providerId: "codex-oauth",
+          providerModelId: "gpt-5.6-terra",
+          accountIds: ["test-account"],
+          capabilities: ["text"],
+          affinity: { continuity: "none" },
+        }],
       },
     };
     return {
@@ -75,14 +113,67 @@ import {
 } from "../../src/application/codex-app-managed-jobs.js";
 
 describe("Codex App managed-job production composition", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("recovers persisted nonterminal jobs before exposing the application owner", async () => {
+    const accountLease = defineManagedAccountLeaseEvidence({
+      leaseId: "lease-job-recovered",
+      accountPolicyId: "managed-codex",
+      accountRef: "configured:test-account",
+      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", scope: "virtual:managed-codex" },
+      jobId: "job-recovered",
+      runtimeInvocationId: "job-recovered",
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure",
+      acquiredAt: "2026-07-28T20:00:00.000Z",
+      lifecycleState: "leaked",
+      resourceUris: ["kiln://managed-accounts/leases/lease-job-recovered"],
+      diagnosticUris: ["kiln://managed-accounts/leases/lease-job-recovered/recovery-unmatchable"],
+    });
+    const foreignAccountLease = defineManagedAccountLeaseEvidence({
+      ...accountLease,
+      leaseId: "lease-foreign-job",
+      jobId: "foreign-job",
+      runtimeInvocationId: "foreign-job",
+      resourceUris: ["kiln://managed-accounts/leases/lease-foreign-job"],
+      diagnosticUris: ["kiln://managed-accounts/leases/lease-foreign-job/recovery-unmatchable"],
+    });
+    const cwd = process.cwd();
+    const projectRoot = basename(cwd) === "cli" && basename(dirname(cwd)) === "packages"
+      ? resolve(cwd, "../..")
+      : cwd;
+    const projectId = `project-${createHash("sha256").update(projectRoot).digest("hex").slice(0, 32)}`;
+    const recoverInvocations = vi
+      .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
+      .mockResolvedValue({
+        recovered: [],
+        accountLeases: [accountLease, foreignAccountLease],
+      });
+    const get = vi.spyOn(FilesystemManagedJobStore.prototype, "get")
+      .mockImplementation(async (id) => ({
+        version: 4,
+        projectId: id === "job-recovered" ? projectId : "foreign-project",
+      } as never));
+    const recordAccountLease = vi.spyOn(FilesystemManagedJobStore.prototype, "recordAccountLease")
+      .mockResolvedValue({ version: 4 } as never);
     const recoverInterrupted = vi
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
       .mockResolvedValue([]);
 
     await createNativeHarnessManagedJobApplicationComposition({ harness: "codex", discoverProviderModels: async () => ({}) });
 
+    expect(recoverInvocations).toHaveBeenCalledOnce();
+    expect(get).toHaveBeenCalledWith("job-recovered");
+    expect(get).toHaveBeenCalledWith("foreign-job");
+    expect(recordAccountLease).toHaveBeenCalledWith("job-recovered", accountLease);
+    expect(recordAccountLease).not.toHaveBeenCalledWith("foreign-job", foreignAccountLease);
     expect(recoverInterrupted).toHaveBeenCalledOnce();
+    expect(recoverInvocations.mock.invocationCallOrder[0]).toBeLessThan(recoverInterrupted.mock.invocationCallOrder[0]!);
+    recoverInvocations.mockRestore();
+    get.mockRestore();
+    recordAccountLease.mockRestore();
     recoverInterrupted.mockRestore();
   });
 

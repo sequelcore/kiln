@@ -77,6 +77,20 @@ or point here, but architectural and coding doctrine belongs in
 - A model-callable tool must not grant itself authority. Authority comes from
   runtime policy, configured routes, and approval gates.
 
+## Shared Capacity
+
+- Capacity follows authoritative settlement, not terminal projection. Timeout,
+  cancellation, or surface state must not free work whose execution may still
+  be active.
+- Shared capacity has one durable owner outside ephemeral catalogs, adapter
+  factories, and request objects.
+- Unknown external work remains capacity-consuming and explicit in recovery
+  evidence. A liveness timer must not fabricate settlement.
+- Selection policy belongs to Core; adapters report capability and settlement
+  but do not select accounts, rotate credentials, or release leases.
+- Recovery policy follows workload semantics. Reusing a store engine does not
+  authorize reusing another workload's stale-owner cleanup behavior.
+
 ## Runtime Diagnostics And Terminal Output
 
 - Runtime state must use canonical events or evidence contracts. Do not print a

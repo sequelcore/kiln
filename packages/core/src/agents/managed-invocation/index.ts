@@ -23,6 +23,17 @@ import {
   type StructuredExecutionResult,
   type VerificationUsageReport,
 } from "../../efficiency/output-verification-allocation.js";
+import {
+  createAccountPolicyId,
+  createAccountRef,
+  defineModelGatewayAccountRejection,
+  type AccountPolicyId,
+  type AccountRef,
+  type ModelGatewayAccountRejection,
+  type ModelGatewayAccountSelection,
+  type ModelGatewayAffinityOutcome,
+  type ModelGatewayRoute,
+} from "../model-gateway/index.js";
 
 export * from "./write-authority.js";
 export * from "./read-authority.js";
@@ -113,6 +124,11 @@ export type ManagedAgentCredentialRoute =
   | {
     readonly mode: "runtime-selected";
     readonly routeId: string;
+  }
+  | {
+    readonly mode: "account-leased";
+    readonly routeId: string;
+    readonly accountPolicyId: AccountPolicyId;
   }
   | {
     readonly mode: "credentialless";
@@ -519,6 +535,7 @@ export interface ManagedAgentCapabilitySnapshot {
   readonly contextMode: ManagedAgentInvocationContextMode;
   readonly resourcePlane: ManagedAgentResourcePlaneSnapshot;
   readonly resourceLease: ManagedAgentResourceLeaseEvidence;
+  readonly accountLease?: ManagedAccountLeaseEvidence;
   readonly childIdentity: ManagedAgentChildIdentitySnapshot;
 }
 
@@ -650,6 +667,224 @@ export type ManagedAgentResourceLeaseHealthStatus = "healthy" | "stale" | "relea
 
 export type ManagedAgentResourceLeaseCleanupStatus = "not-required" | "pending" | "completed" | "failed" | "unknown";
 
+export const MANAGED_ACCOUNT_LEASE_LIFECYCLE_STATES = [
+  "held",
+  "settlement-pending",
+  "released",
+  "release-failed",
+  "leaked",
+] as const;
+
+export type ManagedAccountLeaseLifecycleState = typeof MANAGED_ACCOUNT_LEASE_LIFECYCLE_STATES[number];
+
+export interface ManagedAccountLeaseEvidence {
+  readonly leaseId: string;
+  readonly accountPolicyId: AccountPolicyId;
+  readonly accountRef: AccountRef;
+  readonly route: ModelGatewayRoute;
+  readonly jobId: string;
+  readonly runtimeInvocationId: string;
+  readonly credentialRevisionId: string;
+  readonly selectionReason: ModelGatewayAccountSelection["reason"];
+  readonly candidateRejections: readonly ModelGatewayAccountRejection[];
+  readonly affinityOutcome?: ModelGatewayAffinityOutcome;
+  readonly acquiredAt: string;
+  readonly lifecycleState: ManagedAccountLeaseLifecycleState;
+  readonly releasedAt?: string;
+  readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
+}
+
+export interface ManagedAccountLeaseEvidenceInput {
+  readonly leaseId: string;
+  readonly accountPolicyId: string;
+  readonly accountRef: string;
+  readonly route: ModelGatewayRoute;
+  readonly jobId: string;
+  readonly runtimeInvocationId: string;
+  readonly credentialRevisionId: string;
+  readonly selectionReason: ModelGatewayAccountSelection["reason"];
+  readonly candidateRejections?: readonly ModelGatewayAccountRejection[];
+  readonly affinityOutcome?: ModelGatewayAffinityOutcome;
+  readonly acquiredAt: string;
+  readonly lifecycleState: ManagedAccountLeaseLifecycleState;
+  readonly releasedAt?: string;
+  readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
+}
+
+export function defineManagedAccountLeaseEvidence(
+  input: ManagedAccountLeaseEvidenceInput,
+): ManagedAccountLeaseEvidence {
+  const leaseId = requirePortableLeaseIdentifier(input.leaseId, "Managed account lease id is required");
+  const accountRef = requireCanonicalAccountReference(input.accountRef);
+  const acquiredAt = requireIsoTimestamp(input.acquiredAt, "Managed account lease acquired timestamp is required");
+  const lifecycleState = requireManagedAccountLeaseLifecycleState(input.lifecycleState);
+  const releasedAt = input.releasedAt === undefined
+    ? undefined
+    : requireIsoTimestamp(input.releasedAt, "Managed account lease released timestamp is invalid");
+  if (lifecycleState === "released" && releasedAt === undefined) {
+    throw new Error("Managed account lease released timestamp is required for released state");
+  }
+  if (lifecycleState !== "released" && releasedAt !== undefined) {
+    throw new Error("Managed account lease released timestamp requires a terminal release state");
+  }
+  if (releasedAt !== undefined && Date.parse(releasedAt) < Date.parse(acquiredAt)) {
+    throw new Error("Managed account lease released timestamp cannot precede acquisition");
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.credentialRevisionId)) {
+    throw new Error("Managed account lease credential revision identity must be a SHA-256 digest");
+  }
+  const resourceUri = `kiln://managed-accounts/leases/${encodeURIComponent(leaseId)}`;
+  if (input.resourceUris.length !== 1) {
+    throw new Error("Managed account lease must expose exactly one canonical resource URI");
+  }
+  if (new Set(input.diagnosticUris).size !== input.diagnosticUris.length) {
+    throw new Error("Managed account lease diagnostic URIs must be unique");
+  }
+  const diagnosticUris = input.diagnosticUris
+    .map((uri) => requireManagedAccountDiagnosticUri(uri, resourceUri))
+    .sort((left, right) => left.localeCompare(right));
+  requireManagedAccountLifecycleDiagnostics(input.lifecycleState, diagnosticUris, resourceUri);
+  return {
+    leaseId,
+    accountPolicyId: createAccountPolicyId(requirePortableLeaseIdentifier(
+      input.accountPolicyId,
+      "Managed account lease policy id is required",
+    )),
+    accountRef,
+    route: requireManagedAccountRoute(input.route),
+    jobId: requirePortableLeaseIdentifier(input.jobId, "Managed account lease job id is required"),
+    runtimeInvocationId: requirePortableLeaseIdentifier(
+      input.runtimeInvocationId,
+      "Managed account lease runtime invocation id is required",
+    ),
+    credentialRevisionId: input.credentialRevisionId,
+    selectionReason: requireManagedAccountSelectionReason(input.selectionReason),
+    candidateRejections: (input.candidateRejections ?? []).map((rejection) => defineModelGatewayAccountRejection({
+      ...rejection,
+      account: requireCanonicalAccountReference(rejection.account),
+    })),
+    ...(input.affinityOutcome !== undefined
+      ? { affinityOutcome: requireManagedAccountAffinityOutcome(input.affinityOutcome) }
+      : {}),
+    acquiredAt,
+    lifecycleState,
+    ...(releasedAt !== undefined ? { releasedAt } : {}),
+    resourceUris: input.resourceUris.map((uri) => {
+      if (uri !== resourceUri) throw new Error("Managed account lease resource URI is outside its canonical namespace");
+      return uri;
+    }),
+    diagnosticUris,
+  };
+}
+
+function requireCanonicalAccountReference(value: string): AccountRef {
+  if (
+    value.length === 0
+    || value.length > 512
+    || value !== value.trim()
+    || !/^configured:[A-Za-z0-9._-]+(?::[A-Za-z0-9._-]+){0,3}$/.test(value)
+  ) {
+    throw new Error("Managed account lease account reference must be canonical");
+  }
+  return createAccountRef(value);
+}
+
+function requirePortableLeaseIdentifier(value: string, message: string): string {
+  if (
+    typeof value !== "string"
+    || value.length === 0
+    || value.length > 256
+    || value !== value.trim()
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+  ) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function requireManagedAccountDiagnosticUri(value: string, resourceUri: string): string {
+  const allowed = new Set([
+    `${resourceUri}/settlement-pending`,
+    `${resourceUri}/release-failed`,
+    `${resourceUri}/settlement-unknown`,
+    `${resourceUri}/recovery-unmatchable`,
+  ]);
+  if (!allowed.has(value)) {
+    throw new Error("Managed account lease diagnostic URI is outside its canonical namespace");
+  }
+  return value;
+}
+
+function requireManagedAccountLifecycleDiagnostics(
+  lifecycleState: ManagedAccountLeaseLifecycleState,
+  diagnosticUris: readonly string[],
+  resourceUri: string,
+): void {
+  const suffixes = diagnosticUris.map((uri) => uri.slice(resourceUri.length));
+  const allowedSuffixes = lifecycleState === "held"
+    ? []
+    : lifecycleState === "settlement-pending"
+      ? ["/settlement-pending", "/settlement-unknown"]
+      : lifecycleState === "release-failed"
+        ? ["/settlement-pending", "/settlement-unknown", "/release-failed"]
+        : lifecycleState === "released"
+          ? ["/settlement-pending", "/settlement-unknown", "/release-failed"]
+          : ["/settlement-pending", "/settlement-unknown", "/release-failed", "/recovery-unmatchable"];
+  if (suffixes.some((suffix) => !allowedSuffixes.includes(suffix))) {
+    throw new Error(`Managed account lease ${lifecycleState} state has incompatible diagnostic evidence`);
+  }
+  const requiredSuffix = lifecycleState === "settlement-pending"
+    ? ["/settlement-pending", "/settlement-unknown"]
+    : lifecycleState === "release-failed"
+      ? ["/release-failed"]
+      : lifecycleState === "leaked"
+        ? ["/recovery-unmatchable"]
+        : [];
+  if (
+    requiredSuffix.length > 0
+    && !diagnosticUris.some((uri) => requiredSuffix.some((suffix) => uri === `${resourceUri}${suffix}`))
+  ) {
+    throw new Error(`Managed account lease ${lifecycleState} state requires canonical diagnostic evidence`);
+  }
+}
+
+function requireManagedAccountRoute(route: ModelGatewayRoute): ModelGatewayRoute {
+  return {
+    providerId: requireText(route.providerId, "Managed account lease provider id is required"),
+    providerModelId: requireText(route.providerModelId, "Managed account lease provider model id is required"),
+    scope: requireText(route.scope, "Managed account lease route scope is required"),
+  };
+}
+
+function requireManagedAccountLeaseLifecycleState(
+  value: ManagedAccountLeaseLifecycleState,
+): ManagedAccountLeaseLifecycleState {
+  if (!MANAGED_ACCOUNT_LEASE_LIFECYCLE_STATES.includes(value)) {
+    throw new Error(`Unsupported managed account lease lifecycle state: ${String(value)}`);
+  }
+  return value;
+}
+
+function requireManagedAccountSelectionReason(
+  value: ModelGatewayAccountSelection["reason"],
+): ModelGatewayAccountSelection["reason"] {
+  if (value !== "existing-affinity" && value !== "least-pressure" && value !== "affinity-rebind") {
+    throw new Error(`Unsupported managed account lease selection reason: ${String(value)}`);
+  }
+  return value;
+}
+
+function requireManagedAccountAffinityOutcome(
+  value: ModelGatewayAffinityOutcome,
+): ModelGatewayAffinityOutcome {
+  if (value !== "honored" && value !== "missing" && value !== "rejected" && value !== "rebound") {
+    throw new Error(`Unsupported managed account lease affinity outcome: ${String(value)}`);
+  }
+  return value;
+}
+
 export type ManagedAgentWorktreeReviewStatus = "required";
 
 export type ManagedAgentWorktreeReviewReason = "dirty-worktree-preserved";
@@ -730,6 +965,7 @@ export interface ManagedAgentInvocationRecord {
   readonly authority: ManagedAgentAuthorityProfile;
   readonly capabilitySnapshot: ManagedAgentCapabilitySnapshot;
   readonly resourceLease?: ManagedAgentResourceLeaseEvidence;
+  readonly accountLease?: ManagedAccountLeaseEvidence;
   readonly childSessionId?: string;
   readonly childTurnId?: string;
   readonly transcript?: ManagedAgentTranscriptPointer;
@@ -1285,6 +1521,7 @@ export function defineManagedAgentInvocationRecord(input: ManagedAgentInvocation
     authority: requireAuthority(input.authority),
     capabilitySnapshot,
     ...(input.resourceLease !== undefined ? { resourceLease: requireResourceLease(input.resourceLease) } : {}),
+    ...(input.accountLease !== undefined ? { accountLease: defineManagedAccountLeaseEvidence(input.accountLease) } : {}),
     ...(input.childSessionId !== undefined ? { childSessionId: requireText(input.childSessionId, "Managed invocation child session id is required") } : {}),
     ...(input.childTurnId !== undefined ? { childTurnId: requireText(input.childTurnId, "Managed invocation child turn id is required") } : {}),
     ...(input.transcript !== undefined ? { transcript: requireTranscript(input.transcript) } : {}),
@@ -1354,7 +1591,7 @@ export function evaluateManagedAgentAdmission(
     profile,
     adapterDescriptorId: descriptor.adapterDescriptorId,
     authorityProfileId: request.authority.authorityProfileId,
-    ...(request.authority.credentialRoute.mode === "runtime-selected"
+    ...(request.authority.credentialRoute.mode !== "credentialless"
       ? { credentialRouteId: request.authority.credentialRoute.routeId }
       : {}),
     memoryScope: request.authority.memoryScope.scope,
@@ -1474,9 +1711,13 @@ function collectRequestGaps(request: ManagedAgentInvocationRequest, missingCapab
   }
   if (!request.authority.credentialRoute) {
     missingCapabilities.push("request.authority.credentialRoute");
-  } else if (request.authority.credentialRoute.mode === "runtime-selected" && !hasText(request.authority.credentialRoute.routeId)) {
+  } else if (request.authority.credentialRoute.mode !== "credentialless" && !hasText(request.authority.credentialRoute.routeId)) {
     missingCapabilities.push("request.authority.credentialRoute.routeId");
-  } else if (request.authority.credentialRoute.mode !== "runtime-selected" && request.authority.credentialRoute.mode !== "credentialless") {
+  } else if (
+    request.authority.credentialRoute.mode !== "runtime-selected"
+    && request.authority.credentialRoute.mode !== "account-leased"
+    && request.authority.credentialRoute.mode !== "credentialless"
+  ) {
     missingCapabilities.push("request.authority.credentialRoute.mode");
   }
   if (!request.authority.memoryScope?.scope) {
@@ -1628,6 +1869,7 @@ export function buildManagedAgentLifecycleEvidence(
     contextMode: record.capabilitySnapshot.contextMode,
     authorityProfileId: record.authority.authorityProfileId,
     resourceLease: record.resourceLease ?? record.capabilitySnapshot.resourceLease,
+    ...(record.accountLease !== undefined ? { accountLease: defineManagedAccountLeaseEvidence(record.accountLease) } : {}),
     sourceResourceUris: record.capabilitySnapshot.resourcePlane.resourceUris,
     ...(record.transcript?.uri !== undefined ? { transcriptUri: record.transcript.uri } : {}),
     ...(input.heartbeatAt !== undefined ? { heartbeatAt: requireIsoTimestamp(input.heartbeatAt, "Managed invocation heartbeat timestamp is required") } : {}),
@@ -1643,6 +1885,9 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
   const credentialRoute = input.credentialRoute;
   if (credentialRoute.mode === "runtime-selected") {
     requireText(credentialRoute.routeId, "Managed invocation credential route id is required");
+  } else if (credentialRoute.mode === "account-leased") {
+    requireText(credentialRoute.routeId, "Managed invocation credential route id is required");
+    createAccountPolicyId(credentialRoute.accountPolicyId);
   } else if (credentialRoute.mode !== "credentialless") {
     throw new Error(`Unsupported managed invocation credential route mode: ${(credentialRoute as { readonly mode?: string }).mode ?? ""}`);
   }
@@ -1661,7 +1906,18 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
     },
     timeoutMs: requirePositiveNumber(input.timeoutMs, "Managed invocation timeout must be greater than zero"),
     ...(input.timeoutSource !== undefined ? { timeoutSource: requireTimeoutSource(input.timeoutSource) } : {}),
-    credentialRoute,
+    credentialRoute: credentialRoute.mode === "runtime-selected"
+      ? {
+          mode: "runtime-selected",
+          routeId: requireText(credentialRoute.routeId, "Managed invocation credential route id is required"),
+        }
+      : credentialRoute.mode === "account-leased"
+        ? {
+          mode: "account-leased",
+          routeId: requireText(credentialRoute.routeId, "Managed invocation credential route id is required"),
+          accountPolicyId: createAccountPolicyId(credentialRoute.accountPolicyId),
+        }
+      : { mode: "credentialless" },
     memoryScope: {
       scope: defineMemoryScope(input.memoryScope.scope),
       access: input.memoryScope.access,
