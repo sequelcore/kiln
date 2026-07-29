@@ -381,6 +381,7 @@ function managedAccountPorts(boundAdapter: ManagedAgentRuntimeAdapter) {
     accountCandidatePort: {
       resolve: async () => ({
         route,
+        affinityPolicy: { continuity: "none" as const },
         candidates: [{
           candidate: {
             account: identity.accountRef,
@@ -399,6 +400,7 @@ function managedAccountPorts(boundAdapter: ManagedAgentRuntimeAdapter) {
     },
     accountLeaseAuthority: {
       acquire: async () => ({ status: "acquired" as const, identity, lease: held }),
+      finalizeSuccessful: () => ({ lease: released }),
       markSettlementPending: () => held,
       release: () => released,
       recordReleaseFailure: () => held,
