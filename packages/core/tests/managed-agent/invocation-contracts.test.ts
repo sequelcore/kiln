@@ -220,6 +220,11 @@ describe("managed agent invocation contracts", () => {
       ...base,
       lifecycleState: "settlement-pending",
     })).toThrow("settlement-pending state requires canonical diagnostic evidence");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      lifecycleState: "held",
+      diagnosticUris: ["kiln://managed-accounts/leases/account-lease-1/release-failed"],
+    })).toThrow("held state has incompatible diagnostic evidence");
   });
 
   it("defines the canonical background-child lifecycle vocabulary without admission-only states", () => {

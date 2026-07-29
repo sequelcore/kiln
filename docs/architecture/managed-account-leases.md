@@ -79,8 +79,9 @@ never deletes active leases:
 
 The managed-invocation recovery checkpoint is persisted before provider
 dispatch. The production managed-job composition recovers Runtime invocations
-and writes their classified account leases into owned V4 jobs before it marks
-those jobs interrupted.
+and consumes Runtime's complete classified-lease result, including terminal
+checkpoints and orphaned authority rows. It writes those classifications into
+owned V4 jobs before it marks those jobs interrupted.
 
 ## Evidence
 

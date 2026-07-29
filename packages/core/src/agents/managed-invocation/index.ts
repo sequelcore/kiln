@@ -742,7 +742,8 @@ export function defineManagedAccountLeaseEvidence(
   if (new Set(input.diagnosticUris).size !== input.diagnosticUris.length) {
     throw new Error("Managed account lease diagnostic URIs must be unique");
   }
-  requireManagedAccountLifecycleDiagnostics(input.lifecycleState, input.diagnosticUris, resourceUri);
+  const diagnosticUris = input.diagnosticUris.map((uri) => requireManagedAccountDiagnosticUri(uri, resourceUri));
+  requireManagedAccountLifecycleDiagnostics(input.lifecycleState, diagnosticUris, resourceUri);
   return {
     leaseId,
     accountPolicyId: createAccountPolicyId(requirePortableLeaseIdentifier(
@@ -772,7 +773,7 @@ export function defineManagedAccountLeaseEvidence(
       if (uri !== resourceUri) throw new Error("Managed account lease resource URI is outside its canonical namespace");
       return uri;
     }),
-    diagnosticUris: input.diagnosticUris.map((uri) => requireManagedAccountDiagnosticUri(uri, resourceUri)),
+    diagnosticUris,
   };
 }
 
@@ -819,6 +820,19 @@ function requireManagedAccountLifecycleDiagnostics(
   diagnosticUris: readonly string[],
   resourceUri: string,
 ): void {
+  const suffixes = diagnosticUris.map((uri) => uri.slice(resourceUri.length));
+  const allowedSuffixes = lifecycleState === "held"
+    ? []
+    : lifecycleState === "settlement-pending"
+      ? ["/settlement-pending", "/settlement-unknown"]
+      : lifecycleState === "release-failed"
+        ? ["/settlement-pending", "/settlement-unknown", "/release-failed"]
+        : lifecycleState === "released"
+          ? ["/settlement-pending", "/settlement-unknown", "/release-failed"]
+          : ["/settlement-pending", "/settlement-unknown", "/release-failed", "/recovery-unmatchable"];
+  if (suffixes.some((suffix) => !allowedSuffixes.includes(suffix))) {
+    throw new Error(`Managed account lease ${lifecycleState} state has incompatible diagnostic evidence`);
+  }
   const requiredSuffix = lifecycleState === "settlement-pending"
     ? ["/settlement-pending", "/settlement-unknown"]
     : lifecycleState === "release-failed"

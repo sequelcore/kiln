@@ -633,6 +633,42 @@ function makeRecoveryStore(): ManagedAgentRuntimeRecoveryStore & {
 }
 
 describe("RuntimeManagedAgentInvocationService", () => {
+  it("returns every authority-classified lease even when no invocation checkpoint is recoverable", async () => {
+    const leaked = defineManagedAccountLeaseEvidence({
+      leaseId: "orphan-account-lease",
+      accountPolicyId: "managed-opencode",
+      accountRef: "configured:account-a",
+      route: {
+        providerId: "opencode",
+        providerModelId: "sonic",
+        scope: "virtual:managed-opencode",
+      },
+      jobId: "orphan-job",
+      runtimeInvocationId: "orphan-job",
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure",
+      acquiredAt: "2026-05-07T08:00:00.000Z",
+      lifecycleState: "leaked",
+      resourceUris: ["kiln://managed-accounts/leases/orphan-account-lease"],
+      diagnosticUris: ["kiln://managed-accounts/leases/orphan-account-lease/recovery-unmatchable"],
+    });
+    const ports = managedAccountPorts({
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(),
+    });
+    const service = new RuntimeManagedAgentInvocationService({
+      accountLeaseAuthority: {
+        ...ports.accountLeaseAuthority,
+        recover: () => [leaked],
+      },
+    });
+
+    await expect(service.recoverPersistedInvocations()).resolves.toEqual({
+      recovered: [],
+      accountLeases: [leaked],
+    });
+  });
+
   it("admits through core policy before invoking the runtime adapter", async () => {
     const invoke = vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot));
     const adapter: ManagedAgentRuntimeAdapter = {

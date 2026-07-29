@@ -129,12 +129,9 @@ describe("Codex App managed-job production composition", () => {
     const recoverInvocations = vi
       .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
       .mockResolvedValue({
-        recovered: [{
-          request: { invocationId: "job-recovered" },
-          record: { accountLease },
-        }],
-        unresolved: [],
-      } as never);
+        recovered: [],
+        accountLeases: [accountLease],
+      });
     const get = vi.spyOn(FilesystemManagedJobStore.prototype, "get")
       .mockResolvedValue({ version: 4 } as never);
     const recordAccountLease = vi.spyOn(FilesystemManagedJobStore.prototype, "recordAccountLease")

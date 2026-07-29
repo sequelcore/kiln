@@ -1002,6 +1002,10 @@ export interface ManagedAgentStaleRecoveryResult {
   readonly recovered: readonly ManagedAgentRuntimeInvocationSnapshot[];
 }
 
+export interface ManagedAgentPersistentRecoveryResult extends ManagedAgentStaleRecoveryResult {
+  readonly accountLeases: readonly ManagedAccountLeaseEvidence[];
+}
+
 interface ManagedAgentRuntimeInvocationTerminal {
   readonly promise: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>>;
   readonly resolve: (value: Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>) => void;
@@ -1574,7 +1578,7 @@ export class RuntimeManagedAgentInvocationService {
 
   async recoverPersistedInvocations(
     input: ManagedAgentPersistentRecoveryInput = {},
-  ): Promise<ManagedAgentStaleRecoveryResult> {
+  ): Promise<ManagedAgentPersistentRecoveryResult> {
     const recoverableCheckpoints = this.options.recoveryStore
       ? (await this.options.recoveryStore.listRecoverable())
         .map(validateManagedAgentRuntimeRecoveryCheckpoint)
@@ -1591,7 +1595,7 @@ export class RuntimeManagedAgentInvocationService {
       recoveredAccountLeases.map((lease) => [lease.runtimeInvocationId, lease]),
     );
     if (!this.options.recoveryStore) {
-      return { recovered: [] };
+      return { recovered: [], accountLeases: cloneJson(recoveredAccountLeases) };
     }
     const now = input.now ?? new Date();
     if (Number.isNaN(now.getTime())) {
@@ -1658,6 +1662,7 @@ export class RuntimeManagedAgentInvocationService {
 
     return {
       recovered: cloneJson(recovered),
+      accountLeases: cloneJson(mergeRecoveredAccountLeases(recoveredAccountLeases, recovered)),
     };
   }
 
@@ -3490,6 +3495,20 @@ function capabilitySnapshotInputWithRuntimeAuthorityProjection(
       evaluatedAt: evaluatedAt.toISOString(),
     }),
   };
+}
+
+function mergeRecoveredAccountLeases(
+  classified: readonly ManagedAccountLeaseEvidence[],
+  recovered: readonly ManagedAgentRuntimeInvocationSnapshot[],
+): readonly ManagedAccountLeaseEvidence[] {
+  const leases = new Map(classified.map((lease) => [lease.runtimeInvocationId, lease]));
+  for (const snapshot of recovered) {
+    if (snapshot.record?.accountLease !== undefined) {
+      leases.set(snapshot.request.invocationId, snapshot.record.accountLease);
+    }
+  }
+  return [...leases.values()].sort((left, right) =>
+    left.runtimeInvocationId.localeCompare(right.runtimeInvocationId));
 }
 
 function requiresRuntimeAuthorityProof(request: ManagedAgentInvocationRequest): boolean {

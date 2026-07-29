@@ -588,6 +588,11 @@ describe("ManagedJobApplicationService", () => {
       diagnosticUris: [],
     };
     await store.recordAccountLease(job.id, { ...base, lifecycleState: "held" }, new Date(now.getTime() + 1000).toISOString());
+    await expect(store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "held",
+      diagnosticUris: [`kiln://managed-accounts/leases/lease-${job.id}/release-failed`],
+    }, new Date(now.getTime() + 1500).toISOString())).rejects.toThrow("incompatible diagnostic evidence");
     await store.recordAccountLease(job.id, {
       ...base,
       lifecycleState: "released",

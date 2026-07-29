@@ -1,13 +1,14 @@
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 import type {
   ManagedAgentPersistentRecoveryInput,
+  ManagedAgentPersistentRecoveryResult,
   ManagedAgentStaleRecoveryInput,
   ManagedAgentStaleRecoveryResult,
 } from "./index.js";
 
 export interface ManagedAgentRuntimeRecoveryDaemonService {
   recoverStaleInvocations(input: ManagedAgentStaleRecoveryInput): Promise<ManagedAgentStaleRecoveryResult>;
-  recoverPersistedInvocations(input?: ManagedAgentPersistentRecoveryInput): Promise<ManagedAgentStaleRecoveryResult>;
+  recoverPersistedInvocations(input?: ManagedAgentPersistentRecoveryInput): Promise<ManagedAgentPersistentRecoveryResult>;
 }
 
 export interface ManagedAgentRuntimeRecoveryDaemonConfig {
@@ -27,7 +28,7 @@ export interface ManagedAgentRuntimeRecoveryDaemonRunInput {
 }
 
 export interface ManagedAgentRuntimeRecoveryDaemonRunResult {
-  readonly persisted?: ManagedAgentStaleRecoveryResult;
+  readonly persisted?: ManagedAgentPersistentRecoveryResult;
   readonly stale: ManagedAgentStaleRecoveryResult;
 }
 

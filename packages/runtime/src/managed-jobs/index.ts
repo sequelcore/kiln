@@ -755,7 +755,7 @@ function isValidManagedAccountLeaseTransition(
     return false;
   }
   const allowed: Readonly<Record<ManagedAccountLeaseEvidence["lifecycleState"], readonly ManagedAccountLeaseEvidence["lifecycleState"][]>> = {
-    held: ["held", "settlement-pending", "released", "release-failed", "leaked"],
+    held: ["settlement-pending", "released", "release-failed", "leaked"],
     "settlement-pending": ["settlement-pending", "released", "release-failed", "leaked"],
     released: [],
     "release-failed": [],
