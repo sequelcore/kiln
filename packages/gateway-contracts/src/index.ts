@@ -283,6 +283,7 @@ export type {
   OperatorCockpitExternalToolFailureProjection,
   OperatorCockpitInstanceProjection,
   OperatorCockpitInvocationProjection,
+  OperatorCockpitInvocationAccountLeaseProjection,
   OperatorCockpitInvocationDiagnosticPointerProjection,
   OperatorCockpitInvocationResultHandoffProjection,
   OperatorCockpitInvocationResourceLeaseProjection,

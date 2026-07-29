@@ -11,7 +11,10 @@ import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocation
 import type { ManagedAgentRuntimeAdapter } from "@kilnai/runtime";
 import { createStagedManagedInvocationRouteCatalog } from "./managed-agent-route-catalog.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "./managed-agent-provider-models.js";
-import { resolveManagedInvocationToolOptions } from "./managed-agent-routes.js";
+import {
+  createManagedAccountRuntimeComposition,
+  resolveManagedInvocationToolOptions,
+} from "./managed-agent-routes.js";
 import type { ManagedAgentRouteConfigSource } from "./managed-agent-routes.js";
 import { SessionRegistry } from "../wrapper/session-registry.js";
 import type { ProviderCreateConfig, ProviderId, SessionProviderDescriptor } from "../wrapper/session-registry.js";
@@ -177,6 +180,27 @@ function createRegistry(provider: ProviderId): SessionRegistry {
 
 function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
   return {
+    modelGateway: {
+      port: 4819,
+      accounts: [{
+        id: "research",
+        providerId: "opencode-go",
+        credentialId: "synthetic-research",
+        maxConcurrency: 1,
+        reservedAffinitySlots: 0,
+      }],
+      replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
+      surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
+      principals: [],
+      virtualModels: [{
+        id: "managed-research",
+        providerId: "opencode-go",
+        providerModelId: "qwen3.6-plus",
+        accountIds: ["research"],
+        capabilities: ["text"],
+        affinity: { continuity: "none" },
+      }],
+    },
     managedAgents: {
       enabled: true,
       routes: [{
@@ -192,7 +216,7 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
           writes: false,
         },
         memory: { access: "read-only" },
-        credentials: { mode: "runtime-selected" },
+        credentials: { mode: "runtime-selected", accountPolicyId: "managed-research" },
       }],
     },
   };
@@ -219,7 +243,7 @@ function makeIsolatedWorktreeWriteConfig(): ManagedAgentRouteConfigSource {
           writes: true,
         },
         memory: { access: "read-only" },
-        credentials: { mode: "runtime-selected" },
+        credentials: { mode: "credentialless" },
         writeAuthority: {
           workspace: {
             mode: "apply-approved",
@@ -241,10 +265,11 @@ describe("managed agent route catalog", () => {
     }
   });
 
-  it("refreshes live managed invocation routes from the current config source", async () => {
+  it("refreshes live routes without replacing the managed account capacity authority", async () => {
     const cwd = createTempRoot();
     const staleConfig = makeConfig(false);
     let currentConfig = staleConfig;
+    const initialComposition = createManagedAccountRuntimeComposition(staleConfig, cwd);
     const catalog = await createStagedManagedInvocationRouteCatalog(staleConfig, {
       cwd,
       registry: createRegistry("opencode-go"),
@@ -265,8 +290,11 @@ describe("managed agent route catalog", () => {
 
     currentConfig = makeConfig(true);
     await catalog.refreshNow();
+    const refreshedComposition = createManagedAccountRuntimeComposition(currentConfig, cwd);
 
     expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(true);
+    expect(refreshedComposition?.authority).toBe(initialComposition?.authority);
+    expect(refreshedComposition?.routing).toBe(initialComposition?.routing);
   });
 
   it("does not construct direct provider adapters while staged provider discovery is pending", async () => {
@@ -323,7 +351,7 @@ describe("managed agent route catalog", () => {
             },
           },
           memory: { access: "read-only" },
-          credentials: { mode: "runtime-selected" },
+          credentials: { mode: "credentialless" },
         }],
       },
     }, {

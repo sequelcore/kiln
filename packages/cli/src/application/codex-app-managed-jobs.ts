@@ -199,6 +199,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     },
     store: new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs")),
   });
+  await managedInvocation.invocationService?.recoverPersistedInvocations();
   await service.recoverInterrupted();
   const application: NativeHarnessManagedJobApplicationPort = {
     submit: (input) => service.start(input),
@@ -218,10 +219,11 @@ function routeForProfile(resolution: ManagedInvocationRouteResolution["managedIn
   const admissionProfileId = selectAdmissionProfile(route);
   if (!admissionProfileId) return undefined;
   const routeProfile = route.profiles[admissionProfileId];
-  if (!routeProfile) return undefined;
+  if (!routeProfile || !route.accountPolicyId) return undefined;
   const observedAt = new Date();
   return {
     id: route.routeId,
+    accountPolicyId: route.accountPolicyId,
     admissionProfileId,
     supportedAdmissionProfileIds: Object.keys(route.profiles),
     providerId: route.providerId,

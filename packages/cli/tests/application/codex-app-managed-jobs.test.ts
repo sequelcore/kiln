@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { ManagedJobApplicationService } from "@kilnai/runtime";
+import { ManagedJobApplicationService, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
+
+vi.mock("../../src/config/config-merger.js", () => ({
+  loadResolvedKilnMcpConfiguration: vi.fn(() => ({
+    servers: {},
+    diagnostics: [],
+  })),
+}));
 
 vi.mock("../../src/application/config-status.js", () => ({
   readConfigStatusSnapshot: vi.fn(async () => {
@@ -27,9 +34,33 @@ vi.mock("../../src/application/config-status.js", () => ({
               writes: false,
             },
             memory: { access: "read-only" },
-            credentials: { mode: "runtime-selected" },
+            credentials: {
+              mode: "runtime-selected",
+              accountPolicyId: "managed-codex",
+            },
           },
         ],
+      },
+      modelGateway: {
+        port: 4819,
+        accounts: [{
+          id: "test-account",
+          providerId: "codex-oauth",
+          credentialId: "synthetic-test-credential",
+          maxConcurrency: 1,
+          reservedAffinitySlots: 0,
+        }],
+        replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
+        surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
+        principals: [],
+        virtualModels: [{
+          id: "managed-codex",
+          providerId: "codex-oauth",
+          providerModelId: "gpt-5.6-terra",
+          accountIds: ["test-account"],
+          capabilities: ["text"],
+          affinity: { continuity: "none" },
+        }],
       },
     };
     return {
@@ -76,13 +107,19 @@ import {
 
 describe("Codex App managed-job production composition", () => {
   it("recovers persisted nonterminal jobs before exposing the application owner", async () => {
+    const recoverInvocations = vi
+      .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
+      .mockResolvedValue({ recovered: [], unresolved: [] });
     const recoverInterrupted = vi
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
       .mockResolvedValue([]);
 
     await createNativeHarnessManagedJobApplicationComposition({ harness: "codex", discoverProviderModels: async () => ({}) });
 
+    expect(recoverInvocations).toHaveBeenCalledOnce();
     expect(recoverInterrupted).toHaveBeenCalledOnce();
+    expect(recoverInvocations.mock.invocationCallOrder[0]).toBeLessThan(recoverInterrupted.mock.invocationCallOrder[0]!);
+    recoverInvocations.mockRestore();
     recoverInterrupted.mockRestore();
   });
 

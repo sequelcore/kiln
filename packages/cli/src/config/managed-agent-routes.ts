@@ -1,5 +1,6 @@
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, posix, resolve, win32 } from "node:path";
+import { basename, join, posix, resolve, win32 } from "node:path";
 import type {
   ArtifactResourceStore,
   DefaultBuiltinToolRegistryOptions,
@@ -17,23 +18,28 @@ import type {
   ProviderModelEligibilityRequirements,
   ModelTaskSuitabilityEvidence,
   ManagedAgentWorkingDirectory,
+  ModelGatewayConfig,
 } from "@kilnai/core";
 import {
+  createAccountPolicyId,
   createProviderModelEvidence,
   defineManagedAgentReadAuthority,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
   deriveProviderModelEligibility,
-  isDirectProviderId,
 } from "@kilnai/core";
 import {
   createAttachedRuntimeBuiltinToolSurface,
+  ConfiguredManagedAccountRuntime,
   ManagedCliHarnessAdapter,
+  ManagedFilesystemRuntimeRecoveryStore,
   ManagedGitWorktreeLeaseManager,
   ManagedRemoteHarnessAdapter,
   ManagedRuntimeCredentialRouteLeaseManager,
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
+  SqliteManagedAccountLeaseAuthority,
+  type ManagedAccountLeaseAuthority,
   type ManagedAgentRuntimeAdapter,
   type ManagedAgentRuntimeAuthorityObserver,
   type ManagedInvocationAgentCatalogEntry,
@@ -112,6 +118,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly userHome?: string;
   readonly maxParallelChildren?: number;
   readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly managedAccountComposition?: ManagedAccountRuntimeComposition;
 }
 
 type BuiltinToolOptionsSource = DefaultBuiltinToolRegistryOptions | (() => DefaultBuiltinToolRegistryOptions | undefined);
@@ -137,6 +144,13 @@ export interface ManagedAgentRouteConfigSource {
     readonly default?: string;
     readonly [engine: string]: string | undefined;
   };
+  readonly modelGateway?: ModelGatewayConfig;
+}
+
+export interface ManagedAccountRuntimeComposition {
+  readonly routing: ConfiguredManagedAccountRuntime;
+  readonly authority: ManagedAccountLeaseAuthority;
+  updateConfig(config: ModelGatewayConfig): void;
 }
 
 const SUPPORTED_HARNESS_PROVIDERS = new Set<string>(["claude", "codex", "opencode"]);
@@ -173,6 +187,7 @@ const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] |
   // and Zen direct-provider routes remain available through Kiln tool policy.
   opencode: [],
 };
+const MANAGED_ACCOUNT_COMPOSITIONS = new Map<string, ManagedAccountRuntimeComposition>();
 
 export async function resolveManagedInvocationToolOptions(
   config: ManagedAgentRouteConfigSource | null | undefined,
@@ -225,11 +240,17 @@ export async function resolveManagedInvocationToolOptions(
     }));
   const shouldExposeManagedInvocation = routes.length > 0
     || (context.includeUnavailableRoutes === true && unavailableRoutes.length > 0);
+  const managedAccountComposition = context.managedAccountComposition
+    ?? createManagedAccountRuntimeComposition(config, context.cwd);
+  if (managedAccountComposition && config.modelGateway) {
+    managedAccountComposition.updateConfig(config.modelGateway);
+  }
   const invocationService = createManagedInvocationService(
     config,
     context.cwd,
     context.invocationService,
     context.invocationServiceKey,
+    managedAccountComposition,
   );
   const invocationServiceKey = managedInvocationServiceKey(config, context.cwd);
 
@@ -518,19 +539,8 @@ function loadManagedInvocationSkillCatalog(
 function resolveRouteConfigs(
   config: ManagedAgentRouteConfigSource,
 ): readonly ManagedAgentRouteConfigProjection[] {
-  const managedAgents = config.managedAgents;
-  const routingRoutes = synthesizeRoutesFromRouting(config)
-    .map((routeConfig) => projectedRoute(routeConfig, "ordered-routing"));
-  const explicitRoutes = (managedAgents?.routes ?? [])
+  return (config.managedAgents?.routes ?? [])
     .map((routeConfig) => projectedRoute(routeConfig, "explicit-managed-route"));
-  if (routingRoutes.length > 0 || explicitRoutes.length > 0) {
-    return mergeDerivedAndExplicitRoutes(routingRoutes, explicitRoutes);
-  }
-  if (managedAgents?.enabled === true) {
-    return [projectedRoute(synthesizeDefaultRoute(managedAgents), "managed-default-route")];
-  }
-  const route = synthesizeRouteFromEnabledEngines(config);
-  return route ? [projectedRoute(route, "enabled-engine-fallback")] : [];
 }
 
 function projectedRoute(
@@ -545,163 +555,6 @@ function managedAgentVoiceProfile(
   config: ManagedAgentRouteConfigSource,
 ): string | undefined {
   return routeConfig.voiceProfile ?? config.managedAgents?.defaultVoiceProfile;
-}
-
-function synthesizeDefaultRoute(
-  managedAgents: KilnManagedAgentsConfig,
-): KilnManagedAgentRouteConfig {
-  const provider = managedAgents.defaultProvider ?? "codex";
-  return synthesizeReadonlyRoute({
-    provider,
-    model: managedAgents.model,
-    profile: managedAgents.defaultProfile,
-  });
-}
-
-function synthesizeRouteFromEnabledEngines(
-  config: ManagedAgentRouteConfigSource,
-): KilnManagedAgentRouteConfig | undefined {
-  const provider = resolveDefaultChildProvider(config);
-  if (!provider) {
-    return undefined;
-  }
-  return synthesizeReadonlyRoute({
-    provider,
-    model: config.models?.[provider],
-    profile: READONLY_PROFILE,
-  });
-}
-
-function synthesizeRoutesFromRouting(
-  config: ManagedAgentRouteConfigSource,
-): readonly KilnManagedAgentRouteConfig[] {
-  const routingRoutes = config.routing?.routes;
-  if (!routingRoutes) {
-    return [];
-  }
-  const providerCounts = countRoutingProviders(routingRoutes);
-  const routes = routingRoutes
-    .map((route) => synthesizeRouteFromRoutingCandidate(route, config, providerCounts))
-    .filter((route): route is KilnManagedAgentRouteConfig => route !== undefined);
-  return dedupeRouteConfigs(routes);
-}
-
-function synthesizeRouteFromRoutingCandidate(
-  route: { readonly provider: string; readonly model?: string },
-  config: ManagedAgentRouteConfigSource,
-  providerCounts: ReadonlyMap<string, number>,
-): KilnManagedAgentRouteConfig | undefined {
-  const provider = route.provider.trim();
-  if (!provider) {
-    return undefined;
-  }
-  if (!SUPPORTED_HARNESS_PROVIDERS.has(provider) && !isDirectProviderId(provider)) {
-    return undefined;
-  }
-  const model = route.model ?? config.models?.[provider];
-  return synthesizeReadonlyRoute({
-    provider,
-    model,
-    profile: READONLY_PROFILE,
-    routeId: providerCounts.get(provider) && providerCounts.get(provider)! > 1 && model
-      ? `${provider}-${slugRouteIdSegment(model)}-readonly`
-      : undefined,
-  });
-}
-
-function countRoutingProviders(
-  routes: readonly { readonly provider: string }[],
-): ReadonlyMap<string, number> {
-  const counts = new Map<string, number>();
-  for (const route of routes) {
-    const provider = route.provider.trim();
-    if (!provider) {
-      continue;
-    }
-    counts.set(provider, (counts.get(provider) ?? 0) + 1);
-  }
-  return counts;
-}
-
-function mergeDerivedAndExplicitRoutes(
-  derivedRoutes: readonly ManagedAgentRouteConfigProjection[],
-  explicitRoutes: readonly ManagedAgentRouteConfigProjection[],
-): readonly ManagedAgentRouteConfigProjection[] {
-  if (explicitRoutes.length === 0) {
-    return derivedRoutes;
-  }
-  if (derivedRoutes.length === 0) {
-    return explicitRoutes;
-  }
-  const explicitRouteIds = new Set(explicitRoutes.map((route) => route.routeConfig.id));
-  return [
-    ...derivedRoutes.filter((route) => !explicitRouteIds.has(route.routeConfig.id)),
-    ...explicitRoutes,
-  ];
-}
-
-function dedupeRouteConfigs(
-  routes: readonly KilnManagedAgentRouteConfig[],
-): readonly KilnManagedAgentRouteConfig[] {
-  const seen = new Set<string>();
-  const deduped: KilnManagedAgentRouteConfig[] = [];
-  for (const route of routes) {
-    if (seen.has(route.id)) {
-      continue;
-    }
-    seen.add(route.id);
-    deduped.push(route);
-  }
-  return deduped;
-}
-
-function synthesizeReadonlyRoute(input: {
-  readonly provider: string;
-  readonly model?: string;
-  readonly profile?: KilnManagedAgentProfile;
-  readonly routeId?: string;
-}): KilnManagedAgentRouteConfig {
-  const { provider } = input;
-  return {
-    id: input.routeId ?? `${provider}-readonly`,
-    kind: SUPPORTED_HARNESS_PROVIDERS.has(provider) ? "harness" : "direct",
-    provider,
-    model: input.model ?? DEFAULT_MODELS[provider],
-    profiles: [input.profile ?? READONLY_PROFILE],
-    workingDirectory: "project",
-    tools: {
-      allowed: DEFAULT_ALLOWED_TOOLS,
-      network: false,
-      writes: false,
-    },
-    memory: { access: "read-only" },
-    credentials: { mode: "runtime-selected" },
-  };
-}
-
-function slugRouteIdSegment(value: string): string {
-  const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return slug || "model";
-}
-
-function resolveDefaultChildProvider(
-  config: ManagedAgentRouteConfigSource,
-): string | undefined {
-  const defaultWorker = config.routing?.defaultWorker;
-  if (defaultWorker && isEnabledSupportedChildEngine(config, defaultWorker)) {
-    return defaultWorker;
-  }
-  return Array.from(SUPPORTED_HARNESS_PROVIDERS)
-    .find((provider) => isEnabledSupportedChildEngine(config, provider));
-}
-
-function isEnabledSupportedChildEngine(
-  config: ManagedAgentRouteConfigSource,
-  provider: string,
-): boolean {
-  return SUPPORTED_HARNESS_PROVIDERS.has(provider)
-    && config.engines?.[provider]?.enabled === true
-    && (provider !== "claude" || Boolean(config.models?.claude?.trim()));
 }
 
 async function resolveRouteConfig(
@@ -799,6 +652,9 @@ async function resolveRouteConfig(
   const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
+    ...(routeConfig.credentials?.mode === "runtime-selected"
+      ? { accountPolicyId: createAccountPolicyId(routeConfig.credentials.accountPolicyId) }
+      : {}),
     routeSource,
     providerId: routeConfig.provider,
     model,
@@ -862,6 +718,9 @@ async function resolveRemoteHarnessRouteConfig(
   const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
+    ...(routeConfig.credentials?.mode === "runtime-selected"
+      ? { accountPolicyId: createAccountPolicyId(routeConfig.credentials.accountPolicyId) }
+      : {}),
     routeSource: baseHealth.routeSource,
     providerId: routeConfig.provider,
     model,
@@ -1227,6 +1086,9 @@ async function resolveDirectRouteConfig(
   const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
+    ...(routeConfig.credentials?.mode === "runtime-selected"
+      ? { accountPolicyId: createAccountPolicyId(routeConfig.credentials.accountPolicyId) }
+      : {}),
     routeSource: baseHealth.routeSource,
     providerId: routeConfig.provider,
     model,
@@ -1516,6 +1378,7 @@ function createManagedInvocationService(
   cwd: string,
   existingService: RuntimeManagedAgentInvocationService | undefined,
   existingServiceKey: string | undefined,
+  managedAccountComposition: ManagedAccountRuntimeComposition | undefined,
 ): RuntimeManagedAgentInvocationService | undefined {
   const serviceKey = managedInvocationServiceKey(config, cwd);
   if (!serviceKey) {
@@ -1529,6 +1392,9 @@ function createManagedInvocationService(
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) => route.workingDirectory === "isolated-worktree");
   const needsSandboxLease = routeConfigs.some(routeUsesRuntimeSandboxLease);
   const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
+  if (credentialRouteIds.length > 0 && managedAccountComposition === undefined) {
+    throw new Error("Runtime-selected managed routes require a configured modelGateway account policy.");
+  }
 
   return new RuntimeManagedAgentInvocationService({
     authorityObserver: createCliManagedRuntimeAuthorityObserver(),
@@ -1547,8 +1413,47 @@ function createManagedInvocationService(
       credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
         allowedRouteIds: credentialRouteIds,
       }),
+      accountCandidatePort: managedAccountComposition!.routing,
+      accountExecutionBindingPort: managedAccountComposition!.routing,
+      accountLeaseAuthority: managedAccountComposition!.authority,
+      recoveryStore: new ManagedFilesystemRuntimeRecoveryStore({
+        rootPath: join(cwd, ".kiln", "runtime", "managed-invocation-recovery"),
+      }),
     } : {}),
   });
+}
+
+export function createManagedAccountRuntimeComposition(
+  config: ManagedAgentRouteConfigSource,
+  cwd: string,
+): ManagedAccountRuntimeComposition | undefined {
+  const hasRuntimeSelectedRoute = resolveRouteConfigs(config)
+    .some(({ routeConfig }) => routeConfig.credentials?.mode === "runtime-selected");
+  if (!hasRuntimeSelectedRoute) return undefined;
+  if (!config.modelGateway) {
+    throw new Error("Runtime-selected managed routes require modelGateway configuration.");
+  }
+  const compositionKey = resolve(cwd);
+  const existing = MANAGED_ACCOUNT_COMPOSITIONS.get(compositionKey);
+  if (existing) {
+    existing.updateConfig(config.modelGateway);
+    return existing;
+  }
+  const runtimeDirectory = join(compositionKey, ".kiln", "runtime");
+  mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
+  const routing = new ConfiguredManagedAccountRuntime({ config: config.modelGateway });
+  const authority = new SqliteManagedAccountLeaseAuthority({
+    path: join(runtimeDirectory, "managed-account-leases.sqlite"),
+  });
+  const composition: ManagedAccountRuntimeComposition = {
+    routing,
+    authority,
+    updateConfig(next) {
+      routing.updateConfig(next);
+    },
+  };
+  MANAGED_ACCOUNT_COMPOSITIONS.set(compositionKey, composition);
+  return composition;
 }
 
 function createCliManagedRuntimeAuthorityObserver(): ManagedAgentRuntimeAuthorityObserver {
@@ -1631,7 +1536,7 @@ function collectRuntimeCredentialRouteIds(
   const routeIds = new Set<string>();
   for (const routeConfig of routeConfigs) {
     const credentialRoute = resolveCredentialRoute(routeConfig);
-    if (credentialRoute.mode === "runtime-selected") {
+    if (credentialRoute.mode !== "credentialless") {
       routeIds.add(credentialRoute.routeId);
     }
   }
@@ -1809,11 +1714,15 @@ function resolveCredentialRoute(
   const configuredRouteId = routeConfig.credentials?.mode === "runtime-selected"
     ? routeConfig.credentials.routeId?.trim()
     : undefined;
+  if (routeConfig.credentials?.mode !== "runtime-selected") {
+    throw new Error(`Managed invocation route '${routeConfig.id}' requires an explicit runtime-selected account policy.`);
+  }
   return {
-    mode: "runtime-selected",
+    mode: "account-leased",
     routeId: configuredRouteId
       ? configuredRouteId
       : `credential-route:${routeConfig.provider}:runtime-selected`,
+    accountPolicyId: createAccountPolicyId(routeConfig.credentials.accountPolicyId),
   };
 }
 

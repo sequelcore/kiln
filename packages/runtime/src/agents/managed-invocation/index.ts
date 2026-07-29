@@ -6,23 +6,30 @@ import { createHash } from "node:crypto";
 import { join as joinPath, win32 as pathWin32 } from "node:path";
 import { promisify } from "node:util";
 import {
+  advanceAttemptCommit,
   buildManagedAgentAuthorityEvidence,
   assertManagedAgentResultHandoffContract,
   classifyManagedAgentAuthorityEvidence,
   defineManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterWriteAuthorityDescriptor,
+  defineManagedAccountLeaseEvidence,
   defineManagedAgentInvocationRecord,
   defineVerificationUsageReport,
   evaluateManagedAgentAdmission,
+  createAttemptCommit,
   isManagedAgentWriteAuthorityProfile,
 } from "@kilnai/core";
 import type {
+  AttemptCommit,
   ManagedAgentAdapterDescriptor,
   ManagedAgentAdmissionDecision,
   ManagedAgentCapabilitySnapshot,
   ManagedAgentCapabilitySnapshotInput,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAccountLeaseEvidence,
+  ModelGatewayAccountRejection,
+  ModelGatewayAffinityEvidence,
   ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentLifecycleState,
   ManagedAgentResourceLeaseEvidence,
@@ -30,6 +37,11 @@ import type {
   ManagedAgentWorktreeReviewEvidence,
   StructuredExecutionResult,
 } from "@kilnai/core";
+import type {
+  ManagedAccountCandidatePort,
+  ManagedAccountLeaseAuthority,
+  ManagedAccountLeaseIdentity,
+} from "../../managed-account-leases/managed-account-lease-authority.js";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 import {
   ManagedFilesystemRuntimeRecoveryStore,
@@ -248,6 +260,7 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly promptDelivery: ManagedAgentRuntimePromptDeliveryCoordinator;
   readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
   readonly environment?: ManagedAgentEnvironmentVariables;
+  readonly registerExecutionSettlement: (settlement: PromiseLike<unknown>) => void;
 }
 
 export interface ManagedAgentRuntimeCancellationInput {
@@ -288,12 +301,24 @@ export type ManagedAgentRuntimeInvocationTerminalObserver = (
 export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly abortSignal?: AbortSignal;
   readonly terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
+  readonly accountLeaseObserver?: ManagedAgentRuntimeAccountLeaseObserver;
 }
+
+export type ManagedAgentRuntimeAccountLeaseObserver = (
+  evidence: ManagedAccountLeaseEvidence,
+) => void | Promise<void>;
 
 export interface ManagedAgentRuntimeAdapter {
   readonly descriptor: ManagedAgentAdapterDescriptor;
   invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord>;
   cancel?(input: ManagedAgentRuntimeCancellationInput): Promise<void>;
+}
+
+export interface ManagedAccountExecutionBindingPort {
+  bind(input: {
+    readonly lease: ManagedAccountLeaseEvidence;
+    readonly adapter: ManagedAgentRuntimeAdapter;
+  }): Promise<ManagedAgentRuntimeAdapter>;
 }
 
 export interface ManagedAgentRuntimeAuthorityObservationInput {
@@ -307,6 +332,15 @@ export interface ManagedAgentRuntimeAuthorityObserver {
 }
 
 class ManagedAgentRuntimeAuthorityObservationError extends ManagedAgentRuntimeAdmissionError {}
+
+export class ManagedAccountLeaseUnavailableError extends ManagedAgentRuntimeAdmissionError {
+  constructor(
+    readonly rejections: readonly ModelGatewayAccountRejection[],
+    readonly affinity?: ModelGatewayAffinityEvidence,
+  ) {
+    super("No eligible managed account has lease capacity for the admitted route");
+  }
+}
 
 export interface ManagedAgentWorktreeLeaseManagerInput {
   readonly request: ManagedAgentInvocationRequest;
@@ -382,6 +416,9 @@ export interface RuntimeManagedAgentInvocationServiceOptions {
   readonly devServerPortLeaseManager?: ManagedAgentDevServerPortLeaseManager;
   readonly environmentLeaseManager?: ManagedAgentEnvironmentLeaseManager;
   readonly credentialRouteLeaseManager?: ManagedAgentCredentialRouteLeaseManager;
+  readonly accountCandidatePort?: ManagedAccountCandidatePort;
+  readonly accountLeaseAuthority?: ManagedAccountLeaseAuthority;
+  readonly accountExecutionBindingPort?: ManagedAccountExecutionBindingPort;
   readonly recoveryStore?: ManagedAgentRuntimeRecoveryStore;
   readonly authorityObserver?: ManagedAgentRuntimeAuthorityObserver;
   readonly clock?: () => Date;
@@ -817,7 +854,7 @@ export class ManagedRuntimeCredentialRouteLeaseManager implements ManagedAgentCr
 
   private resolveRuntimeSelectedRouteId(request: ManagedAgentInvocationRequest): string | undefined {
     const credentialRoute = request.authority.credentialRoute;
-    if (credentialRoute.mode !== "runtime-selected") {
+    if (credentialRoute.mode === "credentialless") {
       return undefined;
     }
     const routeId = validateCredentialRouteId(credentialRoute.routeId);
@@ -974,7 +1011,7 @@ interface ManagedAgentRuntimeInvocationTerminal {
 interface ManagedAgentRuntimeInvocationEntry {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
-  readonly adapter?: ManagedAgentRuntimeAdapter;
+  adapter?: ManagedAgentRuntimeAdapter;
   lifecycleState: ManagedAgentLifecycleState;
   readonly startedAt: Date;
   readonly abortController: AbortController;
@@ -995,6 +1032,12 @@ interface ManagedAgentRuntimeInvocationEntry {
   terminal?: ManagedAgentRuntimeInvocationTerminal;
   terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
   terminalObserverNotified?: boolean;
+  accountLeaseObserver?: ManagedAgentRuntimeAccountLeaseObserver;
+  accountLeaseIdentity?: ManagedAccountLeaseIdentity;
+  accountLease?: ManagedAccountLeaseEvidence;
+  accountAttempt?: AttemptCommit;
+  executionSettlement?: Promise<void>;
+  accountSettlementFinalization?: Promise<ManagedAccountLeaseEvidence>;
 }
 
 type ManagedAgentRuntimeLeaseStage = ManagedAgentRuntimeRecoveryLeaseStage;
@@ -1070,6 +1113,9 @@ export class RuntimeManagedAgentInvocationService {
       ...(lifecycleOptions.terminalObserver !== undefined
         ? { terminalObserver: lifecycleOptions.terminalObserver }
         : {}),
+      ...(lifecycleOptions.accountLeaseObserver !== undefined
+        ? { accountLeaseObserver: lifecycleOptions.accountLeaseObserver }
+        : {}),
     };
     terminal.promise.catch(() => undefined);
     this.invocations.set(request.invocationId, entry);
@@ -1086,6 +1132,8 @@ export class RuntimeManagedAgentInvocationService {
     }
     try {
       await this.acquireRuntimeResourceLeases(entry);
+      await this.acquireManagedAccountLease(entry);
+      await this.bindManagedAccountExecution(entry);
     } catch (error) {
       if ((entry.lifecycleState === "cancelled" || entry.lifecycleState === "stale") && entry.record) {
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
@@ -1115,20 +1163,43 @@ export class RuntimeManagedAgentInvocationService {
     if (entry.lifecycleState === "stale" && entry.record) {
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
-    const authorityCheckedInvocation = this.assertPostStartAuthority(request, adapter, registeredDecision, abortController)
+    const executableAdapter = entry.adapter;
+    if (executableAdapter === undefined) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation has no executable adapter");
+    }
+    let signalDispatchReady!: () => void;
+    const dispatchReady = new Promise<void>((resolve) => {
+      signalDispatchReady = resolve;
+    });
+    const authorityCheckedInvocation = this.assertPostStartAuthority(request, executableAdapter, registeredDecision, abortController)
       .then(() => {
+        if (entry.accountAttempt?.phase === "leased") {
+          entry.accountAttempt = advanceAttemptCommit(entry.accountAttempt, "dispatching");
+        }
         entry.adapterStarted = true;
-        return this.invokeAdmitted({
+        const invoke = () => this.invokeAdmitted({
           request: cloneJson(registeredRequest),
-          adapter,
+          adapter: executableAdapter,
           admission: cloneJson(registeredDecision),
           abortSignal: abortController.signal,
           promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
           progressObserver: (event) => this.recordProgress(entry, event),
+          registerExecutionSettlement: (settlement) => this.registerExecutionSettlement(entry, settlement),
           ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
         });
+        const beginInvocation = () => {
+          signalDispatchReady();
+          return invoke();
+        };
+        return this.options.recoveryStore
+          ? this.saveRuntimeRecoveryCheckpoint(entry).then(beginInvocation)
+          : beginInvocation();
+      }, (error: unknown) => {
+        signalDispatchReady();
+        throw error;
       });
     const adapterTerminal: Promise<Extract<ManagedAgentRuntimeInvocationResult, { readonly status: "completed" }>> = authorityCheckedInvocation.then(async (record) => {
+      this.settleManagedAccountAttempt(entry, record.lifecycleState);
       if (entry.lifecycleState === "failed" && entry.record) {
         const failedRecord = await this.currentTerminalRecord(entry);
         return {
@@ -1173,6 +1244,7 @@ export class RuntimeManagedAgentInvocationService {
         record: entry.record,
       } as const;
     }, async (error: unknown) => {
+      this.failManagedAccountAttempt(entry);
       if (entry.lifecycleState === "failed" && entry.record) {
         const failedRecord = await this.currentTerminalRecord(entry);
         return {
@@ -1225,6 +1297,9 @@ export class RuntimeManagedAgentInvocationService {
       },
     );
     adapterTerminal.catch(() => undefined);
+    if (this.options.recoveryStore) {
+      await dispatchReady;
+    }
 
     return {
       status: "started",
@@ -1417,6 +1492,7 @@ export class RuntimeManagedAgentInvocationService {
     }
 
     entry.abortController.abort(reason);
+    this.cancelManagedAccountAttempt(entry);
     entry.finishedAt = new Date();
     entry.lifecycleState = "cancelled";
     entry.record = createCancelledRecord(entry.request, entry.decision, reason);
@@ -1499,6 +1575,21 @@ export class RuntimeManagedAgentInvocationService {
   async recoverPersistedInvocations(
     input: ManagedAgentPersistentRecoveryInput = {},
   ): Promise<ManagedAgentStaleRecoveryResult> {
+    const recoverableCheckpoints = this.options.recoveryStore
+      ? (await this.options.recoveryStore.listRecoverable())
+        .map(validateManagedAgentRuntimeRecoveryCheckpoint)
+      : [];
+    const recoveredAccountLeases = this.options.accountLeaseAuthority?.recover({
+      reconcilableRuntimeInvocationIds: recoverableCheckpoints
+        .filter((checkpoint) => checkpoint.accountLease !== undefined && checkpoint.adapterStarted === false)
+        .map((checkpoint) => checkpoint.request.invocationId),
+      settlementPendingRuntimeInvocationIds: recoverableCheckpoints
+        .filter((checkpoint) => checkpoint.accountLease !== undefined && checkpoint.adapterStarted)
+        .map((checkpoint) => checkpoint.request.invocationId),
+    }) ?? [];
+    const recoveredAccountLeasesByInvocation = new Map(
+      recoveredAccountLeases.map((lease) => [lease.runtimeInvocationId, lease]),
+    );
     if (!this.options.recoveryStore) {
       return { recovered: [] };
     }
@@ -1509,10 +1600,14 @@ export class RuntimeManagedAgentInvocationService {
     const reason = persistedRecoveryReason(input.reason);
     const recovered: ManagedAgentRuntimeInvocationSnapshot[] = [];
 
-    for (const recoverableCheckpoint of await this.options.recoveryStore.listRecoverable()) {
-      const checkpoint = validateManagedAgentRuntimeRecoveryCheckpoint(recoverableCheckpoint);
+    for (const checkpoint of recoverableCheckpoints) {
       if (checkpoint.record !== undefined && isTerminalLifecycleState(checkpoint.lifecycleState)) {
-        if (isRuntimeRecoveryCleanupResolved(checkpoint.record.resourceLease?.cleanupStatus)) {
+        const accountLeaseResolved = checkpoint.accountLease === undefined
+          || checkpoint.accountLease.lifecycleState === "released";
+        if (
+          isRuntimeRecoveryCleanupResolved(checkpoint.record.resourceLease?.cleanupStatus)
+          && accountLeaseResolved
+        ) {
           await this.options.recoveryStore.delete(checkpoint.request.invocationId);
         }
         continue;
@@ -1523,6 +1618,11 @@ export class RuntimeManagedAgentInvocationService {
         continue;
       }
       const entry = invocationEntryFromRecoveryCheckpoint(checkpoint);
+      const recoveredAccountLease = recoveredAccountLeasesByInvocation.get(checkpoint.request.invocationId);
+      if (recoveredAccountLease) {
+        entry.accountLease = recoveredAccountLease;
+        entry.accountLeaseIdentity = managedAccountLeaseIdentity(recoveredAccountLease);
+      }
       const recoveryAuthority = classifyManagedAgentAuthorityEvidence(
         entry.decision.capabilitySnapshot.authorityEvidence,
         now.toISOString(),
@@ -1569,6 +1669,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly promptDelivery?: ManagedAgentRuntimePromptDeliveryCoordinator;
     readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
     readonly environment?: ManagedAgentEnvironmentVariables;
+    readonly registerExecutionSettlement?: (settlement: PromiseLike<unknown>) => void;
   }): Promise<ManagedAgentInvocationRecord> {
     const admission = this.requireRuntimeAdmission(input);
     const environment = input.environment === undefined ? undefined : validateManagedEnvironment(input.environment);
@@ -1579,6 +1680,7 @@ export class RuntimeManagedAgentInvocationService {
       promptDelivery: input.promptDelivery ?? this.promptDeliveryCoordinator(input.request.invocationId),
       ...(input.progressObserver !== undefined ? { progressObserver: input.progressObserver } : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
+      registerExecutionSettlement: input.registerExecutionSettlement ?? (() => undefined),
     });
     const canonicalRecord = attachStructuredVerificationUsage(record);
     const attributedRecord = defineManagedAgentInvocationRecord({
@@ -1900,6 +2002,178 @@ export class RuntimeManagedAgentInvocationService {
     }
   }
 
+  private async acquireManagedAccountLease(entry: ManagedAgentRuntimeInvocationEntry): Promise<void> {
+    const credentialRoute = entry.request.authority.credentialRoute;
+    if (credentialRoute.mode !== "account-leased") return;
+    const candidatePort = this.options.accountCandidatePort;
+    const authority = this.options.accountLeaseAuthority;
+    if (!candidatePort || !authority || !this.options.accountExecutionBindingPort) {
+      throw new ManagedAgentRuntimeAdmissionError(
+        "Account-leased managed invocation requires account candidate, lease authority, and execution binding ports",
+      );
+    }
+    const resolution = await candidatePort.resolve({
+      accountPolicyId: credentialRoute.accountPolicyId,
+      providerRoute: entry.request.providerRoute,
+    });
+    if (
+      resolution.route.providerId !== entry.request.providerRoute.providerId
+      || resolution.route.providerModelId !== entry.request.providerRoute.model
+    ) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed account policy resolved a route different from the admitted provider route");
+    }
+    const result = await authority.acquire({
+      accountPolicyId: credentialRoute.accountPolicyId,
+      route: resolution.route,
+      jobId: entry.request.invocationId,
+      runtimeInvocationId: entry.request.invocationId,
+      work: "new",
+      candidates: resolution.candidates,
+    });
+    if (result.status === "unavailable") {
+      throw new ManagedAccountLeaseUnavailableError(result.rejections, result.affinity);
+    }
+    entry.accountLeaseIdentity = result.identity;
+    entry.accountLease = result.lease;
+    entry.accountAttempt = advanceAttemptCommit(
+      createAttemptCommit({
+        attemptId: result.identity.leaseId,
+        account: result.identity.accountRef,
+      }),
+      "leased",
+    );
+    await this.observeManagedAccountLease(entry, result.lease);
+    await this.saveRuntimeRecoveryCheckpoint(entry);
+  }
+
+  private async bindManagedAccountExecution(entry: ManagedAgentRuntimeInvocationEntry): Promise<void> {
+    if (!entry.accountLease) return;
+    const adapter = entry.adapter;
+    const bindingPort = this.options.accountExecutionBindingPort;
+    if (!adapter || !bindingPort) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed account execution binding is unavailable");
+    }
+    const bound = await bindingPort.bind({ lease: entry.accountLease, adapter });
+    if (!sameJson(bound.descriptor, adapter.descriptor)) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed account execution binding changed the admitted adapter descriptor");
+    }
+    entry.adapter = bound;
+  }
+
+  private registerExecutionSettlement(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    settlement: PromiseLike<unknown>,
+  ): void {
+    if (entry.executionSettlement !== undefined) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed adapter registered execution settlement more than once");
+    }
+    entry.executionSettlement = Promise.resolve(settlement).then(
+      () => undefined,
+      () => undefined,
+    );
+  }
+
+  private settleManagedAccountAttempt(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    lifecycleState: ManagedAgentLifecycleState,
+  ): void {
+    const attempt = entry.accountAttempt;
+    if (!attempt || attempt.phase !== "dispatching") return;
+    const committed = advanceAttemptCommit(attempt, "committed");
+    entry.accountAttempt = advanceAttemptCommit(
+      committed,
+      lifecycleState === "completed"
+        ? "succeeded"
+        : lifecycleState === "cancelled"
+          ? "cancelled"
+          : "failed",
+    );
+  }
+
+  private failManagedAccountAttempt(entry: ManagedAgentRuntimeInvocationEntry): void {
+    const attempt = entry.accountAttempt;
+    if (
+      attempt
+      && (attempt.phase === "planned" || attempt.phase === "leased" || attempt.phase === "dispatching")
+    ) {
+      entry.accountAttempt = advanceAttemptCommit(attempt, "failed");
+    }
+  }
+
+  private cancelManagedAccountAttempt(entry: ManagedAgentRuntimeInvocationEntry): void {
+    const attempt = entry.accountAttempt;
+    if (
+      attempt
+      && (attempt.phase === "planned" || attempt.phase === "leased" || attempt.phase === "dispatching")
+    ) {
+      entry.accountAttempt = advanceAttemptCommit(attempt, "cancelled");
+    }
+  }
+
+  private async finalizeManagedAccountLease(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    record: ManagedAgentInvocationRecord,
+  ): Promise<ManagedAgentInvocationRecord> {
+    const identity = entry.accountLeaseIdentity;
+    const authority = this.options.accountLeaseAuthority;
+    if (!identity || !entry.accountLease || !authority) return record;
+    const settlementMayOutliveProjection = entry.adapterStarted
+      && (record.lifecycleState === "timed_out" || record.lifecycleState === "cancelled" || record.lifecycleState === "stale");
+    const settlementUnknownAfterRecovery = entry.adapterStarted
+      && entry.executionSettlement === undefined
+      && entry.accountLease.lifecycleState === "settlement-pending";
+    if (settlementMayOutliveProjection || settlementUnknownAfterRecovery) {
+      entry.accountLease = authority.markSettlementPending({
+        ...identity,
+        diagnosticUri: `kiln://managed-accounts/leases/${encodeURIComponent(identity.leaseId)}/settlement-pending`,
+      });
+      await this.observeManagedAccountLease(entry, entry.accountLease);
+      if (entry.executionSettlement !== undefined && entry.accountSettlementFinalization === undefined) {
+        entry.accountSettlementFinalization = entry.executionSettlement.then(() => this.releaseManagedAccountLease(entry));
+        void entry.accountSettlementFinalization.then(async (lease) => {
+          entry.accountLease = lease;
+          if (entry.record) {
+            entry.record = defineManagedAgentInvocationRecord({ ...entry.record, accountLease: lease });
+          }
+          await this.observeManagedAccountLease(entry, lease);
+          if (entry.record) {
+            await this.saveOrDeleteRuntimeRecoveryCheckpoint(entry, entry.record);
+          }
+        }).catch(() => undefined);
+      }
+      return defineManagedAgentInvocationRecord({ ...record, accountLease: entry.accountLease });
+    }
+    if (entry.executionSettlement !== undefined) await entry.executionSettlement;
+    entry.accountLease = await this.releaseManagedAccountLease(entry);
+    await this.observeManagedAccountLease(entry, entry.accountLease);
+    return defineManagedAgentInvocationRecord({ ...record, accountLease: entry.accountLease });
+  }
+
+  private async observeManagedAccountLease(
+    entry: ManagedAgentRuntimeInvocationEntry,
+    evidence: ManagedAccountLeaseEvidence,
+  ): Promise<void> {
+    await entry.accountLeaseObserver?.(defineManagedAccountLeaseEvidence(evidence));
+  }
+
+  private async releaseManagedAccountLease(
+    entry: ManagedAgentRuntimeInvocationEntry,
+  ): Promise<ManagedAccountLeaseEvidence> {
+    const identity = entry.accountLeaseIdentity;
+    const authority = this.options.accountLeaseAuthority;
+    if (!identity || !authority) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed account lease release authority is unavailable");
+    }
+    try {
+      return authority.release(identity);
+    } catch {
+      return authority.recordReleaseFailure({
+        ...identity,
+        diagnosticUri: `kiln://managed-accounts/leases/${encodeURIComponent(identity.leaseId)}/release-failed`,
+      });
+    }
+  }
+
   private async acquireRuntimeResourceLeases(entry: ManagedAgentRuntimeInvocationEntry): Promise<void> {
     let lease = entry.decision.capabilitySnapshot.resourceLease;
     if (entry.request.authority.workingDirectory.mode === "isolated-worktree") {
@@ -2024,7 +2298,7 @@ export class RuntimeManagedAgentInvocationService {
         throw error;
       }
     }
-    if (entry.request.authority.credentialRoute.mode === "runtime-selected") {
+    if (entry.request.authority.credentialRoute.mode !== "credentialless") {
       if (!this.options.credentialRouteLeaseManager) {
         throw new ManagedAgentRuntimeAdmissionError("Managed agent credential-route lease manager is required");
       }
@@ -2107,6 +2381,7 @@ export class RuntimeManagedAgentInvocationService {
     entry: ManagedAgentRuntimeInvocationEntry,
     record: ManagedAgentInvocationRecord,
   ): Promise<ManagedAgentInvocationRecord> {
+    record = await this.finalizeManagedAccountLease(entry, record);
     const resourceLeaseForRelease = runtimeLeaseForTerminalRelease(entry, record);
     const leaseStagesToRelease = [...entry.acquiredLeaseStages]
       .reverse()
@@ -2286,7 +2561,9 @@ export class RuntimeManagedAgentInvocationService {
     if (!this.options.recoveryStore || entry.acquiredLeaseStages.length === 0) {
       return;
     }
-    if (isRuntimeRecoveryCleanupResolved(record.resourceLease?.cleanupStatus)) {
+    const accountLeaseResolved = record.accountLease === undefined
+      || record.accountLease.lifecycleState === "released";
+    if (isRuntimeRecoveryCleanupResolved(record.resourceLease?.cleanupStatus) && accountLeaseResolved) {
       await this.options.recoveryStore.delete(entry.request.invocationId);
       return;
     }
@@ -2317,6 +2594,12 @@ function invocationEntryFromRecoveryCheckpoint(
     promptInbox: [],
     progressEvents: [],
     adapterStarted: validated.adapterStarted,
+    ...(validated.accountLease !== undefined
+      ? {
+          accountLease: cloneJson(validated.accountLease),
+          accountLeaseIdentity: managedAccountLeaseIdentity(validated.accountLease),
+        }
+      : {}),
     ...(validated.finishedAt !== undefined ? { finishedAt: new Date(validated.finishedAt) } : {}),
     ...(validated.record !== undefined ? { record: cloneJson(validated.record) } : {}),
     ...(validated.error !== undefined ? { error: new Error(validated.error.message) } : {}),
@@ -2330,7 +2613,7 @@ function recoveryCheckpointFromInvocationEntry(
   const runtimeLease = entry.runtimeLease ?? entry.decision.capabilitySnapshot.resourceLease;
   const runtimeLeaseForRelease = entry.runtimeLeaseForRelease ?? runtimeLease;
   return validateManagedAgentRuntimeRecoveryCheckpoint({
-    version: 1,
+    version: 2,
     lifecycleState: entry.lifecycleState,
     request: cloneJson(entry.request),
     decision: cloneJson(entry.decision),
@@ -2341,10 +2624,24 @@ function recoveryCheckpointFromInvocationEntry(
     acquiredLeaseStages: [...entry.acquiredLeaseStages],
     releasedLeaseStages: [...entry.releasedLeaseStages],
     adapterStarted: entry.adapterStarted,
+    ...(entry.accountLease !== undefined ? { accountLease: cloneJson(entry.accountLease) } : {}),
     ...(entry.record !== undefined ? { record: cloneJson(entry.record) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
     updatedAt: new Date().toISOString(),
   });
+}
+
+function managedAccountLeaseIdentity(
+  lease: ManagedAccountLeaseEvidence,
+): ManagedAccountLeaseIdentity {
+  return {
+    leaseId: lease.leaseId,
+    accountPolicyId: lease.accountPolicyId,
+    accountRef: lease.accountRef,
+    route: cloneJson(lease.route),
+    jobId: lease.jobId,
+    runtimeInvocationId: lease.runtimeInvocationId,
+  };
 }
 
 function snapshotInvocation(entry: ManagedAgentRuntimeInvocationEntry): ManagedAgentRuntimeInvocationSnapshot {

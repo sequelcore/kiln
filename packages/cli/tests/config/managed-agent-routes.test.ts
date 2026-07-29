@@ -222,6 +222,10 @@ function createRegistryWithCapturedHarnessRun(
 }
 
 function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}): KilnGlobalConfig {
+  const routes = overrides.routes?.map((route) => ({
+    credentials: { mode: "credentialless" as const },
+    ...route,
+  }));
   return {
     version: "1",
     managedAgents: {
@@ -230,9 +234,38 @@ function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}):
       defaultProfile: "foundation-readonly-plan",
       requireApproval: true,
       ...overrides,
+      ...(routes ? { routes } : {}),
     },
   };
 }
+
+const MANAGED_OPENAI_MODEL_GATEWAY: NonNullable<KilnGlobalConfig["modelGateway"]> = {
+  port: 4819,
+  accounts: [{
+    id: "managed-openai-account",
+    providerId: "openai",
+    credentialId: "synthetic-openai",
+    maxConcurrency: 1,
+    reservedAffinitySlots: 0,
+  }],
+  replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
+  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
+  principals: [],
+  virtualModels: [{
+    id: "managed-openai",
+    providerId: "openai",
+    providerModelId: "gpt-5.4-mini",
+    accountIds: ["managed-openai-account"],
+    capabilities: ["text"],
+    affinity: { continuity: "none" },
+  }],
+};
+
+const TEST_MANAGED_ACCOUNT_COMPOSITION = {
+  routing: {} as never,
+  authority: {} as never,
+  updateConfig() {},
+};
 
 function makeDirectAdapter(providerId = "openai", writeCapable = false): ManagedAgentRuntimeAdapter {
   return {
@@ -321,440 +354,6 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
-  it("synthesizes a read-only harness route from enabled supported engines", async () => {
-    const result = await resolveManagedInvocationToolOptions({
-      version: "1",
-      engines: {
-        claude: { enabled: true, billing: "subscription" },
-        codex: { enabled: true, billing: "plus-quota" },
-        opencode: { enabled: false, billing: "free" },
-      },
-      routing: {
-        defaultWorker: "claude",
-      },
-      models: {
-        codex: "gpt-5.4-mini",
-      },
-    }, {
-      cwd: "C:/repo",
-      registry: createRegistry("codex"),
-      surface: "gui",
-      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-    });
-
-    expect(result.routeHealth).toEqual([{
-      routeId: "codex-readonly",
-      routeSource: "enabled-engine-fallback",
-      kind: "harness",
-      provider: "codex",
-      model: "gpt-5.4-mini",
-      profiles: ["foundation-readonly-plan"],
-      available: true,
-    }]);
-    expect(result.managedInvocation?.routes[0]?.routeId).toBe("codex-readonly");
-    expect(result.managedInvocation?.routes[0]?.routeSource).toBe("enabled-engine-fallback");
-    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.timeoutMs).toBe(300000);
-    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.timeoutSource).toBe("default");
-    expect(result.managedInvocation?.requestSource).toBe("gui");
-  });
-
-  it("does not reuse the global default model across managed child engine namespaces", async () => {
-    const result = await resolveManagedInvocationToolOptions({
-      version: "1",
-      engines: {
-        codex: { enabled: true, billing: "plus-quota" },
-      },
-      models: {
-        default: "claude-opus-4-7",
-      },
-    }, {
-      cwd: "C:/repo",
-      registry: createRegistry("codex"),
-      surface: "gui",
-      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-    });
-
-    expect(result.routeHealth[0]).toMatchObject({
-      routeId: "codex-readonly",
-      provider: "codex",
-      model: "gpt-5.3-codex-spark",
-      available: true,
-    });
-  });
-
-  it("keeps an enabled Claude route fail-closed until strict live handoff proof exists", async () => {
-    const result = await resolveManagedInvocationToolOptions({
-      version: "1",
-      engines: { claude: { enabled: true, billing: "subscription" } },
-      routing: { defaultWorker: "claude" },
-      models: { claude: "default" },
-    }, {
-      cwd: "C:/repo",
-      registry: createRegistry("claude"),
-      surface: "gui",
-      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-    });
-
-    expect(result.routeHealth).toEqual([{
-      routeId: "claude-readonly",
-      routeSource: "enabled-engine-fallback",
-      kind: "harness",
-      provider: "claude",
-      model: "default",
-      profiles: ["foundation-readonly-plan"],
-      available: false,
-      reason: "Provider 'claude' model 'default' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.",
-    }]);
-    expect(result.managedInvocation).toBeUndefined();
-  });
-
-  it("projects ordered routing routes into read-only managed routes when no explicit managed routes exist", async () => {
-    const result = await resolveManagedInvocationToolOptions({
-      version: "1",
-      engines: {
-        "codex-oauth": { enabled: true, billing: "subscription" },
-        openrouter: { enabled: true, billing: "api-key" },
-        codex: { enabled: true, billing: "plus-quota" },
-        opencode: { enabled: true, billing: "free" },
-      },
-      routing: {
-        routes: [
-          { provider: "codex-oauth", model: "gpt-5.4-mini" },
-          { provider: "openrouter", model: "qwen/qwen3-coder:free" },
-          { provider: "codex", model: "gpt-5.4-mini" },
-          { provider: "opencode", model: "openai/gpt-4o:free" },
-        ],
-      },
-    }, {
-      cwd: "C:/repo",
-      registry: createRegistryForProviders([
-        { provider: "codex-oauth" },
-        { provider: "openrouter" },
-        { provider: "codex" },
-        { provider: "opencode" },
-      ]),
-      surface: "gui",
-      providerModelEligibility: observedProviderModels({
-        "codex-oauth": ["gpt-5.4-mini"],
-        openrouter: ["qwen/qwen3-coder:free"],
-        codex: ["gpt-5.4-mini"],
-        opencode: ["opencode/minimax-m2.5-free"],
-      }),
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
-    });
-
-    expect(result.routeHealth).toEqual([{
-      routeId: "codex-oauth-readonly",
-      routeSource: "ordered-routing",
-      kind: "direct",
-      provider: "codex-oauth",
-      model: "gpt-5.4-mini",
-      profiles: ["foundation-readonly-plan"],
-      available: true,
-    }, {
-      routeId: "openrouter-readonly",
-      routeSource: "ordered-routing",
-      kind: "direct",
-      provider: "openrouter",
-      model: "qwen/qwen3-coder:free",
-      profiles: ["foundation-readonly-plan"],
-      available: true,
-    }, {
-      routeId: "codex-readonly",
-      routeSource: "ordered-routing",
-      kind: "harness",
-      provider: "codex",
-      model: "gpt-5.4-mini",
-      profiles: ["foundation-readonly-plan"],
-      available: true,
-    }, {
-      routeId: "opencode-readonly",
-      routeSource: "ordered-routing",
-      kind: "harness",
-      provider: "opencode",
-      model: "openai/gpt-4o:free",
-      profiles: ["foundation-readonly-plan"],
-      available: false,
-      reason: OPENCODE_UNADVERTISED_MODEL_REASON,
-    }]);
-    expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual([
-      "codex-oauth-readonly",
-      "openrouter-readonly",
-      "codex-readonly",
-    ]);
-    expect(result.managedInvocation?.routes.map((route) => route.routeSource)).toEqual([
-      "ordered-routing",
-      "ordered-routing",
-      "ordered-routing",
-    ]);
-    expect(result.managedInvocation?.unavailableRoutes).toContainEqual({
-      routeId: "opencode-readonly",
-      routeSource: "ordered-routing",
-      providerId: "opencode",
-      model: "openai/gpt-4o:free",
-      profiles: ["foundation-readonly-plan"],
-      reason: OPENCODE_UNADVERTISED_MODEL_REASON,
-    });
-  });
-
-  it("keeps subscription-first routing on direct providers when harness engines are disabled", async () => {
-    const result = await resolveManagedInvocationToolOptions({
-      version: "1",
-      engines: {
-        "codex-oauth": { enabled: true, billing: "subscription" },
-        "opencode-go": { enabled: true, billing: "subscription" },
-        "opencode-zen": { enabled: true, billing: "api-key" },
-        codex: { enabled: false, billing: "plus-quota" },
-        opencode: { enabled: false, billing: "free" },
-      },
-      routing: {
-        defaultWorker: "codex-oauth",
-        fallback: "opencode-zen",
-        routes: [
-          { provider: "codex-oauth", model: "gpt-5.5" },
-          { provider: "opencode-go", model: "minimax-m2.7" },
-          { provider: "opencode-zen", model: "deepseek-v4-flash-free" },
-        ],
-      },
-    }, {
-      cwd: "C:/repo",
-      registry: createRegistryForProviders([
-        { provider: "codex-oauth" },
-        { provider: "opencode-go" },
-        { provider: "opencode-zen" },
-        { provider: "codex", available: false },
-        { provider: "opencode", available: false },
-      ]),
-      surface: "gui",
-      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
-    });
-
-    expect(result.routeHealth.map((route) => ({
-      routeId: route.routeId,
-      kind: route.kind,
-      provider: route.provider,
-      available: route.available,
-    }))).toEqual([
-      {
-        routeId: "codex-oauth-readonly",
-        kind: "direct",
-        provider: "codex-oauth",
-        available: true,
-      },
-      {
-        routeId: "opencode-go-readonly",
-        kind: "direct",
-        provider: "opencode-go",
-        available: true,
-      },
-      {
-        routeId: "opencode-zen-readonly",
-        kind: "direct",
-        provider: "opencode-zen",
-        available: true,
-      },
-    ]);
-    expect(result.managedInvocation?.routes.map((route) => route.providerId)).toEqual([
-      "codex-oauth",
-      "opencode-go",
-      "opencode-zen",
-    ]);
-  });
-
-  it("keeps intrinsic route health and descriptors identical across operator surfaces", async () => {
-    const config = {
-      version: "1",
-      engines: {
-        "opencode-go": { enabled: true, billing: "subscription" },
-      },
-      routing: {
-        routes: [
-          { provider: "opencode-go", model: "deepseek-v4-flash" },
-        ],
-      },
-    };
-    const results = await Promise.all(
-      (["gui", "tui", "run", "operator"] as const).map((surface) =>
-        resolveManagedInvocationToolOptions(config, {
-          cwd: "C:/repo",
-          registry: createRegistry("opencode-go"),
-          surface,
-          providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-          directAdapterFactory: (route) => makeDirectAdapter(route.provider),
-        })
-      ),
-    );
-    const [baseline, ...remaining] = results;
-
-    expect(baseline?.routeHealth).toEqual([{
-      routeId: "opencode-go-readonly",
-      routeSource: "ordered-routing",
-      kind: "direct",
-      provider: "opencode-go",
-      model: "deepseek-v4-flash",
-      profiles: ["foundation-readonly-plan"],
-      available: true,
-    }]);
-    expect(baseline?.managedInvocation?.routes[0]).toMatchObject({
-      routeId: "opencode-go-readonly",
-      providerId: "opencode-go",
-    });
-    const baselineRoute = baseline?.managedInvocation?.routes[0];
-    const { adapter: _baselineAdapter, ...baselineDescriptor } = baselineRoute ?? {};
-    for (const result of remaining) {
-      const route = result.managedInvocation?.routes[0];
-      const { adapter: _adapter, ...descriptor } = route ?? {};
-      expect(result.routeHealth).toEqual(baseline?.routeHealth);
-      expect(descriptor).toEqual(baselineDescriptor);
-    }
-  });
-
-  it("combines routing-derived read-only routes with explicit managed route exceptions", async () => {
-    const result = await resolveManagedInvocationToolOptions({
-      version: "1",
-      engines: {
-        "codex-oauth": { enabled: true, billing: "subscription" },
-        "opencode-go": { enabled: true, billing: "subscription" },
-      },
-      routing: {
-        routes: [
-          { provider: "codex-oauth", model: "gpt-5.5" },
-          { provider: "opencode-go", model: "kimi-k2.6" },
-          { provider: "opencode-go", model: "deepseek-v4-pro" },
-        ],
-      },
-      managedAgents: {
-        enabled: true,
-        routes: [{
-          id: "opencode-go-approved-write",
-          kind: "direct",
-          provider: "opencode-go",
-          model: "deepseek-v4-pro",
-          profiles: ["foundation-apply-approved-writes"],
-          tools: {
-            allowed: ["read", "grep", "write", "apply-patch"],
-            writes: true,
-          },
-          writeAuthority: {
-            workspace: {
-              mode: "apply-approved",
-              allowedPaths: ["packages/runtime"],
-            },
-            approval: {
-              mode: "required-before-apply",
-            },
-          },
-        }],
-      },
-    }, {
-      cwd: "C:/repo",
-      registry: createRegistryForProviders([
-        { provider: "codex-oauth" },
-        { provider: "opencode-go" },
-      ]),
-      surface: "gui",
-      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      directAdapterFactory: (route) => makeDirectAdapter(
-        route.provider,
-        route.profiles.includes("foundation-apply-approved-writes"),
-      ),
-    });
-
-    expect(result.routeHealth.map((route) => ({
-      routeId: route.routeId,
-      routeSource: route.routeSource,
-      provider: route.provider,
-      model: route.model,
-      profiles: route.profiles,
-      available: route.available,
-    }))).toEqual([
-      {
-        routeId: "codex-oauth-readonly",
-        routeSource: "ordered-routing",
-        provider: "codex-oauth",
-        model: "gpt-5.5",
-        profiles: ["foundation-readonly-plan"],
-        available: true,
-      },
-      {
-        routeId: "opencode-go-kimi-k2-6-readonly",
-        routeSource: "ordered-routing",
-        provider: "opencode-go",
-        model: "kimi-k2.6",
-        profiles: ["foundation-readonly-plan"],
-        available: true,
-      },
-      {
-        routeId: "opencode-go-deepseek-v4-pro-readonly",
-        routeSource: "ordered-routing",
-        provider: "opencode-go",
-        model: "deepseek-v4-pro",
-        profiles: ["foundation-readonly-plan"],
-        available: true,
-      },
-      {
-        routeId: "opencode-go-approved-write",
-        routeSource: "explicit-managed-route",
-        provider: "opencode-go",
-        model: "deepseek-v4-pro",
-        profiles: ["foundation-apply-approved-writes"],
-        available: true,
-      },
-    ]);
-    expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual([
-      "codex-oauth-readonly",
-      "opencode-go-kimi-k2-6-readonly",
-      "opencode-go-deepseek-v4-pro-readonly",
-      "opencode-go-approved-write",
-    ]);
-  });
-
-  it("exposes unhealthy direct routing projections as unavailable tool routes", async () => {
-    const result = await resolveManagedInvocationToolOptions({
-      version: "1",
-      engines: {
-        openrouter: { enabled: true, billing: "api-key" },
-        codex: { enabled: true, billing: "plus-quota" },
-      },
-      routing: {
-        routes: [
-          { provider: "openrouter", model: "openrouter/free" },
-          { provider: "codex", model: "gpt-5.4-mini" },
-        ],
-      },
-    }, {
-      cwd: "C:/repo",
-      registry: createRegistryForProviders([
-        { provider: "openrouter" },
-        { provider: "codex" },
-      ]),
-      surface: "gui",
-      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      directAdapterFactory: () => {
-        throw new Error("Direct provider route 'openrouter-readonly' requires a tool-call-capable model; 'openrouter/openrouter/free' is not eligible.");
-      },
-    });
-
-    expect(result.routeHealth[0]).toMatchObject({
-      routeId: "openrouter-readonly",
-      kind: "direct",
-      provider: "openrouter",
-      model: "openrouter/free",
-      available: false,
-      reason: "Direct provider route 'openrouter-readonly' requires a tool-call-capable model; 'openrouter/openrouter/free' is not eligible.",
-    });
-    expect(result.managedInvocation?.routes.map((route) => route.routeId)).toEqual(["codex-readonly"]);
-    expect(result.managedInvocation?.unavailableRoutes).toEqual([{
-      routeId: "openrouter-readonly",
-      routeSource: "ordered-routing",
-      providerId: "openrouter",
-      model: "openrouter/free",
-      profiles: ["foundation-readonly-plan"],
-      reason: "Direct provider route 'openrouter-readonly' requires a tool-call-capable model; 'openrouter/openrouter/free' is not eligible.",
-    }]);
-  });
-
   it("does not synthesize managed routes when no supported child engine is enabled", async () => {
     await expect(resolveManagedInvocationToolOptions({
       version: "1",
@@ -789,7 +388,7 @@ describe("resolveManagedInvocationToolOptions", () => {
             writes: false,
           },
           memory: { access: "read-only" },
-          credentials: { mode: "runtime-selected" },
+          credentials: { mode: "credentialless" },
         }],
       }),
       modelTaskSuitability: [{
@@ -859,27 +458,33 @@ describe("resolveManagedInvocationToolOptions", () => {
   });
 
   it("creates a managed invocation service for runtime-selected credential routes without worktree leases", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
-        id: "codex-readonly",
-        kind: "harness",
-        provider: "codex",
-        model: "gpt-5.3-codex-spark",
+    const result = await resolveManagedInvocationToolOptions({
+      ...baseConfig({
+        routes: [{
+        id: "openai-readonly",
+        kind: "direct",
+        provider: "openai",
+        model: "gpt-5.4-mini",
         profiles: ["foundation-readonly-plan"],
         credentials: {
           mode: "runtime-selected",
-          routeId: "credential-route:codex:primary",
+          routeId: "credential-route:openai:primary",
+          accountPolicyId: "managed-openai",
         },
       }],
-    }), {
+      }),
+      modelGateway: MANAGED_OPENAI_MODEL_GATEWAY,
+    }, {
       cwd: "C:/repo",
-      registry: createRegistry("codex"),
+      registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: () => makeDirectAdapter("openai"),
+      managedAccountComposition: TEST_MANAGED_ACCOUNT_COMPOSITION,
     });
 
     expect(result.managedInvocation?.invocationService).toBeDefined();
-    expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:codex:primary");
+    expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:openai:primary");
   });
 
   // Roadmap 01 Slice 3.1 (F6) - the route's declared external-runtime
@@ -1080,32 +685,39 @@ describe("resolveManagedInvocationToolOptions", () => {
   });
 
   it("normalizes explicit runtime-selected credential route ids for profiles and service keys", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
-        id: "codex-readonly",
-        kind: "harness",
-        provider: "codex",
-        model: "gpt-5.3-codex-spark",
+    const result = await resolveManagedInvocationToolOptions({
+      ...baseConfig({
+        routes: [{
+        id: "openai-readonly",
+        kind: "direct",
+        provider: "openai",
+        model: "gpt-5.4-mini",
         profiles: ["foundation-readonly-plan"],
         credentials: {
           mode: "runtime-selected",
-          routeId: " credential-route:codex:primary ",
+          routeId: " credential-route:openai:primary ",
+          accountPolicyId: "managed-openai",
         },
       }],
-    }), {
+      }),
+      modelGateway: MANAGED_OPENAI_MODEL_GATEWAY,
+    }, {
       cwd: "C:/repo",
-      registry: createRegistry("codex"),
+      registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: () => makeDirectAdapter("openai"),
+      managedAccountComposition: TEST_MANAGED_ACCOUNT_COMPOSITION,
     });
 
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"].credentialRoute).toEqual({
-      mode: "runtime-selected",
-      routeId: "credential-route:codex:primary",
+      mode: "account-leased",
+      routeId: "credential-route:openai:primary",
+      accountPolicyId: "managed-openai",
     });
     expect(result.managedInvocation?.invocationService).toBeDefined();
-    expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:codex:primary");
-    expect(result.managedInvocation?.invocationServiceKey).not.toContain(" credential-route:codex:primary ");
+    expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:openai:primary");
+    expect(result.managedInvocation?.invocationServiceKey).not.toContain(" credential-route:openai:primary ");
   });
 
   it("does not create a managed invocation service for credentialless routes without lease-backed resources", async () => {
@@ -1483,7 +1095,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     }
   });
 
-  it("lets explicit visual read-only routes override derived routing routes and bind a matching agent profile", async () => {
+  it("binds an explicit visual read-only route to a matching agent profile", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-visual-route-"));
     try {
       const agentsDir = join(root, ".kiln", "agents");
@@ -1536,6 +1148,7 @@ describe("resolveManagedInvocationToolOptions", () => {
             provider: "opencode-go",
             model: "kimi-k2.6",
             profiles: ["foundation-readonly-plan"],
+            credentials: { mode: "credentialless" },
             tools: {
               allowed: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
               network: true,
@@ -1604,188 +1217,6 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
-  it("fails closed for OpenCode read-only routes when the configured model is not advertised", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      defaultProvider: "opencode",
-      model: "openai/gpt-4o:free",
-    }), {
-      cwd: "C:/repo",
-      registry: createRegistry("opencode"),
-      surface: "tui",
-      providerModelEligibility: observedProviderModels({
-        opencode: ["opencode/minimax-m2.5-free"],
-      }),
-    });
-
-    expect(result.routeHealth).toEqual([{
-      routeId: "opencode-readonly",
-      routeSource: "managed-default-route",
-      kind: "harness",
-      provider: "opencode",
-      model: "openai/gpt-4o:free",
-      profiles: ["foundation-readonly-plan"],
-      available: false,
-      reason: OPENCODE_UNADVERTISED_MODEL_REASON,
-    }]);
-    expect(result.managedInvocation).toBeUndefined();
-  });
-
-  it("fails closed when a default managed route only has stale catalog evidence", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      defaultProvider: "opencode",
-    }), {
-      cwd: "C:/repo",
-      registry: createRegistry("opencode"),
-      surface: "tui",
-      providerModelEligibility: observedProviderModels({
-        opencode: ["opencode/minimax-m2.5-free"],
-      }, "stale"),
-      includeUnavailableRoutes: true,
-    });
-
-    expect(result.routeHealth).toEqual([{
-      routeId: "opencode-readonly",
-      routeSource: "managed-default-route",
-      kind: "harness",
-      provider: "opencode",
-      model: "opencode/minimax-m2.5-free",
-      profiles: ["foundation-readonly-plan"],
-      available: false,
-      reason: "Provider 'opencode' model 'opencode/minimax-m2.5-free' is not eligible for managed invocation: stale-discovered-evidence.",
-    }]);
-    expect(result.managedInvocation?.routes).toEqual([]);
-    expect(result.managedInvocation?.unavailableRoutes?.[0]?.reason).toBe(
-      "Provider 'opencode' model 'opencode/minimax-m2.5-free' is not eligible for managed invocation: stale-discovered-evidence.",
-    );
-  });
-
-  it("exposes pending harness route evidence as unavailable managed invocation routes during staged startup", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      defaultProvider: "opencode",
-    }), {
-      cwd: "C:/repo",
-      registry: createRegistry("opencode"),
-      surface: "tui",
-      providerModelEligibility: {},
-      includeUnavailableRoutes: true,
-    });
-
-    expect(result.routeHealth).toEqual([{
-      routeId: "opencode-readonly",
-      routeSource: "managed-default-route",
-      kind: "harness",
-      provider: "opencode",
-      model: "opencode/minimax-m2.5-free",
-      profiles: ["foundation-readonly-plan"],
-      available: false,
-      reason: "Provider 'opencode' model eligibility evidence is pending.",
-    }]);
-    expect(result.managedInvocation?.routes).toEqual([]);
-    expect(result.managedInvocation?.unavailableRoutes).toEqual([{
-      routeId: "opencode-readonly",
-      routeSource: "managed-default-route",
-      providerId: "opencode",
-      model: "opencode/minimax-m2.5-free",
-      profiles: ["foundation-readonly-plan"],
-      reason: "Provider 'opencode' model eligibility evidence is pending.",
-    }]);
-  });
-
-  it("keeps a stable managed invocation options object while refreshing route evidence", async () => {
-    const pending = await resolveManagedInvocationToolOptions(baseConfig({
-      defaultProvider: "opencode",
-    }), {
-      cwd: "C:/repo",
-      registry: createRegistry("opencode"),
-      surface: "tui",
-      maxParallelChildren: 2,
-      providerModelEligibility: {},
-      includeUnavailableRoutes: true,
-    });
-    if (!pending.managedInvocation) {
-      throw new Error("expected pending managed invocation options");
-    }
-    const catalog = createManagedInvocationToolOptionsCatalog(pending.managedInvocation);
-    const stableOptions = catalog.options;
-
-    expect(stableOptions.routes).toEqual([]);
-    expect(stableOptions.maxParallelChildren).toBe(2);
-    expect(stableOptions.unavailableRoutes?.[0]?.reason).toBe("Provider 'opencode' model eligibility evidence is pending.");
-
-    const refreshed = await resolveManagedInvocationToolOptions(baseConfig({
-      defaultProvider: "opencode",
-    }), {
-      cwd: "C:/repo",
-      registry: createRegistry("opencode"),
-      surface: "tui",
-      maxParallelChildren: 3,
-      providerModelEligibility: observedProviderModels({
-        opencode: ["opencode/minimax-m2.5-free"],
-      }),
-      includeUnavailableRoutes: true,
-    });
-    if (!refreshed.managedInvocation) {
-      throw new Error("expected refreshed managed invocation options");
-    }
-    catalog.update(refreshed.managedInvocation);
-
-    expect(catalog.options).toBe(stableOptions);
-    expect(stableOptions.routes).toEqual([]);
-    expect(stableOptions.unavailableRoutes?.[0]?.reason).toBe(OPENCODE_UNPROVEN_BOUNDARY_REASON);
-    expect(stableOptions.maxParallelChildren).toBe(3);
-  });
-
-  it("keeps an advertised OpenCode harness model unavailable without a hard filesystem boundary", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      defaultProvider: "opencode",
-    }), {
-      cwd: "C:/repo",
-      registry: createRegistry("opencode"),
-      surface: "tui",
-      providerModelEligibility: observedProviderModels({
-        opencode: ["opencode/minimax-m2.5-free"],
-      }),
-    });
-
-    expect(result.routeHealth).toEqual([{
-      routeId: "opencode-readonly",
-      routeSource: "managed-default-route",
-      kind: "harness",
-      provider: "opencode",
-      model: "opencode/minimax-m2.5-free",
-      profiles: ["foundation-readonly-plan"],
-      available: false,
-      reason: OPENCODE_UNPROVEN_BOUNDARY_REASON,
-    }]);
-    expect(result.managedInvocation).toBeUndefined();
-  });
-
-  it("fails closed for advertised OpenCode models without live-proven result handoff support", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      defaultProvider: "opencode",
-      model: "opencode/nemotron-3-super-free",
-    }), {
-      cwd: "C:/repo",
-      registry: createRegistry("opencode"),
-      surface: "tui",
-      providerModelEligibility: observedProviderModels({
-        opencode: ["opencode/minimax-m2.5-free", "opencode/nemotron-3-super-free"],
-      }),
-    });
-
-    expect(result.routeHealth).toEqual([{
-      routeId: "opencode-readonly",
-      routeSource: "managed-default-route",
-      kind: "harness",
-      provider: "opencode",
-      model: "opencode/nemotron-3-super-free",
-      profiles: ["foundation-readonly-plan"],
-      available: false,
-      reason: OPENCODE_UNPROVEN_BOUNDARY_REASON,
-    }]);
-    expect(result.managedInvocation).toBeUndefined();
-  });
-
   it("fails closed when the provider is unavailable", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{
@@ -1805,32 +1236,6 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.routeHealth).toEqual([{
       routeId: "codex-readonly",
       routeSource: "explicit-managed-route",
-      kind: "harness",
-      provider: "codex",
-      model: "gpt-5.3-codex-spark",
-      profiles: ["foundation-readonly-plan"],
-      available: false,
-      reason: "Provider 'codex' is unavailable.",
-    }]);
-  });
-
-  it("fails closed when engine probing marks the provider unavailable", async () => {
-    const result = await resolveManagedInvocationToolOptions({
-      version: "1",
-      engines: {
-        codex: { enabled: true, billing: "plus-quota" },
-      },
-    }, {
-      cwd: "C:/repo",
-      registry: createRegistry("codex"),
-      surface: "gui",
-      isProviderAvailable: (provider) => provider !== "codex",
-    });
-
-    expect(result.managedInvocation).toBeUndefined();
-    expect(result.routeHealth).toEqual([{
-      routeId: "codex-readonly",
-      routeSource: "enabled-engine-fallback",
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",

@@ -9,6 +9,10 @@ import {
   externalRuntimeGovernanceEvents,
 } from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
 import {
+  MANAGED_ACCOUNT_LEASE_FIXTURE,
+  managedAccountLeaseEvents,
+} from "../../gateway-contracts/tests/fixtures/managed-account-lease.js";
+import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
   EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
   appendManagedAgentSessionEvent,
@@ -36,6 +40,20 @@ function event(
 }
 
 describe("TUI managed-agent cockpit projection", () => {
+  it("renders canonical managed account lease evidence", () => {
+    const tuiEvents = managedAccountLeaseEvents.map((entry) => ({
+      ...entry,
+      payload: { ...entry.payload, instanceId: "local-tui" },
+    }));
+    const output = formatManagedAgentCockpitLines(
+      projectTuiManagedAgentViewState(tuiEvents),
+    ).join("\n");
+
+    expect(output).toContain(`account ${MANAGED_ACCOUNT_LEASE_FIXTURE.accountRef}`);
+    expect(output).toContain(`lease:${MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState}`);
+    expect(output).toContain(`selection:${MANAGED_ACCOUNT_LEASE_FIXTURE.selectionReason}`);
+  });
+
   it("formats canonical external-runtime attachment and redacted failure evidence", () => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-07-28T09:01:00.000Z",

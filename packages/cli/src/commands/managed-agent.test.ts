@@ -15,6 +15,10 @@ import {
   EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
   externalRuntimeGovernanceEvents,
 } from "../../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
+import {
+  MANAGED_ACCOUNT_LEASE_FIXTURE,
+  managedAccountLeaseEvents,
+} from "../../../gateway-contracts/tests/fixtures/managed-account-lease.js";
 
 const roots: string[] = [];
 
@@ -217,6 +221,32 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review: required · dirty-worktree-preserved");
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review resources: kiln://artifacts/child-1/worktree-review");
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
+  });
+
+  it("prints canonical managed account lease evidence without local policy reconstruction", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    for (const event of managedAccountLeaseEvents) {
+      await transcriptStore.append(MANAGED_ACCOUNT_LEASE_FIXTURE.sessionId, event);
+    }
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "status",
+      [
+        MANAGED_ACCOUNT_LEASE_FIXTURE.invocationId,
+        "--session",
+        MANAGED_ACCOUNT_LEASE_FIXTURE.sessionId,
+      ],
+      { projectPath: root, projectedAt: () => "2026-07-28T12:01:00.000Z" },
+    );
+
+    expect(log.mock.calls[0]?.[0]).toContain(`Account: ${MANAGED_ACCOUNT_LEASE_FIXTURE.accountRef}`);
+    expect(log.mock.calls[0]?.[0]).toContain(`Account lease: ${MANAGED_ACCOUNT_LEASE_FIXTURE.leaseId}`);
+    expect(log.mock.calls[0]?.[0]).toContain(`Account policy: ${MANAGED_ACCOUNT_LEASE_FIXTURE.accountPolicyId}`);
+    expect(log.mock.calls[0]?.[0]).toContain(`Account selection: ${MANAGED_ACCOUNT_LEASE_FIXTURE.selectionReason}`);
+    expect(log.mock.calls[0]?.[0]).toContain(`Account lease state: ${MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState}`);
   });
 
   it("keeps canonical external-runtime governance state in list and status surfaces", async () => {

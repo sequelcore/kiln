@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
   listGlobalInstructionShimTargets,
@@ -13,6 +13,7 @@ const FIXTURE_ROOT = join(process.cwd(), ".kiln", "tmp", "global-instruction-shi
 const PROJECT_PATH = join(FIXTURE_ROOT, "project");
 const USER_HOME = join(FIXTURE_ROOT, "home");
 const FIXED_TIMESTAMP = "2026-07-04T00:00:00.000Z";
+const ORIGINAL_XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
 
 function resetFixture(): void {
   rmSync(FIXTURE_ROOT, { recursive: true, force: true });
@@ -59,6 +60,14 @@ function targetPath(targetId: string): string {
 }
 
 describe("global instruction shim projection", () => {
+  beforeAll(() => {
+    process.env.XDG_CONFIG_HOME = join(FIXTURE_ROOT, "xdg-config");
+  });
+
+  afterAll(() => {
+    process.env.XDG_CONFIG_HOME = ORIGINAL_XDG_CONFIG_HOME;
+  });
+
   beforeEach(() => {
     resetFixture();
   });

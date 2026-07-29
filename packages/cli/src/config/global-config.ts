@@ -266,6 +266,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateGlobalWeb(config.web);
   validateGlobalUi(config.ui);
   validateGlobalModelGateway(config.modelGateway);
+  validateManagedAccountPolicyReferences(config.managedAgents, config.modelGateway);
   readMcpConfigurationSource({
     value: config.mcp,
     scope: "global",
@@ -659,7 +660,64 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
   validateManagedAgentVoiceProfile(value.voiceProfile, `managedAgents.routes[${index}].voiceProfile`, operatorVoice);
   validateManagedAgentReadAuthority(value.readAuthority, `managedAgents.routes[${index}].readAuthority`);
   validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);
+  validateManagedAgentCredentials(value.credentials, `managedAgents.routes[${index}].credentials`);
   validateManagedAgentRemoteHarness(value.remoteHarness, value.kind, `managedAgents.routes[${index}].remoteHarness`);
+}
+
+function validateManagedAgentCredentials(value: unknown, path: string): void {
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must explicitly select an account policy`);
+  }
+  if (value.mode === "credentialless") {
+    if (Object.keys(value).some((key) => key !== "mode")) {
+      throw new KilnYamlError(`${path} credentialless mode does not accept account routing fields`);
+    }
+    return;
+  }
+  if (value.mode !== "runtime-selected") {
+    throw new KilnYamlError(`${path}.mode must be "runtime-selected" or "credentialless"`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!["mode", "routeId", "accountPolicyId"].includes(key)) {
+      throw new KilnYamlError(`Unknown ${path} field: ${key}`);
+    }
+  }
+  if (typeof value.accountPolicyId !== "string" || value.accountPolicyId.trim().length === 0) {
+    throw new KilnYamlError(`${path}.accountPolicyId is required`);
+  }
+  if (value.routeId !== undefined && (typeof value.routeId !== "string" || value.routeId.trim().length === 0)) {
+    throw new KilnYamlError(`${path}.routeId must be a non-empty string`);
+  }
+}
+
+function validateManagedAccountPolicyReferences(managedAgents: unknown, modelGateway: unknown): void {
+  if (!isRecord(managedAgents) || !Array.isArray(managedAgents.routes)) return;
+  const policies = isRecord(modelGateway) && Array.isArray(modelGateway.virtualModels)
+    ? modelGateway.virtualModels.filter(isRecord)
+    : [];
+  for (let index = 0; index < managedAgents.routes.length; index += 1) {
+    const route = managedAgents.routes[index];
+    if (!isRecord(route) || !isRecord(route.credentials) || route.credentials.mode !== "runtime-selected") {
+      continue;
+    }
+    const credentials = route.credentials;
+    if (route.kind !== "direct") {
+      throw new KilnYamlError(
+        `managedAgents.routes[${index}] runtime-selected credentials require a direct route`,
+      );
+    }
+    const policy = policies.find((candidate) => candidate.id === credentials.accountPolicyId);
+    if (!policy) {
+      throw new KilnYamlError(
+        `managedAgents.routes[${index}].credentials.accountPolicyId must reference modelGateway.virtualModels`,
+      );
+    }
+    if (policy.providerId !== route.provider || policy.providerModelId !== route.model) {
+      throw new KilnYamlError(
+        `managedAgents.routes[${index}] provider and model must match its modelGateway account policy`,
+      );
+    }
+  }
 }
 
 function validateManagedAgentReadAuthority(value: unknown, path: string): void {

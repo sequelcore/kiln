@@ -58,6 +58,10 @@ is documented by concern, not as a single monolith.
   lifecycle tools, parallel orchestration, leases, resource projection, remote
   harness routes, write evidence, terminal events, and replay invariants.
 
+- `managed-account-leases.md`
+  Per-job account-policy binding, durable capacity authority, selected-account
+  execution, settlement-driven release, recovery, and sanitized evidence.
+
 - `external-runtime-governance.md`
   Provider-neutral external-runtime attachment, authority, approval, failure,
   recovery, replay, terminal consistency, and cross-surface parity.

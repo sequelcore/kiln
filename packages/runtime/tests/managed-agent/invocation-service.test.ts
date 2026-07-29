@@ -17,6 +17,8 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
+  createAccountRef,
+  defineManagedAccountLeaseEvidence,
   evaluateManagedAgentAdmission,
 } from "@kilnai/core";
 import {
@@ -339,11 +341,73 @@ function makeCredentialRouteRequest(routeId = "credential-route:opencode:primary
     authority: {
       ...request.authority,
       credentialRoute: {
-        mode: "runtime-selected",
+        mode: "account-leased",
         routeId,
+        accountPolicyId: "managed-opencode",
       },
     },
   });
+}
+
+function managedAccountPorts(boundAdapter: ManagedAgentRuntimeAdapter) {
+  const route = {
+    providerId: "opencode",
+    providerModelId: "sonic",
+    scope: "virtual:managed-opencode",
+  };
+  const identity = {
+    leaseId: "account-lease-1",
+    accountPolicyId: "managed-opencode" as const,
+    accountRef: createAccountRef("configured:account-a"),
+    route,
+    jobId: "invocation-1",
+    runtimeInvocationId: "invocation-1",
+  };
+  const held = defineManagedAccountLeaseEvidence({
+    ...identity,
+    credentialRevisionId: "a".repeat(64),
+    selectionReason: "least-pressure",
+    acquiredAt: "2026-05-07T08:00:00.000Z",
+    lifecycleState: "held",
+    resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
+    diagnosticUris: [],
+  });
+  const released = defineManagedAccountLeaseEvidence({
+    ...held,
+    lifecycleState: "released",
+    releasedAt: "2026-05-07T08:00:01.000Z",
+  });
+  return {
+    accountCandidatePort: {
+      resolve: async () => ({
+        route,
+        candidates: [{
+          candidate: {
+            account: identity.accountRef,
+            route,
+            health: "healthy" as const,
+            pressure: 0,
+            reservedForNewWork: false,
+          },
+          capacityIdentity: "account-a",
+          credentialRevisionId: "a".repeat(64),
+          usageEvidence: { health: "healthy" as const, freshness: "missing" as const },
+          capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 },
+        }],
+      }),
+    },
+    accountLeaseAuthority: {
+      acquire: async () => ({ status: "acquired" as const, identity, lease: held }),
+      markSettlementPending: () => held,
+      release: () => released,
+      recordReleaseFailure: () => held,
+      recover: () => [],
+      get: () => held,
+    },
+    accountExecutionBindingPort: {
+      bind: async () => boundAdapter,
+    },
+  };
 }
 
 function makeRecord(
@@ -2835,6 +2899,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     const service = new RuntimeManagedAgentInvocationService({
       environmentLeaseManager,
       credentialRouteLeaseManager,
+      ...managedAccountPorts(adapter),
     });
 
     const started = await service.start(request, adapter, {
@@ -2896,7 +2961,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
       descriptor: makeDescriptor(),
       invoke: vi.fn(async ({ admission }) => makeRecord(admission.capabilitySnapshot)),
     };
-    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+    const service = new RuntimeManagedAgentInvocationService({
+      credentialRouteLeaseManager,
+      ...managedAccountPorts(adapter),
+    });
 
     await expect(service.start(makeCredentialRouteRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
@@ -2933,7 +3001,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
       descriptor: makeDescriptor(),
       invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
-    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+    const service = new RuntimeManagedAgentInvocationService({
+      credentialRouteLeaseManager,
+      ...managedAccountPorts(adapter),
+    });
 
     const started = await service.start(makeCredentialRouteRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
@@ -2975,7 +3046,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
       descriptor: makeDescriptor(),
       invoke: vi.fn(async ({ request, admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
     };
-    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+    const service = new RuntimeManagedAgentInvocationService({
+      credentialRouteLeaseManager,
+      ...managedAccountPorts(adapter),
+    });
 
     const started = await service.start(makeCredentialRouteRequest(), adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
@@ -3008,7 +3082,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
       invoke: vi.fn(async ({ request: adapterRequest, admission }) =>
         makeReadonlyRecordForRequest(adapterRequest, admission.capabilitySnapshot)),
     };
-    const service = new RuntimeManagedAgentInvocationService({ credentialRouteLeaseManager });
+    const service = new RuntimeManagedAgentInvocationService({
+      credentialRouteLeaseManager,
+      ...managedAccountPorts(adapter),
+    });
 
     const started = await service.start(request, adapter, {
       capturedAt: "2026-05-07T08:00:00.000Z",
@@ -4554,7 +4631,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
 
       await mkdir(rootPath, { recursive: true });
       await mkdir(join(rootPath, "directory.json"));
-      await writeFile(join(rootPath, "malformed.json"), JSON.stringify({ version: 1 }), "utf-8");
+      await writeFile(join(rootPath, "malformed.json"), JSON.stringify({ version: 2 }), "utf-8");
 
       const checkpoints = await recoveryStore.listRecoverable();
 

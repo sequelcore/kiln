@@ -10,8 +10,33 @@ import {
   EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
   externalRuntimeGovernanceEvents,
 } from "../../gateway-contracts/tests/fixtures/external-runtime-governance.js";
+import {
+  MANAGED_ACCOUNT_LEASE_FIXTURE,
+  managedAccountLeaseEvents,
+} from "../../gateway-contracts/tests/fixtures/managed-account-lease.js";
 
 describe("ManagedAgentCockpitPanel", () => {
+  it("renders canonical managed account lease evidence", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ACCOUNT_LEASE_FIXTURE.instanceId,
+        label: "Synthetic account lease",
+        kind: "local",
+      }],
+      events: managedAccountLeaseEvents,
+    });
+    const viewState = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    }).managedAgents;
+
+    render(<ManagedAgentCockpitPanel viewState={viewState} />);
+
+    expect(screen.getByText(`account ${MANAGED_ACCOUNT_LEASE_FIXTURE.accountRef}`)).toBeVisible();
+    expect(screen.getByText(`account lease ${MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState}`)).toBeVisible();
+  });
+
   it("renders canonical external-runtime attachment and redacted failure evidence", () => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-07-28T09:01:00.000Z",

@@ -1800,7 +1800,8 @@ function addManagedCapabilitySnapshotDetails(
   const rawLifecycleLease = asRecord(lifecycle?.resourceLease);
   const rawResourceLease = rawLifecycleLease ?? rawSnapshotLease;
   const resourceLease = readCompleteResourceLease(rawResourceLease);
-  if (!snapshot && !lifecycle && !rawResourceLease) {
+  const accountLease = asRecord(lifecycle?.accountLease);
+  if (!snapshot && !lifecycle && !rawResourceLease && !accountLease) {
     return;
   }
   const routeHealth = asRecord(snapshot?.routeHealth);
@@ -1832,6 +1833,16 @@ function addManagedCapabilitySnapshotDetails(
   addItem(details, "Lease cleanup", resourceLease?.cleanupStatus);
   addItem(details, "Lease resources", formatStringList(resourceLease?.resourceUris));
   addItem(details, "Lease diagnostics", formatStringList(resourceLease?.diagnosticUris));
+  addItem(details, "Account", accountLease?.accountRef);
+  addItem(details, "Account policy", accountLease?.accountPolicyId);
+  addItem(details, "Account lease ID", accountLease?.leaseId);
+  addItem(details, "Account lease state", accountLease?.lifecycleState);
+  addItem(details, "Account selection", accountLease?.selectionReason);
+  addItem(details, "Account affinity", accountLease?.affinityOutcome);
+  addItem(details, "Account lease acquired", accountLease?.acquiredAt);
+  addItem(details, "Account lease released", accountLease?.releasedAt);
+  addItem(details, "Account lease resources", formatStringList(accountLease?.resourceUris));
+  addItem(details, "Account lease diagnostics", formatStringList(accountLease?.diagnosticUris));
   addItem(details, "Source resources", formatStringList(lifecycle?.sourceResourceUris));
   const worktreeReview = asRecord(resourceLease?.worktreeReview);
   const worktreeReviewStatus = readString(worktreeReview?.status);

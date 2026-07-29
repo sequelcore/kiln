@@ -137,6 +137,7 @@ export interface ManagedInvocationRouteProfile {
 
 export interface ManagedInvocationToolRoute {
   readonly routeId: string;
+  readonly accountPolicyId?: string;
   readonly routeSource: ManagedAgentRouteSource;
   readonly providerId: string;
   readonly model?: string;
@@ -1021,7 +1022,7 @@ function managedInvocationCredentialRouteIds(
 ): readonly string[] {
   return unique(routes.flatMap((route) =>
     Object.values(route.profiles).flatMap((profile) => {
-      if (profile?.credentialRoute?.mode !== "runtime-selected") {
+      if (profile?.credentialRoute?.mode === "credentialless") {
         return [];
       }
       return [normalizeManagedInvocationCredentialRouteId(profile.credentialRoute.routeId)];
@@ -1032,7 +1033,7 @@ function managedInvocationCredentialRouteIds(
 function normalizeManagedInvocationCredentialRoute(
   route: ManagedAgentCredentialRoute,
 ): ManagedAgentCredentialRoute {
-  if (route.mode !== "runtime-selected") {
+  if (route.mode === "credentialless") {
     return route;
   }
   return {

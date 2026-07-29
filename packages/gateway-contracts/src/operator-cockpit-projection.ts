@@ -175,6 +175,7 @@ export interface OperatorCockpitInvocationProjection {
   readonly timeoutMs?: number;
   readonly timeoutSource?: string;
   readonly resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
+  readonly accountLease?: OperatorCockpitInvocationAccountLeaseProjection;
   readonly transcript?: OperatorCockpitInvocationTranscriptProjection;
   readonly resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
   readonly managedInvocationRecovery?: OperatorCockpitManagedInvocationRecoveryProjection;
@@ -308,6 +309,31 @@ export interface OperatorCockpitInvocationResourceLeaseProjection {
   readonly worktreeConflict?: OperatorManagedAgentResourceLeaseSnapshot["worktreeConflict"];
 }
 
+export interface OperatorCockpitInvocationAccountLeaseProjection {
+  readonly leaseId: string;
+  readonly accountPolicyId: string;
+  readonly accountRef: string;
+  readonly route: {
+    readonly providerId: string;
+    readonly providerModelId: string;
+    readonly scope: string;
+  };
+  readonly jobId: string;
+  readonly runtimeInvocationId: string;
+  readonly credentialRevisionId: string;
+  readonly selectionReason: string;
+  readonly candidateRejections: readonly {
+    readonly accountRef: string;
+    readonly reason: string;
+  }[];
+  readonly affinityOutcome?: string;
+  readonly acquiredAt: string;
+  readonly lifecycleState: "held" | "settlement-pending" | "released" | "release-failed" | "leaked";
+  readonly releasedAt?: string;
+  readonly resourceUris: readonly string[];
+  readonly diagnosticUris: readonly string[];
+}
+
 export type OperatorCockpitToolStatus =
   | "running"
   | "succeeded"
@@ -399,6 +425,7 @@ interface InvocationAccumulator {
   timeoutMs?: number;
   timeoutSource?: string;
   resourceLease?: OperatorCockpitInvocationResourceLeaseProjection;
+  accountLease?: OperatorCockpitInvocationAccountLeaseProjection;
   transcript?: OperatorCockpitInvocationTranscriptProjection;
   resultHandoff?: OperatorCockpitInvocationResultHandoffProjection;
   managedInvocationRecovery?: OperatorCockpitManagedInvocationRecoveryProjection;
@@ -588,6 +615,7 @@ export function projectOperatorCockpitReadOnlyView(
       invocation.timeoutMs = readTimeoutMs(payload) ?? invocation.timeoutMs;
       invocation.timeoutSource = readTimeoutSource(payload) ?? invocation.timeoutSource;
       invocation.resourceLease = readResourceLease(payload) ?? invocation.resourceLease;
+      invocation.accountLease = readAccountLease(payload) ?? invocation.accountLease;
       invocation.managedInvocationRecovery = readManagedInvocationRecovery(payload.managedInvocationRecovery)
         ?? invocation.managedInvocationRecovery;
       invocation.managedInvocationPhaseCompletion = readManagedInvocationPhaseCompletion(payload.managedInvocationPhaseCompletion)
@@ -934,6 +962,7 @@ function projectInvocation(input: InvocationAccumulator): OperatorCockpitInvocat
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.timeoutSource !== undefined ? { timeoutSource: input.timeoutSource } : {}),
     ...(input.resourceLease !== undefined ? { resourceLease: input.resourceLease } : {}),
+    ...(input.accountLease !== undefined ? { accountLease: input.accountLease } : {}),
     ...(input.transcript !== undefined ? { transcript: input.transcript } : {}),
     ...(input.resultHandoff !== undefined ? { resultHandoff: input.resultHandoff } : {}),
     ...(input.managedInvocationRecovery !== undefined ? { managedInvocationRecovery: input.managedInvocationRecovery } : {}),
@@ -1297,6 +1326,82 @@ function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInv
   };
 }
 
+function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvocationAccountLeaseProjection | null {
+  const evidence = asRecord(payload.managedInvocationEvidence);
+  const lifecycle = asRecord(evidence.lifecycle);
+  const lease = asRecord(lifecycle.accountLease);
+  const route = asRecord(lease.route);
+  const leaseId = readString(lease.leaseId);
+  const accountPolicyId = readString(lease.accountPolicyId);
+  const accountRef = readString(lease.accountRef);
+  const providerId = readString(route.providerId);
+  const providerModelId = readString(route.providerModelId);
+  const scope = readString(route.scope);
+  const jobId = readString(lease.jobId);
+  const runtimeInvocationId = readString(lease.runtimeInvocationId);
+  const credentialRevisionId = readString(lease.credentialRevisionId);
+  const selectionReason = readString(lease.selectionReason);
+  const candidateRejections = readAccountLeaseCandidateRejections(lease.candidateRejections);
+  const acquiredAt = readString(lease.acquiredAt);
+  const lifecycleState = readAccountLeaseLifecycleState(lease.lifecycleState);
+  const resourceUris = readRequiredStringList(lease.resourceUris);
+  const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
+  if (
+    !leaseId || !accountPolicyId || !accountRef || !providerId || !providerModelId || !scope
+    || !jobId || !runtimeInvocationId || !credentialRevisionId || !/^[a-f0-9]{64}$/u.test(credentialRevisionId)
+    || !selectionReason || !candidateRejections || !acquiredAt || !lifecycleState || !resourceUris || !diagnosticUris
+  ) {
+    return null;
+  }
+  const releasedAt = readString(lease.releasedAt) ?? undefined;
+  if ((lifecycleState === "released") !== (releasedAt !== undefined)) return null;
+  return {
+    leaseId,
+    accountPolicyId,
+    accountRef,
+    route: { providerId, providerModelId, scope },
+    jobId,
+    runtimeInvocationId,
+    credentialRevisionId,
+    selectionReason,
+    candidateRejections,
+    ...(readString(lease.affinityOutcome) ? { affinityOutcome: readString(lease.affinityOutcome)! } : {}),
+    acquiredAt,
+    lifecycleState,
+    ...(releasedAt ? { releasedAt } : {}),
+    resourceUris,
+    diagnosticUris,
+  };
+}
+
+function readAccountLeaseCandidateRejections(
+  value: unknown,
+): OperatorCockpitInvocationAccountLeaseProjection["candidateRejections"] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const rejections = value.map((entry) => {
+    const rejection = asRecord(entry);
+    const accountRef = readString(rejection.account);
+    const reason = readString(rejection.reason);
+    return accountRef && reason ? { accountRef, reason } : null;
+  });
+  return rejections.some((entry) => entry === null)
+    ? null
+    : rejections as OperatorCockpitInvocationAccountLeaseProjection["candidateRejections"];
+}
+
+function readAccountLeaseLifecycleState(
+  value: unknown,
+): OperatorCockpitInvocationAccountLeaseProjection["lifecycleState"] | null {
+  return value === "held"
+    || value === "settlement-pending"
+    || value === "released"
+    || value === "release-failed"
+    || value === "leaked"
+    ? value
+    : null;
+}
+
 function applyManagedInvocationEvidence(
   invocation: InvocationAccumulator,
   payload: Record<string, unknown>,
@@ -1353,6 +1458,12 @@ function applyManagedInvocationEvidence(
       ...(lease.worktreeReview?.diagnosticUris ?? []),
       ...(lease.worktreeConflict?.resourceUris ?? []),
       ...(lease.worktreeConflict?.diagnosticUris ?? []),
+    ]);
+  }
+  if (invocation.accountLease) {
+    addEvidenceResourceUris(invocation, [
+      ...invocation.accountLease.resourceUris,
+      ...invocation.accountLease.diagnosticUris,
     ]);
   }
 }

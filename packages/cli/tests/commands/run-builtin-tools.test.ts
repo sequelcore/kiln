@@ -1594,6 +1594,7 @@ describe("run command builtin tool wiring", () => {
     });
 
     const run = runCommand(APP_CONFIG, "interrupt active run", { provider: "codex" }, { exitOnFailure: false });
+    const expectedFailure = expect(run).rejects.toThrow("Kiln run exited with code 1");
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
     await waitForCondition(() => runWiringMocks.capturedRunSessionInputs.length > 0);
@@ -1610,7 +1611,7 @@ describe("run command builtin tool wiring", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(input.abortSignal?.reason).toBe("Parent run interrupted by SIGINT.");
 
-    await expect(run).rejects.toThrow("Kiln run exited with code 1");
+    await expectedFailure;
 
     expect(exitCodes).toEqual([130]);
     expect(runWiringMocks.cleanupRegistryRunAll).toHaveBeenCalledTimes(1);

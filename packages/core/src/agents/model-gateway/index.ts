@@ -46,9 +46,13 @@ export type {
 } from "./replay-guard.js";
 
 declare const ACCOUNT_REF: unique symbol;
+declare const ACCOUNT_POLICY_ID: unique symbol;
 
 /** Opaque account identifier. It intentionally carries no credential material. */
 export type AccountRef = string & { readonly [ACCOUNT_REF]: "AccountRef" };
+
+/** Canonical identity of one configured account-selection policy. */
+export type AccountPolicyId = string & { readonly [ACCOUNT_POLICY_ID]: "AccountPolicyId" };
 
 /** The provider/model route shape shared with provider-model evidence. */
 export type ModelGatewayRoute = ProviderModelRouteIdentity;
@@ -86,6 +90,25 @@ export interface ModelGatewayAccountRejection {
   readonly reason: ModelGatewayAccountRejectionReason;
 }
 
+export function defineModelGatewayAccountRejection(input: {
+  readonly account: string;
+  readonly reason: string;
+}): ModelGatewayAccountRejection {
+  if (![
+    "unhealthy",
+    "incompatible-route",
+    "reserved-for-new-work",
+    "lease-conflict",
+    "dispatcher-unavailable",
+  ].includes(input.reason)) {
+    throw new TypeError("Model Gateway account rejection reason is invalid.");
+  }
+  return Object.freeze({
+    account: createAccountRef(input.account),
+    reason: input.reason as ModelGatewayAccountRejectionReason,
+  });
+}
+
 export interface ModelGatewayAccountSelection {
   readonly account: AccountRef;
   readonly route: ModelGatewayRoute;
@@ -118,6 +141,17 @@ export function createAccountRef(value: string): AccountRef {
     throw new TypeError("AccountRef must not be empty.");
   }
   return canonical as AccountRef;
+}
+
+export function createAccountPolicyId(value: string): AccountPolicyId {
+  if (typeof value !== "string") {
+    throw new TypeError("AccountPolicyId must not be empty.");
+  }
+  const canonical = value.trim();
+  if (canonical.length === 0) {
+    throw new TypeError("AccountPolicyId must not be empty.");
+  }
+  return canonical as AccountPolicyId;
 }
 
 /**
@@ -191,21 +225,24 @@ function selectLeastPressureAccount(
   retainedRejections: readonly ModelGatewayAccountRejection[] = [],
 ): ModelGatewayAccountSelectionResult {
   const eligible = candidates.filter((candidate) => isEligible(candidate, input));
+  const rejections = Object.freeze([...retainedRejections, ...candidates
+    .filter((candidate) =>
+      !isEligible(candidate, input)
+      && !retainedRejections.some((rejection) => rejection.account === candidate.account))
+    .map((candidate) => Object.freeze({
+      account: candidate.account,
+      reason: rejectionReason(candidate, input),
+    }))]);
   if (eligible.length > 0) {
     const selected = [...eligible].sort((left, right) => left.pressure - right.pressure || left.account.localeCompare(right.account))[0]!;
     return Object.freeze({
       selected: Object.freeze({ account: selected.account, route: selected.route, reason: "least-pressure" }),
-      rejections: Object.freeze(retainedRejections),
+      rejections,
     });
   }
 
   return Object.freeze({
-    rejections: Object.freeze([...retainedRejections, ...candidates
-      .filter((candidate) => !retainedRejections.some((rejection) => rejection.account === candidate.account))
-      .map((candidate) => Object.freeze({
-      account: candidate.account,
-      reason: rejectionReason(candidate, input),
-    }))]),
+    rejections,
   });
 }
 

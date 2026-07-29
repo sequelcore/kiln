@@ -628,7 +628,7 @@ function resolveOrchestrationWriteAuthority(
 }
 
 function normalizeCredentialRoute(route: ManagedInvocationRouteProfile["credentialRoute"]): ManagedInvocationRouteProfile["credentialRoute"] {
-  if (route.mode !== "runtime-selected") {
+  if (route.mode === "credentialless") {
     return route;
   }
   return {

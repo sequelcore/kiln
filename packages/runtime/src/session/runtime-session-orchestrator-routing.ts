@@ -708,7 +708,7 @@ function runtimeMultimodalCredentialRouteIds(
   route: RuntimeMultimodalDelegationRoute,
 ): readonly string[] {
   const credentialRoute = route.authority.credentialRoute;
-  if (credentialRoute.mode !== "runtime-selected") {
+  if (credentialRoute.mode === "credentialless") {
     return [];
   }
   return [credentialRoute.routeId];

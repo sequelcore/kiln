@@ -382,6 +382,7 @@ export type KilnManagedAgentCredentialsConfig =
   | {
     readonly mode: "runtime-selected";
     readonly routeId?: string;
+    readonly accountPolicyId: string;
   }
   | {
     readonly mode: "credentialless";

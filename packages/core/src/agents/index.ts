@@ -292,6 +292,8 @@ export type {
 export {
   advanceAttemptCommit,
   createAccountRef,
+  createAccountPolicyId,
+  defineModelGatewayAccountRejection,
   createAttemptCommit,
   reassignAttemptAccount,
   reserveAccountForNewWork,
@@ -307,6 +309,7 @@ export {
 } from "./model-gateway/index.js";
 export type {
   AccountRef,
+  AccountPolicyId,
   AttemptCommit,
   AttemptCommitPhase,
   ModelGatewayAccountCandidate,

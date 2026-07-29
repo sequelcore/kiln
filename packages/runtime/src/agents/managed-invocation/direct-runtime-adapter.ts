@@ -100,6 +100,7 @@ const MANAGED_AGENT_SUBMIT_HANDOFF_AUTHORITY: AuthorityDescriptor = {
 
 export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeAdapter {
   readonly descriptor;
+  private readonly config: ManagedDirectProviderRuntimeAdapterConfig;
   private readonly providerId: string;
   private readonly model?: string;
   private readonly provider: ProviderAdapter;
@@ -111,6 +112,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   private readonly executionEnvelope: RuntimeExecutionEnvelope;
 
   constructor(config: ManagedDirectProviderRuntimeAdapterConfig) {
+    this.config = config;
     this.providerId = requireText(config.providerId, "Managed direct provider id is required");
     this.model = config.model;
     this.provider = config.provider;
@@ -168,6 +170,13 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     });
   }
 
+  bindProvider(provider: ProviderAdapter): ManagedDirectProviderRuntimeAdapter {
+    return new ManagedDirectProviderRuntimeAdapter({
+      ...this.config,
+      provider,
+    });
+  }
+
   async invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord> {
     const request = input.request;
     const childSessionId = buildChildSessionId(request);
@@ -188,6 +197,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     }
     const progressEvents: ManagedAgentRuntimeInvocationProgressEvent[] = [];
     const execution = this.runChildRuntime(input, childSession, abortController.signal, progressEvents);
+    input.registerExecutionSettlement(execution);
     const timeout = createManagedInvocationTimeout(request.authority.timeoutMs, abortController);
     let raced: ManagedAgentInvocationRecord | typeof TIMEOUT;
     try {
