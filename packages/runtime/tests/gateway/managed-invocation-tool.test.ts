@@ -9,6 +9,7 @@ import type {
 import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
+  defineManagedAccountLeaseEvidence,
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
   MemoryArtifactResourceStore,
@@ -488,13 +489,16 @@ function makeSurfaceOptions(
   adapter: ManagedAgentRuntimeAdapter,
   sessionEventSink?: ManagedInvocationSessionEventSink,
   artifactStore?: MemoryArtifactResourceStore,
-  options: { readonly observeRuntimeAuthority?: boolean } = {},
+  options: {
+    readonly observeRuntimeAuthority?: boolean;
+    readonly invocationService?: RuntimeManagedAgentInvocationService;
+  } = {},
 ): ManagedInvocationToolOptions {
   const observeRuntimeAuthority = options.observeRuntimeAuthority ?? true;
   return {
     ...(sessionEventSink ? { sessionEventSink } : {}),
     ...(artifactStore ? { artifactStore } : {}),
-    invocationService: observeRuntimeAuthority
+    invocationService: options.invocationService ?? (observeRuntimeAuthority
       ? makeObservedRuntimeInvocationService({
         credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
           allowedRouteIds: ["credential-route:opencode:primary"],
@@ -504,7 +508,7 @@ function makeSurfaceOptions(
         credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
           allowedRouteIds: ["credential-route:opencode:primary"],
         }),
-      }),
+      })),
     routes: [{
         routeId: "opencode-readonly",
         routeSource: "explicit-managed-route",
@@ -1247,6 +1251,89 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_started",
       "agent_invocation_completed",
     ]);
+  });
+
+  it("republishes terminal session evidence when account settlement completes later", async () => {
+    const pendingLease = (invocationId: string) => defineManagedAccountLeaseEvidence({
+      leaseId: `lease-${invocationId}`,
+      accountPolicyId: "managed-opencode",
+      accountRef: "configured:account-a",
+      route: { providerId: "opencode", providerModelId: "sonic", scope: "virtual:managed-opencode" },
+      jobId: invocationId,
+      runtimeInvocationId: invocationId,
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure",
+      acquiredAt: "2026-07-28T20:00:00.000Z",
+      lifecycleState: "settlement-pending",
+      resourceUris: [`kiln://managed-accounts/leases/lease-${invocationId}`],
+      diagnosticUris: [`kiln://managed-accounts/leases/lease-${invocationId}/settlement-pending`],
+    });
+    const baseAdapter = makeTimedOutAdapter();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: baseAdapter.descriptor,
+      invoke: vi.fn(async (input) => {
+        const record = await baseAdapter.invoke(input);
+        return defineManagedAgentInvocationRecord({
+          ...record,
+          accountLease: pendingLease(input.request.invocationId),
+        });
+      }),
+    };
+    const service = makeObservedRuntimeInvocationService({
+      credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+        allowedRouteIds: ["credential-route:opencode:primary"],
+      }),
+    });
+    let leaseObserver: ((evidence: ReturnType<typeof pendingLease>) => Promise<void>) | undefined;
+    const start = service.start.bind(service);
+    vi.spyOn(service, "start").mockImplementation(async (request, runtimeAdapter, capabilityInput, lifecycleOptions) => {
+      leaseObserver = lifecycleOptions.accountLeaseObserver;
+      return start(request, runtimeAdapter, capabilityInput, lifecycleOptions);
+    });
+    let settled = false;
+    const status = service.status.bind(service);
+    vi.spyOn(service, "status").mockImplementation((invocationId) => {
+      const snapshot = status(invocationId);
+      if (!settled || snapshot?.record === undefined) return snapshot;
+      return {
+        ...snapshot,
+        record: defineManagedAgentInvocationRecord({
+          ...snapshot.record,
+          accountLease: {
+            ...pendingLease(invocationId),
+            lifecycleState: "released",
+            releasedAt: "2026-07-28T20:00:01.000Z",
+          },
+        }),
+      };
+    });
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: makeSurfaceOptions(adapter, undefined, undefined, { invocationService: service }),
+    });
+    const session = makeSession();
+    await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+      task: "Exercise delayed settlement projection.",
+      requestedAuthority: "read_only",
+    }, {
+      session,
+      toolCall: { id: "tool-call-late-settlement", name: "managed_agent.invoke", input: {} },
+    });
+
+    settled = true;
+    const invocationId = service.list()[0]!.request.invocationId;
+    await leaseObserver?.(defineManagedAccountLeaseEvidence({
+      ...pendingLease(invocationId),
+      lifecycleState: "released",
+      releasedAt: "2026-07-28T20:00:01.000Z",
+    }));
+
+    const terminalEvents = session.sessionEvents.filter((event) =>
+      event.kind === "agent_invocation_failed");
+    expect(terminalEvents).toHaveLength(2);
+    expect(JSON.stringify(terminalEvents[0])).toContain('"lifecycleState":"settlement-pending"');
+    expect(JSON.stringify(terminalEvents[1])).toContain('"lifecycleState":"released"');
   });
 
   it("fails closed when background managed_agent.start cannot prove runtime authority", async () => {

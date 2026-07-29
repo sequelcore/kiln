@@ -580,6 +580,12 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
     if (current.accountLease && !sameManagedAccountLeaseIdentity(current.accountLease, canonical)) {
       throw new ManagedJobApplicationError("invalid_transition", "Keep one immutable account selection per managed job.");
     }
+    if (current.accountLease && JSON.stringify(current.accountLease) === JSON.stringify(canonical)) {
+      return cloneManagedJob(current);
+    }
+    if (current.accountLease && !isValidManagedAccountLeaseTransition(current.accountLease, canonical)) {
+      throw new ManagedJobApplicationError("invalid_transition", "Keep managed account lease evidence monotonic and terminal states immutable.");
+    }
     const timestamp = updatedAt ?? new Date().toISOString();
     if (!isIso(timestamp) || Date.parse(timestamp) < Date.parse(current.updatedAt)) {
       throw new ManagedJobApplicationError("invalid_transition", "Use monotonic managed-job timestamps.");
@@ -707,7 +713,10 @@ function isValidLifecycle(value: unknown, state: ManagedJobState, createdAt: str
   }
   const first = value[0] as unknown as ManagedJobLifecycleEntry;
   const last = value[value.length - 1] as unknown as ManagedJobLifecycleEntry;
-  return first.state === "queued" && Date.parse(first.observedAt) === Date.parse(createdAt) && last.state === state && Date.parse(last.observedAt) === Date.parse(updatedAt);
+  return first.state === "queued"
+    && Date.parse(first.observedAt) === Date.parse(createdAt)
+    && last.state === state
+    && Date.parse(last.observedAt) <= Date.parse(updatedAt);
 }
 function isValidManagedAccountLeaseHistory(
   current: unknown,
@@ -720,12 +729,39 @@ function isValidManagedAccountLeaseHistory(
     const canonical = history.map((entry) => defineManagedAccountLeaseEvidence(entry as ManagedAccountLeaseEvidence));
     if (canonical.some((entry) => entry.jobId !== jobId || entry.runtimeInvocationId !== jobId)) return false;
     if (canonical.some((entry) => !sameManagedAccountLeaseIdentity(canonical[0]!, entry))) return false;
+    for (let index = 1; index < canonical.length; index += 1) {
+      if (!isValidManagedAccountLeaseTransition(canonical[index - 1]!, canonical[index]!)) return false;
+    }
     if (current === undefined) return false;
     const canonicalCurrent = defineManagedAccountLeaseEvidence(current as ManagedAccountLeaseEvidence);
     return JSON.stringify(canonicalCurrent) === JSON.stringify(canonical[canonical.length - 1]);
   } catch {
     return false;
   }
+}
+function isValidManagedAccountLeaseTransition(
+  previous: ManagedAccountLeaseEvidence,
+  next: ManagedAccountLeaseEvidence,
+): boolean {
+  if (
+    JSON.stringify(previous) === JSON.stringify(next)
+    || previous.acquiredAt !== next.acquiredAt
+    || previous.selectionReason !== next.selectionReason
+    || previous.affinityOutcome !== next.affinityOutcome
+    || JSON.stringify(previous.candidateRejections) !== JSON.stringify(next.candidateRejections)
+    || JSON.stringify(previous.resourceUris) !== JSON.stringify(next.resourceUris)
+    || previous.diagnosticUris.some((uri) => !next.diagnosticUris.includes(uri))
+  ) {
+    return false;
+  }
+  const allowed: Readonly<Record<ManagedAccountLeaseEvidence["lifecycleState"], readonly ManagedAccountLeaseEvidence["lifecycleState"][]>> = {
+    held: ["held", "settlement-pending", "released", "release-failed", "leaked"],
+    "settlement-pending": ["settlement-pending", "released", "release-failed", "leaked"],
+    released: [],
+    "release-failed": [],
+    leaked: [],
+  };
+  return allowed[previous.lifecycleState].includes(next.lifecycleState);
 }
 function sameManagedAccountLeaseIdentity(
   left: ManagedAccountLeaseEvidence,

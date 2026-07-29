@@ -716,6 +716,7 @@ export interface ManagedAccountLeaseEvidenceInput {
 export function defineManagedAccountLeaseEvidence(
   input: ManagedAccountLeaseEvidenceInput,
 ): ManagedAccountLeaseEvidence {
+  const leaseId = requirePortableLeaseIdentifier(input.leaseId, "Managed account lease id is required");
   const accountRef = requireCanonicalAccountReference(input.accountRef);
   const acquiredAt = requireIsoTimestamp(input.acquiredAt, "Managed account lease acquired timestamp is required");
   const lifecycleState = requireManagedAccountLeaseLifecycleState(input.lifecycleState);
@@ -734,35 +735,103 @@ export function defineManagedAccountLeaseEvidence(
   if (!/^[a-f0-9]{64}$/.test(input.credentialRevisionId)) {
     throw new Error("Managed account lease credential revision identity must be a SHA-256 digest");
   }
+  const resourceUri = `kiln://managed-accounts/leases/${encodeURIComponent(leaseId)}`;
+  if (input.resourceUris.length !== 1) {
+    throw new Error("Managed account lease must expose exactly one canonical resource URI");
+  }
+  if (new Set(input.diagnosticUris).size !== input.diagnosticUris.length) {
+    throw new Error("Managed account lease diagnostic URIs must be unique");
+  }
+  requireManagedAccountLifecycleDiagnostics(input.lifecycleState, input.diagnosticUris, resourceUri);
   return {
-    leaseId: requireText(input.leaseId, "Managed account lease id is required"),
-    accountPolicyId: createAccountPolicyId(input.accountPolicyId),
+    leaseId,
+    accountPolicyId: createAccountPolicyId(requirePortableLeaseIdentifier(
+      input.accountPolicyId,
+      "Managed account lease policy id is required",
+    )),
     accountRef,
     route: requireManagedAccountRoute(input.route),
-    jobId: requireText(input.jobId, "Managed account lease job id is required"),
-    runtimeInvocationId: requireText(
+    jobId: requirePortableLeaseIdentifier(input.jobId, "Managed account lease job id is required"),
+    runtimeInvocationId: requirePortableLeaseIdentifier(
       input.runtimeInvocationId,
       "Managed account lease runtime invocation id is required",
     ),
     credentialRevisionId: input.credentialRevisionId,
     selectionReason: requireManagedAccountSelectionReason(input.selectionReason),
-    candidateRejections: (input.candidateRejections ?? []).map(defineModelGatewayAccountRejection),
+    candidateRejections: (input.candidateRejections ?? []).map((rejection) => defineModelGatewayAccountRejection({
+      ...rejection,
+      account: requireCanonicalAccountReference(rejection.account),
+    })),
     ...(input.affinityOutcome !== undefined
       ? { affinityOutcome: requireManagedAccountAffinityOutcome(input.affinityOutcome) }
       : {}),
     acquiredAt,
     lifecycleState,
     ...(releasedAt !== undefined ? { releasedAt } : {}),
-    resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed account lease resource URI is required")),
-    diagnosticUris: input.diagnosticUris.map((uri) => requireText(uri, "Managed account lease diagnostic URI is required")),
+    resourceUris: input.resourceUris.map((uri) => {
+      if (uri !== resourceUri) throw new Error("Managed account lease resource URI is outside its canonical namespace");
+      return uri;
+    }),
+    diagnosticUris: input.diagnosticUris.map((uri) => requireManagedAccountDiagnosticUri(uri, resourceUri)),
   };
 }
 
 function requireCanonicalAccountReference(value: string): AccountRef {
-  if (value.length === 0 || value !== value.trim()) {
+  if (
+    value.length === 0
+    || value.length > 512
+    || value !== value.trim()
+    || !/^configured:[A-Za-z0-9._-]+(?::[A-Za-z0-9._-]+){0,3}$/.test(value)
+  ) {
     throw new Error("Managed account lease account reference must be canonical");
   }
   return createAccountRef(value);
+}
+
+function requirePortableLeaseIdentifier(value: string, message: string): string {
+  if (
+    typeof value !== "string"
+    || value.length === 0
+    || value.length > 256
+    || value !== value.trim()
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+  ) {
+    throw new Error(message);
+  }
+  return value;
+}
+
+function requireManagedAccountDiagnosticUri(value: string, resourceUri: string): string {
+  const allowed = new Set([
+    `${resourceUri}/settlement-pending`,
+    `${resourceUri}/release-failed`,
+    `${resourceUri}/settlement-unknown`,
+    `${resourceUri}/recovery-unmatchable`,
+  ]);
+  if (!allowed.has(value)) {
+    throw new Error("Managed account lease diagnostic URI is outside its canonical namespace");
+  }
+  return value;
+}
+
+function requireManagedAccountLifecycleDiagnostics(
+  lifecycleState: ManagedAccountLeaseLifecycleState,
+  diagnosticUris: readonly string[],
+  resourceUri: string,
+): void {
+  const requiredSuffix = lifecycleState === "settlement-pending"
+    ? ["/settlement-pending", "/settlement-unknown"]
+    : lifecycleState === "release-failed"
+      ? ["/release-failed"]
+      : lifecycleState === "leaked"
+        ? ["/recovery-unmatchable"]
+        : [];
+  if (
+    requiredSuffix.length > 0
+    && !diagnosticUris.some((uri) => requiredSuffix.some((suffix) => uri === `${resourceUri}${suffix}`))
+  ) {
+    throw new Error(`Managed account lease ${lifecycleState} state requires canonical diagnostic evidence`);
+  }
 }
 
 function requireManagedAccountRoute(route: ModelGatewayRoute): ModelGatewayRoute {

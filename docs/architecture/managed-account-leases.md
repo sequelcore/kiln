@@ -59,6 +59,9 @@ Capacity follows settlement, not terminal projection.
 - Release failure becomes `release-failed` and continues consuming capacity.
 - Work whose settlement cannot be matched after restart becomes `leaked` and
   continues consuming capacity until an explicit future reconciliation flow.
+- Total lease capacity is distinct from provider health and reserved new-work
+  capacity. Exhaustion rejects both new work and existing affinity with
+  `lease-conflict`; affinity reservation never permits oversubscription.
 
 Release is idempotent and fenced by lease owner, lease ID, account, route, job,
 and Runtime invocation identity. Lease rows are retained for replay rather than
@@ -76,7 +79,8 @@ never deletes active leases:
 
 The managed-invocation recovery checkpoint is persisted before provider
 dispatch. The production managed-job composition recovers Runtime invocations
-and account leases before it marks interrupted jobs.
+and writes their classified account leases into owned V4 jobs before it marks
+those jobs interrupted.
 
 ## Evidence
 
@@ -84,11 +88,22 @@ Canonical account-lease evidence contains opaque account and policy identities,
 canonical provider/model route, credential revision digest, selection and
 rejection reasons, affinity outcome, timestamps, lifecycle state, and safe
 resource or diagnostic URIs. It excludes credentials, tokens, raw provider
-payloads, exception details, and machine-specific paths.
+payloads, exception details, and machine-specific paths. Account references
+must use the `configured:` namespace. Resource and diagnostic evidence is
+restricted to the lease's own `kiln://managed-accounts/leases/<lease-id>`
+namespace and its closed diagnostic vocabulary.
 
 Managed-job V4 is the only writer and carries current lease evidence plus its
-lifecycle history. The V3 reader remains because persisted V3 jobs are a real
-consumer; there is no parallel V3 writer or compatibility alias.
+lifecycle history. Lease observations advance aggregate `updatedAt` without
+fabricating job-state lifecycle entries; acquisition facts are immutable and
+terminal lease states cannot regress. The V3 reader remains because persisted
+V3 jobs are a real consumer; there is no parallel V3 writer or compatibility
+alias.
+
+Terminal projection is enrichable evidence, not a one-shot loss boundary.
+When execution settles after timeout or cancellation, Runtime appends a newer
+canonical terminal event carrying the released lease. Replay and every
+operator surface therefore converge on settlement without rewriting history.
 
 ## Non-Goals
 

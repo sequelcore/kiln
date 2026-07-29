@@ -31,6 +31,7 @@ const candidate = (
   account: createAccountRef(id),
   route: route(),
   health: "healthy",
+  leaseCapacity: "available",
   pressure: 0,
   reservedForNewWork: false,
   ...options,
@@ -112,6 +113,22 @@ describe("model gateway account selection", () => {
       affinity: { account: createAccountRef("account-a"), route: route() },
       candidates: [reserved],
     })).toMatchObject({ selected: { account: createAccountRef("account-a"), reason: "existing-affinity" } });
+  });
+
+  it("rejects exhausted lease capacity for both new and existing-affinity work", () => {
+    const exhausted = candidate("account-a", { leaseCapacity: "unavailable" });
+
+    expect(selectModelGatewayAccount({ route: route(), work: "new", candidates: [exhausted] }))
+      .toMatchObject({ rejections: [{ account: "account-a", reason: "lease-conflict" }] });
+    expect(selectModelGatewayAccount({
+      route: route(),
+      work: "existing",
+      affinity: { account: createAccountRef("account-a"), route: route() },
+      candidates: [exhausted],
+    })).toMatchObject({
+      rejections: [{ account: "account-a", reason: "lease-conflict" }],
+      affinity: { outcome: "rejected", reason: "lease-conflict" },
+    });
   });
 
   it("fails closed when existing work's affinity is unavailable instead of silently rebinding", () => {

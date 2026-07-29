@@ -79,7 +79,9 @@ async function observeAccountLease(
     lifecycleState,
     ...(lifecycleState === "released" ? { releasedAt: now.toISOString() } : {}),
     resourceUris: [`kiln://managed-accounts/leases/lease-${input.jobId}`],
-    diagnosticUris: [],
+    diagnosticUris: lifecycleState === "settlement-pending"
+      ? [`kiln://managed-accounts/leases/lease-${input.jobId}/settlement-pending`]
+      : [],
   });
 }
 
@@ -523,6 +525,85 @@ describe("ManagedJobApplicationService", () => {
       availability: "available",
       accountLeaseHistory: [],
     });
+  });
+
+  it("persists lease-only aggregate updates without fabricating lifecycle transitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-job-lease-"));
+    try {
+      const store = new FilesystemManagedJobStore(root);
+      const options = createOptions();
+      const service = new ManagedJobApplicationService({
+        ...options,
+        store,
+        runtime: { invoke: async (input) => successfulRuntimeResult(input) },
+      });
+      const job = await service.submit(request);
+      const observedAt = new Date(now.getTime() + 1000).toISOString();
+      await store.recordAccountLease(job.id, {
+        leaseId: `lease-${job.id}`,
+        accountPolicyId: "managed-opencode",
+        accountRef: "configured:account-a",
+        route: { providerId: "opencode-go", providerModelId: "qwen3.6-plus", scope: "virtual:managed-opencode" },
+        jobId: job.id,
+        runtimeInvocationId: job.id,
+        credentialRevisionId: "a".repeat(64),
+        selectionReason: "least-pressure",
+        acquiredAt: now.toISOString(),
+        lifecycleState: "held",
+        resourceUris: [`kiln://managed-accounts/leases/lease-${job.id}`],
+        diagnosticUris: [],
+      }, observedAt);
+
+      const restored = await new FilesystemManagedJobStore(root).get(job.id);
+      expect(restored).toMatchObject({
+        updatedAt: observedAt,
+        accountLease: { lifecycleState: "held" },
+      });
+      expect(restored?.lifecycle.at(-1)?.observedAt).toBe(now.toISOString());
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects lease evidence regression and immutable acquisition drift", async () => {
+    const store = new InMemoryManagedJobStore();
+    const options = createOptions();
+    const service = new ManagedJobApplicationService({
+      ...options,
+      store,
+      runtime: { invoke: async (input) => successfulRuntimeResult(input) },
+    });
+    const job = await service.submit(request);
+    const base = {
+      leaseId: `lease-${job.id}`,
+      accountPolicyId: "managed-opencode",
+      accountRef: "configured:account-a",
+      route: { providerId: "opencode-go", providerModelId: "qwen3.6-plus", scope: "virtual:managed-opencode" },
+      jobId: job.id,
+      runtimeInvocationId: job.id,
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure" as const,
+      acquiredAt: now.toISOString(),
+      resourceUris: [`kiln://managed-accounts/leases/lease-${job.id}`],
+      diagnosticUris: [],
+    };
+    await store.recordAccountLease(job.id, { ...base, lifecycleState: "held" }, new Date(now.getTime() + 1000).toISOString());
+    await store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "released",
+      releasedAt: new Date(now.getTime() + 2000).toISOString(),
+    }, new Date(now.getTime() + 2000).toISOString());
+
+    await expect(store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "held",
+    }, new Date(now.getTime() + 3000).toISOString())).rejects.toMatchObject({ code: "invalid_transition" });
+    await expect(store.recordAccountLease(job.id, {
+      ...base,
+      acquiredAt: new Date(now.getTime() + 1).toISOString(),
+      lifecycleState: "released",
+      releasedAt: new Date(now.getTime() + 3000).toISOString(),
+    }, new Date(now.getTime() + 3000).toISOString())).rejects.toMatchObject({ code: "invalid_transition" });
   });
 
   it("persists the same immutable result across restart and fails closed for corrupt result evidence", async () => {

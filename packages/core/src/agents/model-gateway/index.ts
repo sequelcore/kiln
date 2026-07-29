@@ -68,6 +68,8 @@ export interface ModelGatewayAccountCandidate {
   readonly account: AccountRef;
   readonly route: ModelGatewayRoute;
   readonly health: ModelGatewayAccountHealth;
+  /** Runtime lease capacity is independent from provider health and affinity reservation. */
+  readonly leaseCapacity: "available" | "unavailable";
   /** Lower pressure is preferred. */
   readonly pressure: number;
   /** Reserved capacity cannot be claimed by unrelated new work. */
@@ -291,12 +293,14 @@ export function reassignAttemptAccount(attempt: AttemptCommit, account: AccountR
 
 function isEligible(candidate: ModelGatewayAccountCandidate, input: SelectModelGatewayAccountInput): boolean {
   return candidate.health === "healthy"
+    && candidate.leaseCapacity === "available"
     && isSameProviderModelRoute(candidate.route, input.route)
     && !(input.work === "new" && candidate.reservedForNewWork);
 }
 
 function rejectionReason(candidate: ModelGatewayAccountCandidate, input: SelectModelGatewayAccountInput): ModelGatewayAccountRejectionReason {
   if (candidate.health !== "healthy") return "unhealthy";
+  if (candidate.leaseCapacity !== "available") return "lease-conflict";
   if (!isSameProviderModelRoute(candidate.route, input.route)) return "incompatible-route";
   return "reserved-for-new-work";
 }
@@ -316,6 +320,9 @@ function validateSelectionInput(input: SelectModelGatewayAccountInput): void {
     requireRoute(candidate.route, `candidates[${index}].route`);
     if (!Number.isFinite(candidate.pressure) || candidate.pressure < 0) {
       throw new TypeError(`candidates[${index}].pressure must be a non-negative finite number.`);
+    }
+    if (candidate.leaseCapacity !== "available" && candidate.leaseCapacity !== "unavailable") {
+      throw new TypeError(`candidates[${index}].leaseCapacity must be available or unavailable.`);
     }
   }
   if (input.affinity !== undefined) {

@@ -49,7 +49,7 @@ function config(overrides: ConfigOverrides = {}) {
   const execute = vi.fn(executeOverride ?? (async () => ({ result: textResult })));
   const catalog = vi.fn(async (input) => {
     await predispatch?.();
-    return [{ account: createAccountRef("account-1"), route: input.route, health: "healthy" as const, pressure: 0, reservedForNewWork: false }];
+    return [{ account: createAccountRef("account-1"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }];
   });
   const evidence = vi.fn(async () => undefined);
   const affinityRead = vi.fn(async () => undefined);

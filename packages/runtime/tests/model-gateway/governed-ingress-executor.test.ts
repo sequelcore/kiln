@@ -25,7 +25,7 @@ async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void
 function fixture(overrides: { readonly guard?: ModelGatewayReplayGuard; readonly execute?: () => Promise<ModelTurnResult>; readonly project?: () => string } = {}) {
   const dispatch = vi.fn(overrides.execute ?? (async () => result));
   const ports: GovernedOneRoundInvocationPorts = {
-    candidateCatalog: { list: async () => [{ account: createAccountRef("account-1"), route, health: "healthy", pressure: 0, reservedForNewWork: false }] },
+    candidateCatalog: { list: async () => [{ account: createAccountRef("account-1"), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }] },
     affinityStore: { read: async () => undefined, write: async () => undefined },
     accountLease: { acquire: async () => ({ leaseId: "lease-1" }), release: async () => undefined },
     attemptEvidence: { record: async () => undefined },
@@ -67,7 +67,7 @@ describe("governed ingress executor", () => {
     const waiting = new Promise<void>((resolve) => { release = resolve; });
     const guard = new InMemoryModelGatewayReplayGuard({ hmacKey: "executor-concurrent-key-with-at-least-32" });
     const first = fixture({ guard });
-    const catalog = vi.fn(async () => { await waiting; return [{ account: createAccountRef("account-1"), route, health: "healthy" as const, pressure: 0, reservedForNewWork: false }]; });
+    const catalog = vi.fn(async () => { await waiting; return [{ account: createAccountRef("account-1"), route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }]; });
     first.input.invocationPorts.candidateCatalog.list = catalog;
     const pending = executeGovernedIngress(first.input);
     await eventually(() => expect(catalog).toHaveBeenCalledTimes(1));

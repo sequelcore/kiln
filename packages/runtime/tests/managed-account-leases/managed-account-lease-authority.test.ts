@@ -25,9 +25,10 @@ function binding(
 ): ManagedAccountCandidateBinding {
   return {
     candidate: {
-      account: createAccountRef(id),
+      account: createAccountRef(`configured:${id}`),
       route,
       health: "healthy",
+      leaseCapacity: "available",
       pressure: 0,
       reservedForNewWork: false,
     },
@@ -94,7 +95,7 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
     ...(overrides.affinityAccount
       ? {
           affinity: {
-            account: createAccountRef(overrides.affinityAccount),
+            account: createAccountRef(`configured:${overrides.affinityAccount}`),
             route,
           },
         }
@@ -123,15 +124,15 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
 
     await expect(acquire(authority, "job-a", candidates)).resolves.toMatchObject({
       status: "acquired",
-      lease: { accountRef: "account-a" },
+      lease: { accountRef: "configured:account-a" },
     });
     await expect(acquire(authority, "job-b", candidates)).resolves.toMatchObject({
       status: "acquired",
       lease: {
-        accountRef: "account-b",
+        accountRef: "configured:account-b",
         candidateRejections: [{
-          account: "account-a",
-          reason: "reserved-for-new-work",
+          account: "configured:account-a",
+          reason: "lease-conflict",
         }],
       },
     });
@@ -150,8 +151,8 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
     await expect(acquire(authority, "job-b", [refreshed])).resolves.toMatchObject({
       status: "unavailable",
       rejections: [{
-        account: "account-a-revision-2",
-        reason: "reserved-for-new-work",
+        account: "configured:account-a-revision-2",
+        reason: "lease-conflict",
       }],
     });
   });
@@ -162,9 +163,10 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
       binding("account-a"),
       binding("account-b", {
         candidate: {
-          account: createAccountRef("account-b"),
+          account: createAccountRef("configured:account-b"),
           route,
           health: "unhealthy",
+          leaseCapacity: "available",
           pressure: 0,
           reservedForNewWork: false,
         },
@@ -174,15 +176,15 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
     expect(acquired).toMatchObject({
       status: "acquired",
       lease: {
-        accountRef: "account-a",
+        accountRef: "configured:account-a",
         candidateRejections: [{
-          account: "account-b",
+          account: "configured:account-b",
           reason: "unhealthy",
         }],
       },
     });
     expect(authority.list()[0]?.candidateRejections).toEqual([{
-      account: "account-b",
+      account: "configured:account-b",
       reason: "unhealthy",
     }]);
   });
@@ -207,6 +209,26 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
     });
   });
 
+  it("never lets existing affinity exceed total account concurrency", async () => {
+    const authority = create("owner-a");
+    const bounded = binding("account-a", {
+      capacity: { maxConcurrency: 2, reservedAffinitySlots: 1 },
+    });
+
+    await expect(acquire(authority, "new", [bounded])).resolves.toMatchObject({ status: "acquired" });
+    await expect(acquire(authority, "existing-a", [bounded], {
+      work: "existing",
+      affinityAccount: "account-a",
+    })).resolves.toMatchObject({ status: "acquired" });
+    await expect(acquire(authority, "existing-b", [bounded], {
+      work: "existing",
+      affinityAccount: "account-a",
+    })).resolves.toMatchObject({
+      status: "unavailable",
+      rejections: [{ account: "configured:account-a", reason: "lease-conflict" }],
+    });
+  });
+
   it("requires explicit affinity rebind and records the rebound", async () => {
     const authority = create("owner-a");
     const candidates = [binding("account-b")];
@@ -222,7 +244,7 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
     })).resolves.toMatchObject({
       status: "acquired",
       lease: {
-        accountRef: "account-b",
+        accountRef: "configured:account-b",
         selectionReason: "affinity-rebind",
         affinityOutcome: "rebound",
       },
@@ -237,7 +259,7 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
 
     const pending = authority.markSettlementPending({
       ...acquired.identity,
-      diagnosticUri: "kiln://managed-accounts/leases/pending",
+      diagnosticUri: `kiln://managed-accounts/leases/${acquired.identity.leaseId}/settlement-pending`,
     });
     expect(pending.lifecycleState).toBe("settlement-pending");
     await expect(acquire(authority, "job-b", candidates)).resolves.toMatchObject({ status: "unavailable" });
@@ -270,12 +292,12 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
 
     const failed = authority.recordReleaseFailure({
       ...acquired.identity,
-      diagnosticUri: "kiln://managed-accounts/leases/release-failed",
+      diagnosticUri: `kiln://managed-accounts/leases/${acquired.identity.leaseId}/release-failed`,
     });
 
     expect(failed).toMatchObject({
       lifecycleState: "release-failed",
-      diagnosticUris: ["kiln://managed-accounts/leases/release-failed"],
+      diagnosticUris: [`kiln://managed-accounts/leases/${acquired.identity.leaseId}/release-failed`],
     });
     expect(authority.list()[0]).toEqual(failed);
     await expect(acquire(authority, "job-b", candidates)).resolves.toMatchObject({

@@ -35,6 +35,7 @@ import type {
   ManagedAgentInvocationHandoffContract,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAccountLeaseEvidence,
   ManagedAgentResultField,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
@@ -73,6 +74,7 @@ import type {
 import {
   appendManagedInvocationRuntimeFailureSessionEvent,
   appendManagedInvocationStartSessionEvents,
+  appendManagedInvocationTerminalEvidenceSessionEvent,
   appendManagedInvocationTerminalSessionEvent,
 } from "./session-events.js";
 import {
@@ -990,6 +992,66 @@ async function appendAndPublishManagedInvocationTerminalSessionEvent(input: {
   return events;
 }
 
+async function appendAndPublishManagedInvocationTerminalEvidenceSessionEvent(input: {
+  readonly options: ManagedInvocationToolOptions;
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly record: ManagedAgentInvocationRecord;
+  readonly durationMs?: number;
+}): Promise<void> {
+  const record = projectManagedInvocationRecordResources(input.record, { artifactStore: input.options.artifactStore });
+  const events = appendManagedInvocationTerminalEvidenceSessionEvent({
+    session: input.context.session,
+    request: input.request,
+    record,
+    ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
+  });
+  await publishManagedInvocationSessionEvents(input.options, input.context, events);
+}
+
+function createManagedAccountLeaseSessionEventBridge(input: {
+  readonly options: ManagedInvocationToolOptions;
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly request: ManagedAgentInvocationRequest;
+  readonly service: RuntimeManagedAgentInvocationService;
+}) {
+  let terminalPublished = false;
+  let publishedLease: ManagedAccountLeaseEvidence | undefined;
+  let latestLease: ManagedAccountLeaseEvidence | undefined;
+  let publication = Promise.resolve();
+  const publishLatest = async (): Promise<void> => {
+    const snapshot = input.service.status(input.request.invocationId);
+    const lease = snapshot?.record?.accountLease ?? latestLease;
+    if (snapshot?.record === undefined || lease === undefined || JSON.stringify(lease) === JSON.stringify(publishedLease)) {
+      return;
+    }
+    await appendAndPublishManagedInvocationTerminalEvidenceSessionEvent({
+      options: input.options,
+      context: input.context,
+      request: input.request,
+      record: snapshot.record,
+      ...(snapshot.durationMs !== undefined ? { durationMs: snapshot.durationMs } : {}),
+    });
+    publishedLease = lease;
+  };
+  return {
+    observe: async (lease: ManagedAccountLeaseEvidence): Promise<void> => {
+      latestLease = lease;
+      if (!terminalPublished) return;
+      publication = publication.then(publishLatest);
+      await publication;
+    },
+    markTerminalPublished: async (record: ManagedAgentInvocationRecord): Promise<void> => {
+      publishedLease = record.accountLease;
+      terminalPublished = true;
+      if (latestLease !== undefined && JSON.stringify(latestLease) !== JSON.stringify(publishedLease)) {
+        publication = publication.then(publishLatest);
+      }
+      await publication;
+    },
+  };
+}
+
 function managedInvocationTerminalSessionEventIds(
   context: RuntimeBuiltinToolExecutionContext,
   invocationId: string,
@@ -1803,6 +1865,12 @@ async function executeManagedInvocationTool(
     return preparedResult.result;
   }
   const { prepared } = preparedResult;
+  const accountLeaseEvents = createManagedAccountLeaseSessionEventBridge({
+    options,
+    context: prepared.context,
+    request: prepared.request,
+    service,
+  });
 
   const startedAt = Date.now();
   const startResult = await service.start(
@@ -1811,6 +1879,7 @@ async function executeManagedInvocationTool(
     prepared.capabilitySnapshotInput,
     {
       ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
+      accountLeaseObserver: accountLeaseEvents.observe,
     },
   );
   const startEvents = await appendAndPublishManagedInvocationStartSessionEvents({
@@ -1887,6 +1956,7 @@ async function executeManagedInvocationTool(
     record: invocationResult.record,
     durationMs,
   });
+  await accountLeaseEvents.markTerminalPublished(invocationResult.record);
   const result = {
     ...invocationResult,
     record: projectManagedInvocationRecordResources(invocationResult.record, { artifactStore: options.artifactStore }),
@@ -1923,6 +1993,12 @@ async function executeManagedInvocationStartTool(
     return preparedResult.result;
   }
   const { prepared } = preparedResult;
+  const accountLeaseEvents = createManagedAccountLeaseSessionEventBridge({
+    options,
+    context: prepared.context,
+    request: prepared.request,
+    service,
+  });
   let terminalPublicationEnabled = true;
   let markStartSessionEventsReady = (): void => {};
   const startSessionEventsReady = new Promise<void>((resolve) => {
@@ -1943,6 +2019,7 @@ async function executeManagedInvocationStartTool(
           record: notification.record,
           ...(notification.durationMs !== undefined ? { durationMs: notification.durationMs } : {}),
         });
+        await accountLeaseEvents.markTerminalPublished(notification.record);
       })
       .catch(() => undefined);
   };
@@ -1955,6 +2032,7 @@ async function executeManagedInvocationStartTool(
       {
         ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
         terminalObserver: publishBackgroundTerminal,
+        accountLeaseObserver: accountLeaseEvents.observe,
       },
     );
   } catch (error) {
@@ -1978,6 +2056,7 @@ async function executeManagedInvocationStartTool(
           record: terminalizedSnapshot.record,
           ...(terminalizedSnapshot.durationMs !== undefined ? { durationMs: terminalizedSnapshot.durationMs } : {}),
         });
+        await accountLeaseEvents.markTerminalPublished(terminalizedSnapshot.record);
         events = [...startEvents, ...terminalEvents];
       } finally {
         markStartSessionEventsReady();

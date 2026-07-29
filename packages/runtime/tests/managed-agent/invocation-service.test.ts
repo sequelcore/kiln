@@ -386,6 +386,7 @@ function managedAccountPorts(boundAdapter: ManagedAgentRuntimeAdapter) {
             account: identity.accountRef,
             route,
             health: "healthy" as const,
+            leaseCapacity: "available" as const,
             pressure: 0,
             reservedForNewWork: false,
           },

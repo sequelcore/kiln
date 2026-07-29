@@ -175,6 +175,7 @@ function createService(
         scope: "virtual:managed-opencode",
       },
       health: "healthy",
+      leaseCapacity: "available",
       pressure: 0,
       reservedForNewWork: false,
     },

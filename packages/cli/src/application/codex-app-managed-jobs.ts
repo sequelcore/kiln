@@ -130,6 +130,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   const activeInvocationServices = new Map<string, NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"]>>();
 
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
+  const managedJobStore = new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs"));
   const service = new ManagedJobApplicationService({
     project: { resolve: async () => project },
     governance: {
@@ -197,9 +198,17 @@ export async function createNativeHarnessManagedJobApplicationComposition(
         await invocationService.cancel(jobId, reason);
       },
     },
-    store: new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs")),
+    store: managedJobStore,
   });
-  await managedInvocation.invocationService?.recoverPersistedInvocations();
+  const recoveredInvocations = await managedInvocation.invocationService?.recoverPersistedInvocations();
+  for (const recovered of recoveredInvocations?.recovered ?? []) {
+    const accountLease = recovered.record?.accountLease;
+    const managedJob = await managedJobStore.get(recovered.request.invocationId);
+    if (accountLease === undefined || managedJob?.version !== 4) {
+      continue;
+    }
+    await managedJobStore.recordAccountLease(recovered.request.invocationId, accountLease);
+  }
   await service.recoverInterrupted();
   const application: NativeHarnessManagedJobApplicationPort = {
     submit: (input) => service.start(input),

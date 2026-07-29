@@ -177,7 +177,7 @@ describe("managed agent invocation contracts", () => {
       selectionReason: "least-pressure" as const,
       acquiredAt: "2026-07-28T22:30:00.000Z",
       lifecycleState: "released" as const,
-      resourceUris: [],
+      resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
       diagnosticUris: [],
     };
 
@@ -201,6 +201,25 @@ describe("managed agent invocation contracts", () => {
       releasedAt: "2026-07-28T22:31:00.000Z",
       accountRef: " configured:primary:opaque ",
     })).toThrow("account reference must be canonical");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      accountRef: "raw-provider-token",
+    })).toThrow("account reference must be canonical");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      resourceUris: ["file:///operator/home/credentials.json"],
+    })).toThrow("resource URI is outside its canonical namespace");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      releasedAt: "2026-07-28T22:31:00.000Z",
+      diagnosticUris: ["kiln://managed-accounts/leases/account-lease-1/operator-path"],
+    })).toThrow("diagnostic URI is outside its canonical namespace");
+    expect(() => defineManagedAccountLeaseEvidence({
+      ...base,
+      lifecycleState: "settlement-pending",
+    })).toThrow("settlement-pending state requires canonical diagnostic evidence");
   });
 
   it("defines the canonical background-child lifecycle vocabulary without admission-only states", () => {

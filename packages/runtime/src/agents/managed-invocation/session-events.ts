@@ -120,6 +120,29 @@ export function appendManagedInvocationTerminalSessionEvent(
   return [terminal];
 }
 
+/** Appends newer durable evidence for an already-projected terminal invocation. */
+export function appendManagedInvocationTerminalEvidenceSessionEvent(
+  input: AppendManagedInvocationTerminalSessionEventInput,
+): readonly CanonicalSessionEvent[] {
+  if (!hasTerminalEvent(input.session, input.record.invocationId)) {
+    throw new Error("Managed invocation terminal evidence enrichment requires an existing terminal event");
+  }
+  const source = makeSource();
+  const terminal = mapTerminalEvent({
+    session: input.session,
+    request: input.request,
+    record: input.record,
+    startedEventId: latestStartedEventId(input.session, input.record.invocationId),
+    sequence: input.session.nextSessionEventSequence(),
+    timestamp: input.timestamp ?? new Date(),
+    durationMs: input.durationMs,
+    source,
+  });
+  if (!terminal) return [];
+  input.session.appendSessionEvents([terminal]);
+  return [terminal];
+}
+
 export function appendManagedInvocationRuntimeFailureSessionEvent(
   input: AppendManagedInvocationRuntimeFailureSessionEventInput,
 ): readonly CanonicalSessionEvent[] {

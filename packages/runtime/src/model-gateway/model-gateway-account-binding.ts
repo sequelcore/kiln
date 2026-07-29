@@ -109,6 +109,7 @@ export function buildModelGatewayBoundCandidates(
         account,
         route,
         health: usageEvidence.health,
+        leaseCapacity: "available",
         pressure: input.pressure(account),
         reservedForNewWork: input.reservedForNewWork(account),
       }),

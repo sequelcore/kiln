@@ -2117,6 +2117,14 @@ export class RuntimeManagedAgentInvocationService {
     const identity = entry.accountLeaseIdentity;
     const authority = this.options.accountLeaseAuthority;
     if (!identity || !entry.accountLease || !authority) return record;
+    if (
+      entry.accountLease.lifecycleState === "released"
+      || entry.accountLease.lifecycleState === "release-failed"
+      || entry.accountLease.lifecycleState === "leaked"
+    ) {
+      await this.observeManagedAccountLease(entry, entry.accountLease);
+      return defineManagedAgentInvocationRecord({ ...record, accountLease: entry.accountLease });
+    }
     const settlementMayOutliveProjection = entry.adapterStarted
       && (record.lifecycleState === "timed_out" || record.lifecycleState === "cancelled" || record.lifecycleState === "stale");
     const settlementUnknownAfterRecovery = entry.adapterStarted
@@ -2135,10 +2143,10 @@ export class RuntimeManagedAgentInvocationService {
           if (entry.record) {
             entry.record = defineManagedAgentInvocationRecord({ ...entry.record, accountLease: lease });
           }
-          await this.observeManagedAccountLease(entry, lease);
           if (entry.record) {
             await this.saveOrDeleteRuntimeRecoveryCheckpoint(entry, entry.record);
           }
+          await this.observeManagedAccountLease(entry, lease);
         }).catch(() => undefined);
       }
       return defineManagedAgentInvocationRecord({ ...record, accountLease: entry.accountLease });

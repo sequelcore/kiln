@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { ManagedJobApplicationService, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
+import { defineManagedAccountLeaseEvidence } from "@kilnai/core";
+import {
+  FilesystemManagedJobStore,
+  ManagedJobApplicationService,
+  RuntimeManagedAgentInvocationService,
+} from "@kilnai/runtime";
 
 vi.mock("../../src/config/config-merger.js", () => ({
   loadResolvedKilnMcpConfiguration: vi.fn(() => ({
@@ -107,9 +112,33 @@ import {
 
 describe("Codex App managed-job production composition", () => {
   it("recovers persisted nonterminal jobs before exposing the application owner", async () => {
+    const accountLease = defineManagedAccountLeaseEvidence({
+      leaseId: "lease-job-recovered",
+      accountPolicyId: "managed-codex",
+      accountRef: "configured:test-account",
+      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", scope: "virtual:managed-codex" },
+      jobId: "job-recovered",
+      runtimeInvocationId: "job-recovered",
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure",
+      acquiredAt: "2026-07-28T20:00:00.000Z",
+      lifecycleState: "leaked",
+      resourceUris: ["kiln://managed-accounts/leases/lease-job-recovered"],
+      diagnosticUris: ["kiln://managed-accounts/leases/lease-job-recovered/recovery-unmatchable"],
+    });
     const recoverInvocations = vi
       .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
-      .mockResolvedValue({ recovered: [], unresolved: [] });
+      .mockResolvedValue({
+        recovered: [{
+          request: { invocationId: "job-recovered" },
+          record: { accountLease },
+        }],
+        unresolved: [],
+      } as never);
+    const get = vi.spyOn(FilesystemManagedJobStore.prototype, "get")
+      .mockResolvedValue({ version: 4 } as never);
+    const recordAccountLease = vi.spyOn(FilesystemManagedJobStore.prototype, "recordAccountLease")
+      .mockResolvedValue({ version: 4 } as never);
     const recoverInterrupted = vi
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
       .mockResolvedValue([]);
@@ -117,9 +146,13 @@ describe("Codex App managed-job production composition", () => {
     await createNativeHarnessManagedJobApplicationComposition({ harness: "codex", discoverProviderModels: async () => ({}) });
 
     expect(recoverInvocations).toHaveBeenCalledOnce();
+    expect(get).toHaveBeenCalledWith("job-recovered");
+    expect(recordAccountLease).toHaveBeenCalledWith("job-recovered", accountLease);
     expect(recoverInterrupted).toHaveBeenCalledOnce();
     expect(recoverInvocations.mock.invocationCallOrder[0]).toBeLessThan(recoverInterrupted.mock.invocationCallOrder[0]!);
     recoverInvocations.mockRestore();
+    get.mockRestore();
+    recordAccountLease.mockRestore();
     recoverInterrupted.mockRestore();
   });
 

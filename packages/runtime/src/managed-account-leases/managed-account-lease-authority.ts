@@ -386,12 +386,13 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
     const total = counts?.total ?? 0;
     const newWork = counts?.new_work ?? 0;
     const newWorkLimit = binding.capacity.maxConcurrency - binding.capacity.reservedAffinitySlots;
-    const capacityUnavailable = total >= binding.capacity.maxConcurrency
-      || (work === "new" && newWork >= newWorkLimit);
+    const capacityUnavailable = total >= binding.capacity.maxConcurrency;
+    const reservedCapacityUnavailable = work === "new" && newWork >= newWorkLimit;
     return {
       ...binding.candidate,
+      leaseCapacity: capacityUnavailable ? "unavailable" : "available",
       pressure: binding.candidate.pressure + total / binding.capacity.maxConcurrency,
-      reservedForNewWork: binding.candidate.reservedForNewWork || capacityUnavailable,
+      reservedForNewWork: binding.candidate.reservedForNewWork || reservedCapacityUnavailable,
     };
   }
 

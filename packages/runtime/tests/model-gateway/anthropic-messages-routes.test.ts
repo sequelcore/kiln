@@ -10,7 +10,7 @@ const result: ModelTurnResult = { parts: [{ type: "text", text: "PROBE_OK" }], u
 
 function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?: (input: ModelGatewayOneRoundDispatchInput) => Promise<ModelTurnResult> } = {}) {
   const execute = vi.fn(overrides.execute ?? (async () => result));
-  const candidate = vi.fn(async (input) => [{ account: createAccountRef("account"), route: input.route, health: "healthy" as const, pressure: 0, reservedForNewWork: false }]);
+  const candidate = vi.fn(async (input) => [{ account: createAccountRef("account"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }]);
   const invocationPorts: GovernedOneRoundInvocationPorts = {
     candidateCatalog: { list: candidate }, affinityStore: { read: async () => undefined, write: async () => undefined },
     accountLease: { acquire: async () => ({ leaseId: "lease" }), release: async () => undefined },
