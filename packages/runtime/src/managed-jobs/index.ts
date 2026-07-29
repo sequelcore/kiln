@@ -751,6 +751,10 @@ function isValidManagedAccountLeaseTransition(
     || JSON.stringify(previous.candidateRejections) !== JSON.stringify(next.candidateRejections)
     || JSON.stringify(previous.resourceUris) !== JSON.stringify(next.resourceUris)
     || previous.diagnosticUris.some((uri) => !next.diagnosticUris.includes(uri))
+    || (
+      previous.lifecycleState === next.lifecycleState
+      && next.diagnosticUris.length <= previous.diagnosticUris.length
+    )
   ) {
     return false;
   }

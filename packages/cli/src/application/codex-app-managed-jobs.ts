@@ -203,7 +203,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   const recoveredInvocations = await managedInvocation.invocationService?.recoverPersistedInvocations();
   for (const accountLease of recoveredInvocations?.accountLeases ?? []) {
     const managedJob = await managedJobStore.get(accountLease.runtimeInvocationId);
-    if (managedJob?.version !== 4) {
+    if (managedJob?.version !== 4 || managedJob.projectId !== project.id) {
       continue;
     }
     await managedJobStore.recordAccountLease(accountLease.runtimeInvocationId, accountLease);

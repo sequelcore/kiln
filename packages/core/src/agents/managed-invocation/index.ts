@@ -742,7 +742,9 @@ export function defineManagedAccountLeaseEvidence(
   if (new Set(input.diagnosticUris).size !== input.diagnosticUris.length) {
     throw new Error("Managed account lease diagnostic URIs must be unique");
   }
-  const diagnosticUris = input.diagnosticUris.map((uri) => requireManagedAccountDiagnosticUri(uri, resourceUri));
+  const diagnosticUris = input.diagnosticUris
+    .map((uri) => requireManagedAccountDiagnosticUri(uri, resourceUri))
+    .sort((left, right) => left.localeCompare(right));
   requireManagedAccountLifecycleDiagnostics(input.lifecycleState, diagnosticUris, resourceUri);
   return {
     leaseId,

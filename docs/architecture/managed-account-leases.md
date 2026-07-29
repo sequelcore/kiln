@@ -81,7 +81,8 @@ The managed-invocation recovery checkpoint is persisted before provider
 dispatch. The production managed-job composition recovers Runtime invocations
 and consumes Runtime's complete classified-lease result, including terminal
 checkpoints and orphaned authority rows. It writes those classifications into
-owned V4 jobs before it marks those jobs interrupted.
+V4 jobs only after proving their stored `projectId` matches the trusted
+composition project, before it marks those jobs interrupted.
 
 ## Evidence
 
@@ -97,7 +98,9 @@ namespace and its closed diagnostic vocabulary.
 Managed-job V4 is the only writer and carries current lease evidence plus its
 lifecycle history. Lease observations advance aggregate `updatedAt` without
 fabricating job-state lifecycle entries; acquisition facts are immutable and
-terminal lease states cannot regress. The V3 reader remains because persisted
+terminal lease states cannot regress. Diagnostic URIs are canonically ordered,
+and same-state settlement enrichment requires a strict evidence-set increase.
+The V3 reader remains because persisted
 V3 jobs are a real consumer; there is no parallel V3 writer or compatibility
 alias.
 

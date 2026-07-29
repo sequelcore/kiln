@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { defineManagedAccountLeaseEvidence } from "@kilnai/core";
 import {
   FilesystemManagedJobStore,
@@ -126,14 +127,26 @@ describe("Codex App managed-job production composition", () => {
       resourceUris: ["kiln://managed-accounts/leases/lease-job-recovered"],
       diagnosticUris: ["kiln://managed-accounts/leases/lease-job-recovered/recovery-unmatchable"],
     });
+    const foreignAccountLease = defineManagedAccountLeaseEvidence({
+      ...accountLease,
+      leaseId: "lease-foreign-job",
+      jobId: "foreign-job",
+      runtimeInvocationId: "foreign-job",
+      resourceUris: ["kiln://managed-accounts/leases/lease-foreign-job"],
+      diagnosticUris: ["kiln://managed-accounts/leases/lease-foreign-job/recovery-unmatchable"],
+    });
+    const projectId = `project-${createHash("sha256").update(process.cwd()).digest("hex").slice(0, 32)}`;
     const recoverInvocations = vi
       .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
       .mockResolvedValue({
         recovered: [],
-        accountLeases: [accountLease],
+        accountLeases: [accountLease, foreignAccountLease],
       });
     const get = vi.spyOn(FilesystemManagedJobStore.prototype, "get")
-      .mockResolvedValue({ version: 4 } as never);
+      .mockImplementation(async (id) => ({
+        version: 4,
+        projectId: id === "job-recovered" ? projectId : "foreign-project",
+      } as never));
     const recordAccountLease = vi.spyOn(FilesystemManagedJobStore.prototype, "recordAccountLease")
       .mockResolvedValue({ version: 4 } as never);
     const recoverInterrupted = vi
@@ -144,7 +157,9 @@ describe("Codex App managed-job production composition", () => {
 
     expect(recoverInvocations).toHaveBeenCalledOnce();
     expect(get).toHaveBeenCalledWith("job-recovered");
+    expect(get).toHaveBeenCalledWith("foreign-job");
     expect(recordAccountLease).toHaveBeenCalledWith("job-recovered", accountLease);
+    expect(recordAccountLease).not.toHaveBeenCalledWith("foreign-job", foreignAccountLease);
     expect(recoverInterrupted).toHaveBeenCalledOnce();
     expect(recoverInvocations.mock.invocationCallOrder[0]).toBeLessThan(recoverInterrupted.mock.invocationCallOrder[0]!);
     recoverInvocations.mockRestore();

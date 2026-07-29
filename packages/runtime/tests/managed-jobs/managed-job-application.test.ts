@@ -593,10 +593,30 @@ describe("ManagedJobApplicationService", () => {
       lifecycleState: "held",
       diagnosticUris: [`kiln://managed-accounts/leases/lease-${job.id}/release-failed`],
     }, new Date(now.getTime() + 1500).toISOString())).rejects.toThrow("incompatible diagnostic evidence");
+    const pendingUri = `kiln://managed-accounts/leases/lease-${job.id}/settlement-pending`;
+    const unknownUri = `kiln://managed-accounts/leases/lease-${job.id}/settlement-unknown`;
+    await store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "settlement-pending",
+      diagnosticUris: [pendingUri],
+    }, new Date(now.getTime() + 1600).toISOString());
+    const enriched = await store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "settlement-pending",
+      diagnosticUris: [pendingUri, unknownUri],
+    }, new Date(now.getTime() + 1700).toISOString());
+    const reordered = await store.recordAccountLease(job.id, {
+      ...base,
+      lifecycleState: "settlement-pending",
+      diagnosticUris: [unknownUri, pendingUri],
+    }, new Date(now.getTime() + 1800).toISOString());
+    expect(reordered).toEqual(enriched);
+    expect(reordered.accountLeaseHistory).toHaveLength(3);
     await store.recordAccountLease(job.id, {
       ...base,
       lifecycleState: "released",
       releasedAt: new Date(now.getTime() + 2000).toISOString(),
+      diagnosticUris: [pendingUri, unknownUri],
     }, new Date(now.getTime() + 2000).toISOString());
 
     await expect(store.recordAccountLease(job.id, {
@@ -608,6 +628,7 @@ describe("ManagedJobApplicationService", () => {
       acquiredAt: new Date(now.getTime() + 1).toISOString(),
       lifecycleState: "released",
       releasedAt: new Date(now.getTime() + 3000).toISOString(),
+      diagnosticUris: [pendingUri, unknownUri],
     }, new Date(now.getTime() + 3000).toISOString())).rejects.toMatchObject({ code: "invalid_transition" });
   });
 
