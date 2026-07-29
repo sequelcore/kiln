@@ -327,6 +327,7 @@ export interface OperatorCockpitInvocationAccountLeaseProjection {
     readonly reason: string;
   }[];
   readonly affinityOutcome?: string;
+  readonly affinityCommitOutcome?: "won" | "already-matched" | "conflict";
   readonly acquiredAt: string;
   readonly lifecycleState: "held" | "settlement-pending" | "released" | "release-failed" | "leaked";
   readonly releasedAt?: string;
@@ -1344,12 +1345,14 @@ function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvo
   const candidateRejections = readAccountLeaseCandidateRejections(lease.candidateRejections);
   const acquiredAt = readString(lease.acquiredAt);
   const lifecycleState = readAccountLeaseLifecycleState(lease.lifecycleState);
+  const affinityCommitOutcome = readAccountAffinityCommitOutcome(lease.affinityCommitOutcome);
   const resourceUris = readRequiredStringList(lease.resourceUris);
   const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
   if (
     !leaseId || !accountPolicyId || !accountRef || !providerId || !providerModelId || !scope
     || !jobId || !runtimeInvocationId || !credentialRevisionId || !/^[a-f0-9]{64}$/u.test(credentialRevisionId)
     || !selectionReason || !candidateRejections || !acquiredAt || !lifecycleState || !resourceUris || !diagnosticUris
+    || affinityCommitOutcome === null
   ) {
     return null;
   }
@@ -1366,6 +1369,7 @@ function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvo
     selectionReason,
     candidateRejections,
     ...(readString(lease.affinityOutcome) ? { affinityOutcome: readString(lease.affinityOutcome)! } : {}),
+    ...(affinityCommitOutcome !== undefined ? { affinityCommitOutcome } : {}),
     acquiredAt,
     lifecycleState,
     ...(releasedAt ? { releasedAt } : {}),
@@ -1398,6 +1402,15 @@ function readAccountLeaseLifecycleState(
     || value === "released"
     || value === "release-failed"
     || value === "leaked"
+    ? value
+    : null;
+}
+
+function readAccountAffinityCommitOutcome(
+  value: unknown,
+): OperatorCockpitInvocationAccountLeaseProjection["affinityCommitOutcome"] | null {
+  if (value === undefined) return undefined;
+  return value === "won" || value === "already-matched" || value === "conflict"
     ? value
     : null;
 }

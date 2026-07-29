@@ -1,7 +1,7 @@
 # 02 - Managed Invocation Routing
 
 Status: Active delivery track
-Execution: Slice 1 complete; prepare deterministic multi-account proof.
+Execution: Slices 1 and 2 complete; Slice 3 requires explicit operator authorization.
 Created: 2026-07-23
 
 ## Objective
@@ -55,11 +55,18 @@ continues consuming capacity.
 
 ### Slice 2 - Deterministic Multi-Account Proof
 
-Status: Queued behind Slice 1.
+Status: Complete in issue #30.
 
-Use two configured synthetic accounts and a fake clock to prove exhaustion,
-reset, concurrency, reserved slots, affinity, cancellation, timeout settlement,
-and no cross-account retry. Restore Codex managed routes only after this passes.
+Two explicitly configured synthetic accounts and one injected usage clock prove
+the three usage states, deterministic selection, atomic capacity, reservations,
+durable affinity and fenced rebind, timeout/cancellation settlement, two-account
+recovery, revision-stable capacity, and absence of cross-account retry.
+Successful release and affinity CAS are one authority transaction, with
+`won`, `already-matched`, or `conflict` retained in V4 status, result, history,
+replay, and operator projections.
+
+The proof is portable and network-free. It establishes managed-path guarantees
+only and does not restore or mutate operator Codex configuration.
 
 ### Slice 3 - Bounded Live Probe
 
@@ -77,9 +84,20 @@ Represent quota class, subscription class, metered-cost class, and comparable
 cost separately. Explain why an eligible job used Codex or OpenCode. Add explicit
 reservations and ceilings without claiming free execution without evidence.
 
+### Slice 5 - Cross-Path Account Authority Convergence
+
+Status: Queued after the managed-path proof.
+
+Unify capacity and affinity authority when Model Gateway ingress and managed
+jobs target the same configured accounts. Replace the ingress
+`LocalModelGatewayStore` lease deletion and last-writer-wins affinity behavior
+with the same stable-capacity, settlement-conservative, fenced semantics,
+without importing gateway process recovery into managed invocation.
+
 ## Promotion Gates
 
-- Legacy pooled adapters retain the exactly-one guard until replaced.
+- Legacy pooled adapters retain the exactly-one guard while they remain real
+  consumers.
 - Every job records one explicit account selection and releases it correctly.
 - Missing or stale usage is `unknown`, never fabricated.
 - No provider commitment triggers hidden account retry.
@@ -87,9 +105,10 @@ reservations and ceilings without claiming free execution without evidence.
 
 ## Verification
 
-Focused Core/Runtime/CLI tests, fake-clock integration tests, clean output-tree
-typecheck/build, full affected-package tests, `git diff --check`, and an
-authorized bounded live probe.
+Focused Core/Runtime/CLI tests, injected-clock integration tests, clean
+output-tree typecheck/build, full affected-package tests, `git diff --check`,
+and independent review. The authorized bounded live probe remains Slice 3 and
+is not evidence for Slice 2.
 
 ## Completion Criteria
 

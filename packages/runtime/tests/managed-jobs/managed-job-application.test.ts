@@ -78,6 +78,7 @@ async function observeAccountLease(
     acquiredAt: now.toISOString(),
     lifecycleState,
     ...(lifecycleState === "released" ? { releasedAt: now.toISOString() } : {}),
+    ...(lifecycleState === "released" ? { affinityCommitOutcome: "won" as const } : {}),
     resourceUris: [`kiln://managed-accounts/leases/lease-${input.jobId}`],
     diagnosticUris: lifecycleState === "settlement-pending"
       ? [`kiln://managed-accounts/leases/lease-${input.jobId}/settlement-pending`]
@@ -167,6 +168,7 @@ describe("ManagedJobApplicationService", () => {
     const submitted = await service.submit(request);
     const status = await service.getStatus(query, submitted.id);
     const result = await service.getResult(query, submitted.id);
+    const replay = await service.getReplay(query, submitted.id);
 
     expect(submitted).toMatchObject({ id: "job-000000001", state: "succeeded", projectId: "kiln", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "opencode-go-scout-readonly", providerId: "opencode-go", governanceSource: "kiln-config-status", timeoutSource: "explicit-route" });
     expect(submitted).toMatchObject({
@@ -175,8 +177,9 @@ describe("ManagedJobApplicationService", () => {
         accountPolicyId: "managed-opencode",
         accountRef: "configured:account-a",
         lifecycleState: "released",
+        affinityCommitOutcome: "won",
       },
-      accountLeaseHistory: [{ lifecycleState: "released" }],
+      accountLeaseHistory: [{ lifecycleState: "released", affinityCommitOutcome: "won" }],
     });
     expect(status).toEqual(submitted);
     expect(result).toMatchObject({
@@ -185,6 +188,11 @@ describe("ManagedJobApplicationService", () => {
       configuredAgentProfileId: "scout",
       provenance: { source: "runtime-managed-invocation", trust: "untrusted-child-output" },
       handoff: { summary: "done", resourceUris: [], memoryWriteProposalUris: [] },
+      accountLease: { lifecycleState: "released", affinityCommitOutcome: "won" },
+    });
+    expect(replay).toMatchObject({
+      accountLease: { lifecycleState: "released", affinityCommitOutcome: "won" },
+      accountLeaseHistory: [{ lifecycleState: "released", affinityCommitOutcome: "won" }],
     });
     expect(runtime.invoke).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job-000000001", route: expect.objectContaining({ providerId: "opencode-go" }) }));
   });
@@ -615,6 +623,7 @@ describe("ManagedJobApplicationService", () => {
     await store.recordAccountLease(job.id, {
       ...base,
       lifecycleState: "released",
+      affinityCommitOutcome: "won",
       releasedAt: new Date(now.getTime() + 2000).toISOString(),
       diagnosticUris: [pendingUri, unknownUri],
     }, new Date(now.getTime() + 2000).toISOString());

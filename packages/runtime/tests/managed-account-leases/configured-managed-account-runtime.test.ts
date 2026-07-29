@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -48,6 +48,7 @@ describe("ConfiguredManagedAccountRuntime", () => {
       providerRoute: { providerId: "openai", surface: "direct", model: "gpt-test" },
     });
     expect(resolution.candidates).toHaveLength(1);
+    expect(resolution.affinityPolicy).toEqual({ continuity: "none" });
     expect(resolution.candidates[0]).toMatchObject({
       candidate: { pressure: 1 },
       usageEvidence: { freshness: "missing" },
@@ -63,7 +64,7 @@ describe("ConfiguredManagedAccountRuntime", () => {
       route: resolution.route,
       jobId: "job-a",
       runtimeInvocationId: "job-a",
-      work: "new",
+      affinityRequest: { continuity: "none" },
       candidates: resolution.candidates,
     });
     if (acquired.status !== "acquired") throw new Error("expected account lease");
@@ -93,7 +94,7 @@ describe("ConfiguredManagedAccountRuntime", () => {
       route: resolution.route,
       jobId: "job-a",
       runtimeInvocationId: "job-a",
-      work: "new",
+      affinityRequest: { continuity: "none" },
       candidates: resolution.candidates,
     });
     if (acquired.status !== "acquired") throw new Error("expected account lease");
@@ -102,7 +103,112 @@ describe("ConfiguredManagedAccountRuntime", () => {
     await expect(runtime.bind({ lease: acquired.lease, adapter: directTemplate() }))
       .rejects.toThrow("revision changed");
   });
+
+  it("uses one injected clock for configured two-account usage and projects affinity policy", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-configured-account-"));
+    await mkdir(join(root, "codex-oauth"), { recursive: true });
+    await Promise.all([
+      writeFile(join(root, "codex-oauth", "credential-a.json"), "{}"),
+      writeFile(join(root, "codex-oauth", "credential-b.json"), "{}"),
+      writeFile(join(root, "codex-oauth", "unconfigured.json"), "{}"),
+    ]);
+    await writeUsage(root, [
+      usage("credential-a", "exhausted"),
+      usage("credential-b", "available"),
+    ]);
+    let now = new Date("2026-07-22T12:00:00.000Z");
+    const runtime = new ConfiguredManagedAccountRuntime({
+      config: twoAccountConfig(),
+      credentialRootDir: root,
+      now: () => now,
+    });
+
+    const fresh = await runtime.resolve({
+      accountPolicyId: "managed-codex",
+      providerRoute: { providerId: "codex-oauth", surface: "direct", model: "gpt-test" },
+    });
+
+    expect(fresh.affinityPolicy).toEqual({
+      continuity: "prefer",
+      scope: "session",
+      allowRebind: true,
+    });
+    expect(fresh.candidates).toHaveLength(2);
+    expect(fresh.candidates.map((candidate) => candidate.capacityIdentity)).toEqual(["account-a", "account-b"]);
+    expect(fresh.candidates.map((candidate) => candidate.usageEvidence)).toMatchObject([
+      { health: "unhealthy", freshness: "fresh", availability: "exhausted" },
+      { health: "healthy", freshness: "fresh", availability: "available" },
+    ]);
+
+    now = new Date("2026-07-22T12:05:01.000Z");
+    const expired = await runtime.resolve({
+      accountPolicyId: "managed-codex",
+      providerRoute: { providerId: "codex-oauth", surface: "direct", model: "gpt-test" },
+    });
+    expect(expired.candidates.map((candidate) => ({
+      health: candidate.candidate.health,
+      pressure: candidate.candidate.pressure,
+      usage: candidate.usageEvidence,
+    }))).toEqual([
+      { health: "healthy", pressure: 1, usage: { health: "healthy", freshness: "missing" } },
+      { health: "healthy", pressure: 1, usage: { health: "healthy", freshness: "missing" } },
+    ]);
+
+    await writeUsage(root, [
+      {
+        ...usage("credential-a", "available"),
+        observedAt: "2026-07-22T12:05:01.000Z",
+        validUntil: "2026-07-22T12:10:01.000Z",
+      },
+    ]);
+    const refreshed = await runtime.resolve({
+      accountPolicyId: "managed-codex",
+      providerRoute: { providerId: "codex-oauth", surface: "direct", model: "gpt-test" },
+    });
+    expect(refreshed.candidates.map((candidate) => candidate.candidate.pressure)).toEqual([0, 1]);
+    expect(refreshed.candidates[0]?.usageEvidence).toMatchObject({
+      health: "healthy",
+      freshness: "fresh",
+      availability: "available",
+    });
+  });
 });
+
+function twoAccountConfig(): ModelGatewayConfig {
+  return {
+    ...config,
+    accounts: [
+      { id: "account-a", providerId: "codex-oauth", credentialId: "credential-a", maxConcurrency: 1, reservedAffinitySlots: 0 },
+      { id: "account-b", providerId: "codex-oauth", credentialId: "credential-b", maxConcurrency: 1, reservedAffinitySlots: 0 },
+    ],
+    virtualModels: [{
+      id: "managed-codex",
+      providerId: "codex-oauth",
+      providerModelId: "gpt-test",
+      accountIds: ["account-a", "account-b"],
+      capabilities: ["text"],
+      affinity: { continuity: "prefer", scope: "session", allowRebind: true },
+    }],
+  };
+}
+
+function usage(credentialId: string, availability: "available" | "exhausted") {
+  return {
+    provider: "codex-oauth" as const,
+    credentialId,
+    availability,
+    observedAt: "2026-07-22T11:59:00.000Z",
+    validUntil: "2026-07-22T12:05:00.000Z",
+    source: "provider-endpoint" as const,
+    confidence: "authoritative" as const,
+  };
+}
+
+async function writeUsage(directory: string, snapshots: readonly ReturnType<typeof usage>[]): Promise<void> {
+  const usageDirectory = join(directory, "provider-usage");
+  await mkdir(usageDirectory, { recursive: true });
+  await writeFile(join(usageDirectory, "codex-oauth.json"), JSON.stringify(snapshots));
+}
 
 function directTemplate(): ManagedDirectProviderRuntimeAdapter {
   const provider: ProviderAdapter = {

@@ -17,10 +17,12 @@ import {
   defineVerificationUsageReport,
   evaluateManagedAgentAdmission,
   createAttemptCommit,
+  createManagedAccountAffinityKey,
   isManagedAgentWriteAuthorityProfile,
 } from "@kilnai/core";
 import type {
   AttemptCommit,
+  ManagedAccountAffinityPolicy,
   ManagedAgentAdapterDescriptor,
   ManagedAgentAdmissionDecision,
   ManagedAgentCapabilitySnapshot,
@@ -35,6 +37,7 @@ import type {
   ManagedAgentResourceLeaseEvidence,
   ManagedAgentWorktreeConflictEvidence,
   ManagedAgentWorktreeReviewEvidence,
+  ModelGatewayRoute,
   StructuredExecutionResult,
 } from "@kilnai/core";
 import type {
@@ -2032,7 +2035,12 @@ export class RuntimeManagedAgentInvocationService {
       route: resolution.route,
       jobId: entry.request.invocationId,
       runtimeInvocationId: entry.request.invocationId,
-      work: "new",
+      affinityRequest: managedAccountAffinityRequest(
+        entry.request,
+        credentialRoute.accountPolicyId,
+        resolution.route,
+        resolution.affinityPolicy,
+      ),
       candidates: resolution.candidates,
     });
     if (result.status === "unavailable") {
@@ -2142,7 +2150,7 @@ export class RuntimeManagedAgentInvocationService {
       });
       await this.observeManagedAccountLease(entry, entry.accountLease);
       if (entry.executionSettlement !== undefined && entry.accountSettlementFinalization === undefined) {
-        entry.accountSettlementFinalization = entry.executionSettlement.then(() => this.releaseManagedAccountLease(entry));
+        entry.accountSettlementFinalization = entry.executionSettlement.then(() => this.releaseManagedAccountLease(entry, false));
         void entry.accountSettlementFinalization.then(async (lease) => {
           entry.accountLease = lease;
           if (entry.record) {
@@ -2157,7 +2165,7 @@ export class RuntimeManagedAgentInvocationService {
       return defineManagedAgentInvocationRecord({ ...record, accountLease: entry.accountLease });
     }
     if (entry.executionSettlement !== undefined) await entry.executionSettlement;
-    entry.accountLease = await this.releaseManagedAccountLease(entry);
+    entry.accountLease = await this.releaseManagedAccountLease(entry, record.lifecycleState === "completed");
     await this.observeManagedAccountLease(entry, entry.accountLease);
     return defineManagedAgentInvocationRecord({ ...record, accountLease: entry.accountLease });
   }
@@ -2171,6 +2179,7 @@ export class RuntimeManagedAgentInvocationService {
 
   private async releaseManagedAccountLease(
     entry: ManagedAgentRuntimeInvocationEntry,
+    successful: boolean,
   ): Promise<ManagedAccountLeaseEvidence> {
     const identity = entry.accountLeaseIdentity;
     const authority = this.options.accountLeaseAuthority;
@@ -2178,7 +2187,9 @@ export class RuntimeManagedAgentInvocationService {
       throw new ManagedAgentRuntimeAdmissionError("Managed account lease release authority is unavailable");
     }
     try {
-      return authority.release(identity);
+      return successful
+        ? authority.finalizeSuccessful(identity).lease
+        : authority.release(identity);
     } catch {
       return authority.recordReleaseFailure({
         ...identity,
@@ -2654,6 +2665,39 @@ function managedAccountLeaseIdentity(
     route: cloneJson(lease.route),
     jobId: lease.jobId,
     runtimeInvocationId: lease.runtimeInvocationId,
+  };
+}
+
+function managedAccountAffinityRequest(
+  request: ManagedAgentInvocationRequest,
+  accountPolicyId: string,
+  route: ModelGatewayRoute,
+  policy: ManagedAccountAffinityPolicy,
+) {
+  if (policy.continuity === "none") return { continuity: "none" as const };
+  const hash = createHash("sha256");
+  const identity = [
+    "kiln-managed-account-affinity-v1",
+    request.requestedBy,
+    accountPolicyId,
+    route.providerId,
+    route.providerModelId,
+    route.scope,
+    policy.scope,
+    request.parentSessionId,
+    ...(policy.scope === "turn" ? [request.parentTurnId] : []),
+  ];
+  for (const value of identity) {
+    const bytes = Buffer.from(value, "utf8");
+    hash.update(`${bytes.byteLength}:`);
+    hash.update(bytes);
+    hash.update(";");
+  }
+  return {
+    continuity: policy.continuity,
+    scope: policy.scope,
+    ...(policy.allowRebind === undefined ? {} : { allowRebind: policy.allowRebind }),
+    key: createManagedAccountAffinityKey(hash.digest("hex")),
   };
 }
 

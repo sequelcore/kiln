@@ -23,8 +23,10 @@ export type {
   ManagedAccountLeaseAuthority,
   ManagedAccountLeaseAcquireInput,
   ManagedAccountLeaseAcquireResult,
+  ManagedAccountLeaseSuccessfulFinalization,
   ManagedAccountLeaseIdentity,
   ManagedAccountLeaseRecoveryInput,
+  ManagedAccountAffinityRequest,
   SqliteManagedAccountLeaseAuthorityOptions,
 } from "./managed-account-leases/managed-account-lease-authority.js";
 

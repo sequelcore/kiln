@@ -5,8 +5,30 @@ import {
   operatorEventTargetsSurface,
   presentOperatorEventPayload,
 } from "../src/operator-event-presentation.js";
+import { managedAccountLeaseEvents } from "./fixtures/managed-account-lease.js";
 
 describe("operator event presentation", () => {
+  it("presents canonical managed account affinity commit evidence", () => {
+    const completed = structuredClone(managedAccountLeaseEvents[1]);
+    const payload = completed.payload as Record<string, unknown> & {
+      managedInvocationEvidence: {
+        lifecycle: {
+          accountLease: {
+            affinityCommitOutcome?: string;
+          };
+        };
+      };
+    };
+    payload.managedInvocationEvidence.lifecycle.accountLease.affinityCommitOutcome = "conflict";
+
+    const presentation = presentOperatorEventPayload(completed.kind, completed.payload);
+
+    expect(presentation.details).toContainEqual({
+      label: "Account affinity commit",
+      value: "conflict",
+    });
+  });
+
   it("projects structured tool errors as diagnostics even when the transport reports success", () => {
     const message = "goal.create cannot combine preferredRouteId and managedAgentProfile.";
     const presentation = presentOperatorEventPayload("tool_call_completed", {
