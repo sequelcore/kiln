@@ -344,6 +344,62 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
     });
   });
 
+  it("treats a missing mapped account as existing work so explicit rebind can use reserved capacity", async () => {
+    const authority = create("owner-a");
+    const key = affinityKey("a");
+    const initial = await acquire(authority, "initial", [binding("account-a")], {
+      affinity: { continuity: "prefer", key },
+    });
+    if (initial.status !== "acquired") throw new Error("fixture");
+    authority.finalizeSuccessful(initial.identity);
+    const replacement = binding("account-b", {
+      capacity: { maxConcurrency: 2, reservedAffinitySlots: 1 },
+    });
+
+    await expect(acquire(authority, "new", [replacement])).resolves.toMatchObject({
+      status: "acquired",
+    });
+    await expect(acquire(authority, "strict", [replacement], {
+      affinity: { continuity: "prefer", key },
+    })).resolves.toMatchObject({
+      status: "unavailable",
+      affinity: {
+        outcome: "missing",
+        reason: "missing-affinity-account",
+      },
+    });
+    const rebound = await acquire(authority, "rebound", [replacement], {
+      affinity: {
+        continuity: "prefer",
+        key,
+        allowRebind: true,
+      },
+    });
+    expect(rebound).toMatchObject({
+      status: "acquired",
+      lease: {
+        accountRef: "configured:account-b",
+        selectionReason: "affinity-rebind",
+        affinityOutcome: "rebound",
+      },
+    });
+    if (rebound.status !== "acquired") throw new Error("fixture");
+    expect(authority.finalizeSuccessful(rebound.identity)).toMatchObject({
+      affinityCommitOutcome: "won",
+      lease: { lifecycleState: "released", affinityCommitOutcome: "won" },
+    });
+    await expect(acquire(authority, "required-after-rebind", [replacement], {
+      affinity: { continuity: "require", key },
+    })).resolves.toMatchObject({
+      status: "acquired",
+      lease: {
+        accountRef: "configured:account-b",
+        selectionReason: "existing-affinity",
+        affinityOutcome: "honored",
+      },
+    });
+  });
+
   it("fails closed for required affinity without a durable mapping", async () => {
     const authority = create("owner-a");
 
@@ -428,6 +484,43 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
         accountRef: "configured:account-a",
         selectionReason: "existing-affinity",
         affinityOutcome: "honored",
+      },
+    });
+  });
+
+  it("fences concurrent rebind finalization against the exact previously observed identity", async () => {
+    const authority = create("owner-a");
+    const key = affinityKey("a");
+    const initial = await acquire(authority, "initial", [binding("account-a")], {
+      affinity: { continuity: "prefer", key },
+    });
+    if (initial.status !== "acquired") throw new Error("fixture");
+    authority.finalizeSuccessful(initial.identity);
+    const accountB = binding("account-b");
+    const accountC = binding("account-c");
+    const first = await acquire(authority, "rebind-b", [accountB], {
+      affinity: { continuity: "prefer", key, allowRebind: true },
+    });
+    const second = await acquire(authority, "rebind-c", [accountC], {
+      affinity: { continuity: "prefer", key, allowRebind: true },
+    });
+    if (first.status !== "acquired" || second.status !== "acquired") throw new Error("fixture");
+
+    expect(authority.finalizeSuccessful(first.identity)).toMatchObject({
+      affinityCommitOutcome: "won",
+      lease: { accountRef: "configured:account-b", lifecycleState: "released" },
+    });
+    expect(authority.finalizeSuccessful(second.identity)).toMatchObject({
+      affinityCommitOutcome: "conflict",
+      lease: { accountRef: "configured:account-c", lifecycleState: "released" },
+    });
+    await expect(acquire(authority, "winner-check", [accountC, accountB], {
+      affinity: { continuity: "require", key },
+    })).resolves.toMatchObject({
+      status: "acquired",
+      lease: {
+        accountRef: "configured:account-b",
+        selectionReason: "existing-affinity",
       },
     });
   });

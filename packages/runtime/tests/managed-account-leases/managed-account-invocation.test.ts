@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,7 @@ import {
   type ManagedAccountAffinityPolicy,
   type ManagedAgentCapabilitySnapshot,
   type ManagedAgentInvocationRecord,
+  type CodexOAuthTokenFile,
   type ModelGatewayConfig,
   type ProviderAdapter,
 } from "@kilnai/core";
@@ -22,10 +23,8 @@ import {
 } from "../../src/agents/managed-invocation/index.js";
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import {
-  DirectProviderCredentialPoolService,
-  type DirectProviderAuth,
-} from "../../src/agents/credential-pool/direct-provider-credential-pool.js";
-import { CredentialFileStore } from "../../src/agents/credential-pool/credential-file-store.js";
+  CodexOAuthCredentialPoolService,
+} from "../../src/agents/credential-pool/codex-oauth-credential-pool.js";
 import { ConfiguredManagedAccountRuntime } from "../../src/managed-account-leases/configured-managed-account-runtime.js";
 import {
   SqliteManagedAccountLeaseAuthority,
@@ -379,39 +378,24 @@ describe("managed account invocation lifecycle", () => {
     ]);
   });
 
-  it("composes configured two-account projection through binding and never touches a second credential after selection", async () => {
+  it("keeps Codex internal retries account-bound and never touches a second credential after selection", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-account-composed-"));
     roots.push(root);
-    const credentialStore = new CredentialFileStore<DirectProviderAuth>({ rootDir: root });
+    const credentialDirectory = join(root, "codex-oauth");
+    await mkdir(credentialDirectory, { recursive: true });
     await Promise.all([
-      credentialStore.writeCredential({
-        providerId: "openai",
-        id: "credential-a",
-        label: "Synthetic A",
-        auth: { apiKey: "synthetic-a" },
-      }),
-      credentialStore.writeCredential({
-        providerId: "openai",
-        id: "credential-b",
-        label: "Synthetic B",
-        auth: { apiKey: "synthetic-b" },
-      }),
-      credentialStore.writeCredential({
-        providerId: "openai",
-        id: "unconfigured",
-        label: "Must remain excluded",
-        auth: { apiKey: "synthetic-unconfigured" },
-      }),
+      writeCodexCredential(credentialDirectory, "credential-a", codexToken("provider-account-a")),
+      writeCodexCredential(credentialDirectory, "credential-b", codexToken("provider-account-b")),
+      writeCodexCredential(credentialDirectory, "unconfigured", codexToken("provider-account-unconfigured")),
     ]);
     const configured = new ConfiguredManagedAccountRuntime({
       config: composedAccountConfig(),
       credentialRootDir: root,
-      env: {},
       now: () => new Date("2026-07-28T20:00:00.000Z"),
     });
     const projected = await configured.resolve({
-      accountPolicyId: "managed-openai",
-      providerRoute: { providerId: "openai", surface: "direct", model: "gpt-test" },
+      accountPolicyId: "managed-codex",
+      providerRoute: { providerId: "codex-oauth", surface: "direct", model: "gpt-test" },
     });
     expect(projected.candidates.map((entry) => entry.capacityIdentity)).toEqual([
       "account-b",
@@ -430,14 +414,14 @@ describe("managed account invocation lifecycle", () => {
     });
     authorities.push(authority);
     const credentialResolutions = vi.spyOn(
-      DirectProviderCredentialPoolService.prototype,
+      CodexOAuthCredentialPoolService.prototype,
       "resolveExecutionCredential",
     );
     const binds: string[] = [];
     const dispatches: string[] = [];
     const service = new RuntimeManagedAgentInvocationService({
       credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
-        allowedRouteIds: ["credential-route:openai:primary"],
+        allowedRouteIds: ["credential-route:codex-oauth:primary"],
       }),
       accountLeaseAuthority: authority,
       accountCandidatePort: configured,
@@ -445,12 +429,11 @@ describe("managed account invocation lifecycle", () => {
         bind: async ({ lease, adapter }) => {
           binds.push(lease.accountRef);
           if (lease.jobId === "managed-job-binding-failure") {
-            await credentialStore.writeCredential({
-              providerId: "openai",
-              id: "credential-a",
-              label: "Synthetic A changed",
-              auth: { apiKey: "synthetic-a-revision-changed" },
-            });
+            await writeCodexCredential(
+              credentialDirectory,
+              "credential-a",
+              codexToken("provider-account-a", "revision-changed"),
+            );
           }
           const bound = await configured.bind({ lease, adapter });
           return {
@@ -592,7 +575,7 @@ function configuredRequest(invocationId: string): ManagedAgentInvocationRequest 
     profile: "foundation-readonly-plan",
     requestedBy: "operator",
     requestSource: "managed-job",
-    providerRoute: { providerId: "openai", model: "gpt-test", surface: "direct-provider" },
+    providerRoute: { providerId: "codex-oauth", model: "gpt-test", surface: "direct-provider" },
     adapterKind: "direct",
     executionMode: "direct-provider",
     authority: {
@@ -603,8 +586,8 @@ function configuredRequest(invocationId: string): ManagedAgentInvocationRequest 
       timeoutMs: 1000,
       credentialRoute: {
         mode: "account-leased",
-        routeId: "credential-route:openai:primary",
-        accountPolicyId: "managed-openai",
+        routeId: "credential-route:codex-oauth:primary",
+        accountPolicyId: "managed-codex",
       },
       memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
     },
@@ -618,14 +601,14 @@ function composedAccountConfig(): ModelGatewayConfig {
     accounts: [
       {
         id: "account-a",
-        providerId: "openai",
+        providerId: "codex-oauth",
         credentialId: "credential-a",
         maxConcurrency: 1,
         reservedAffinitySlots: 0,
       },
       {
         id: "account-b",
-        providerId: "openai",
+        providerId: "codex-oauth",
         credentialId: "credential-b",
         maxConcurrency: 1,
         reservedAffinitySlots: 0,
@@ -635,8 +618,8 @@ function composedAccountConfig(): ModelGatewayConfig {
     surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
     principals: [],
     virtualModels: [{
-      id: "managed-openai",
-      providerId: "openai",
+      id: "managed-codex",
+      providerId: "codex-oauth",
       providerModelId: "gpt-test",
       accountIds: ["account-b", "account-a"],
       capabilities: ["text"],
@@ -656,12 +639,37 @@ function directTemplate(): ManagedDirectProviderRuntimeAdapter {
     },
   };
   return new ManagedDirectProviderRuntimeAdapter({
-    providerId: "openai",
+    providerId: "codex-oauth",
     model: "gpt-test",
     provider,
     tools: [],
     builtinTools: new Map(),
   });
+}
+
+function codexToken(accountId: string, revision = "initial"): CodexOAuthTokenFile {
+  const payload = Buffer.from(JSON.stringify({
+    exp: 4_070_908_800,
+    "https://api.openai.com/auth": { chatgpt_account_id: accountId },
+  })).toString("base64url");
+  return {
+    access_token: `header.${payload}.signature-${revision}`,
+    refresh_token: `synthetic-refresh-${revision}`,
+    expires_at: "2099-01-01T00:00:00.000Z",
+    client_id: "synthetic-client",
+  };
+}
+
+async function writeCodexCredential(
+  directory: string,
+  credentialId: string,
+  token: CodexOAuthTokenFile,
+): Promise<void> {
+  await writeFile(
+    join(directory, `${credentialId}.json`),
+    `${JSON.stringify(token)}\n`,
+    "utf8",
+  );
 }
 
 function candidate(

@@ -1353,6 +1353,7 @@ function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvo
     || !jobId || !runtimeInvocationId || !credentialRevisionId || !/^[a-f0-9]{64}$/u.test(credentialRevisionId)
     || !selectionReason || !candidateRejections || !acquiredAt || !lifecycleState || !resourceUris || !diagnosticUris
     || affinityCommitOutcome === null
+    || (affinityCommitOutcome !== undefined && lifecycleState !== "released")
   ) {
     return null;
   }

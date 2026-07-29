@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   createAccountPolicyId,
   createAccountRef,
@@ -8,6 +8,7 @@ import {
   defineModelGatewayAccountRejection,
   selectModelGatewayAccount,
   type AccountPolicyId,
+  type AccountRef,
   type ManagedAccountAffinityCommitOutcome,
   type ManagedAccountAffinityKey,
   type ManagedAccountAffinityPolicy,
@@ -255,9 +256,8 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
       if (binding === undefined) throw new Error("Selected managed account binding is unavailable.");
       const leaseId = randomUUID();
       const acquiredAt = new Date(this.#now()).toISOString();
-      const selectionWasFallbackRebind = affinity.fallbackRebind;
-      const affinityOutcome = selectionWasFallbackRebind ? "rebound" : selection.affinity?.outcome;
-      const selectionReason = selectionWasFallbackRebind ? "affinity-rebind" : selection.selected.reason;
+      const affinityOutcome = selection.affinity?.outcome;
+      const selectionReason = selection.selected.reason;
       const resourceUris = [`kiln://managed-accounts/leases/${encodeURIComponent(leaseId)}`];
       this.#db.query(`
         INSERT INTO account_leases (
@@ -486,7 +486,6 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
       readonly expectedCapacityIdentity: string | null;
       readonly accountAffinity?: ModelGatewayAffinity;
       readonly allowRebind: boolean;
-      readonly fallbackRebind: boolean;
     }
     | {
       readonly status: "unavailable";
@@ -498,7 +497,6 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
         work: "new",
         expectedCapacityIdentity: null,
         allowRebind: false,
-        fallbackRebind: false,
       };
     }
 
@@ -524,29 +522,22 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
         key,
         expectedCapacityIdentity: null,
         allowRebind: false,
-        fallbackRebind: false,
       };
     }
 
     const binding = input.candidates.find((candidate) =>
       candidate.capacityIdentity === affinity.capacity_identity);
     if (!binding) {
-      if (input.affinityRequest.allowRebind !== true) {
-        return {
-          status: "unavailable",
-          result: {
-            status: "unavailable",
-            rejections: [],
-          },
-        };
-      }
       return {
         status: "ready",
-        work: "new",
+        work: "existing",
         key,
         expectedCapacityIdentity: affinity.capacity_identity,
-        allowRebind: true,
-        fallbackRebind: true,
+        accountAffinity: {
+          account: missingAffinityAccountRef(affinity.capacity_identity),
+          route: input.route,
+        },
+        allowRebind: input.affinityRequest.allowRebind === true,
       };
     }
 
@@ -560,7 +551,6 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
         route: input.route,
       },
       allowRebind: input.affinityRequest.allowRebind === true,
-      fallbackRebind: false,
     };
   }
 
@@ -703,6 +693,14 @@ function validateAcquireInput(input: ManagedAccountLeaseAcquireInput): void {
     }
     accounts.add(binding.candidate.account);
   }
+}
+
+function missingAffinityAccountRef(capacityIdentity: string): AccountRef {
+  const digest = createHash("sha256")
+    .update("kiln-missing-managed-account-affinity-v1:")
+    .update(capacityIdentity)
+    .digest("hex");
+  return createAccountRef(`configured:missing-affinity:${digest}`);
 }
 
 function validateCandidateBinding(binding: ManagedAccountCandidateBinding): void {

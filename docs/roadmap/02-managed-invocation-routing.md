@@ -64,6 +64,9 @@ recovery, revision-stable capacity, and absence of cross-account retry.
 Successful release and affinity CAS are one authority transaction, with
 `won`, `already-matched`, or `conflict` retained in V4 status, result, history,
 replay, and operator projections.
+The account-scoped retry proof constructs the selected Codex adapter with its
+bounded same-credential retries enabled while asserting zero materialization,
+binding, adapter construction, or dispatch through the other account.
 
 The proof is portable and network-free. It establishes managed-path guarantees
 only and does not restore or mutate operator Codex configuration.
