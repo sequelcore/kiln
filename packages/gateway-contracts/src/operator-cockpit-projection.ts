@@ -326,6 +326,15 @@ export interface OperatorCockpitInvocationAccountLeaseProjection {
     readonly accountRef: string;
     readonly reason: string;
   }[];
+  readonly usageEvidence?: {
+    readonly health: "healthy" | "unhealthy";
+    readonly freshness: "fresh" | "stale" | "missing";
+    readonly availability?: "available" | "exhausted" | "unknown";
+    readonly observedAt?: string;
+    readonly validUntil?: string;
+    readonly source?: "provider-endpoint" | "provider-response-headers" | "unknown";
+    readonly confidence?: "authoritative" | "unknown";
+  };
   readonly affinityOutcome?: string;
   readonly affinityCommitOutcome?: "won" | "already-matched" | "conflict";
   readonly acquiredAt: string;
@@ -1343,6 +1352,7 @@ function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvo
   const credentialRevisionId = readString(lease.credentialRevisionId);
   const selectionReason = readString(lease.selectionReason);
   const candidateRejections = readAccountLeaseCandidateRejections(lease.candidateRejections);
+  const usageEvidence = readAccountLeaseUsageEvidence(lease.usageEvidence);
   const acquiredAt = readString(lease.acquiredAt);
   const lifecycleState = readAccountLeaseLifecycleState(lease.lifecycleState);
   const affinityCommitOutcome = readAccountAffinityCommitOutcome(lease.affinityCommitOutcome);
@@ -1352,6 +1362,7 @@ function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvo
     !leaseId || !accountPolicyId || !accountRef || !providerId || !providerModelId || !scope
     || !jobId || !runtimeInvocationId || !credentialRevisionId || !/^[a-f0-9]{64}$/u.test(credentialRevisionId)
     || !selectionReason || !candidateRejections || !acquiredAt || !lifecycleState || !resourceUris || !diagnosticUris
+    || usageEvidence === null
     || affinityCommitOutcome === null
     || (affinityCommitOutcome !== undefined && lifecycleState !== "released")
   ) {
@@ -1369,6 +1380,7 @@ function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvo
     credentialRevisionId,
     selectionReason,
     candidateRejections,
+    ...(usageEvidence !== undefined ? { usageEvidence } : {}),
     ...(readString(lease.affinityOutcome) ? { affinityOutcome: readString(lease.affinityOutcome)! } : {}),
     ...(affinityCommitOutcome !== undefined ? { affinityCommitOutcome } : {}),
     acquiredAt,
@@ -1377,6 +1389,45 @@ function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvo
     resourceUris,
     diagnosticUris,
   };
+}
+
+function readAccountLeaseUsageEvidence(
+  value: unknown,
+): OperatorCockpitInvocationAccountLeaseProjection["usageEvidence"] | null {
+  if (value === undefined) return undefined;
+  const usage = asRecord(value);
+  const health = usage.health;
+  const freshness = usage.freshness;
+  if (
+    (health !== "healthy" && health !== "unhealthy")
+    || (freshness !== "fresh" && freshness !== "stale" && freshness !== "missing")
+  ) {
+    return null;
+  }
+  if (freshness === "missing") {
+    return health === "healthy" && Object.keys(usage).length === 2
+      ? { health, freshness }
+      : null;
+  }
+  const availability = usage.availability;
+  const observedAt = readString(usage.observedAt);
+  const validUntil = readString(usage.validUntil);
+  const source = usage.source;
+  const confidence = usage.confidence;
+  if (
+    (availability !== "available" && availability !== "exhausted" && availability !== "unknown")
+    || !observedAt
+    || !validUntil
+    || !Number.isFinite(Date.parse(observedAt))
+    || !Number.isFinite(Date.parse(validUntil))
+    || Date.parse(validUntil) < Date.parse(observedAt)
+    || (source !== "provider-endpoint" && source !== "provider-response-headers" && source !== "unknown")
+    || (confidence !== "authoritative" && confidence !== "unknown")
+    || health !== (freshness === "fresh" && availability === "exhausted" ? "unhealthy" : "healthy")
+  ) {
+    return null;
+  }
+  return { health, freshness, availability, observedAt, validUntil, source, confidence };
 }
 
 function readAccountLeaseCandidateRejections(

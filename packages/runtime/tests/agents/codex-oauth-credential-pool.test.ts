@@ -122,6 +122,29 @@ describe("CodexOAuthCredentialPoolService", () => {
     expect(health).not.toEqual(expect.arrayContaining([expect.objectContaining({ credentialId: "work" })]));
   });
 
+  it("refreshes usage only for explicitly scoped credentials", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "policy-a", tokenFile: accountToken("account-a") });
+    await service.linkCredential({ id: "policy-b", tokenFile: accountToken("account-b") });
+    await service.linkCredential({ id: "outside-policy", tokenFile: accountToken("account-c") });
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      plan_type: "plus",
+      rate_limit: {
+        allowed: true,
+        limit_reached: false,
+        primary_window: { used_percent: 20, reset_at: 4_070_908_800 },
+      },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+
+    const usage = await service.refreshUsageForCredentials(["policy-a", "policy-b"]);
+
+    expect(usage.map((entry) => entry.credentialId)).toEqual(["policy-a", "policy-b"]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect((await service.listUsage()).map((entry) => entry.credentialId))
+      .toEqual(["policy-a", "policy-b"]);
+  });
+
   it("refreshes and persists only an expired selected credential", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "expired", tokenFile: accountToken("account-a", { expires_at: "2020-01-01T00:00:00.000Z" }) });

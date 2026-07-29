@@ -246,6 +246,8 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[0]?.[0]).toContain(`Account lease: ${MANAGED_ACCOUNT_LEASE_FIXTURE.leaseId}`);
     expect(log.mock.calls[0]?.[0]).toContain(`Account policy: ${MANAGED_ACCOUNT_LEASE_FIXTURE.accountPolicyId}`);
     expect(log.mock.calls[0]?.[0]).toContain(`Account selection: ${MANAGED_ACCOUNT_LEASE_FIXTURE.selectionReason}`);
+    expect(log.mock.calls[0]?.[0]).toContain("Account usage: fresh | available");
+    expect(log.mock.calls[0]?.[0]).toContain("Account usage observed: 2026-07-28T11:58:00.000Z");
     expect(log.mock.calls[0]?.[0]).toContain(`Account lease state: ${MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState}`);
   });
 

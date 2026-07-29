@@ -11,6 +11,7 @@ export {
   ConfiguredManagedAccountRuntime,
 } from "./managed-account-leases/configured-managed-account-runtime.js";
 export type {
+  ConfiguredManagedCodexAccountPool,
   ConfiguredManagedAccountRuntimeOptions,
 } from "./managed-account-leases/configured-managed-account-runtime.js";
 export {

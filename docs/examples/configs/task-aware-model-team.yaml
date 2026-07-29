@@ -50,6 +50,114 @@ models:
   codex-oauth: gpt-5.6-terra
   opencode-go: minimax-m2.7
   opencode-zen: minimax-m2.5-free
+modelGateway:
+  port: 4819
+  accounts:
+    - id: codex-subscription
+      providerId: codex-oauth
+      credentialId: codex-subscription
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+    - id: opencode-go-subscription
+      providerId: opencode-go
+      credentialId: opencode-go-subscription
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+    - id: opencode-zen-api
+      providerId: opencode-zen
+      credentialId: opencode-zen-api
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+  replay:
+    ttlMs: 300000
+    maxEntries: 1000
+    hmacKeyEnv: KILN_MODEL_GATEWAY_REPLAY_HMAC_KEY
+  surfaces:
+    openAIResponses:
+      maxBodyBytes: 1048576
+      maxConcurrentRequests: 8
+  principals:
+    - tokenEnv: KILN_MODEL_GATEWAY_BEARER_TOKEN
+      ingress: openai-responses
+      tenantId: example-team
+      applicationId: example-client
+      callerId: example-operator
+      capabilityId: model-invoke
+      scopes:
+        - model.invoke
+      budgetEvidenceId: example-subscription-budget
+      virtualModelIds:
+        - managed-codex-luna
+        - managed-codex-sol
+        - managed-opencode-go-kimi
+        - managed-opencode-go-glm
+        - managed-opencode-go-deepseek-pro
+        - managed-opencode-go-qwen
+        - managed-opencode-go-deepseek-flash
+        - managed-opencode-go-minimax
+        - managed-opencode-zen-deepseek-flash
+        - managed-opencode-zen-minimax
+  virtualModels:
+    - id: managed-codex-luna
+      providerId: codex-oauth
+      providerModelId: gpt-5.6-luna
+      accountIds: [codex-subscription]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-codex-sol
+      providerId: codex-oauth
+      providerModelId: gpt-5.6
+      accountIds: [codex-subscription]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-opencode-go-kimi
+      providerId: opencode-go
+      providerModelId: kimi-k2.6
+      accountIds: [opencode-go-subscription]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-opencode-go-glm
+      providerId: opencode-go
+      providerModelId: glm-5.1
+      accountIds: [opencode-go-subscription]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-opencode-go-deepseek-pro
+      providerId: opencode-go
+      providerModelId: deepseek-v4-pro
+      accountIds: [opencode-go-subscription]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-opencode-go-qwen
+      providerId: opencode-go
+      providerModelId: qwen3.6-plus
+      accountIds: [opencode-go-subscription]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-opencode-go-deepseek-flash
+      providerId: opencode-go
+      providerModelId: deepseek-v4-flash
+      accountIds: [opencode-go-subscription]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-opencode-go-minimax
+      providerId: opencode-go
+      providerModelId: minimax-m2.7
+      accountIds: [opencode-go-subscription]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-opencode-zen-deepseek-flash
+      providerId: opencode-zen
+      providerModelId: deepseek-v4-flash-free
+      accountIds: [opencode-zen-api]
+      capabilities: [text]
+      affinity: { continuity: none }
+    - id: managed-opencode-zen-minimax
+      providerId: opencode-zen
+      providerModelId: minimax-m2.5-free
+      accountIds: [opencode-zen-api]
+      capabilities: [text]
+      affinity: { continuity: none }
 reasoningPolicy:
   default: medium
   unsupported: omit
@@ -152,6 +260,7 @@ managedAgents:
         access: read-only
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-codex-luna
     - id: codex-oauth-critical-approved-write
       kind: direct
       provider: codex-oauth
@@ -175,6 +284,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-codex-sol
       writeAuthority:
         workspace:
           mode: apply-approved
@@ -209,6 +319,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-go-kimi
       writeAuthority:
         workspace:
           mode: apply-approved
@@ -243,6 +354,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-go-glm
       writeAuthority:
         workspace:
           mode: apply-approved
@@ -277,6 +389,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-go-deepseek-pro
       writeAuthority:
         workspace:
           mode: apply-approved
@@ -311,6 +424,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-go-qwen
       writeAuthority:
         workspace:
           mode: apply-approved
@@ -345,6 +459,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-go-deepseek-flash
       writeAuthority:
         workspace:
           mode: apply-approved
@@ -379,6 +494,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-go-minimax
       writeAuthority:
         workspace:
           mode: apply-approved
@@ -413,6 +529,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-zen-deepseek-flash
       writeAuthority:
         workspace:
           mode: apply-approved
@@ -447,6 +564,7 @@ managedAgents:
         access: write-proposals
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-zen-minimax
       writeAuthority:
         workspace:
           mode: apply-approved

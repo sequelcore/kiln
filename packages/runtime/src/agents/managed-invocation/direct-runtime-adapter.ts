@@ -497,6 +497,18 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   }
 }
 
+export interface ManagedDirectProviderBindingAdapter extends ManagedAgentRuntimeAdapter {
+  bindProvider(provider: ProviderAdapter): ManagedAgentRuntimeAdapter;
+}
+
+export function isManagedDirectProviderBindingAdapter(
+  adapter: ManagedAgentRuntimeAdapter,
+): adapter is ManagedDirectProviderBindingAdapter {
+  return adapter.descriptor.adapterKind === "direct"
+    && adapter.descriptor.supportedExecutionModes.includes("direct-provider")
+    && typeof Reflect.get(adapter, "bindProvider") === "function";
+}
+
 function createManagedHandoffSubmission(): {
   readonly tool: ToolDefinition;
   readonly execute: RuntimeBuiltinToolExecutor;

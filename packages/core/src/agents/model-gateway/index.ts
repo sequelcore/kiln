@@ -2,6 +2,11 @@ import {
   isSameProviderModelRoute,
   type ProviderModelRouteIdentity,
 } from "../provider-model-evidence.js";
+import type {
+  ProviderUsageAvailability,
+  ProviderUsageConfidence,
+  ProviderUsageSource,
+} from "../provider-usage.js";
 
 export {
   dispatchModelGatewayOneRound,
@@ -63,6 +68,72 @@ export interface ModelGatewayAffinity {
 }
 
 export type ModelGatewayAccountHealth = "healthy" | "unhealthy";
+
+export interface ModelGatewayAccountUsageEvidence {
+  readonly health: ModelGatewayAccountHealth;
+  readonly freshness: "fresh" | "stale" | "missing";
+  readonly availability?: ProviderUsageAvailability;
+  readonly observedAt?: string;
+  readonly validUntil?: string;
+  readonly source?: ProviderUsageSource;
+  readonly confidence?: ProviderUsageConfidence;
+}
+
+export function defineModelGatewayAccountUsageEvidence(
+  input: ModelGatewayAccountUsageEvidence,
+): ModelGatewayAccountUsageEvidence {
+  if (input.health !== "healthy" && input.health !== "unhealthy") {
+    throw new TypeError("Model Gateway account usage health is invalid.");
+  }
+  if (!["fresh", "stale", "missing"].includes(input.freshness)) {
+    throw new TypeError("Model Gateway account usage freshness is invalid.");
+  }
+  if (input.freshness === "missing") {
+    if (
+      input.health !== "healthy"
+      || input.availability !== undefined
+      || input.observedAt !== undefined
+      || input.validUntil !== undefined
+      || input.source !== undefined
+      || input.confidence !== undefined
+    ) {
+      throw new TypeError("Missing Model Gateway usage evidence cannot contain an observation.");
+    }
+    return Object.freeze({ health: "healthy", freshness: "missing" });
+  }
+  if (
+    input.availability === undefined
+    || !["available", "exhausted", "unknown"].includes(input.availability)
+    || input.observedAt === undefined
+    || input.validUntil === undefined
+    || input.source === undefined
+    || !["provider-endpoint", "provider-response-headers", "unknown"].includes(input.source)
+    || input.confidence === undefined
+    || !["authoritative", "unknown"].includes(input.confidence)
+  ) {
+    throw new TypeError("Observed Model Gateway usage evidence is incomplete.");
+  }
+  const observedAt = Date.parse(input.observedAt);
+  const validUntil = Date.parse(input.validUntil);
+  if (!Number.isFinite(observedAt) || !Number.isFinite(validUntil) || validUntil < observedAt) {
+    throw new TypeError("Observed Model Gateway usage timestamps are invalid.");
+  }
+  const expectedHealth = input.freshness === "fresh" && input.availability === "exhausted"
+    ? "unhealthy"
+    : "healthy";
+  if (input.health !== expectedHealth) {
+    throw new TypeError("Model Gateway usage health contradicts freshness and availability.");
+  }
+  return Object.freeze({
+    health: input.health,
+    freshness: input.freshness,
+    availability: input.availability,
+    observedAt: input.observedAt,
+    validUntil: input.validUntil,
+    source: input.source,
+    confidence: input.confidence,
+  });
+}
 
 export interface ModelGatewayAccountCandidate {
   readonly account: AccountRef;

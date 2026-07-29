@@ -13,11 +13,17 @@ import {
   defineManagedAgentWriteEvidence,
   defineManagedAgentWriteScope,
 } from "@kilnai/core";
+import {
+  normalizeManagedAgentOperatorReplayEvents,
+  projectOperatorCockpitReadOnlyView,
+} from "@kilnai/gateway-contracts";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
+  appendManagedInvocationRuntimeFailureSessionEvent,
   appendManagedInvocationSessionEvents,
   appendManagedInvocationStartSessionEvents,
 } from "../../src/agents/managed-invocation/session-events.js";
+import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 
 function makeSession(sessionId = "session-parent"): RuntimeSession {
   return new RuntimeSession({
@@ -595,7 +601,7 @@ describe("appendManagedInvocationSessionEvents", () => {
           createdAt: "2026-05-07T08:00:00.000Z",
           healthStatus: "healthy",
           cleanupStatus: "not-required",
-          workingDirectoryPath: "C:/workspace/kiln",
+          workingDirectoryPath: ".",
           workingDirectoryMode: "read-only",
           resourceUris: ["kiln://session/work-items/work-source"],
           diagnosticUris: [],
@@ -607,8 +613,261 @@ describe("appendManagedInvocationSessionEvents", () => {
       },
     });
     expect((evidence?.lifecycle as { resourceLease?: unknown }).resourceLease)
-      .toEqual(record.capabilitySnapshot.resourceLease);
+      .toEqual({
+        ...record.capabilitySnapshot.resourceLease,
+        workingDirectoryPath: ".",
+      });
+    expect(JSON.stringify(events)).not.toContain("C:/workspace/kiln");
     expect(JSON.stringify(events)).not.toContain("FULL_REPLAY_TAIL_SHOULD_NOT_INLINE");
+  });
+
+  it("projects managed account usage through the canonical gateway replay envelope", () => {
+    const session = makeSession();
+    const request = makeRequest(session.id, `${session.id}:turn:1`);
+    const record = defineManagedAgentInvocationRecord({
+      ...makeRecord("completed"),
+      parentSessionId: request.parentSessionId,
+      parentTurnId: request.parentTurnId,
+      accountLease: {
+        leaseId: "lease-account-a",
+        accountPolicyId: "managed-opencode",
+        accountRef: "configured:account-a",
+        route: {
+          providerId: "opencode",
+          providerModelId: "sonic",
+          scope: "virtual:managed-opencode",
+        },
+        jobId: request.invocationId,
+        runtimeInvocationId: request.invocationId,
+        credentialRevisionId: "a".repeat(64),
+        selectionReason: "least-pressure",
+        candidateRejections: [],
+        usageEvidence: {
+          health: "healthy",
+          freshness: "fresh",
+          availability: "available",
+          observedAt: "2026-05-03T09:59:00.000Z",
+          validUntil: "2026-05-03T10:04:00.000Z",
+          source: "provider-endpoint",
+          confidence: "authoritative",
+        },
+        acquiredAt: "2026-05-03T10:00:00.000Z",
+        lifecycleState: "released",
+        releasedAt: "2026-05-03T10:00:05.000Z",
+        resourceUris: ["kiln://managed-accounts/leases/lease-account-a"],
+        diagnosticUris: [],
+      },
+    });
+    const events = appendManagedInvocationSessionEvents({
+      session,
+      request,
+      decision: makeDecision("admitted"),
+      record,
+      timestamp: new Date("2026-05-03T10:00:05.000Z"),
+    });
+    const replayed = normalizeManagedAgentOperatorReplayEvents(events.map((event) =>
+      toOperatorSessionEventFrame(event, {
+        eventId: event.eventId,
+        sequence: event.sequence,
+        instanceId: "local-test",
+      }).event), {
+      defaultInstanceId: "local-test",
+    });
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-05-03T10:00:06.000Z",
+      attachTargets: [{
+        instanceId: "local-test",
+        label: "Local test",
+        kind: "local",
+      }],
+      events: replayed,
+    });
+
+    expect(projection.invocations).toContainEqual(expect.objectContaining({
+      managedInvocationId: request.invocationId,
+      accountLease: expect.objectContaining({
+        accountPolicyId: "managed-opencode",
+        accountRef: "configured:account-a",
+        lifecycleState: "released",
+        usageEvidence: expect.objectContaining({
+          freshness: "fresh",
+          availability: "available",
+        }),
+      }),
+    }));
+  });
+
+  it.each([
+    {
+      name: "Windows drive",
+      workspaceRoot: "C:\\workspace\\kiln",
+      descendant: "C:/workspace\\kiln/packages/runtime",
+      sibling: "C:\\workspace\\kiln-other",
+      expectedRelative: "packages/runtime",
+    },
+    {
+      name: "extended Windows drive",
+      workspaceRoot: "\\\\?\\C:\\workspace\\kiln",
+      descendant: "C:/workspace/kiln/packages/runtime",
+      sibling: "C:/workspace/kiln-other",
+      expectedRelative: "packages/runtime",
+    },
+    {
+      name: "Windows trailing separator",
+      workspaceRoot: "C:\\workspace\\kiln\\",
+      descendant: "C:/workspace/kiln/packages/runtime",
+      sibling: "C:/workspace/kiln-other",
+      expectedRelative: "packages/runtime",
+    },
+    {
+      name: "Windows UNC",
+      workspaceRoot: "\\\\server\\share\\kiln",
+      descendant: "//server/share\\kiln/packages/runtime",
+      sibling: "//server/share/kiln-other",
+      expectedRelative: "packages/runtime",
+    },
+    {
+      name: "extended Windows UNC",
+      workspaceRoot: "\\\\?\\UNC\\server\\share\\kiln",
+      descendant: "//server/share/kiln/packages/runtime",
+      sibling: "//server/share/kiln-other",
+      expectedRelative: "packages/runtime",
+    },
+    {
+      name: "POSIX",
+      workspaceRoot: "/srv/workspace/kiln",
+      descendant: "/srv/workspace/kiln/packages/runtime",
+      sibling: "/srv/workspace/kiln-other",
+      expectedRelative: "packages/runtime",
+    },
+  ])("redacts $name workspace references independently of the host path dialect", ({
+    workspaceRoot,
+    descendant,
+    sibling,
+    expectedRelative,
+  }) => {
+    const session = makeSession(`session-path-${workspaceRoot.length}`);
+    const baseRequest = makeRequest(session.id, `${session.id}:turn:1`);
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      authority: {
+        ...baseRequest.authority,
+        workingDirectory: {
+          ...baseRequest.authority.workingDirectory,
+          path: workspaceRoot,
+        },
+        readAuthority: {
+          workspace: {
+            allowedPaths: [descendant],
+            deniedPaths: [],
+          },
+        },
+      },
+      input: {
+        ...baseRequest.input,
+        summary: `Inspect ${descendant}; retain sibling ${sibling}.`,
+      },
+    });
+    const [event] = appendManagedInvocationRuntimeFailureSessionEvent({
+      session,
+      request,
+      decision: makeAdmittedDecision(request) as Extract<
+        ManagedAgentAdmissionDecision,
+        { readonly status: "admitted" }
+      >,
+      errorMessage: [
+        `Provider failed at ${descendant};`,
+        `colon:${descendant};`,
+        `arrow=>${descendant};`,
+        `sibling ${sibling} is unrelated;`,
+        "regex \\d+ and D:\\other\\path remain.",
+      ].join(" "),
+      timestamp: new Date("2026-05-03T10:00:05.000Z"),
+    });
+    const errorMessage = (event as { readonly errorMessage: string }).errorMessage;
+    expect(errorMessage).toContain(`Provider failed at ./${expectedRelative};`);
+    expect(errorMessage).toContain(`colon:./${expectedRelative};`);
+    expect(errorMessage).toContain(`arrow=>./${expectedRelative};`);
+    expect(errorMessage).toContain(sibling);
+    expect(errorMessage).toContain("regex \\d+ and D:\\other\\path remain.");
+    expect(
+      (event as {
+        readonly capabilitySnapshot: {
+          readonly authorityProfile?: {
+            readonly readAuthority?: {
+              readonly workspace: { readonly allowedPaths: readonly string[] };
+            };
+          };
+        };
+      }).capabilitySnapshot.authorityProfile?.readAuthority?.workspace.allowedPaths,
+    ).toEqual([expectedRelative]);
+  });
+
+  it("redacts workspace roots before Markdown and URI delimiters", () => {
+    const session = makeSession("session-path-delimiters");
+    const request = makeRequest(session.id, `${session.id}:turn:1`);
+    const [event] = appendManagedInvocationRuntimeFailureSessionEvent({
+      session,
+      request,
+      decision: makeAdmittedDecision(request) as Extract<
+        ManagedAgentAdmissionDecision,
+        { readonly status: "admitted" }
+      >,
+      errorMessage: [
+        "Markdown `C:/workspace/kiln`.",
+        "URI file:///C:/workspace/kiln#diagnostic.",
+        "Sentence C:/workspace/kiln.)",
+        "Sibling C:/workspace/kiln-other.",
+      ].join(" "),
+      timestamp: new Date("2026-05-03T10:00:05.000Z"),
+    });
+    const errorMessage = (event as { readonly errorMessage: string }).errorMessage;
+
+    expect(errorMessage).not.toContain("`C:/workspace/kiln`");
+    expect(errorMessage).not.toContain("C:/workspace/kiln#diagnostic");
+    expect(errorMessage).not.toContain("C:/workspace/kiln.)");
+    expect(errorMessage).toContain("Sibling C:/workspace/kiln-other.");
+  });
+
+  it("redacts workspace roots from summaries, resource URIs, and write evidence", () => {
+    const workspaceRoot = "C:\\workspace\\kiln";
+    const session = makeSession("session-durable-path-fields");
+    const baseRequest = makeWriteRequest(session.id, `${session.id}:turn:1`);
+    const request = defineManagedAgentInvocationRequest({
+      ...baseRequest,
+      input: {
+        ...baseRequest.input,
+        summary: "Inspect C:/workspace/kiln/packages/runtime.",
+      },
+    });
+    const baseRecord = makeWriteRecord(request);
+    const record = defineManagedAgentInvocationRecord({
+      ...baseRecord,
+      resultHandoff: {
+        ...baseRecord.resultHandoff!,
+        summary: "Completed C:\\workspace\\kiln\\packages\\runtime.",
+        resourceUris: ["file:///C:/workspace/kiln/result.md"],
+      },
+      writeEvidence: baseRecord.writeEvidence?.map((evidence) => ({
+        ...evidence,
+        summary: `${evidence.summary} at C:/workspace/kiln/packages/runtime.`,
+        resourceUris: ["file:///C:/workspace/kiln/write-evidence.json"],
+      })),
+    });
+    const events = appendManagedInvocationSessionEvents({
+      session,
+      request,
+      decision: makeWriteDecision("admitted", request),
+      record,
+      timestamp: new Date("2026-05-04T19:42:00.000Z"),
+    });
+    const serialized = JSON.stringify(events);
+
+    expect(serialized.toLowerCase()).not.toContain(workspaceRoot.replaceAll("\\", "/").toLowerCase());
+    expect(serialized).toContain("./packages/runtime");
+    expect(serialized).toContain("file:///./result.md");
+    expect(serialized).toContain("file:///./write-evidence.json");
   });
 
   it("maps terminal resource lease evidence without rewriting the admitted snapshot", () => {
@@ -639,7 +898,10 @@ describe("appendManagedInvocationSessionEvents", () => {
     const evidence = (events[2] as { managedInvocationEvidence?: Record<string, unknown> }).managedInvocationEvidence;
 
     expect(record.capabilitySnapshot.resourceLease.cleanupStatus).toBe("not-required");
-    expect((evidence?.lifecycle as { resourceLease?: unknown }).resourceLease).toEqual(terminalLease);
+    expect((evidence?.lifecycle as { resourceLease?: unknown }).resourceLease).toEqual({
+      ...terminalLease,
+      workingDirectoryPath: ".kiln/worktrees/invocation-1",
+    });
   });
 
   it("maps cancellation and timeout/failure terminals to canonical events", () => {
@@ -728,7 +990,7 @@ describe("appendManagedInvocationSessionEvents", () => {
         scope: {
           workspace: {
             mode: "propose",
-            allowedPaths: ["C:/workspace/kiln/packages/core/src/agents/managed-invocation"],
+            allowedPaths: ["packages/core/src/agents/managed-invocation"],
           },
           memory: {
             mode: "propose",
@@ -755,6 +1017,7 @@ describe("appendManagedInvocationSessionEvents", () => {
         },
       ],
     });
+    expect(JSON.stringify(events)).not.toContain("C:/workspace/kiln");
   });
 
   it("projects denied write authority as replayable failure evidence", () => {
@@ -804,7 +1067,11 @@ describe("appendManagedInvocationSessionEvents", () => {
       status: "denied",
       invocationId: request.invocationId,
       profile: request.profile,
-      reason: "Managed agent same-checkout parallel write conflict: active-write already holds C:/workspace/kiln",
+      reason: [
+        "Managed agent same-checkout parallel write conflict:",
+        "active-write already holds C:/workspace/kiln.",
+        "Sibling C:/workspace/kiln-other remains unrelated.",
+      ].join(" "),
       missingCapabilities: ["resourceLease.worktreeConflict"],
       resourceLease: {
         leaseId: `${request.invocationId}:resource-lease`,
@@ -857,6 +1124,9 @@ describe("appendManagedInvocationSessionEvents", () => {
         },
       },
     });
+    const errorMessage = (events[1] as { readonly errorMessage: string }).errorMessage;
+    expect(errorMessage).not.toContain("holds C:/workspace/kiln.");
+    expect(errorMessage).toContain("Sibling C:/workspace/kiln-other remains unrelated.");
   });
 
   it("replays a failed attempt and its recovery attempt in stable order without rewriting the original failure", () => {

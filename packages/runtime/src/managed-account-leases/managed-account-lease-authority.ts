@@ -6,6 +6,7 @@ import {
   createManagedAccountAffinityKey,
   defineManagedAccountLeaseEvidence,
   defineModelGatewayAccountRejection,
+  defineModelGatewayAccountUsageEvidence,
   selectModelGatewayAccount,
   type AccountPolicyId,
   type AccountRef,
@@ -132,6 +133,7 @@ type LeaseRow = {
   released_at: string | null;
   selection_reason: ManagedAccountLeaseEvidence["selectionReason"];
   candidate_rejections: string;
+  usage_evidence: string;
   affinity_outcome: ManagedAccountLeaseEvidence["affinityOutcome"] | null;
   purpose: "new" | "affinity";
   resource_uris: string;
@@ -195,6 +197,7 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
           released_at TEXT,
           selection_reason TEXT NOT NULL,
           candidate_rejections TEXT NOT NULL,
+          usage_evidence TEXT NOT NULL,
           affinity_outcome TEXT,
           purpose TEXT NOT NULL,
           resource_uris TEXT NOT NULL,
@@ -210,7 +213,7 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
           updated_at TEXT NOT NULL
         );
       `);
-      this.#migrateSliceOneSchema();
+      this.#migrateLeaseSchema();
       this.#claimOwner();
     } catch (error) {
       this.#db.close();
@@ -264,10 +267,10 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
           lease_id, account_policy_id, account_ref, capacity_identity, provider_id, model_id,
           route_scope, job_id, runtime_invocation_id, credential_revision_id,
           owner_id, acquired_at, lifecycle_state, released_at, selection_reason,
-          candidate_rejections, affinity_outcome, purpose, resource_uris,
+          candidate_rejections, usage_evidence, affinity_outcome, purpose, resource_uris,
           diagnostic_uris, affinity_key, affinity_expected_capacity_identity,
           affinity_commit_outcome
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(
         leaseId,
         input.accountPolicyId,
@@ -285,6 +288,7 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
         null,
         selectionReason,
         JSON.stringify(selection.rejections),
+        JSON.stringify(defineModelGatewayAccountUsageEvidence(binding.usageEvidence)),
         affinityOutcome ?? null,
         affinity.work === "existing" ? "affinity" : "new",
         JSON.stringify(resourceUris),
@@ -627,7 +631,7 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
     `).all(...CAPACITY_CONSUMING_STATES);
   }
 
-  #migrateSliceOneSchema(): void {
+  #migrateLeaseSchema(): void {
     this.#db.transaction(() => {
       const columns = new Set(
         this.#db.query<{ name: string }, []>("PRAGMA table_info(account_leases)").all()
@@ -643,6 +647,12 @@ export class SqliteManagedAccountLeaseAuthority implements ManagedAccountLeaseAu
       }
       if (!columns.has("affinity_commit_outcome")) {
         this.#db.exec("ALTER TABLE account_leases ADD COLUMN affinity_commit_outcome TEXT;");
+      }
+      if (!columns.has("usage_evidence")) {
+        this.#db.exec(
+          `ALTER TABLE account_leases ADD COLUMN usage_evidence TEXT NOT NULL
+           DEFAULT '{"health":"healthy","freshness":"missing"}';`,
+        );
       }
     }).immediate();
   }
@@ -707,6 +717,10 @@ function validateCandidateBinding(binding: ManagedAccountCandidateBinding): void
   createAccountRef(binding.candidate.account);
   requireCanonicalText(binding.capacityIdentity, "Managed account capacity identity is required.");
   requireRoute(binding.candidate.route);
+  const usageEvidence = defineModelGatewayAccountUsageEvidence(binding.usageEvidence);
+  if (usageEvidence.health === "unhealthy" && binding.candidate.health !== "unhealthy") {
+    throw new TypeError("Managed account candidate health cannot contradict unhealthy usage evidence.");
+  }
   if (!/^[a-f0-9]{64}$/.test(binding.credentialRevisionId)) {
     throw new TypeError("Managed account credential revision identity must be a SHA-256 digest.");
   }
@@ -751,6 +765,7 @@ function evidenceFromRow(row: LeaseRow): ManagedAccountLeaseEvidence {
     credentialRevisionId: row.credential_revision_id,
     selectionReason: row.selection_reason,
     candidateRejections: parseCandidateRejections(row.candidate_rejections),
+    usageEvidence: parseUsageEvidence(row.usage_evidence),
     ...(row.affinity_outcome !== null ? { affinityOutcome: row.affinity_outcome } : {}),
     ...(row.affinity_commit_outcome !== null
       ? { affinityCommitOutcome: row.affinity_commit_outcome }
@@ -801,6 +816,14 @@ function parseCandidateRejections(
       reason: rejection.reason,
     });
   });
+}
+
+function parseUsageEvidence(value: string): NonNullable<ManagedAccountLeaseEvidence["usageEvidence"]> {
+  const parsed: unknown = JSON.parse(value);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Managed account lease usage evidence is corrupt.");
+  }
+  return parsed as NonNullable<ManagedAccountLeaseEvidence["usageEvidence"]>;
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelGatewayConfig, ProviderAdapter } from "@kilnai/core";
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import { ConfiguredManagedAccountRuntime } from "../../src/managed-account-leases/configured-managed-account-runtime.js";
@@ -70,7 +70,14 @@ describe("ConfiguredManagedAccountRuntime", () => {
     if (acquired.status !== "acquired") throw new Error("expected account lease");
 
     const template = directTemplate();
-    const bound = await runtime.bind({ lease: acquired.lease, adapter: template });
+    const crossModuleTemplate = {
+      descriptor: template.descriptor,
+      invoke: template.invoke.bind(template),
+      bindProvider: template.bindProvider.bind(template),
+    };
+    expect(crossModuleTemplate).not.toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
+
+    const bound = await runtime.bind({ lease: acquired.lease, adapter: crossModuleTemplate });
     expect(bound).toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
     expect(bound).not.toBe(template);
     expect(bound.descriptor).toEqual(template.descriptor);
@@ -172,6 +179,63 @@ describe("ConfiguredManagedAccountRuntime", () => {
       availability: "available",
     });
   });
+
+  it("uses the injected Codex pool for selection and exact revision binding", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-configured-account-"));
+    const execution = {
+      credentialId: "credential-a",
+      fileIdentity: "a".repeat(64),
+      revision: "b".repeat(64),
+    };
+    const codexPool = {
+      listExecutionAccounts: vi.fn(async () => [execution]),
+      listUsage: vi.fn(async () => [usage("credential-a", "available")]),
+      resolveExecutionCredential: vi.fn(async () => ({
+        credentialId: execution.credentialId,
+        accessToken: "synthetic-access-token",
+        chatgptAccountId: "synthetic-account",
+      })),
+    };
+    const runtime = new ConfiguredManagedAccountRuntime({
+      config: {
+        ...twoAccountConfig(),
+        accounts: [twoAccountConfig().accounts[0]!],
+        virtualModels: [{
+          ...twoAccountConfig().virtualModels[0]!,
+          accountIds: ["account-a"],
+        }],
+      },
+      codexPool,
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const resolution = await runtime.resolve({
+      accountPolicyId: "managed-codex",
+      providerRoute: { providerId: "codex-oauth", surface: "direct", model: "gpt-test" },
+    });
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path: join(root, "injected-pool-leases.sqlite"),
+      ownerId: "owner-a",
+    });
+    authorities.push(authority);
+    const acquired = await authority.acquire({
+      accountPolicyId: "managed-codex",
+      route: resolution.route,
+      jobId: "job-a",
+      runtimeInvocationId: "job-a",
+      affinityRequest: { continuity: "none" },
+      candidates: resolution.candidates,
+    });
+    if (acquired.status !== "acquired") throw new Error("expected account lease");
+
+    await runtime.bind({ lease: acquired.lease, adapter: directTemplate("codex-oauth") });
+
+    expect(codexPool.listExecutionAccounts).toHaveBeenCalled();
+    expect(codexPool.listUsage).toHaveBeenCalled();
+    expect(codexPool.resolveExecutionCredential).toHaveBeenCalledExactlyOnceWith({
+      providerId: "codex-oauth",
+      ...execution,
+    });
+  });
 });
 
 function twoAccountConfig(): ModelGatewayConfig {
@@ -210,7 +274,7 @@ async function writeUsage(directory: string, snapshots: readonly ReturnType<type
   await writeFile(join(usageDirectory, "codex-oauth.json"), JSON.stringify(snapshots));
 }
 
-function directTemplate(): ManagedDirectProviderRuntimeAdapter {
+function directTemplate(providerId = "openai"): ManagedDirectProviderRuntimeAdapter {
   const provider: ProviderAdapter = {
     name: "unbound",
     createMessage: async () => {
@@ -221,7 +285,7 @@ function directTemplate(): ManagedDirectProviderRuntimeAdapter {
     },
   };
   return new ManagedDirectProviderRuntimeAdapter({
-    providerId: "openai",
+    providerId,
     model: "gpt-test",
     provider,
     tools: [],

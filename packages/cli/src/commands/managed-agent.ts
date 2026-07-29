@@ -475,6 +475,12 @@ function formatManagedAgentStatus(
     invocation.accountLease ? `Account lease: ${invocation.accountLease.leaseId}` : undefined,
     invocation.accountLease ? `Account policy: ${invocation.accountLease.accountPolicyId}` : undefined,
     invocation.accountLease ? `Account selection: ${invocation.accountLease.selectionReason}` : undefined,
+    invocation.accountLease?.usageEvidence
+      ? `Account usage: ${invocation.accountLease.usageEvidence.freshness} | ${invocation.accountLease.usageEvidence.availability ?? "unknown"}`
+      : undefined,
+    invocation.accountLease?.usageEvidence?.observedAt
+      ? `Account usage observed: ${invocation.accountLease.usageEvidence.observedAt}`
+      : undefined,
     invocation.accountLease ? `Account lease state: ${invocation.accountLease.lifecycleState}` : undefined,
     ...formatManagedAgentWorktreeReviewLines(invocation),
     ...formatManagedAgentWorktreeConflictLines(invocation),

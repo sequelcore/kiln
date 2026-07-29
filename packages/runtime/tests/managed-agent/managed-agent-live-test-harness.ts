@@ -5,6 +5,8 @@ import { describe, expect } from "vitest";
 import {
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV,
   KILN_LIVE_CODEX_TESTS_ENV,
   KILN_LIVE_CLAUDE_TESTS_ENV,
   KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
@@ -26,6 +28,8 @@ import type {
 export {
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV,
   KILN_LIVE_CODEX_TESTS_ENV,
   KILN_LIVE_CLAUDE_TESTS_ENV,
   KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
@@ -45,6 +49,7 @@ export interface ManagedAgentLiveFixtureWorkspaceOptions {
   readonly prefix: string;
   readonly files: Readonly<Record<string, string>>;
   readonly onWorkspaceCreated?: (workspace: ManagedAgentLiveFixtureWorkspace) => void | Promise<void>;
+  readonly onWorkspaceCleanup?: (workspace: ManagedAgentLiveFixtureWorkspace) => void | Promise<void>;
 }
 
 export interface ManagedAgentLiveHarnessWriteRequestOptions {
@@ -75,7 +80,27 @@ export interface ManagedAgentLiveFilesystemAndEvidenceExpectation {
   readonly forbiddenInlineText?: string;
 }
 
+export interface ManagedAgentLiveDurableEvidenceExpectation {
+  readonly evidence: unknown;
+  readonly forbiddenPaths: readonly string[];
+}
+
 type Environment = Readonly<Record<string, string | undefined>>;
+
+const SENSITIVE_EVIDENCE_KEYS = new Set([
+  "accesstoken",
+  "refreshtoken",
+  "apikey",
+  "authorization",
+  "bearertoken",
+  "chatgptaccountid",
+  "credentialid",
+]);
+const SENSITIVE_EVIDENCE_VALUE_PATTERNS = [
+  /(?:access|refresh)[_-]?token\s*[:=]|api[_-]?key\s*[:=]|authorization\s*[:=]|bearer\s+[A-Za-z0-9._~+/-]+=*/iu,
+  /\b(?:sk-(?:proj-|ant-)?|gh[pousr]_|github_pat_)[A-Za-z0-9_-]{8,}\b/u,
+  /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/u,
+] as const;
 
 export function isManagedAgentLiveTestsEnabled(env: Environment = process.env): boolean {
   return env[KILN_LIVE_MANAGED_AGENT_TESTS_ENV] === "1";
@@ -116,7 +141,11 @@ export async function withManagedAgentLiveFixtureWorkspace<T>(
     await options.onWorkspaceCreated?.(workspace);
     return await run(workspace);
   } finally {
-    await removeWorkspaceWithRetry(workspaceRoot);
+    try {
+      await options.onWorkspaceCleanup?.(workspace);
+    } finally {
+      await removeWorkspaceWithRetry(workspaceRoot);
+    }
   }
 }
 
@@ -267,6 +296,55 @@ export async function expectManagedAgentLiveFilesystemAndEvidence(
   if (expectation.forbiddenInlineText !== undefined) {
     expect(JSON.stringify(expectation.evidence)).not.toContain(expectation.forbiddenInlineText);
   }
+}
+
+export function expectManagedAgentLiveDurableEvidenceSafe(
+  expectation: ManagedAgentLiveDurableEvidenceExpectation,
+): void {
+  const observations = collectDurableEvidenceObservations(expectation.evidence);
+  for (const forbiddenPath of expectation.forbiddenPaths) {
+    const normalizedPath = normalizeEvidencePath(forbiddenPath);
+    expect(
+      observations.values.some((value) => normalizeEvidencePath(value).includes(normalizedPath)),
+    ).toBe(false);
+  }
+  expect(
+    observations.keys.some((key) => SENSITIVE_EVIDENCE_KEYS.has(normalizeEvidenceKey(key))),
+  ).toBe(false);
+  expect(observations.values.some((value) =>
+    SENSITIVE_EVIDENCE_VALUE_PATTERNS.some((pattern) => pattern.test(value)))).toBe(false);
+}
+
+function collectDurableEvidenceObservations(
+  value: unknown,
+): { readonly keys: string[]; readonly values: string[] } {
+  const keys: string[] = [];
+  const values: string[] = [];
+  const pending: unknown[] = [value];
+  const visited = new Set<object>();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current === "string") {
+      values.push(current);
+    } else if (Array.isArray(current)) {
+      pending.push(...current);
+    } else if (current !== null && typeof current === "object" && !visited.has(current)) {
+      visited.add(current);
+      for (const [key, entry] of Object.entries(current)) {
+        keys.push(key);
+        pending.push(entry);
+      }
+    }
+  }
+  return { keys, values };
+}
+
+function normalizeEvidencePath(value: string): string {
+  return value.replaceAll("\\", "/").toLowerCase();
+}
+
+function normalizeEvidenceKey(value: string): string {
+  return value.replace(/[^a-z0-9]/giu, "").toLowerCase();
 }
 
 function createWorkspace(workspaceRoot: string): ManagedAgentLiveFixtureWorkspace {

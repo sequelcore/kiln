@@ -37,7 +37,43 @@ describe("operator cockpit read-only projection", () => {
         accountRef: "configured:fixture-rejected:opaque",
         reason: "unhealthy",
       }],
+      usageEvidence: {
+        freshness: "fresh",
+        availability: "available",
+        source: "provider-endpoint",
+        confidence: "authoritative",
+      },
     });
+  });
+
+  it("rejects contradictory managed account usage evidence", () => {
+    const event = structuredClone(managedAccountLeaseEvents[1]) as OperatorSessionEvent;
+    const payload = event.payload as Record<string, unknown> & {
+      managedInvocationEvidence: {
+        lifecycle: {
+          accountLease: {
+            usageEvidence: Record<string, unknown>;
+          };
+        };
+      };
+    };
+    payload.managedInvocationEvidence.lifecycle.accountLease.usageEvidence = {
+      health: "healthy",
+      freshness: "missing",
+      availability: "available",
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-07-28T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ACCOUNT_LEASE_FIXTURE.instanceId,
+        label: "Synthetic managed account runtime",
+        kind: "local",
+      }],
+      events: [event],
+    });
+
+    expect(projection.invocations[0]?.accountLease).toBeUndefined();
   });
 
   it("projects successful managed affinity commit evidence without deriving policy", () => {

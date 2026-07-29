@@ -297,8 +297,26 @@ export class CodexOAuthCredentialPoolService {
   }
 
   async refreshUsage(): Promise<readonly ProviderUsageSnapshot[]> {
+    return this.refreshUsageForAccounts(await this.listExecutionAccounts());
+  }
+
+  async refreshUsageForCredentials(
+    credentialIds: readonly string[],
+  ): Promise<readonly ProviderUsageSnapshot[]> {
+    const requested = new Set(credentialIds.map((credentialId) => {
+      assertSafeCredentialId(credentialId);
+      return credentialId;
+    }));
+    return this.refreshUsageForAccounts(
+      (await this.listExecutionAccounts()).filter((account) => requested.has(account.credentialId)),
+    );
+  }
+
+  private async refreshUsageForAccounts(
+    accounts: readonly CodexOAuthExecutionAccount[],
+  ): Promise<readonly ProviderUsageSnapshot[]> {
     const snapshots: ProviderUsageSnapshot[] = [];
-    for (const account of await this.listExecutionAccounts()) {
+    for (const account of accounts) {
       const snapshot = await this.usageReader.read({
         provider: CODEX_OAUTH_POOL_PROVIDER_ID,
         credentialId: account.credentialId,

@@ -194,6 +194,67 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
     }]);
   });
 
+  it("persists the selected account usage observation through release", async () => {
+    const authority = create("owner-a");
+    const usageEvidence = {
+      health: "healthy" as const,
+      freshness: "fresh" as const,
+      availability: "available" as const,
+      observedAt: "2026-07-28T22:29:00.000Z",
+      validUntil: "2026-07-28T22:34:00.000Z",
+      source: "provider-endpoint" as const,
+      confidence: "authoritative" as const,
+    };
+    const acquired = await acquire(authority, "job-a", [
+      binding("account-a", { usageEvidence }),
+    ]);
+    if (acquired.status !== "acquired") throw new Error("fixture");
+
+    expect(acquired.lease.usageEvidence).toEqual(usageEvidence);
+    authority.release(acquired.identity);
+    expect(authority.list()[0]?.usageEvidence).toEqual(usageEvidence);
+  });
+
+  it("persists only the canonical usage evidence projection", async () => {
+    if (!root) throw new Error("fixture");
+    const authority = create("owner-a");
+    const usageEvidence = {
+      health: "healthy" as const,
+      freshness: "missing" as const,
+      internalSecret: "must-not-survive",
+    };
+    const acquired = await acquire(authority, "job-a", [
+      binding("account-a", { usageEvidence }),
+    ]);
+    if (acquired.status !== "acquired") throw new Error("fixture");
+
+    const inspection = new Database(join(root, "leases.sqlite"), { strict: true });
+    const row = inspection.query<{ usage_evidence: string }, []>(
+      "SELECT usage_evidence FROM account_leases",
+    ).get();
+    inspection.close();
+    expect(JSON.parse(row?.usage_evidence ?? "null")).toEqual({
+      health: "healthy",
+      freshness: "missing",
+    });
+  });
+
+  it("rejects candidate health that contradicts canonical usage evidence", async () => {
+    await expect(acquire(create("owner-a"), "job-a", [
+      binding("account-a", {
+        usageEvidence: {
+          health: "unhealthy",
+          freshness: "fresh",
+          availability: "exhausted",
+          observedAt: "2026-07-28T22:29:00.000Z",
+          validUntil: "2026-07-28T22:34:00.000Z",
+          source: "provider-endpoint",
+          confidence: "authoritative",
+        },
+      }),
+    ])).rejects.toThrow("candidate health cannot contradict unhealthy usage evidence");
+  });
+
   it("preserves reserved affinity slots for existing work", async () => {
     const authority = create("owner-a");
     const key = affinityKey("a");
@@ -582,14 +643,53 @@ describe("SqliteManagedAccountLeaseAuthority", () => {
         resource_uris TEXT NOT NULL,
         diagnostic_uris TEXT NOT NULL
       );
+      INSERT INTO runtime_owner(singleton, owner_id, heartbeat)
+      VALUES(1, 'owner-a', ${clockMs});
+      INSERT INTO account_leases(
+        lease_id, account_policy_id, account_ref, capacity_identity, provider_id,
+        model_id, route_scope, job_id, runtime_invocation_id,
+        credential_revision_id, owner_id, acquired_at, lifecycle_state,
+        released_at, selection_reason, candidate_rejections, affinity_outcome,
+        purpose, resource_uris, diagnostic_uris
+      ) VALUES(
+        'legacy-lease', 'managed-codex', 'configured:account-a', 'account-a',
+        'codex-oauth', 'gpt-5.6-terra', 'virtual:managed-codex', 'legacy-job',
+        'legacy-invocation', '${"a".repeat(64)}', 'owner-a',
+        '2026-07-28T22:29:00.000Z', 'held', NULL, 'least-pressure', '[]',
+        NULL, 'new', '["kiln://managed-accounts/leases/legacy-lease"]', '[]'
+      );
     `);
     legacy.close();
 
     const authority = create("owner-a");
+    const migrated = authority.get("legacy-lease");
+    expect(migrated?.usageEvidence).toEqual({
+      health: "healthy",
+      freshness: "missing",
+    });
+    expect(authority.release({
+      leaseId: "legacy-lease",
+      accountPolicyId: policyId,
+      accountRef: createAccountRef("configured:account-a"),
+      route,
+      jobId: "legacy-job",
+      runtimeInvocationId: "legacy-invocation",
+    })).toMatchObject({
+      lifecycleState: "released",
+      usageEvidence: {
+        health: "healthy",
+        freshness: "missing",
+      },
+    });
+
     const acquired = await acquire(authority, "job-a", [binding("account-a")], {
       affinity: { continuity: "prefer", key: affinityKey("a") },
     });
     if (acquired.status !== "acquired") throw new Error("fixture");
+    expect(acquired.lease.usageEvidence).toEqual({
+      health: "healthy",
+      freshness: "missing",
+    });
 
     expect(authority.finalizeSuccessful(acquired.identity)).toMatchObject({
       affinityCommitOutcome: "won",

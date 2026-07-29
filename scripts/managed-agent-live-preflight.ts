@@ -11,6 +11,10 @@ export const KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV = "KILN_LIVE_OPENCODE_WRIT
 export const KILN_LIVE_OPENAI_DIRECT_TESTS_ENV = "KILN_LIVE_OPENAI_DIRECT_TESTS";
 export const KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS";
 export const KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV = "KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS";
+export const KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV =
+  "KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS";
+export const KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV =
+  "KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE";
 
 const PROVIDER_FLAGS = [
   KILN_LIVE_CODEX_TESTS_ENV,
@@ -20,7 +24,12 @@ const PROVIDER_FLAGS = [
   KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
 ] as const;
+
+const AUTO_DETECTABLE_PROVIDER_FLAGS = new Set<string>(
+  PROVIDER_FLAGS.filter((flag) => flag !== KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV),
+);
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -48,7 +57,9 @@ export function evaluateManagedAgentLivePreflight(
   }
 
   const explicitProviders = PROVIDER_FLAGS.filter((flag) => env[flag] === "1");
-  const autoDetectedProviders = uniqueProviderFlags(detectedProviderFlags);
+  const autoDetectedProviders = uniqueProviderFlags(
+    detectedProviderFlags.filter((flag) => AUTO_DETECTABLE_PROVIDER_FLAGS.has(flag)),
+  );
   const enabledProviders = explicitProviders.length > 0 ? explicitProviders : autoDetectedProviders;
   if (env[KILN_LIVE_MANAGED_AGENT_TESTS_ENV] !== "1" && enabledProviders.length === 0) {
     return {

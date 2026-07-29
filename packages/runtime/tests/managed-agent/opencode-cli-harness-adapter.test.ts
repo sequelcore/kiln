@@ -828,6 +828,11 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
           ...request.authority.writeAuthority,
           scope: {
             ...request.authority.writeAuthority?.scope,
+            workspace: {
+              ...request.authority.writeAuthority?.scope.workspace,
+              allowedPaths: ["packages/runtime/tests/fixtures"],
+              deniedPaths: [".git"],
+            },
             artifacts: {
               ...request.authority.writeAuthority?.scope.artifacts,
               resourceUris: [
@@ -842,7 +847,13 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
             ],
           },
         },
-        writeEvidence: result.record.writeEvidence,
+        writeEvidence: result.record.writeEvidence?.map((evidence) => ({
+          ...evidence,
+          summary: evidence.summary.replace(
+            "C:/workspace/kiln/",
+            "./",
+          ),
+        })),
       },
     });
   });

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import {
   createAccountRef,
+  defineModelGatewayAccountUsageEvidence,
   type ModelGatewayAccountCandidate,
   type ModelGatewayAccountConfig,
-  type ModelGatewayAccountHealth,
+  type ModelGatewayAccountUsageEvidence,
   type ModelGatewayRoute,
   type ModelGatewayVirtualModelConfig,
   type ProviderUsageSnapshot,
@@ -47,15 +48,7 @@ export interface ModelGatewayBoundCandidate {
   readonly capacity: { readonly maxConcurrency: number; readonly reservedAffinitySlots: number };
 }
 
-export interface ModelGatewayBoundUsageEvidence {
-  readonly health: ModelGatewayAccountHealth;
-  readonly freshness: "fresh" | "stale" | "missing";
-  readonly availability?: ProviderUsageSnapshot["availability"];
-  readonly observedAt?: string;
-  readonly validUntil?: string;
-  readonly source?: ProviderUsageSnapshot["source"];
-  readonly confidence?: ProviderUsageSnapshot["confidence"];
-}
+export type ModelGatewayBoundUsageEvidence = ModelGatewayAccountUsageEvidence;
 
 export interface BuildModelGatewayBoundCandidatesInput {
   readonly virtualModel: ModelGatewayVirtualModelConfig;
@@ -120,13 +113,15 @@ export function buildModelGatewayBoundCandidates(
 }
 
 function deriveUsageHealth(usage: ProviderUsageSnapshot | undefined, now: Date): ModelGatewayBoundUsageEvidence {
-  if (usage === undefined) return Object.freeze({ health: "healthy", freshness: "missing" });
+  if (usage === undefined) {
+    return defineModelGatewayAccountUsageEvidence({ health: "healthy", freshness: "missing" });
+  }
   const observedAt = Date.parse(usage.observedAt);
   const validUntil = Date.parse(usage.validUntil);
   const freshness = Number.isFinite(observedAt) && Number.isFinite(validUntil) && observedAt <= now.getTime() && validUntil > now.getTime()
     ? "fresh" as const
     : "stale" as const;
-  return Object.freeze({
+  return defineModelGatewayAccountUsageEvidence({
     health: freshness === "fresh" && usage.availability === "exhausted" ? "unhealthy" : "healthy",
     freshness,
     availability: usage.availability,

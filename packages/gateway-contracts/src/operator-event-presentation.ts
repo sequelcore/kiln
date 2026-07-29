@@ -1838,6 +1838,10 @@ function addManagedCapabilitySnapshotDetails(
   addItem(details, "Account lease ID", accountLease?.leaseId);
   addItem(details, "Account lease state", accountLease?.lifecycleState);
   addItem(details, "Account selection", accountLease?.selectionReason);
+  const accountUsage = asRecord(accountLease?.usageEvidence);
+  addItem(details, "Account usage freshness", accountUsage?.freshness);
+  addItem(details, "Account usage availability", accountUsage?.availability);
+  addItem(details, "Account usage observed", accountUsage?.observedAt);
   addItem(details, "Account affinity", accountLease?.affinityOutcome);
   addItem(details, "Account affinity commit", accountLease?.affinityCommitOutcome);
   addItem(details, "Account lease acquired", accountLease?.acquiredAt);

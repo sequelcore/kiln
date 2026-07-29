@@ -644,7 +644,13 @@ managedAgents:
         access: read-only
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-codex-luna
 ```
+
+Every `runtime-selected` route must name an `accountPolicyId` whose
+`modelGateway.virtualModels` entry has the same direct provider and model. The
+policy owns the eligible account set; the managed route must not duplicate or
+infer it.
 
 The managed-agent route catalog must show `timeoutMs=1000
 source=explicit-route` for that route. A child that exceeds the budget should
@@ -712,6 +718,7 @@ managedAgents:
           mode: required-before-apply
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-codex-sol
 ```
 
 Live-proven direct-provider adapters expose approved workspace-write routes for
@@ -757,6 +764,7 @@ managedAgents:
         access: read-only
       credentials:
         mode: runtime-selected
+        accountPolicyId: managed-opencode-go-qwen
 ```
 
 Read and write authority projection automatically denies standard repository
