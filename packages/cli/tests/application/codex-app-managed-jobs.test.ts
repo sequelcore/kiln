@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { basename, dirname, resolve } from "node:path";
 import { defineManagedAccountLeaseEvidence } from "@kilnai/core";
 import {
   FilesystemManagedJobStore,
@@ -112,6 +113,10 @@ import {
 } from "../../src/application/codex-app-managed-jobs.js";
 
 describe("Codex App managed-job production composition", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("recovers persisted nonterminal jobs before exposing the application owner", async () => {
     const accountLease = defineManagedAccountLeaseEvidence({
       leaseId: "lease-job-recovered",
@@ -135,7 +140,11 @@ describe("Codex App managed-job production composition", () => {
       resourceUris: ["kiln://managed-accounts/leases/lease-foreign-job"],
       diagnosticUris: ["kiln://managed-accounts/leases/lease-foreign-job/recovery-unmatchable"],
     });
-    const projectId = `project-${createHash("sha256").update(process.cwd()).digest("hex").slice(0, 32)}`;
+    const cwd = process.cwd();
+    const projectRoot = basename(cwd) === "cli" && basename(dirname(cwd)) === "packages"
+      ? resolve(cwd, "../..")
+      : cwd;
+    const projectId = `project-${createHash("sha256").update(projectRoot).digest("hex").slice(0, 32)}`;
     const recoverInvocations = vi
       .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
       .mockResolvedValue({
