@@ -37,6 +37,8 @@ const authorities: SqliteManagedAccountLeaseAuthority[] = [];
 afterEach(async () => {
   for (const authority of authorities.splice(0)) authority.close();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("managed account invocation lifecycle", () => {
@@ -417,6 +419,13 @@ describe("managed account invocation lifecycle", () => {
       CodexOAuthCredentialPoolService.prototype,
       "resolveExecutionCredential",
     );
+    const providerFetch = vi.fn()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: "synthetic transient failure" }),
+        { status: 520, headers: { "content-type": "application/json" } },
+      ))
+      .mockResolvedValueOnce(codexCompletedResponse("Recovered on the selected account."));
+    vi.stubGlobal("fetch", providerFetch);
     const binds: string[] = [];
     const dispatches: string[] = [];
     const service = new RuntimeManagedAgentInvocationService({
@@ -438,30 +447,31 @@ describe("managed account invocation lifecycle", () => {
           const bound = await configured.bind({ lease, adapter });
           return {
             descriptor: bound.descriptor,
-            invoke: vi.fn(async (input) => {
+            invoke: vi.fn((input) => {
               dispatches.push(lease.accountRef);
-              input.registerExecutionSettlement(Promise.resolve());
-              return failedRecord(input.request, input.admission.capabilitySnapshot);
+              return bound.invoke(input);
             }),
           };
         },
       },
     });
 
-    const providerFailure = await service.invoke(
-      configuredRequest("managed-job-provider-failure"),
+    const recovered = await service.invoke(
+      configuredRequest("managed-job-codex-retry"),
       directTemplate(),
       snapshotInput(),
     );
-    expect(providerFailure.status).toBe("completed");
-    if (providerFailure.status !== "completed") throw new Error("expected provider failure projection");
-    expect(providerFailure.record).toMatchObject({
-      lifecycleState: "failed",
+    expect(recovered.status).toBe("completed");
+    if (recovered.status !== "completed") throw new Error("expected recovered Codex projection");
+    expect(recovered.record).toMatchObject({
+      lifecycleState: "completed",
       accountLease: {
         accountRef: accountARef,
         lifecycleState: "released",
+        affinityCommitOutcome: "won",
       },
     });
+    expect(providerFetch).toHaveBeenCalledTimes(2);
     expect(credentialResolutions.mock.calls.map(([selected]) => selected.credentialId)).toEqual([
       "credential-a",
     ]);
@@ -479,8 +489,9 @@ describe("managed account invocation lifecycle", () => {
     expect(binds).toHaveLength(2);
     expect(binds[1]).toMatch(/^configured:account-a:/);
     expect(dispatches).toEqual([accountARef]);
+    expect(providerFetch).toHaveBeenCalledTimes(2);
     expect(authority.list()).toEqual(expect.arrayContaining([
-      { jobId: "managed-job-provider-failure", lifecycleState: "released" },
+      { jobId: "managed-job-codex-retry", lifecycleState: "released" },
       { jobId: "managed-job-binding-failure", lifecycleState: "released" },
     ].map((entry) => expect.objectContaining(entry))));
   });
@@ -583,7 +594,7 @@ function configuredRequest(invocationId: string): ManagedAgentInvocationRequest 
       permissionProfile: "read-only",
       toolAuthority: { allowedToolNames: ["read"], writeAllowed: false, networkAllowed: false },
       workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
-      timeoutMs: 1000,
+      timeoutMs: 5000,
       credentialRoute: {
         mode: "account-leased",
         routeId: "credential-route:codex-oauth:primary",
@@ -670,6 +681,32 @@ async function writeCodexCredential(
     `${JSON.stringify(token)}\n`,
     "utf8",
   );
+}
+
+function codexCompletedResponse(text: string): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(
+        `event: response.completed\ndata: ${JSON.stringify({
+          response: {
+            id: "synthetic-response",
+            status: "completed",
+            output: [{
+              type: "message",
+              content: [{ type: "output_text", text }],
+            }],
+            usage: { input_tokens: 2, output_tokens: 1 },
+          },
+        })}\n\n`,
+      ));
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
 }
 
 function candidate(
