@@ -38,7 +38,8 @@ credential route and never implies account-capacity ownership.
 3. Acquire one durable lease in an immediate SQLite transaction.
 4. Resolve configured continuity against the durable stable-capacity mapping,
    then persist the sanitized account reference, credential revision digest,
-   selection reason, candidate rejection evidence, and affinity outcome.
+   selection reason, selected usage observation, candidate rejection evidence,
+   and affinity outcome.
 5. Resolve only the leased credential revision and bind a non-pooled direct
    adapter.
 6. Advance `AttemptCommit` to `dispatching` immediately before provider effects.
@@ -69,6 +70,11 @@ authority:
 - expired usage disappears and becomes missing evidence, eligible with penalty;
 - a newer explicit non-exhausted observation restores preference;
 - usage expiry never creates an `available` observation or releases capacity.
+
+The selected candidate's usage state is captured in the lease transaction and
+remains immutable across settlement transitions. A missing observation is
+persisted explicitly as missing; Runtime never reconstructs availability from
+the selection result or from a later provider response.
 
 ## Capacity And Settlement
 
@@ -137,13 +143,14 @@ composition project, before it marks those jobs interrupted.
 
 Canonical account-lease evidence contains opaque account and policy identities,
 canonical provider/model route, credential revision digest, selection and
-rejection reasons, affinity selection and commit outcomes, timestamps,
-lifecycle state, and safe resource or diagnostic URIs. It excludes credentials,
-tokens, lineage-derived affinity keys, raw provider payloads, exception
-details, and machine-specific paths. Account references must use the
-`configured:` namespace. Resource and diagnostic evidence is restricted to the
-lease's own `kiln://managed-accounts/leases/<lease-id>` namespace and its closed
-diagnostic vocabulary.
+rejection reasons, the acquisition-time usage snapshot, affinity selection and
+commit outcomes, timestamps, lifecycle state, and safe resource or diagnostic
+URIs. It excludes credentials, tokens, lineage-derived affinity keys, raw
+provider payloads, exception details, and machine-specific paths. Account
+references must use the `configured:` namespace. Resource and diagnostic
+evidence is restricted to the lease's own
+`kiln://managed-accounts/leases/<lease-id>` namespace and its closed diagnostic
+vocabulary.
 
 Managed-job V4 is the only writer and carries current lease evidence plus its
 lifecycle history. Lease observations advance aggregate `updatedAt` without

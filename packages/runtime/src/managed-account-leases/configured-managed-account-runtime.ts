@@ -13,7 +13,7 @@ import {
   type ProviderAdapter,
   type ProviderUsageSnapshot,
 } from "@kilnai/core";
-import { ManagedDirectProviderRuntimeAdapter } from "../agents/managed-invocation/direct-runtime-adapter.js";
+import { isManagedDirectProviderBindingAdapter } from "../agents/managed-invocation/direct-runtime-adapter.js";
 import type {
   ManagedAccountExecutionBindingPort,
   ManagedAgentRuntimeAdapter,
@@ -48,6 +48,15 @@ export interface ConfiguredManagedAccountRuntimeOptions {
   readonly credentialRootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
+  readonly codexPool?: ConfiguredManagedCodexAccountPool;
+}
+
+export interface ConfiguredManagedCodexAccountPool {
+  listExecutionAccounts(): Promise<readonly CodexOAuthExecutionAccount[]>;
+  listUsage(now?: Date): Promise<readonly ProviderUsageSnapshot[]>;
+  resolveExecutionCredential(
+    selected: CodexOAuthExecutionAccount,
+  ): ReturnType<CodexOAuthCredentialPoolService["resolveExecutionCredential"]>;
 }
 
 type ExecutionAccount =
@@ -61,7 +70,7 @@ type ExecutionAccount =
  */
 export class ConfiguredManagedAccountRuntime
 implements ManagedAccountCandidatePort, ManagedAccountExecutionBindingPort {
-  readonly #codexPool: CodexOAuthCredentialPoolService;
+  readonly #codexPool: ConfiguredManagedCodexAccountPool;
   readonly #openCodePool: OpenCodeCredentialPoolService;
   readonly #directPool: DirectProviderCredentialPoolService;
   readonly #now: () => Date;
@@ -69,7 +78,8 @@ implements ManagedAccountCandidatePort, ManagedAccountExecutionBindingPort {
 
   constructor(options: ConfiguredManagedAccountRuntimeOptions) {
     this.#config = options.config;
-    this.#codexPool = new CodexOAuthCredentialPoolService({ rootDir: options.credentialRootDir });
+    this.#codexPool = options.codexPool
+      ?? new CodexOAuthCredentialPoolService({ rootDir: options.credentialRootDir });
     this.#openCodePool = new OpenCodeCredentialPoolService({ rootDir: options.credentialRootDir });
     this.#directPool = new DirectProviderCredentialPoolService({
       rootDir: options.credentialRootDir,
@@ -134,7 +144,10 @@ implements ManagedAccountCandidatePort, ManagedAccountExecutionBindingPort {
   }
 
   async bind(input: Parameters<ManagedAccountExecutionBindingPort["bind"]>[0]): Promise<ManagedAgentRuntimeAdapter> {
-    if (!(input.adapter instanceof ManagedDirectProviderRuntimeAdapter)) {
+    if (
+      !isManagedDirectProviderBindingAdapter(input.adapter)
+      || input.adapter.descriptor.providerId !== input.lease.route.providerId
+    ) {
       throw new Error("Runtime-selected account execution requires a direct-provider adapter.");
     }
     const resolution = await this.resolve({

@@ -27,10 +27,12 @@ import {
   createAccountPolicyId,
   createAccountRef,
   defineModelGatewayAccountRejection,
+  defineModelGatewayAccountUsageEvidence,
   type AccountPolicyId,
   type AccountRef,
   type ModelGatewayAccountRejection,
   type ModelGatewayAccountSelection,
+  type ModelGatewayAccountUsageEvidence,
   type ModelGatewayAffinityOutcome,
   type ModelGatewayRoute,
 } from "../model-gateway/index.js";
@@ -719,6 +721,8 @@ export interface ManagedAccountLeaseEvidence {
   readonly credentialRevisionId: string;
   readonly selectionReason: ModelGatewayAccountSelection["reason"];
   readonly candidateRejections: readonly ModelGatewayAccountRejection[];
+  /** Absent only when replaying lease evidence written before usage capture existed. */
+  readonly usageEvidence?: ModelGatewayAccountUsageEvidence;
   readonly affinityOutcome?: ModelGatewayAffinityOutcome;
   readonly affinityCommitOutcome?: ManagedAccountAffinityCommitOutcome;
   readonly acquiredAt: string;
@@ -738,6 +742,7 @@ export interface ManagedAccountLeaseEvidenceInput {
   readonly credentialRevisionId: string;
   readonly selectionReason: ModelGatewayAccountSelection["reason"];
   readonly candidateRejections?: readonly ModelGatewayAccountRejection[];
+  readonly usageEvidence?: ModelGatewayAccountUsageEvidence;
   readonly affinityOutcome?: ModelGatewayAffinityOutcome;
   readonly affinityCommitOutcome?: ManagedAccountAffinityCommitOutcome;
   readonly acquiredAt: string;
@@ -802,6 +807,9 @@ export function defineManagedAccountLeaseEvidence(
       ...rejection,
       account: requireCanonicalAccountReference(rejection.account),
     })),
+    ...(input.usageEvidence !== undefined
+      ? { usageEvidence: defineModelGatewayAccountUsageEvidence(input.usageEvidence) }
+      : {}),
     ...(input.affinityOutcome !== undefined
       ? { affinityOutcome: requireManagedAccountAffinityOutcome(input.affinityOutcome) }
       : {}),
@@ -1931,6 +1939,13 @@ export function buildManagedAgentLifecycleEvidence(
 }
 
 function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuthorityProfile {
+  const workingDirectoryPath = requireText(
+    input.workingDirectory.path,
+    "Managed invocation working directory is required",
+  );
+  if (isManagedAgentWorkspaceVolumeRoot(workingDirectoryPath)) {
+    throw new Error("Managed invocation working directory must not be a filesystem volume root");
+  }
   const credentialRoute = input.credentialRoute;
   if (credentialRoute.mode === "runtime-selected") {
     requireText(credentialRoute.routeId, "Managed invocation credential route id is required");
@@ -1950,7 +1965,7 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
       networkAllowed: input.toolAuthority.networkAllowed === true,
     },
     workingDirectory: {
-      path: requireText(input.workingDirectory.path, "Managed invocation working directory is required"),
+      path: workingDirectoryPath,
       mode: requireWorkingDirectoryMode(input.workingDirectory.mode),
     },
     timeoutMs: requirePositiveNumber(input.timeoutMs, "Managed invocation timeout must be greater than zero"),
@@ -1974,6 +1989,41 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
     ...(input.readAuthority !== undefined ? { readAuthority: defineManagedAgentReadAuthority(input.readAuthority) } : {}),
     ...(input.writeAuthority !== undefined ? { writeAuthority: defineManagedAgentWriteAuthority(input.writeAuthority) } : {}),
   };
+}
+
+export function isManagedAgentWorkspaceVolumeRoot(path: string): boolean {
+  const normalized = path.trim()
+    .replaceAll("\\", "/")
+    .replace(/^\/\/\?\/UNC\//iu, "//")
+    .replace(/^\/\/\?\//u, "");
+  if (/^\/(?!\/)/u.test(normalized) || /^\/{3,}/u.test(normalized)) {
+    return collapsesToFilesystemRoot(normalized.replace(/^\/+/u, "").split("/"));
+  }
+  if (/^[A-Za-z]:\//u.test(normalized)) {
+    return collapsesToFilesystemRoot(normalized.slice(3).split("/"));
+  }
+  if (normalized.startsWith("//")) {
+    const segments = normalized.slice(2).split("/").filter(Boolean);
+    return segments.length < 2
+      ? collapsesToFilesystemRoot(segments)
+      : collapsesToFilesystemRoot(segments.slice(2));
+  }
+  return false;
+}
+
+function collapsesToFilesystemRoot(segments: readonly string[]): boolean {
+  const resolved: string[] = [];
+  for (const segment of segments) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      resolved.pop();
+      continue;
+    }
+    resolved.push(segment);
+  }
+  return resolved.length === 0;
 }
 
 function requireTimeoutSource(source: ManagedAgentTimeoutSource): ManagedAgentTimeoutSource {

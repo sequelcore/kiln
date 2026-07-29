@@ -749,6 +749,7 @@ function isValidManagedAccountLeaseTransition(
     || previous.selectionReason !== next.selectionReason
     || previous.affinityOutcome !== next.affinityOutcome
     || JSON.stringify(previous.candidateRejections) !== JSON.stringify(next.candidateRejections)
+    || JSON.stringify(previous.usageEvidence) !== JSON.stringify(next.usageEvidence)
     || JSON.stringify(previous.resourceUris) !== JSON.stringify(next.resourceUris)
     || previous.diagnosticUris.some((uri) => !next.diagnosticUris.includes(uri))
     || (

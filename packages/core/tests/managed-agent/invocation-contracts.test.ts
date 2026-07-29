@@ -127,6 +127,15 @@ describe("managed agent invocation contracts", () => {
         account: "configured:secondary:opaque",
         reason: "unhealthy",
       }],
+      usageEvidence: {
+        health: "healthy",
+        freshness: "fresh",
+        availability: "available",
+        observedAt: "2026-07-28T22:29:00.000Z",
+        validUntil: "2026-07-28T22:34:00.000Z",
+        source: "provider-endpoint",
+        confidence: "authoritative",
+      },
       acquiredAt: "2026-07-28T22:30:00.000Z",
       lifecycleState: "held",
       resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
@@ -150,6 +159,15 @@ describe("managed agent invocation contracts", () => {
         account: "configured:secondary:opaque",
         reason: "unhealthy",
       }],
+      usageEvidence: {
+        health: "healthy",
+        freshness: "fresh",
+        availability: "available",
+        observedAt: "2026-07-28T22:29:00.000Z",
+        validUntil: "2026-07-28T22:34:00.000Z",
+        source: "provider-endpoint",
+        confidence: "authoritative",
+      },
       acquiredAt: "2026-07-28T22:30:00.000Z",
       lifecycleState: "held",
       resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
@@ -159,6 +177,36 @@ describe("managed agent invocation contracts", () => {
     expect(evidence).not.toHaveProperty("token");
     expect(evidence).not.toHaveProperty("ownerId");
     expect(evidence).not.toHaveProperty("workingDirectoryPath");
+  });
+
+  it("rejects contradictory selected-account usage evidence", () => {
+    expect(() => defineManagedAccountLeaseEvidence({
+      leaseId: "account-lease-1",
+      accountPolicyId: "managed-codex",
+      accountRef: "configured:primary:opaque",
+      route: {
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-terra",
+        scope: "virtual:managed-codex",
+      },
+      jobId: "job-1",
+      runtimeInvocationId: "invocation-1",
+      credentialRevisionId: "a".repeat(64),
+      selectionReason: "least-pressure",
+      usageEvidence: {
+        health: "healthy",
+        freshness: "fresh",
+        availability: "exhausted",
+        observedAt: "2026-07-28T22:29:00.000Z",
+        validUntil: "2026-07-28T22:34:00.000Z",
+        source: "provider-endpoint",
+        confidence: "authoritative",
+      },
+      acquiredAt: "2026-07-28T22:30:00.000Z",
+      lifecycleState: "held",
+      resourceUris: ["kiln://managed-accounts/leases/account-lease-1"],
+      diagnosticUris: [],
+    })).toThrow("contradicts freshness and availability");
   });
 
   it("validates the canonical managed affinity commit outcome", () => {
@@ -1012,6 +1060,52 @@ describe("managed agent invocation contracts", () => {
         },
       },
     })).toThrow("Unsupported managed invocation handoff result field: checks");
+  });
+
+  it.each([
+    "/",
+    "//",
+    "C:/",
+    "C:\\",
+    "\\\\?\\C:\\",
+    "\\\\server\\share",
+    "\\\\?\\UNC\\server\\share\\",
+    "/tmp/..",
+    "/tmp//nested/../..",
+    "C:/workspace/..",
+    "C:\\workspace\\.\\..\\",
+    "\\\\server\\\\share\\\\",
+    "\\\\server\\share\\folder\\..",
+  ])("rejects filesystem volume root managed workspaces: %s", (path) => {
+    expect(() => defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      authority: {
+        ...makeRequest().authority,
+        workingDirectory: {
+          ...makeRequest().authority.workingDirectory,
+          path,
+        },
+      },
+    })).toThrow("must not be a filesystem volume root");
+  });
+
+  it.each([
+    "//tmp",
+    "///tmp",
+    "////tmp/nested",
+    "C:/workspace",
+    "\\\\server\\share\\folder",
+  ])("accepts non-root managed workspaces after dialect normalization: %s", (path) => {
+    expect(() => defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      authority: {
+        ...makeRequest().authority,
+        workingDirectory: {
+          ...makeRequest().authority.workingDirectory,
+          path,
+        },
+      },
+    })).not.toThrow();
   });
 
   it("preserves full replay resources without adding unbounded content to lifecycle evidence", () => {

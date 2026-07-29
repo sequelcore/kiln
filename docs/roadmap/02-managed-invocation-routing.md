@@ -1,7 +1,7 @@
 # 02 - Managed Invocation Routing
 
 Status: Active delivery track
-Execution: Slices 1 and 2 complete; Slice 3 requires explicit operator authorization.
+Execution: Slices 1, 2, and 3 complete; Slice 4 queued.
 Created: 2026-07-23
 
 ## Objective
@@ -73,15 +73,51 @@ only and does not restore or mutate operator Codex configuration.
 
 ### Slice 3 - Bounded Live Probe
 
-Status: Blocked on operator machine and credentials.
+Status: Complete in issue #32.
 
 Run one explicitly authorized probe that records route, account reference,
 selection reason, usage freshness, lifecycle, result, cancellation/timeout as
 applicable, and replay without exposing credentials or raw provider payloads.
 
+Eight bounded read-only Codex probes completed provider execution and released
+their leases. The final authorized execution passed the complete Slice 3 proof:
+policy-scoped usage refresh, fresh available evidence, `least-pressure`
+selection on a configured two-account policy, exact revision-fenced credential
+binding, completed child execution, settlement-backed lease release, canonical
+Runtime-to-Gateway replay projection, and the durable privacy gate. An earlier
+authorized execution exposed the operator's absolute temporary workspace path
+in durable capability and lease evidence. Canonical event projection now
+preserves real paths only inside Runtime authority and emits portable
+workspace-relative paths for capability snapshots, resource leases, read/write
+scopes, worktree conflicts, free-text evidence, resource URIs, and
+admission-denial evidence.
+Core rejects filesystem volume roots as managed workspaces because `/`, drive
+roots, and UNC share roots cannot be distinguished reliably from non-path
+free-text syntax during durable privacy projection. An earlier harness version passed
+flattened canonical Runtime events directly to the Gateway replay-envelope normalizer,
+which correctly requires a `payload` envelope. The proof now uses Runtime's
+canonical `toOperatorSessionEventFrame` boundary before Gateway normalization;
+a network-free integration verifies that account lease and usage evidence
+survive append, framing, normalization, and cockpit projection. The proof also
+refreshes usage only for the policy's admitted credential IDs, fails before
+child dispatch unless at least one candidate has fresh available evidence, and
+records refresh-time credential resolutions separately from the single
+revision-fenced execution resolution. An earlier authorized harness attempt failed before
+provider dispatch because execution binding used JavaScript constructor
+identity across duplicate workspace module instances. Binding now consumes an
+explicit structural direct-provider capability, verifies its admitted provider
+against the leased route, retains revision fencing, and requires the complete
+post-bind descriptor to remain unchanged. Deterministic coverage reproduces the
+cross-module boundary without provider access. The proof also injects and
+observes the exact configured Codex pool instance; a network-free regression
+verifies one revision-fenced credential resolution.
+Earlier unstable generative-summary and incomplete privacy assertions were
+replaced with canonical child-execution evidence, exact lease-to-credential
+binding, structured privacy checks, and replayed usage assertions.
+
 ### Slice 4 - Economic Route Policy
 
-Status: Queued behind live lease proof.
+Status: Queued after completed live lease proof.
 
 Represent quota class, subscription class, metered-cost class, and comparable
 cost separately. Explain why an eligible job used Codex or OpenCode. Add explicit

@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
   KILN_LIVE_CODEX_OAUTH_DIRECT_WRITE_TESTS_ENV,
+  KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
   KILN_LIVE_CODEX_TESTS_ENV,
   KILN_LIVE_MANAGED_AGENT_TESTS_ENV,
   KILN_LIVE_OPENCODE_TESTS_ENV,
   KILN_LIVE_OPENAI_DIRECT_TESTS_ENV,
+  expectManagedAgentLiveDurableEvidenceSafe,
   expectManagedAgentLiveFilesystemAndEvidence,
   isManagedAgentLiveTestsEnabled,
   isManagedAgentProviderLiveTestsEnabled,
@@ -74,13 +76,20 @@ describe("managed agent live test harness", () => {
   });
 
   it("passes live preflight from auto-detected provider flags", () => {
-    const result = evaluateManagedAgentLivePreflight({}, [KILN_LIVE_CODEX_TESTS_ENV]);
+    const result = evaluateManagedAgentLivePreflight({}, [
+      KILN_LIVE_CODEX_TESTS_ENV,
+      KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
+    ]);
 
     expect(result.ok).toBe(true);
-    expect(result.enabledProviders).toEqual([KILN_LIVE_CODEX_TESTS_ENV]);
+    expect(result.enabledProviders).toEqual([
+      KILN_LIVE_CODEX_TESTS_ENV,
+      KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
+    ]);
     expect(result.environment).toMatchObject({
       [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
       [KILN_LIVE_CODEX_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]: "1",
     });
   });
 
@@ -94,8 +103,27 @@ describe("managed agent live test harness", () => {
     expect(result.enabledProviders).toEqual([KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV]);
   });
 
+  it("requires explicit authorization for the managed-account live probe", () => {
+    const autoDetected = evaluateManagedAgentLivePreflight(
+      {},
+      [KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV],
+    );
+    expect(autoDetected.ok).toBe(false);
+    expect(autoDetected.enabledProviders).toEqual([]);
+
+    const explicit = evaluateManagedAgentLivePreflight({
+      [KILN_LIVE_MANAGED_AGENT_TESTS_ENV]: "1",
+      [KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV]: "1",
+    });
+    expect(explicit.ok).toBe(true);
+    expect(explicit.enabledProviders).toEqual([
+      KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
+    ]);
+  });
+
   it("creates an isolated fixture workspace and removes it after failures", async () => {
     let workspaceRoot: string | undefined;
+    let cleanupObservedWorkspace = false;
 
     await expect(withManagedAgentLiveFixtureWorkspace({
       prefix: "kiln-managed-agent-live-failure-",
@@ -106,11 +134,15 @@ describe("managed agent live test harness", () => {
         workspaceRoot = workspace.workspaceRoot;
         expect(existsSync(workspace.filePath("proof.txt"))).toBe(true);
       },
+      onWorkspaceCleanup: (workspace) => {
+        cleanupObservedWorkspace = existsSync(workspace.workspaceRoot);
+      },
     }, async () => {
       throw new Error("synthetic live harness failure");
     })).rejects.toThrow("synthetic live harness failure");
 
     expect(workspaceRoot).toBeDefined();
+    expect(cleanupObservedWorkspace).toBe(true);
     expect(existsSync(workspaceRoot as string)).toBe(false);
   });
 
@@ -166,5 +198,39 @@ describe("managed agent live test harness", () => {
         ],
       });
     });
+  });
+
+  it("rejects machine paths and secret-bearing durable evidence", () => {
+    const expectation = {
+      forbiddenPaths: ["C:\\Users\\ExampleUser\\AppData\\Local\\Temp\\kiln-live"],
+    };
+    expect(() => expectManagedAgentLiveDurableEvidenceSafe({
+      ...expectation,
+      evidence: {
+        resource: "C:\\Users\\ExampleUser\\AppData\\Local\\Temp\\kiln-live\\proof.txt",
+      },
+    })).toThrow();
+    expect(() => expectManagedAgentLiveDurableEvidenceSafe({
+      ...expectation,
+      evidence: {
+        accessToken: "must-not-survive",
+        header: "Authorization: Bearer must-not-survive",
+      },
+    })).toThrow();
+    expect(() => expectManagedAgentLiveDurableEvidenceSafe({
+      ...expectation,
+      evidence: {
+        summary: "sk-proj-abc123456789",
+        diagnostic: "github_pat_1234567890abcdef",
+        opaque: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcGVyYXRvciJ9.signature123",
+      },
+    })).toThrow();
+    expect(() => expectManagedAgentLiveDurableEvidenceSafe({
+      ...expectation,
+      evidence: {
+        resourceUris: ["kiln://managed-accounts/leases/fixture"],
+        credentialRevisionId: "a".repeat(64),
+      },
+    })).not.toThrow();
   });
 });

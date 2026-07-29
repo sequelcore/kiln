@@ -1,10 +1,16 @@
-import { buildManagedAgentLifecycleEvidence, createSessionEvent } from "@kilnai/core";
+import { posix, win32 } from "node:path";
+import {
+  buildManagedAgentLifecycleEvidence,
+  createSessionEvent,
+  isManagedAgentWorkspaceVolumeRoot,
+} from "@kilnai/core";
 import type {
   CanonicalAgentInvocationCancelledEvent,
   CanonicalAgentInvocationCompletedEvent,
   CanonicalAgentInvocationFailedEvent,
   CanonicalAgentInvocationStartedEvent,
   CanonicalSessionEvent,
+  ManagedAgentAuthorityProfile,
   ManagedAgentAdmissionDecision,
   ManagedAgentCapabilitySnapshot,
   ManagedAgentInvocationRecord,
@@ -63,8 +69,12 @@ export function appendManagedInvocationSessionEvents(
     ...(input.record ? { startLifecycleState: startedLifecycleState(input.record.lifecycleState) } : {}),
   });
   if (input.decision.status === "denied") {
-    input.session.appendSessionEvents(startEvents.events);
-    return startEvents.events;
+    const events = projectDurableSessionEvents(
+      startEvents.events,
+      input.request.authority.workingDirectory.path,
+    );
+    input.session.appendSessionEvents(events);
+    return events;
   }
 
   if (!input.record) {
@@ -81,7 +91,10 @@ export function appendManagedInvocationSessionEvents(
     durationMs: input.durationMs,
     source: startEvents.source,
   });
-  const events = terminal ? [...startEvents.events, terminal] : startEvents.events;
+  const events = projectDurableSessionEvents(
+    terminal ? [...startEvents.events, terminal] : startEvents.events,
+    input.request.authority.workingDirectory.path,
+  );
   input.session.appendSessionEvents(events);
   return events;
 }
@@ -90,8 +103,12 @@ export function appendManagedInvocationStartSessionEvents(
   input: AppendManagedInvocationStartSessionEventsInput,
 ): readonly CanonicalSessionEvent[] {
   const startEvents = collectManagedInvocationStartEvents(input);
-  input.session.appendSessionEvents(startEvents.events);
-  return startEvents.events;
+  const events = projectDurableSessionEvents(
+    startEvents.events,
+    input.request.authority.workingDirectory.path,
+  );
+  input.session.appendSessionEvents(events);
+  return events;
 }
 
 export function appendManagedInvocationTerminalSessionEvent(
@@ -116,8 +133,12 @@ export function appendManagedInvocationTerminalSessionEvent(
   if (!terminal) {
     return [];
   }
-  input.session.appendSessionEvents([terminal]);
-  return [terminal];
+  const events = projectDurableSessionEvents(
+    [terminal],
+    input.request.authority.workingDirectory.path,
+  );
+  input.session.appendSessionEvents(events);
+  return events;
 }
 
 /** Appends newer durable evidence for an already-projected terminal invocation. */
@@ -139,8 +160,12 @@ export function appendManagedInvocationTerminalEvidenceSessionEvent(
     source,
   });
   if (!terminal) return [];
-  input.session.appendSessionEvents([terminal]);
-  return [terminal];
+  const events = projectDurableSessionEvents(
+    [terminal],
+    input.request.authority.workingDirectory.path,
+  );
+  input.session.appendSessionEvents(events);
+  return events;
 }
 
 export function appendManagedInvocationRuntimeFailureSessionEvent(
@@ -152,7 +177,7 @@ export function appendManagedInvocationRuntimeFailureSessionEvent(
   const source = makeSource();
   const timestamp = input.timestamp ?? new Date();
   const startedEventId = latestStartedEventId(input.session, input.request.invocationId);
-  const event = createSessionEvent<"agent_invocation_failed">({
+  const event = projectDurableSessionEvent(createSessionEvent<"agent_invocation_failed">({
     kilnSessionId: input.session.id,
     sequence: input.session.nextSessionEventSequence(),
     kind: "agent_invocation_failed",
@@ -161,14 +186,18 @@ export function appendManagedInvocationRuntimeFailureSessionEvent(
     invocationId: input.request.invocationId,
     agentId: input.request.agentId,
     parentSessionId: input.request.parentSessionId,
-    ...managedInvocationIdentity(input.request, undefined, admittedCapabilitySnapshot(input.decision)),
+    ...managedInvocationIdentity(
+      input.request,
+      undefined,
+      admittedCapabilitySnapshot(input.decision, input.request.authority.workingDirectory.path),
+    ),
     lifecycleState: "failed",
     errorCode: "ENGINE_FAILURE",
     errorMessage: input.errorMessage,
     retriable: true,
     source,
     timestamp,
-  });
+  }), input.request.authority.workingDirectory.path);
   input.session.appendSessionEvents([event]);
   return [event];
 }
@@ -200,7 +229,11 @@ function collectManagedInvocationStartEvents(
     parentSessionId: input.request.parentSessionId,
     requestedBy: input.request.requestedBy,
     requestSource: input.request.requestSource,
-    ...managedInvocationIdentity(input.request, undefined, admittedCapabilitySnapshot(input.decision)),
+    ...managedInvocationIdentity(
+      input.request,
+      undefined,
+      admittedCapabilitySnapshot(input.decision, input.request.authority.workingDirectory.path),
+    ),
     ...(input.decision.status === "denied"
       ? { routeId: input.decision.routeId, routeSource: input.decision.routeSource }
       : {}),
@@ -250,7 +283,11 @@ function collectManagedInvocationStartEvents(
     invocationId: input.request.invocationId,
     agentId: input.request.agentId,
     parentSessionId: input.request.parentSessionId,
-    ...managedInvocationIdentity(input.request, undefined, admittedCapabilitySnapshot(input.decision)),
+    ...managedInvocationIdentity(
+      input.request,
+      undefined,
+      admittedCapabilitySnapshot(input.decision, input.request.authority.workingDirectory.path),
+    ),
     lifecycleState: input.startLifecycleState ?? "running",
     attempt: 1,
     source,
@@ -436,11 +473,17 @@ function startedLifecycleState(
   return lifecycleState;
 }
 
-function formatAdmissionDenied(decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>): string {
+function formatAdmissionDenied(
+  decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "denied" }>,
+): string {
   const suffix = decision.missingCapabilities.length > 0
     ? ` missingCapabilities=${decision.missingCapabilities.join(",")}`
     : "";
   return `${decision.reason}${suffix}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function managedInvocationIdentity(
@@ -455,7 +498,12 @@ function managedInvocationIdentity(
     ? source.input.handoff
     : request?.input.handoff;
   const snapshot = "capabilitySnapshot" in source
-    ? source.capabilitySnapshot
+    ? request
+      ? projectDurableCapabilitySnapshot(
+          source.capabilitySnapshot,
+          request.authority.workingDirectory.path,
+        )
+      : source.capabilitySnapshot
     : capabilitySnapshot;
   const executionScope = "executionScope" in source
     ? source.executionScope
@@ -482,12 +530,10 @@ function managedInvocationIdentity(
 
 function admittedCapabilitySnapshot(
   decision: ManagedAgentAdmissionDecision,
+  workspaceRoot: string,
 ): ManagedAgentCapabilitySnapshot | undefined {
   return decision.status === "admitted"
-    ? projectManagedInvocationCapabilitySnapshotResources(
-        decision.capabilitySnapshot,
-        projectManagedInvocationPublicResourceUri,
-      )
+    ? projectDurableCapabilitySnapshot(decision.capabilitySnapshot, workspaceRoot)
     : undefined;
 }
 
@@ -504,9 +550,13 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
     writeAuthority?: SessionAgentInvocationEvidence["writeAuthority"];
     writeEvidence?: SessionAgentInvocationEvidence["writeEvidence"];
   } = {};
-  evidence.lifecycle = buildManagedAgentLifecycleEvidence(record);
+  const lifecycle = buildManagedAgentLifecycleEvidence(record);
   evidence.lifecycle = {
-    ...evidence.lifecycle,
+    ...lifecycle,
+    resourceLease: projectDurableResourceLease(
+      lifecycle.resourceLease,
+      record.authority.workingDirectory.path,
+    ),
     sourceResourceUris: record.capabilitySnapshot.resourcePlane.resourceUris,
   };
   if (record.childSessionId) {
@@ -531,7 +581,10 @@ function collectEvidence(record: ManagedAgentInvocationRecord): SessionAgentInvo
     evidence.resultHandoff = record.resultHandoff;
   }
   if (record.authority.writeAuthority) {
-    evidence.writeAuthority = record.authority.writeAuthority;
+    evidence.writeAuthority = projectDurableAuthority(
+      record.authority,
+      record.authority.workingDirectory.path,
+    ).writeAuthority;
   }
   if (record.writeEvidence && record.writeEvidence.length > 0) {
     evidence.writeEvidence = record.writeEvidence;
@@ -554,6 +607,10 @@ function collectDeniedEvidence(
       decision.resourceLease,
       projectManagedInvocationPublicResourceUri,
     );
+    const durableResourceLease = projectDurableResourceLease(
+      resourceLease,
+      request.authority.workingDirectory.path,
+    );
     evidence.lifecycle = {
       lifecycleState: "failed",
       invocationId: request.invocationId,
@@ -566,16 +623,16 @@ function collectDeniedEvidence(
       profile: request.profile,
       contextMode: request.input.context?.mode ?? "isolated",
       authorityProfileId: request.authority.authorityProfileId,
-      resourceLease,
+      resourceLease: durableResourceLease,
       sourceResourceUris: request.input.resourceUris ?? [],
-      diagnosticUris: resourceLease.diagnosticUris,
+      diagnosticUris: durableResourceLease.diagnosticUris,
       handoffResourceUris: [],
     };
   }
   if (request.authority.writeAuthority) {
-    const writeAuthority = projectManagedInvocationAuthorityResources(
+    const writeAuthority = projectDurableAuthority(
       request.authority,
-      projectManagedInvocationPublicResourceUri,
+      request.authority.workingDirectory.path,
     ).writeAuthority;
     if (writeAuthority) {
       evidence.writeAuthority = writeAuthority;
@@ -592,6 +649,220 @@ function collectDeniedEvidence(
     ];
   }
   return Object.keys(evidence).length > 0 ? evidence : undefined;
+}
+
+function projectDurableCapabilitySnapshot(
+  snapshot: ManagedAgentCapabilitySnapshot,
+  workspaceRoot: string,
+): ManagedAgentCapabilitySnapshot {
+  const projected = projectManagedInvocationCapabilitySnapshotResources(
+    snapshot,
+    projectManagedInvocationPublicResourceUri,
+  );
+  return {
+    ...projected,
+    ...(projected.authorityProfile !== undefined
+      ? {
+          authorityProfile: projectDurableAuthority(projected.authorityProfile, workspaceRoot),
+        }
+      : {}),
+    resourceLease: projectDurableResourceLease(projected.resourceLease, workspaceRoot),
+  };
+}
+
+function projectDurableAuthority(
+  authority: ManagedAgentAuthorityProfile,
+  workspaceRoot: string,
+): ManagedAgentAuthorityProfile {
+  const projected = projectManagedInvocationAuthorityResources(
+    authority,
+    projectManagedInvocationPublicResourceUri,
+  );
+  return {
+    ...projected,
+    workingDirectory: {
+      ...projected.workingDirectory,
+      path: portableWorkspacePath(projected.workingDirectory.path, workspaceRoot),
+    },
+    ...(projected.readAuthority !== undefined
+      ? {
+          readAuthority: {
+            workspace: {
+              allowedPaths: projected.readAuthority.workspace.allowedPaths.map(
+                (path) => portableWorkspacePath(path, workspaceRoot),
+              ),
+              deniedPaths: projected.readAuthority.workspace.deniedPaths.map(
+                (path) => portableWorkspacePath(path, workspaceRoot),
+              ),
+            },
+          },
+        }
+      : {}),
+    ...(projected.writeAuthority !== undefined
+      ? {
+          writeAuthority: {
+            ...projected.writeAuthority,
+            scope: {
+              ...projected.writeAuthority.scope,
+              workspace: {
+                ...projected.writeAuthority.scope.workspace,
+                allowedPaths: projected.writeAuthority.scope.workspace.allowedPaths.map(
+                  (path) => portableWorkspacePath(path, workspaceRoot),
+                ),
+                deniedPaths: projected.writeAuthority.scope.workspace.deniedPaths.map(
+                  (path) => portableWorkspacePath(path, workspaceRoot),
+                ),
+              },
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+function projectDurableResourceLease(
+  lease: ManagedAgentCapabilitySnapshot["resourceLease"],
+  workspaceRoot: string,
+): ManagedAgentCapabilitySnapshot["resourceLease"] {
+  return {
+    ...lease,
+    workingDirectoryPath: portableWorkspacePath(lease.workingDirectoryPath, workspaceRoot),
+    ...(lease.worktreeConflict !== undefined
+      ? {
+          worktreeConflict: {
+            ...lease.worktreeConflict,
+            workingDirectoryPath: portableWorkspacePath(
+              lease.worktreeConflict.workingDirectoryPath,
+              workspaceRoot,
+            ),
+          },
+        }
+      : {}),
+  };
+}
+
+function projectDurableSessionEvents(
+  events: readonly CanonicalSessionEvent[],
+  workspaceRoot: string,
+): readonly CanonicalSessionEvent[] {
+  return events.map((event) => projectDurableSessionEvent(event, workspaceRoot));
+}
+
+function projectDurableSessionEvent(
+  event: CanonicalSessionEvent,
+  workspaceRoot: string,
+): CanonicalSessionEvent {
+  if (isManagedAgentWorkspaceVolumeRoot(workspaceRoot)) {
+    throw new Error("Managed invocation durable events reject filesystem volume root workspaces");
+  }
+  return projectDurableValue(event, workspaceRoot) as CanonicalSessionEvent;
+}
+
+function projectDurableValue(value: unknown, workspaceRoot: string): unknown {
+  if (typeof value === "string") {
+    return redactWorkspaceReferences(value, workspaceRoot);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => projectDurableValue(entry, workspaceRoot));
+  }
+  if (value instanceof Date || value === null || typeof value !== "object") {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      projectDurableValue(entry, workspaceRoot),
+    ]),
+  );
+}
+
+function portableWorkspacePath(path: string, workspaceRoot: string): string {
+  const pathDialect = absolutePathDialect(path);
+  if (pathDialect === undefined) {
+    return path.replaceAll("\\", "/");
+  }
+  if (absolutePathDialect(workspaceRoot) !== pathDialect) {
+    return "<external-workspace>";
+  }
+  const pathApi = pathDialect === "windows" ? win32 : posix;
+  const workspaceRelative = pathApi.relative(
+    pathApi.resolve(normalizeAbsolutePath(workspaceRoot, pathDialect)),
+    pathApi.resolve(normalizeAbsolutePath(path, pathDialect)),
+  );
+  if (workspaceRelative === "") {
+    return ".";
+  }
+  if (
+    pathApi.isAbsolute(workspaceRelative)
+    || workspaceRelative === ".."
+    || workspaceRelative.startsWith(`..${pathApi.sep}`)
+  ) {
+    return "<external-workspace>";
+  }
+  return workspaceRelative.split(pathApi.sep).join("/");
+}
+
+function redactWorkspaceReferences(value: string, workspaceRoot: string): string {
+  const pattern = workspaceRootPattern(workspaceRoot);
+  return pattern === undefined ? value : value.replace(pattern, ".");
+}
+
+function workspaceRootPattern(workspaceRoot: string): RegExp | undefined {
+  const dialect = absolutePathDialect(workspaceRoot);
+  if (dialect === undefined) {
+    return undefined;
+  }
+  const normalizedRoot = normalizeAbsolutePath(workspaceRoot, dialect).replaceAll("\\", "/");
+  const canonical = normalizedRoot === "/" || /^[A-Za-z]:\/$/u.test(normalizedRoot)
+    ? normalizedRoot
+    : normalizedRoot.replace(/\/+$/gu, "");
+  let rootSource: string;
+  if (dialect === "windows" && /^[A-Za-z]:\//u.test(canonical)) {
+    const drive = canonical.slice(0, 2);
+    const segments = canonical.slice(3).split("/").filter(Boolean);
+    rootSource = `(?:[\\\\/]{2}\\?[\\\\/])?${escapeRegExp(drive)}${
+      segments.map((segment) => `[\\\\/]${escapeRegExp(segment)}`).join("")
+    }`;
+  } else if (dialect === "windows" && canonical.startsWith("//")) {
+    const segments = canonical.slice(2).split("/").filter(Boolean);
+    rootSource = `[\\\\/]{2}(?:\\?[\\\\/]UNC[\\\\/])?${
+      segments.map((segment, index) =>
+        `${index === 0 ? "" : "[\\\\/]"}${escapeRegExp(segment)}`
+      ).join("")
+    }`;
+  } else {
+    const segments = canonical.slice(1).split("/").filter(Boolean);
+    rootSource = `[\\\\/]${segments.map((segment, index) =>
+      `${index === 0 ? "" : "[\\\\/]"}${escapeRegExp(segment)}`
+    ).join("")}`;
+  }
+  const boundary = String.raw`(?=$|[\\/]|[^\p{L}\p{N}._-]|[.](?:$|[^\p{L}\p{N}_-]))`;
+  return new RegExp(`${rootSource}${boundary}`, dialect === "windows" ? "giu" : "gu");
+}
+
+function normalizeAbsolutePath(value: string, dialect: "windows" | "posix"): string {
+  if (dialect === "posix") {
+    return posix.normalize(value.replaceAll("\\", "/"));
+  }
+  const windowsPath = value.replaceAll("/", "\\");
+  if (/^\\\\\?\\UNC\\/iu.test(windowsPath)) {
+    return win32.normalize(`\\\\${windowsPath.slice("\\\\?\\UNC\\".length)}`);
+  }
+  if (/^\\\\\?\\/u.test(windowsPath)) {
+    return win32.normalize(windowsPath.slice("\\\\?\\".length));
+  }
+  return win32.normalize(windowsPath);
+}
+
+function absolutePathDialect(value: string): "windows" | "posix" | undefined {
+  if (
+    /^[A-Za-z]:[\\/]/u.test(value)
+    || /^[\\/]{2}\?[\\/](?:UNC[\\/])?[A-Za-z]:?[\\/]/iu.test(value)
+    || /^[\\/]{2}(?:\?[\\/]UNC[\\/])?[^\\/]+[\\/][^\\/]+/iu.test(value)
+  ) {
+    return "windows";
+  }
+  return value.startsWith("/") ? "posix" : undefined;
 }
 
 function makeSource(): SessionEventSource {

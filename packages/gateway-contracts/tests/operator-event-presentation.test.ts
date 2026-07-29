@@ -27,6 +27,14 @@ describe("operator event presentation", () => {
       label: "Account affinity commit",
       value: "conflict",
     });
+    expect(presentation.details).toContainEqual({
+      label: "Account usage freshness",
+      value: "fresh",
+    });
+    expect(presentation.details).toContainEqual({
+      label: "Account usage availability",
+      value: "available",
+    });
   });
 
   it("projects structured tool errors as diagnostics even when the transport reports success", () => {
