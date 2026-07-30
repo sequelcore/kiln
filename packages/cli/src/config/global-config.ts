@@ -2,7 +2,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { parse, stringify } from "yaml";
-import { parseGatewayYaml, validateVoiceConfig, type ModelGatewayConfig, type VoiceConfig } from "@kilnai/core";
+import {
+  compareManagedEconomicAmounts,
+  deriveManagedEconomicMinimumReservation,
+  parseGatewayYaml,
+  validateManagedEconomicAmount,
+  validateVoiceConfig,
+  type ManagedEconomicAmount,
+  type ModelGatewayConfig,
+  type VoiceConfig,
+} from "@kilnai/core";
 import { KilnYamlError } from "../kiln-yaml.js";
 import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./mcp-config.js";
@@ -621,22 +630,67 @@ function validateManagedAgents(value: unknown, operatorVoice: VoiceConfig | unde
   if (!isRecord(value)) {
     throw new KilnYamlError("managedAgents must be an object");
   }
+  rejectUnknownFields(value, [
+    "schemaVersion",
+    "enabled",
+    "defaultProfile",
+    "defaultProvider",
+    "defaultVoiceProfile",
+    "model",
+    "worktreeLease",
+    "requireApproval",
+    "routes",
+    "economicPolicies",
+  ], "managedAgents");
+  if (value.economicPolicies !== undefined && value.schemaVersion !== 2) {
+    throw new KilnYamlError("managedAgents.schemaVersion must be 2 when economicPolicies are declared");
+  }
+  if (value.schemaVersion !== undefined && value.schemaVersion !== 2) {
+    throw new KilnYamlError("managedAgents.schemaVersion must be 2");
+  }
+  if (value.schemaVersion === 2 && (!Array.isArray(value.economicPolicies) || value.economicPolicies.length === 0)) {
+    throw new KilnYamlError("managedAgents.schemaVersion 2 requires non-empty economicPolicies");
+  }
   validateManagedAgentWorktreeLease(value.worktreeLease);
   validateManagedAgentVoiceProfile(value.defaultVoiceProfile, "managedAgents.defaultVoiceProfile", operatorVoice);
+  const routeIds = new Set<string>();
   if (value.routes !== undefined) {
     if (!Array.isArray(value.routes)) {
       throw new KilnYamlError("managedAgents.routes must be an array");
     }
     for (let index = 0; index < value.routes.length; index += 1) {
       validateManagedAgentRoute(value.routes[index], index, operatorVoice);
+      const route = value.routes[index];
+      if (isRecord(route) && routeIds.has(String(route.id))) {
+        throw new KilnYamlError(`managedAgents.routes[${index}].id must be unique`);
+      }
+      if (isRecord(route)) routeIds.add(String(route.id));
     }
   }
+  validateManagedEconomicPolicies(value.economicPolicies);
 }
 
 function validateManagedAgentRoute(value: unknown, index: number, operatorVoice: VoiceConfig | undefined): void {
   if (!isRecord(value)) {
     throw new KilnYamlError(`managedAgents.routes[${index}] must be an object`);
   }
+  rejectUnknownFields(value, [
+    "id",
+    "kind",
+    "provider",
+    "model",
+    "voiceProfile",
+    "profiles",
+    "workingDirectory",
+    "timeoutMs",
+    "tools",
+    "memory",
+    "readAuthority",
+    "writeAuthority",
+    "credentials",
+    "remoteHarness",
+    "externalRuntimeAttachment",
+  ], `managedAgents.routes[${index}]`);
   if (typeof value.id !== "string" || value.id.trim().length === 0) {
     throw new KilnYamlError(`managedAgents.routes[${index}].id is required`);
   }
@@ -662,6 +716,174 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
   validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);
   validateManagedAgentCredentials(value.credentials, `managedAgents.routes[${index}].credentials`);
   validateManagedAgentRemoteHarness(value.remoteHarness, value.kind, `managedAgents.routes[${index}].remoteHarness`);
+}
+
+function validateManagedEconomicPolicies(value: unknown): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new KilnYamlError("managedAgents.economicPolicies must be a non-empty array");
+  }
+  const policyIds = new Set<string>();
+  for (let policyIndex = 0; policyIndex < value.length; policyIndex += 1) {
+    const path = `managedAgents.economicPolicies[${policyIndex}]`;
+    const policy = value[policyIndex];
+    if (!isRecord(policy)) throw new KilnYamlError(`${path} must be an object`);
+    rejectUnknownFields(policy, ["id", "revision", "evidenceRequirements", "noRouteAction", "comparisonDomains", "candidates"], path);
+    validateCanonicalId(policy.id, `${path}.id`);
+    if (policyIds.has(String(policy.id))) throw new KilnYamlError(`${path}.id must be unique`);
+    policyIds.add(String(policy.id));
+    validateCanonicalId(policy.revision, `${path}.revision`);
+    if (policy.noRouteAction !== "deny") throw new KilnYamlError(`${path}.noRouteAction must be "deny"`);
+    validateEconomicEvidenceRequirements(policy.evidenceRequirements, `${path}.evidenceRequirements`);
+    const domains = validateEconomicComparisonDomains(policy.comparisonDomains, `${path}.comparisonDomains`);
+    validateEconomicCandidates(policy.candidates, domains, `${path}.candidates`);
+  }
+}
+
+function validateEconomicEvidenceRequirements(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, ["quota", "price"], path);
+  if (value.quota !== "optional" && value.quota !== "required-for-account-bound") {
+    throw new KilnYamlError(`${path}.quota is invalid`);
+  }
+  if (value.price !== "optional" && value.price !== "required") {
+    throw new KilnYamlError(`${path}.price is invalid`);
+  }
+}
+
+function validateEconomicComparisonDomains(value: unknown, path: string): Map<string, Record<string, unknown>> {
+  if (!Array.isArray(value) || value.length === 0) throw new KilnYamlError(`${path} must be a non-empty array`);
+  const domains = new Map<string, Record<string, unknown>>();
+  const ranks = new Set<number>();
+  for (let index = 0; index < value.length; index += 1) {
+    const domainPath = `${path}[${index}]`;
+    const domain = value[index];
+    if (!isRecord(domain)) throw new KilnYamlError(`${domainPath} must be an object`);
+    rejectUnknownFields(domain, ["id", "rank", "unit", "scheme", "rateCardBasis", "envelopeSemantics"], domainPath);
+    validateCanonicalId(domain.id, `${domainPath}.id`);
+    validateCanonicalId(domain.unit, `${domainPath}.unit`);
+    validateCanonicalId(domain.rateCardBasis, `${domainPath}.rateCardBasis`);
+    validateCanonicalId(domain.envelopeSemantics, `${domainPath}.envelopeSemantics`);
+    if (!Number.isSafeInteger(domain.rank) || Number(domain.rank) < 0) throw new KilnYamlError(`${domainPath}.rank must be a non-negative integer`);
+    if (domains.has(String(domain.id))) throw new KilnYamlError(`${domainPath}.id must be unique`);
+    if (ranks.has(Number(domain.rank))) throw new KilnYamlError(`${domainPath}.rank must be unique`);
+    validateEconomicScheme(domain.scheme, `${domainPath}.scheme`);
+    domains.set(String(domain.id), domain);
+    ranks.add(Number(domain.rank));
+  }
+  return domains;
+}
+
+function validateEconomicCandidates(
+  value: unknown,
+  domains: ReadonlyMap<string, Record<string, unknown>>,
+  path: string,
+): void {
+  if (!Array.isArray(value) || value.length === 0) throw new KilnYamlError(`${path} must be a non-empty array`);
+  const routeIds = new Set<string>();
+  for (let index = 0; index < value.length; index += 1) {
+    const candidatePath = `${path}[${index}]`;
+    const candidate = value[index];
+    if (!isRecord(candidate)) throw new KilnYamlError(`${candidatePath} must be an object`);
+    rejectUnknownFields(candidate, ["routeId", "comparisonDomainId", "priorityRank", "ceiling", "worstCaseReservation"], candidatePath);
+    validateCanonicalId(candidate.routeId, `${candidatePath}.routeId`);
+    validateCanonicalId(candidate.comparisonDomainId, `${candidatePath}.comparisonDomainId`);
+    if (routeIds.has(String(candidate.routeId))) throw new KilnYamlError(`${candidatePath}.routeId must be unique within the policy`);
+    routeIds.add(String(candidate.routeId));
+    const domain = domains.get(String(candidate.comparisonDomainId));
+    if (!domain) throw new KilnYamlError(`${candidatePath}.comparisonDomainId must reference a policy comparison domain`);
+    if (!Number.isSafeInteger(candidate.priorityRank) || Number(candidate.priorityRank) < 0) {
+      throw new KilnYamlError(`${candidatePath}.priorityRank must be a non-negative integer`);
+    }
+    validateEconomicCeiling(candidate.ceiling, domain, `${candidatePath}.ceiling`);
+    validateEconomicReservation(candidate.worstCaseReservation, domain, `${candidatePath}.worstCaseReservation`);
+    if (isRecord(candidate.ceiling) && candidate.ceiling.kind === "finite") {
+      if (!isRecord(candidate.worstCaseReservation) || candidate.worstCaseReservation.kind !== "exact") {
+        throw new KilnYamlError(`${candidatePath}.worstCaseReservation must be exact when ceiling is finite`);
+      }
+      const reservation = candidate.worstCaseReservation.amount as ManagedEconomicAmount;
+      const ceiling = candidate.ceiling.amount as ManagedEconomicAmount;
+      if (compareManagedEconomicAmounts(reservation, ceiling) > 0) {
+        throw new KilnYamlError(`${candidatePath}.worstCaseReservation must not exceed its finite ceiling`);
+      }
+    }
+  }
+}
+
+function validateEconomicReservation(
+  value: unknown,
+  domain: Readonly<Record<string, unknown>>,
+  path: string,
+): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  if (value.kind === "exact") {
+    rejectUnknownFields(value, ["kind", "amount"], path);
+    validateEconomicAmount(value.amount, `${path}.amount`);
+    const amount = value.amount as ManagedEconomicAmount;
+    if (amount.unit !== domain.unit || !economicSchemesEqual(amount.scheme, domain.scheme)) {
+      throw new KilnYamlError(`${path}.amount must use the comparison domain unit and scheme`);
+    }
+    return;
+  }
+  if (value.kind !== "not-comparable") {
+    throw new KilnYamlError(`${path}.kind must be "exact" or "not-comparable"`);
+  }
+  rejectUnknownFields(value, ["kind", "reason"], path);
+  if (![
+    "subscription-basis",
+    "included-basis",
+    "estimated-basis",
+    "unknown-basis",
+    "economic-basis-unavailable",
+  ].includes(String(value.reason))) {
+    throw new KilnYamlError(`${path}.reason is invalid`);
+  }
+}
+
+function validateEconomicCeiling(
+  value: unknown,
+  domain: Readonly<Record<string, unknown>>,
+  path: string,
+): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  if (value.kind === "none") {
+    rejectUnknownFields(value, ["kind"], path);
+    return;
+  }
+  if (value.kind !== "finite") throw new KilnYamlError(`${path}.kind must be "none" or "finite"`);
+  rejectUnknownFields(value, ["kind", "amount"], path);
+  validateEconomicAmount(value.amount, `${path}.amount`);
+  const amount = value.amount as ManagedEconomicAmount;
+  if (amount.unit !== domain.unit || !economicSchemesEqual(amount.scheme, domain.scheme)) {
+    throw new KilnYamlError(`${path}.amount must use the comparison domain unit and scheme`);
+  }
+}
+
+function validateEconomicAmount(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, ["atoms", "scale", "unit", "scheme"], path);
+  validateEconomicScheme(value.scheme, `${path}.scheme`);
+  try {
+    validateManagedEconomicAmount(value as unknown as ManagedEconomicAmount);
+  } catch (error) {
+    throw new KilnYamlError(`${path} is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function validateEconomicScheme(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  if (value.kind === "currency") {
+    rejectUnknownFields(value, ["kind", "currency"], path);
+    validateCanonicalId(value.currency, `${path}.currency`);
+    return;
+  }
+  if (value.kind === "credit") {
+    rejectUnknownFields(value, ["kind", "creditSchemeId"], path);
+    validateCanonicalId(value.creditSchemeId, `${path}.creditSchemeId`);
+    return;
+  }
+  if (value.kind !== "unit") throw new KilnYamlError(`${path}.kind is invalid`);
+  rejectUnknownFields(value, ["kind"], path);
 }
 
 function validateManagedAgentCredentials(value: unknown, path: string): void {
@@ -691,12 +913,13 @@ function validateManagedAgentCredentials(value: unknown, path: string): void {
 }
 
 function validateManagedAccountPolicyReferences(managedAgents: unknown, modelGateway: unknown): void {
-  if (!isRecord(managedAgents) || !Array.isArray(managedAgents.routes)) return;
+  if (!isRecord(managedAgents)) return;
+  const routes = Array.isArray(managedAgents.routes) ? managedAgents.routes.filter(isRecord) : [];
   const policies = isRecord(modelGateway) && Array.isArray(modelGateway.virtualModels)
     ? modelGateway.virtualModels.filter(isRecord)
     : [];
-  for (let index = 0; index < managedAgents.routes.length; index += 1) {
-    const route = managedAgents.routes[index];
+  for (let index = 0; index < routes.length; index += 1) {
+    const route = routes[index];
     if (!isRecord(route) || !isRecord(route.credentials) || route.credentials.mode !== "runtime-selected") {
       continue;
     }
@@ -717,6 +940,183 @@ function validateManagedAccountPolicyReferences(managedAgents: unknown, modelGat
         `managedAgents.routes[${index}] provider and model must match its modelGateway account policy`,
       );
     }
+  }
+  if (!Array.isArray(managedAgents.economicPolicies)) return;
+  const accounts = isRecord(modelGateway) && Array.isArray(modelGateway.accounts)
+    ? modelGateway.accounts.filter(isRecord)
+    : [];
+  const directProviders = new Set(["codex-oauth", "opencode-go", "opencode-zen"]);
+  for (let policyIndex = 0; policyIndex < managedAgents.economicPolicies.length; policyIndex += 1) {
+    const economicPolicy = managedAgents.economicPolicies[policyIndex];
+    if (!isRecord(economicPolicy) || !Array.isArray(economicPolicy.candidates)) continue;
+    for (let candidateIndex = 0; candidateIndex < economicPolicy.candidates.length; candidateIndex += 1) {
+      const candidate = economicPolicy.candidates[candidateIndex];
+      if (!isRecord(candidate)) continue;
+      const path = `managedAgents.economicPolicies[${policyIndex}].candidates[${candidateIndex}]`;
+      const route = routes.find((entry) => entry.id === candidate.routeId);
+      if (!route) throw new KilnYamlError(`${path}.routeId must reference managedAgents.routes`);
+      if (route.kind !== "direct" || !directProviders.has(String(route.provider))) {
+        throw new KilnYamlError(`${path}.routeId must reference a supported direct economic route`);
+      }
+      if (!isRecord(route.credentials) || route.credentials.mode !== "runtime-selected") {
+        throw new KilnYamlError(`${path}.routeId must reference a runtime-selected account policy`);
+      }
+      const accountPolicyId = route.credentials.accountPolicyId;
+      const virtualModel = policies.find((entry) => entry.id === accountPolicyId);
+      if (!virtualModel || !isRecord(virtualModel.economics)) {
+        throw new KilnYamlError(`${path}.routeId must reference a virtual model with economics`);
+      }
+      const domain = Array.isArray(economicPolicy.comparisonDomains)
+        ? economicPolicy.comparisonDomains.find((entry) =>
+            isRecord(entry) && entry.id === candidate.comparisonDomainId)
+        : undefined;
+      if (!isRecord(domain)) {
+        throw new KilnYamlError(`${path}.comparisonDomainId must reference a policy comparison domain`);
+      }
+      if (domain.rateCardBasis !== virtualModel.economics.rateCardBasis) {
+        throw new KilnYamlError(`${path} comparison domain rateCardBasis must match route economics`);
+      }
+      if (domain.envelopeSemantics !== virtualModel.economics.envelopeSemantics) {
+        throw new KilnYamlError(`${path} comparison domain envelopeSemantics must match route economics`);
+      }
+      validateReservationPriceClass(
+        candidate.worstCaseReservation,
+        isRecord(virtualModel.economics.priceEvidence)
+          ? virtualModel.economics.priceEvidence.kind
+          : undefined,
+        path,
+      );
+      validateRouteEconomicSchemes(virtualModel.economics, domain, path);
+      validateDerivedRouteReservation(candidate.worstCaseReservation, virtualModel.economics, domain, path);
+      if (virtualModel.economics.fallbackPosture !== "disabled" || virtualModel.economics.overagePosture !== "disabled") {
+        throw new KilnYamlError(`${path}.routeId cannot activate uncommitted fallback or overage`);
+      }
+      const accountIds = Array.isArray(virtualModel.accountIds) ? virtualModel.accountIds : [];
+      for (const accountId of accountIds) {
+        const account = accounts.find((entry) => entry.id === accountId);
+        if (!account || !isRecord(account.economics)) {
+          throw new KilnYamlError(`${path}.routeId requires economics for every account candidate`);
+        }
+        if (account.economics.creditPosture !== "disabled" || account.economics.overagePosture !== "disabled") {
+          throw new KilnYamlError(`${path}.routeId cannot activate account credit or overage subcommitments`);
+        }
+      }
+    }
+  }
+}
+
+function validateRouteEconomicSchemes(
+  economics: Readonly<Record<string, unknown>>,
+  domain: Readonly<Record<string, unknown>>,
+  path: string,
+): void {
+  const priceEvidence = economics.priceEvidence;
+  if (isRecord(priceEvidence) && Array.isArray(priceEvidence.unitPrices)) {
+    for (const unitPrice of priceEvidence.unitPrices) {
+      if (
+        !isRecord(unitPrice)
+        || !isRecord(unitPrice.price)
+        || !economicSchemesEqual(unitPrice.price.scheme, domain.scheme)
+      ) {
+        throw new KilnYamlError(`${path} route price scheme must match its comparison domain`);
+      }
+    }
+  }
+  if (Array.isArray(economics.auxiliaryCharges)) {
+    for (const charge of economics.auxiliaryCharges) {
+      if (
+        !isRecord(charge)
+        || !isRecord(charge.amount)
+        || charge.amount.unit !== domain.unit
+        || !economicSchemesEqual(charge.amount.scheme, domain.scheme)
+      ) {
+        throw new KilnYamlError(`${path} auxiliary charge unit and scheme must match its comparison domain`);
+      }
+    }
+  }
+}
+
+function validateDerivedRouteReservation(
+  reservation: unknown,
+  economics: Readonly<Record<string, unknown>>,
+  domain: Readonly<Record<string, unknown>>,
+  path: string,
+): void {
+  const priceEvidence = economics.priceEvidence;
+  if (!isRecord(priceEvidence) || !isRecord(reservation)) return;
+  const auxiliaryCharges = Array.isArray(economics.auxiliaryCharges) ? economics.auxiliaryCharges : [];
+  if (priceEvidence.kind === "free") {
+    if (auxiliaryCharges.length > 0) {
+      throw new KilnYamlError(`${path} free route cannot declare separately charged auxiliary calls`);
+    }
+    if (reservation.kind !== "exact" || !isRecord(reservation.amount)) return;
+    const amount = reservation.amount as unknown as ManagedEconomicAmount;
+    const zero: ManagedEconomicAmount = {
+      atoms: "0",
+      scale: 0,
+      unit: amount.unit,
+      scheme: amount.scheme,
+    };
+    if (compareManagedEconomicAmounts(amount, zero) !== 0) {
+      throw new KilnYamlError(`${path} free route requires an exact zero worst-case reservation`);
+    }
+    return;
+  }
+  if (priceEvidence.kind !== "metered" || reservation.kind !== "exact" || !isRecord(reservation.amount)) return;
+  const envelope = economics.executionEnvelope;
+  if (!isRecord(envelope) || !Array.isArray(envelope.limits) || !Array.isArray(priceEvidence.unitPrices)) return;
+  try {
+    const minimum = deriveManagedEconomicMinimumReservation({
+      unitRates: priceEvidence.unitPrices.map((entry) => {
+        if (!isRecord(entry) || !isRecord(entry.price)) throw new KilnYamlError(`${path} route unit price is invalid`);
+        return {
+          usageUnit: String(entry.usageUnit),
+          price: entry.price as unknown as ManagedEconomicAmount,
+        };
+      }),
+      usageLimits: envelope.limits as ManagedEconomicAmount[],
+      auxiliaryCharges: auxiliaryCharges.map((entry) => {
+        if (!isRecord(entry) || !isRecord(entry.amount)) throw new KilnYamlError(`${path} auxiliary charge is invalid`);
+        return {
+          id: String(entry.id),
+          amount: entry.amount as unknown as ManagedEconomicAmount,
+        };
+      }),
+      outputUnit: String(domain.unit),
+      targetScheme: domain.scheme as Exclude<ManagedEconomicAmount["scheme"], { readonly kind: "unit" }>,
+    });
+    if (compareManagedEconomicAmounts(reservation.amount as unknown as ManagedEconomicAmount, minimum) < 0) {
+      throw new KilnYamlError(`${path} worstCaseReservation must cover the derived minimum reservation`);
+    }
+  } catch (error) {
+    if (error instanceof KilnYamlError) throw error;
+    throw new KilnYamlError(`${path} cannot derive an exact minimum reservation: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function validateReservationPriceClass(
+  reservation: unknown,
+  priceKind: unknown,
+  path: string,
+): void {
+  if (!isRecord(reservation)) return;
+  if (priceKind === "metered" || priceKind === "free") {
+    if (reservation.kind !== "exact") {
+      throw new KilnYamlError(`${path} ${priceKind} route requires an exact worst-case reservation`);
+    }
+    return;
+  }
+  const expectedReason = priceKind === "subscription"
+    ? "subscription-basis"
+    : priceKind === "included"
+      ? "included-basis"
+      : priceKind === "estimated"
+        ? "estimated-basis"
+        : priceKind === "unknown"
+          ? "unknown-basis"
+          : undefined;
+  if (expectedReason && (reservation.kind !== "not-comparable" || reservation.reason !== expectedReason)) {
+    throw new KilnYamlError(`${path} ${priceKind} route requires not-comparable reason '${expectedReason}'`);
   }
 }
 
@@ -1043,6 +1443,30 @@ function isWorkGovernanceEvidence(value: unknown): boolean {
     || value === "managed-agent-review"
     || value === "formal-proof"
     || value === "residual-risk";
+}
+
+function rejectUnknownFields(
+  value: Readonly<Record<string, unknown>>,
+  allowed: readonly string[],
+  path: string,
+): void {
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) throw new KilnYamlError(`Unknown ${path} field: ${key}`);
+  }
+}
+
+function validateCanonicalId(value: unknown, path: string): asserts value is string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value)) {
+    throw new KilnYamlError(`${path} must be a canonical id`);
+  }
+}
+
+function economicSchemesEqual(left: unknown, right: unknown): boolean {
+  if (!isRecord(left) || !isRecord(right) || left.kind !== right.kind) return false;
+  if (left.kind === "unit") return true;
+  if (left.kind === "currency") return left.currency === right.currency;
+  if (left.kind === "credit") return left.creditSchemeId === right.creditSchemeId;
+  return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

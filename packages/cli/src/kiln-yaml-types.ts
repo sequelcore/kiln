@@ -1,4 +1,12 @@
-import type { KilnWorkGovernanceEvidence, McpServerConfiguration, MemoryLayerKind, MemoryScopeKind } from "@kilnai/core";
+import type {
+  KilnWorkGovernanceEvidence,
+  ManagedEconomicAmount,
+  ManagedEconomicComparableReservation,
+  ManagedEconomicScheme,
+  McpServerConfiguration,
+  MemoryLayerKind,
+  MemoryScopeKind,
+} from "@kilnai/core";
 import type { KilnMemoryAuthorityOperation } from "./wrapper/session.js";
 
 export type { KilnWorkGovernanceEvidence } from "@kilnai/core";
@@ -432,7 +440,39 @@ export interface KilnManagedAgentRouteConfig {
   readonly externalRuntimeAttachment?: KilnManagedAgentExternalRuntimeAttachmentConfig;
 }
 
+export interface KilnManagedEconomicComparisonDomainConfig {
+  readonly id: string;
+  readonly rank: number;
+  readonly unit: string;
+  readonly scheme: ManagedEconomicScheme;
+  readonly rateCardBasis: string;
+  readonly envelopeSemantics: string;
+}
+
+export interface KilnManagedEconomicPolicyCandidateConfig {
+  readonly routeId: string;
+  readonly comparisonDomainId: string;
+  readonly priorityRank: number;
+  readonly worstCaseReservation: ManagedEconomicComparableReservation;
+  readonly ceiling:
+    | { readonly kind: "none" }
+    | { readonly kind: "finite"; readonly amount: ManagedEconomicAmount };
+}
+
+export interface KilnManagedEconomicPolicyConfig {
+  readonly id: string;
+  readonly revision: string;
+  readonly evidenceRequirements: {
+    readonly quota: "optional" | "required-for-account-bound";
+    readonly price: "optional" | "required";
+  };
+  readonly noRouteAction: "deny";
+  readonly comparisonDomains: readonly KilnManagedEconomicComparisonDomainConfig[];
+  readonly candidates: readonly KilnManagedEconomicPolicyCandidateConfig[];
+}
+
 export interface KilnManagedAgentsConfig {
+  readonly schemaVersion?: 2;
   readonly enabled?: boolean;
   readonly defaultProfile?: KilnManagedAgentProfile;
   readonly defaultProvider?: string;
@@ -441,6 +481,7 @@ export interface KilnManagedAgentsConfig {
   readonly worktreeLease?: KilnManagedAgentWorktreeLeaseConfig;
   readonly requireApproval?: boolean;
   readonly routes?: readonly KilnManagedAgentRouteConfig[];
+  readonly economicPolicies?: readonly KilnManagedEconomicPolicyConfig[];
 }
 
 export interface KilnYamlQualityGate {

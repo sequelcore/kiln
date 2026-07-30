@@ -186,6 +186,7 @@ describe("Codex App managed-job production composition", () => {
     const agents = [
       { name: "scout", displayName: "Scout", role: "Read-only scout", routeId: "scout-route" },
       { name: "researcher", role: "Researcher", routeId: "researcher-route" },
+      { name: "economic-worker", role: "Policy-only worker", economicPolicyId: "bounded-policy" },
     ];
 
     expect(summarizeNativeHarnessManagedAgents(agents, undefined)).toMatchObject([{
@@ -215,6 +216,9 @@ describe("Codex App managed-job production composition", () => {
       admissionProfileId: "foundation-readonly-plan",
       diagnostic: "eligibility_unresolved",
     });
+    expect(summarizeNativeHarnessManagedAgents(agents, {
+      routes: [route("scout-route"), route("researcher-route")],
+    } as never).some((agent) => agent.configuredAgentProfileId === "economic-worker")).toBe(false);
   });
 
   it("uses the real application owner and fails a missing configured profile before provider execution", async () => {

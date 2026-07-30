@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   compareManagedEconomicAmounts,
+  deriveManagedEconomicMinimumReservation,
   narrowManagedEconomicExecutionAlternatives,
   selectManagedEconomicExecutionAlternative,
   validateManagedEconomicAmount,
@@ -705,5 +706,109 @@ describe("managed route economics", () => {
       expect(settlement).not.toHaveProperty("charge");
       expect(settlement).not.toHaveProperty("estimate");
     }
+  });
+});
+
+describe("minimum comparable reservation derivation", () => {
+  const usd = { kind: "currency" as const, currency: "USD" };
+  const usage = (atoms: string, scale = 0, unit = "input-token") => ({
+    atoms,
+    scale,
+    unit,
+    scheme: { kind: "unit" as const },
+  });
+  const rate = (atoms: string, scale = 6, usageUnit = "input-token") => ({
+    usageUnit,
+    price: { atoms, scale, unit: usageUnit, scheme: usd },
+  });
+
+  it("derives an exact minimum from unit rates, usage bounds, and fixed charges", () => {
+    expect(deriveManagedEconomicMinimumReservation({
+      unitRates: [rate("125")],
+      usageLimits: [usage("200000")],
+      auxiliaryCharges: [{
+        id: "tool-call",
+        amount: { atoms: "150", scale: 2, unit: "request", scheme: usd },
+      }],
+      outputUnit: "request",
+      targetScheme: usd,
+    })).toEqual({
+      atoms: "265",
+      scale: 1,
+      unit: "request",
+      scheme: usd,
+    });
+  });
+
+  it("normalizes scales exactly without binary floating point", () => {
+    expect(deriveManagedEconomicMinimumReservation({
+      unitRates: [rate("1", 2)],
+      usageLimits: [usage("25", 1)],
+      auxiliaryCharges: [],
+      outputUnit: "request",
+      targetScheme: usd,
+    })).toMatchObject({ atoms: "25", scale: 3 });
+  });
+
+  it("allows additional bounded usage dimensions without a separate rate", () => {
+    expect(deriveManagedEconomicMinimumReservation({
+      unitRates: [rate("125")],
+      usageLimits: [usage("200000"), usage("1", 0, "request")],
+      auxiliaryCharges: [],
+      outputUnit: "request",
+      targetScheme: usd,
+    })).toMatchObject({ atoms: "25", scale: 0 });
+  });
+
+  it.each([
+    {
+      name: "duplicate rate",
+      input: { unitRates: [rate("1"), rate("2")], usageLimits: [usage("1")] },
+    },
+    {
+      name: "duplicate limit",
+      input: { unitRates: [rate("1")], usageLimits: [usage("1"), usage("2")] },
+    },
+    {
+      name: "missing limit",
+      input: { unitRates: [rate("1")], usageLimits: [] },
+    },
+    {
+      name: "wrong limit scheme",
+      input: {
+        unitRates: [rate("1")],
+        usageLimits: [{ atoms: "1", scale: 0, unit: "input-token", scheme: usd }],
+      },
+    },
+    {
+      name: "wrong rate unit",
+      input: {
+        unitRates: [{ usageUnit: "input-token", price: { atoms: "1", scale: 0, unit: "output-token", scheme: usd } }],
+        usageLimits: [usage("1")],
+      },
+    },
+    {
+      name: "wrong auxiliary unit",
+      input: {
+        unitRates: [rate("1")],
+        usageLimits: [usage("1")],
+        auxiliaryCharges: [{ id: "tool", amount: { atoms: "1", scale: 0, unit: "tool", scheme: usd } }],
+      },
+    },
+    {
+      name: "noncanonical atoms",
+      input: { unitRates: [rate("01")], usageLimits: [usage("1")] },
+    },
+    {
+      name: "unsupported resulting scale",
+      input: { unitRates: [rate("1", 18)], usageLimits: [usage("1", 1)] },
+    },
+  ])("rejects $name", ({ input }) => {
+    expect(() => deriveManagedEconomicMinimumReservation({
+      auxiliaryCharges: [],
+      outputUnit: "request",
+      targetScheme: usd,
+      ...input,
+    })).toThrow();
   });
 });

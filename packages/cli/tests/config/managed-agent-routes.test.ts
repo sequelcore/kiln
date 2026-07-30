@@ -1042,6 +1042,158 @@ describe("resolveManagedInvocationToolOptions", () => {
     }
   });
 
+  it("rejects missing or widening schema-v2 agent policy bindings before adapter construction", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-agent-policy-"));
+    try {
+      const agentsDir = join(root, ".kiln", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      const agentPath = join(agentsDir, "economic-worker.md");
+      const writeAgent = (policyLine: string, routeLine = "") => writeFileSync(agentPath, [
+        "---",
+        "name: economic-worker",
+        "role: Economic managed worker",
+        "goal: Execute only policy-admitted work.",
+        "tier: reasoning",
+        "mode: managed-child",
+        policyLine,
+        routeLine,
+        "---",
+        "Remain within the configured economic policy.",
+      ].filter(Boolean).join("\n"));
+      const economicPolicies = [{
+        id: "bounded-policy",
+        revision: "rev-1",
+        evidenceRequirements: { quota: "optional" as const, price: "optional" as const },
+        noRouteAction: "deny" as const,
+        comparisonDomains: [{
+          id: "priority-only",
+          rank: 0,
+          unit: "request",
+          scheme: { kind: "unit" as const },
+          rateCardBasis: "configured",
+          envelopeSemantics: "bounded",
+        }],
+        candidates: [{
+          routeId: "admitted-route",
+          comparisonDomainId: "priority-only",
+          priorityRank: 0,
+          ceiling: { kind: "none" as const },
+          worstCaseReservation: { kind: "not-comparable" as const, reason: "economic-basis-unavailable" as const },
+        }],
+      }];
+      const config = baseConfig({
+        schemaVersion: 2,
+        economicPolicies,
+        routes: [{
+          id: "admitted-route",
+          kind: "direct",
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      });
+      let adapterConstructions = 0;
+      const resolve = () => resolveManagedInvocationToolOptions(config, {
+        cwd: root,
+        userHome: root,
+        registry: createRegistry("codex-oauth"),
+        surface: "gui",
+        providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+        directAdapterFactory: (route) => {
+          adapterConstructions += 1;
+          return makeDirectAdapter(route.provider);
+        },
+      });
+
+      writeAgent("");
+      const missing = await resolve();
+      expect(missing.agentHealth).toContainEqual(expect.objectContaining({
+        agentName: "economic-worker",
+        available: false,
+        reason: expect.stringContaining("economicPolicyId"),
+      }));
+      expect(adapterConstructions).toBe(0);
+
+      writeAgent("economicPolicyId: bounded-policy", "routeId: outside-policy");
+      const widening = await resolve();
+      expect(widening.agentHealth).toContainEqual(expect.objectContaining({
+        agentName: "economic-worker",
+        available: false,
+        reason: expect.stringContaining("not admitted"),
+      }));
+      expect(adapterConstructions).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("consumes a valid schema-v2 agent policy binding without selecting a route hint", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-agent-policy-valid-"));
+    try {
+      const agentsDir = join(root, ".kiln", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(join(agentsDir, "economic-worker.md"), [
+        "---",
+        "name: economic-worker",
+        "role: Economic managed worker",
+        "goal: Execute only policy-admitted work.",
+        "tier: reasoning",
+        "mode: managed-child",
+        "economicPolicyId: bounded-policy",
+        "---",
+        "Remain within the configured economic policy.",
+      ].join("\n"));
+      const result = await resolveManagedInvocationToolOptions(baseConfig({
+        schemaVersion: 2,
+        economicPolicies: [{
+          id: "bounded-policy",
+          revision: "rev-1",
+          evidenceRequirements: { quota: "optional", price: "optional" },
+          noRouteAction: "deny",
+          comparisonDomains: [{
+            id: "priority-only",
+            rank: 0,
+            unit: "request",
+            scheme: { kind: "unit" },
+            rateCardBasis: "configured",
+            envelopeSemantics: "bounded",
+          }],
+          candidates: [{
+            routeId: "admitted-route",
+            comparisonDomainId: "priority-only",
+            priorityRank: 0,
+            ceiling: { kind: "none" },
+            worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
+          }],
+        }],
+        routes: [{
+          id: "admitted-route",
+          kind: "direct",
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      }), {
+        cwd: root,
+        userHome: root,
+        registry: createRegistry("codex-oauth"),
+        surface: "gui",
+        providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+        directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+      });
+
+      expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
+        name: "economic-worker",
+      }));
+      const agent = result.managedInvocation?.agentCatalog?.find((candidate) => candidate.name === "economic-worker");
+      expect(agent).not.toHaveProperty("routeId");
+      expect(agent).not.toHaveProperty("providerRoute");
+      expect(result.managedInvocation?.agentCatalog?.map((candidate) => candidate.name)).toEqual(["economic-worker"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("projects agent route hints from configured task suitability without model-name heuristics", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-route-suitability-"));
     try {

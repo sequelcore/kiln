@@ -425,6 +425,125 @@ export function validateManagedEconomicAmount(amount: ManagedEconomicAmount): vo
   validateScheme(amount.scheme);
 }
 
+export interface ManagedEconomicReservationUnitRate {
+  readonly usageUnit: string;
+  readonly price: ManagedEconomicAmount;
+}
+
+export interface ManagedEconomicReservationAuxiliaryCharge {
+  readonly id: string;
+  readonly amount: ManagedEconomicAmount;
+}
+
+export interface ManagedEconomicMinimumReservationInput {
+  readonly unitRates: readonly ManagedEconomicReservationUnitRate[];
+  readonly usageLimits: readonly ManagedEconomicAmount[];
+  readonly auxiliaryCharges: readonly ManagedEconomicReservationAuxiliaryCharge[];
+  readonly outputUnit: string;
+  readonly targetScheme: Exclude<ManagedEconomicScheme, { readonly kind: "unit" }>;
+}
+
+/**
+ * Derives the minimum comparable reservation implied by a rate schedule and
+ * bounded usage. The caller may configure a larger conservative reservation.
+ */
+export function deriveManagedEconomicMinimumReservation(
+  input: ManagedEconomicMinimumReservationInput,
+): ManagedEconomicAmount {
+  requireIdentity(input.outputUnit, "reservation output unit");
+  const targetScheme = input.targetScheme as ManagedEconomicScheme;
+  validateScheme(targetScheme);
+  if (targetScheme.kind === "unit") {
+    throw new ManagedEconomicValidationError("reservation target scheme must be currency or credit");
+  }
+  if (!Array.isArray(input.unitRates) || !Array.isArray(input.usageLimits) || !Array.isArray(input.auxiliaryCharges)) {
+    throw new ManagedEconomicValidationError("reservation rates, limits, and auxiliary charges must be arrays");
+  }
+
+  const rates = new Map<string, ManagedEconomicReservationUnitRate>();
+  for (const rate of input.unitRates) {
+    requireIdentity(rate.usageUnit, "reservation rate usage unit");
+    validateManagedEconomicAmount(rate.price);
+    if (rate.price.unit !== rate.usageUnit) {
+      throw new ManagedEconomicValidationError("reservation rate usageUnit must equal price.unit");
+    }
+    if (!sameScheme(rate.price.scheme, targetScheme)) {
+      throw new ManagedEconomicValidationError("reservation rate scheme must match target scheme");
+    }
+    if (rates.has(rate.usageUnit)) {
+      throw new ManagedEconomicValidationError("reservation rates must not duplicate a usage unit");
+    }
+    rates.set(rate.usageUnit, rate);
+  }
+
+  const limits = new Map<string, ManagedEconomicAmount>();
+  for (const limit of input.usageLimits) {
+    validateManagedEconomicAmount(limit);
+    if (limit.scheme.kind !== "unit") {
+      throw new ManagedEconomicValidationError("reservation usage limits must use the unit scheme");
+    }
+    if (limits.has(limit.unit)) {
+      throw new ManagedEconomicValidationError("reservation limits must not duplicate a usage unit");
+    }
+    limits.set(limit.unit, limit);
+  }
+  if ([...rates.keys()].some((unit) => !limits.has(unit))) {
+    throw new ManagedEconomicValidationError("every reservation rate must have exactly one matching usage limit");
+  }
+
+  const terms: Array<{ atoms: bigint; scale: number }> = [];
+  for (const [usageUnit, rate] of rates) {
+    const limit = limits.get(usageUnit)!;
+    terms.push(normalizeReservationTerm(
+      BigInt(rate.price.atoms) * BigInt(limit.atoms),
+      rate.price.scale + limit.scale,
+    ));
+  }
+
+  const auxiliaryIds = new Set<string>();
+  for (const charge of input.auxiliaryCharges) {
+    requireIdentity(charge.id, "reservation auxiliary charge id");
+    if (auxiliaryIds.has(charge.id)) {
+      throw new ManagedEconomicValidationError("reservation auxiliary charge ids must be unique");
+    }
+    auxiliaryIds.add(charge.id);
+    validateManagedEconomicAmount(charge.amount);
+    if (charge.amount.unit !== input.outputUnit) {
+      throw new ManagedEconomicValidationError("reservation auxiliary charge unit must equal output unit");
+    }
+    if (!sameScheme(charge.amount.scheme, targetScheme)) {
+      throw new ManagedEconomicValidationError("reservation auxiliary charge scheme must match target scheme");
+    }
+    terms.push(normalizeReservationTerm(BigInt(charge.amount.atoms), charge.amount.scale));
+  }
+
+  const scale = terms.reduce((maximum, term) => Math.max(maximum, term.scale), 0);
+  const atoms = terms.reduce(
+    (total, term) => total + term.atoms * powerOfTen(scale - term.scale),
+    0n,
+  );
+  const normalized = normalizeReservationTerm(atoms, scale);
+  return {
+    atoms: normalized.atoms.toString(),
+    scale: normalized.scale,
+    unit: input.outputUnit,
+    scheme: input.targetScheme,
+  };
+}
+
+function normalizeReservationTerm(atoms: bigint, scale: number): { atoms: bigint; scale: number } {
+  while (scale > 0 && atoms % 10n === 0n) {
+    atoms /= 10n;
+    scale -= 1;
+  }
+  if (scale > MAX_MANAGED_ECONOMIC_DECIMAL_SCALE) {
+    throw new ManagedEconomicValidationError(
+      `derived reservation scale exceeds ${MAX_MANAGED_ECONOMIC_DECIMAL_SCALE}`,
+    );
+  }
+  return { atoms, scale };
+}
+
 export function compareManagedEconomicAmounts(
   left: ManagedEconomicAmount,
   right: ManagedEconomicAmount,
