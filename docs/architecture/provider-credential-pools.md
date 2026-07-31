@@ -314,6 +314,7 @@ contracts without changing the pool boundary.
 
 ## Related
 
+- [ADR-010: Native Credential Projection](../adr/ADR-010-native-credential-projection.md)
 - [Provider Credentials](../guides/provider-credentials.md)
 - [Observability](../guides/observability.md)
 - [Provider Model Discovery](provider-model-discovery.md)
