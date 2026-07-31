@@ -34,8 +34,9 @@ Codex OAuth:
 
 ```bash
 kiln auth codex login
-kiln auth codex status
-kiln auth codex logout
+kiln auth codex status [--usage] [--emails]
+kiln auth codex activate <id> | --auto
+kiln auth codex logout [--id <id>]
 ```
 
 OpenCode:
@@ -70,6 +71,45 @@ authorization remains the explicit fallback for CLI/TUI and remote or headless
 environments; it is not the GUI default. If an OAuth endpoint returns HTML or
 another non-JSON payload, Kiln reports a provider-boundary authentication error
 without exposing the response body or a raw `JSON.parse` exception.
+
+`kiln auth codex status` reports credential presence, expiry, and health.
+`--usage` additionally refreshes live quota from the provider and prints plan
+and window usage. `--emails` prints the account email for each credential,
+decoded from claims already stored in the local token file; no provider call is
+made for it. Both are opt-in so that default status output stays free of quota
+calls and personal identifiers, which matters when status output is pasted into
+issues, shared terminals, or CI logs.
+
+### Switching The Native Codex Account
+
+`kiln auth codex activate` points the operator's own Codex CLI and desktop app
+at a pooled account, replacing manual re-login when one subscription is
+exhausted. Pass a credential id, or `--auto` to select the available account
+with the most remaining quota:
+
+```bash
+kiln auth codex activate account-1720ceb0e92edbe2
+kiln auth codex activate --auto
+```
+
+Activation absorbs the account currently active in `~/.codex/auth.json` into
+the Kiln pool before overwriting it, so switching away never loses an account.
+If that account is already pooled it is deduplicated, not duplicated. The
+previous native file is backed up under
+`~/.kiln/backups/codex-native-auth/` with owner-only permissions and bounded
+retention, and the replacement is written atomically.
+
+Native Codex requires an `id_token` that Kiln's own provider calls do not need.
+Credentials linked before Kiln began storing that field are repaired
+automatically by refreshing the token during activation. When it cannot be
+recovered, Kiln reports which accounts are blocked and leaves the native file
+untouched rather than writing a credential the native app would reject; relink
+those accounts with `kiln auth codex login`.
+
+Activation targets `CODEX_HOME` when set, matching the directory the native
+Codex CLI itself reads. It does not change Kiln's own routing: which account
+Kiln uses for its own provider calls stays governed by pool selection and
+routing config.
 
 `kiln auth opencode link` stores an OpenCode API key under
 `~/.kiln/auth/opencode/`. Without `--key`, Kiln first tries to import the key
@@ -113,6 +153,22 @@ endpoint is a configuration/runtime error, not a request for OAuth.
 
 Logout commands remove the provider's linked credential files. They do not
 modify unrelated provider directories.
+
+## File Permissions
+
+Credential files are owner-only. Every Kiln write path applies that mode, so a
+credential linked before this invariant existed is repaired the next time Kiln
+writes it, which for an actively used account happens on its next token
+refresh. There is no migration command to run.
+
+A credential that is never rewritten keeps its original mode, so `kiln auth
+status` reports any credential file readable beyond its owner and prints the
+`chmod` needed to fix it now. Inspection commands report the exposure rather
+than silently repairing it, so the finding is visible rather than erased.
+
+This applies to POSIX systems. Windows does not implement POSIX mode bits;
+these paths are protected by the user-profile ACL, and the report is empty
+there rather than misleading.
 
 ## Direct Providers
 

@@ -39,14 +39,15 @@ export async function createStagedManagedInvocationRouteCatalog(
   const mark = createRouteCatalogStartupMarker();
   mark("route-catalog-entered");
   const currentConfig = () => options.reloadConfig?.() ?? config;
-  let managedAccountComposition = config
+  const executionComposition = context.compositionMode !== "candidate-admission";
+  let managedAccountComposition = executionComposition && config
     ? createManagedAccountRuntimeComposition(config, context.cwd)
     : undefined;
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
   const resolve = (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) => {
     const nextConfig = currentConfig();
-    if (!managedAccountComposition && nextConfig) {
+    if (executionComposition && !managedAccountComposition && nextConfig) {
       managedAccountComposition = createManagedAccountRuntimeComposition(nextConfig, context.cwd);
     }
     if (managedAccountComposition && nextConfig?.modelGateway) {

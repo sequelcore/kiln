@@ -615,6 +615,88 @@ used when the parent supplies explicit governed resource URIs. `contextMode:
 fork` is reserved for a future policy slice and currently fails closed in
 CLI-owned GUI, TUI, and CLI sessions.
 
+### Managed economic policy schema v2
+
+Economic governance uses one canonical, one-way configuration boundary:
+
+- `modelGateway.accounts[].economics` owns stable capacity identity,
+  subscription/quota classification, and explicit credit/overage posture.
+- `modelGateway.virtualModels[].economics` owns the exact billing channel,
+  adapter capability ID/version, execution mode and tier, rate-card basis and
+  evidence, auxiliary charges, envelope semantics, and bounded execution
+  envelope for that provider/model route.
+- `managedAgents.economicPolicies[]` owns candidate route IDs, comparison
+  domains, configured priority, exact or explicitly non-comparable worst-case
+  reservations, exact ceilings, evidence requirements, and the fail-closed
+  `noRouteAction: deny`.
+- each project or global agent with `mode: managed-child` or `mode: all`
+  references exactly one policy through `economicPolicyId`.
+
+Declare `managedAgents.schemaVersion: 2` whenever `economicPolicies` is
+present. The loader rejects unknown keys, aliases, duplicate identities,
+duplicate candidate routes, non-canonical decimals, incompatible ceiling
+units/schemes, unbounded route envelopes, unsupported providers, missing
+route/model/account economics, and fallback or overage that is not explicitly
+disabled.
+
+For a metered candidate, Core derives the minimum comparable reservation from
+each unit price and its matching unit-scheme usage limit, then adds fixed
+auxiliary charges in the comparison-domain unit and currency/credit scheme.
+The configured exact reservation may include a conservative buffer, but it
+cannot be below that derived minimum or above its finite ceiling. The
+calculation uses canonical decimal atoms and `bigint`; configuration never
+passes through binary floating-point arithmetic. Extra bounded envelope
+dimensions may remain unpriced, but every configured unit rate must have one
+matching usage limit.
+
+A `free` route requires current free evidence, an exact zero reservation, and
+no separately charged auxiliary calls. Subscription, included, estimated, and
+unknown price classes remain explicitly non-comparable with their matching
+reason; they are never rewritten as numeric zero.
+
+Migration is not an inference step. Add complete account and exact-route
+economics, add the versioned policy, then replace each governed agent's
+route-authority frontmatter with `economicPolicyId`. An explicit `routeId` or
+`providerRoute` may remain only as a narrowing constraint admitted by that
+policy. It cannot add a candidate, choose an account, or create a default.
+Malformed or widening bindings stop composition before adapter construction or
+credential resolution.
+
+Native Codex, OpenCode, and Claude projections intentionally omit capacity,
+quota, tariff, and billing evidence. Native picker configuration is not a
+second economic authority. Runtime now admits a policy-owned candidate set
+without preselecting a route. Candidate admission applies governance,
+authority/profile, tool, network, workspace, caller, route-health, policy
+membership, and verified economic-capability checks before any economic
+decision.
+Unconfigured builtin agents are therefore absent from the schema-v2 managed
+catalog. A project or global definition, including an override with the same
+name as a builtin, is admitted only with a valid `economicPolicyId`.
+Policy agents are exposed to native managed-job submission through the V5
+pre-commit record. V5 persists the policy id/revision, normalized narrowing
+constraints, governance evidence, and admitted candidate set. It deliberately
+contains no selected route, provider, account, lease, reservation, or dispatch
+identity. Until the atomic commitment authority is installed, policy work
+terminates with `economic_commitment_unavailable`; Kiln does not queue it
+indefinitely or invent a hidden `routeId`.
+Non-managed session-turn budgeting remains owned by its existing configuration
+until its separate migration closes.
+
+Example agent binding:
+
+```markdown
+---
+name: architecture-reviewer
+role: Architecture reviewer
+goal: Review architecture within the admitted economic policy.
+tier: reasoning
+mode: managed-child
+economicPolicyId: bounded-review
+---
+
+Report findings without selecting a provider or account.
+```
+
 ### Timeout proof routes
 
 Use explicit route configuration to prove timeout behavior. Do not add a

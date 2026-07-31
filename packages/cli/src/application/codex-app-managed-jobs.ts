@@ -1,17 +1,14 @@
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { createSessionBuiltinToolOptions, defineManagedAgentInvocationRequest, type ManagedAgentAdmissionProfile } from "@kilnai/core";
+import { createSessionBuiltinToolOptions } from "@kilnai/core";
 import {
+  collectManagedEconomicCandidates,
   FilesystemManagedJobStore,
   ManagedJobApplicationError,
   ManagedJobApplicationService,
-  createRuntimeManagedJobInvocationPort,
   type ManagedJobRecord,
   type ManagedJobReplayQuery,
   type ManagedJobResultQuery,
-  type ManagedJobProfile,
-  type ManagedJobRoute,
-  type ManagedJobRuntimeInvocationResolver,
 } from "@kilnai/runtime";
 import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -104,6 +101,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
       cwd: root.rootPath,
       registry,
       surface: "operator",
+      compositionMode: "candidate-admission",
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: createSessionBuiltinToolOptions(),
         canonicalMcpServers: admittedMcpServers,
@@ -123,12 +121,6 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   };
   const managedInvocation = await freshManagedInvocation();
   const configuredAgents = await loadAgentDefinitions(root.rootPath);
-  const admittedRoutes = new Map<string, {
-    readonly route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number];
-    readonly invocationService: NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"]>;
-  }>();
-  const activeInvocationServices = new Map<string, NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["invocationService"]>>();
-
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
   const managedJobStore = new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs"));
   const service = new ManagedJobApplicationService({
@@ -164,50 +156,59 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     profiles: {
       resolve: async (id) => {
         const agent = findAgent(await loadAgentDefinitions(root.rootPath), id);
-        return agent?.routeId ? { id: agent.name, routeId: agent.routeId } : undefined;
+        if (!agent?.economicPolicyId) return undefined;
+        const current = await freshManagedInvocation();
+        const catalogEntry = current.agentCatalog?.find(
+          (candidate) => candidate.name === agent.name,
+        );
+        if (
+          !catalogEntry?.economicPolicyId
+          || !catalogEntry.economicPolicyRevision
+        ) {
+          return undefined;
+        }
+        return {
+          id: agent.name,
+          economicPolicyId: catalogEntry.economicPolicyId,
+          economicPolicyRevision: catalogEntry.economicPolicyRevision,
+          admissionProfileId: agent.authorityProfile ?? REQUIRED_ADMISSION_PROFILE_ID,
+          constraints: {
+            ...(agent.routeId ? { routeId: agent.routeId } : {}),
+            ...(agent.providerRoute?.providerId
+              ? { providerId: agent.providerRoute.providerId }
+              : {}),
+            ...(agent.providerRoute?.model ? { model: agent.providerRoute.model } : {}),
+          },
+        };
       },
     },
     routes: {
       resolve: async (profile) => {
         const current = await freshManagedInvocation();
-        const route = routeForProfile(current, profile);
-        if (route) {
-          const selected = current.routes.find((candidate) => candidate.routeId === route.id);
-          if (selected && current.invocationService) admittedRoutes.set(`${profile.id}:${route.id}`, { route: selected, invocationService: current.invocationService });
-        }
-        return route;
-      },
-    },
-    runtime: {
-      invoke: async (input) => {
-        const admitted = admittedRoutes.get(`${input.profile.id}:${input.route.id}`);
-        if (!admitted) {
-          throw new ManagedJobApplicationError("route_unavailable", "Configure an admitted managed-agent route.");
-        }
-        const port = createRuntimeManagedJobInvocationPort({ service: admitted.invocationService, resolver: runtimeResolver(admitted.route, options.harness) });
-        activeInvocationServices.set(input.jobId, admitted.invocationService);
-        try {
-          return await port.invoke(input);
-        } finally {
-          activeInvocationServices.delete(input.jobId);
-        }
-      },
-      cancel: async ({ jobId, reason }) => {
-        const invocationService = activeInvocationServices.get(jobId);
-        if (!invocationService) throw new ManagedJobApplicationError("invocation_failed", "Cancel only an active Runtime-owned managed invocation.");
-        await invocationService.cancel(jobId, reason);
+        return collectManagedEconomicCandidates({
+          economicPolicyId: profile.economicPolicyId,
+          economicPolicyRevision: profile.economicPolicyRevision,
+          configuredAgentProfileId: profile.id,
+          admissionProfileId: profile.admissionProfileId,
+          ...(profile.constraints?.routeId
+            ? { routeId: profile.constraints.routeId }
+            : {}),
+          ...(profile.constraints?.providerId
+            ? {
+                providerRoute: {
+                  providerId: profile.constraints.providerId,
+                  surface: "configured",
+                  ...(profile.constraints.model
+                    ? { model: profile.constraints.model }
+                    : {}),
+                },
+              }
+            : {}),
+        }, current.routes, current.unavailableRoutes);
       },
     },
     store: managedJobStore,
   });
-  const recoveredInvocations = await managedInvocation.invocationService?.recoverPersistedInvocations();
-  for (const accountLease of recoveredInvocations?.accountLeases ?? []) {
-    const managedJob = await managedJobStore.get(accountLease.runtimeInvocationId);
-    if (managedJob?.version !== 4 || managedJob.projectId !== project.id) {
-      continue;
-    }
-    await managedJobStore.recordAccountLease(accountLease.runtimeInvocationId, accountLease);
-  }
   await service.recoverInterrupted();
   const application: NativeHarnessManagedJobApplicationPort = {
     submit: (input) => service.start(input),
@@ -219,91 +220,10 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   return { service, application, configuredAgents: summarizeNativeHarnessManagedAgents(configuredAgents, managedInvocation) };
 }
 
-function routeForProfile(resolution: ManagedInvocationRouteResolution["managedInvocation"], profile: ManagedJobProfile): ManagedJobRoute | undefined {
-  const routes = resolution?.routes.filter((candidate) => candidate.routeId === profile.routeId) ?? [];
-  if (routes.length !== 1) return undefined;
-  const route = routes[0];
-  if (!route) return undefined;
-  const admissionProfileId = selectAdmissionProfile(route);
-  if (!admissionProfileId) return undefined;
-  const routeProfile = route.profiles[admissionProfileId];
-  if (!routeProfile || !route.accountPolicyId) return undefined;
-  const observedAt = new Date();
-  return {
-    id: route.routeId,
-    accountPolicyId: route.accountPolicyId,
-    admissionProfileId,
-    supportedAdmissionProfileIds: Object.keys(route.profiles),
-    providerId: route.providerId,
-    timeoutSource: routeProfile.timeoutSource ?? "default",
-    scope: { project: "validated", read: "validated", tools: "validated", network: "validated", write: "validated" },
-    eligibility: { authority: "authoritative", observedAt: observedAt.toISOString(), validUntil: new Date(observedAt.getTime() + 60_000).toISOString() },
-    authority: managedJobAuthority(routeProfile),
-  };
-}
-
-function runtimeResolver(
-  route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number],
-  harness: NativeHarnessId,
-): ManagedJobRuntimeInvocationResolver {
-  return {
-    async resolve(input) {
-      const profile = route?.profiles[input.route.admissionProfileId as ManagedAgentAdmissionProfile];
-      if (!profile || route.routeId !== input.route.id || !input.route.supportedAdmissionProfileIds.includes(input.route.admissionProfileId)) {
-        throw new ManagedJobApplicationError("route_unavailable", "Configure the configured agent's admitted managed-agent route.");
-      }
-      const request = defineManagedAgentInvocationRequest({
-        invocationId: input.jobId,
-        agentId: `${route.routeId}:${input.profile.id}`,
-        parentSessionId: `${harness}-native-harness`,
-        parentTurnId: input.jobId,
-        profile: input.route.admissionProfileId as ManagedAgentAdmissionProfile,
-        requestedBy: `${harness}-native-harness`,
-        requestSource: `${harness}-control-plane-mcp`,
-        providerRoute: { providerId: route.providerId, surface: "direct-provider", ...(route.model ? { model: route.model } : {}) },
-        adapterKind: route.adapter.descriptor.adapterKind,
-        executionMode: "direct-provider",
-        authority: input.route.authority,
-        input: { summary: input.objective.slice(0, 512), prompt: input.objective, context: { mode: "isolated" } },
-      });
-      return {
-        request,
-        adapter: route.adapter,
-        capabilitySnapshot: {
-          routeId: route.routeId,
-          routeSource: route.routeSource,
-          callerIdentity: { kind: "external-harness", harness, attachmentId: "kiln-control-plane-mcp", evidenceId: `${harness}-control-plane-mcp` },
-          routeHealth: { status: "healthy", reason: `Configured ${harness} managed-job route.` },
-          providerModelProof: { status: "configured", source: "configured-managed-route", requiresToolCalls: true },
-          resourcePlane: { available: true, resourceUris: [] },
-          childIdentity: { agentId: request.agentId, requestedAgentProfile: input.profile.id },
-        },
-      };
-    },
-  };
-}
-
 function selectAdmissionProfile(
   route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number],
-): ManagedAgentAdmissionProfile | undefined {
+): typeof REQUIRED_ADMISSION_PROFILE_ID | undefined {
   return route.profiles[REQUIRED_ADMISSION_PROFILE_ID] ? REQUIRED_ADMISSION_PROFILE_ID : undefined;
-}
-
-function managedJobAuthority(
-  profile: NonNullable<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number]["profiles"][ManagedAgentAdmissionProfile]>,
-): ManagedJobRoute["authority"] {
-  return {
-    authorityProfileId: profile.authorityProfileId,
-    permissionProfile: profile.permissionProfile,
-    toolAuthority: { allowedToolNames: profile.allowedToolNames, writeAllowed: profile.writeAllowed === true, networkAllowed: profile.networkAllowed === true },
-    workingDirectory: profile.workingDirectory,
-    timeoutMs: profile.timeoutMs,
-    ...(profile.timeoutSource ? { timeoutSource: profile.timeoutSource } : {}),
-    credentialRoute: profile.credentialRoute,
-    memoryScope: profile.memoryScope,
-    ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
-    ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
-  };
 }
 
 export function summarizeNativeHarnessManagedAgents(
@@ -311,21 +231,49 @@ export function summarizeNativeHarnessManagedAgents(
   resolution: ManagedInvocationRouteResolution["managedInvocation"],
 ): readonly NativeHarnessManagedAgentSummary[] {
   return configuredAgents.flatMap((agent): readonly NativeHarnessManagedAgentSummary[] => {
-    if (!agent.routeId) return [];
+    if (!agent.economicPolicyId) return [];
     const base = {
       configuredAgentProfileId: agent.name,
       ...(agent.displayName ? { displayName: agent.displayName } : {}),
       ...(agent.role ? { role: agent.role } : {}),
       admissionProfileId: REQUIRED_ADMISSION_PROFILE_ID,
     };
-    const routes = resolution?.routes.filter((route) => route.routeId === agent.routeId) ?? [];
-    const route = routes.length === 1 ? routes[0] : undefined;
-    const admissionProfileId = route ? selectAdmissionProfile(route) : undefined;
-    if (route && admissionProfileId) {
-      return [{ ...base, availability: "admitted", providerFamily: route.providerId }];
+    const catalogEntry = resolution?.agentCatalog?.find(
+      (candidate) =>
+        candidate.name === agent.name
+        && candidate.economicPolicyId === agent.economicPolicyId,
+    );
+    const policyRouteIds = new Set(
+      catalogEntry?.economicPolicyCandidateRouteIds ?? [],
+    );
+    const admittedRoutes = (resolution?.routes ?? []).filter(
+      (route) =>
+        policyRouteIds.has(route.routeId)
+        && (!agent.routeId || route.routeId === agent.routeId)
+        && (
+          !agent.providerRoute
+          || (
+            route.providerId === agent.providerRoute.providerId
+            && (
+              !agent.providerRoute.model
+              || route.model === agent.providerRoute.model
+            )
+          )
+        )
+        && selectAdmissionProfile(route) !== undefined
+        && route.economicCapability?.status === "verified",
+    );
+    if (admittedRoutes.length > 0) {
+      const providers = [...new Set(admittedRoutes.map((route) => route.providerId))];
+      return [{
+        ...base,
+        availability: "admitted",
+        ...(providers.length === 1 ? { providerFamily: providers[0] } : {}),
+      }];
     }
     const unavailable = resolution?.unavailableRoutes?.find((candidate) =>
-      candidate.routeId === agent.routeId && candidate.profiles.includes(REQUIRED_ADMISSION_PROFILE_ID));
+      policyRouteIds.has(candidate.routeId)
+      && candidate.profiles.includes(REQUIRED_ADMISSION_PROFILE_ID));
     if (unavailable) {
       return [{
         ...base,
@@ -339,7 +287,7 @@ export function summarizeNativeHarnessManagedAgents(
       ...base,
       availability: "unavailable",
       diagnostic: "route_unavailable",
-      operatorAction: "Restore the configured route hint and its admitted managed-agent route.",
+      operatorAction: "Restore at least one non-economically admitted route in the configured economic policy.",
     }];
   });
 }

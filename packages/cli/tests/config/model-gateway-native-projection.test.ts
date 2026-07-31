@@ -13,7 +13,20 @@ function config(principals: ModelGatewayConfig["principals"]): ModelGatewayConfi
   const hasMessages = principals.some((candidate) => candidate.ingress === "anthropic-messages");
   return {
     port: 4910,
-    accounts: [{ id: "account", providerId: "codex-oauth", credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0 }],
+    accounts: [{
+      id: "account",
+      providerId: "codex-oauth",
+      credentialId: "credential",
+      maxConcurrency: 1,
+      reservedAffinitySlots: 0,
+      economics: {
+        capacityIdentity: "private-capacity-identity",
+        subscriptionClass: "subscription",
+        quotaClassId: "private-quota-class",
+        creditPosture: "disabled",
+        overagePosture: "disabled",
+      },
+    }],
     replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
     surfaces: {
       ...(hasResponses ? { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } } : {}),
@@ -21,7 +34,49 @@ function config(principals: ModelGatewayConfig["principals"]): ModelGatewayConfi
     },
     principals,
     virtualModels: [
-        { id: "model-a", displayName: "Model A", contextTokens: 200000, outputTokens: 8192, baseInstructions: "Governed model A instructions.", providerId: "codex-oauth", providerModelId: "upstream-a", accountIds: ["account"], capabilities: ["text", "parallel-tool-calls", "input-image-url"], affinity: { continuity: "none" } },
+        {
+          id: "model-a",
+          displayName: "Model A",
+          contextTokens: 200000,
+          outputTokens: 8192,
+          baseInstructions: "Governed model A instructions.",
+          providerId: "codex-oauth",
+          providerModelId: "upstream-a",
+          accountIds: ["account"],
+          capabilities: ["text", "parallel-tool-calls", "input-image-url"],
+          affinity: { continuity: "none" },
+          economics: {
+            adapterCapabilityId: "codex-direct",
+            adapterCapabilityVersion: "v1",
+            authBillingChannel: "private-billing-channel",
+            executionMode: "responses-api",
+            serviceTier: "standard",
+            rateCardBasis: "private-rate-card-basis",
+            envelopeSemantics: "configured-upper-bound",
+            fallbackPosture: "disabled",
+            overagePosture: "disabled",
+            contextClass: "standard-context",
+            cacheClass: "provider-cache",
+            priceEvidence: {
+              kind: "subscription",
+              rateCardId: "private-rate-card",
+              rateCardRevision: "rev-1",
+              evidence: {
+                sourceIdentity: "configured-pricing",
+                sourceRevision: "rev-1",
+                sourceDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                observedAt: "2026-07-29T00:00:00.000Z",
+                validUntil: "2026-08-29T00:00:00.000Z",
+                confidence: "high",
+                authority: "configured",
+              },
+            },
+            auxiliaryCharges: [],
+            executionEnvelope: {
+              limits: [{ atoms: "1", scale: 0, unit: "request", scheme: { kind: "unit" } }],
+            },
+          },
+        },
         { id: "model-b", displayName: "Model B", contextTokens: 100000, outputTokens: 4096, baseInstructions: "Governed model B instructions.", providerId: "codex-oauth", providerModelId: "upstream-b", accountIds: ["account"], capabilities: ["text"], affinity: { continuity: "none" } },
     ],
   };
@@ -60,6 +115,9 @@ describe("model gateway native projections", () => {
     expect(projected?.managedFields).toEqual(["model_providers.kiln"]);
     expect(projected).not.toHaveProperty("catalog");
     expect(JSON.stringify(projected)).not.toContain("Bearer");
+    expect(JSON.stringify(projected)).not.toContain("private-capacity-identity");
+    expect(JSON.stringify(projected)).not.toContain("private-rate-card");
+    expect(JSON.stringify(projected)).not.toContain("private-billing-channel");
   });
 
   it("projects an OpenCode-backed virtual model into Codex without exposing upstream credentials", () => {

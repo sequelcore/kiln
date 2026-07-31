@@ -3,7 +3,16 @@
 
 import { parse } from "yaml";
 import { KilnError } from "../errors.js";
-import type { GatewayConfig, GatewayAppBinding, GatewayChannelBinding, GatewayValidationError, ModelGatewayConfig } from "./gateway-config.js";
+import type {
+  GatewayConfig,
+  GatewayAppBinding,
+  GatewayChannelBinding,
+  GatewayValidationError,
+  ModelGatewayConfig,
+  ModelGatewayAccountEconomicsConfig,
+  ModelGatewayPriceEvidenceConfig,
+  ModelGatewayRouteEconomicsConfig,
+} from "./gateway-config.js";
 import { validateGatewayConfig } from "./gateway-config.js";
 import type { ObservabilityConfig } from "./observability-config.js";
 import { validateObservabilityConfig } from "./observability-config.js";
@@ -12,6 +21,7 @@ import { validateGatewayAuthConfig } from "./auth-config.js";
 import type { GatewayMcpConfig } from "./mcp-config.js";
 import { validateGatewayMcpConfig } from "./mcp-config.js";
 import type { DirectProviderId } from "../../agents/provider-execution-profiles.js";
+import type { ManagedEconomicAmount, ManagedEconomicEvidenceIdentity, ManagedEconomicScheme } from "../../cost/managed-route-economics.js";
 
 /** Error class for gateway YAML loader failures, aggregating all validation errors */
 export class GatewayLoaderError extends KilnError {
@@ -154,19 +164,188 @@ function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): M
   }) : [];
   const virtualModels = Array.isArray(rawValue.virtualModels) ? rawValue.virtualModels.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
-    rejectUnknown(raw, ["id", "displayName", "contextTokens", "outputTokens", "baseInstructions", "providerId", "providerModelId", "accountIds", "capabilities", "affinity"], `modelGateway.virtualModels[${index}]`, errors);
+    rejectUnknown(raw, ["id", "displayName", "contextTokens", "outputTokens", "baseInstructions", "providerId", "providerModelId", "accountIds", "capabilities", "affinity", "economics"], `modelGateway.virtualModels[${index}]`, errors);
     const affinity = isRecord(raw.affinity) ? raw.affinity : {};
     rejectUnknown(affinity, ["continuity", "scope", "allowRebind"], `modelGateway.virtualModels[${index}].affinity`, errors);
     if (affinity.scope !== undefined && typeof affinity.scope !== "string") errors.push({ field: `modelGateway.virtualModels[${index}].affinity.scope`, message: "must be a string" });
     if (affinity.allowRebind !== undefined && typeof affinity.allowRebind !== "boolean") errors.push({ field: `modelGateway.virtualModels[${index}].affinity.allowRebind`, message: "must be a boolean" });
-    return { id: str(raw.id), ...(raw.displayName === undefined ? {} : { displayName: str(raw.displayName) }), ...(raw.contextTokens === undefined ? {} : { contextTokens: num(raw.contextTokens) }), ...(raw.outputTokens === undefined ? {} : { outputTokens: num(raw.outputTokens) }), ...(raw.baseInstructions === undefined ? {} : { baseInstructions: str(raw.baseInstructions) }), providerId: str(raw.providerId) as DirectProviderId, providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
+    return { id: str(raw.id), ...(raw.displayName === undefined ? {} : { displayName: str(raw.displayName) }), ...(raw.contextTokens === undefined ? {} : { contextTokens: num(raw.contextTokens) }), ...(raw.outputTokens === undefined ? {} : { outputTokens: num(raw.outputTokens) }), ...(raw.baseInstructions === undefined ? {} : { baseInstructions: str(raw.baseInstructions) }), providerId: str(raw.providerId) as DirectProviderId, providerModelId: str(raw.providerModelId), accountIds: strings(raw.accountIds), capabilities: strings(raw.capabilities) as ModelGatewayConfig["virtualModels"][number]["capabilities"], affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) }, ...(raw.economics === undefined ? {} : { economics: mapRouteEconomics(raw.economics, `modelGateway.virtualModels[${index}].economics`, errors) }) };
   }) : [];
   const accounts = Array.isArray(rawValue.accounts) ? rawValue.accounts.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
-    rejectUnknown(raw, ["id", "providerId", "credentialId", "maxConcurrency", "reservedAffinitySlots"], `modelGateway.accounts[${index}]`, errors);
-    return { id: str(raw.id), providerId: str(raw.providerId) as DirectProviderId, credentialId: str(raw.credentialId), maxConcurrency: num(raw.maxConcurrency), reservedAffinitySlots: num(raw.reservedAffinitySlots) };
+    rejectUnknown(raw, ["id", "providerId", "credentialId", "maxConcurrency", "reservedAffinitySlots", "economics"], `modelGateway.accounts[${index}]`, errors);
+    return { id: str(raw.id), providerId: str(raw.providerId) as DirectProviderId, credentialId: str(raw.credentialId), maxConcurrency: num(raw.maxConcurrency), reservedAffinitySlots: num(raw.reservedAffinitySlots), ...(raw.economics === undefined ? {} : { economics: mapAccountEconomics(raw.economics, `modelGateway.accounts[${index}].economics`, errors) }) };
   }) : [];
   return { port: num(rawValue.port), accounts, replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels, surfaces: { ...(openAIResponses ? { openAIResponses } : {}), ...(anthropicMessages ? { anthropicMessages } : {}) } };
+}
+
+function mapAccountEconomics(
+  value: unknown,
+  path: string,
+  errors: GatewayValidationError[],
+): ModelGatewayAccountEconomicsConfig {
+  const raw = isRecord(value) ? value : {};
+  if (!isRecord(value)) errors.push({ field: path, message: "must be an object" });
+  rejectUnknown(raw, ["capacityIdentity", "subscriptionClass", "quotaClassId", "creditPosture", "overagePosture"], path, errors);
+  return {
+    capacityIdentity: str(raw.capacityIdentity),
+    subscriptionClass: str(raw.subscriptionClass) as ModelGatewayAccountEconomicsConfig["subscriptionClass"],
+    quotaClassId: str(raw.quotaClassId),
+    creditPosture: str(raw.creditPosture) as ModelGatewayAccountEconomicsConfig["creditPosture"],
+    overagePosture: str(raw.overagePosture) as ModelGatewayAccountEconomicsConfig["overagePosture"],
+  };
+}
+
+function mapRouteEconomics(
+  value: unknown,
+  path: string,
+  errors: GatewayValidationError[],
+): ModelGatewayRouteEconomicsConfig {
+  const raw = isRecord(value) ? value : {};
+  if (!isRecord(value)) errors.push({ field: path, message: "must be an object" });
+  rejectUnknown(raw, [
+    "adapterCapabilityId",
+    "adapterCapabilityVersion",
+    "authBillingChannel",
+    "executionMode",
+    "serviceTier",
+    "rateCardBasis",
+    "envelopeSemantics",
+    "fallbackPosture",
+    "overagePosture",
+    "contextClass",
+    "cacheClass",
+    "priceEvidence",
+    "auxiliaryCharges",
+    "executionEnvelope",
+  ], path, errors);
+  const envelope = isRecord(raw.executionEnvelope) ? raw.executionEnvelope : {};
+  if (!isRecord(raw.executionEnvelope)) errors.push({ field: `${path}.executionEnvelope`, message: "must be an object" });
+  rejectUnknown(envelope, ["limits"], `${path}.executionEnvelope`, errors);
+  const auxiliaryCharges = Array.isArray(raw.auxiliaryCharges)
+    ? raw.auxiliaryCharges.map((entry, index) => {
+        const chargePath = `${path}.auxiliaryCharges[${index}]`;
+        const charge = isRecord(entry) ? entry : {};
+        if (!isRecord(entry)) errors.push({ field: chargePath, message: "must be an object" });
+        rejectUnknown(charge, ["id", "amount"], chargePath, errors);
+        return { id: str(charge.id), amount: mapEconomicAmount(charge.amount, `${chargePath}.amount`, errors) };
+      })
+    : [];
+  if (!Array.isArray(raw.auxiliaryCharges)) errors.push({ field: `${path}.auxiliaryCharges`, message: "must be an array" });
+  return {
+    adapterCapabilityId: str(raw.adapterCapabilityId),
+    adapterCapabilityVersion: str(raw.adapterCapabilityVersion),
+    authBillingChannel: str(raw.authBillingChannel),
+    executionMode: str(raw.executionMode),
+    serviceTier: str(raw.serviceTier),
+    rateCardBasis: str(raw.rateCardBasis),
+    envelopeSemantics: str(raw.envelopeSemantics),
+    fallbackPosture: str(raw.fallbackPosture) as ModelGatewayRouteEconomicsConfig["fallbackPosture"],
+    overagePosture: str(raw.overagePosture) as ModelGatewayRouteEconomicsConfig["overagePosture"],
+    contextClass: str(raw.contextClass),
+    cacheClass: str(raw.cacheClass),
+    priceEvidence: mapPriceEvidence(raw.priceEvidence, `${path}.priceEvidence`, errors),
+    auxiliaryCharges,
+    executionEnvelope: {
+      limits: Array.isArray(envelope.limits)
+        ? envelope.limits.map((entry, index) => mapEconomicAmount(entry, `${path}.executionEnvelope.limits[${index}]`, errors))
+        : [],
+    },
+  };
+}
+
+function mapPriceEvidence(
+  value: unknown,
+  path: string,
+  errors: GatewayValidationError[],
+): ModelGatewayPriceEvidenceConfig {
+  const raw = isRecord(value) ? value : {};
+  if (!isRecord(value)) errors.push({ field: path, message: "must be an object" });
+  const kind = str(raw.kind);
+  const common = ["kind", "rateCardId", "rateCardRevision", "evidence"];
+  const allowed = kind === "included"
+    ? [...common, "allowanceId"]
+    : kind === "metered"
+      ? [...common, "unitPrices"]
+      : kind === "unknown"
+        ? [...common, "reason"]
+        : kind === "estimated"
+          ? [...common, "estimationMethod", "unitPrices"]
+          : common;
+  rejectUnknown(raw, allowed, path, errors);
+  const base = {
+    rateCardId: str(raw.rateCardId),
+    rateCardRevision: str(raw.rateCardRevision),
+    evidence: mapEconomicEvidence(raw.evidence, `${path}.evidence`, errors),
+  };
+  if (kind === "included") return { kind, ...base, allowanceId: str(raw.allowanceId) };
+  if (kind === "metered") return { kind, ...base, unitPrices: mapUnitPrices(raw.unitPrices, path, errors) };
+  if (kind === "unknown") return { kind, ...base, reason: str(raw.reason) };
+  if (kind === "estimated") return { kind, ...base, estimationMethod: str(raw.estimationMethod), unitPrices: mapUnitPrices(raw.unitPrices, path, errors) };
+  return { kind: kind as "subscription", ...base };
+}
+
+function mapUnitPrices(value: unknown, path: string, errors: GatewayValidationError[]) {
+  if (!Array.isArray(value)) {
+    errors.push({ field: `${path}.unitPrices`, message: "must be an array" });
+    return [];
+  }
+  return value.map((entry, index) => {
+    const unitPath = `${path}.unitPrices[${index}]`;
+    const raw = isRecord(entry) ? entry : {};
+    if (!isRecord(entry)) errors.push({ field: unitPath, message: "must be an object" });
+    rejectUnknown(raw, ["usageUnit", "price"], unitPath, errors);
+    return { usageUnit: str(raw.usageUnit), price: mapEconomicAmount(raw.price, `${unitPath}.price`, errors) };
+  });
+}
+
+function mapEconomicEvidence(
+  value: unknown,
+  path: string,
+  errors: GatewayValidationError[],
+): ManagedEconomicEvidenceIdentity {
+  const raw = isRecord(value) ? value : {};
+  if (!isRecord(value)) errors.push({ field: path, message: "must be an object" });
+  rejectUnknown(raw, ["sourceIdentity", "sourceRevision", "sourceDigest", "observedAt", "validUntil", "confidence", "authority"], path, errors);
+  return {
+    sourceIdentity: str(raw.sourceIdentity),
+    sourceRevision: str(raw.sourceRevision),
+    sourceDigest: str(raw.sourceDigest),
+    observedAt: str(raw.observedAt),
+    validUntil: str(raw.validUntil),
+    confidence: str(raw.confidence) as ManagedEconomicEvidenceIdentity["confidence"],
+    authority: str(raw.authority) as ManagedEconomicEvidenceIdentity["authority"],
+  };
+}
+
+function mapEconomicAmount(
+  value: unknown,
+  path: string,
+  errors: GatewayValidationError[],
+): ManagedEconomicAmount {
+  const raw = isRecord(value) ? value : {};
+  if (!isRecord(value)) errors.push({ field: path, message: "must be an object" });
+  rejectUnknown(raw, ["atoms", "scale", "unit", "scheme"], path, errors);
+  return {
+    atoms: str(raw.atoms),
+    scale: num(raw.scale),
+    unit: str(raw.unit),
+    scheme: mapEconomicScheme(raw.scheme, `${path}.scheme`, errors),
+  };
+}
+
+function mapEconomicScheme(
+  value: unknown,
+  path: string,
+  errors: GatewayValidationError[],
+): ManagedEconomicScheme {
+  const raw = isRecord(value) ? value : {};
+  if (!isRecord(value)) errors.push({ field: path, message: "must be an object" });
+  const kind = str(raw.kind);
+  rejectUnknown(raw, kind === "currency" ? ["kind", "currency"] : kind === "credit" ? ["kind", "creditSchemeId"] : ["kind"], path, errors);
+  if (kind === "currency") return { kind, currency: str(raw.currency) };
+  if (kind === "credit") return { kind, creditSchemeId: str(raw.creditSchemeId) };
+  return { kind: kind as "unit" };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

@@ -188,6 +188,31 @@ export class CodexOAuthCredentialPoolService {
     });
   }
 
+  /**
+   * Best-effort backfill for `id_token` on credentials linked before Kiln began capturing it.
+   * Native Codex CLI/App requires `id_token` in `~/.codex/auth.json`; refresh responses often
+   * include one even when the stored token file predates that capture. Never throws on refresh
+   * failure — callers must treat a still-missing `id_token` on the returned file as unusable for
+   * native projection rather than as an error.
+   */
+  async ensureCredentialIdToken(credentialId: string): Promise<CodexOAuthTokenFile | null> {
+    assertSafeCredentialId(credentialId);
+    return this.withCredentialLocks([credentialId], async () => {
+      const record = (await this.readCredentials()).find((entry) => entry.id === credentialId);
+      if (!record) return null;
+      if (record.tokenFile.id_token) return record.tokenFile;
+      let refreshed: CodexOAuthTokenFile;
+      try {
+        refreshed = await new CodexOAuthAuth({ tokenPath: record.tokenPath }).refreshToken(record.tokenFile);
+      } catch {
+        return record.tokenFile;
+      }
+      if (!refreshed.id_token) return refreshed;
+      await atomicReplaceCredentialFile(record.tokenPath, refreshed);
+      return refreshed;
+    });
+  }
+
   async getValidAccessToken(): Promise<string> {
     const candidates = await this.listValidAccessTokenCandidates();
     return candidates[0]?.accessToken ?? "";
@@ -337,6 +362,17 @@ export class CodexOAuthCredentialPoolService {
 
   async listUsage(now = new Date()): Promise<readonly ProviderUsageSnapshot[]> {
     return this.usageStore.list(CODEX_OAUTH_POOL_PROVIDER_ID, now);
+  }
+
+  /** Opt-in identity lookup decoded from already-local token claims; never fetched from the provider. */
+  async listCredentialEmails(): Promise<ReadonlyMap<string, string>> {
+    const credentials = await this.readCredentials();
+    const emails = new Map<string, string>();
+    for (const credential of credentials) {
+      const email = readCodexOAuthProfileEmail(credential.tokenFile.access_token);
+      if (email) emails.set(credential.id, email);
+    }
+    return emails;
   }
 
   async removeCredential(credentialId: string): Promise<void> {
@@ -620,6 +656,20 @@ function readCodexOAuthAccountId(accessToken: string): string | null {
   }
 }
 
+function readCodexOAuthProfileEmail(accessToken: string): string | null {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    const profile = claims["https://api.openai.com/profile"];
+    if (typeof profile !== "object" || profile === null || Array.isArray(profile)) return null;
+    const email = (profile as Record<string, unknown>).email;
+    return typeof email === "string" && email.trim().length > 0 ? email.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function isRetryableCodexOAuthOutcome(_outcome: CredentialOutcome): boolean {
   return false;
 }
@@ -667,11 +717,15 @@ function validateCodexOAuthTokenFile(value: unknown, filePath: string): CodexOAu
   if (typeof record.client_id !== "string" || record.client_id.trim().length === 0) {
     throw new CodexOAuthCredentialShapeError(filePath);
   }
+  const idToken = typeof record.id_token === "string" && record.id_token.trim().length > 0
+    ? record.id_token
+    : undefined;
   return {
     access_token: record.access_token,
     refresh_token: record.refresh_token,
     expires_at: record.expires_at,
     client_id: record.client_id,
+    ...(idToken ? { id_token: idToken } : {}),
   };
 }
 

@@ -12,6 +12,7 @@ import type { ManagedAgentRuntimeAdapter } from "@kilnai/runtime";
 import { createStagedManagedInvocationRouteCatalog } from "./managed-agent-route-catalog.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "./managed-agent-provider-models.js";
 import {
+  closeManagedAccountRuntimeComposition,
   createManagedAccountRuntimeComposition,
   resolveManagedInvocationToolOptions,
 } from "./managed-agent-routes.js";
@@ -261,6 +262,7 @@ function makeIsolatedWorktreeWriteConfig(): ManagedAgentRouteConfigSource {
 describe("managed agent route catalog", () => {
   afterEach(() => {
     for (const root of tempRoots.splice(0)) {
+      closeManagedAccountRuntimeComposition(root);
       rmSync(root, { recursive: true, force: true });
     }
   });

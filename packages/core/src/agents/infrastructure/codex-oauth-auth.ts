@@ -4,6 +4,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { KilnError } from "../../engine/errors.js";
+import { CREDENTIAL_FILE_MODE, applyCredentialFileMode } from "./credential-file-mode.js";
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_BASE = "https://auth.openai.com";
@@ -51,6 +52,8 @@ export interface CodexOAuthTokenFile {
   readonly refresh_token: string;
   readonly expires_at: string;
   readonly client_id: string;
+  /** Carried only for native-harness projection (e.g. `~/.codex/auth.json`); never required for Kiln's own API calls. */
+  readonly id_token?: string;
 }
 
 export interface DeviceAuthorizationResult {
@@ -330,7 +333,7 @@ export class CodexOAuthAuth {
       });
     }
 
-    return this.toTokenFile(data);
+    return this.toTokenFile(data, tokenFile.id_token);
   }
 
   async getValidAccessToken(): Promise<string> {
@@ -365,7 +368,13 @@ export class CodexOAuthAuth {
       hasRefreshToken: this.isNonEmptyTokenString(tokenFile.refresh_token),
     });
     await mkdir(dirname(this.tokenPath), { recursive: true });
-    await writeFile(this.tokenPath, JSON.stringify(tokenFile, null, 2), "utf8");
+    await writeFile(this.tokenPath, JSON.stringify(tokenFile, null, 2), {
+      encoding: "utf8",
+      mode: CREDENTIAL_FILE_MODE,
+    });
+    // Creation mode does not cover a file that already existed, so a credential
+    // written before this invariant repairs itself on its next refresh.
+    await applyCredentialFileMode(this.tokenPath);
     providerAuthDebug("token file saved", {
       tokenPath: this.tokenPath,
     });
@@ -445,7 +454,7 @@ export class CodexOAuthAuth {
     return this.toTokenFile(data);
   }
 
-  private toTokenFile(token: OAuthTokenResponse): CodexOAuthTokenFile {
+  private toTokenFile(token: OAuthTokenResponse, previousIdToken?: string): CodexOAuthTokenFile {
     const expiresAt = this.resolveExpiresAt(token);
     providerAuthDebug("resolved token expiry", {
       expiresAt,
@@ -453,11 +462,14 @@ export class CodexOAuthAuth {
       hasAccessTokenJwtExpiry: Boolean(this.readJwtExpiry(token.access_token)),
       hasIdTokenJwtExpiry: Boolean(this.readJwtExpiry(token.id_token)),
     });
+    // Refresh responses sometimes omit id_token and expect the prior one to remain valid.
+    const idToken = token.id_token ?? previousIdToken;
     return {
       access_token: token.access_token!,
       refresh_token: token.refresh_token!,
       expires_at: expiresAt,
       client_id: CLIENT_ID,
+      ...(idToken ? { id_token: idToken } : {}),
     };
   }
 
@@ -601,3 +613,4 @@ export class CodexOAuthAuth {
 }
 
 export const CODEX_DEVICE_VERIFICATION_URI = DEVICE_VERIFICATION_URI;
+export const CODEX_OAUTH_CLIENT_ID = CLIENT_ID;

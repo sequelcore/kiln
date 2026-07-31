@@ -32,6 +32,7 @@ export interface KilnAgentDefinition {
   readonly sandbox?: boolean;
   readonly modalities?: readonly string[];
   readonly authorityProfile?: ManagedAgentAdmissionProfile;
+  readonly economicPolicyId?: string;
   readonly routeId?: string;
   readonly providerRoute?: KilnAgentProviderRoute;
   readonly workClassification?: WorkClassification;
@@ -198,6 +199,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     return undefined;
   }
   const routeId = asNonEmptyString(record.routeId);
+  const economicPolicyId = asNonEmptyString(record.economicPolicyId);
   const providerRoute = asProviderRoute(record.providerRoute);
   let workClassification: WorkClassification | undefined;
   try {
@@ -227,6 +229,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(sandbox !== undefined ? { sandbox } : {}),
     ...(modalities ? { modalities } : {}),
     ...(authorityProfile ? { authorityProfile } : {}),
+    ...(economicPolicyId ? { economicPolicyId } : {}),
     ...(routeId ? { routeId } : {}),
     ...(providerRoute ? { providerRoute } : {}),
     ...(workClassification ? { workClassification } : {}),
@@ -280,13 +283,14 @@ function readDefinitionsFromDirectory(
 
 export interface LoadAgentDefinitionsOptions {
   readonly includeBuiltins?: boolean;
+  readonly userHome?: string;
 }
 
 export async function loadAgentDefinitions(
   projectPath: string,
   options: LoadAgentDefinitionsOptions = {},
 ): Promise<KilnAgentDefinition[]> {
-  const globalDirectory = join(homedir(), ".kiln", "agents");
+  const globalDirectory = join(options.userHome ?? homedir(), ".kiln", "agents");
   const projectDirectory = join(projectPath, ".kiln", "agents");
 
   const merged = new Map<string, KilnAgentDefinition>();

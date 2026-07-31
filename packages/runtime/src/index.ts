@@ -193,6 +193,7 @@ export {
   OpenCodeCredentialPoolService,
   isHarnessPoolProviderId,
   isPooledDirectProviderId,
+  listOverPermissiveCredentialFiles,
   mapCodexOAuthProviderError,
   mapDirectProviderError,
   mapOpenCodeProviderError,
@@ -209,6 +210,7 @@ export type {
   CredentialFileStoreConfig,
   CredentialHealthRecord,
   CredentialHealthStoreConfig,
+  CredentialPermissionDiagnosticConfig,
   CredentialPoolFactoryConfig,
   CredentialWatcherConfig,
   CredentialWatcherListener,
@@ -226,6 +228,7 @@ export type {
   LinkOpenCodeCredentialOptions,
   OpenCodeCredentialPoolServiceConfig,
   OpenCodeCredentialStatus,
+  OverPermissiveCredentialFile,
   PooledDirectProviderId,
   RuntimeCredentialFile,
   WriteRuntimeCredential,
@@ -339,6 +342,12 @@ export type {
   ManagedAgentOrchestrationLifecycleInput,
   ManagedAgentOrchestrationLifecycleResult,
   ManagedAgentOrchestrationLifecycleRouteSelector,
+  ManagedCommittedInvocationRequest,
+  ManagedEconomicCandidateDescriptor,
+  ManagedEconomicCandidateRejection,
+  ManagedEconomicCandidateRejectionReason,
+  ManagedEconomicCandidateSet,
+  ManagedEconomicInvocationCommand,
   ManagedInvocationContextResolution,
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolverInput,
@@ -350,12 +359,12 @@ export type {
   ManagedInvocationToolRoute,
 } from "./agents/managed-invocation/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
+export { collectManagedEconomicCandidates } from "./agents/managed-invocation/index.js";
 export {
   FilesystemManagedJobStore,
   InMemoryManagedJobStore,
   ManagedJobApplicationError,
   ManagedJobApplicationService,
-  createRuntimeManagedJobInvocationPort,
 } from "./managed-jobs/index.js";
 export type {
   ManagedJobDiagnosticCode,
@@ -367,11 +376,7 @@ export type {
   ManagedJobLifecycleEntry,
   ManagedJobRecord,
   ManagedJobReplayQuery,
-  ManagedJobRoute,
   ManagedJobRoutePort,
-  ManagedJobRuntimeInvocationPort,
-  ManagedJobRuntimeInvocationResolver,
-  ManagedJobRuntimeResult,
   ManagedJobResult,
   ManagedJobResultAvailability,
   ManagedJobResultQuery,

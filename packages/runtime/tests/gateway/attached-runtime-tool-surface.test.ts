@@ -2621,7 +2621,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       reason: "Managed child invocation failed before work item execution could start.",
       managedInvocation: expect.objectContaining({
         isError: true,
-        output: "managed_agent.invoke requires providerRoute.providerId.",
+        output: "managed_agent.invoke requires providerRoute.providerId for a fixed-route invocation.",
       }),
     });
     expect(startTool.calls).toHaveLength(1);

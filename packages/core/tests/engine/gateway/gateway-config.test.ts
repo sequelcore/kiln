@@ -25,6 +25,135 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 }
 
 describe("GatewayConfig", () => {
+  const economicGatewayYaml = `
+port: 4800
+apps: []
+modelGateway:
+  port: 4801
+  accounts:
+    - id: account-a
+      providerId: codex-oauth
+      credentialId: credential-a
+      maxConcurrency: 2
+      reservedAffinitySlots: 1
+      economics:
+        capacityIdentity: capacity-a
+        subscriptionClass: metered
+        quotaClassId: codex-standard
+        creditPosture: disabled
+        overagePosture: disabled
+  replay: { ttlMs: 300000, maxEntries: 1000, hmacKeyEnv: KILN_REPLAY_KEY }
+  surfaces:
+    openAIResponses: { maxBodyBytes: 1048576, maxConcurrentRequests: 4 }
+  principals:
+    - { tokenEnv: TOKEN_ENV, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [codex] }
+  virtualModels:
+    - id: codex
+      providerId: codex-oauth
+      providerModelId: gpt-5.6-codex
+      accountIds: [account-a]
+      capabilities: [text]
+      affinity: { continuity: none }
+      economics:
+        adapterCapabilityId: codex-direct
+        adapterCapabilityVersion: v1
+        authBillingChannel: oauth-subscription
+        executionMode: responses-api
+        serviceTier: standard
+        rateCardBasis: public-metered
+        envelopeSemantics: configured-upper-bound
+        fallbackPosture: disabled
+        overagePosture: disabled
+        contextClass: standard-context
+        cacheClass: provider-cache
+        priceEvidence:
+          kind: metered
+          rateCardId: codex-public
+          rateCardRevision: rev-2026-07
+          unitPrices:
+            - usageUnit: input-token
+              price: { atoms: "125", scale: 6, unit: input-token, scheme: { kind: currency, currency: USD } }
+          evidence:
+            sourceIdentity: openai-pricing
+            sourceRevision: rev-2026-07
+            sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            observedAt: "2026-07-29T00:00:00.000Z"
+            validUntil: "2026-08-29T00:00:00.000Z"
+            confidence: high
+            authority: provider-reported
+        auxiliaryCharges: []
+        executionEnvelope:
+          limits:
+            - { atoms: "200000", scale: 0, unit: input-token, scheme: { kind: unit } }
+`;
+
+  it("parses exact account and route economics without numeric coercion", () => {
+    const modelGateway = parseGatewayYaml(economicGatewayYaml).modelGateway;
+
+    expect(modelGateway?.accounts[0]?.economics).toEqual({
+      capacityIdentity: "capacity-a",
+      subscriptionClass: "metered",
+      quotaClassId: "codex-standard",
+      creditPosture: "disabled",
+      overagePosture: "disabled",
+    });
+    expect(modelGateway?.virtualModels[0]?.economics?.priceEvidence).toMatchObject({
+      kind: "metered",
+      unitPrices: [{ price: { atoms: "125", scale: 6, scheme: { kind: "currency", currency: "USD" } } }],
+    });
+    expect(modelGateway?.virtualModels[0]?.economics).toMatchObject({
+      adapterCapabilityId: "codex-direct",
+      adapterCapabilityVersion: "v1",
+      rateCardBasis: "public-metered",
+      envelopeSemantics: "configured-upper-bound",
+    });
+  });
+
+  it("rejects unknown nested economic fields and duplicate capacity identities", () => {
+    expect(() => parseGatewayYaml(economicGatewayYaml.replace(
+      "currency: USD",
+      "currency: USD, approximation: float",
+    ))).toThrow(/approximation.*not supported/);
+
+    const duplicateAccount = `    - id: account-b
+      providerId: codex-oauth
+      credentialId: credential-b
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+      economics:
+        capacityIdentity: capacity-a
+        subscriptionClass: metered
+        quotaClassId: codex-standard
+        creditPosture: disabled
+        overagePosture: disabled
+`;
+    expect(() => parseGatewayYaml(economicGatewayYaml
+      .replace("  replay:", `${duplicateAccount}  replay:`)
+      .replace("accountIds: [account-a]", "accountIds: [account-a, account-b]")))
+      .toThrow(/capacityIdentity.*unique/);
+  });
+
+  it("fails closed for malformed exact amounts, evidence, postures, and envelopes", () => {
+    const malformed = [
+      economicGatewayYaml.replace('atoms: "125"', 'atoms: "01"'),
+      economicGatewayYaml.replace("scale: 6", "scale: 19"),
+      economicGatewayYaml.replace("sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "sourceDigest: sha256:nope"),
+      economicGatewayYaml.replace('observedAt: "2026-07-29T00:00:00.000Z"', 'observedAt: "2026-07-29"'),
+      economicGatewayYaml.replace("authority: provider-reported", "authority: operator-assumed"),
+      economicGatewayYaml.replace("fallbackPosture: disabled", "fallbackPosture: implicit"),
+      economicGatewayYaml.replace("adapterCapabilityId: codex-direct\n", ""),
+      economicGatewayYaml.replace("adapterCapabilityVersion: v1\n", ""),
+      economicGatewayYaml.replace("rateCardBasis: public-metered\n", ""),
+      economicGatewayYaml.replace("envelopeSemantics: configured-upper-bound\n", ""),
+      economicGatewayYaml.replace("usageUnit: input-token", "usageUnit: output-token"),
+      economicGatewayYaml.replace("unit: input-token, scheme: { kind: currency", "unit: output-token, scheme: { kind: currency"),
+      economicGatewayYaml.replace("unit: input-token, scheme: { kind: unit }", "unit: output-token, scheme: { kind: unit }"),
+      economicGatewayYaml.replace('            - { atoms: "200000", scale: 0, unit: input-token, scheme: { kind: unit } }', "            []"),
+    ];
+
+    for (const yaml of malformed) expect(() => parseGatewayYaml(yaml)).toThrow();
+  });
+
   it("parses an explicit secret-free model gateway surface", () => {
     const parsed = parseGatewayYaml(`
 port: 4800

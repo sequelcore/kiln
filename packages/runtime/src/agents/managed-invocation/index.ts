@@ -239,8 +239,15 @@ export {
   MANAGED_AGENT_STATUS_CAPABILITY,
   MANAGED_AGENT_STATUS_TOOL,
   MANAGED_AGENT_STATUS_TOOL_NAME,
+  collectManagedEconomicCandidates,
 } from "./runtime-tool.js";
 export type {
+  ManagedCommittedInvocationRequest,
+  ManagedEconomicCandidateDescriptor,
+  ManagedEconomicCandidateRejection,
+  ManagedEconomicCandidateRejectionReason,
+  ManagedEconomicCandidateSet,
+  ManagedEconomicInvocationCommand,
   ManagedInvocationContextResolution,
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolverInput,

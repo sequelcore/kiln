@@ -96,3 +96,9 @@ export type {
   OpenCodeExecutionCredential,
   OpenCodeExecutionProviderId,
 } from "./opencode-credential-pool.js";
+
+export { listOverPermissiveCredentialFiles } from "./credential-permission-diagnostic.js";
+export type {
+  CredentialPermissionDiagnosticConfig,
+  OverPermissiveCredentialFile,
+} from "./credential-permission-diagnostic.js";
