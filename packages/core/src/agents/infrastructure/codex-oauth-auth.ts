@@ -51,6 +51,8 @@ export interface CodexOAuthTokenFile {
   readonly refresh_token: string;
   readonly expires_at: string;
   readonly client_id: string;
+  /** Carried only for native-harness projection (e.g. `~/.codex/auth.json`); never required for Kiln's own API calls. */
+  readonly id_token?: string;
 }
 
 export interface DeviceAuthorizationResult {
@@ -330,7 +332,7 @@ export class CodexOAuthAuth {
       });
     }
 
-    return this.toTokenFile(data);
+    return this.toTokenFile(data, tokenFile.id_token);
   }
 
   async getValidAccessToken(): Promise<string> {
@@ -445,7 +447,7 @@ export class CodexOAuthAuth {
     return this.toTokenFile(data);
   }
 
-  private toTokenFile(token: OAuthTokenResponse): CodexOAuthTokenFile {
+  private toTokenFile(token: OAuthTokenResponse, previousIdToken?: string): CodexOAuthTokenFile {
     const expiresAt = this.resolveExpiresAt(token);
     providerAuthDebug("resolved token expiry", {
       expiresAt,
@@ -453,11 +455,14 @@ export class CodexOAuthAuth {
       hasAccessTokenJwtExpiry: Boolean(this.readJwtExpiry(token.access_token)),
       hasIdTokenJwtExpiry: Boolean(this.readJwtExpiry(token.id_token)),
     });
+    // Refresh responses sometimes omit id_token and expect the prior one to remain valid.
+    const idToken = token.id_token ?? previousIdToken;
     return {
       access_token: token.access_token!,
       refresh_token: token.refresh_token!,
       expires_at: expiresAt,
       client_id: CLIENT_ID,
+      ...(idToken ? { id_token: idToken } : {}),
     };
   }
 
@@ -601,3 +606,4 @@ export class CodexOAuthAuth {
 }
 
 export const CODEX_DEVICE_VERIFICATION_URI = DEVICE_VERIFICATION_URI;
+export const CODEX_OAUTH_CLIENT_ID = CLIENT_ID;

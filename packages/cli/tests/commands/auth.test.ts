@@ -49,9 +49,12 @@ function codexCredential(accountId: string, email?: string) {
 
 describe("auth command", () => {
   let logs: string[];
+  let previousCodexHome: string | undefined;
 
   beforeEach(async () => {
     logs = [];
+    previousCodexHome = process.env.CODEX_HOME;
+    delete process.env.CODEX_HOME;
     vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
       logs.push(String(message ?? ""));
     });
@@ -100,6 +103,8 @@ describe("auth command", () => {
   afterEach(async () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
     await rm(homeDir, { recursive: true, force: true });
   });
 
@@ -219,6 +224,73 @@ describe("auth command", () => {
   it("rejects unrecognized Codex status flags", async () => {
     await runAuth(["codex", "status", "--bogus"]);
     expect(logs.join("\n")).toContain("Usage: kiln auth codex status [--usage] [--emails]");
+  }, 10_000);
+
+  it("activates a pooled Codex credential natively, absorbing and backing up the previously active native account", async () => {
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"), JSON.stringify(codexCredential("account-a")), "utf8");
+
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(join(homeDir, ".codex", "auth.json"), JSON.stringify({
+      auth_mode: "chatgpt",
+      OPENAI_API_KEY: null,
+      tokens: {
+        id_token: "previous-id-token",
+        access_token: codexCredential("account-b").access_token,
+        refresh_token: "previous-refresh",
+        account_id: "account-b",
+      },
+      last_refresh: "2026-07-01T00:00:00.000Z",
+    }), "utf8");
+
+    await runAuth(["codex", "activate", "work"]);
+
+    const output = logs.join("\n");
+    expect(output).toContain("Absorbed currently active native Codex account (account-b) into the Kiln pool");
+    expect(output).toContain("Backed up previous native Codex auth to");
+    expect(output).toContain("Activated Codex OAuth credential work");
+
+    const nativeAfter = JSON.parse(await readFile(join(homeDir, ".codex", "auth.json"), "utf8"));
+    expect(nativeAfter.tokens.account_id).toBe("account-a");
+    expect(nativeAfter.tokens.access_token).toBe(codexCredential("account-a").access_token);
+
+    const codexOauthFiles = await readdir(join(homeDir, ".kiln", "auth", "codex-oauth"));
+    expect(codexOauthFiles).toContain("work.json");
+    expect(codexOauthFiles.length).toBe(2);
+
+    const nativeDirFiles = await readdir(join(homeDir, ".codex"));
+    expect(nativeDirFiles.some((name) => name.startsWith("auth.json.bak-"))).toBe(true);
+  }, 10_000);
+
+  it("activates the least-used available pooled account with --auto", async () => {
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "low.json"), JSON.stringify(codexCredential("account-low")), "utf8");
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "high.json"), JSON.stringify(codexCredential("account-high")), "utf8");
+
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { headers?: Record<string, string> }) => {
+      const accountId = init?.headers?.["chatgpt-account-id"];
+      const usedPercent = accountId === "account-low" ? 10 : 95;
+      return new Response(JSON.stringify({
+        plan_type: "plus",
+        rate_limit: { allowed: true, limit_reached: false, primary_window: { used_percent: usedPercent, reset_at: 4_070_908_800 } },
+      }), { status: 200 });
+    }));
+
+    await runAuth(["codex", "activate", "--auto"]);
+
+    const output = logs.join("\n");
+    expect(output).toContain("Activated Codex OAuth credential low");
+    expect(output).not.toContain("Backed up");
+
+    const nativeAfter = JSON.parse(await readFile(join(homeDir, ".codex", "auth.json"), "utf8"));
+    expect(nativeAfter.tokens.account_id).toBe("account-low");
+  }, 10_000);
+
+  it("reports an unknown Codex credential id without touching native auth", async () => {
+    await runAuth(["codex", "activate", "does-not-exist"]);
+
+    expect(logs.join("\n")).toContain("Unknown or unusable Codex OAuth credential: does-not-exist");
+    await expect(readFile(join(homeDir, ".codex", "auth.json"), "utf8")).rejects.toThrow();
   }, 10_000);
 
   it("logs out only the selected Codex credential and its health and usage", async () => {

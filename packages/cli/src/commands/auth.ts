@@ -1,12 +1,20 @@
-import { readdir, readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { copyFile, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { OpenCodeAuth, type CodexOAuthTokenFile, type OpenCodeTier } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
   OpenCodeCredentialPoolService,
   startProviderAuthRequest,
 } from "@kilnai/runtime";
+import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
+import {
+  fromNativeCodexAuthFile,
+  parseNativeCodexAuthFile,
+  toNativeCodexAuthFile,
+  type NativeCodexAuthFile,
+} from "../config/codex-native-account-sync.js";
 
 const AUTH_DIR = join(homedir(), ".kiln", "auth");
 const EXPIRING_SOON_MS = 120 * 1000;
@@ -49,6 +57,9 @@ export async function runAuth(args: string[]): Promise<void> {
         return;
       case "status":
         await runCodexStatus(args.slice(2));
+        return;
+      case "activate":
+        await runCodexActivate(args.slice(2));
         return;
       case "logout":
         await runCodexLogout(args.slice(2));
@@ -122,6 +133,116 @@ async function runCodexStatus(rest: string[]): Promise<void> {
       console.log(`    Usage observed: ${entryUsage.observedAt}`);
     }
   }
+}
+
+interface CodexActivateSelection {
+  readonly auto: boolean;
+  readonly id?: string;
+}
+
+interface CodexActivationTarget {
+  readonly id: string;
+  readonly tokenFile: CodexOAuthTokenFile;
+}
+
+async function runCodexActivate(rest: string[]): Promise<void> {
+  const selection = parseCodexActivateOptions(rest);
+  const pool = new CodexOAuthCredentialPoolService();
+  const nativeAuthPath = join(resolveNativeHarnessDir("codex"), "auth.json");
+
+  const absorbedAccountId = await absorbCurrentNativeAccount(pool, nativeAuthPath);
+  if (absorbedAccountId) {
+    console.log(`Absorbed currently active native Codex account (${absorbedAccountId}) into the Kiln pool.`);
+  }
+
+  const target = await resolveActivationTarget(pool, selection);
+  if (!target) {
+    console.log(selection.auto
+      ? "No available Codex OAuth credential found to activate."
+      : `Unknown or unusable Codex OAuth credential: ${selection.id}`);
+    return;
+  }
+
+  const backupPath = await backupNativeAuthFile(nativeAuthPath);
+  if (backupPath) {
+    console.log(`Backed up previous native Codex auth to ${backupPath}`);
+  }
+
+  await writeNativeAuthFileAtomically(nativeAuthPath, toNativeCodexAuthFile(target.tokenFile, new Date().toISOString()));
+
+  const email = (await pool.listCredentialEmails()).get(target.id);
+  console.log(`Activated Codex OAuth credential ${target.id}${email ? ` (${email})` : ""} in native Codex CLI/App.`);
+}
+
+function parseCodexActivateOptions(rest: string[]): CodexActivateSelection {
+  if (rest.length === 1 && rest[0] === "--auto") return { auto: true };
+  if (rest.length === 1 && rest[0] && !rest[0].startsWith("-")) return { auto: false, id: rest[0] };
+  throw new Error("Usage: kiln auth codex activate <id> | --auto");
+}
+
+/** Never fails the activation flow; a missing or unreadable native auth file just means nothing to absorb. */
+async function absorbCurrentNativeAccount(
+  pool: CodexOAuthCredentialPoolService,
+  nativeAuthPath: string,
+): Promise<string | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(nativeAuthPath, "utf8");
+  } catch {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  const native: NativeCodexAuthFile | null = parseNativeCodexAuthFile(parsed);
+  if (!native) return undefined;
+  await pool.linkCredential({ tokenFile: fromNativeCodexAuthFile(native) });
+  return native.tokens.account_id ?? undefined;
+}
+
+async function resolveActivationTarget(
+  pool: CodexOAuthCredentialPoolService,
+  selection: CodexActivateSelection,
+): Promise<CodexActivationTarget | null> {
+  if (!selection.auto) {
+    const tokenFile = await pool.getCredentialTokenFile(selection.id ?? "");
+    return tokenFile ? { id: selection.id ?? "", tokenFile } : null;
+  }
+  const [usage, status] = await Promise.all([pool.refreshUsage(), pool.listStatus()]);
+  const executableIds = new Set(
+    status.filter((entry) => entry.status === "valid" || entry.status === "expiring-soon").map((entry) => entry.id),
+  );
+  const best = usage
+    .filter((entry) => executableIds.has(entry.credentialId) && entry.availability === "available")
+    .sort((a, b) => (a.primary?.usedPercent ?? 0) - (b.primary?.usedPercent ?? 0))[0];
+  if (!best) return null;
+  const tokenFile = await pool.getCredentialTokenFile(best.credentialId);
+  return tokenFile ? { id: best.credentialId, tokenFile } : null;
+}
+
+async function backupNativeAuthFile(nativeAuthPath: string): Promise<string | undefined> {
+  const backupPath = `${nativeAuthPath}.bak-${Date.now()}`;
+  try {
+    await copyFile(nativeAuthPath, backupPath);
+    return backupPath;
+  } catch (error) {
+    if (isNodeEnoent(error)) return undefined;
+    throw error;
+  }
+}
+
+async function writeNativeAuthFileAtomically(nativeAuthPath: string, native: NativeCodexAuthFile): Promise<void> {
+  await mkdir(dirname(nativeAuthPath), { recursive: true });
+  const tempPath = `${nativeAuthPath}.${randomBytes(8).toString("hex")}.tmp`;
+  await writeFile(tempPath, `${JSON.stringify(native, null, 2)}\n`, "utf8");
+  await rename(tempPath, nativeAuthPath);
+}
+
+function isNodeEnoent(error: unknown): boolean {
+  return error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 async function runCodexLogout(rest: string[]): Promise<void> {
@@ -432,6 +553,7 @@ function printUsage(): void {
   console.log("Usage: kiln auth <subcommand>");
   console.log("  kiln auth codex login");
   console.log("  kiln auth codex status [--usage] [--emails]");
+  console.log("  kiln auth codex activate <id> | --auto                              Point native Codex CLI/App at a pooled account (backs up the previous one)");
   console.log("  kiln auth codex logout [--id <id>]");
   console.log("  kiln auth opencode link [--tier go|zen] [--id <id>] [--key <key>]    Link OpenCode API key (imports from OpenCode config if present)");
   console.log("  kiln auth opencode import [--tier go|zen] [--id <id>]                Import OpenCode API key from native OpenCode config");

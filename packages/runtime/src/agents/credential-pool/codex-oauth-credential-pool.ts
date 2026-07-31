@@ -188,6 +188,13 @@ export class CodexOAuthCredentialPoolService {
     });
   }
 
+  /** Explicit secret-bearing read for native-harness projection (e.g. activating a Codex CLI/App account). */
+  async getCredentialTokenFile(credentialId: string): Promise<CodexOAuthTokenFile | null> {
+    assertSafeCredentialId(credentialId);
+    const credentials = await this.readCredentials();
+    return credentials.find((credential) => credential.id === credentialId)?.tokenFile ?? null;
+  }
+
   async getValidAccessToken(): Promise<string> {
     const candidates = await this.listValidAccessTokenCandidates();
     return candidates[0]?.accessToken ?? "";
@@ -692,11 +699,15 @@ function validateCodexOAuthTokenFile(value: unknown, filePath: string): CodexOAu
   if (typeof record.client_id !== "string" || record.client_id.trim().length === 0) {
     throw new CodexOAuthCredentialShapeError(filePath);
   }
+  const idToken = typeof record.id_token === "string" && record.id_token.trim().length > 0
+    ? record.id_token
+    : undefined;
   return {
     access_token: record.access_token,
     refresh_token: record.refresh_token,
     expires_at: record.expires_at,
     client_id: record.client_id,
+    ...(idToken ? { id_token: idToken } : {}),
   };
 }
 

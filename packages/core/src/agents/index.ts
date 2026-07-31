@@ -154,7 +154,7 @@ export type { OpenAITtsConfig } from "./infrastructure/openai-tts.js";
 export { ElevenLabsTtsAdapter } from "./infrastructure/elevenlabs-tts.js";
 export type { ElevenLabsTtsConfig } from "./infrastructure/elevenlabs-tts.js";
 export { CodexOAuthAuth } from "./infrastructure/codex-oauth-auth.js";
-export { CODEX_DEVICE_VERIFICATION_URI } from "./infrastructure/codex-oauth-auth.js";
+export { CODEX_DEVICE_VERIFICATION_URI, CODEX_OAUTH_CLIENT_ID } from "./infrastructure/codex-oauth-auth.js";
 export { CodexOAuthAdapter } from "./infrastructure/codex-oauth.js";
 export type {
   BrowserAuthorizationResult,
