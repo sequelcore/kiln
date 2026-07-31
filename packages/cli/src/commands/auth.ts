@@ -163,6 +163,12 @@ async function runCodexActivate(rest: string[]): Promise<void> {
     return;
   }
 
+  // Native Codex CLI/App requires id_token in auth.json; never write a native file without one.
+  if (!target.tokenFile.id_token) {
+    console.log(`Credential ${target.id} has no id_token even after a refresh attempt. Native Codex CLI/App requires one. Run 'kiln auth codex login' to relink this account, then try activate again.`);
+    return;
+  }
+
   const backupPath = await backupNativeAuthFile(nativeAuthPath);
   if (backupPath) {
     console.log(`Backed up previous native Codex auth to ${backupPath}`);
@@ -208,19 +214,22 @@ async function resolveActivationTarget(
   selection: CodexActivateSelection,
 ): Promise<CodexActivationTarget | null> {
   if (!selection.auto) {
-    const tokenFile = await pool.getCredentialTokenFile(selection.id ?? "");
-    return tokenFile ? { id: selection.id ?? "", tokenFile } : null;
+    const id = selection.id ?? "";
+    const tokenFile = await pool.ensureCredentialIdToken(id);
+    return tokenFile ? { id, tokenFile } : null;
   }
   const [usage, status] = await Promise.all([pool.refreshUsage(), pool.listStatus()]);
   const executableIds = new Set(
     status.filter((entry) => entry.status === "valid" || entry.status === "expiring-soon").map((entry) => entry.id),
   );
-  const best = usage
+  const ranked = usage
     .filter((entry) => executableIds.has(entry.credentialId) && entry.availability === "available")
-    .sort((a, b) => (a.primary?.usedPercent ?? 0) - (b.primary?.usedPercent ?? 0))[0];
-  if (!best) return null;
-  const tokenFile = await pool.getCredentialTokenFile(best.credentialId);
-  return tokenFile ? { id: best.credentialId, tokenFile } : null;
+    .sort((a, b) => (a.primary?.usedPercent ?? 0) - (b.primary?.usedPercent ?? 0));
+  for (const candidate of ranked) {
+    const tokenFile = await pool.ensureCredentialIdToken(candidate.credentialId);
+    if (tokenFile?.id_token) return { id: candidate.credentialId, tokenFile };
+  }
+  return null;
 }
 
 async function backupNativeAuthFile(nativeAuthPath: string): Promise<string | undefined> {

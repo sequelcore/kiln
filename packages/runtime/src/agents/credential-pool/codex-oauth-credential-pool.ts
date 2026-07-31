@@ -188,11 +188,29 @@ export class CodexOAuthCredentialPoolService {
     });
   }
 
-  /** Explicit secret-bearing read for native-harness projection (e.g. activating a Codex CLI/App account). */
-  async getCredentialTokenFile(credentialId: string): Promise<CodexOAuthTokenFile | null> {
+  /**
+   * Best-effort backfill for `id_token` on credentials linked before Kiln began capturing it.
+   * Native Codex CLI/App requires `id_token` in `~/.codex/auth.json`; refresh responses often
+   * include one even when the stored token file predates that capture. Never throws on refresh
+   * failure — callers must treat a still-missing `id_token` on the returned file as unusable for
+   * native projection rather than as an error.
+   */
+  async ensureCredentialIdToken(credentialId: string): Promise<CodexOAuthTokenFile | null> {
     assertSafeCredentialId(credentialId);
-    const credentials = await this.readCredentials();
-    return credentials.find((credential) => credential.id === credentialId)?.tokenFile ?? null;
+    return this.withCredentialLocks([credentialId], async () => {
+      const record = (await this.readCredentials()).find((entry) => entry.id === credentialId);
+      if (!record) return null;
+      if (record.tokenFile.id_token) return record.tokenFile;
+      let refreshed: CodexOAuthTokenFile;
+      try {
+        refreshed = await new CodexOAuthAuth({ tokenPath: record.tokenPath }).refreshToken(record.tokenFile);
+      } catch {
+        return record.tokenFile;
+      }
+      if (!refreshed.id_token) return refreshed;
+      await atomicReplaceCredentialFile(record.tokenPath, refreshed);
+      return refreshed;
+    });
   }
 
   async getValidAccessToken(): Promise<string> {

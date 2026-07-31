@@ -44,6 +44,7 @@ function codexCredential(accountId: string, email?: string) {
     refresh_token: "synthetic-refresh",
     expires_at: "2099-01-01T00:00:00.000Z",
     client_id: "synthetic-client",
+    id_token: "synthetic-id-token",
   };
 }
 
@@ -284,6 +285,46 @@ describe("auth command", () => {
 
     const nativeAfter = JSON.parse(await readFile(join(homeDir, ".codex", "auth.json"), "utf8"));
     expect(nativeAfter.tokens.account_id).toBe("account-low");
+  }, 10_000);
+
+  it("backfills a missing id_token via refresh before activating natively", async () => {
+    const { id_token: _unused, ...withoutIdToken } = codexCredential("account-a");
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"), JSON.stringify(withoutIdToken), "utf8");
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      access_token: withoutIdToken.access_token,
+      refresh_token: "refreshed-refresh-token",
+      id_token: "backfilled-id-token",
+      expires_in: 3600,
+    }), { status: 200 })));
+
+    await runAuth(["codex", "activate", "work"]);
+
+    expect(logs.join("\n")).toContain("Activated Codex OAuth credential work");
+
+    const nativeAfter = JSON.parse(await readFile(join(homeDir, ".codex", "auth.json"), "utf8"));
+    expect(nativeAfter.tokens.id_token).toBe("backfilled-id-token");
+
+    const persisted = JSON.parse(await readFile(join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"), "utf8"));
+    expect(persisted.id_token).toBe("backfilled-id-token");
+  }, 10_000);
+
+  it("refuses to activate natively when id_token cannot be recovered, and never touches the native file", async () => {
+    const { id_token: _unused, ...withoutIdToken } = codexCredential("account-a");
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"), JSON.stringify(withoutIdToken), "utf8");
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      access_token: withoutIdToken.access_token,
+      refresh_token: "refreshed-refresh-token",
+      expires_in: 3600,
+    }), { status: 200 })));
+
+    await runAuth(["codex", "activate", "work"]);
+
+    expect(logs.join("\n")).toContain("has no id_token even after a refresh attempt");
+    await expect(readFile(join(homeDir, ".codex", "auth.json"), "utf8")).rejects.toThrow();
   }, 10_000);
 
   it("reports an unknown Codex credential id without touching native auth", async () => {
