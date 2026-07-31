@@ -154,6 +154,22 @@ endpoint is a configuration/runtime error, not a request for OAuth.
 Logout commands remove the provider's linked credential files. They do not
 modify unrelated provider directories.
 
+## File Permissions
+
+Credential files are owner-only. Every Kiln write path applies that mode, so a
+credential linked before this invariant existed is repaired the next time Kiln
+writes it, which for an actively used account happens on its next token
+refresh. There is no migration command to run.
+
+A credential that is never rewritten keeps its original mode, so `kiln auth
+status` reports any credential file readable beyond its owner and prints the
+`chmod` needed to fix it now. Inspection commands report the exposure rather
+than silently repairing it, so the finding is visible rather than erased.
+
+This applies to POSIX systems. Windows does not implement POSIX mode bits;
+these paths are protected by the user-profile ACL, and the report is empty
+there rather than misleading.
+
 ## Direct Providers
 
 Direct providers can be configured by placing credential files under their

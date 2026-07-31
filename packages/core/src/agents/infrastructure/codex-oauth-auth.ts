@@ -4,6 +4,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { KilnError } from "../../engine/errors.js";
+import { CREDENTIAL_FILE_MODE, applyCredentialFileMode } from "./credential-file-mode.js";
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_BASE = "https://auth.openai.com";
@@ -367,9 +368,13 @@ export class CodexOAuthAuth {
       hasRefreshToken: this.isNonEmptyTokenString(tokenFile.refresh_token),
     });
     await mkdir(dirname(this.tokenPath), { recursive: true });
-    // Owner-only on creation; POSIX applies this, Windows relies on the profile ACL.
-    // An already-existing file keeps its current mode, so this hardens new logins.
-    await writeFile(this.tokenPath, JSON.stringify(tokenFile, null, 2), { encoding: "utf8", mode: 0o600 });
+    await writeFile(this.tokenPath, JSON.stringify(tokenFile, null, 2), {
+      encoding: "utf8",
+      mode: CREDENTIAL_FILE_MODE,
+    });
+    // Creation mode does not cover a file that already existed, so a credential
+    // written before this invariant repairs itself on its next refresh.
+    await applyCredentialFileMode(this.tokenPath);
     providerAuthDebug("token file saved", {
       tokenPath: this.tokenPath,
     });

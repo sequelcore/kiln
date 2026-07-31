@@ -293,6 +293,12 @@ separate observations. This preserves tiered or route-specific views such as
 - Secret-bearing material leaves `~/.kiln/auth/` only through an explicit
   operator action such as native credential projection. Copies written by that
   action, including backups, use owner-only file mode and bounded retention.
+- Credential files are owner-only. Every write path applies the mode, so a
+  credential written before the invariant repairs itself on its next persist
+  rather than requiring a migration command. Files that are never rewritten are
+  reported by `kiln auth status` instead of being repaired during inspection.
+  POSIX enforces the mode; Windows has no mode bits and relies on the
+  user-profile ACL.
 - Local endpoint providers do not imply cloud auth, and cloud credentials do
   not imply local daemon availability.
 

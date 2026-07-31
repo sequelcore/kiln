@@ -2,10 +2,11 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { OpenCodeAuth, type CodexOAuthTokenFile, type OpenCodeTier } from "@kilnai/core";
+import { CREDENTIAL_FILE_MODE, OpenCodeAuth, type CodexOAuthTokenFile, type OpenCodeTier } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
   OpenCodeCredentialPoolService,
+  listOverPermissiveCredentialFiles,
   startProviderAuthRequest,
 } from "@kilnai/runtime";
 import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
@@ -23,8 +24,6 @@ const EXPIRING_SOON_MS = 120 * 1000;
 const NATIVE_CODEX_AUTH_BACKUP_TARGET_ID = "codex-native-auth";
 /** Enough history to recover across a few bad switches without retaining token material indefinitely. */
 const NATIVE_CODEX_AUTH_BACKUP_RETENTION = 5;
-/** Owner-only; a credential copy must never be more readable than its source. */
-const CREDENTIAL_FILE_MODE = 0o600;
 const POOLED_PROVIDER_AUTH_FILES = new Set(["opencode.json", "codex-oauth.json"]);
 const DIRECT_OPENCODE_AUTH_DIR = "opencode-api";
 
@@ -552,6 +551,24 @@ async function printAllProviderStatuses(): Promise<void> {
       : "unknown";
     console.log(`${provider}: ${status}${expiry === "unknown" ? "" : ` (expires ${expiry})`}`);
   }
+
+  await printCredentialPermissionWarnings();
+}
+
+/**
+ * Store-wide finding, so it belongs on the store-wide command rather than being
+ * repeated by each provider status.
+ */
+async function printCredentialPermissionWarnings(): Promise<void> {
+  const findings = await listOverPermissiveCredentialFiles({ rootDir: AUTH_DIR });
+  if (findings.length === 0) return;
+  console.log("");
+  console.log("Warning: credential files readable beyond their owner:");
+  for (const finding of findings) {
+    console.log(`  ${finding.relativePath} (mode ${finding.mode})`);
+  }
+  console.log("These repair themselves the next time Kiln writes them. To fix now:");
+  console.log(`  chmod 600 ${findings.map((finding) => `${AUTH_DIR}/${finding.relativePath}`).join(" ")}`);
 }
 
 async function loadGenericTokenFile(path: string): Promise<Partial<CodexOAuthTokenFile> | null> {

@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CredentialSource } from "@kilnai/core";
+import { CREDENTIAL_FILE_MODE, applyCredentialFileMode, type CredentialSource } from "@kilnai/core";
 
 export interface CredentialFileStoreConfig {
   readonly rootDir: string;
@@ -86,7 +86,13 @@ export class CredentialFileStore<TAuth> {
     };
 
     await mkdir(this.providerDirectory(input.providerId), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(credential, null, 2)}\n`, "utf8");
+    await writeFile(filePath, `${JSON.stringify(credential, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: CREDENTIAL_FILE_MODE,
+    });
+    // Every provider on this store inherits the owner-only invariant, including
+    // credentials written before it existed, which repair on their next write.
+    await applyCredentialFileMode(filePath);
     return credential;
   }
 
