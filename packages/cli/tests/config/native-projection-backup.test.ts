@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -121,6 +121,30 @@ describe("backupNativeProjectionFile", () => {
         "2026-05-03T12-00-00-000Z-auth.json.bak",
         "2026-05-03T12-00-00-000Z-config.toml.bak",
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // POSIX-only: Windows ignores mode bits and protects these paths through the
+  // user-profile ACL instead. CI runs Linux, so the invariant is enforced there.
+  it.skipIf(process.platform === "win32")("writes secret-bearing backups owner-only", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-mode-"));
+    const kilnDir = join(root, "project", ".kiln");
+    const nativePath = join(root, "home", ".codex", "auth.json");
+
+    try {
+      writeFileSyncRecursive(nativePath, "{}\n", "utf-8");
+
+      const backupPath = backupNativeProjectionFile({
+        kilnDir,
+        targetId: "codex-native-auth",
+        filePath: nativePath,
+        timestamp: "2026-05-06T12:00:00.000Z",
+        mode: 0o600,
+      });
+
+      expect(statSync(backupPath!).mode & 0o777).toBe(0o600);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

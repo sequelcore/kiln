@@ -367,7 +367,9 @@ export class CodexOAuthAuth {
       hasRefreshToken: this.isNonEmptyTokenString(tokenFile.refresh_token),
     });
     await mkdir(dirname(this.tokenPath), { recursive: true });
-    await writeFile(this.tokenPath, JSON.stringify(tokenFile, null, 2), "utf8");
+    // Owner-only on creation; POSIX applies this, Windows relies on the profile ACL.
+    // An already-existing file keeps its current mode, so this hardens new logins.
+    await writeFile(this.tokenPath, JSON.stringify(tokenFile, null, 2), { encoding: "utf8", mode: 0o600 });
     providerAuthDebug("token file saved", {
       tokenPath: this.tokenPath,
     });
