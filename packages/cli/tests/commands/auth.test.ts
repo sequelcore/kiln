@@ -34,9 +34,10 @@ function openCodeCredential(id: string, tier: "go" | "zen", apiKey: string) {
   };
 }
 
-function codexCredential(accountId: string) {
+function codexCredential(accountId: string, email?: string) {
   const payload = Buffer.from(JSON.stringify({
     "https://api.openai.com/auth": { chatgpt_account_id: accountId },
+    ...(email ? { "https://api.openai.com/profile": { email } } : {}),
   })).toString("base64url");
   return {
     access_token: `header.${payload}.signature`,
@@ -196,6 +197,28 @@ describe("auth command", () => {
     expect(output).toContain("Plan: plus");
     expect(output).toContain("Primary: 42%");
     expect(output).not.toContain("operator@example.test");
+  }, 10_000);
+
+  it("keeps Codex account emails out of status by default and only decodes them with --emails", async () => {
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"),
+      JSON.stringify(codexCredential("account-a", "operator@example.test")),
+      "utf8",
+    );
+
+    await runAuth(["codex", "status"]);
+    expect(logs.join("\n")).not.toContain("operator@example.test");
+
+    logs = [];
+    await runAuth(["codex", "status", "--emails"]);
+    const output = logs.join("\n");
+    expect(output).toContain("Email: operator@example.test");
+  }, 10_000);
+
+  it("rejects unrecognized Codex status flags", async () => {
+    await runAuth(["codex", "status", "--bogus"]);
+    expect(logs.join("\n")).toContain("Usage: kiln auth codex status [--usage] [--emails]");
   }, 10_000);
 
   it("logs out only the selected Codex credential and its health and usage", async () => {

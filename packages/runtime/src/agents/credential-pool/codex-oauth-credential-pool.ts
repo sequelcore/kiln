@@ -339,6 +339,17 @@ export class CodexOAuthCredentialPoolService {
     return this.usageStore.list(CODEX_OAUTH_POOL_PROVIDER_ID, now);
   }
 
+  /** Opt-in identity lookup decoded from already-local token claims; never fetched from the provider. */
+  async listCredentialEmails(): Promise<ReadonlyMap<string, string>> {
+    const credentials = await this.readCredentials();
+    const emails = new Map<string, string>();
+    for (const credential of credentials) {
+      const email = readCodexOAuthProfileEmail(credential.tokenFile.access_token);
+      if (email) emails.set(credential.id, email);
+    }
+    return emails;
+  }
+
   async removeCredential(credentialId: string): Promise<void> {
     assertSafeCredentialId(credentialId);
     await this.withCatalogLock(() => this.withCredentialLocks([credentialId], async () => {
@@ -615,6 +626,20 @@ function readCodexOAuthAccountId(accessToken: string): string | null {
     if (typeof auth !== "object" || auth === null || Array.isArray(auth)) return null;
     const accountId = (auth as Record<string, unknown>).chatgpt_account_id;
     return typeof accountId === "string" && accountId.trim().length > 0 ? accountId.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCodexOAuthProfileEmail(accessToken: string): string | null {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    const profile = claims["https://api.openai.com/profile"];
+    if (typeof profile !== "object" || profile === null || Array.isArray(profile)) return null;
+    const email = (profile as Record<string, unknown>).email;
+    return typeof email === "string" && email.trim().length > 0 ? email.trim() : null;
   } catch {
     return null;
   }

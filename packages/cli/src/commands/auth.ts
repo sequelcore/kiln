@@ -88,17 +88,22 @@ async function runCodexLogin(): Promise<void> {
 }
 
 async function runCodexStatus(rest: string[]): Promise<void> {
-  const usageRequested = parseCodexStatusOptions(rest);
+  const options = parseCodexStatusOptions(rest);
   const pool = new CodexOAuthCredentialPoolService();
   const entries = await pool.listStatus();
   if (entries.length === 0) {
     console.log("Not authenticated");
     return;
   }
-  const usage = usageRequested ? await pool.refreshUsage() : [];
+  const usage = options.usage ? await pool.refreshUsage() : [];
+  // Emails are decoded from already-local token claims, never fetched from the provider,
+  // and stay behind their own flag so they never merge into --usage's guarded output.
+  const emails = options.emails ? await pool.listCredentialEmails() : new Map<string, string>();
   console.log("Codex OAuth");
   for (const entry of entries) {
     console.log(`  ${entry.id}`);
+    const email = emails.get(entry.id);
+    if (email) console.log(`    Email: ${email}`);
     console.log(`    Token expiry: ${entry.expiresAt}`);
     console.log(`    Status: ${entry.status}`);
     if (entry.invalidReason) {
@@ -131,10 +136,18 @@ async function runCodexLogout(rest: string[]): Promise<void> {
   console.log("Logged out of all Codex credentials");
 }
 
-function parseCodexStatusOptions(rest: string[]): boolean {
-  if (rest.length === 0) return false;
-  if (rest.length === 1 && rest[0] === "--usage") return true;
-  throw new Error("Usage: kiln auth codex status [--usage]");
+interface CodexStatusOptions {
+  readonly usage: boolean;
+  readonly emails: boolean;
+}
+
+function parseCodexStatusOptions(rest: string[]): CodexStatusOptions {
+  const flags = new Set(rest);
+  const recognized = new Set(["--usage", "--emails"]);
+  if (rest.length !== flags.size || [...flags].some((flag) => !recognized.has(flag))) {
+    throw new Error("Usage: kiln auth codex status [--usage] [--emails]");
+  }
+  return { usage: flags.has("--usage"), emails: flags.has("--emails") };
 }
 
 function parseCodexLogoutOptions(rest: string[]): string | undefined {
@@ -418,7 +431,7 @@ function formatStatusRow(cells: readonly string[]): string {
 function printUsage(): void {
   console.log("Usage: kiln auth <subcommand>");
   console.log("  kiln auth codex login");
-  console.log("  kiln auth codex status [--usage]");
+  console.log("  kiln auth codex status [--usage] [--emails]");
   console.log("  kiln auth codex logout [--id <id>]");
   console.log("  kiln auth opencode link [--tier go|zen] [--id <id>] [--key <key>]    Link OpenCode API key (imports from OpenCode config if present)");
   console.log("  kiln auth opencode import [--tier go|zen] [--id <id>]                Import OpenCode API key from native OpenCode config");

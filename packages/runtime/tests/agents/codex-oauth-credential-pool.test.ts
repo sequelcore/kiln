@@ -27,6 +27,14 @@ function accountToken(accountId: string, overrides: Partial<CodexOAuthTokenFile>
   return token({ access_token: `header.${payload}.signature`, ...overrides });
 }
 
+function tokenWithEmail(email: string, overrides: Partial<CodexOAuthTokenFile> = {}): CodexOAuthTokenFile {
+  const payload = Buffer.from(JSON.stringify({
+    exp: 4_070_908_800,
+    "https://api.openai.com/profile": { email },
+  })).toString("base64url");
+  return token({ access_token: `header.${payload}.signature`, ...overrides });
+}
+
 function makeOptions(): CreateMessageOptions {
   return {
     system: "system",
@@ -289,6 +297,18 @@ describe("CodexOAuthCredentialPoolService", () => {
     }]);
     expect(JSON.stringify(status)).not.toContain("access-work");
     expect(JSON.stringify(status)).not.toContain("refresh-work");
+  });
+
+  it("decodes credential emails from local token claims only when explicitly requested, and keeps listStatus silent on it", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "work", tokenFile: tokenWithEmail("operator@example.test") });
+    await service.linkCredential({ id: "no-profile", tokenFile: token() });
+
+    const emails = await service.listCredentialEmails();
+    expect(emails.get("work")).toBe("operator@example.test");
+    expect(emails.has("no-profile")).toBe(false);
+
+    expect(JSON.stringify(await service.listStatus())).not.toContain("operator@example.test");
   });
 
   it("cleans secret-bearing temporary files when atomic link replacement fails", async () => {
