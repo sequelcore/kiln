@@ -16,10 +16,12 @@ import {
   type ManagedAgentRequestedAuthority,
   type ManagedAgentWorkingDirectory,
 } from "@kilnai/core";
-import type {
-  ManagedInvocationRouteProfile,
-  ManagedInvocationToolOptions,
-  ManagedInvocationToolRoute,
+import {
+  collectManagedEconomicCandidates,
+  type ManagedEconomicCandidateSet,
+  type ManagedInvocationRouteProfile,
+  type ManagedInvocationToolOptions,
+  type ManagedInvocationToolRoute,
 } from "./runtime-tool.js";
 import {
   RuntimeBudgetAdmissionService,
@@ -75,6 +77,15 @@ export interface ManagedAgentOrchestrationLifecycleResult {
   readonly childRecords: readonly ManagedAgentOrchestrationLifecycleChildRecord[];
 }
 
+export class ManagedEconomicCommitmentUnavailableError extends Error {
+  readonly code = "economic_commitment_unavailable";
+
+  constructor(readonly candidateSet: ManagedEconomicCandidateSet) {
+    super("Managed orchestration requires a durable economic commitment before execution");
+    this.name = "ManagedEconomicCommitmentUnavailableError";
+  }
+}
+
 interface PreparedOrchestrationChild {
   readonly child: ManagedAgentOrchestrationRequest["childRequests"][number];
   readonly agentProfile?: string;
@@ -101,6 +112,30 @@ export async function runManagedAgentOrchestrationLifecycle(
     }
     if (agent?.authorityProfile && agent.authorityProfile !== input.profile) {
       throw new Error(`Managed orchestration agent profile '${agent.name}' requires '${agent.authorityProfile}', not '${input.profile}'`);
+    }
+    if (agent?.economicPolicyId && agent.economicPolicyRevision) {
+      throw new ManagedEconomicCommitmentUnavailableError(
+        collectManagedEconomicCandidates({
+          economicPolicyId: agent.economicPolicyId,
+          economicPolicyRevision: agent.economicPolicyRevision,
+          configuredAgentProfileId: agent.name,
+          admissionProfileId: input.profile,
+          ...(child.routeId ?? input.routeSelector?.routeId
+            ? { routeId: child.routeId ?? input.routeSelector?.routeId }
+            : {}),
+          ...(input.routeSelector?.providerId
+            ? {
+                providerRoute: {
+                  providerId: input.routeSelector.providerId,
+                  surface: "configured",
+                  ...(input.routeSelector.model
+                    ? { model: input.routeSelector.model }
+                    : {}),
+                },
+              }
+            : {}),
+        }, input.managedInvocation.routes, input.managedInvocation.unavailableRoutes),
+      );
     }
     if (child.routeId && agent?.routeId && child.routeId !== agent.routeId) {
       throw new Error(`Managed orchestration child route '${child.routeId}' contradicts agent profile '${agent.name}' route '${agent.routeId}'`);
@@ -231,7 +266,11 @@ async function runOrchestrationBatch(input: {
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }): Promise<readonly ManagedAgentOrchestrationLifecycleChildRecord[]> {
   const startResults = await Promise.allSettled(input.entries.map(async ({ request, route }) => {
-    const startResult = await input.service.start(request, route.adapter, {
+    const adapter = route.adapter;
+    if (!adapter) {
+      throw new Error("economic_commitment_unavailable");
+    }
+    const startResult = await input.service.start(request, adapter, {
       routeId: route.routeId,
       routeSource: route.routeSource,
       // Roadmap 01 Slice 3.1 (F3) - managed_agent.orchestrate has no input
@@ -248,7 +287,7 @@ async function runOrchestrationBatch(input: {
       providerModelProof: {
         status: "live-proven",
         source: "managed-orchestration-lifecycle-route",
-        requiresToolCalls: route.adapter.descriptor.adapterKind === "direct",
+        requiresToolCalls: adapter.descriptor.adapterKind === "direct",
       },
       resourcePlane: {
         available: true,
@@ -452,6 +491,7 @@ function selectOrchestrationRoute(
     return profile !== undefined
       && profile.workingDirectory.mode === workingDirectoryMode
       && (workingDirectoryMode !== "isolated-worktree" || profile.workingDirectoryLease !== undefined)
+      && route.adapter !== undefined
       && route.adapter.descriptor.lifecycle.exposesStart
       && route.adapter.descriptor.lifecycle.exposesTerminal;
   });
@@ -505,6 +545,10 @@ function buildOrchestrationChildInvocationRequest(input: {
   readonly requestedAuthority: ManagedAgentRequestedAuthority;
   readonly admissionProfile: ManagedAgentAdmissionProfile;
 }): ManagedAgentInvocationRequest {
+  const adapter = input.route.adapter;
+  if (!adapter) {
+    throw new Error("economic_commitment_unavailable");
+  }
   const invocationId = sanitizeInvocationId(input.childId);
   const workingDirectory = resolveOrchestrationWorkingDirectory(input.profile, invocationId);
   const authority: ManagedAgentAuthorityProfile = {
@@ -555,11 +599,11 @@ function buildOrchestrationChildInvocationRequest(input: {
     requestedAuthority: input.requestedAuthority,
     providerRoute: {
       providerId: input.route.providerId,
-      surface: input.route.surface ?? input.route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+      surface: input.route.surface ?? adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
       ...(input.route.model ? { model: input.route.model } : {}),
     },
-    adapterKind: input.route.adapter.descriptor.adapterKind,
-    executionMode: input.route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+    adapterKind: adapter.descriptor.adapterKind,
+    executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
     authority,
     input: {
       summary: `${input.roleIntent} ${input.ordinal}: ${input.orchestrationRequest.task}`,

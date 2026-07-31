@@ -169,7 +169,7 @@ explicit retention decision.
 The project-local Codex App MCP adapter exposes exactly
 `kiln_managed_agent_invoke`, `kiln_managed_agent_status`,
 `kiln_managed_agent_result`, `kiln_managed_agent_cancel`, and
-`kiln_managed_agent_replay`, alongside its three inspection tools. Invoke
+`kiln_managed_agent_replay`, alongside its four inspection tools. Invoke
 accepts only `objective`,
 `configuredAgentProfileId`, and
 `idempotencyKey`; status, result, cancel, and replay each accept only `jobId`.
@@ -180,13 +180,13 @@ configuration, environment, credentials, or timeout inputs.
 
 Production composition creates the Runtime `ManagedJobApplicationService`,
 uses the persistent `.kiln/managed-jobs` owner, canonical governance status,
-configured-agent catalog and route resolution, Runtime invocation service, and
-existing direct-provider adapter. The application boundary refreshes canonical
-eligibility for every submission, uses the selected configured agent's exact
-route hint, then validates the route-owned admission profile and scope before
-persisting the job. Slice 3's explicit application admission requirement is
-`foundation-readonly-plan`; a route must supply that profile. The MCP adapter
-never makes either decision. Capability inspection
+and a candidate-admission-only configured-agent catalog. It does not construct
+the Runtime invocation service, account lease authority, or direct-provider
+adapter. The application boundary refreshes canonical eligibility for every
+submission, resolves the configured policy and narrow-only route constraints,
+then persists the V5 precommit record. Slice 3's explicit application admission
+requirement is `foundation-readonly-plan`; a candidate route must supply that
+profile. The MCP adapter never selects a route. Capability inspection
 projects safe configured-agent identity, optional role/display name, availability,
 provider family, admission profile, and stable action; it does not expose route
 configuration. Status, result, cancellation, and replay operations are
@@ -194,7 +194,7 @@ authorized by the application owner
 against the trusted project, trusted Codex App caller/harness identity, and
 canonical job ownership; knowing a job identifier is insufficient. Responses
 project only opaque job/lifecycle, configured-agent, admission-profile and
-route/provider evidence, completion timestamp, untrusted-result provenance,
+policy evidence or historical route/provider evidence, completion timestamp, untrusted-result provenance,
 bounded normalized handoff or admitted safe resource references,
 caller/request evidence, and stable diagnostics. They never return objectives,
 prompts, transcripts, hidden reasoning, raw provider data, storage paths,
@@ -739,10 +739,36 @@ children as missing evidence during comparisons. Surfaces must not add
 surface-local managed-agent prompt rules that diverge from this generated tool
 contract.
 
-The model supplies a bounded task, a configured provider route, a requested
-managed invocation profile, and optionally a child agent profile, child skills,
-resource URIs, and context mode. The runtime maps that input to a
-`ManagedAgentInvocationRequest` using configured route defaults for adapter,
+The model supplies a bounded task, a requested managed invocation profile, and
+optionally narrowing route/provider/model constraints, a child agent profile,
+child skills, resource URIs, and context mode. For a policy-bearing agent,
+`providerRoute` is optional and can only remove candidates already admitted by
+the configured policy.
+
+Policy execution has three distinct contracts:
+
+1. `ManagedEconomicInvocationCommand` carries policy identity and optional
+   narrowing constraints, but no execution identity.
+2. `ManagedEconomicCandidateSet` carries non-economically admitted route
+   descriptors and Runtime-owned rejection evidence. Its only rejection stage
+   is `managed-candidate-admission`, with reasons `not-in-policy`,
+   `caller-constraint-excluded`, `non-economic-admission-failed`, and
+   `economic-capability-unverified`.
+3. `ManagedCommittedInvocationRequest` is the only contract accepted by the
+   deferred adapter boundary. It requires the durable commitment and dispatch
+   fence, exact route/provider/model and capability revision, account or
+   accountless identity, tariff, envelope, and reservation evidence.
+
+Candidate collection cannot construct an adapter, resolve a credential, launch
+a process, acquire a lease, reserve capacity, or call a provider. A new managed
+job is persisted as V5 with policy/revision and constraints but without
+`routeId` or `providerId`. V3/V4 remain historical reader/recovery formats and
+are never used for a new submission. Until the atomic commitment owner is
+available, V5 terminates deterministically as
+`economic_commitment_unavailable`; no candidate is treated as a default.
+
+For a retained non-policy invocation, the runtime maps the configured input to
+a `ManagedAgentInvocationRequest` using configured route defaults for adapter,
 execution mode, credential route, memory scope, timeout, working directory, and
 authority. Requested agent profiles and skills are resolved by the host context
 resolver and recorded as admitted context before execution. The model does not
@@ -787,7 +813,7 @@ The runtime may attach an agent profile only when exactly one configured
 profile has an explicit route hint matching the request route. This preserves
 fail-closed profile admission while removing model-side sequencing from the
 managed child lifecycle.
-When a request has no exact route, runtime route selection first filters by the
+For a retained non-policy invocation with no exact route, runtime route selection first filters by the
 requested authority profile and `requiredToolNames`. A single compatible route
 is admissible. When several routes remain, the runtime may select only a unique
 highest-scoring route from the phase `taskAffinity` and configured

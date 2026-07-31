@@ -43,6 +43,7 @@ import {
   type ManagedAgentRuntimeAdapter,
   type ManagedAgentRuntimeAuthorityObserver,
   type ManagedInvocationAgentCatalogEntry,
+  type ManagedCommittedInvocationRequest,
   type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
@@ -119,6 +120,8 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly maxParallelChildren?: number;
   readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly managedAccountComposition?: ManagedAccountRuntimeComposition;
+  /** Candidate admission projects static route evidence without constructing execution owners. */
+  readonly compositionMode?: "execution" | "candidate-admission";
 }
 
 type BuiltinToolOptionsSource = DefaultBuiltinToolRegistryOptions | (() => DefaultBuiltinToolRegistryOptions | undefined);
@@ -151,6 +154,7 @@ export interface ManagedAccountRuntimeComposition {
   readonly routing: ConfiguredManagedAccountRuntime;
   readonly authority: ManagedAccountLeaseAuthority;
   updateConfig(config: ModelGatewayConfig): void;
+  close(): void;
 }
 
 const SUPPORTED_HARNESS_PROVIDERS = new Set<string>(["claude", "codex", "opencode"]);
@@ -225,45 +229,82 @@ export async function resolveManagedInvocationToolOptions(
   mark("managed-route-skills-loaded", { count: skillCatalog.length });
 
   let routeIndex = 0;
+  const economicPolicyIdsByRoute = managedEconomicPolicyIdsByRoute(config.managedAgents);
+  const economicCapabilityByRoute = managedEconomicCapabilitiesByRoute(
+    config,
+    routeConfigs.map((projection) => projection.routeConfig),
+    economicPolicyIdsByRoute,
+  );
   for (const routeConfig of routeConfigs) {
     routeIndex += 1;
     mark("managed-route-resolve-started", { routeIndex, routeId: routeConfig.routeConfig.id });
-    const resolved = await resolveRouteConfig(routeConfig, context, config);
+    const policyIds = economicPolicyIdsByRoute.get(routeConfig.routeConfig.id) ?? [];
+    const resolved = await resolveRouteConfig(
+      routeConfig,
+      context,
+      config,
+      policyIds.length > 0 || context.compositionMode === "candidate-admission",
+    );
     mark("managed-route-resolve-finished", { routeIndex, routeId: routeConfig.routeConfig.id });
     routeHealth.push(resolved.health);
     if (resolved.route) {
-      routes.push(resolved.route);
+      const economics = economicCapabilityByRoute.get(routeConfig.routeConfig.id);
+      routes.push({
+        ...resolved.route,
+        ...(policyIds.length > 0 ? { economicPolicyIds: policyIds } : {}),
+        ...(economics ? { economicCapability: economics } : {}),
+      });
     }
   }
-  const agentProjections = configuredAgentDefinitions.map((agent) => projectManagedAgentCatalogEntry(agent, routes));
+  const agentProjections = configuredAgentDefinitions.map((agent) =>
+    projectManagedAgentCatalogEntry(agent, routes, config.managedAgents)
+  );
   const agentCatalog = agentProjections.flatMap((projection) => projection.entry ? [projection.entry] : []);
   const agentHealth = agentProjections.flatMap((projection) => projection.health ? [projection.health] : []);
 
   const unavailableRoutes = routeHealth
     .filter((route) => !route.available)
-    .map((route) => ({
-      routeId: route.routeId,
-      routeSource: route.routeSource,
-      providerId: route.provider,
-      ...(route.model ? { model: route.model } : {}),
-      profiles: route.profiles,
-      reason: route.reason ?? "Route is unavailable.",
-    }));
+    .map((route) => {
+      const routeConfig = routeConfigs.find(
+        (candidate) => candidate.routeConfig.id === route.routeId,
+      )?.routeConfig;
+      const policyIds = economicPolicyIdsByRoute.get(route.routeId) ?? [];
+      const economics = economicCapabilityByRoute.get(route.routeId);
+      return {
+        routeId: route.routeId,
+        ...(policyIds.length > 0 ? { economicPolicyIds: policyIds } : {}),
+        ...(routeConfig?.credentials?.mode === "runtime-selected"
+          ? { accountPolicyId: routeConfig.credentials.accountPolicyId }
+          : {}),
+        ...(economics ? { economicCapability: economics } : {}),
+        routeSource: route.routeSource,
+        providerId: route.provider,
+        ...(route.model ? { model: route.model } : {}),
+        profiles: route.profiles,
+        reason: route.reason ?? "Route is unavailable.",
+      };
+    });
   const shouldExposeManagedInvocation = routes.length > 0
     || (context.includeUnavailableRoutes === true && unavailableRoutes.length > 0);
-  const managedAccountComposition = context.managedAccountComposition
-    ?? createManagedAccountRuntimeComposition(config, context.cwd);
+  const executionComposition = context.compositionMode !== "candidate-admission";
+  const managedAccountComposition = executionComposition
+    ? context.managedAccountComposition ?? createManagedAccountRuntimeComposition(config, context.cwd)
+    : undefined;
   if (managedAccountComposition && config.modelGateway) {
     managedAccountComposition.updateConfig(config.modelGateway);
   }
-  const invocationService = createManagedInvocationService(
-    config,
-    context.cwd,
-    context.invocationService,
-    context.invocationServiceKey,
-    managedAccountComposition,
-  );
-  const invocationServiceKey = managedInvocationServiceKey(config, context.cwd);
+  const invocationService = executionComposition
+    ? createManagedInvocationService(
+        config,
+        context.cwd,
+        context.invocationService,
+        context.invocationServiceKey,
+        managedAccountComposition,
+      )
+    : undefined;
+  const invocationServiceKey = executionComposition
+    ? managedInvocationServiceKey(config, context.cwd)
+    : undefined;
 
   return {
     routeHealth,
@@ -350,6 +391,58 @@ function validateManagedAgentEconomicPolicyBindings(
   return failures;
 }
 
+function managedEconomicPolicyIdsByRoute(
+  managedAgents: KilnManagedAgentsConfig | undefined,
+): ReadonlyMap<string, readonly string[]> {
+  const idsByRoute = new Map<string, string[]>();
+  for (const policy of managedAgents?.economicPolicies ?? []) {
+    for (const candidate of policy.candidates) {
+      const ids = idsByRoute.get(candidate.routeId) ?? [];
+      ids.push(policy.id);
+      idsByRoute.set(candidate.routeId, ids);
+    }
+  }
+  return idsByRoute;
+}
+
+function managedEconomicCapabilitiesByRoute(
+  config: ManagedAgentRouteConfigSource,
+  routes: readonly KilnManagedAgentRouteConfig[],
+  policyIdsByRoute: ReadonlyMap<string, readonly string[]>,
+): ReadonlyMap<string, NonNullable<ManagedInvocationToolRoute["economicCapability"]>> {
+  const capabilities = new Map<string, NonNullable<ManagedInvocationToolRoute["economicCapability"]>>();
+  for (const route of routes) {
+    if (!policyIdsByRoute.has(route.id)) continue;
+    if (
+      route.kind !== "direct"
+      || !["codex-oauth", "opencode-go", "opencode-zen"].includes(route.provider)
+      || route.credentials?.mode !== "runtime-selected"
+    ) {
+      capabilities.set(route.id, { status: "unverified" });
+      continue;
+    }
+    // Slice 2 makes this an exact, validated route reference: the managed
+    // route's accountPolicyId names the canonical virtual route whose provider,
+    // model, and economics are validated together at the config boundary.
+    const accountPolicyId = route.credentials.accountPolicyId;
+    const canonicalRoute = config.modelGateway?.virtualModels.find(
+      (candidate) =>
+        candidate.id === accountPolicyId
+        && candidate.providerId === route.provider
+        && candidate.providerModelId === route.model,
+    );
+    const economics = canonicalRoute?.economics;
+    capabilities.set(route.id, economics
+      ? {
+          status: "verified",
+          adapterCapabilityId: economics.adapterCapabilityId,
+          adapterCapabilityVersion: economics.adapterCapabilityVersion,
+        }
+      : { status: "unverified" });
+  }
+  return capabilities;
+}
+
 function createManagedRouteResolutionStartupMarker(): (phase: string, detail?: Record<string, unknown>) => void {
   const startedAt = performance.now();
   return (phase, detail) => {
@@ -369,6 +462,7 @@ function createManagedRouteResolutionStartupMarker(): (phase: string, detail?: R
 function projectManagedAgentCatalogEntry(
   agent: KilnAgentDefinition,
   routes: readonly ManagedInvocationToolRoute[],
+  managedAgents: KilnManagedAgentsConfig | undefined,
 ): { readonly entry?: ManagedInvocationAgentCatalogEntry; readonly health?: ManagedAgentProfileHealth } {
   const explicitRouteHealth = validateExplicitAgentRoute(agent, routes);
   if (explicitRouteHealth) {
@@ -386,6 +480,17 @@ function projectManagedAgentCatalogEntry(
       ...(agent.authorityProfile ? { authorityProfile: agent.authorityProfile } : {}),
       ...(agent.skills ? { skills: agent.skills } : {}),
       ...(agent.taskAffinity ? { taskAffinity: agent.taskAffinity } : {}),
+      ...(agent.economicPolicyId
+        ? {
+            economicPolicyId: agent.economicPolicyId,
+            economicPolicyRevision: managedAgents?.economicPolicies?.find(
+              (policy) => policy.id === agent.economicPolicyId,
+            )?.revision,
+            economicPolicyCandidateRouteIds: managedAgents?.economicPolicies?.find(
+              (policy) => policy.id === agent.economicPolicyId,
+            )?.candidates.map((candidate) => candidate.routeId),
+          }
+        : {}),
       ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
       ...(routeHint?.providerRoute ? { providerRoute: routeHint.providerRoute } : {}),
       ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
@@ -633,6 +738,7 @@ async function resolveRouteConfig(
   projection: ManagedAgentRouteConfigProjection,
   context: ResolveManagedInvocationToolOptionsContext,
   config: ManagedAgentRouteConfigSource,
+  deferAdapterConstruction: boolean,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
@@ -662,11 +768,25 @@ async function resolveRouteConfig(
   }
 
   if (routeConfig.kind === "direct") {
-    return resolveDirectRouteConfig(routeConfig, context, config, baseHealth, writeRequired);
+    return resolveDirectRouteConfig(
+      routeConfig,
+      context,
+      config,
+      baseHealth,
+      writeRequired,
+      deferAdapterConstruction,
+    );
   }
 
   if (routeConfig.remoteHarness !== undefined) {
-    return resolveRemoteHarnessRouteConfig(routeConfig, context, config, baseHealth, writeRequired);
+    return resolveRemoteHarnessRouteConfig(
+      routeConfig,
+      context,
+      config,
+      baseHealth,
+      writeRequired,
+      deferAdapterConstruction,
+    );
   }
 
   if (routeConfig.workingDirectory === "sandbox") {
@@ -712,14 +832,18 @@ async function resolveRouteConfig(
   if (!profileResolution.ok) {
     return unhealthy(baseHealth, profileResolution.reason);
   }
-  const builtinToolsProvider = createManagedRouteBuiltinToolsProvider(context);
-  const adapter = new ManagedCliHarnessAdapter({
-    providerId: routeConfig.provider,
-    model,
-    factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context),
-    ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
-    ...(builtinToolsProvider ? { builtinToolsProvider } : {}),
-  });
+  const builtinToolsProvider = deferAdapterConstruction
+    ? undefined
+    : createManagedRouteBuiltinToolsProvider(context);
+  const adapter = deferAdapterConstruction
+    ? undefined
+    : new ManagedCliHarnessAdapter({
+        providerId: routeConfig.provider,
+        model,
+        factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context),
+        ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
+        ...(builtinToolsProvider ? { builtinToolsProvider } : {}),
+      });
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
@@ -731,7 +855,7 @@ async function resolveRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    adapter,
+    ...(adapter ? { adapter } : {}),
     surface: "cli-harness",
     ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     taskSuitability: resolveTaskSuitability(
@@ -759,6 +883,7 @@ async function resolveRemoteHarnessRouteConfig(
   config: ManagedAgentRouteConfigSource,
   baseHealth: Omit<ManagedAgentRouteHealth, "available" | "reason">,
   writeRequired: boolean,
+  deferAdapterConstruction: boolean,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
@@ -778,14 +903,16 @@ async function resolveRemoteHarnessRouteConfig(
   if (!profileResolution.ok) {
     return unhealthy(baseHealth, profileResolution.reason);
   }
-  const adapter = new ManagedRemoteHarnessAdapter({
-    providerId: routeConfig.provider,
-    model,
-    invokeUrl: remoteHarness.invokeUrl,
-    cancelUrl: remoteHarness.cancelUrl,
-    ...(remoteHarness.authTokenEnv ? { authTokenEnv: remoteHarness.authTokenEnv } : {}),
-    ...(remoteHarness.limitations ? { limitations: remoteHarness.limitations } : {}),
-  });
+  const adapter = deferAdapterConstruction
+    ? undefined
+    : new ManagedRemoteHarnessAdapter({
+        providerId: routeConfig.provider,
+        model,
+        invokeUrl: remoteHarness.invokeUrl,
+        cancelUrl: remoteHarness.cancelUrl,
+        ...(remoteHarness.authTokenEnv ? { authTokenEnv: remoteHarness.authTokenEnv } : {}),
+        ...(remoteHarness.limitations ? { limitations: remoteHarness.limitations } : {}),
+      });
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
@@ -797,7 +924,7 @@ async function resolveRemoteHarnessRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    adapter,
+    ...(adapter ? { adapter } : {}),
     surface: "remote-harness",
     ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     providerModelProof: {
@@ -1113,6 +1240,7 @@ async function resolveDirectRouteConfig(
   config: ManagedAgentRouteConfigSource,
   baseHealth: Omit<ManagedAgentRouteHealth, "available" | "reason">,
   writeRequired: boolean,
+  deferAdapterConstruction: boolean,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
@@ -1132,15 +1260,17 @@ async function resolveDirectRouteConfig(
     return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, undefined));
   }
   let adapter: ManagedAgentRuntimeAdapter | undefined;
-  try {
-    adapter = await context.directAdapterFactory?.(routeConfig);
-  } catch (err) {
-    return unhealthy(baseHealth, err instanceof Error ? err.message : String(err));
+  if (!deferAdapterConstruction) {
+    try {
+      adapter = await context.directAdapterFactory?.(routeConfig);
+    } catch (err) {
+      return unhealthy(baseHealth, err instanceof Error ? err.message : String(err));
+    }
+    if (!adapter) {
+      return unhealthy(baseHealth, "Direct managed invocation routes require the direct provider managed runtime adapter.");
+    }
   }
-  if (!adapter) {
-    return unhealthy(baseHealth, "Direct managed invocation routes require the direct provider managed runtime adapter.");
-  }
-  if (writeRequired) {
+  if (writeRequired && adapter) {
     const writeSupport = validateDirectAdapterWriteSupport(adapter, normalizeProfiles(routeConfig.profiles));
     if (!writeSupport.ok) {
       return unhealthy(baseHealth, writeSupport.reason);
@@ -1165,7 +1295,22 @@ async function resolveDirectRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    adapter,
+    ...(adapter ? { adapter } : {}),
+    ...(deferAdapterConstruction
+      ? {
+          createCommittedAdapter: async (request: ManagedCommittedInvocationRequest) => {
+            const committedRoute = request.commitment.reservation.selectedIdentity.route;
+            if (
+              committedRoute.routeId !== routeConfig.id
+              || committedRoute.providerId !== routeConfig.provider
+              || committedRoute.modelId !== model
+            ) {
+              return undefined;
+            }
+            return await context.directAdapterFactory?.(routeConfig);
+          },
+        }
+      : {}),
     surface: "direct-provider",
     ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     taskSuitability: resolveTaskSuitability(
@@ -1523,9 +1668,21 @@ export function createManagedAccountRuntimeComposition(
     updateConfig(next) {
       routing.updateConfig(next);
     },
+    close() {
+      authority.close();
+    },
   };
   MANAGED_ACCOUNT_COMPOSITIONS.set(compositionKey, composition);
   return composition;
+}
+
+/** Releases the process-scoped authority when its owning application lifecycle ends. */
+export function closeManagedAccountRuntimeComposition(cwd: string): void {
+  const compositionKey = resolve(cwd);
+  const composition = MANAGED_ACCOUNT_COMPOSITIONS.get(compositionKey);
+  if (!composition) return;
+  MANAGED_ACCOUNT_COMPOSITIONS.delete(compositionKey);
+  composition.close();
 }
 
 function createCliManagedRuntimeAuthorityObserver(): ManagedAgentRuntimeAuthorityObserver {

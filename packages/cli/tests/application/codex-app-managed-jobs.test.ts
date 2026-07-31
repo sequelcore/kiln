@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createHash } from "node:crypto";
-import { basename, dirname, resolve } from "node:path";
-import { defineManagedAccountLeaseEvidence } from "@kilnai/core";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import {
   FilesystemManagedJobStore,
   ManagedJobApplicationService,
@@ -117,111 +117,96 @@ describe("Codex App managed-job production composition", () => {
     vi.restoreAllMocks();
   });
 
-  it("recovers persisted nonterminal jobs before exposing the application owner", async () => {
-    const accountLease = defineManagedAccountLeaseEvidence({
-      leaseId: "lease-job-recovered",
-      accountPolicyId: "managed-codex",
-      accountRef: "configured:test-account",
-      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", scope: "virtual:managed-codex" },
-      jobId: "job-recovered",
-      runtimeInvocationId: "job-recovered",
-      credentialRevisionId: "a".repeat(64),
-      selectionReason: "least-pressure",
-      acquiredAt: "2026-07-28T20:00:00.000Z",
-      lifecycleState: "leaked",
-      resourceUris: ["kiln://managed-accounts/leases/lease-job-recovered"],
-      diagnosticUris: ["kiln://managed-accounts/leases/lease-job-recovered/recovery-unmatchable"],
-    });
-    const foreignAccountLease = defineManagedAccountLeaseEvidence({
-      ...accountLease,
-      leaseId: "lease-foreign-job",
-      jobId: "foreign-job",
-      runtimeInvocationId: "foreign-job",
-      resourceUris: ["kiln://managed-accounts/leases/lease-foreign-job"],
-      diagnosticUris: ["kiln://managed-accounts/leases/lease-foreign-job/recovery-unmatchable"],
-    });
-    const cwd = process.cwd();
-    const projectRoot = basename(cwd) === "cli" && basename(dirname(cwd)) === "packages"
-      ? resolve(cwd, "../..")
-      : cwd;
-    const projectId = `project-${createHash("sha256").update(projectRoot).digest("hex").slice(0, 32)}`;
+  it("recovers persisted jobs without constructing an execution owner", async () => {
+    const projectRoot = mkdtempSync(resolve(tmpdir(), "kiln-managed-job-recovery-"));
+    mkdirSync(resolve(projectRoot, ".kiln"), { recursive: true });
+    writeFileSync(resolve(projectRoot, ".kiln", "kiln.yaml"), "version: '1'\n", "utf8");
     const recoverInvocations = vi
       .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
-      .mockResolvedValue({
-        recovered: [],
-        accountLeases: [accountLease, foreignAccountLease],
-      });
-    const get = vi.spyOn(FilesystemManagedJobStore.prototype, "get")
-      .mockImplementation(async (id) => ({
-        version: 4,
-        projectId: id === "job-recovered" ? projectId : "foreign-project",
-      } as never));
+      .mockResolvedValue({ recovered: [], accountLeases: [] });
     const recordAccountLease = vi.spyOn(FilesystemManagedJobStore.prototype, "recordAccountLease")
       .mockResolvedValue({ version: 4 } as never);
     const recoverInterrupted = vi
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
       .mockResolvedValue([]);
 
-    await createNativeHarnessManagedJobApplicationComposition({ harness: "codex", discoverProviderModels: async () => ({}) });
+    try {
+      await createNativeHarnessManagedJobApplicationComposition({
+        harness: "codex",
+        discoverProviderModels: async () => ({}),
+        projectPath: projectRoot,
+      });
 
-    expect(recoverInvocations).toHaveBeenCalledOnce();
-    expect(get).toHaveBeenCalledWith("job-recovered");
-    expect(get).toHaveBeenCalledWith("foreign-job");
-    expect(recordAccountLease).toHaveBeenCalledWith("job-recovered", accountLease);
-    expect(recordAccountLease).not.toHaveBeenCalledWith("foreign-job", foreignAccountLease);
-    expect(recoverInterrupted).toHaveBeenCalledOnce();
-    expect(recoverInvocations.mock.invocationCallOrder[0]).toBeLessThan(recoverInterrupted.mock.invocationCallOrder[0]!);
-    recoverInvocations.mockRestore();
-    get.mockRestore();
-    recordAccountLease.mockRestore();
-    recoverInterrupted.mockRestore();
+      expect(recoverInvocations).not.toHaveBeenCalled();
+      expect(recordAccountLease).not.toHaveBeenCalled();
+      expect(recoverInterrupted).toHaveBeenCalledOnce();
+    } finally {
+      recoverInvocations.mockRestore();
+      recordAccountLease.mockRestore();
+      recoverInterrupted.mockRestore();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 
-  it("projects configured agents through their explicit route hints without exposing route internals", () => {
-    const route = (id: string) => ({
+  it("projects policy agents from candidate admission without selecting a route", () => {
+    const route = (id: string, providerId: string) => ({
       routeId: id,
-      providerId: "opencode-go",
+      providerId,
+      economicPolicyIds: ["bounded-policy"],
+      economicCapability: {
+        status: "verified",
+        adapterCapabilityId: `${providerId}-direct`,
+        adapterCapabilityVersion: "1",
+      },
       profiles: { "foundation-readonly-plan": {} },
     });
     const agents = [
-      { name: "scout", displayName: "Scout", role: "Read-only scout", routeId: "scout-route" },
-      { name: "researcher", role: "Researcher", routeId: "researcher-route" },
       { name: "economic-worker", role: "Policy-only worker", economicPolicyId: "bounded-policy" },
     ];
 
     expect(summarizeNativeHarnessManagedAgents(agents, undefined)).toMatchObject([{
-      configuredAgentProfileId: "scout",
+      configuredAgentProfileId: "economic-worker",
       availability: "unavailable",
       admissionProfileId: "foundation-readonly-plan",
       diagnostic: "route_unavailable",
-    }, {
-      configuredAgentProfileId: "researcher",
-      availability: "unavailable",
     }]);
-    expect(summarizeNativeHarnessManagedAgents(agents, { routes: [route("scout-route"), route("researcher-route")] } as never)).toMatchObject([{
-      configuredAgentProfileId: "scout",
+    expect(summarizeNativeHarnessManagedAgents(agents, {
+      routes: [
+        route("codex-route", "codex-oauth"),
+        route("opencode-route", "opencode-go"),
+      ],
+      agentCatalog: [{
+        name: "economic-worker",
+        economicPolicyId: "bounded-policy",
+        economicPolicyRevision: "revision-001",
+        economicPolicyCandidateRouteIds: ["codex-route", "opencode-route"],
+      }],
+    } as never)).toMatchObject([{
+      configuredAgentProfileId: "economic-worker",
       availability: "admitted",
-      providerFamily: "opencode-go",
       admissionProfileId: "foundation-readonly-plan",
-    }, {
-      configuredAgentProfileId: "researcher",
-      availability: "admitted",
     }]);
     expect(summarizeNativeHarnessManagedAgents(agents, {
       routes: [],
-      unavailableRoutes: [{ routeId: "scout-route", providerId: "opencode-go", profiles: ["foundation-readonly-plan"] }],
+      agentCatalog: [{
+        name: "economic-worker",
+        economicPolicyId: "bounded-policy",
+        economicPolicyRevision: "revision-001",
+        economicPolicyCandidateRouteIds: ["codex-route"],
+      }],
+      unavailableRoutes: [{ routeId: "codex-route", providerId: "codex-oauth", profiles: ["foundation-readonly-plan"] }],
     } as never)[0]).toMatchObject({
-      configuredAgentProfileId: "scout",
+      configuredAgentProfileId: "economic-worker",
       availability: "unresolved",
       admissionProfileId: "foundation-readonly-plan",
       diagnostic: "eligibility_unresolved",
     });
-    expect(summarizeNativeHarnessManagedAgents(agents, {
-      routes: [route("scout-route"), route("researcher-route")],
-    } as never).some((agent) => agent.configuredAgentProfileId === "economic-worker")).toBe(false);
   });
 
   it("uses the real application owner and fails a missing configured profile before provider execution", async () => {
+    const recoverInterrupted = vi
+      .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
+      .mockResolvedValue([]);
     const service = await createNativeHarnessManagedJobApplicationService({ harness: "codex", discoverProviderModels: async () => ({}) });
     await expect(service.submit({
       objective: "Bounded production composition proof.",
@@ -229,6 +214,6 @@ describe("Codex App managed-job production composition", () => {
       callerId: "codex-app",
       idempotencyKey: "production-composition-proof",
     })).rejects.toMatchObject({ code: "profile_unavailable" });
-    await expect(service.getStatus({ project: { id: "trusted-project" }, callerId: "codex-app" }, "unknown-managed-job-0001")).rejects.toMatchObject({ code: "unknown_job" });
+    recoverInterrupted.mockRestore();
   });
 });

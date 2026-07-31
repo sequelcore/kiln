@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -108,6 +108,49 @@ function managedJob(overrides: Partial<ManagedJobRecord> = {}): ManagedJobRecord
   };
 }
 
+function managedEconomicJob(): ManagedJobRecord {
+  return {
+    version: 5,
+    id: "managed-job-economic-0001",
+    state: "failed",
+    projectId: "trusted-project",
+    callerId: "trusted-codex-user",
+    configuredAgentProfileId: "scout",
+    admissionProfileId: "foundation-readonly-plan",
+    economicPolicyId: "economy-policy",
+    economicPolicyRevision: "revision-001",
+    constraints: {},
+    candidateSet: {
+      economicPolicyId: "economy-policy",
+      economicPolicyRevision: "revision-001",
+      admissionProfileId: "foundation-readonly-plan",
+      constraints: {},
+      candidates: [{
+        routeId: "codex-primary",
+        routeSource: "explicit-managed-route",
+        providerId: "codex-oauth",
+        surface: "direct-provider",
+        adapterCapabilityId: "codex-oauth-direct",
+        adapterCapabilityVersion: "1",
+      }],
+      rejections: [],
+    },
+    governanceSource: "kiln-governance",
+    admissionId: "admission-001",
+    requestFingerprint: "a".repeat(64),
+    idempotencyKeyHash: "b".repeat(64),
+    createdAt: OBSERVED_AT,
+    updatedAt: OBSERVED_AT,
+    diagnostic: "economic_commitment_unavailable",
+    lifecycle: [{
+      sequence: 1,
+      state: "failed",
+      observedAt: OBSERVED_AT,
+      diagnostic: "economic_commitment_unavailable",
+    }],
+  };
+}
+
 describe("CodexAppMcpServer", () => {
   it.each(["codex", "claude", "opencode"] as const)("uses trusted %s identity in managed-job evidence", async (harness) => {
     const server = new NativeHarnessMcpServer({
@@ -199,6 +242,58 @@ describe("CodexAppMcpServer", () => {
     expect(submitted).toEqual([{ objective: "inspect bounded work", configuredAgentProfileId: "scout", idempotencyKey: "retry-1", callerId: "trusted-codex-user" }]);
     expect(result.structuredContent).toMatchObject({ job: { id: "managed-job-0001", routeId: "route-go" }, evidence: { callerId: "trusted-codex-user", requestId: "trusted-request" } });
     expect(JSON.stringify(result)).not.toContain("objective");
+  });
+
+  it("projects an uncommitted V5 job without fabricating route or provider identity", async () => {
+    const server = new CodexAppMcpServer({
+      managedJobs: {
+        submit: async () => managedEconomicJob(),
+        getStatus: async () => managedEconomicJob(),
+        getResult: async () => ({
+          jobId: "managed-job-economic-0001",
+          availability: "failed",
+          lifecycleState: "failed",
+          configuredAgentProfileId: "scout",
+          admissionProfileId: "foundation-readonly-plan",
+          diagnostic: "economic_commitment_unavailable",
+        }),
+        cancel: async () => managedEconomicJob(),
+        getReplay: async () => ({
+          jobId: "managed-job-economic-0001",
+          availability: "unavailable",
+          lifecycleState: "failed",
+          configuredAgentProfileId: "scout",
+          admissionProfileId: "foundation-readonly-plan",
+          lifecycle: [],
+          resultAvailability: "failed",
+          diagnostic: "replay_unavailable",
+          accountLeaseHistory: [],
+        }),
+      },
+      requestIdentity: () => ({
+        callerId: "trusted-codex-user",
+        requestId: "trusted-request",
+      }),
+    });
+
+    const result = await server.callTool("kiln_managed_agent_invoke", {
+      objective: "Inspect bounded work.",
+      configuredAgentProfileId: "scout",
+      idempotencyKey: "retry-economic",
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      job: {
+        economicPolicyId: "economy-policy",
+        economicPolicyRevision: "revision-001",
+        diagnostic: {
+          code: "economic_commitment_unavailable",
+          operatorAction: "Wait until the configured economic commitment authority is available.",
+        },
+      },
+    });
+    expect(JSON.stringify(result.structuredContent)).not.toContain("routeId");
+    expect(JSON.stringify(result.structuredContent)).not.toContain("providerId");
   });
 
   it("projects trusted cancellation and canonical lifecycle replay without accepting caller authority or prose", async () => {

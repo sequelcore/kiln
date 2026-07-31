@@ -907,6 +907,79 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation?.invocationServiceKey).toContain("sandboxPolicy");
   });
 
+  it("keeps policy-owned harness routes adapter-free during candidate admission", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      schemaVersion: 2,
+      economicPolicies: [{
+        id: "bounded-policy",
+        revision: "rev-1",
+        evidenceRequirements: { quota: "optional", price: "optional" },
+        noRouteAction: "deny",
+        comparisonDomains: [{
+          id: "priority-only",
+          rank: 0,
+          unit: "request",
+          scheme: { kind: "unit" },
+          rateCardBasis: "configured",
+          envelopeSemantics: "bounded",
+        }],
+        candidates: ["local-harness", "remote-harness"].map((routeId, priorityRank) => ({
+          routeId,
+          comparisonDomainId: "priority-only",
+          priorityRank,
+          ceiling: { kind: "none" as const },
+          worstCaseReservation: { kind: "not-comparable" as const, reason: "economic-basis-unavailable" as const },
+        })),
+      }],
+      routes: [{
+        id: "local-harness",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-readonly-plan"],
+      }, {
+        id: "remote-harness",
+        kind: "harness",
+        provider: "codex-cloud",
+        model: "gpt-5.5",
+        profiles: ["foundation-readonly-plan"],
+        workingDirectory: "sandbox",
+        remoteHarness: {
+          invokeUrl: "https://remote.example.test/managed-agent/invoke",
+          cancelUrl: "https://remote.example.test/managed-agent/cancel",
+        },
+      }],
+    }), {
+      cwd: "C:/repo",
+      userHome: "C:/repo",
+      registry: createRegistry("codex"),
+      surface: "gui",
+      compositionMode: "candidate-admission",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+    });
+
+    expect(result.managedInvocation?.routes).toHaveLength(2);
+    expect(result.managedInvocation?.routes.map((route) => ({
+      routeId: route.routeId,
+      adapter: route.adapter,
+      createCommittedAdapter: route.createCommittedAdapter,
+      economicCapability: route.economicCapability,
+    }))).toEqual([
+      {
+        routeId: "local-harness",
+        adapter: undefined,
+        createCommittedAdapter: undefined,
+        economicCapability: { status: "unverified" },
+      },
+      {
+        routeId: "remote-harness",
+        adapter: undefined,
+        createCommittedAdapter: undefined,
+        economicCapability: { status: "unverified" },
+      },
+    ]);
+  });
+
   it("exposes canonical agent profiles as managed invocation selection catalog", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-managed-agent-catalog-"));
     try {

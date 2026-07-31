@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildManagedAgentDecompositionOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
@@ -493,6 +493,53 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       },
       profile: "foundation-apply-approved-writes",
     })).rejects.toThrow("Managed orchestration requires an isolated-worktree");
+  });
+
+  it("candidate-admits a policy child without selecting or starting a route", async () => {
+    const managedInvocation = createManagedInvocation();
+    const primaryRoute = managedInvocation.routes[0]!;
+    const start = vi.spyOn(managedInvocation.invocationService!, "start");
+    const orchestrationRequest = request(2);
+
+    await expect(runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: {
+        ...orchestrationRequest,
+        childRequests: orchestrationRequest.childRequests.map((child) => ({
+          ...child,
+          agentProfile: "economic-worker",
+        })),
+      },
+      managedInvocation: {
+        ...managedInvocation,
+        routes: [{
+          ...primaryRoute,
+          adapter: undefined,
+          economicPolicyIds: ["economy-policy"],
+          economicCapability: {
+            status: "verified",
+            adapterCapabilityId: "codex-direct",
+            adapterCapabilityVersion: "1",
+          },
+        }],
+        agentCatalog: [{
+          name: "economic-worker",
+          role: "Economic worker",
+          goal: "Execute only after durable commitment.",
+          tier: "reasoning",
+          authorityProfile: "foundation-apply-approved-writes",
+          economicPolicyId: "economy-policy",
+          economicPolicyRevision: "revision-001",
+          economicPolicyCandidateRouteIds: [primaryRoute.routeId],
+        }],
+      },
+      profile: "foundation-apply-approved-writes",
+    })).rejects.toMatchObject({
+      code: "economic_commitment_unavailable",
+      candidateSet: {
+        candidates: [{ routeId: primaryRoute.routeId }],
+      },
+    });
+    expect(start).not.toHaveBeenCalled();
   });
 
   it("fails closed when lifecycle route selection is ambiguous", async () => {

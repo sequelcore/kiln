@@ -2022,6 +2022,7 @@ function resolveParallelWorkerAdmissionLimits(
     if (flags.model && route.model !== flags.model) return false;
     const profile = route.profiles["foundation-apply-approved-writes"];
     return profile !== undefined
+      && route.adapter !== undefined
       && profile.workingDirectory.mode === "isolated-worktree"
       && profile.workingDirectoryLease !== undefined
       && route.adapter.descriptor.lifecycle.exposesStart
