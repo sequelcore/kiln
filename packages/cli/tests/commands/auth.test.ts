@@ -259,9 +259,32 @@ describe("auth command", () => {
     expect(codexOauthFiles).toContain("work.json");
     expect(codexOauthFiles.length).toBe(2);
 
-    const nativeDirFiles = await readdir(join(homeDir, ".codex"));
-    expect(nativeDirFiles.some((name) => name.startsWith("auth.json.bak-"))).toBe(true);
+    // Backups belong in the canonical Kiln backup root, never littered beside the live native file.
+    const backups = await readdir(join(homeDir, ".kiln", "backups", "codex-native-auth"));
+    expect(backups).toHaveLength(1);
+    expect(backups[0]).toMatch(/-auth\.json\.bak$/);
+    expect(JSON.parse(await readFile(join(homeDir, ".kiln", "backups", "codex-native-auth", backups[0]!), "utf8")).tokens.account_id).toBe("account-b");
+    expect(await readdir(join(homeDir, ".codex"))).toEqual(["auth.json"]);
   }, 10_000);
+
+  it("bounds native auth backup history instead of accumulating token material forever", async () => {
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "a.json"), JSON.stringify(codexCredential("account-a")), "utf8");
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "b.json"), JSON.stringify(codexCredential("account-b")), "utf8");
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      plan_type: "plus",
+      rate_limit: { allowed: true, limit_reached: false, primary_window: { used_percent: 5, reset_at: 4_070_908_800 } },
+    }), { status: 200 })));
+
+    for (let index = 0; index < 8; index += 1) {
+      await runAuth(["codex", "activate", "--auto"]);
+    }
+
+    const backups = await readdir(join(homeDir, ".kiln", "backups", "codex-native-auth"));
+    expect(backups.length).toBeGreaterThan(0);
+    expect(backups.length).toBeLessThanOrEqual(5);
+  }, 20_000);
 
   it("activates the least-used available pooled account with --auto", async () => {
     await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
@@ -323,14 +346,64 @@ describe("auth command", () => {
 
     await runAuth(["codex", "activate", "work"]);
 
-    expect(logs.join("\n")).toContain("has no id_token even after a refresh attempt");
+    expect(logs.join("\n")).toContain("Native Codex CLI/App requires an id_token, and none could be recovered for: work");
     await expect(readFile(join(homeDir, ".codex", "auth.json"), "utf8")).rejects.toThrow();
   }, 10_000);
 
   it("reports an unknown Codex credential id without touching native auth", async () => {
     await runAuth(["codex", "activate", "does-not-exist"]);
 
-    expect(logs.join("\n")).toContain("Unknown or unusable Codex OAuth credential: does-not-exist");
+    expect(logs.join("\n")).toContain("Unknown Codex OAuth credential: does-not-exist");
+    await expect(readFile(join(homeDir, ".codex", "auth.json"), "utf8")).rejects.toThrow();
+  }, 10_000);
+
+  it.each([[[]], [["--auto", "extra"]], [["--bogus"]], [["work", "second"]]])(
+    "rejects malformed activate arguments %j without touching native auth",
+    async (args: string[]) => {
+      await runAuth(["codex", "activate", ...args]);
+
+      expect(logs.join("\n")).toContain("Usage: kiln auth codex activate <id> | --auto");
+      await expect(readFile(join(homeDir, ".codex", "auth.json"), "utf8")).rejects.toThrow();
+    },
+    10_000,
+  );
+
+  it("distinguishes exhausted quota from an unrecoverable id_token under --auto", async () => {
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"), JSON.stringify(codexCredential("account-a")), "utf8");
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      plan_type: "plus",
+      rate_limit: { allowed: false, limit_reached: true, primary_window: { used_percent: 100, reset_at: 4_070_908_800 } },
+    }), { status: 200 })));
+
+    await runAuth(["codex", "activate", "--auto"]);
+
+    expect(logs.join("\n")).toContain("No Codex OAuth credential currently has available quota");
+    await expect(readFile(join(homeDir, ".codex", "auth.json"), "utf8")).rejects.toThrow();
+  }, 10_000);
+
+  it("reports which accounts blocked activation when --auto finds quota but no usable id_token", async () => {
+    const { id_token: _unused, ...withoutIdToken } = codexCredential("account-a");
+    await mkdir(join(homeDir, ".kiln", "auth", "codex-oauth"), { recursive: true });
+    await writeFile(join(homeDir, ".kiln", "auth", "codex-oauth", "work.json"), JSON.stringify(withoutIdToken), "utf8");
+
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (
+      String(url).includes("/oauth/token")
+        ? new Response(JSON.stringify({
+            access_token: withoutIdToken.access_token,
+            refresh_token: "refreshed-refresh-token",
+            expires_in: 3600,
+          }), { status: 200 })
+        : new Response(JSON.stringify({
+            plan_type: "plus",
+            rate_limit: { allowed: true, limit_reached: false, primary_window: { used_percent: 5, reset_at: 4_070_908_800 } },
+          }), { status: 200 })
+    )));
+
+    await runAuth(["codex", "activate", "--auto"]);
+
+    expect(logs.join("\n")).toContain("Native Codex CLI/App requires an id_token, and none could be recovered for: work");
     await expect(readFile(join(homeDir, ".codex", "auth.json"), "utf8")).rejects.toThrow();
   }, 10_000);
 

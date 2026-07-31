@@ -51,6 +51,81 @@ describe("backupNativeProjectionFile", () => {
     }
   });
 
+  it("retains every backup by default so config projection history is never silently dropped", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-retain-default-"));
+    const kilnDir = join(root, "project", ".kiln");
+    const nativePath = join(root, "home", ".codex", "config.toml");
+
+    try {
+      writeFileSyncRecursive(nativePath, "model = 'a'\n", "utf-8");
+      for (let index = 0; index < 4; index += 1) {
+        backupNativeProjectionFile({
+          kilnDir,
+          targetId: "codex-config",
+          filePath: nativePath,
+          timestamp: `2026-05-0${index + 1}T12:00:00.000Z`,
+        });
+      }
+
+      expect(readdirSync(join(kilnDir, "backups", "codex-config"))).toHaveLength(4);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("prunes oldest backups beyond the retention limit, keeping the newest", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-retain-"));
+    const kilnDir = join(root, "project", ".kiln");
+    const nativePath = join(root, "home", ".codex", "auth.json");
+
+    try {
+      writeFileSyncRecursive(nativePath, "{}\n", "utf-8");
+      for (const day of ["01", "02", "03", "04", "05"]) {
+        backupNativeProjectionFile({
+          kilnDir,
+          targetId: "codex-native-auth",
+          filePath: nativePath,
+          timestamp: `2026-05-${day}T12:00:00.000Z`,
+          retain: 2,
+        });
+      }
+
+      expect(readdirSync(join(kilnDir, "backups", "codex-native-auth")).sort()).toEqual([
+        "2026-05-04T12-00-00-000Z-auth.json.bak",
+        "2026-05-05T12-00-00-000Z-auth.json.bak",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("scopes pruning per source file so unrelated backups in one target never prune each other", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-scope-"));
+    const kilnDir = join(root, "project", ".kiln");
+    const authPath = join(root, "home", ".codex", "auth.json");
+    const configPath = join(root, "home", ".codex", "config.toml");
+
+    try {
+      writeFileSyncRecursive(authPath, "{}\n", "utf-8");
+      writeFileSyncRecursive(configPath, "model = 'a'\n", "utf-8");
+      for (const day of ["01", "02", "03"]) {
+        backupNativeProjectionFile({
+          kilnDir, targetId: "shared", filePath: authPath, timestamp: `2026-05-${day}T12:00:00.000Z`, retain: 1,
+        });
+        backupNativeProjectionFile({
+          kilnDir, targetId: "shared", filePath: configPath, timestamp: `2026-05-${day}T12:00:00.000Z`, retain: 1,
+        });
+      }
+
+      expect(readdirSync(join(kilnDir, "backups", "shared")).sort()).toEqual([
+        "2026-05-03T12-00-00-000Z-auth.json.bak",
+        "2026-05-03T12-00-00-000Z-config.toml.bak",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("preserves binary projection content", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-projection-backup-binary-"));
     const kilnDir = join(root, "project", ".kiln");

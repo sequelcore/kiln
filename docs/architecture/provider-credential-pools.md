@@ -197,6 +197,37 @@ environment, such as `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or
 `OPENCODE_CONFIG_DIR`. Harness token refresh remains the harness adapter's
 responsibility.
 
+## Native Credential Projection
+
+Harness-home selection projects a whole directory for a child process. Native
+credential projection is the narrower inverse case: Kiln writes one pooled
+credential into a native harness's own credential store so the operator's
+existing native CLI or desktop app runs as that account. `codex-oauth` is the
+first provider with this capability, projecting into `~/.codex/auth.json`
+resolved through `CODEX_HOME`.
+
+The Kiln pool remains the source of truth. The native file is a projection, and
+projecting never removes the credential from the pool.
+
+Invariants:
+
+- Absorb before overwrite. Whatever account is already active in the native
+  store is admitted into the pool first, so switching away never destroys an
+  account Kiln does not already hold. Absorption reuses normal linking, so an
+  account already pooled is deduplicated rather than duplicated.
+- Back up before overwrite, through the canonical projection-backup path with
+  bounded retention and owner-only file mode.
+- Fail closed on shape. A native store may require fields Kiln does not need
+  for its own API calls. When a required field cannot be produced, the native
+  file is not written at all. A partially valid native credential file is worse
+  than an unchanged one, because it can break a working native login.
+- Write atomically, through a temporary file and rename, so an interrupted
+  projection cannot leave a truncated credential file.
+
+Native credential shape knowledge lives in `@kilnai/cli`, next to the other
+native projection writers. Runtime exposes the pooled credential and the
+recovery of provider fields; it does not encode native file layouts.
+
 ## Cross-Process Reload
 
 `CredentialWatcher` scans `~/.kiln/auth/**/*.json`, ignores `.health/`, and
@@ -259,6 +290,9 @@ separate observations. This preserves tiered or route-specific views such as
   payloads.
 - Provider credential pools are per Kiln instance. Cross-instance credential
   sharing requires explicit future policy and audit support.
+- Secret-bearing material leaves `~/.kiln/auth/` only through an explicit
+  operator action such as native credential projection. Copies written by that
+  action, including backups, use owner-only file mode and bounded retention.
 - Local endpoint providers do not imply cloud auth, and cloud credentials do
   not imply local daemon availability.
 
