@@ -173,6 +173,11 @@ export interface ProviderCreateConfig {
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   /** Provider-neutral managed child result contract. */
   readonly structuredOutputSchema?: Readonly<Record<string, unknown>>;
+  /**
+   * Operator-resolved harness executable.  When set the provider must execute
+   * it and must not fall back to an SDK-bundled build.
+   */
+  readonly harnessExecutable?: string;
 }
 
 export interface CreateDefaultRegistryOptions {
@@ -1125,6 +1130,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           sessionLedgerOwner: config.sessionLedgerOwner,
           model: config.model,
           structuredOutputSchema: config.structuredOutputSchema,
+          harnessExecutable: config.harnessExecutable,
         });
         return createPooledHarnessSession(
           "claude-code",

@@ -219,6 +219,36 @@ describe("ClaudeSession implements IKilnSession", () => {
     expect(events.filter((event) => event.type === "error")).toEqual([]);
   });
 
+  it("executes the operator-resolved Claude Code binary instead of the SDK bundled build", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
+    })());
+
+    const session = new ClaudeSession(baseConfig({ harnessExecutable: "C:/Users/operator/.local/bin/claude.exe" }));
+    await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const queryCall = queryCalls[queryCalls.length - 1]?.[0] as {
+      options?: { pathToClaudeCodeExecutable?: string };
+    } | undefined;
+    expect(queryCall?.options?.pathToClaudeCodeExecutable).toBe("C:/Users/operator/.local/bin/claude.exe");
+  });
+
+  it("leaves the executable unset when no operator binary was resolved", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
+    })());
+
+    const session = new ClaudeSession(baseConfig());
+    await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const queryCall = queryCalls[queryCalls.length - 1]?.[0] as {
+      options?: Record<string, unknown>;
+    } | undefined;
+    expect(queryCall?.options).not.toHaveProperty("pathToClaudeCodeExecutable");
+  });
+
   it("keeps a cancelled run cancelled instead of reclassifying it as a provider failure", async () => {
     (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
       yield { type: "result", subtype: "error_during_execution", total_cost_usd: 0, is_error: true };

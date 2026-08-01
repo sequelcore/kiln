@@ -1854,16 +1854,28 @@ export async function discoverOpencodeCliModelDiscovery(): Promise<GuiCliProvide
 }
 
 /**
+ * The operator's installed Claude Code, resolved identically for discovery and
+ * for managed execution.  The Agent SDK bundles its own Claude Code build and
+ * uses it whenever `pathToClaudeCodeExecutable` is absent, so a caller that
+ * skips this resolver silently executes a different binary than the one whose
+ * catalog was discovered.  Every Claude executable decision must come through
+ * here; a second resolver would reintroduce that divergence.
+ */
+export function resolveClaudeCodeExecutable(): string | undefined {
+  return findExecutable([
+    ...homeExecutableCandidates([".local\\bin\\claude.exe"]),
+    "claude",
+    "claude.exe",
+  ]);
+}
+
+/**
  * Claude Code does not expose a stable `models` command.  Its Agent SDK
  * control plane exposes the authenticated catalog without sending a model
  * turn, so managed-route admission can remain evidence based.
  */
 export async function discoverClaudeCliModelDiscovery(): Promise<GuiCliProviderModelDiscovery> {
-  const executable = findExecutable([
-    ...homeExecutableCandidates([".local\\bin\\claude.exe"]),
-    "claude",
-    "claude.exe",
-  ]);
+  const executable = resolveClaudeCodeExecutable();
   if (!executable) {
     return unavailableCliProviderDiscovery("cli_missing", "Claude Code executable was not found.", "not_required");
   }

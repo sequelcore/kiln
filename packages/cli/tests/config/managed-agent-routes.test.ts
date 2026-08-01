@@ -1690,6 +1690,59 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
+  it("keeps a managed Claude route closed when no operator Claude Code executable resolves", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "claude-readonly",
+        kind: "harness",
+        provider: "claude",
+        model: "default",
+        profiles: ["foundation-readonly-plan"],
+        tools: { allowed: ["read"], writes: false },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("claude"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      resolveClaudeExecutable: () => undefined,
+    });
+
+    expect(result.managedInvocation).toBeUndefined();
+    expect(result.routeHealth[0]).toMatchObject({
+      routeId: "claude-readonly",
+      available: false,
+      reason: "Claude Code executable was not found; a managed Claude child must not run the Agent SDK bundled build.",
+    });
+  });
+
+  it("advances past executable binding once the operator Claude Code executable resolves", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "claude-readonly",
+        kind: "harness",
+        provider: "claude",
+        model: "default",
+        profiles: ["foundation-readonly-plan"],
+        tools: { allowed: ["read"], writes: false },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("claude"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      resolveClaudeExecutable: () => "C:/Users/operator/.local/bin/claude.exe",
+    });
+
+    // The route still fails, but on the live-proof allowlist rather than on
+    // executable binding.  Claude stays fail-closed until its own live proof.
+    expect(result.routeHealth[0]).toMatchObject({
+      routeId: "claude-readonly",
+      available: false,
+      reason: "Provider 'claude' model 'default' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.",
+    });
+  });
+
   it("resolves explicit live-proven harness routes for approved workspace writes", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{

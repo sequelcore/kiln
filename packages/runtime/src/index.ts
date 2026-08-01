@@ -173,6 +173,7 @@ export type {
 export {
   buildGuiOperatorDiscoveryResults,
   discoverClaudeCliModelDiscovery,
+  resolveClaudeCodeExecutable,
   buildWelcomeProviderDescriptors,
   discoverCodexCliModelDiscovery,
   discoverGuiCliOperatorModels,

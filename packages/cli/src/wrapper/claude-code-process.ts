@@ -54,6 +54,12 @@ export interface ClaudeSessionConfig {
   readonly model?: string;
   /** Managed-child result schema, enforced by the Agent SDK when present. */
   readonly structuredOutputSchema?: Readonly<Record<string, unknown>>;
+  /**
+   * Operator-resolved Claude Code executable.  Absent, the Agent SDK runs its
+   * own bundled build, which can differ from the one whose catalog was
+   * discovered.  Managed routes resolve this and fail closed without it.
+   */
+  readonly harnessExecutable?: string;
 }
 
 function derivePermissionPolicy(
@@ -202,6 +208,7 @@ export class ClaudeSession implements IKilnSession {
           schema: this.config.structuredOutputSchema,
         },
       } : {}),
+      ...(this.config.harnessExecutable ? { pathToClaudeCodeExecutable: this.config.harnessExecutable } : {}),
       stderr: (data: string) => {
         process.stderr.write(data);
       },

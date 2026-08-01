@@ -37,6 +37,7 @@ import {
 import {
   createAttachedRuntimeBuiltinToolSurface,
   ConfiguredManagedAccountRuntime,
+  resolveClaudeCodeExecutable,
   ManagedCliHarnessAdapter,
   ManagedCommittedRouteMismatchError,
   ManagedJobApplicationError,
@@ -119,6 +120,12 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly registry: SessionRegistry;
   readonly surface: ManagedAgentOperatorSurface;
   readonly isProviderAvailable?: (provider: string) => boolean | undefined;
+  /**
+   * Operator Claude Code executable resolution.  Injectable so route admission
+   * stays deterministic and network-free in tests; production defaults to the
+   * one canonical resolver shared with model discovery.
+   */
+  readonly resolveClaudeExecutable?: () => string | undefined;
   readonly providerModelEligibility?: ManagedAgentProviderModelCatalogDiagnostics;
   readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
@@ -1048,6 +1055,19 @@ async function resolveRouteConfig(
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' is unavailable.`);
   }
 
+  // The Agent SDK executes its own bundled Claude Code whenever no executable is
+  // given, which is not the binary whose catalog admitted this route.  Bind the
+  // managed child to the operator's installed harness or keep the route closed.
+  const harnessExecutable = routeConfig.provider === "claude"
+    ? (context.resolveClaudeExecutable ?? resolveClaudeCodeExecutable)()
+    : undefined;
+  if (routeConfig.provider === "claude" && harnessExecutable === undefined) {
+    return unhealthy(
+      baseHealth,
+      "Claude Code executable was not found; a managed Claude child must not run the Agent SDK bundled build.",
+    );
+  }
+
   const model = routeConfig.provider === "claude"
     ? routeConfig.model
     : routeConfig.model ?? DEFAULT_MODELS[routeConfig.provider];
@@ -1084,7 +1104,7 @@ async function resolveRouteConfig(
     : new ManagedCliHarnessAdapter({
         providerId: routeConfig.provider,
         model,
-        factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context),
+        factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context, harnessExecutable),
         ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
         ...(builtinToolsProvider ? { builtinToolsProvider } : {}),
       });
@@ -1823,6 +1843,7 @@ function createHarnessSessionFactory(
   provider: ProviderId,
   model: string,
   context: ResolveManagedInvocationToolOptionsContext,
+  harnessExecutable: string | undefined,
 ): CliSessionFactory {
   return (systemPrompt, cwd, factoryContext) => {
     const config: ProviderCreateConfig = {
@@ -1835,6 +1856,7 @@ function createHarnessSessionFactory(
       },
       model,
       sessionLedgerOwner: "host",
+      ...(harnessExecutable ? { harnessExecutable } : {}),
       ...(factoryContext?.structuredOutput ? { structuredOutputSchema: factoryContext.structuredOutput.schema } : {}),
       ...(factoryContext?.operatorSurface ? { operatorSurface: factoryContext.operatorSurface } : {}),
     };
