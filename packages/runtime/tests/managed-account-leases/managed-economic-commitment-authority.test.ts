@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -509,7 +509,9 @@ describe("managed economic commitment authority", () => {
     roots.push(root);
     const path = join(root, "authority.sqlite");
     createAt(path, "owner-a", () => 1_000);
-    for (const artifact of [path, `${path}-wal`, `${path}-shm`]) {
+    const artifacts = [path, `${path}-wal`, `${path}-shm`].filter(existsSync);
+    expect(artifacts).toContain(path);
+    for (const artifact of artifacts) {
       expect(statSync(artifact).mode & 0o777).toBe(0o600);
     }
   });

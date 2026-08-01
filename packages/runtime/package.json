@@ -19,8 +19,9 @@
     "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
     "build:windows-uia": "native\\windows-uia\\build.cmd",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --maxWorkers=1 --exclude \"tests/managed-agent/*.live.test.ts\" --silent=passed-only && bun run test:model-gateway:sqlite:bun",
+    "test": "vitest run --maxWorkers=1 --exclude \"tests/managed-agent/*.live.test.ts\" --silent=passed-only && bun run test:model-gateway:sqlite:bun && bun run test:managed-economic-authority:sqlite:bun",
     "test:model-gateway:sqlite:bun": "bun tests/model-gateway/local-model-gateway-store.bun.ts",
+    "test:managed-economic-authority:sqlite:bun": "bun tests/managed-account-leases/managed-economic-commitment-authority.bun.ts",
     "test:profile": "vitest run --maxWorkers=1 --exclude \"tests/managed-agent/*.live.test.ts\" --reporter=json --outputFile=../../.kiln/runtime-vitest-profile.json",
     "test:live": "vitest run --dir tests/managed-agent .live.test --maxWorkers=1"
   },
