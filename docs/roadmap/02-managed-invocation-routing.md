@@ -4,6 +4,20 @@ Status: Active delivery track
 Execution: Slices 1, 2, 3, and 4 complete; Slice 5 queued.
 Created: 2026-07-23
 
+> **Managed-job execution is unavailable in shipped builds.** Every managed-job
+> submission currently terminates `failed` / `economic_commitment_unavailable`.
+> The economic commitment is acquired and then released pre-fence with reason
+> `slice-4-provider-dispatch-unavailable`, because provider dispatch is not yet
+> wired (`packages/runtime/src/managed-jobs/index.ts:496-577`).
+>
+> This is a deliberate ordered-delivery state, not a regression. Dispatch
+> returns with issue #34 internal Slice 5. "Slices 1-4 complete" above describes
+> the delivered authority contracts, not a working end-to-end managed route.
+>
+> Unaffected surfaces: `kiln run` sessions, the GUI, and the managed-invocation
+> runtime tool all execute normally. They do not traverse
+> `ManagedJobApplication`.
+
 ## Objective
 
 Own managed-job admission, route/account selection, execution lifecycle, result,

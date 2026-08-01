@@ -192,10 +192,15 @@ candidate admission or commitment. The application boundary refreshes
 canonical eligibility for every submission, resolves the configured policy and
 narrow-only route constraints, and persists the V6 precommit record with its
 `economicAttemptId` and pinned `adoptedDecisionAt` before snapshot adoption.
-Roadmap issue #34 internal Slice 4 stops before provider dispatch; this is not
-Roadmap 02 Slice 5 cross-path convergence. The MCP adapter never selects a
-route. Capability inspection
-projects safe configured-agent identity, optional role/display name, availability,
+Roadmap issue #34 internal Slice 4 stops before provider dispatch, so managed
+jobs cannot execute in shipped builds today: every submission acquires its
+commitment, releases it pre-fence with reason
+`slice-4-provider-dispatch-unavailable`, and terminates `failed` /
+`economic_commitment_unavailable`. This is a deliberate ordered-delivery state
+that ends with issue #34 internal Slice 5, and it is not Roadmap 02 Slice 5
+cross-path convergence. The MCP adapter never selects a route. Capability
+inspection projects safe configured-agent identity, optional role/display
+name, availability,
 provider family, admission profile, and stable action; it does not expose route
 configuration. Status, result, cancellation, and replay operations are
 authorized by the application owner
