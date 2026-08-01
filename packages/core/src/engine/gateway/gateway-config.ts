@@ -301,7 +301,22 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
       capacityIdentities.add(account.economics.capacityIdentity);
     }
   }
-  if (!Array.isArray(value.accounts) || value.accounts.length === 0) errors.push({ field: "modelGateway.accounts", message: "must be non-empty" });
+  const hasOnlyAccountlessEconomicModels = Array.isArray(value.virtualModels)
+    && value.virtualModels.length > 0
+    && value.virtualModels.every((model) =>
+      Array.isArray(model.accountIds)
+      && model.accountIds.length === 0
+      && model.economics !== undefined
+    );
+  if (
+    !Array.isArray(value.accounts)
+    || (value.accounts.length === 0 && !hasOnlyAccountlessEconomicModels)
+  ) {
+    errors.push({
+      field: "modelGateway.accounts",
+      message: "must be non-empty unless every virtual model is an explicit accountless economic route",
+    });
+  }
   const surfaces = value.surfaces;
   if (!surfaces || typeof surfaces !== "object") { errors.push({ field: "modelGateway.surfaces", message: "must be an object" }); return; }
   const responsesSurface = surfaces.openAIResponses;
@@ -358,7 +373,15 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
     if ((codexNativeModelIds.has(model.id) || model.baseInstructions !== undefined) && (typeof model.baseInstructions !== "string" || model.baseInstructions.trim().length === 0 || Buffer.byteLength(model.baseInstructions, "utf8") > 32_768)) errors.push({ field: `${path}.baseInstructions`, message: "must be non-empty and at most 32768 UTF-8 bytes when exposed to Codex" });
     if (!isDirectProviderId(model.providerId)) errors.push({ field: `${path}.providerId`, message: "must be a supported direct provider" });
     if (!ID.test(model.providerModelId ?? "")) errors.push({ field: `${path}.providerModelId`, message: "must be a canonical id" });
-    if (!Array.isArray(model.accountIds) || model.accountIds.length === 0 || new Set(model.accountIds).size !== model.accountIds.length || model.accountIds.some((id) => !ID.test(id))) errors.push({ field: `${path}.accountIds`, message: "must reference one or more unique canonical account ids" });
+    const accountlessEconomicRoute = Array.isArray(model.accountIds)
+      && model.accountIds.length === 0
+      && model.economics !== undefined;
+    if (
+      !Array.isArray(model.accountIds)
+      || (!accountlessEconomicRoute && model.accountIds.length === 0)
+      || new Set(model.accountIds).size !== model.accountIds.length
+      || model.accountIds.some((id) => !ID.test(id))
+    ) errors.push({ field: `${path}.accountIds`, message: "must reference unique canonical account ids or be empty for an explicit economic route" });
     else for (const id of model.accountIds) {
       if (!accountIds.has(id)) errors.push({ field: `${path}.accountIds`, message: `references unknown account '${id}'` });
       else if (accountProviders.get(id) !== model.providerId) errors.push({ field: `${path}.accountIds`, message: `account '${id}' belongs to provider '${accountProviders.get(id)}', not '${model.providerId}'` });

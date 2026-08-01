@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import {
+  closeManagedAccountRuntimeComposition,
+  createManagedAccountRuntimeComposition,
+  projectManagedEconomicJobAdoption,
+} from "../../src/config/managed-agent-routes.js";
 
 function economicConfig(): KilnGlobalConfig {
   return {
@@ -144,7 +152,215 @@ function economicConfig(): KilnGlobalConfig {
   };
 }
 
+function accountlessEconomicConfig(): KilnGlobalConfig {
+  const config = structuredClone(economicConfig()) as Record<string, any>;
+  config.managedAgents.routes[0].credentials = {
+    mode: "credentialless",
+    economicsRouteId: "codex-standard-policy",
+  };
+  config.modelGateway.accounts = [];
+  config.modelGateway.virtualModels[0].accountIds = [];
+  return config as KilnGlobalConfig;
+}
+
 describe("managed economic policy config", () => {
+  it("projects a replay-stable Core snapshot solely from config and persisted admission", async () => {
+    const resolve = vi.fn(async () => ({
+      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
+      affinityPolicy: { continuity: "none" },
+      candidates: [],
+    }));
+    const adoption = await projectManagedEconomicJobAdoption(economicConfig(), {
+      version: 6,
+      economicAttemptId: "economic-attempt:test-attempt-001",
+      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
+      economicPolicyId: "default-economic-policy",
+      economicPolicyRevision: "rev-2026-07",
+      constraints: {},
+      candidateSet: {
+        economicPolicyId: "default-economic-policy",
+        economicPolicyRevision: "rev-2026-07",
+        admissionProfileId: "foundation-readonly-plan",
+        constraints: {},
+        candidates: [{
+          routeId: "codex-standard",
+          routeSource: "explicit-managed-route",
+          providerId: "codex-oauth",
+          model: "gpt-5.6-codex",
+          accountPolicyId: "codex-standard-policy",
+          surface: "direct-provider",
+          adapterCapabilityId: "codex-direct",
+          adapterCapabilityVersion: "v1",
+        }],
+        rejections: [],
+      },
+    } as never, { resolve } as never);
+
+    expect(adoption.snapshot).toMatchObject({
+      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
+      policy: { policyId: "default-economic-policy", policyRevision: "rev-2026-07" },
+      routes: [{
+        route: {
+          routeId: "codex-standard",
+          rateCardRevision: "rev-2026-07",
+          priceEvidenceDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+        admittedIdentity: {
+          adapterCapabilityId: "codex-direct",
+          accountPolicy: { kind: "account-bound", accountPolicyId: "codex-standard-policy" },
+        },
+      }],
+    });
+    expect(adoption.snapshot.snapshotDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(adoption.expectation.candidateSetDigest).toBe(adoption.snapshot.candidateSetDigest);
+    expect(resolve).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { continuity: "prefer" as const, scope: "session" as const, allowRebind: true },
+    { continuity: "require" as const, scope: "turn" as const },
+  ])("projects configured $continuity/$scope affinity as opaque persisted-lineage evidence", async (affinityPolicy) => {
+    const resolve = vi.fn(async () => ({
+      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
+      affinityPolicy,
+      candidates: [],
+    }));
+    const job = {
+      version: 6,
+      id: "job-affinity",
+      projectId: "project-a",
+      callerId: "caller-a",
+      economicAttemptId: "economic-attempt:affinity-001",
+      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
+      economicPolicyId: "default-economic-policy",
+      economicPolicyRevision: "rev-2026-07",
+      constraints: {},
+      parent: { invocationId: "parent-invocation-secret", turnId: "parent-turn-secret" },
+      candidateSet: {
+        candidates: [{
+          routeId: "codex-standard",
+          routeSource: "explicit-managed-route",
+          providerId: "codex-oauth",
+          model: "gpt-5.6-codex",
+          accountPolicyId: "codex-standard-policy",
+          adapterCapabilityId: "codex-direct",
+          adapterCapabilityVersion: "v1",
+        }],
+      },
+    } as never;
+
+    const adoption = await projectManagedEconomicJobAdoption(economicConfig(), job, { resolve } as never);
+    const request = adoption.routeCapacity[0]?.affinityRequest;
+
+    expect(request).toMatchObject(affinityPolicy);
+    expect(request).toHaveProperty("key", expect.stringMatching(/^[a-f0-9]{64}$/u));
+    expect(JSON.stringify(request)).not.toContain("parent-invocation-secret");
+    expect(JSON.stringify(request)).not.toContain("parent-turn-secret");
+  });
+
+  it("fails closed when configured affinity continuity lacks persisted parent lineage", async () => {
+    const resolve = vi.fn(async () => ({
+      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
+      affinityPolicy: { continuity: "require" as const, scope: "session" as const },
+      candidates: [],
+    }));
+
+    await expect(projectManagedEconomicJobAdoption(economicConfig(), {
+      version: 6,
+      id: "job-affinity",
+      projectId: "project-a",
+      callerId: "caller-a",
+      economicAttemptId: "economic-attempt:affinity-001",
+      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
+      economicPolicyId: "default-economic-policy",
+      economicPolicyRevision: "rev-2026-07",
+      constraints: {},
+      candidateSet: { candidates: [{
+        routeId: "codex-standard", routeSource: "explicit-managed-route",
+        providerId: "codex-oauth", model: "gpt-5.6-codex",
+        accountPolicyId: "codex-standard-policy",
+        adapterCapabilityId: "codex-direct", adapterCapabilityVersion: "v1",
+      }] },
+    } as never, { resolve } as never)).rejects.toMatchObject({ code: "identity-revision-conflict" });
+  });
+
+  it("maps exact persisted policy revision drift to identity-revision-conflict without capacity lookup", async () => {
+    const resolve = vi.fn();
+    await expect(projectManagedEconomicJobAdoption(economicConfig(), {
+      version: 6,
+      economicPolicyId: "default-economic-policy",
+      economicPolicyRevision: "older-revision",
+      candidateSet: { candidates: [] },
+    } as never, { resolve } as never)).rejects.toMatchObject({
+      code: "identity-revision-conflict",
+    });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("projects an accountless route without fabricating account candidates", async () => {
+    const config = accountlessEconomicConfig();
+    const resolve = vi.fn();
+    const adoption = await projectManagedEconomicJobAdoption(config, {
+      version: 6,
+      economicAttemptId: "economic-attempt:accountless-001",
+      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
+      economicPolicyId: "default-economic-policy",
+      economicPolicyRevision: "rev-2026-07",
+      constraints: {},
+      candidateSet: {
+        candidates: [{
+          routeId: "codex-standard",
+          routeSource: "explicit-managed-route",
+          providerId: "codex-oauth",
+          model: "gpt-5.6-codex",
+          adapterCapabilityId: "codex-direct",
+          adapterCapabilityVersion: "v1",
+        }],
+      },
+    } as never, { resolve } as never);
+
+    expect(adoption.snapshot.routes[0]).toMatchObject({
+      admittedIdentity: { accountPolicy: { kind: "accountless" } },
+      route: { accountPolicyId: null },
+    });
+    expect(adoption.routeCapacity).toEqual([{ routeId: "codex-standard" }]);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("validates an explicit accountless economics route without fabricating an account", () => {
+    const config = accountlessEconomicConfig();
+
+    expect(() => validateGlobalConfig(config)).not.toThrow();
+    expect(config.modelGateway?.accounts).toEqual([]);
+    expect(config.modelGateway?.virtualModels[0]?.accountIds).toEqual([]);
+  });
+
+  it("rejects missing, mismatched, and account-backed accountless economics links", () => {
+    const missing = accountlessEconomicConfig() as Record<string, any>;
+    delete missing.managedAgents.routes[0].credentials.economicsRouteId;
+    expect(() => validateGlobalConfig(missing)).toThrow(/explicit virtual economics route reference/);
+
+    const mismatched = accountlessEconomicConfig() as Record<string, any>;
+    mismatched.modelGateway.virtualModels[0].providerModelId = "different-model";
+    expect(() => validateGlobalConfig(mismatched)).toThrow(/provider and model must match/);
+
+    const accountBacked = accountlessEconomicConfig() as Record<string, any>;
+    accountBacked.modelGateway.accounts = structuredClone(economicConfig().modelGateway!.accounts);
+    accountBacked.modelGateway.virtualModels[0].accountIds = ["codex-account"];
+    expect(() => validateGlobalConfig(accountBacked)).toThrow(/must have zero accountIds/);
+  });
+
+  it("creates the shared SQLite authority for accountless-only economics", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kiln-accountless-economics-"));
+    try {
+      const composition = createManagedAccountRuntimeComposition(accountlessEconomicConfig(), cwd);
+      expect(composition?.authority).toBeDefined();
+      expect(composition?.routing).toBeDefined();
+    } finally {
+      closeManagedAccountRuntimeComposition(cwd);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
   it("admits one explicit versioned policy with complete direct-route economics", () => {
     expect(() => validateGlobalConfig(economicConfig())).not.toThrow();
   });

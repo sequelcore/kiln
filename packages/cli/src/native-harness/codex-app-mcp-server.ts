@@ -240,7 +240,7 @@ export class NativeHarnessMcpServer {
         state: job.state,
         configuredAgentProfileId: job.configuredAgentProfileId,
         admissionProfileId: job.admissionProfileId,
-        ...(job.version === 5
+        ...(job.version === 5 || job.version === 6
           ? {
               economicPolicyId: job.economicPolicyId,
               economicPolicyRevision: job.economicPolicyRevision,
@@ -385,7 +385,7 @@ function applicationInputError(): Error & { code: "invalid_request" } { return O
 function applicationCode(error: unknown): string { return isRecord(error) && typeof error.code === "string" && /^[a-z_]{3,80}$/u.test(error.code) ? error.code : "internal_adapter_failure"; }
 function operatorActionFor(code: string): string {
   const actions: Record<string, string> = {
-    invalid_request: "Provide only valid bounded managed-job fields.", project_identity_unavailable: "Restore the trusted project composition boundary.", unknown_job: "Verify the managed-job identifier.", idempotency_conflict: "Use a new idempotency key for different managed work.", governance_unavailable: "Restore authoritative Kiln governance evidence.", governance_not_authoritative: "Refresh authoritative Kiln governance evidence.", admission_denied: "Review the authoritative work-governance policy.", profile_unavailable: "Choose a configured admitted agent.", route_unavailable: "Restore the configured policy candidate set and current eligibility evidence.", job_persistence_unavailable: "Restore the managed-job store and retry safely.", job_persistence_corrupt: "Repair the managed-job store before retrying.", economic_commitment_unavailable: "Wait until the configured economic commitment authority is available.", provider_rejected: "Review the Runtime managed-agent admission diagnostic.", provider_timeout: "Review the configured managed-agent timeout.", invocation_failed: "Inspect the Runtime managed-agent diagnostic before retrying.", internal_adapter_failure: "Retry safely or inspect Kiln status."
+    invalid_request: "Provide only valid bounded managed-job fields.", project_identity_unavailable: "Restore the trusted project composition boundary.", unknown_job: "Verify the managed-job identifier.", idempotency_conflict: "Use a new idempotency key for different managed work.", "identity-revision-conflict": "Restore the exact admitted policy, candidate, snapshot, and rate-card revisions for this attempt.", governance_unavailable: "Restore authoritative Kiln governance evidence.", governance_not_authoritative: "Refresh authoritative Kiln governance evidence.", admission_denied: "Review the authoritative work-governance policy.", profile_unavailable: "Choose a configured admitted agent.", route_unavailable: "Restore the configured policy candidate set and current eligibility evidence.", job_persistence_unavailable: "Restore the managed-job store and retry safely.", job_persistence_corrupt: "Repair the managed-job store before retrying.", economic_commitment_unavailable: "Wait until the configured economic commitment authority is available.", provider_rejected: "Review the Runtime managed-agent admission diagnostic.", provider_timeout: "Review the configured managed-agent timeout.", invocation_failed: "Inspect the Runtime managed-agent diagnostic before retrying.", internal_adapter_failure: "Retry safely or inspect Kiln status."
   };
   return actions[code] ?? "Retry safely or inspect Kiln status.";
 }

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type ManagedEconomicConfidence = "high" | "medium" | "low";
 
 export type ManagedEconomicEvidenceAuthority =
@@ -312,10 +314,62 @@ export interface ManagedEconomicCallerConstraint {
   readonly modelIds?: readonly string[];
 }
 
+export type ManagedEconomicAdoptedAccountPolicy =
+  | { readonly kind: "accountless" }
+  | { readonly kind: "account-bound"; readonly accountPolicyId: string };
+
+export interface ManagedEconomicAdmittedCandidateIdentity {
+  readonly routeId: string;
+  readonly sourceIdentity: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly adapterCapabilityId: string;
+  readonly adapterCapabilityVersion: string;
+  readonly accountPolicy: ManagedEconomicAdoptedAccountPolicy;
+}
+
+/** Config-owned route evidence before Runtime attaches current account evidence. */
+export interface ManagedEconomicAdoptedRoute {
+  readonly admittedIdentity: ManagedEconomicAdmittedCandidateIdentity;
+  readonly route: ManagedEconomicRouteIdentity;
+  readonly comparisonDomain: ManagedEconomicComparisonDomain;
+  readonly priorityRank: number;
+  readonly priceEvidence: ManagedEconomicPriceEvidence;
+  readonly rateSchedule: {
+    readonly unitRates: readonly ManagedEconomicReservationUnitRate[];
+    readonly auxiliaryCharges: readonly ManagedEconomicReservationAuxiliaryCharge[];
+  };
+  readonly executionEnvelope: Extract<ManagedEconomicExecutionEnvelope, { readonly kind: "bounded" }>;
+  readonly worstCaseReservation: ManagedEconomicComparableReservation;
+  readonly ceiling: ManagedEconomicCeiling;
+}
+
+export interface ManagedEconomicAdoptedSnapshotInput {
+  readonly policy: ManagedEconomicPolicyIdentity;
+  readonly adoptedAt: string;
+  /** Durable decision-time basis; replay must not resample wall-clock time. */
+  readonly adoptedDecisionAt: string;
+  readonly callerConstraints: ManagedEconomicCallerConstraint;
+  readonly routes: readonly ManagedEconomicAdoptedRoute[];
+}
+
+export interface ManagedEconomicAdoptedSnapshot extends ManagedEconomicAdoptedSnapshotInput {
+  readonly candidateSetDigest: string;
+  readonly snapshotDigest: string;
+}
+
+export interface ManagedEconomicAdoptedSnapshotExpectation {
+  readonly policyId: string;
+  readonly policyRevision: string;
+  readonly candidateSetDigest: string;
+  readonly admittedCandidates: readonly ManagedEconomicAdmittedCandidateIdentity[];
+  readonly callerConstraints: ManagedEconomicCallerConstraint;
+}
+
 export interface ManagedEconomicReservation {
   readonly reservationId: string;
   readonly jobId: string;
-  readonly attemptId: string;
+  readonly economicAttemptId: string;
   readonly policy: ManagedEconomicPolicyIdentity;
   readonly selectedIdentity: ManagedEconomicExecutionIdentity;
   readonly priceIdentity: ManagedEconomicPriceIdentity | null;
@@ -1159,8 +1213,8 @@ function compareRejections(
   return reason !== 0
     ? reason
     : compareStableStrings(
-      canonicalJson(left.alternativeIdentity),
-      canonicalJson(right.alternativeIdentity),
+      canonicalizeManagedEconomicValue(left.alternativeIdentity),
+      canonicalizeManagedEconomicValue(right.alternativeIdentity),
     );
 }
 
@@ -1168,18 +1222,336 @@ function compareStableStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function canonicalJson(value: unknown): string {
+export function canonicalizeManagedEconomicValue(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value) ?? "undefined";
   }
   if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
+    return `[${value.map((entry) => entry === undefined
+      ? "null"
+      : canonicalizeManagedEconomicValue(entry)).join(",")}]`;
   }
   const record = value as Readonly<Record<string, unknown>>;
   return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
     .sort(compareStableStrings)
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .map((key) => `${JSON.stringify(key)}:${canonicalizeManagedEconomicValue(record[key])}`)
     .join(",")}}`;
+}
+
+export function digestManagedEconomicValue(value: unknown): string {
+  return `sha256:${createHash("sha256")
+    .update(canonicalizeManagedEconomicValue(value), "utf8")
+    .digest("hex")}`;
+}
+
+export function digestManagedEconomicCandidateSet(
+  candidates: readonly ManagedEconomicAdmittedCandidateIdentity[],
+): string {
+  return digestManagedEconomicValue([...candidates]
+    .sort((left, right) => compareStableStrings(
+      canonicalizeManagedEconomicValue(left),
+      canonicalizeManagedEconomicValue(right),
+    )));
+}
+
+export function adoptManagedEconomicSnapshot(
+  input: ManagedEconomicAdoptedSnapshotInput,
+): ManagedEconomicAdoptedSnapshot {
+  const canonicalInput = JSON.parse(
+    canonicalizeManagedEconomicValue(input),
+  ) as ManagedEconomicAdoptedSnapshotInput;
+  const candidateSetDigest = digestManagedEconomicCandidateSet(
+    canonicalInput.routes.map(({ admittedIdentity }) => admittedIdentity),
+  );
+  const snapshotWithoutDigest = { ...canonicalInput, candidateSetDigest };
+  const snapshot: ManagedEconomicAdoptedSnapshot = {
+    ...snapshotWithoutDigest,
+    snapshotDigest: digestManagedEconomicValue(snapshotWithoutDigest),
+  };
+  validateManagedEconomicAdoptedSnapshot(snapshot);
+  return deepFreezeManagedEconomicValue(snapshot);
+}
+
+export function validateManagedEconomicAdoptedSnapshot(
+  snapshot: ManagedEconomicAdoptedSnapshot,
+  expectation?: ManagedEconomicAdoptedSnapshotExpectation,
+): ManagedEconomicAdoptedSnapshot {
+  validateManagedEconomicPolicy(snapshot.policy);
+  requireTimestamp(snapshot.adoptedAt, "snapshot adoptedAt");
+  requireTimestamp(snapshot.adoptedDecisionAt, "snapshot adoptedDecisionAt");
+  if (Date.parse(snapshot.adoptedAt) > Date.parse(snapshot.adoptedDecisionAt)) {
+    throw new ManagedEconomicValidationError("snapshot adoptedAt must not follow adoptedDecisionAt");
+  }
+  validateManagedEconomicCallerConstraint(snapshot.callerConstraints, "snapshot caller constraints");
+  if (!Array.isArray(snapshot.routes) || snapshot.routes.length === 0) {
+    throw new ManagedEconomicValidationError("adopted snapshot requires at least one route");
+  }
+
+  const identities = new Set<string>();
+  for (const route of snapshot.routes) {
+    validateManagedEconomicAdoptedRoute(route, snapshot.policy);
+    const identity = canonicalizeManagedEconomicValue(route.admittedIdentity);
+    if (identities.has(identity)) {
+      throw new ManagedEconomicValidationError("adopted candidate identities must be unique");
+    }
+    identities.add(identity);
+    if (narrowManagedEconomicAdoptedRoutes([route], snapshot.callerConstraints).length === 0) {
+      throw new ManagedEconomicValidationError("adopted route violates caller constraints");
+    }
+  }
+
+  const candidateSetDigest = digestManagedEconomicCandidateSet(
+    snapshot.routes.map(({ admittedIdentity }) => admittedIdentity),
+  );
+  requireDigest(snapshot.candidateSetDigest, "candidate-set digest");
+  if (snapshot.candidateSetDigest !== candidateSetDigest) {
+    throw new ManagedEconomicValidationError("candidate-set digest does not match adopted routes");
+  }
+  requireDigest(snapshot.snapshotDigest, "snapshot digest");
+  const { snapshotDigest: _snapshotDigest, ...snapshotWithoutDigest } = snapshot;
+  if (snapshot.snapshotDigest !== digestManagedEconomicValue(snapshotWithoutDigest)) {
+    throw new ManagedEconomicValidationError("snapshot digest does not match canonical snapshot evidence");
+  }
+
+  if (expectation !== undefined) {
+    validateManagedEconomicSnapshotExpectation(snapshot, expectation);
+  }
+  return snapshot;
+}
+
+function validateManagedEconomicSnapshotExpectation(
+  snapshot: ManagedEconomicAdoptedSnapshot,
+  expectation: ManagedEconomicAdoptedSnapshotExpectation,
+): void {
+  requireIdentity(expectation.policyId, "expected policy id");
+  requireIdentity(expectation.policyRevision, "expected policy revision");
+  requireDigest(expectation.candidateSetDigest, "expected candidate-set digest");
+  validateManagedEconomicCallerConstraint(expectation.callerConstraints, "persisted caller constraints");
+  const expectedCandidateSetDigest = digestManagedEconomicCandidateSet(expectation.admittedCandidates);
+  if (
+    expectation.candidateSetDigest !== expectedCandidateSetDigest
+    || snapshot.policy.policyId !== expectation.policyId
+    || snapshot.policy.policyRevision !== expectation.policyRevision
+    || snapshot.candidateSetDigest !== expectation.candidateSetDigest
+  ) {
+    throw new ManagedEconomicValidationError("identity-revision-conflict: adopted economic identity changed");
+  }
+  if (!isManagedEconomicCallerConstraintNarrowing(
+    expectation.callerConstraints,
+    snapshot.callerConstraints,
+  )) {
+    throw new ManagedEconomicValidationError("caller constraints cannot widen persisted admission");
+  }
+}
+
+export function isManagedEconomicCallerConstraintNarrowing(
+  admitted: ManagedEconomicCallerConstraint,
+  requested: ManagedEconomicCallerConstraint,
+): boolean {
+  return constraintDimensionNarrows(admitted.routeIds, requested.routeIds)
+    && constraintDimensionNarrows(admitted.providerIds, requested.providerIds)
+    && constraintDimensionNarrows(admitted.modelIds, requested.modelIds);
+}
+
+function constraintDimensionNarrows(
+  admitted: readonly string[] | undefined,
+  requested: readonly string[] | undefined,
+): boolean {
+  if (admitted === undefined) return true;
+  if (requested === undefined) return false;
+  const admittedValues = new Set(admitted);
+  return requested.every((value) => admittedValues.has(value));
+}
+
+function narrowManagedEconomicAdoptedRoutes(
+  routes: readonly ManagedEconomicAdoptedRoute[],
+  constraint: ManagedEconomicCallerConstraint,
+): readonly ManagedEconomicAdoptedRoute[] {
+  const routeIds = constraint.routeIds === undefined ? null : new Set(constraint.routeIds);
+  const providerIds = constraint.providerIds === undefined ? null : new Set(constraint.providerIds);
+  const modelIds = constraint.modelIds === undefined ? null : new Set(constraint.modelIds);
+  return routes.filter(({ admittedIdentity }) =>
+    (routeIds === null || routeIds.has(admittedIdentity.routeId))
+    && (providerIds === null || providerIds.has(admittedIdentity.providerId))
+    && (modelIds === null || modelIds.has(admittedIdentity.modelId)));
+}
+
+function validateManagedEconomicPolicy(policy: ManagedEconomicPolicyIdentity): void {
+  requireIdentity(policy.policyId, "policy id");
+  requireIdentity(policy.policyRevision, "policy revision");
+  requireDigest(policy.policyDigest, "policy digest");
+  if (!Number.isSafeInteger(policy.schemaVersion) || policy.schemaVersion < 1) {
+    throw new ManagedEconomicValidationError("policy schema version must be a positive integer");
+  }
+  if (policy.noRouteAction !== "deny") {
+    throw new ManagedEconomicValidationError("policy no-route action must deny");
+  }
+  requireAllowed(policy.evidenceRequirements.quota, ["optional", "required-for-account-bound"], "quota requirement");
+  requireAllowed(policy.evidenceRequirements.price, ["optional", "required"], "price requirement");
+  if (policy.comparisonDomains.length === 0) {
+    throw new ManagedEconomicValidationError("policy requires at least one comparison domain");
+  }
+  const domainIds = new Set<string>();
+  for (const comparisonDomain of policy.comparisonDomains) {
+    validateComparisonDomainIdentity(comparisonDomain);
+    if (domainIds.has(comparisonDomain.id)) {
+      throw new ManagedEconomicValidationError("policy comparison domain ids must be unique");
+    }
+    domainIds.add(comparisonDomain.id);
+  }
+}
+
+function validateManagedEconomicAdoptedRoute(
+  adopted: ManagedEconomicAdoptedRoute,
+  policy: ManagedEconomicPolicyIdentity,
+): void {
+  const { admittedIdentity, route } = adopted;
+  for (const [value, label] of [
+    [admittedIdentity.routeId, "admitted route id"],
+    [admittedIdentity.sourceIdentity, "admitted route source identity"],
+    [admittedIdentity.providerId, "admitted provider id"],
+    [admittedIdentity.modelId, "admitted model id"],
+    [admittedIdentity.adapterCapabilityId, "admitted adapter capability id"],
+    [admittedIdentity.adapterCapabilityVersion, "admitted adapter capability version"],
+  ] as const) requireIdentity(value, label);
+  requireAllowed(admittedIdentity.accountPolicy.kind, ["accountless", "account-bound"], "account policy applicability");
+  if (admittedIdentity.accountPolicy.kind === "account-bound") {
+    requireIdentity(admittedIdentity.accountPolicy.accountPolicyId, "admitted account policy id");
+  }
+  if (
+    admittedIdentity.routeId !== route.routeId
+    || admittedIdentity.providerId !== route.providerId
+    || admittedIdentity.modelId !== route.modelId
+    || admittedIdentity.adapterCapabilityId !== route.adapterCapabilityId
+    || admittedIdentity.adapterCapabilityVersion !== route.adapterCapabilityVersion
+  ) {
+    throw new ManagedEconomicValidationError("admitted identity does not match adopted route identity");
+  }
+  const adoptedAccountPolicyId = admittedIdentity.accountPolicy.kind === "account-bound"
+    ? admittedIdentity.accountPolicy.accountPolicyId
+    : null;
+  if (route.accountPolicyId !== adoptedAccountPolicyId) {
+    throw new ManagedEconomicValidationError("admitted account policy does not match adopted route account policy");
+  }
+
+  const validationAlternative: ManagedEconomicExecutionAlternative = {
+    identity: {
+      route,
+      account: route.accountPolicyId === null
+        ? { kind: "accountless" }
+        : {
+            kind: "account-bound",
+            capacityIdentity: "snapshot-validation-capacity",
+            accountRef: "snapshot-validation-account",
+            credentialRevision: "snapshot-validation-revision",
+            creditPosture: "disabled",
+            overagePosture: "disabled",
+          },
+    },
+    comparisonDomain: adopted.comparisonDomain,
+    priorityRank: adopted.priorityRank,
+    priceEvidence: adopted.priceEvidence,
+    executionEnvelope: adopted.executionEnvelope,
+    worstCaseReservation: adopted.worstCaseReservation,
+    ceiling: adopted.ceiling,
+    accountSelectionReason: route.accountPolicyId === null ? "accountless" : "least-pressure",
+    observedAffinityRevision: null,
+  };
+  validateAlternativeIdentity(validationAlternative);
+  validateAlternativeRanks(validationAlternative);
+  validateDomainCompatibility(validationAlternative);
+  validateManagedEconomicAdoptedRateSchedule(adopted);
+  if (adopted.executionEnvelope.limits.length === 0) {
+    throw new ManagedEconomicValidationError("adopted execution envelope requires at least one limit");
+  }
+  if (!policy.comparisonDomains.some((domain) =>
+    canonicalizeManagedEconomicValue(domain) === canonicalizeManagedEconomicValue(adopted.comparisonDomain))) {
+    throw new ManagedEconomicValidationError("adopted route comparison domain is not in policy");
+  }
+}
+
+function validateManagedEconomicAdoptedRateSchedule(adopted: ManagedEconomicAdoptedRoute): void {
+  const usageUnits = new Set<string>();
+  for (const rate of adopted.rateSchedule.unitRates) {
+    requireIdentity(rate.usageUnit, "adopted rate usage unit");
+    validateManagedEconomicAmount(rate.price);
+    if (rate.price.unit !== rate.usageUnit) {
+      throw new ManagedEconomicValidationError("adopted rate usage unit must equal price unit");
+    }
+    if (!sameScheme(rate.price.scheme, adopted.route.scheme)) {
+      throw new ManagedEconomicValidationError("adopted rate scheme must match route scheme");
+    }
+    if (usageUnits.has(rate.usageUnit)) {
+      throw new ManagedEconomicValidationError("adopted rate usage units must be unique");
+    }
+    usageUnits.add(rate.usageUnit);
+  }
+  const auxiliaryIds = new Set<string>();
+  for (const charge of adopted.rateSchedule.auxiliaryCharges) {
+    requireIdentity(charge.id, "adopted auxiliary charge id");
+    validateManagedEconomicAmount(charge.amount);
+    if (!sameScheme(charge.amount.scheme, adopted.route.scheme)) {
+      throw new ManagedEconomicValidationError("adopted auxiliary charge scheme must match route scheme");
+    }
+    if (auxiliaryIds.has(charge.id)) {
+      throw new ManagedEconomicValidationError("adopted auxiliary charge ids must be unique");
+    }
+    auxiliaryIds.add(charge.id);
+  }
+  if (
+    adopted.priceEvidence.identity.unitScheduleDigest
+      !== digestManagedEconomicValue(adopted.rateSchedule.unitRates)
+  ) {
+    throw new ManagedEconomicValidationError("adopted unit rates do not match price schedule digest");
+  }
+  const auxiliaryDigest = digestManagedEconomicValue(adopted.rateSchedule.auxiliaryCharges);
+  if (
+    adopted.priceEvidence.identity.auxiliaryScheduleDigest !== auxiliaryDigest
+    || adopted.route.auxiliaryScheduleDigest !== auxiliaryDigest
+  ) {
+    throw new ManagedEconomicValidationError("adopted auxiliary charges do not match schedule digest");
+  }
+}
+
+function validateComparisonDomainIdentity(domain: ManagedEconomicComparisonDomain): void {
+  requireIdentity(domain.id, "comparison domain id");
+  if (!Number.isSafeInteger(domain.rank) || domain.rank < 0) {
+    throw new ManagedEconomicValidationError("comparison domain rank must be a non-negative integer");
+  }
+  requireIdentity(domain.basis.unit, "comparison domain unit");
+  validateScheme(domain.basis.scheme);
+  requireIdentity(domain.basis.rateCardBasis, "comparison domain rate-card basis");
+  requireIdentity(domain.basis.envelopeSemantics, "comparison domain envelope semantics");
+}
+
+function validateManagedEconomicCallerConstraint(
+  constraint: ManagedEconomicCallerConstraint,
+  label: string,
+): void {
+  for (const [values, dimension] of [
+    [constraint.routeIds, "route ids"],
+    [constraint.providerIds, "provider ids"],
+    [constraint.modelIds, "model ids"],
+  ] as const) {
+    if (values === undefined) continue;
+    const unique = new Set<string>();
+    for (const value of values) {
+      requireIdentity(value, `${label} ${dimension}`);
+      if (unique.has(value)) {
+        throw new ManagedEconomicValidationError(`${label} ${dimension} must be unique`);
+      }
+      unique.add(value);
+    }
+  }
+}
+
+function deepFreezeManagedEconomicValue<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) deepFreezeManagedEconomicValue(nested);
+    Object.freeze(value);
+  }
+  return value;
 }
 
 function domainFingerprint(alternative: ManagedEconomicExecutionAlternative): string {

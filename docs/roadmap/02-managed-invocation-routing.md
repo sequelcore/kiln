@@ -1,7 +1,7 @@
 # 02 - Managed Invocation Routing
 
 Status: Active delivery track
-Execution: Slices 1, 2, and 3 complete; Slice 4 queued.
+Execution: Slices 1, 2, 3, and 4 complete; Slice 5 queued.
 Created: 2026-07-23
 
 ## Objective
@@ -117,15 +117,40 @@ binding, structured privacy checks, and replayed usage assertions.
 
 ### Slice 4 - Economic Route Policy
 
-Status: Queued after completed live lease proof.
+Status: Implemented in issue #37 under issue #34 internal Slice 4.
 
 Represent quota class, subscription class, metered-cost class, and comparable
 cost separately. Explain why an eligible job used Codex or OpenCode. Add explicit
 reservations and ceilings without claiming free execution without evidence.
 
+Core now adopts one immutable economic snapshot with canonical sorted SHA-256
+digests over the policy, candidate set, price/rate evidence, and full decision
+basis. New managed jobs are V6 and durably pin a namespaced
+`economicAttemptId` plus `adoptedDecisionAt`; V5 is strict historical input.
+
+One project-runtime SQLite writer performs route capacity, account-backed or
+accountless selection, reservation, and commitment synchronously in one
+immediate transaction. Its versioned schema, live owner generation, exact
+replay, identity/revision conflict, dispatch fence, conservative recovery,
+pre-fence release, release-failure evidence, and explicit reconciliation make
+SQLite authoritative while job JSON remains a projection. POSIX database
+artifacts are owner-only.
+
+The old managed-invocation account-only writer and port are deleted. Direct
+account-leased invocation outside the economic job path fails closed. The
+credentialless config contract requires an exact zero-account virtual economics
+route when used by an economic policy; runtime-selected account policy remains
+supported. A committed route mismatch emits sanitized evidence before adapter
+construction.
+
+This slice performs no provider dispatch. Issue #34 internal Slice 5 will wire
+committed dispatch and settlement. That internal sequence is separate from
+Roadmap 02 Slice 5 below, which converges the managed-job authority with Model
+Gateway ingress.
+
 ### Slice 5 - Cross-Path Account Authority Convergence
 
-Status: Queued after the managed-path proof.
+Status: Queued after managed economic commitment and dispatch proof.
 
 Unify capacity and affinity authority when Model Gateway ingress and managed
 jobs target the same configured accounts. Replace the ingress
@@ -135,9 +160,10 @@ without importing gateway process recovery into managed invocation.
 
 ## Promotion Gates
 
-- Legacy pooled adapters retain the exactly-one guard while they remain real
-  consumers.
-- Every job records one explicit account selection and releases it correctly.
+- Managed economic jobs use the one Runtime SQLite commitment writer; no
+  account-only compatibility writer remains.
+- Every committed job records one explicit account-backed or accountless
+  selection and releases proven pre-fence interim work correctly.
 - Missing or stale usage is `unknown`, never fabricated.
 - No provider commitment triggers hidden account retry.
 - Focused tests, workspace typecheck, package builds, and teardown are reliable.
@@ -151,6 +177,7 @@ is not evidence for Slice 2.
 
 ## Completion Criteria
 
-Managed jobs have deterministic, explainable, replayable route and account
-selection with correct leases in every terminal state and no harness-specific
-policy owner.
+Managed jobs have deterministic, explainable, replayable economic route and
+account-backed or accountless commitment with conservative recovery and no
+harness-specific policy owner. Provider dispatch remains issue #34 internal
+Slice 5; Model Gateway authority convergence remains Roadmap 02 Slice 5.

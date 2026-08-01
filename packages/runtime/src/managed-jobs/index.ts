@@ -1,8 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   defineManagedAccountLeaseEvidence,
+  digestManagedEconomicValue,
+  type ManagedEconomicAdoptedSnapshot,
+  type ManagedEconomicAdoptedSnapshotExpectation,
   type ManagedAccountLeaseEvidence,
   type ManagedAgentAdmissionProfile,
   type ManagedAgentResultHandoff,
@@ -10,6 +13,10 @@ import {
 import type {
   ManagedEconomicCandidateSet,
 } from "../agents/managed-invocation/runtime-tool.js";
+import type {
+  ManagedEconomicCommitmentAcquireResult,
+  ManagedEconomicRouteCapacity,
+} from "../managed-account-leases/managed-account-lease-authority.js";
 
 export const MANAGED_JOB_STATES = ["queued", "running", "succeeded", "failed", "timed_out", "interrupted", "cancelled"] as const;
 export type ManagedJobState = typeof MANAGED_JOB_STATES[number];
@@ -33,6 +40,7 @@ export type ManagedJobDiagnosticCode =
   | "profile_unavailable"
   | "route_unavailable"
   | "idempotency_conflict"
+  | "identity-revision-conflict"
   | "job_persistence_unavailable"
   | "job_persistence_corrupt"
   | "unknown_job"
@@ -172,7 +180,13 @@ export interface ManagedJobRecordV5 {
   readonly lifecycle: readonly ManagedJobLifecycleEntry[];
 }
 
-export type ManagedJobRecord = ManagedJobRecordV3 | ManagedJobRecordV4 | ManagedJobRecordV5;
+export interface ManagedJobRecordV6 extends Omit<ManagedJobRecordV5, "version"> {
+  readonly version: 6;
+  readonly economicAttemptId: string;
+  readonly adoptedDecisionAt: string;
+}
+
+export type ManagedJobRecord = ManagedJobRecordV3 | ManagedJobRecordV4 | ManagedJobRecordV5 | ManagedJobRecordV6;
 export type ManagedJobResultAvailability = "pending" | "available" | "unavailable" | "failed" | "unresolved";
 export interface ManagedJobResultQuery {
   readonly jobId: string;
@@ -213,13 +227,45 @@ export interface ManagedJobProfilePort { resolve(id: string): Promise<ManagedJob
 export interface ManagedJobRoutePort {
   resolve(profile: ManagedJobProfile): Promise<ManagedEconomicCandidateSet | undefined>;
 }
+export type ManagedJobCommitmentRecoveryState = "absent" | "committed" | "dispatch-fenced";
+export interface ManagedJobCommitmentRecoveryPort {
+  query(input: {
+    readonly jobId: string;
+    readonly economicAttemptId: string;
+  }): ManagedJobCommitmentRecoveryState;
+}
+export interface ManagedJobEconomicAdoption {
+  readonly snapshot: ManagedEconomicAdoptedSnapshot;
+  readonly expectation: ManagedEconomicAdoptedSnapshotExpectation;
+  readonly routeCapacity: readonly ManagedEconomicRouteCapacity[];
+}
+export interface ManagedJobEconomicAdoptionPort {
+  adopt(job: ManagedJobRecordV6): Promise<ManagedJobEconomicAdoption>;
+}
+export interface ManagedJobEconomicCommitmentPort extends ManagedJobCommitmentRecoveryPort {
+  acquire(input: {
+    readonly jobId: string;
+    readonly economicAttemptId: string;
+    readonly intentFingerprint: string;
+    readonly snapshot: ManagedEconomicAdoptedSnapshot;
+    readonly expectation: ManagedEconomicAdoptedSnapshotExpectation;
+    readonly routeCapacity: readonly ManagedEconomicRouteCapacity[];
+  }): ManagedEconomicCommitmentAcquireResult;
+  releasePreFence(jobId: string, economicAttemptId: string): void;
+  recordReleaseFailure(input: {
+    readonly jobId: string;
+    readonly economicAttemptId: string;
+    readonly reason: string;
+    readonly evidenceUri: string;
+  }): void;
+}
 export type ManagedJobReservation =
   | { readonly kind: "created"; readonly job: ManagedJobRecord }
   | { readonly kind: "existing"; readonly job: ManagedJobRecord }
   | { readonly kind: "conflict" };
 
 export interface ManagedJobStore {
-  reserve(input: { readonly job: ManagedJobRecordV5 }): Promise<ManagedJobReservation>;
+  reserve(input: { readonly job: ManagedJobRecordV6 }): Promise<ManagedJobReservation>;
   get(id: string): Promise<ManagedJobRecord | undefined>;
   transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord>;
   completeSuccess(id: string, result: ManagedJobResult, updatedAt?: string): Promise<ManagedJobRecord>;
@@ -234,17 +280,23 @@ export interface ManagedJobApplicationOptions {
   readonly routes: ManagedJobRoutePort;
   readonly lineage?: { validate(input: { readonly project: TrustedManagedJobProject; readonly callerId: string; readonly parent: NonNullable<ManagedJobSubmission["parent"]> }): Promise<boolean> };
   readonly store: ManagedJobStore;
+  readonly commitmentRecovery?: ManagedJobCommitmentRecoveryPort;
+  readonly economicAdoption?: ManagedJobEconomicAdoptionPort;
+  readonly economicCommitment?: ManagedJobEconomicCommitmentPort;
   readonly clock?: () => Date;
   readonly idGenerator?: () => string;
+  readonly economicAttemptIdGenerator?: () => string;
 }
 
 export class ManagedJobApplicationService {
   private readonly clock: () => Date;
   private readonly idGenerator: () => string;
+  private readonly economicAttemptIdGenerator: () => string;
 
   constructor(private readonly options: ManagedJobApplicationOptions) {
     this.clock = options.clock ?? (() => new Date());
     this.idGenerator = options.idGenerator ?? randomUUID;
+    this.economicAttemptIdGenerator = options.economicAttemptIdGenerator ?? randomUUID;
   }
 
   async submit(input: unknown): Promise<ManagedJobRecord> {
@@ -268,7 +320,7 @@ export class ManagedJobApplicationService {
     project: TrustedManagedJobProject,
     governance: ManagedJobGovernanceEvidence,
     profile: ManagedJobEconomicProfile,
-  ): Promise<ManagedJobRecordV5> {
+  ): Promise<ManagedJobRecordV6> {
     if (!isValidEconomicManagedJobProfile(profile)) {
       throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted economic policy profile.");
     }
@@ -306,7 +358,7 @@ export class ManagedJobApplicationService {
     }
     const now = this.now();
     const constraints = normalizeManagedJobConstraints(profile.constraints);
-    const requestFingerprint = fingerprint({
+    const requestFingerprint = digestManagedEconomicValue({
       objective: request.objective,
       configuredAgentProfileId: request.configuredAgentProfileId,
       economicPolicyId: profile.economicPolicyId,
@@ -314,9 +366,11 @@ export class ManagedJobApplicationService {
       constraints,
       parent: request.parent,
     });
-    const queued: ManagedJobRecordV5 = {
-      version: 5,
+    const queued: ManagedJobRecordV6 = {
+      version: 6,
       id: this.newJobId(),
+      economicAttemptId: this.newEconomicAttemptId(),
+      adoptedDecisionAt: now,
       state: "queued",
       projectId: project.id,
       callerId: request.callerId,
@@ -329,7 +383,7 @@ export class ManagedJobApplicationService {
       governanceSource: admission.source,
       admissionId: admission.admissionId,
       requestFingerprint,
-      idempotencyKeyHash: fingerprint({
+      idempotencyKeyHash: digestManagedEconomicValue({
         projectId: project.id,
         callerId: request.callerId,
         idempotencyKey: request.idempotencyKey,
@@ -342,14 +396,11 @@ export class ManagedJobApplicationService {
     const reservation = await this.reserve(queued);
     if (reservation.kind === "conflict") throw new ManagedJobApplicationError("idempotency_conflict", "Use a new idempotency identity for different managed work.");
     if (reservation.kind === "existing") {
-      if (reservation.job.version !== 5) throw new ManagedJobApplicationError("idempotency_conflict", "Use a new idempotency identity for different managed work.");
-      return reservation.job;
+      if (reservation.job.version !== 6) throw new ManagedJobApplicationError("idempotency_conflict", "Use a new idempotency identity for different managed work.");
+      if (!isNonterminal(reservation.job.state)) return reservation.job;
+      return this.commitEconomicAttempt(reservation.job);
     }
-    return await this.transition(
-      queued.id,
-      "failed",
-      "economic_commitment_unavailable",
-    ) as ManagedJobRecordV5;
+    return this.commitEconomicAttempt(queued);
   }
 
   async getStatus(context: TrustedManagedJobQueryContext, id: string): Promise<ManagedJobRecord> {
@@ -366,7 +417,7 @@ export class ManagedJobApplicationService {
     const job = await this.getStatus(context, id);
     if (job.state === "queued" || job.state === "running") return resultQuery(job, "pending", "result_pending");
     if (job.state !== "succeeded") return resultQuery(job, "failed", job.diagnostic ?? "invocation_failed");
-    if (job.version === 5) return resultQuery(job, "unresolved", "result_persistence_failure");
+    if (job.version === 5 || job.version === 6) return resultQuery(job, "unresolved", "result_persistence_failure");
     if (!job.result) return resultQuery(job, "unresolved", "result_persistence_failure");
     return resultQuery(job, "available");
   }
@@ -393,9 +444,29 @@ export class ManagedJobApplicationService {
   async recoverInterrupted(): Promise<readonly ManagedJobRecord[]> {
     try {
       const jobs = await this.options.store.listNonterminal();
-      return Promise.all(jobs.map((job) => job.version === 5
-        ? this.transition(job.id, "failed", "economic_commitment_unavailable")
-        : this.transition(job.id, "interrupted", "invocation_failed")));
+      return Promise.all(jobs.map(async (job) => {
+        if (job.version === 5) {
+          return this.transition(job.id, "failed", "economic_commitment_unavailable");
+        }
+        if (job.version === 6) {
+          const recovery = this.options.commitmentRecovery ?? this.options.economicCommitment;
+          const state = recovery?.query({
+            jobId: job.id,
+            economicAttemptId: job.economicAttemptId,
+          });
+          if (state === "dispatch-fenced") return job;
+          if (state === "committed") {
+            return this.options.economicCommitment
+              ? this.releaseInterimCommitment(job)
+              : job;
+          }
+          if (this.options.economicAdoption && this.options.economicCommitment) {
+            return this.commitEconomicAttempt(job);
+          }
+          return this.transition(job.id, "failed", "economic_commitment_unavailable");
+        }
+        return this.transition(job.id, "interrupted", "invocation_failed");
+      }));
     } catch (error) { throw normalizeStoreError(error); }
   }
 
@@ -417,6 +488,97 @@ export class ManagedJobApplicationService {
     return id;
   }
 
+  private newEconomicAttemptId(): string {
+    const seed = this.economicAttemptIdGenerator();
+    if (!isIdentifier(seed) || seed.length < 12) throw new ManagedJobApplicationError("invalid_request", "Configure a valid opaque managed economic attempt identifier generator.");
+    return `economic-attempt:${seed}`;
+  }
+
+  private async commitEconomicAttempt(job: ManagedJobRecordV6): Promise<ManagedJobRecordV6> {
+    if (!this.options.economicAdoption || !this.options.economicCommitment) {
+      return this.transition(job.id, "failed", "economic_commitment_unavailable") as Promise<ManagedJobRecordV6>;
+    }
+    try {
+      // All async config, quota, credential-revision, and capacity work completes
+      // before entering the synchronous SQLite authority.
+      const adopted = await this.options.economicAdoption.adopt(job);
+      const intentFingerprint = digestManagedEconomicValue({
+        jobId: job.id,
+        economicAttemptId: job.economicAttemptId,
+        projectId: job.projectId,
+        callerId: job.callerId,
+        admissionProfileId: job.admissionProfileId,
+        admissionId: job.admissionId,
+        governanceSource: job.governanceSource,
+        requestFingerprint: job.requestFingerprint,
+        economicPolicyId: job.economicPolicyId,
+        economicPolicyRevision: job.economicPolicyRevision,
+        candidateSetDigest: adopted.expectation.candidateSetDigest,
+        constraints: job.constraints,
+        snapshotDigest: adopted.snapshot.snapshotDigest,
+        rateCardRevisions: adopted.snapshot.routes.map(({ route }) => ({
+          routeId: route.routeId,
+          rateCardId: route.rateCardId,
+          rateCardRevision: route.rateCardRevision,
+        })),
+        reservations: adopted.snapshot.routes.map(({ admittedIdentity, worstCaseReservation, ceiling, executionEnvelope }) => ({
+          routeId: admittedIdentity.routeId,
+          worstCaseReservation,
+          ceiling,
+          executionEnvelope,
+        })),
+        adoptedDecisionAt: job.adoptedDecisionAt,
+      });
+      const result = this.options.economicCommitment.acquire({
+        jobId: job.id,
+        economicAttemptId: job.economicAttemptId,
+        intentFingerprint,
+        ...adopted,
+      });
+      if (result.status === "conflict") {
+        throw result.reason === "identity-revision-conflict"
+          ? new ManagedJobApplicationError(
+            "identity-revision-conflict",
+            "Restore the exact admitted policy, candidate, snapshot, and rate-card revisions for this attempt.",
+          )
+          : new ManagedJobApplicationError(
+            "idempotency_conflict",
+            "Use a new idempotency identity for different managed work.",
+          );
+      }
+      if (result.status === "committed") {
+        return this.releaseInterimCommitment(job);
+      }
+      return this.transition(job.id, "failed", "economic_commitment_unavailable") as Promise<ManagedJobRecordV6>;
+    } catch (error) {
+      if (error instanceof ManagedJobApplicationError) throw error;
+      return this.transition(job.id, "failed", "economic_commitment_unavailable") as Promise<ManagedJobRecordV6>;
+    }
+  }
+
+  private async releaseInterimCommitment(job: ManagedJobRecordV6): Promise<ManagedJobRecordV6> {
+    const authority = this.options.economicCommitment;
+    if (!authority) return job;
+    try {
+      authority.releasePreFence(job.id, job.economicAttemptId);
+    } catch {
+      try {
+        authority.recordReleaseFailure({
+          jobId: job.id,
+          economicAttemptId: job.economicAttemptId,
+          reason: "slice-4-provider-dispatch-unavailable",
+          evidenceUri: `kiln://managed-jobs/${job.id}/economic-commitment-release-failure`,
+        });
+      } catch {
+        throw new ManagedJobApplicationError(
+          "economic_commitment_unavailable",
+          "Recover the durable economic commitment before retrying managed work.",
+        );
+      }
+    }
+    return this.transition(job.id, "failed", "economic_commitment_unavailable") as Promise<ManagedJobRecordV6>;
+  }
+
   private async resolveGovernance(project: TrustedManagedJobProject): Promise<ManagedJobGovernanceEvidence> {
     let evidence: ManagedJobGovernanceEvidence;
     try { evidence = await this.options.governance.resolve(project); } catch { throw new ManagedJobApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence."); }
@@ -426,7 +588,7 @@ export class ManagedJobApplicationService {
     return evidence;
   }
 
-  private async reserve(job: ManagedJobRecordV5): Promise<ManagedJobReservation> {
+  private async reserve(job: ManagedJobRecordV6): Promise<ManagedJobReservation> {
     try { return await this.options.store.reserve({ job }); } catch (error) { throw normalizeStoreError(error); }
   }
 
@@ -468,10 +630,10 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
     }
   }
 
-  async reserve(input: { readonly job: ManagedJobRecordV5 }): Promise<ManagedJobReservation> {
+  async reserve(input: { readonly job: ManagedJobRecordV6 }): Promise<ManagedJobReservation> {
     const job = validateStoredJob(input.job);
-    if (job.version !== 5) {
-      throw new ManagedJobApplicationError("invalid_request", "Create only canonical V5 managed jobs.");
+    if (job.version !== 6) {
+      throw new ManagedJobApplicationError("invalid_request", "Create only canonical V6 managed jobs.");
     }
     const binding = this.bindings.get(job.idempotencyKeyHash);
     if (binding) {
@@ -488,6 +650,7 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
   async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord> {
     const current = this.jobs.get(id);
     if (!current) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
+    if (current.state === state && current.diagnostic === diagnostic) return cloneManagedJob(current);
     if (!canTransition(current.state, state)) throw new ManagedJobApplicationError("invalid_transition", "Keep terminal managed-job states immutable.");
     const timestamp = updatedAt ?? new Date().toISOString();
     if (!isIso(timestamp) || Date.parse(timestamp) < Date.parse(current.updatedAt)) throw new ManagedJobApplicationError("invalid_transition", "Use monotonic managed-job timestamps.");
@@ -504,7 +667,7 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
   async completeSuccess(id: string, result: ManagedJobResult, updatedAt?: string): Promise<ManagedJobRecord> {
     const current = this.jobs.get(id);
     if (!current) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
-    if (current.version === 5) throw new ManagedJobApplicationError("invalid_transition", "V5 precommit jobs cannot contain execution results.");
+    if (current.version === 5 || current.version === 6) throw new ManagedJobApplicationError("invalid_transition", "Economic precommit jobs cannot contain execution results.");
     if (current.state !== "running" || current.result !== undefined) throw new ManagedJobApplicationError("invalid_transition", "Keep terminal managed-job results immutable.");
     const timestamp = updatedAt ?? new Date().toISOString();
     if (!isIso(timestamp) || Date.parse(timestamp) < Date.parse(current.updatedAt) || !isValidManagedJobResult(result, current, timestamp)) {
@@ -557,7 +720,7 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
 export class FilesystemManagedJobStore implements ManagedJobStore {
   private readonly root: string;
   constructor(rootPath: string, private readonly staleLockMs = 60000) { this.root = resolve(rootPath); }
-  async reserve(input: { readonly job: ManagedJobRecordV5 }): Promise<ManagedJobReservation> {
+  async reserve(input: { readonly job: ManagedJobRecordV6 }): Promise<ManagedJobReservation> {
     return this.withLock(async () => {
       const memory = await this.loadMemory();
       const result = await memory.reserve(input);
@@ -633,6 +796,70 @@ function parseManagedJobSubmission(value: unknown): ManagedJobSubmission {
   return { objective, configuredAgentProfileId, callerId, idempotencyKey, ...(parent ? { parent } : {}) };
 }
 function validateStoredJob(value: unknown): ManagedJobRecord {
+  if (isRecord(value) && value.version === 6) {
+    const allowed = [
+      "version", "id", "economicAttemptId", "adoptedDecisionAt", "state",
+      "projectId", "callerId", "configuredAgentProfileId",
+      "admissionProfileId", "economicPolicyId", "economicPolicyRevision",
+      "constraints", "candidateSet", "governanceSource", "admissionId",
+      "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt",
+      "parent", "diagnostic", "lifecycle",
+    ];
+    if (
+      !hasOnly(value, allowed)
+      || !isIdentifier(value.id)
+      || !isEconomicAttemptId(value.economicAttemptId)
+      || !isIso(value.adoptedDecisionAt)
+      || !MANAGED_JOB_STATES.includes(value.state as ManagedJobState)
+      || !isIdentifier(value.projectId)
+      || !isIdentifier(value.callerId)
+      || !isIdentifier(value.configuredAgentProfileId)
+      || !isManagedAgentAdmissionProfile(value.admissionProfileId)
+      || !isIdentifier(value.economicPolicyId)
+      || !isIdentifier(value.economicPolicyRevision)
+      || !isIdentifier(value.governanceSource)
+      || !isIdentifier(value.admissionId)
+      || !isCanonicalHash(value.requestFingerprint)
+      || !isCanonicalHash(value.idempotencyKeyHash)
+      || !isIso(value.createdAt)
+      || !isIso(value.updatedAt)
+      || Date.parse(value.adoptedDecisionAt) !== Date.parse(value.createdAt)
+      || Date.parse(value.createdAt) > Date.parse(value.updatedAt)
+      || !isValidManagedJobConstraints(value.constraints)
+      || !isManagedEconomicCandidateSet(value.candidateSet as ManagedEconomicCandidateSet)
+      || (value.diagnostic !== undefined && !isDiagnostic(value.diagnostic))
+      || (
+        value.parent !== undefined
+        && (
+          !isRecord(value.parent)
+          || !hasOnly(value.parent, ["invocationId", "turnId"])
+          || !isIdentifier(value.parent.invocationId)
+          || !isIdentifier(value.parent.turnId)
+        )
+      )
+      || !isValidLifecycle(
+        value.lifecycle,
+        value.state as ManagedJobState,
+        value.createdAt,
+        value.updatedAt,
+      )
+    ) {
+      throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
+    }
+    const candidateSet = value.candidateSet as ManagedEconomicCandidateSet;
+    if (
+      candidateSet.economicPolicyId !== value.economicPolicyId
+      || candidateSet.economicPolicyRevision !== value.economicPolicyRevision
+      || candidateSet.admissionProfileId !== value.admissionProfileId
+      || !sameManagedJobConstraints(
+        candidateSet.constraints,
+        value.constraints as ManagedJobEconomicProfile["constraints"],
+      )
+    ) {
+      throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
+    }
+    return value as unknown as ManagedJobRecordV6;
+  }
   if (isRecord(value) && value.version === 5) {
     const allowed = [
       "version", "id", "state", "projectId", "callerId",
@@ -861,14 +1088,14 @@ function looksLikeRawProviderPayload(value: string): boolean {
   return /(?:\{\s*"[^"\n]{1,200}"\s*:|\[\s*\{)/u.test(value);
 }
 function resultQuery(job: ManagedJobRecord, availability: ManagedJobResultAvailability, diagnostic?: ManagedJobDiagnosticCode): ManagedJobResultQuery {
-  const result = job.version === 5 ? undefined : job.result;
+  const result = job.version === 5 || job.version === 6 ? undefined : job.result;
   return {
     jobId: job.id,
     availability,
     lifecycleState: job.state,
     configuredAgentProfileId: job.configuredAgentProfileId,
     admissionProfileId: job.admissionProfileId,
-    ...(job.version !== 5 ? { routeId: job.routeId, providerId: job.providerId } : {}),
+    ...(job.version !== 5 && job.version !== 6 ? { routeId: job.routeId, providerId: job.providerId } : {}),
     ...(result ? { completedAt: result.completedAt, provenance: { ...result.provenance }, handoff: normalizeManagedJobResultHandoff(result.resultHandoff) } : {}),
     ...(job.version === 4 && job.accountLease ? { accountLease: defineManagedAccountLeaseEvidence(job.accountLease) } : {}),
     ...(diagnostic ? { diagnostic } : {}),
@@ -878,7 +1105,7 @@ function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery[
   const resultAvailability: ManagedJobResultAvailability = job.state === "queued" || job.state === "running"
     ? "pending"
     : job.state === "succeeded"
-      ? job.version !== 5 && job.result ? "available" : "unavailable"
+      ? job.version !== 5 && job.version !== 6 && job.result ? "available" : "unavailable"
       : "failed";
   return {
     jobId: job.id,
@@ -886,7 +1113,7 @@ function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery[
     lifecycleState: job.state,
     configuredAgentProfileId: job.configuredAgentProfileId,
     admissionProfileId: job.admissionProfileId,
-    ...(job.version !== 5 ? { routeId: job.routeId, providerId: job.providerId } : {}),
+    ...(job.version !== 5 && job.version !== 6 ? { routeId: job.routeId, providerId: job.providerId } : {}),
     lifecycle,
     accountLeaseHistory: job.version === 4
       ? job.accountLeaseHistory.map(defineManagedAccountLeaseEvidence)
@@ -1000,6 +1227,14 @@ function isManagedAgentRouteSource(value: unknown): boolean {
     || value === "managed-default-route"
     || value === "enabled-engine-fallback";
 }
+function isEconomicAttemptId(value: unknown): value is string {
+  return typeof value === "string"
+    && value.startsWith("economic-attempt:")
+    && isIdentifier(value.slice("economic-attempt:".length));
+}
+function isNonterminal(state: ManagedJobState): boolean {
+  return state === "queued" || state === "running";
+}
 function isValidManagedJobConstraints(value: unknown): boolean {
   return isRecord(value)
     && hasOnly(value, ["routeId", "providerId", "model"])
@@ -1008,8 +1243,8 @@ function isValidManagedJobConstraints(value: unknown): boolean {
     && (value.model === undefined || isBoundedOpaqueIdentity(value.model));
 }
 function isHash(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value); }
-function isDiagnostic(value: unknown): value is ManagedJobDiagnosticCode { return typeof value === "string" && ["invalid_request", "project_identity_unavailable", "governance_unavailable", "governance_not_authoritative", "admission_denied", "profile_unavailable", "route_unavailable", "idempotency_conflict", "job_persistence_unavailable", "job_persistence_corrupt", "unknown_job", "invalid_transition", "provider_rejected", "provider_timeout", "account_lease_unavailable", "economic_commitment_unavailable", "invocation_failed", "unauthorized_job", "result_pending", "result_unavailable", "result_persistence_failure", "result_corrupt", "cancelled", "replay_unavailable"].includes(value); }
+function isCanonicalHash(value: unknown): value is string { return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value); }
+function isDiagnostic(value: unknown): value is ManagedJobDiagnosticCode { return typeof value === "string" && ["invalid_request", "project_identity_unavailable", "governance_unavailable", "governance_not_authoritative", "admission_denied", "profile_unavailable", "route_unavailable", "idempotency_conflict", "identity-revision-conflict", "job_persistence_unavailable", "job_persistence_corrupt", "unknown_job", "invalid_transition", "provider_rejected", "provider_timeout", "account_lease_unavailable", "economic_commitment_unavailable", "invocation_failed", "unauthorized_job", "result_pending", "result_unavailable", "result_persistence_failure", "result_corrupt", "cancelled", "replay_unavailable"].includes(value); }
 function isIso(value: unknown): value is string { return typeof value === "string" && !Number.isNaN(Date.parse(value)); }
-function fingerprint(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function hasOnly(value: Record<string, unknown>, keys: readonly string[]): boolean { return Object.keys(value).every((key) => keys.includes(key)); }

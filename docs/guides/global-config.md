@@ -672,13 +672,16 @@ decision.
 Unconfigured builtin agents are therefore absent from the schema-v2 managed
 catalog. A project or global definition, including an override with the same
 name as a builtin, is admitted only with a valid `economicPolicyId`.
-Policy agents are exposed to native managed-job submission through the V5
-pre-commit record. V5 persists the policy id/revision, normalized narrowing
-constraints, governance evidence, and admitted candidate set. It deliberately
-contains no selected route, provider, account, lease, reservation, or dispatch
-identity. Until the atomic commitment authority is installed, policy work
-terminates with `economic_commitment_unavailable`; Kiln does not queue it
-indefinitely or invent a hidden `routeId`.
+Policy agents are exposed to native managed-job submission through the V6
+precommit record. V6 persists the policy id/revision, normalized narrowing
+constraints, governance evidence, admitted candidate set, `economicAttemptId`,
+and adopted decision time before the atomic commitment transaction. The
+selected route, reservation, optional account lease, and dispatch fence remain
+SQLite-authoritative rather than duplicated into the job projection. V5 is a
+strict historical reader only. Until #34-internal Slice 5 installs provider
+dispatch, committed policy work releases pre-fence and terminates with
+`economic_commitment_unavailable`; Kiln does not queue it indefinitely or
+invent a hidden `routeId`.
 Non-managed session-turn budgeting remains owned by its existing configuration
 until its separate migration closes.
 

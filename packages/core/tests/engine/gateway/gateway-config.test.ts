@@ -109,6 +109,21 @@ modelGateway:
     });
   });
 
+  it("admits zero accounts only for explicit accountless economic virtual routes", () => {
+    const accountless = structuredClone(parseGatewayYaml(economicGatewayYaml)) as Record<string, any>;
+    accountless.modelGateway.accounts = [];
+    accountless.modelGateway.virtualModels[0].accountIds = [];
+
+    expect(validateGatewayConfig(accountless)).toEqual([]);
+
+    const unrelated = structuredClone(accountless);
+    delete unrelated.modelGateway.virtualModels[0].economics;
+    expect(validateGatewayConfig(unrelated)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "modelGateway.accounts" }),
+      expect.objectContaining({ field: "modelGateway.virtualModels[0].accountIds" }),
+    ]));
+  });
+
   it("rejects unknown nested economic fields and duplicate capacity identities", () => {
     expect(() => parseGatewayYaml(economicGatewayYaml.replace(
       "currency: USD",

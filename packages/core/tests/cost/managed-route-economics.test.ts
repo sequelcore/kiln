@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  adoptManagedEconomicSnapshot,
+  canonicalizeManagedEconomicValue,
   compareManagedEconomicAmounts,
+  digestManagedEconomicValue,
   deriveManagedEconomicMinimumReservation,
   narrowManagedEconomicExecutionAlternatives,
   selectManagedEconomicExecutionAlternative,
+  validateManagedEconomicAdoptedSnapshot,
   validateManagedEconomicAmount,
   type ManagedEconomicEvidenceIdentity,
   type ManagedEconomicExecutionAlternative,
   type ManagedEconomicPriceEvidence,
   type ManagedEconomicQuotaEvidence,
   type ManagedEconomicReservation,
+  type ManagedEconomicAdoptedSnapshotInput,
   type ManagedEconomicSelectionRequest,
   type ManagedEconomicSettlement,
 } from "../../src/cost/managed-route-economics.js";
@@ -192,7 +197,208 @@ function request(
   };
 }
 
+function adoptedSnapshotInput(): ManagedEconomicAdoptedSnapshotInput {
+  const selected = alternative("route-accountless", { account: "accountless" });
+  if (selected.priceEvidence === undefined || selected.priceEvidence === null) {
+    throw new Error("test fixture requires price evidence");
+  }
+  const rateSchedule = {
+    unitRates: [{
+      usageUnit: "input-token",
+      price: {
+        atoms: "125",
+        scale: 6,
+        unit: "input-token",
+        scheme: selected.identity.route.scheme,
+      },
+    }],
+    auxiliaryCharges: [],
+  };
+  const unitScheduleDigest = digestManagedEconomicValue(rateSchedule.unitRates);
+  const auxiliaryScheduleDigest = digestManagedEconomicValue(rateSchedule.auxiliaryCharges);
+  const route = {
+    ...selected.identity.route,
+    auxiliaryScheduleDigest,
+  };
+  const adoptedPriceEvidence = {
+    ...selected.priceEvidence,
+    identity: {
+      ...selected.priceEvidence.identity,
+      unitScheduleDigest,
+      auxiliaryScheduleDigest,
+    },
+  } as ManagedEconomicPriceEvidence;
+  return {
+    policy: {
+      policyId: "managed-policy",
+      schemaVersion: 1,
+      policyRevision: "revision-7",
+      policyDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      comparisonDomains: [selected.comparisonDomain],
+      noRouteAction: "deny",
+      evidenceRequirements: {
+        quota: "required-for-account-bound",
+        price: "required",
+      },
+    },
+    adoptedAt: "2026-07-29T11:30:00.000Z",
+    adoptedDecisionAt: CURRENT_AT,
+    callerConstraints: { providerIds: ["provider"] },
+    routes: [{
+      admittedIdentity: {
+        routeId: selected.identity.route.routeId,
+        sourceIdentity: "managed-route-config",
+        providerId: selected.identity.route.providerId,
+        modelId: selected.identity.route.modelId,
+        adapterCapabilityId: selected.identity.route.adapterCapabilityId,
+        adapterCapabilityVersion: selected.identity.route.adapterCapabilityVersion,
+        accountPolicy: { kind: "accountless" },
+      },
+      route,
+      comparisonDomain: selected.comparisonDomain,
+      priorityRank: selected.priorityRank,
+      priceEvidence: adoptedPriceEvidence,
+      rateSchedule,
+      executionEnvelope: selected.executionEnvelope as Extract<
+        typeof selected.executionEnvelope,
+        { readonly kind: "bounded" }
+      >,
+      worstCaseReservation: selected.worstCaseReservation,
+      ceiling: selected.ceiling,
+    }],
+  };
+}
+
 describe("managed route economics", () => {
+  it("canonicalizes and digests economic evidence independently of key order", () => {
+    const left = {
+      route: { providerId: "provider", routeId: "route-a" },
+      constraints: { modelIds: ["model-a"], providerIds: undefined },
+    };
+    const right = {
+      constraints: { modelIds: ["model-a"] },
+      route: { routeId: "route-a", providerId: "provider" },
+    };
+
+    expect(canonicalizeManagedEconomicValue(left)).toBe(
+      '{"constraints":{"modelIds":["model-a"]},"route":{"providerId":"provider","routeId":"route-a"}}',
+    );
+    expect(canonicalizeManagedEconomicValue(right)).toBe(
+      canonicalizeManagedEconomicValue(left),
+    );
+    expect(digestManagedEconomicValue(right)).toBe(
+      digestManagedEconomicValue(left),
+    );
+    expect(digestManagedEconomicValue(left)).toMatch(/^sha256:[a-f0-9]{64}$/u);
+  });
+
+  it("adopts a complete immutable economic snapshot with canonical digests", () => {
+    const input = adoptedSnapshotInput();
+    const snapshot = adoptManagedEconomicSnapshot(input);
+    const reordered = adoptManagedEconomicSnapshot({
+      routes: input.routes,
+      callerConstraints: input.callerConstraints,
+      adoptedAt: input.adoptedAt,
+      adoptedDecisionAt: input.adoptedDecisionAt,
+      policy: input.policy,
+    });
+
+    expect(snapshot).toEqual(reordered);
+    expect(snapshot.candidateSetDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(snapshot.snapshotDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.routes)).toBe(true);
+    expect(Object.isFrozen(snapshot.routes[0]?.priceEvidence.identity.evidence)).toBe(true);
+    expect(validateManagedEconomicAdoptedSnapshot(snapshot)).toBe(snapshot);
+  });
+
+  it("represents account policy applicability before current account evidence is attached", () => {
+    const accountless = adoptedSnapshotInput().routes[0]!;
+    const accountBound = {
+      ...accountless,
+      admittedIdentity: {
+        ...accountless.admittedIdentity,
+        routeId: "route-account-bound",
+        accountPolicy: { kind: "account-bound" as const, accountPolicyId: "account-policy" },
+      },
+      route: {
+        ...accountless.route,
+        routeId: "route-account-bound",
+        accountPolicyId: "account-policy",
+      },
+    };
+
+    expect(adoptManagedEconomicSnapshot({
+      ...adoptedSnapshotInput(),
+      routes: [accountBound],
+    }).routes[0]?.admittedIdentity.accountPolicy).toEqual({
+      kind: "account-bound",
+      accountPolicyId: "account-policy",
+    });
+    expect(() => adoptManagedEconomicSnapshot({
+      ...adoptedSnapshotInput(),
+      routes: [{
+        ...accountBound,
+        route: { ...accountBound.route, accountPolicyId: null },
+      }],
+    })).toThrow(/account policy/u);
+  });
+
+  it("rejects incomplete or cross-route adopted economic evidence", () => {
+    const input = adoptedSnapshotInput();
+    const route = input.routes[0]!;
+    expect(() => adoptManagedEconomicSnapshot({
+      ...input,
+      routes: [{
+        ...route,
+        priceEvidence: {
+          ...route.priceEvidence,
+          identity: { ...route.priceEvidence.identity, modelId: "different-model" },
+        },
+      }],
+    })).toThrow(/price evidence/u);
+    expect(() => adoptManagedEconomicSnapshot({
+      ...input,
+      routes: [{
+        ...route,
+        executionEnvelope: { ...route.executionEnvelope, limits: [] },
+      }],
+    })).toThrow(/at least one limit/u);
+  });
+
+  it("fails closed on canonical digest tampering and adopted identity revision drift", () => {
+    const input = adoptedSnapshotInput();
+    const snapshot = adoptManagedEconomicSnapshot(input);
+    expect(() => validateManagedEconomicAdoptedSnapshot({
+      ...snapshot,
+      snapshotDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    })).toThrow(/snapshot digest/u);
+    expect(() => validateManagedEconomicAdoptedSnapshot(snapshot, {
+      policyId: snapshot.policy.policyId,
+      policyRevision: "different-revision",
+      candidateSetDigest: snapshot.candidateSetDigest,
+      admittedCandidates: snapshot.routes.map(({ admittedIdentity }) => admittedIdentity),
+      callerConstraints: snapshot.callerConstraints,
+    })).toThrow(/identity-revision-conflict/u);
+  });
+
+  it("allows caller constraints to narrow persisted admission but never widen it", () => {
+    const input = adoptedSnapshotInput();
+    const snapshot = adoptManagedEconomicSnapshot(input);
+    const expectation = {
+      policyId: snapshot.policy.policyId,
+      policyRevision: snapshot.policy.policyRevision,
+      candidateSetDigest: snapshot.candidateSetDigest,
+      admittedCandidates: snapshot.routes.map(({ admittedIdentity }) => admittedIdentity),
+      callerConstraints: { providerIds: ["provider", "other-provider"] },
+    };
+    expect(validateManagedEconomicAdoptedSnapshot(snapshot, expectation)).toBe(snapshot);
+    expect(() => validateManagedEconomicAdoptedSnapshot(snapshot, {
+      ...expectation,
+      callerConstraints: { routeIds: ["route-accountless"] },
+    })).toThrow(/caller constraints cannot widen/u);
+  });
+
   it.each([
     ["subscription", false, "selected"],
     ["included", false, "selected"],

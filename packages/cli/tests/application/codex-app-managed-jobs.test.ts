@@ -6,6 +6,7 @@ import {
   FilesystemManagedJobStore,
   ManagedJobApplicationService,
   RuntimeManagedAgentInvocationService,
+  SqliteManagedAccountLeaseAuthority,
 } from "@kilnai/runtime";
 
 vi.mock("../../src/config/config-merger.js", () => ({
@@ -126,9 +127,19 @@ describe("Codex App managed-job production composition", () => {
       .mockResolvedValue({ recovered: [], accountLeases: [] });
     const recordAccountLease = vi.spyOn(FilesystemManagedJobStore.prototype, "recordAccountLease")
       .mockResolvedValue({ version: 4 } as never);
+    const recoveryOrder: string[] = [];
+    const recoverCommitments = vi
+      .spyOn(SqliteManagedAccountLeaseAuthority.prototype, "recoverCommitments")
+      .mockImplementation(() => {
+        recoveryOrder.push("authority");
+        return [];
+      });
     const recoverInterrupted = vi
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
-      .mockResolvedValue([]);
+      .mockImplementation(async () => {
+        recoveryOrder.push("jobs");
+        return [];
+      });
 
     try {
       await createNativeHarnessManagedJobApplicationComposition({
@@ -140,10 +151,12 @@ describe("Codex App managed-job production composition", () => {
       expect(recoverInvocations).not.toHaveBeenCalled();
       expect(recordAccountLease).not.toHaveBeenCalled();
       expect(recoverInterrupted).toHaveBeenCalledOnce();
+      expect(recoveryOrder).toEqual(["authority", "jobs"]);
     } finally {
       recoverInvocations.mockRestore();
       recordAccountLease.mockRestore();
       recoverInterrupted.mockRestore();
+      recoverCommitments.mockRestore();
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });

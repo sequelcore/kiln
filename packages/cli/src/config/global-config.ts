@@ -891,8 +891,14 @@ function validateManagedAgentCredentials(value: unknown, path: string): void {
     throw new KilnYamlError(`${path} must explicitly select an account policy`);
   }
   if (value.mode === "credentialless") {
-    if (Object.keys(value).some((key) => key !== "mode")) {
+    if (Object.keys(value).some((key) => !["mode", "economicsRouteId"].includes(key))) {
       throw new KilnYamlError(`${path} credentialless mode does not accept account routing fields`);
+    }
+    if (
+      value.economicsRouteId !== undefined
+      && (typeof value.economicsRouteId !== "string" || value.economicsRouteId.trim().length === 0)
+    ) {
+      throw new KilnYamlError(`${path}.economicsRouteId must be a non-empty string`);
     }
     return;
   }
@@ -958,13 +964,27 @@ function validateManagedAccountPolicyReferences(managedAgents: unknown, modelGat
       if (route.kind !== "direct" || !directProviders.has(String(route.provider))) {
         throw new KilnYamlError(`${path}.routeId must reference a supported direct economic route`);
       }
-      if (!isRecord(route.credentials) || route.credentials.mode !== "runtime-selected") {
-        throw new KilnYamlError(`${path}.routeId must reference a runtime-selected account policy`);
+      if (!isRecord(route.credentials)) {
+        throw new KilnYamlError(`${path}.routeId must reference explicit route credentials`);
       }
-      const accountPolicyId = route.credentials.accountPolicyId;
-      const virtualModel = policies.find((entry) => entry.id === accountPolicyId);
+      const economicsRouteId = route.credentials.mode === "runtime-selected"
+        ? route.credentials.accountPolicyId
+        : route.credentials.mode === "credentialless"
+          ? route.credentials.economicsRouteId
+          : undefined;
+      if (typeof economicsRouteId !== "string") {
+        throw new KilnYamlError(`${path}.routeId requires an explicit virtual economics route reference`);
+      }
+      const matchingVirtualModels = policies.filter((entry) => entry.id === economicsRouteId);
+      if (matchingVirtualModels.length !== 1) {
+        throw new KilnYamlError(`${path}.routeId must reference exactly one modelGateway virtual model`);
+      }
+      const virtualModel = matchingVirtualModels[0]!;
       if (!virtualModel || !isRecord(virtualModel.economics)) {
         throw new KilnYamlError(`${path}.routeId must reference a virtual model with economics`);
+      }
+      if (virtualModel.providerId !== route.provider || virtualModel.providerModelId !== route.model) {
+        throw new KilnYamlError(`${path}.routeId provider and model must match its virtual economics route`);
       }
       const domain = Array.isArray(economicPolicy.comparisonDomains)
         ? economicPolicy.comparisonDomains.find((entry) =>
@@ -992,6 +1012,10 @@ function validateManagedAccountPolicyReferences(managedAgents: unknown, modelGat
         throw new KilnYamlError(`${path}.routeId cannot activate uncommitted fallback or overage`);
       }
       const accountIds = Array.isArray(virtualModel.accountIds) ? virtualModel.accountIds : [];
+      if (route.credentials.mode === "credentialless" && accountIds.length !== 0) {
+        throw new KilnYamlError(`${path}.routeId credentialless economics route must have zero accountIds`);
+      }
+      if (route.credentials.mode === "credentialless") continue;
       for (const accountId of accountIds) {
         const account = accounts.find((entry) => entry.id === accountId);
         if (!account || !isRecord(account.economics)) {
