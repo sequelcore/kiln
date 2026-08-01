@@ -394,6 +394,7 @@ export type KilnManagedAgentCredentialsConfig =
   }
   | {
     readonly mode: "credentialless";
+    readonly economicsRouteId?: string;
   };
 
 export interface KilnManagedAgentWorktreeLeaseConfig {

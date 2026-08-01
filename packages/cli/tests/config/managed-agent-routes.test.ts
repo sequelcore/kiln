@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -1265,6 +1265,71 @@ describe("resolveManagedInvocationToolOptions", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("rejects a committed route mismatch before constructing its adapter", async () => {
+    const directAdapterFactory = vi.fn((route) => makeDirectAdapter(route.provider));
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      schemaVersion: 2,
+      economicPolicies: [{
+        id: "bounded-policy",
+        revision: "rev-1",
+        evidenceRequirements: { quota: "optional", price: "optional" },
+        noRouteAction: "deny",
+        comparisonDomains: [{
+          id: "priority-only",
+          rank: 0,
+          unit: "request",
+          scheme: { kind: "unit" },
+          rateCardBasis: "configured",
+          envelopeSemantics: "bounded",
+        }],
+        candidates: [{
+          routeId: "admitted-route",
+          comparisonDomainId: "priority-only",
+          priorityRank: 0,
+          ceiling: { kind: "none" },
+          worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
+        }],
+      }],
+      routes: [{
+        id: "admitted-route",
+        kind: "direct",
+        provider: "codex-oauth",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }), {
+      cwd: "C:/repo",
+      userHome: "C:/repo",
+      registry: createRegistry("codex-oauth"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory,
+    });
+    const createCommittedAdapter = result.managedInvocation?.routes[0]?.createCommittedAdapter;
+    expect(createCommittedAdapter).toBeDefined();
+    expect(directAdapterFactory).not.toHaveBeenCalled();
+
+    await expect(createCommittedAdapter!({
+      commitment: {
+        reservation: {
+          selectedIdentity: {
+            route: { routeId: "wrong route <secret>", providerId: "other provider", modelId: "other model" },
+          },
+        },
+      },
+      dispatchFenceId: "dispatch-fence:test",
+    } as never)).rejects.toMatchObject({
+      code: "committed-route-mismatch",
+      message: "Committed managed route does not match the configured execution route.",
+      evidence: {
+        code: "committed-route-mismatch",
+        expected: { routeId: "admitted-route", providerId: "codex-oauth", modelId: "gpt-5.4-mini" },
+        committed: { routeId: "wrong-route-secret", providerId: "other-provider", modelId: "other-model" },
+      },
+    });
+    expect(directAdapterFactory).not.toHaveBeenCalled();
   });
 
   it("projects agent route hints from configured task suitability without model-name heuristics", async () => {

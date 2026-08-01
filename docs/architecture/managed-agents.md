@@ -27,6 +27,11 @@ because it can edit today if the operator's configured route strategy is
 the direct-provider runtime adapter and pass the same managed write evidence
 contract as any harness route.
 
+Codex implementation evidence supports only transport fallback, bounded
+same-credential authorization retry, and service-tier resolution. It is not
+evidence for economic route fallback, account substitution, or provider-global
+capacity.
+
 A managed invocation is admissible only when the runtime can prove the requested
 authority is complete and bounded. Missing provider route, adapter kind,
 execution mode, permission profile, tool authority, working directory, timeout,
@@ -180,13 +185,16 @@ configuration, environment, credentials, or timeout inputs.
 
 Production composition creates the Runtime `ManagedJobApplicationService`,
 uses the persistent `.kiln/managed-jobs` owner, canonical governance status,
-and a candidate-admission-only configured-agent catalog. It does not construct
-the Runtime invocation service, account lease authority, or direct-provider
-adapter. The application boundary refreshes canonical eligibility for every
-submission, resolves the configured policy and narrow-only route constraints,
-then persists the V5 precommit record. Slice 3's explicit application admission
-requirement is `foundation-readonly-plan`; a candidate route must supply that
-profile. The MCP adapter never selects a route. Capability inspection
+and a candidate-admission-only configured-agent catalog. It creates one
+project-scoped Runtime SQLite economic commitment authority, recovers that
+authority before job recovery, and does not construct a provider adapter during
+candidate admission or commitment. The application boundary refreshes
+canonical eligibility for every submission, resolves the configured policy and
+narrow-only route constraints, and persists the V6 precommit record with its
+`economicAttemptId` and pinned `adoptedDecisionAt` before snapshot adoption.
+Roadmap issue #34 internal Slice 4 stops before provider dispatch; this is not
+Roadmap 02 Slice 5 cross-path convergence. The MCP adapter never selects a
+route. Capability inspection
 projects safe configured-agent identity, optional role/display name, availability,
 provider family, admission profile, and stable action; it does not expose route
 configuration. Status, result, cancellation, and replay operations are
@@ -212,8 +220,9 @@ cache. Cancellation passes through the Runtime invocation owner, records a
 terminal `cancelled` lifecycle entry, and cannot be overwritten by late
 provider completion. This surface does not expose listing, configuration
 mutation, bulk invocation, native CLI execution, or provider/model selection.
-This slice does not implement quota-aware or automatic multi-route routing;
-that remains a Slice 4 concern.
+The committed route is selected only by Runtime's economic authority. The MCP
+surface neither implements route fallback nor treats a configured candidate as
+a default.
 
 ## Lifecycle And Parallel Execution
 
@@ -761,11 +770,29 @@ Policy execution has three distinct contracts:
 
 Candidate collection cannot construct an adapter, resolve a credential, launch
 a process, acquire a lease, reserve capacity, or call a provider. A new managed
-job is persisted as V5 with policy/revision and constraints but without
-`routeId` or `providerId`. V3/V4 remain historical reader/recovery formats and
-are never used for a new submission. Until the atomic commitment owner is
-available, V5 terminates deterministically as
-`economic_commitment_unavailable`; no candidate is treated as a default.
+job is persisted as V6 with policy/revision and constraints, a namespaced
+`economicAttemptId`, and pinned `adoptedDecisionAt`, but without a selected
+`routeId` or `providerId`. Core then adopts an immutable economic snapshot whose
+policy, candidate set, price/rate evidence, and full contents are bound by
+canonical sorted SHA-256 digests. V5 remains a strict historical reader and
+recovery format; it is never used for a new submission or inferred into a V6
+attempt.
+
+Runtime acquires the commitment synchronously from its single-owner SQLite
+authority in one immediate transaction. That transaction revalidates the
+adopted revision and digests, applies exact route capacity, atomically selects
+an account-backed or accountless identity, and persists replayable decision,
+reservation, and rejection evidence. Exact replay returns the prior commitment;
+intent or revision drift fails closed. A distinct dispatch fence precedes any
+provider effect. Pre-fence interim failure releases the commitment before
+terminal projection, while fenced or unprovably settled work remains
+capacity-consuming through recovery and explicit reconciliation. SQLite is the
+commitment authority; managed-job JSON is its projection.
+
+The former direct managed-invocation account-only writer is not a compatibility
+path. Direct account-leased invocation outside the managed economic job path
+fails closed. Model Gateway ingress continues to use its separate
+`LocalModelGatewayStore` until Roadmap 02 Slice 5 convergence.
 
 For a retained non-policy invocation, the runtime maps the configured input to
 a `ManagedAgentInvocationRequest` using configured route defaults for adapter,

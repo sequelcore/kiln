@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, posix, resolve, win32 } from "node:path";
@@ -19,19 +20,26 @@ import type {
   ModelTaskSuitabilityEvidence,
   ManagedAgentWorkingDirectory,
   ModelGatewayConfig,
+  ManagedEconomicAdoptedSnapshotExpectation,
+  ManagedEconomicPriceEvidence,
 } from "@kilnai/core";
 import {
+  adoptManagedEconomicSnapshot,
   createAccountPolicyId,
+  createManagedAccountAffinityKey,
   createProviderModelEvidence,
   defineManagedAgentReadAuthority,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
   deriveProviderModelEligibility,
+  digestManagedEconomicValue,
 } from "@kilnai/core";
 import {
   createAttachedRuntimeBuiltinToolSurface,
   ConfiguredManagedAccountRuntime,
   ManagedCliHarnessAdapter,
+  ManagedCommittedRouteMismatchError,
+  ManagedJobApplicationError,
   ManagedFilesystemRuntimeRecoveryStore,
   ManagedGitWorktreeLeaseManager,
   ManagedRemoteHarnessAdapter,
@@ -39,7 +47,6 @@ import {
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
   SqliteManagedAccountLeaseAuthority,
-  type ManagedAccountLeaseAuthority,
   type ManagedAgentRuntimeAdapter,
   type ManagedAgentRuntimeAuthorityObserver,
   type ManagedInvocationAgentCatalogEntry,
@@ -48,6 +55,9 @@ import {
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
   type RuntimeBudgetAdmissionPort,
+  type ManagedEconomicCandidateSet,
+  type ManagedJobEconomicAdoption,
+  type ManagedJobRecordV6,
 } from "@kilnai/runtime";
 import type {
   ManagedAgentProviderModelCatalogDiagnostic,
@@ -152,9 +162,242 @@ export interface ManagedAgentRouteConfigSource {
 
 export interface ManagedAccountRuntimeComposition {
   readonly routing: ConfiguredManagedAccountRuntime;
-  readonly authority: ManagedAccountLeaseAuthority;
+  readonly authority: SqliteManagedAccountLeaseAuthority;
   updateConfig(config: ModelGatewayConfig): void;
   close(): void;
+}
+
+/** Projects validated config and persisted admission into immutable Core evidence. */
+export async function projectManagedEconomicJobAdoption(
+  config: ManagedAgentRouteConfigSource,
+  job: ManagedJobRecordV6,
+  routing: ConfiguredManagedAccountRuntime,
+): Promise<ManagedJobEconomicAdoption> {
+  const managed = config.managedAgents;
+  const gateway = config.modelGateway;
+  const policy = managed?.economicPolicies?.find((entry) =>
+    entry.id === job.economicPolicyId && entry.revision === job.economicPolicyRevision);
+  if (managed?.schemaVersion !== 2 || !policy || !gateway) {
+    throw new ManagedJobApplicationError(
+      "identity-revision-conflict",
+      "Restore the exact persisted managed economic policy revision.",
+    );
+  }
+  const admitted = admittedEconomicIdentities(job.candidateSet);
+  const domains = policy.comparisonDomains.map((domain) => ({
+    id: domain.id,
+    rank: domain.rank,
+    basis: {
+      unit: domain.unit,
+      scheme: domain.scheme,
+      rateCardBasis: domain.rateCardBasis,
+      envelopeSemantics: domain.envelopeSemantics,
+    },
+  }));
+  const routes = policy.candidates
+    .filter((candidate) => admitted.some((identity) => identity.routeId === candidate.routeId))
+    .map((candidate) => {
+      const admittedIdentity = admitted.find((identity) => identity.routeId === candidate.routeId)!;
+      const routeConfig = managed.routes?.find((entry) => entry.id === candidate.routeId);
+      const domain = domains.find((entry) => entry.id === candidate.comparisonDomainId);
+      const configuredAccountPolicyId = routeConfig?.credentials?.mode === "runtime-selected"
+        ? routeConfig.credentials.accountPolicyId
+        : null;
+      const economicsRouteId = routeConfig?.credentials?.mode === "credentialless"
+        ? routeConfig.credentials.economicsRouteId
+        : configuredAccountPolicyId;
+      const virtual = gateway.virtualModels.find((entry) => entry.id === economicsRouteId);
+      const economics = virtual?.economics;
+      if (!routeConfig || !routeConfig.model || !domain || !virtual || !economics) {
+        throw new ManagedJobApplicationError(
+          "identity-revision-conflict",
+          `Restore managed economic route '${candidate.routeId}' and its exact revision.`,
+        );
+      }
+      if (
+        routeConfig.provider !== admittedIdentity.providerId
+        || routeConfig.model !== admittedIdentity.modelId
+        || economics.adapterCapabilityId !== admittedIdentity.adapterCapabilityId
+        || economics.adapterCapabilityVersion !== admittedIdentity.adapterCapabilityVersion
+        || (configuredAccountPolicyId === null
+          ? admittedIdentity.accountPolicy.kind !== "accountless"
+          : admittedIdentity.accountPolicy.kind !== "account-bound"
+            || admittedIdentity.accountPolicy.accountPolicyId !== configuredAccountPolicyId)
+      ) {
+        throw new ManagedJobApplicationError(
+          "identity-revision-conflict",
+          `Restore managed economic route '${candidate.routeId}' and its exact admitted identity.`,
+        );
+      }
+      const unitRates = "unitPrices" in economics.priceEvidence
+        ? economics.priceEvidence.unitPrices
+        : [];
+      const unitScheduleDigest = digestManagedEconomicValue(unitRates);
+      const auxiliaryScheduleDigest = digestManagedEconomicValue(economics.auxiliaryCharges);
+      const envelopeDigest = digestManagedEconomicValue(economics.executionEnvelope);
+      const priceIdentity = {
+        providerId: virtual.providerId,
+        modelId: virtual.providerModelId,
+        authBillingChannel: economics.authBillingChannel,
+        executionMode: economics.executionMode,
+        serviceTier: economics.serviceTier,
+        rateCardId: economics.priceEvidence.rateCardId,
+        rateCardRevision: economics.priceEvidence.rateCardRevision,
+        unit: domain.basis.unit,
+        scheme: domain.basis.scheme,
+        unitScheduleDigest,
+        contextClass: economics.contextClass,
+        cacheClass: economics.cacheClass,
+        auxiliaryScheduleDigest,
+        evidence: economics.priceEvidence.evidence,
+      };
+      const priceEvidence: ManagedEconomicPriceEvidence = {
+        kind: economics.priceEvidence.kind,
+        identity: priceIdentity,
+        ...("allowanceId" in economics.priceEvidence ? { allowanceId: economics.priceEvidence.allowanceId } : {}),
+        ...("reason" in economics.priceEvidence ? { reason: economics.priceEvidence.reason } : {}),
+        ...("estimationMethod" in economics.priceEvidence
+          ? { estimationMethod: economics.priceEvidence.estimationMethod }
+          : {}),
+      } as ManagedEconomicPriceEvidence;
+      return {
+        admittedIdentity,
+        route: {
+          routeId: candidate.routeId,
+          providerId: virtual.providerId,
+          modelId: virtual.providerModelId,
+          adapterCapabilityId: economics.adapterCapabilityId,
+          adapterCapabilityVersion: economics.adapterCapabilityVersion,
+          authBillingChannel: economics.authBillingChannel,
+          executionMode: economics.executionMode,
+          serviceTier: economics.serviceTier,
+          accountPolicyId: configuredAccountPolicyId,
+          fallbackPosture: economics.fallbackPosture,
+          overagePosture: economics.overagePosture,
+          rateCardId: economics.priceEvidence.rateCardId,
+          rateCardRevision: economics.priceEvidence.rateCardRevision,
+          priceEvidenceDigest: economics.priceEvidence.evidence.sourceDigest,
+          unit: domain.basis.unit,
+          scheme: domain.basis.scheme,
+          contextClass: economics.contextClass,
+          cacheClass: economics.cacheClass,
+          auxiliaryScheduleDigest,
+          envelopeDigest,
+        },
+        comparisonDomain: domain,
+        priorityRank: candidate.priorityRank,
+        priceEvidence,
+        rateSchedule: { unitRates, auxiliaryCharges: economics.auxiliaryCharges },
+        executionEnvelope: { kind: "bounded" as const, digest: envelopeDigest, limits: economics.executionEnvelope.limits },
+        worstCaseReservation: candidate.worstCaseReservation,
+        ceiling: candidate.ceiling,
+      };
+    });
+  if (routes.length !== admitted.length) {
+    throw new ManagedJobApplicationError(
+      "identity-revision-conflict",
+      "Restore the exact persisted managed economic candidate set.",
+    );
+  }
+  const callerConstraints = {
+    ...(job.constraints.routeId ? { routeIds: [job.constraints.routeId] } : {}),
+    ...(job.constraints.providerId ? { providerIds: [job.constraints.providerId] } : {}),
+    ...(job.constraints.model ? { modelIds: [job.constraints.model] } : {}),
+  };
+  const snapshot = adoptManagedEconomicSnapshot({
+    policy: {
+      policyId: policy.id,
+      schemaVersion: managed.schemaVersion,
+      policyRevision: policy.revision,
+      policyDigest: digestManagedEconomicValue(policy),
+      comparisonDomains: domains,
+      noRouteAction: policy.noRouteAction,
+      evidenceRequirements: policy.evidenceRequirements,
+    },
+    adoptedAt: job.adoptedDecisionAt,
+    adoptedDecisionAt: job.adoptedDecisionAt,
+    callerConstraints,
+    routes,
+  });
+  const expectation: ManagedEconomicAdoptedSnapshotExpectation = {
+    policyId: job.economicPolicyId,
+    policyRevision: job.economicPolicyRevision,
+    candidateSetDigest: snapshot.candidateSetDigest,
+    admittedCandidates: admitted,
+    callerConstraints,
+  };
+  const routeCapacity = await Promise.all(routes.map(async (route) => {
+    if (route.route.accountPolicyId === null) {
+      return { routeId: route.route.routeId };
+    }
+    const resolution = await routing.resolve({
+      accountPolicyId: createAccountPolicyId(route.route.accountPolicyId!),
+      providerRoute: {
+        providerId: route.route.providerId,
+        model: route.route.modelId,
+        surface: "managed-economic-adoption",
+      },
+    });
+    const affinityRequest = resolution.affinityPolicy.continuity === "none"
+      ? { continuity: "none" as const }
+      : managedEconomicAffinityRequest(job, route.route.routeId, resolution.affinityPolicy);
+    return {
+      routeId: route.route.routeId,
+      route: resolution.route,
+      affinityRequest,
+      candidates: resolution.candidates,
+    };
+  }));
+  return { snapshot, expectation, routeCapacity };
+}
+
+function managedEconomicAffinityRequest(
+  job: ManagedJobRecordV6,
+  routeId: string,
+  policy: Exclude<Awaited<ReturnType<ConfiguredManagedAccountRuntime["resolve"]>>["affinityPolicy"], { continuity: "none" }>,
+) {
+  if (!job.parent) {
+    throw new ManagedJobApplicationError(
+      "identity-revision-conflict",
+      `Managed economic route '${routeId}' requires persisted parent lineage for affinity continuity.`,
+    );
+  }
+  const parts = [
+    "kiln-managed-economic-affinity-v1",
+    job.projectId,
+    job.callerId,
+    routeId,
+    policy.scope,
+    job.parent.invocationId,
+    ...(policy.scope === "turn" ? [job.parent.turnId] : []),
+  ];
+  const hash = createHash("sha256");
+  for (const part of parts) {
+    const bytes = Buffer.from(part, "utf8");
+    hash.update(`${bytes.byteLength}:`);
+    hash.update(bytes);
+    hash.update(";");
+  }
+  return {
+    continuity: policy.continuity,
+    scope: policy.scope,
+    ...(policy.allowRebind === undefined ? {} : { allowRebind: policy.allowRebind }),
+    key: createManagedAccountAffinityKey(hash.digest("hex")),
+  };
+}
+
+function admittedEconomicIdentities(candidateSet: ManagedEconomicCandidateSet) {
+  return candidateSet.candidates.map((candidate) => ({
+    routeId: candidate.routeId,
+    sourceIdentity: candidate.routeSource,
+    providerId: candidate.providerId,
+    modelId: candidate.model ?? "",
+    adapterCapabilityId: candidate.adapterCapabilityId,
+    adapterCapabilityVersion: candidate.adapterCapabilityVersion,
+    accountPolicy: candidate.accountPolicyId
+      ? { kind: "account-bound" as const, accountPolicyId: candidate.accountPolicyId }
+      : { kind: "accountless" as const },
+  }));
 }
 
 const SUPPORTED_HARNESS_PROVIDERS = new Set<string>(["claude", "codex", "opencode"]);
@@ -416,18 +659,19 @@ function managedEconomicCapabilitiesByRoute(
     if (
       route.kind !== "direct"
       || !["codex-oauth", "opencode-go", "opencode-zen"].includes(route.provider)
-      || route.credentials?.mode !== "runtime-selected"
+      || !route.credentials
     ) {
       capabilities.set(route.id, { status: "unverified" });
       continue;
     }
-    // Slice 2 makes this an exact, validated route reference: the managed
-    // route's accountPolicyId names the canonical virtual route whose provider,
-    // model, and economics are validated together at the config boundary.
-    const accountPolicyId = route.credentials.accountPolicyId;
+    // The credential union owns the single validated reference to the canonical
+    // virtual route for both account-backed and accountless economics.
+    const economicsRouteId = route.credentials.mode === "runtime-selected"
+      ? route.credentials.accountPolicyId
+      : route.credentials.economicsRouteId;
     const canonicalRoute = config.modelGateway?.virtualModels.find(
       (candidate) =>
-        candidate.id === accountPolicyId
+        candidate.id === economicsRouteId
         && candidate.providerId === route.provider
         && candidate.providerModelId === route.model,
     );
@@ -1305,7 +1549,15 @@ async function resolveDirectRouteConfig(
               || committedRoute.providerId !== routeConfig.provider
               || committedRoute.modelId !== model
             ) {
-              return undefined;
+              throw new ManagedCommittedRouteMismatchError({
+                code: "committed-route-mismatch",
+                expected: { routeId: routeConfig.id, providerId: routeConfig.provider, modelId: model },
+                committed: {
+                  routeId: committedRoute.routeId,
+                  providerId: committedRoute.providerId,
+                  modelId: committedRoute.modelId,
+                },
+              });
             }
             return await context.directAdapterFactory?.(routeConfig);
           },
@@ -1630,9 +1882,6 @@ function createManagedInvocationService(
       credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
         allowedRouteIds: credentialRouteIds,
       }),
-      accountCandidatePort: managedAccountComposition!.routing,
-      accountExecutionBindingPort: managedAccountComposition!.routing,
-      accountLeaseAuthority: managedAccountComposition!.authority,
       recoveryStore: new ManagedFilesystemRuntimeRecoveryStore({
         rootPath: join(cwd, ".kiln", "runtime", "managed-invocation-recovery"),
       }),
@@ -1646,9 +1895,18 @@ export function createManagedAccountRuntimeComposition(
 ): ManagedAccountRuntimeComposition | undefined {
   const hasRuntimeSelectedRoute = resolveRouteConfigs(config)
     .some(({ routeConfig }) => routeConfig.credentials?.mode === "runtime-selected");
-  if (!hasRuntimeSelectedRoute) return undefined;
+  const economicRouteIds = new Set(
+    config.managedAgents?.economicPolicies?.flatMap((policy) =>
+      policy.candidates.map((candidate) => candidate.routeId)) ?? [],
+  );
+  const hasManagedEconomicRoute = resolveRouteConfigs(config).some(({ routeConfig }) =>
+    economicRouteIds.has(routeConfig.id)
+    && routeConfig.credentials?.mode === "credentialless"
+    && routeConfig.credentials.economicsRouteId !== undefined
+  );
+  if (!hasRuntimeSelectedRoute && !hasManagedEconomicRoute) return undefined;
   if (!config.modelGateway) {
-    throw new Error("Runtime-selected managed routes require modelGateway configuration.");
+    throw new Error("Managed account or economic routes require modelGateway configuration.");
   }
   const compositionKey = resolve(cwd);
   const existing = MANAGED_ACCOUNT_COMPOSITIONS.get(compositionKey);

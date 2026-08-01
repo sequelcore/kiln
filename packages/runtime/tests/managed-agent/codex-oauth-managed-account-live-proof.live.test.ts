@@ -4,24 +4,13 @@ import { expect, it, vi } from "vitest";
 import {
   buildManagedAgentBackgroundJobOrchestrationRequest,
   createSessionBuiltinToolOptions,
-  type ManagedAgentAdmissionDecision,
-  type ManagedAgentInvocationRecord,
-  type ManagedAgentInvocationRequest,
 } from "@kilnai/core";
-import {
-  normalizeManagedAgentOperatorReplayEvents,
-  projectOperatorCockpitReadOnlyView,
-} from "@kilnai/gateway-contracts";
 import {
   CodexOAuthCredentialPoolService,
   ConfiguredManagedAccountRuntime,
-  RuntimeSession,
   SqliteManagedAccountLeaseAuthority,
   runManagedAgentOrchestrationLifecycle,
 } from "../../src/index.js";
-import { createModelGatewayBoundAccountRef } from "../../src/model-gateway/model-gateway-account-binding.js";
-import { appendManagedInvocationSessionEvents } from "../../src/agents/managed-invocation/session-events.js";
-import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 import { createManagedDirectProviderAdapterFactory } from "../../../cli/src/config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../../../cli/src/config/managed-agent-provider-models.js";
 import { resolveManagedInvocationToolOptions } from "../../../cli/src/config/managed-agent-routes.js";
@@ -31,7 +20,6 @@ import {
   KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV,
   KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
   describeManagedAgentProviderLive,
-  expectManagedAgentLiveDurableEvidenceSafe,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 
@@ -39,7 +27,7 @@ describeManagedAgentProviderLive(
   "managed agent Codex OAuth account-leased live proof",
   KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
   () => {
-    it("selects one configured account and replays released settlement evidence", async () => {
+    it("fails closed before dispatch while postcommit account execution is unavailable", async () => {
       let leaseAuthority: SqliteManagedAccountLeaseAuthority | undefined;
       await withManagedAgentLiveFixtureWorkspace({
         prefix: "kiln-managed-account-live-",
@@ -151,9 +139,6 @@ describeManagedAgentProviderLive(
           throw new Error(health?.reason ?? "Managed-account live route is unavailable.");
         }
 
-        let observedRequest: ManagedAgentInvocationRequest | undefined;
-        let observedDecision: ManagedAgentAdmissionDecision | undefined;
-        let observedRecord: ManagedAgentInvocationRecord | undefined;
         const orchestration = await runManagedAgentOrchestrationLifecycle({
           orchestrationRequest: buildManagedAgentBackgroundJobOrchestrationRequest({
             orchestrationId: `managed-account-live-${Date.now()}`,
@@ -172,111 +157,18 @@ describeManagedAgentProviderLive(
           }),
           managedInvocation,
           profile: "foundation-readonly-plan",
-          lifecycleObserver: {
-            onAdmissionResolved: ({ request, decision }) => {
-              observedRequest = request;
-              observedDecision = decision;
-            },
-            onTerminal: ({ record }) => {
-              observedRecord = record;
-            },
-          },
         });
 
         expect(orchestration.orchestrationResult).toMatchObject({
           mode: "background-job",
           status: "completed",
-          succeededCount: 1,
-          failedCount: 0,
+          succeededCount: 0,
+          failedCount: 1,
         });
-        const record = requireObserved(observedRecord, "terminal record");
-        expect(record).toMatchObject({
-          lifecycleState: "completed",
-          accountLease: {
-            accountPolicyId: policy.id,
-            lifecycleState: "released",
-            selectionReason: "least-pressure",
-            usageEvidence: {
-              freshness: "fresh",
-              availability: "available",
-            },
-          },
-        });
-        expect(credentialResolutions).toHaveBeenCalledTimes(1);
-        const resolvedExecution = credentialResolutions.mock.calls[0]?.[0];
-        const executedAccount = config.modelGateway?.accounts.find(
-          (account) =>
-            policy.accountIds.includes(account.id)
-            && account.credentialId === resolvedExecution?.credentialId,
-        );
-        if (!resolvedExecution || !executedAccount) {
-          throw new Error("Managed-account live proof resolved an account outside the selected policy.");
-        }
-        expect(record.accountLease?.accountRef).toBe(
-          createModelGatewayBoundAccountRef(executedAccount, resolvedExecution),
-        );
-        const childExecution = record.replayResources?.find(
-          (resource) => resource.title === "Managed invocation child execution evidence",
-        );
-        expect(childExecution?.text).toContain("kiln-managed-account-live-proof");
-        expect(
-          childExecution?.text.match(/^## Tool \d+: read$/gmu),
-        ).toHaveLength(1);
+        expect(credentialResolutions).not.toHaveBeenCalled();
         await expect(workspace.readFile("proof.txt")).resolves.toContain(
           "keyword=kiln-managed-account-live-proof",
         );
-
-        const request = requireObserved(observedRequest, "invocation request");
-        const decision = requireObserved(observedDecision, "admission decision");
-        const session = new RuntimeSession({
-          sessionId: request.parentSessionId,
-          appName: "kiln-live-proof",
-          tenantId: "operator",
-          userId: "operator",
-          systemPrompt: "Bounded live proof.",
-        });
-        const events = appendManagedInvocationSessionEvents({
-          session,
-          request,
-          decision,
-          record,
-        });
-        const replayed = normalizeManagedAgentOperatorReplayEvents(events.map((event) =>
-          toOperatorSessionEventFrame(event, {
-            eventId: event.eventId,
-            sequence: event.sequence,
-            instanceId: "local-live-proof",
-          }).event), {
-          defaultInstanceId: "local-live-proof",
-        });
-        const projection = projectOperatorCockpitReadOnlyView({
-          projectedAt: new Date().toISOString(),
-          attachTargets: [{
-            instanceId: "local-live-proof",
-            label: "Local live proof",
-            kind: "local",
-          }],
-          events: replayed,
-        });
-        expect(projection.invocations).toContainEqual(expect.objectContaining({
-          managedInvocationId: record.invocationId,
-          lifecycleState: "completed",
-          accountLease: expect.objectContaining({
-            accountPolicyId: policy.id,
-            accountRef: record.accountLease?.accountRef,
-            selectionReason: record.accountLease?.selectionReason,
-            lifecycleState: "released",
-            usageEvidence: expect.objectContaining({
-              freshness: "fresh",
-              availability: "available",
-            }),
-          }),
-        }));
-
-        expectManagedAgentLiveDurableEvidenceSafe({
-          evidence: events,
-          forbiddenPaths: [workspace.workspaceRoot],
-        });
       });
     }, 240_000);
   },
@@ -285,10 +177,5 @@ describeManagedAgentProviderLive(
 function requireEnvironment(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} must name the explicitly authorized managed route.`);
-  return value;
-}
-
-function requireObserved<T>(value: T | undefined, label: string): T {
-  if (value === undefined) throw new Error(`Managed-account live proof did not observe ${label}.`);
   return value;
 }

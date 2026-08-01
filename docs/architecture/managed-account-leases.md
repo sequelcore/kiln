@@ -1,181 +1,141 @@
-# Managed Account Leases
+# Managed Economic Commitment Authority
 
 ## Purpose
 
-Managed account leases bind one admitted managed job to one explicitly
-configured provider account before provider effects begin. They are distinct
-from generic runtime resource leases and from Model Gateway ingress attempts.
-Runtime owns their capacity, persistence, settlement, and recovery.
+Managed economic commitment binds one admitted managed job to one immutable
+economic route decision before provider effects begin. Runtime owns the local
+SQLite authority for route reservations, account selection when applicable,
+dispatch fencing, release, recovery, and reconciliation. Job JSON is a durable
+projection of that authority, not a second commitment store.
 
-## Boundaries
+This boundary is distinct from generic runtime resource leases and from Model
+Gateway ingress. The latter continues to use `LocalModelGatewayStore` until
+Roadmap 02 Slice 5 converges the two authorities.
 
-- Core owns `AccountPolicyId`, deterministic account selection, `AttemptCommit`,
-  and the sanitized `ManagedAccountLeaseEvidence` contract.
-- CLI composition projects existing `modelGateway.accounts` and
-  `modelGateway.virtualModels` through the Runtime-owned candidate port.
-- Runtime owns one process-scoped SQLite lease and affinity authority per
-  project runtime for managed invocations. Route catalogs and adapter factories
-  do not own or recreate managed-path capacity.
-- Provider adapters expose execution settlement. They do not select accounts,
-  release capacity, retry across accounts, or reconstruct policy.
-- Gateway Contracts and operator surfaces project canonical evidence without
-  deriving eligibility or release state.
+## Adopted Input
 
-Managed jobs do not import Model Gateway HTTP or process lifecycle. Managed
-routes reference one Core-owned `accountPolicyId`; provider and model must match
-that policy exactly. Runtime-selected credentials are supported only on direct
-routes that can bind the already selected credential revision.
+Core owns the immutable `ManagedEconomicSnapshot` and its validation rules. CLI
+composition adopts one snapshot outside the SQLite write transaction from:
 
-CLI configuration names this operator intent `credentials.mode:
-runtime-selected` and projects it to Core's `account-leased` authority. Core's
-`runtime-selected` mode remains the separate contract for selecting one
-credential route and never implies account-capacity ownership.
+- the exact economic policy id and revision;
+- the admitted candidate identities and authority rejections;
+- canonical provider, model, capability, tariff, comparison-domain, envelope,
+  ceiling, account-policy, usage, and quota evidence; and
+- the pinned `adoptedDecisionAt` used for the decision.
 
-## Execution Flow
+Canonical sorted serialization and SHA-256 digests bind the policy, candidate
+set, price evidence, rate schedules, and complete snapshot. Reordered object
+keys cannot change a digest. A later config read or clock value cannot rewrite
+the adopted decision basis.
 
-1. Admit governance, configured profile, route, authority, and capability.
-2. Resolve secret-free candidates for the route's explicit account policy.
-3. Acquire one durable lease in an immediate SQLite transaction.
-4. Resolve configured continuity against the durable stable-capacity mapping,
-   then persist the sanitized account reference, credential revision digest,
-   selection reason, selected usage observation, candidate rejection evidence,
-   and affinity outcome.
-5. Resolve only the leased credential revision and bind a non-pooled direct
-   adapter.
-6. Advance `AttemptCommit` to `dispatching` immediately before provider effects.
-7. Project the operator-visible terminal state independently of settlement.
-8. On success, atomically release the lease and compare-and-set its affinity
-   mapping. On every other outcome, release capacity only after authoritative
-   execution settlement.
+Managed-job V6 is the only writer. It durably creates a namespaced
+`economicAttemptId` and `adoptedDecisionAt` before adoption or commitment. V5
+is a strict historical reader/recovery format only and is never upgraded into
+a new economic attempt by inference.
 
-No account reassignment is permitted after `dispatching`. OpenCode and direct
-selected-account adapters disable their internal account retry. Codex retains
-its bounded same-credential transient and authorization retries; those retries
-cannot enumerate, materialize, bind, construct, or dispatch through another
-account. Credential revision drift fails before dispatch and releases only the
-pre-dispatch lease.
+## Atomic Commitment
 
-## Configured Projection And Time
+One process-scoped Runtime SQLite authority is created per project runtime. It
+claims a single live owner generation, migrates through a versioned
+`PRAGMA user_version` schema, refuses newer schemas, and executes commitment
+acquisition synchronously in one `BEGIN IMMEDIATE` transaction.
 
-`ConfiguredManagedAccountRuntime` is the production candidate projector. It
-reads only accounts explicitly named by the selected virtual model, emits
-secret-free configured account references and credential revision digests, and
-materializes only the revision already fenced by the acquired lease.
+The transaction:
 
-Its usage clock is injected once at composition and the same `Date` is passed
-to usage listing and candidate construction. Time is evidence input, not
-authority:
+1. replays an exact `(jobId, economicAttemptId, intentFingerprint)` result or
+   rejects an identity/revision conflict;
+2. revalidates the adopted policy, candidate-set, snapshot, route, capability,
+   tariff, and account evidence;
+3. applies deterministic route ranking and persists rejection evidence;
+4. checks exact route ceilings against already consuming commitments;
+5. selects and reserves either one eligible configured account or the explicit
+   accountless identity; and
+6. persists the decision, reservation, optional account lease, and commitment
+   before returning.
 
-- fresh `exhausted` usage is unhealthy and excluded;
-- expired usage disappears and becomes missing evidence, eligible with penalty;
-- a newer explicit non-exhausted observation restores preference;
-- usage expiry never creates an `available` observation or releases capacity.
+Account-backed and accountless routes share this transaction. Account-backed
+selection uses sanitized stable-capacity identity, revision-fenced credential
+evidence, usage/quota evidence, capacity, and configured affinity. Accountless
+selection creates no account identity or account lease. Missing, stale,
+contradictory, or unverifiable authority fails closed; there is no implicit
+route, account, overage, or fallback.
 
-The selected candidate's usage state is captured in the lease transaction and
-remains immutable across settlement transitions. A missing observation is
-persisted explicitly as missing; Runtime never reconstructs availability from
-the selection result or from a later provider response.
+Exact replay returns the prior result without consuming capacity twice. A
+changed intent fingerprint, policy revision, candidate digest, snapshot digest,
+or selected identity evidence returns explicit conflict or drift evidence.
 
-## Capacity And Settlement
+## Dispatch And Release
 
-Capacity follows settlement, not terminal projection.
+Commitment state and account-lease lifecycle are separate contracts. The
+commitment is initially held. Runtime writes a distinct dispatch fence
+immediately before provider effects; the fence does not finalize or release an
+account lease and forbids route or account reassignment.
 
-- Success and failure release after their execution promise settles.
-- Cancellation may project immediately, but capacity remains held until
-  cancellation acknowledgement or execution settlement.
-- Timeout projects `timed_out` while the lease becomes
-  `settlement-pending`.
-- Release failure becomes `release-failed` and continues consuming capacity.
-- Work whose settlement cannot be matched after restart becomes `leaked` and
-  continues consuming capacity until an explicit future reconciliation flow.
-- Total lease capacity is distinct from provider health and reserved new-work
-  capacity. Exhaustion rejects both new work and existing affinity with
-  `lease-conflict`; affinity reservation never permits oversubscription.
+Any interim failure that is proven pre-fence releases the commitment and its
+optional account lease before the job is projected terminal. Release is
+idempotent and owner-generation fenced. Once dispatch is fenced, unknown
+external work continues consuming capacity until authoritative settlement or
+explicit reconciliation proves release safe.
 
-Release is idempotent and fenced by lease owner, lease ID, account, route, job,
-and Runtime invocation identity. Lease rows are retained for replay rather than
-deleted.
-
-## Managed Affinity
-
-Configured virtual models project `none`, `prefer`, or `require` continuity,
-scope, and explicit rebind permission through the candidate port. Managed jobs
-do not read gateway configuration directly and callers cannot submit an account
-or affinity key.
-
-Runtime derives an opaque SHA-256 key from admitted requester and parent
-lineage, the account policy, canonical route, policy scope, and the parent turn
-only for turn-scoped continuity. The authority stores that key against stable
-configured `capacityIdentity`, not credential revision or the opaque account
-reference.
-
-- `none` always enters selection as new work.
-- `prefer` creates a mapping only after successful execution and honors an
-  existing mapping while respecting reservations and total concurrency.
-- `require` fails closed without a durable mapping.
-- rebind is pre-dispatch and requires explicit configured permission.
-
-Successful finalization releases the exact lease and applies a first-bind or
-rebind compare-and-set in one immediate SQLite transaction. Its canonical
-outcome is `won`, `already-matched`, or `conflict`. A conflict preserves the
-winner and the successful provider result; it cannot overwrite, retry, or
-reassign work after effects. Failure, timeout, cancellation, and binding
-failure never mutate affinity.
+Release failure becomes `release-failed`; unmatched work can become `leaked`.
+Both remain capacity-consuming and carry sanitized reconciliation evidence.
+Runtime exposes an explicit reconciliation transaction for those states rather
+than a timer or terminal-job projection that fabricates settlement.
 
 ## Recovery
 
-The authority heartbeat permits one live process owner. Ownership recovery
-never deletes active leases:
+Startup first recovers the SQLite authority and then recovers managed jobs.
+Recovery queries the exact `(jobId, economicAttemptId)`:
 
-- a pre-dispatch recovery checkpoint is reconcilable and can complete bounded
-  cleanup;
-- a checkpoint that crossed adapter start remains `settlement-pending`;
-- an active lease with no matching checkpoint becomes `leaked`.
+- `absent` may be committed from the persisted V6 intent;
+- a held commitment on the interim no-dispatch path is released directly from
+  its durable job and economic-attempt identity without re-adopting config;
+- a dispatch-fenced, settlement-pending, release-failed, or leaked commitment
+  remains conservatively fenced; and
+- conflicting identity or revision evidence fails closed.
 
-The managed-invocation recovery checkpoint is persisted before provider
-dispatch. The production managed-job composition recovers Runtime invocations
-and consumes Runtime's complete classified-lease result, including terminal
-checkpoints and orphaned authority rows. It writes those classifications into
-V4 jobs only after proving their stored `projectId` matches the trusted
-composition project, before it marks those jobs interrupted.
+A crash between SQLite commit and job projection therefore recovers and
+releases the exact durable commitment instead of selecting again. Migrated
+account-only leases that were still capacity-consuming are conservatively
+classified `leaked`; a separate audited legacy-lease reconciliation releases
+them by lease ID without fabricating an economic attempt and durably retains
+the operator, reason, evidence URI, prior state, and idempotent replay. Reconciliation
+changes only authority state through an owner-fenced transaction; projections
+observe the resulting evidence without becoming authority.
 
-## Evidence
+## Configuration Boundary
 
-Canonical account-lease evidence contains opaque account and policy identities,
-canonical provider/model route, credential revision digest, selection and
-rejection reasons, the acquisition-time usage snapshot, affinity selection and
-commit outcomes, timestamps, lifecycle state, and safe resource or diagnostic
-URIs. It excludes credentials, tokens, lineage-derived affinity keys, raw
-provider payloads, exception details, and machine-specific paths. Account
-references must use the `configured:` namespace. Resource and diagnostic
-evidence is restricted to the lease's own
-`kiln://managed-accounts/leases/<lease-id>` namespace and its closed diagnostic
-vocabulary.
+Economic candidates are explicit direct managed routes. A `runtime-selected`
+route names its virtual account policy and remains supported. A
+`credentialless` route used by an economic policy must name
+`credentials.economicsRouteId`; that virtual economics route must match the
+managed route's provider and model exactly and contain zero `accountIds`.
 
-Managed-job V4 is the only writer and carries current lease evidence plus its
-lifecycle history. Lease observations advance aggregate `updatedAt` without
-fabricating job-state lifecycle entries; acquisition facts are immutable and
-terminal lease states cannot regress. Diagnostic URIs are canonically ordered,
-and same-state settlement enrichment requires a strict evidence-set increase.
-The V3 reader remains because persisted
-V3 jobs are a real consumer; there is no parallel V3 writer or compatibility
-alias.
+Candidate collection is secret-free and performs no adapter construction,
+credential resolution, process launch, lease acquisition, reservation, or
+provider call. Only a committed request may construct the deferred adapter. An
+exact route/provider/model mismatch emits sanitized typed evidence before
+construction and dispatch.
 
-Terminal projection is enrichable evidence, not a one-shot loss boundary.
-When execution settles after timeout or cancellation, Runtime appends a newer
-canonical terminal event carrying the released lease. Replay and every
-operator surface therefore converge on settlement without rewriting history.
+## Local Guarantees
 
-These guarantees are limited to managed invocations. Model Gateway ingress
-still uses `LocalModelGatewayStore`, whose lease and affinity tables are a
-separate pre-existing authority. Cross-path capacity and affinity exclusivity is
-not yet guaranteed and remains an explicit Roadmap 02 convergence slice.
+The authority is Kiln-local and project-local. It makes no provider-global,
+subscription-global, or multi-runtime capacity claim. Database, WAL, and SHM
+artifacts are owner-only on POSIX systems. Projected and operator-visible
+evidence excludes secrets, raw provider payloads, exception details,
+machine-specific paths, and derived affinity keys. Runtime persists only the
+opaque derived affinity key inside its owner-restricted SQLite authority so
+continuity can be enforced.
+
+The former managed-invocation account-only writer and port are deleted. Direct
+account-leased invocation outside the managed economic job path fails closed;
+there is no compatibility writer. Model Gateway ingress remains a separate
+`LocalModelGatewayStore` consumer until Roadmap 02 Slice 5.
 
 ## Non-Goals
 
-- No ambient account discovery or inferred account policy.
-- No quota evasion, hidden rotation, or provider-specific routing policy.
-- No economic routing.
-- No default timer that fabricates settlement or frees unknown work.
-- No remote multi-runtime capacity sharing.
-- No claim of shared capacity or affinity with Model Gateway ingress.
+- No ambient account discovery or hidden credential rotation.
+- No quota evasion, inferred credit, overage, or economic fallback.
+- No provider dispatch in Roadmap issue #34 internal Slice 4 / issue #37.
+- No remote or provider-global capacity coordination.
+- No cross-path capacity or affinity exclusivity before Roadmap 02 Slice 5.

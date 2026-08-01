@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ModelGatewayConfig, ProviderAdapter } from "@kilnai/core";
-import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
+import {
+  type ModelGatewayConfig,
+} from "@kilnai/core";
 import { ConfiguredManagedAccountRuntime } from "../../src/managed-account-leases/configured-managed-account-runtime.js";
-import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
 const config: ModelGatewayConfig = {
   port: 4819,
@@ -31,15 +31,12 @@ const config: ModelGatewayConfig = {
 
 describe("ConfiguredManagedAccountRuntime", () => {
   let root: string | undefined;
-  const authorities: SqliteManagedAccountLeaseAuthority[] = [];
-
   afterEach(async () => {
-    for (const authority of authorities.splice(0)) authority.close();
     if (root) await rm(root, { recursive: true, force: true });
     root = undefined;
   });
 
-  it("projects explicit candidates with unknown usage and binds only the leased revision", async () => {
+  it("projects explicit candidates with unknown usage without materializing credentials", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-configured-account-"));
     const env: Record<string, string | undefined> = { OPENAI_API_KEY: "synthetic-key-a" };
     const runtime = new ConfiguredManagedAccountRuntime({ config, env });
@@ -53,62 +50,6 @@ describe("ConfiguredManagedAccountRuntime", () => {
       candidate: { pressure: 1 },
       usageEvidence: { freshness: "missing" },
     });
-
-    const authority = new SqliteManagedAccountLeaseAuthority({
-      path: join(root, "leases.sqlite"),
-      ownerId: "owner-a",
-    });
-    authorities.push(authority);
-    const acquired = await authority.acquire({
-      accountPolicyId: "managed-openai",
-      route: resolution.route,
-      jobId: "job-a",
-      runtimeInvocationId: "job-a",
-      affinityRequest: { continuity: "none" },
-      candidates: resolution.candidates,
-    });
-    if (acquired.status !== "acquired") throw new Error("expected account lease");
-
-    const template = directTemplate();
-    const crossModuleTemplate = {
-      descriptor: template.descriptor,
-      invoke: template.invoke.bind(template),
-      bindProvider: template.bindProvider.bind(template),
-    };
-    expect(crossModuleTemplate).not.toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
-
-    const bound = await runtime.bind({ lease: acquired.lease, adapter: crossModuleTemplate });
-    expect(bound).toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
-    expect(bound).not.toBe(template);
-    expect(bound.descriptor).toEqual(template.descriptor);
-  });
-
-  it("rejects credential revision drift instead of rebinding silently", async () => {
-    root = await mkdtemp(join(tmpdir(), "kiln-configured-account-"));
-    const env: Record<string, string | undefined> = { OPENAI_API_KEY: "synthetic-key-a" };
-    const runtime = new ConfiguredManagedAccountRuntime({ config, env });
-    const resolution = await runtime.resolve({
-      accountPolicyId: "managed-openai",
-      providerRoute: { providerId: "openai", surface: "direct", model: "gpt-test" },
-    });
-    const authority = new SqliteManagedAccountLeaseAuthority({
-      path: join(root, "leases.sqlite"),
-      ownerId: "owner-a",
-    });
-    authorities.push(authority);
-    const acquired = await authority.acquire({
-      accountPolicyId: "managed-openai",
-      route: resolution.route,
-      jobId: "job-a",
-      runtimeInvocationId: "job-a",
-      affinityRequest: { continuity: "none" },
-      candidates: resolution.candidates,
-    });
-    if (acquired.status !== "acquired") throw new Error("expected account lease");
-
-    env.OPENAI_API_KEY = "synthetic-key-b";
-    await expect(runtime.bind({ lease: acquired.lease, adapter: directTemplate() }))
-      .rejects.toThrow("revision changed");
   });
 
   it("uses one injected clock for configured two-account usage and projects affinity policy", async () => {
@@ -180,7 +121,7 @@ describe("ConfiguredManagedAccountRuntime", () => {
     });
   });
 
-  it("uses the injected Codex pool for selection and exact revision binding", async () => {
+  it("uses the injected Codex pool for selection without credential materialization", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-configured-account-"));
     const execution = {
       credentialId: "credential-a",
@@ -212,29 +153,11 @@ describe("ConfiguredManagedAccountRuntime", () => {
       accountPolicyId: "managed-codex",
       providerRoute: { providerId: "codex-oauth", surface: "direct", model: "gpt-test" },
     });
-    const authority = new SqliteManagedAccountLeaseAuthority({
-      path: join(root, "injected-pool-leases.sqlite"),
-      ownerId: "owner-a",
-    });
-    authorities.push(authority);
-    const acquired = await authority.acquire({
-      accountPolicyId: "managed-codex",
-      route: resolution.route,
-      jobId: "job-a",
-      runtimeInvocationId: "job-a",
-      affinityRequest: { continuity: "none" },
-      candidates: resolution.candidates,
-    });
-    if (acquired.status !== "acquired") throw new Error("expected account lease");
-
-    await runtime.bind({ lease: acquired.lease, adapter: directTemplate("codex-oauth") });
 
     expect(codexPool.listExecutionAccounts).toHaveBeenCalled();
     expect(codexPool.listUsage).toHaveBeenCalled();
-    expect(codexPool.resolveExecutionCredential).toHaveBeenCalledExactlyOnceWith({
-      providerId: "codex-oauth",
-      ...execution,
-    });
+    expect(resolution.candidates).toHaveLength(1);
+    expect(codexPool.resolveExecutionCredential).not.toHaveBeenCalled();
   });
 });
 
@@ -272,23 +195,4 @@ async function writeUsage(directory: string, snapshots: readonly ReturnType<type
   const usageDirectory = join(directory, "provider-usage");
   await mkdir(usageDirectory, { recursive: true });
   await writeFile(join(usageDirectory, "codex-oauth.json"), JSON.stringify(snapshots));
-}
-
-function directTemplate(providerId = "openai"): ManagedDirectProviderRuntimeAdapter {
-  const provider: ProviderAdapter = {
-    name: "unbound",
-    createMessage: async () => {
-      throw new Error("unbound");
-    },
-    streamMessage: async function* () {
-      throw new Error("unbound");
-    },
-  };
-  return new ManagedDirectProviderRuntimeAdapter({
-    providerId,
-    model: "gpt-test",
-    provider,
-    tools: [],
-    builtinTools: new Map(),
-  });
 }

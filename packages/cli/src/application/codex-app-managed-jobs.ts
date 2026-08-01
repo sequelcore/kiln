@@ -13,7 +13,12 @@ import {
 import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
-import type { ManagedInvocationRouteResolution } from "../config/managed-agent-routes.js";
+import {
+  closeManagedAccountRuntimeComposition,
+  createManagedAccountRuntimeComposition,
+  projectManagedEconomicJobAdoption,
+  type ManagedInvocationRouteResolution,
+} from "../config/managed-agent-routes.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../config/managed-agent-provider-models.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 import { discoverNativeHarnessProjectRoot, resolveNativeHarnessProjectRoot } from "./native-harness-project-root.js";
@@ -60,6 +65,8 @@ export interface NativeHarnessManagedJobApplicationComposition {
   readonly service: ManagedJobApplicationService;
   readonly application: NativeHarnessManagedJobApplicationPort;
   readonly configuredAgents: readonly NativeHarnessManagedAgentSummary[];
+  /** Releases the process-owned economic authority so a restart can reclaim it immediately. */
+  close(): void;
 }
 
 /** Project identity comes from this trusted composition, never from MCP input. */
@@ -120,6 +127,15 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     return current;
   };
   const managedInvocation = await freshManagedInvocation();
+  const initialConfig = (await readConfigStatusSnapshot({ projectPath: root.rootPath })).effectiveConfig as KilnYaml | undefined;
+  if (!initialConfig) {
+    throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
+  }
+  const managedAccountComposition = createManagedAccountRuntimeComposition(initialConfig, root.rootPath);
+  if (!managedAccountComposition) {
+    throw new ManagedJobApplicationError("route_unavailable", "Configure the managed economic account authority.");
+  }
+  const commitmentRecovery = managedAccountComposition.authority.createManagedJobCommitmentRecoveryPort();
   const configuredAgents = await loadAgentDefinitions(root.rootPath);
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
   const managedJobStore = new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs"));
@@ -207,8 +223,33 @@ export async function createNativeHarnessManagedJobApplicationComposition(
         }, current.routes, current.unavailableRoutes);
       },
     },
+    economicAdoption: {
+      adopt: async (job) => {
+        const currentConfig = (await readConfigStatusSnapshot({ projectPath: root.rootPath })).effectiveConfig as KilnYaml | undefined;
+        if (!currentConfig) {
+          throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
+        }
+        const currentComposition = createManagedAccountRuntimeComposition(currentConfig, root.rootPath);
+        if (!currentComposition || currentComposition.authority !== managedAccountComposition.authority) {
+          throw new ManagedJobApplicationError("route_unavailable", "Restore the process-owned managed economic authority.");
+        }
+        return projectManagedEconomicJobAdoption(currentConfig, job, currentComposition.routing);
+      },
+    },
+    economicCommitment: {
+      query: (input) => commitmentRecovery.query(input),
+      acquire: (input) => managedAccountComposition.authority.acquireCommitment(input),
+      releasePreFence: (jobId, economicAttemptId) => {
+        managedAccountComposition.authority.releaseCommitmentPreFence(jobId, economicAttemptId);
+      },
+      recordReleaseFailure: (input) => {
+        managedAccountComposition.authority.recordCommitmentReleaseFailure(input);
+      },
+    },
+    commitmentRecovery,
     store: managedJobStore,
   });
+  managedAccountComposition.authority.recoverCommitments();
   await service.recoverInterrupted();
   const application: NativeHarnessManagedJobApplicationPort = {
     submit: (input) => service.start(input),
@@ -217,7 +258,12 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     cancel: (input, jobId) => service.cancel({ project, callerId: input.callerId }, jobId),
     getReplay: (input, jobId) => service.getReplay({ project, callerId: input.callerId }, jobId),
   };
-  return { service, application, configuredAgents: summarizeNativeHarnessManagedAgents(configuredAgents, managedInvocation) };
+  return {
+    service,
+    application,
+    configuredAgents: summarizeNativeHarnessManagedAgents(configuredAgents, managedInvocation),
+    close: () => { closeManagedAccountRuntimeComposition(root.rootPath); },
+  };
 }
 
 function selectAdmissionProfile(

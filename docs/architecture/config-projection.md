@@ -49,6 +49,42 @@ No GUI, TUI, runtime, SDK, or MCP surface may rebuild these rules independently.
 Those surfaces consume resolved config, route health, gateway contracts, or
 runtime tool options.
 
+## Managed Economic Route Projection
+
+`managedAgents.economicPolicies` names the only routes eligible for an economic
+decision. Each candidate must reference one supported direct managed route and
+one comparison domain. Projection validates the candidate against exactly one
+canonical `modelGateway.virtualModels` economics route; provider, model,
+rate-card basis, envelope semantics, price class, tariff units, fallback
+posture, and overage posture must agree before the route is admitted.
+
+Both credential contracts are explicit:
+
+- `credentials.mode: runtime-selected` remains supported and uses its required
+  `accountPolicyId` as the virtual economics route reference. Every configured
+  account candidate must carry valid economics evidence.
+- `credentials.mode: credentialless` may omit `economicsRouteId` only when the
+  route is not an economic-policy candidate. Once used economically,
+  `economicsRouteId` is required, must resolve exactly once, must match the
+  managed route's provider and model, and its virtual route must contain zero
+  `accountIds`.
+
+Candidate projection is secret-free and cannot construct an adapter, resolve a
+credential, acquire capacity, or dispatch a provider call. CLI adopts Core's
+immutable economic snapshot outside Runtime's SQLite transaction; canonical
+sorted SHA-256 digests bind the adopted policy, candidate set, price/rate
+evidence, and full snapshot. Runtime alone selects and commits a route.
+
+Deferred adapter construction accepts only the exact committed
+route/provider/model identity. A mismatch emits sanitized typed
+`committed-route-mismatch` evidence before adapter construction and fails
+closed. It never falls back to another configured route or account.
+
+Economic commitment is local project-runtime authority. Config projection does
+not claim provider-global or subscription-global capacity, and Roadmap issue
+#34 internal Slice 4 performs no provider dispatch. Model Gateway ingress keeps
+its separate `LocalModelGatewayStore` authority until Roadmap 02 Slice 5.
+
 ## Global Config
 
 Global config is the active user-level contract. It includes:

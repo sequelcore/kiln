@@ -8,10 +8,18 @@ import {
   ManagedJobApplicationService,
   type ManagedJobApplicationOptions,
   type ManagedJobEconomicProfile,
+  type ManagedJobEconomicAdoption,
   type ManagedJobRecordV3,
   type ManagedJobRecordV4,
   type ManagedJobRecordV5,
+  type ManagedJobRecordV6,
 } from "../../src/managed-jobs/index.js";
+import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import {
+  adoptManagedEconomicSnapshot,
+  digestManagedEconomicValue,
+  type ManagedEconomicPriceEvidence,
+} from "@kilnai/core";
 import type { ManagedEconomicCandidateSet } from "../../src/agents/managed-invocation/runtime-tool.js";
 
 const now = new Date("2026-07-29T18:00:00.000Z");
@@ -68,6 +76,8 @@ function createOptions(input: {
   readonly currentProfile?: () => ManagedJobEconomicProfile;
   readonly currentCandidates?: () => ManagedEconomicCandidateSet;
   readonly store?: ManagedJobApplicationOptions["store"];
+  readonly clock?: () => Date;
+  readonly commitmentState?: "absent" | "committed" | "dispatch-fenced";
 } = {}): ManagedJobApplicationOptions {
   return {
     project: { resolve: async () => ({ id: "kiln" }) },
@@ -94,19 +104,99 @@ function createOptions(input: {
       resolve: async () => input.currentCandidates?.() ?? candidateSet(),
     },
     store: input.store ?? new InMemoryManagedJobStore(),
-    clock: () => now,
+    ...(input.commitmentState ? {
+      commitmentRecovery: {
+        query: () => input.commitmentState!,
+      },
+    } : {}),
+    clock: input.clock ?? (() => now),
     idGenerator: () => "job-000000001",
+    economicAttemptIdGenerator: () => "attempt-000000001",
   };
 }
 
-describe("ManagedJobApplicationService V5 precommit", () => {
+function adoptedEconomicEvidence(): ManagedJobEconomicAdoption {
+  return {
+    snapshot: {
+      snapshotDigest: `sha256:${"d".repeat(64)}`,
+      adoptedDecisionAt: now.toISOString(),
+      routes: [],
+    } as never,
+    expectation: { candidateSetDigest: `sha256:${"c".repeat(64)}` } as never,
+    routeCapacity: [],
+  };
+}
+
+function sqliteAdoptedEconomicEvidence(): ManagedJobEconomicAdoption {
+  const economicAmount = { atoms: "1", scale: 0, unit: "request",
+    scheme: { kind: "currency" as const, currency: "USD" } };
+  const evidence = {
+    sourceIdentity: "managed-job-test", sourceRevision: "revision-001",
+    sourceDigest: `sha256:${"a".repeat(64)}`,
+    observedAt: "2026-07-29T17:00:00.000Z", validUntil: "2026-07-29T19:00:00.000Z",
+    confidence: "high" as const, authority: "configured" as const,
+  };
+  const unitRates = [{ usageUnit: "request", price: economicAmount }];
+  const auxiliaryCharges: never[] = [];
+  const domain = { id: "usd", rank: 0, basis: { unit: "request",
+    scheme: { kind: "currency" as const, currency: "USD" },
+    rateCardBasis: "test-rate-card", envelopeSemantics: "bounded-test" } };
+  const priceEvidence: ManagedEconomicPriceEvidence = { kind: "metered", identity: {
+    providerId: "codex-oauth", modelId: "gpt-test", authBillingChannel: "oauth",
+    executionMode: "managed", serviceTier: "test", rateCardId: "test-rate-card",
+    rateCardRevision: "revision-001", unit: "request",
+    scheme: { kind: "currency", currency: "USD" },
+    unitScheduleDigest: digestManagedEconomicValue(unitRates), contextClass: "test",
+    cacheClass: "none", auxiliaryScheduleDigest: digestManagedEconomicValue(auxiliaryCharges), evidence,
+  } };
+  const route = {
+    routeId: "codex-primary", providerId: "codex-oauth", modelId: "gpt-test",
+    adapterCapabilityId: "codex-oauth-direct", adapterCapabilityVersion: "1",
+    authBillingChannel: "oauth", executionMode: "managed", serviceTier: "test",
+    accountPolicyId: null, fallbackPosture: "disabled" as const, overagePosture: "disabled" as const,
+    rateCardId: "test-rate-card", rateCardRevision: "revision-001",
+    priceEvidenceDigest: evidence.sourceDigest, unit: "request",
+    scheme: { kind: "currency" as const, currency: "USD" }, contextClass: "test", cacheClass: "none",
+    auxiliaryScheduleDigest: priceEvidence.identity.auxiliaryScheduleDigest,
+    envelopeDigest: `sha256:${"e".repeat(64)}`,
+  };
+  const snapshot = adoptManagedEconomicSnapshot({
+    policy: { policyId: "economy-policy", schemaVersion: 1, policyRevision: "revision-001",
+      policyDigest: `sha256:${"b".repeat(64)}`, comparisonDomains: [domain], noRouteAction: "deny",
+      evidenceRequirements: { quota: "optional", price: "required" } },
+    adoptedAt: now.toISOString(), adoptedDecisionAt: now.toISOString(), callerConstraints: {},
+    routes: [{
+      admittedIdentity: { routeId: "codex-primary", sourceIdentity: "explicit-managed-route",
+        providerId: "codex-oauth", modelId: "gpt-test", adapterCapabilityId: "codex-oauth-direct",
+        adapterCapabilityVersion: "1", accountPolicy: { kind: "accountless" } },
+      route, comparisonDomain: domain, priorityRank: 0, priceEvidence,
+      rateSchedule: { unitRates, auxiliaryCharges },
+      executionEnvelope: { kind: "bounded", digest: route.envelopeDigest, limits: [{
+        atoms: "1", scale: 0, unit: "request", scheme: { kind: "unit" },
+      }] },
+      worstCaseReservation: { kind: "exact", amount: economicAmount },
+      ceiling: { kind: "finite", amount: economicAmount },
+    }],
+  });
+  return {
+    snapshot,
+    expectation: {
+      policyId: "economy-policy", policyRevision: "revision-001",
+      candidateSetDigest: snapshot.candidateSetDigest,
+      admittedCandidates: snapshot.routes.map((entry) => entry.admittedIdentity), callerConstraints: {},
+    },
+    routeCapacity: [{ routeId: "codex-primary" }],
+  };
+}
+
+describe("ManagedJobApplicationService V6 precommit", () => {
   it("persists policy identity and candidates without selecting an execution route", async () => {
     const service = new ManagedJobApplicationService(createOptions());
 
     const job = await service.submit(submission);
 
     expect(job).toMatchObject({
-      version: 5,
+      version: 6,
       state: "failed",
       diagnostic: "economic_commitment_unavailable",
       economicPolicyId: "economy-policy",
@@ -124,7 +214,17 @@ describe("ManagedJobApplicationService V5 precommit", () => {
           diagnostic: "economic_commitment_unavailable",
         },
       ],
+      economicAttemptId: "economic-attempt:attempt-000000001",
+      adoptedDecisionAt: now.toISOString(),
     });
+    expect(job.requestFingerprint).toBe(digestManagedEconomicValue({
+      objective: submission.objective,
+      configuredAgentProfileId: submission.configuredAgentProfileId,
+      economicPolicyId: "economy-policy",
+      economicPolicyRevision: "revision-001",
+      constraints: {},
+    }));
+    expect(job.idempotencyKeyHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(job).not.toHaveProperty("routeId");
     expect(job).not.toHaveProperty("providerId");
     expect(job).not.toHaveProperty("accountLease");
@@ -156,6 +256,196 @@ describe("ManagedJobApplicationService V5 precommit", () => {
 
     expect(sideEffect).not.toHaveBeenCalled();
     expect(Object.keys(options)).not.toContain("runtime");
+  });
+
+  it("adopts current evidence before synchronous acquire and releases every pre-fence commitment", async () => {
+    const events: string[] = [];
+    const options = createOptions();
+    const snapshot = {
+      policy: { policyId: "economy-policy", policyRevision: "revision-001" },
+      candidateSetDigest: `sha256:${"c".repeat(64)}`,
+      snapshotDigest: `sha256:${"d".repeat(64)}`,
+      adoptedDecisionAt: now.toISOString(),
+      routes: [{
+        route: { routeId: "codex-primary", rateCardId: "rate-card", rateCardRevision: "rate-revision" },
+        admittedIdentity: { routeId: "codex-primary" },
+        worstCaseReservation: { kind: "exact", amount: { atoms: "1" } },
+        ceiling: { kind: "finite", amount: { atoms: "10" } },
+        executionEnvelope: { kind: "bounded", digest: `sha256:${"e".repeat(64)}`, limits: [] },
+      }],
+    } as never;
+    const service = new ManagedJobApplicationService({
+      ...options,
+      economicAdoption: {
+        adopt: async (job) => {
+          events.push(`adopt:${job.economicAttemptId}`);
+          return {
+            snapshot,
+            expectation: {
+              policyId: "economy-policy",
+              policyRevision: "revision-001",
+              candidateSetDigest: `sha256:${"c".repeat(64)}`,
+              admittedCandidates: [],
+              callerConstraints: {},
+            },
+            routeCapacity: [],
+          };
+        },
+      },
+      economicCommitment: {
+        query: () => "committed",
+        acquire: (input) => {
+          events.push(`acquire:${input.economicAttemptId}`);
+          expect(input.intentFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/u);
+          return { status: "committed", record: {} as never, replay: false };
+        },
+        releasePreFence: (_jobId, attemptId) => events.push(`release:${attemptId}`),
+        recordReleaseFailure: () => events.push("release-failed"),
+      },
+    });
+
+    await expect(service.submit(submission)).resolves.toMatchObject({
+      state: "failed",
+      diagnostic: "economic_commitment_unavailable",
+    });
+    expect(events).toEqual([
+      "adopt:economic-attempt:attempt-000000001",
+      "acquire:economic-attempt:attempt-000000001",
+      "release:economic-attempt:attempt-000000001",
+    ]);
+  });
+
+  it("records consuming release-failed evidence before projecting terminal failure", async () => {
+    const options = createOptions();
+    const recordReleaseFailure = vi.fn();
+    const service = new ManagedJobApplicationService({
+      ...options,
+      economicAdoption: { adopt: async () => ({
+        snapshot: {
+          snapshotDigest: `sha256:${"d".repeat(64)}`,
+          adoptedDecisionAt: now.toISOString(),
+          routes: [],
+        } as never,
+        expectation: { candidateSetDigest: `sha256:${"c".repeat(64)}` } as never,
+        routeCapacity: [],
+      }) },
+      economicCommitment: {
+        query: () => "committed",
+        acquire: () => ({ status: "committed", record: {} as never, replay: false }),
+        releasePreFence: () => { throw new Error("release failed"); },
+        recordReleaseFailure,
+      },
+    });
+
+    await expect(service.submit(submission)).resolves.toMatchObject({ state: "failed" });
+    expect(recordReleaseFailure).toHaveBeenCalledWith(expect.objectContaining({
+      economicAttemptId: "economic-attempt:attempt-000000001",
+      reason: "slice-4-provider-dispatch-unavailable",
+    }));
+  });
+
+  it("restores capacity after every successful Slice-4 commitment", async () => {
+    let sequence = 0;
+    const releasePreFence = vi.fn();
+    const service = new ManagedJobApplicationService({
+      ...createOptions(),
+      idGenerator: () => `job-capacity-${String(++sequence).padStart(3, "0")}`,
+      economicAttemptIdGenerator: () => `capacity-attempt-${String(sequence).padStart(3, "0")}`,
+      economicAdoption: { adopt: async () => adoptedEconomicEvidence() },
+      economicCommitment: {
+        query: () => "absent",
+        acquire: () => ({ status: "committed", record: {} as never, replay: false }),
+        releasePreFence,
+        recordReleaseFailure: vi.fn(),
+      },
+    });
+
+    for (let index = 0; index < 4; index += 1) {
+      await service.submit({ ...submission, idempotencyKey: `capacity-${index}` });
+    }
+    expect(releasePreFence).toHaveBeenCalledTimes(4);
+  });
+
+  it("restores real SQLite capacity after N managed-job Slice-4 submissions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-job-capacity-"));
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path: join(root, "authority.sqlite"), ownerId: "managed-job-owner",
+      now: () => now.getTime(),
+    });
+    let sequence = 0;
+    const adoption = sqliteAdoptedEconomicEvidence();
+    const accountlessCandidates = {
+      ...candidateSet(),
+      candidates: candidateSet().candidates.map(({ accountPolicyId: _accountPolicyId, ...candidate }) => candidate),
+    };
+    const service = new ManagedJobApplicationService({
+      ...createOptions({ currentCandidates: () => accountlessCandidates }),
+      idGenerator: () => `job-sqlite-capacity-${String(++sequence).padStart(3, "0")}`,
+      economicAttemptIdGenerator: () => `sqlite-capacity-${String(sequence).padStart(3, "0")}`,
+      economicAdoption: { adopt: async () => adoption },
+      economicCommitment: {
+        query: (request) => authority.createManagedJobCommitmentRecoveryPort().query(request),
+        acquire: (request) => authority.acquireCommitment(request),
+        releasePreFence: (jobId, economicAttemptId) => {
+          authority.releaseCommitmentPreFence(jobId, economicAttemptId);
+        },
+        recordReleaseFailure: (request) => {
+          authority.recordCommitmentReleaseFailure(request);
+        },
+      },
+    });
+
+    try {
+      const jobs = [];
+      for (let index = 0; index < 4; index += 1) {
+        jobs.push(await service.submit({ ...submission, idempotencyKey: `sqlite-capacity-${index}` }));
+      }
+      expect(jobs).toHaveLength(4);
+      expect(jobs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ state: "failed", diagnostic: "economic_commitment_unavailable" }),
+      ]));
+      for (const job of jobs) {
+        if (job.version !== 6) throw new Error("Expected V6 managed job.");
+        expect(authority.queryCommitment(job.id, job.economicAttemptId)).toMatchObject({ state: "released" });
+      }
+      expect(authority.acquireCommitment({
+        jobId: "job-capacity-proof", economicAttemptId: "economic-attempt:capacity-proof",
+        intentFingerprint: `sha256:${"9".repeat(64)}`,
+        snapshot: adoption.snapshot, expectation: adoption.expectation,
+        routeCapacity: adoption.routeCapacity,
+      })).toMatchObject({ status: "committed", record: { state: "held" } });
+    } finally {
+      authority.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces exact identity revision conflict without release mutation", async () => {
+    const options = createOptions();
+    const releasePreFence = vi.fn();
+    const service = new ManagedJobApplicationService({
+      ...options,
+      economicAdoption: { adopt: async () => ({
+        snapshot: {
+          snapshotDigest: `sha256:${"d".repeat(64)}`,
+          adoptedDecisionAt: now.toISOString(),
+          routes: [],
+        } as never,
+        expectation: { candidateSetDigest: `sha256:${"c".repeat(64)}` } as never,
+        routeCapacity: [],
+      }) },
+      economicCommitment: {
+        query: () => "absent",
+        acquire: () => ({ status: "conflict", reason: "identity-revision-conflict" }),
+        releasePreFence,
+        recordReleaseFailure: vi.fn(),
+      },
+    });
+
+    await expect(service.submit(submission)).rejects.toMatchObject({
+      code: "identity-revision-conflict",
+    });
+    expect(releasePreFence).not.toHaveBeenCalled();
   });
 
   it("recovers a persisted V5 precommit crash as commitment unavailable", async () => {
@@ -210,6 +500,129 @@ describe("ManagedJobApplicationService V5 precommit", () => {
     constraints = { providerId: "codex-oauth" };
     await expect(service.submit(submission)).rejects.toMatchObject({
       code: "idempotency_conflict",
+    });
+  });
+
+  it("preserves V6 fenced work during recovery", async () => {
+    const queued: ManagedJobRecordV6 = {
+      version: 6,
+      id: "job-precommit-006",
+      economicAttemptId: "economic-attempt:attempt-precommit-006",
+      adoptedDecisionAt: now.toISOString(),
+      state: "queued",
+      projectId: "kiln",
+      callerId: "codex-app:caller-001",
+      configuredAgentProfileId: "scout",
+      admissionProfileId: "foundation-readonly-plan",
+      economicPolicyId: "economy-policy",
+      economicPolicyRevision: "revision-001",
+      constraints: {},
+      candidateSet: candidateSet(),
+      governanceSource: "kiln-work-governance",
+      admissionId: "admission-001",
+      requestFingerprint: `sha256:${"a".repeat(64)}`,
+      idempotencyKeyHash: `sha256:${"b".repeat(64)}`,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }],
+    };
+    const store = new InMemoryManagedJobStore([queued]);
+    const adopt = vi.fn(async () => adoptedEconomicEvidence());
+    const acquire = vi.fn();
+    const releasePreFence = vi.fn();
+    const productionWiredService = new ManagedJobApplicationService({
+      ...createOptions({ store, commitmentState: "dispatch-fenced" }),
+      economicAdoption: { adopt },
+      economicCommitment: {
+        query: () => "dispatch-fenced",
+        acquire,
+        releasePreFence,
+        recordReleaseFailure: vi.fn(),
+      },
+    });
+
+    await expect(productionWiredService.recoverInterrupted()).resolves.toEqual([queued]);
+    await expect(store.get(queued.id)).resolves.toEqual(queued);
+    expect(adopt).not.toHaveBeenCalled();
+    expect(acquire).not.toHaveBeenCalled();
+    expect(releasePreFence).not.toHaveBeenCalled();
+  });
+
+  it("fails V6 recovery only when authority proves no commitment exists", async () => {
+    const submitted = await new ManagedJobApplicationService(createOptions()).submit(submission);
+    const queued: ManagedJobRecordV6 = {
+      ...(submitted as ManagedJobRecordV6),
+      state: "queued",
+      updatedAt: now.toISOString(),
+      diagnostic: undefined,
+      lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }],
+    };
+    const store = new InMemoryManagedJobStore([queued]);
+    const service = new ManagedJobApplicationService(createOptions({
+      store,
+      commitmentState: "absent",
+    }));
+
+    await expect(service.recoverInterrupted()).resolves.toEqual([
+      expect.objectContaining({
+        version: 6,
+        state: "failed",
+        diagnostic: "economic_commitment_unavailable",
+      }),
+    ]);
+  });
+
+  it("releases an authority-proven held commitment without replaying adoption", async () => {
+    const submitted = await new ManagedJobApplicationService(createOptions()).submit(submission);
+    const queued: ManagedJobRecordV6 = {
+      ...(submitted as ManagedJobRecordV6),
+      state: "queued",
+      updatedAt: now.toISOString(),
+      diagnostic: undefined,
+      lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }],
+    };
+    const store = new InMemoryManagedJobStore([queued]);
+    const adopt = vi.fn(async () => {
+      throw new Error("transient config read failure");
+    });
+    const releasePreFence = vi.fn();
+    const recordReleaseFailure = vi.fn();
+    const service = new ManagedJobApplicationService({
+      ...createOptions({ store }),
+      economicAdoption: { adopt },
+      economicCommitment: {
+        query: () => "committed",
+        acquire: vi.fn(),
+        releasePreFence,
+        recordReleaseFailure,
+      },
+    });
+
+    await expect(service.recoverInterrupted()).resolves.toEqual([
+      expect.objectContaining({ state: "failed", diagnostic: "economic_commitment_unavailable" }),
+    ]);
+    expect(adopt).not.toHaveBeenCalled();
+    expect(releasePreFence).toHaveBeenCalledWith(queued.id, queued.economicAttemptId);
+    expect(recordReleaseFailure).not.toHaveBeenCalled();
+  });
+
+  it("returns the persisted V6 attempt identity and decision time on a later replay", async () => {
+    let currentTime = now;
+    const store = new InMemoryManagedJobStore();
+    const service = new ManagedJobApplicationService(createOptions({
+      store,
+      clock: () => currentTime,
+    }));
+
+    const first = await service.submit(submission) as ManagedJobRecordV6;
+    currentTime = new Date("2026-07-29T18:00:30.000Z");
+    const replay = await service.submit(submission);
+
+    expect(replay).toEqual(first);
+    expect(replay).toMatchObject({
+      version: 6,
+      economicAttemptId: "economic-attempt:attempt-000000001",
+      adoptedDecisionAt: now.toISOString(),
     });
   });
 
@@ -287,8 +700,8 @@ describe("ManagedJobApplicationService V5 precommit", () => {
     });
   });
 
-  it("preserves V5 idempotency across a filesystem restart", async () => {
-    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v5-"));
+  it("preserves V6 idempotency across a filesystem restart", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v6-"));
     try {
       const first = new ManagedJobApplicationService(createOptions({
         store: new FilesystemManagedJobStore(root),
@@ -304,13 +717,13 @@ describe("ManagedJobApplicationService V5 precommit", () => {
         await readFile(join(root, "managed-jobs.json"), "utf8"),
       ) as unknown[];
       expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ version: 5 });
+      expect(persisted[0]).toMatchObject({ version: 6 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("fails closed for corrupt V5 candidate evidence", async () => {
+  it("fails closed for corrupt V6 candidate evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-corrupt-"));
     try {
       const service = new ManagedJobApplicationService(createOptions({
@@ -450,5 +863,97 @@ describe("Managed job historical readers", () => {
         diagnostic: "invocation_failed",
       }),
     ]);
+  });
+
+  it("recovers one held commitment after a crash before job projection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-commitment-replay-"));
+    try {
+      const durableStore = new FilesystemManagedJobStore(root);
+      let failProjection = true;
+      const crashingStore: ManagedJobApplicationOptions["store"] = {
+        reserve: (input) => durableStore.reserve(input),
+        get: (id) => durableStore.get(id),
+        transition: async (...args) => {
+          if (failProjection) {
+            failProjection = false;
+            throw new Error("simulated projection crash");
+          }
+          return durableStore.transition(...args);
+        },
+        completeSuccess: (...args) => durableStore.completeSuccess(...args),
+        recordAccountLease: (...args) => durableStore.recordAccountLease(...args),
+        listNonterminal: () => durableStore.listNonterminal(),
+      };
+      const identities = new Set<string>();
+      const acquire = vi.fn((input: { jobId: string; economicAttemptId: string }) => {
+        const key = `${input.jobId}:${input.economicAttemptId}`;
+        const replay = identities.has(key);
+        identities.add(key);
+        return { status: "committed" as const, record: {} as never, replay };
+      });
+      const commitment = {
+        query: () => "committed" as const,
+        acquire,
+        releasePreFence: vi.fn(),
+        recordReleaseFailure: vi.fn(),
+      };
+      const first = new ManagedJobApplicationService({
+        ...createOptions({ store: crashingStore }),
+        economicAdoption: { adopt: async () => adoptedEconomicEvidence() },
+        economicCommitment: commitment,
+      });
+      await expect(first.submit(submission)).rejects.toMatchObject({ code: "job_persistence_unavailable" });
+
+      const restarted = new ManagedJobApplicationService({
+        ...createOptions({ store: durableStore }),
+        economicAdoption: { adopt: async () => adoptedEconomicEvidence() },
+        economicCommitment: commitment,
+      });
+      await expect(restarted.recoverInterrupted()).resolves.toEqual([
+        expect.objectContaining({ state: "failed", diagnostic: "economic_commitment_unavailable" }),
+      ]);
+      expect(identities).toHaveLength(1);
+      expect(acquire).toHaveBeenCalledTimes(1);
+      expect(commitment.releasePreFence).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads a strict V5 fixture without rewriting it", async () => {
+    const fixture: ManagedJobRecordV5 = {
+      version: 5,
+      id: "job-historical-v5",
+      state: "failed",
+      projectId: "kiln",
+      callerId: "codex-app:caller-001",
+      configuredAgentProfileId: "scout",
+      admissionProfileId: "foundation-readonly-plan",
+      economicPolicyId: "economy-policy",
+      economicPolicyRevision: "revision-001",
+      constraints: {},
+      candidateSet: candidateSet(),
+      governanceSource: "kiln-work-governance",
+      admissionId: "admission-001",
+      requestFingerprint: "a".repeat(64),
+      idempotencyKeyHash: "b".repeat(64),
+      createdAt: "2026-07-29T17:00:00.000Z",
+      updatedAt: "2026-07-29T17:01:00.000Z",
+      diagnostic: "economic_commitment_unavailable",
+      lifecycle: [
+        { sequence: 1, state: "queued", observedAt: "2026-07-29T17:00:00.000Z" },
+        { sequence: 2, state: "failed", observedAt: "2026-07-29T17:01:00.000Z", diagnostic: "economic_commitment_unavailable" },
+      ],
+    };
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v5-reader-"));
+    const path = join(root, "managed-jobs.json");
+    const serialized = `${JSON.stringify([fixture])}\n`;
+    try {
+      await writeFile(path, serialized, "utf8");
+      await expect(new FilesystemManagedJobStore(root).get(fixture.id)).resolves.toEqual(fixture);
+      expect(await readFile(path, "utf8")).toBe(serialized);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
