@@ -60,3 +60,18 @@ through `kiln project adopt`; do not put durable repo guidance directly in
 
 Add governed repo-specific notes here after review. Keep them factual,
 durable, and backed by repository evidence.
+
+### No External Consumers
+
+Kiln is published to npm and has no external consumers; the operator is the
+only one. Breaking changes therefore need no migration shim, deprecation
+window, or compatibility variant. Replace contracts outright and delete the old
+path in the same change.
+
+The operator's durable local state under `.kiln/` and `~/.kiln/` is the one
+exception, and it is a data-migration question decided per change, not a reason
+to keep an API compatibility layer. Discarding local state with no
+future-useful evidence is an admitted outcome.
+
+Canonical statement and full rules: `docs/architecture/engineering-standards.md`,
+section "Consumer Surface".

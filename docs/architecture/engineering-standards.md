@@ -13,6 +13,32 @@ or point here, but architectural and coding doctrine belongs in
 - Agent instruction files are operational entrypoints; they should not become
   the only place where durable engineering rules exist.
 
+## Consumer Surface
+
+The `@kilnai/*` packages are published, but Kiln has no external consumers. The
+operator is the only one, confirmed 2026-08-01. Publication is distribution, not
+a compatibility obligation.
+
+This is a load-bearing fact, not a footnote. The standing rule against
+compatibility paths "without real consumers" therefore applies at full strength
+everywhere in this repository:
+
+- Replace a contract outright instead of adding a compatible variant beside it.
+- Rename and change public types freely. Delete the old path in the same change.
+- Do not propose deprecation windows, `@deprecated` markers, version unions kept
+  "for safety", or dual-path support for hypothetical callers.
+- A published version number is not a reason to preserve anything.
+
+One boundary survives: the operator's durable local state under `.kiln/` and
+`~/.kiln/` — managed-job records, SQLite authorities, credentials, and config.
+That data exists on a real machine, so a schema change needs either a forward
+migration or an explicit recorded decision to discard it. That is data
+migration, and it is decided per change by the operator; it is never a reason to
+retain an API compatibility layer.
+
+Reset is an admitted outcome. When local state has no future-useful evidence,
+discarding it is preferred over carrying readers that exist only to parse it.
+
 ## Code Quality
 
 - No dead code. Delete unused branches, types, helpers, and compatibility

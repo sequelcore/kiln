@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:4f2235da54836bc02695eef26da53aa2639c74363cd0e29714a31db5d6ad258c
+contentHash: sha256:52f9c778b68751f3ce758c1d460ee9fdddcac41b4ca078c481477608716bc7bc
 -->
 # Agents
 
@@ -56,6 +56,21 @@ through `kiln project adopt`; do not put durable repo guidance directly in
 
 Add governed repo-specific notes here after review. Keep them factual,
 durable, and backed by repository evidence.
+
+### No External Consumers
+
+Kiln is published to npm and has no external consumers; the operator is the
+only one. Breaking changes therefore need no migration shim, deprecation
+window, or compatibility variant. Replace contracts outright and delete the old
+path in the same change.
+
+The operator's durable local state under `.kiln/` and `~/.kiln/` is the one
+exception, and it is a data-migration question decided per change, not a reason
+to keep an API compatibility layer. Discarding local state with no
+future-useful evidence is an admitted outcome.
+
+Canonical statement and full rules: `docs/architecture/engineering-standards.md`,
+section "Consumer Surface".
 
 ## Active Instruction Profiles
 
