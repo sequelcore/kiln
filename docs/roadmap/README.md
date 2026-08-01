@@ -22,7 +22,7 @@ roadmap reorganization.
 
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [02 - Managed Invocation Routing](./02-managed-invocation-routing.md) | Blocked | Obtain explicit operator authorization for the bounded Slice 3 live probe. |
+| 1 | [02 - Managed Invocation Routing](./02-managed-invocation-routing.md) | Ready | Deliver issue #34 internal Slice 5: restore provider dispatch behind a real quota-evidence producer, the orchestration migration off `RuntimeBudgetAdmissionService`, and the mandatory pre-effect dispatch fence. Managed-job execution is unavailable until it lands. |
 | 2 | [03 - Model Gateway Lifecycle](./03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
 | 3 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Close OpenCode live parity, then migrate and prove the harness-neutral control-plane bridge. |
 | 4 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
