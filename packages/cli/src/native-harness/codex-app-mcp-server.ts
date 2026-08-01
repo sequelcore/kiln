@@ -323,7 +323,11 @@ export async function startNativeHarnessMcpServer(
   const close = async (): Promise<void> => {
     if (closing) return;
     closing = true;
-    await server.close();
+    try {
+      await server.close();
+    } finally {
+      composition.close();
+    }
   };
   process.once("SIGINT", () => { void close(); });
   process.once("SIGTERM", () => { void close(); });

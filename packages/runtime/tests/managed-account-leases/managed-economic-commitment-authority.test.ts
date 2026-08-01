@@ -287,6 +287,21 @@ describe("managed economic commitment authority", () => {
       .toThrow("account lease reference is corrupt");
   });
 
+  it("releases ownership on close so a restart reclaims the authority without waiting out the stale interval", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-owner-release-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const at = Date.parse("2026-07-31T11:00:00.000Z");
+    const first = createAt(path, "owner-a", () => at);
+    expect(() => createAt(path, "owner-b", () => at)).toThrow("already has a live owner");
+
+    first.close();
+
+    // Same instant: reclaim must come from the released claim, not from staleness.
+    const reclaimed = createAt(path, "owner-b", () => at);
+    expect(reclaimed.queryCommitment("job-a", "economic-attempt-a")).toBe("absent");
+  });
+
   it("undoes a newly won affinity and restores account capacity on pre-fence release", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-economic-affinity-release-"));
     roots.push(root);

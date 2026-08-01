@@ -481,7 +481,9 @@ export class SqliteManagedAccountLeaseAuthority {
       readonly rejections: ReturnType<typeof selectModelGatewayAccount>["rejections"];
     },
   ): string {
-    if (selected.identity.account.kind !== "account-bound") throw new Error("fixture");
+    if (selected.identity.account.kind !== "account-bound") {
+      throw new Error("Managed economic account lease requires an account-bound selected identity.");
+    }
     const leaseId = randomUUID();
     const route = economicModelGatewayRoute(selected.identity.route);
     const acquiredAt = new Date(this.#now()).toISOString();
@@ -829,15 +831,11 @@ export class SqliteManagedAccountLeaseAuthority {
     });
   }
 
-  queryCommitment(jobId: string, economicAttemptId?: string): ManagedEconomicCommitmentRecord | "absent" | "committed" | "dispatch-fenced" {
+  queryCommitment(jobId: string, economicAttemptId: string): ManagedEconomicCommitmentRecord | "absent" {
     this.#heartbeat();
-    const row = economicAttemptId === undefined
-      ? this.#db.query<CommitmentRow, [string]>("SELECT * FROM economic_commitments WHERE job_id=? ORDER BY rowid DESC LIMIT 1").get(jobId) ?? null
-      : this.#commitmentRow(jobId, economicAttemptId);
+    const row = this.#commitmentRow(jobId, economicAttemptId);
     if (row === null || row.state === "denied") return "absent";
-    if (economicAttemptId !== undefined) return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
-    return row.state === "dispatch-fenced" || row.state === "settlement-pending" || row.state === "release-failed" || row.state === "leaked"
-      ? "dispatch-fenced" : "committed";
+    return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
   }
 
   releaseCommitmentPreFence(jobId: string, economicAttemptId: string): ManagedEconomicCommitmentRecord {

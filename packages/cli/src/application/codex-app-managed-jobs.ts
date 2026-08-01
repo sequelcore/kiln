@@ -14,6 +14,7 @@ import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./age
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
 import {
+  closeManagedAccountRuntimeComposition,
   createManagedAccountRuntimeComposition,
   projectManagedEconomicJobAdoption,
   type ManagedInvocationRouteResolution,
@@ -64,6 +65,8 @@ export interface NativeHarnessManagedJobApplicationComposition {
   readonly service: ManagedJobApplicationService;
   readonly application: NativeHarnessManagedJobApplicationPort;
   readonly configuredAgents: readonly NativeHarnessManagedAgentSummary[];
+  /** Releases the process-owned economic authority so a restart can reclaim it immediately. */
+  close(): void;
 }
 
 /** Project identity comes from this trusted composition, never from MCP input. */
@@ -255,7 +258,12 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     cancel: (input, jobId) => service.cancel({ project, callerId: input.callerId }, jobId),
     getReplay: (input, jobId) => service.getReplay({ project, callerId: input.callerId }, jobId),
   };
-  return { service, application, configuredAgents: summarizeNativeHarnessManagedAgents(configuredAgents, managedInvocation) };
+  return {
+    service,
+    application,
+    configuredAgents: summarizeNativeHarnessManagedAgents(configuredAgents, managedInvocation),
+    close: () => { closeManagedAccountRuntimeComposition(root.rootPath); },
+  };
 }
 
 function selectAdmissionProfile(

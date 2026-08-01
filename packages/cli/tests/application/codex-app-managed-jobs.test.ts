@@ -142,11 +142,12 @@ describe("Codex App managed-job production composition", () => {
       });
 
     try {
-      await createNativeHarnessManagedJobApplicationComposition({
+      const composition = await createNativeHarnessManagedJobApplicationComposition({
         harness: "codex",
         discoverProviderModels: async () => ({}),
         projectPath: projectRoot,
       });
+      composition.close();
 
       expect(recoverInvocations).not.toHaveBeenCalled();
       expect(recordAccountLease).not.toHaveBeenCalled();
