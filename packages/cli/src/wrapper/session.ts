@@ -158,6 +158,8 @@ export interface SessionRunOptions {
   readonly system?: string;
   readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
+  /** Runtime tool sandbox context. Used only by Kiln-executable direct-provider sessions. */
+  readonly toolSandbox?: unknown;
   readonly reasoningEffort?: ReasoningEffort;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly env?: Record<string, string>;

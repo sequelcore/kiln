@@ -33,6 +33,12 @@ import { buildManagedInvocationPhaseCompletion } from "../../src/agents/managed-
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
+const TEST_HANDOFF_PROVENANCE = {
+  delivery: "runtime-generated",
+  configuredModelId: "test-model",
+  observedModelIds: [],
+} as const;
+
 const ALWAYS_ON_CONTEXT_TOOLS = ["memory_search", "resource_list", "resource_template_list", "resource_read"];
 
 const RUNTIME_LOCAL_MUTATION_EFFECT: ActionEffectEnvelope = {
@@ -190,6 +196,7 @@ function makeManagedAdapter(summary = "Managed child completed governed work."):
         childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
         childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary,
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
           memoryWriteProposalUris: [],
@@ -253,6 +260,7 @@ function makeFailedManagedAdapter(): ManagedAgentRuntimeAdapter {
         authority: request.authority,
         capabilitySnapshot: admission.capabilitySnapshot,
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary: "Managed child failed before producing governed evidence.",
           resourceUris: [],
           memoryWriteProposalUris: [],
@@ -3687,6 +3695,78 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     expect(runtimeSurface.materializableCapabilities.get("tool_catalog_search")).toEqual(
       canonicalCatalogSearchCapability,
     );
+  });
+
+  it("cannot materialize tools excluded by a strict core projection", () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      operatorSurface: {
+        theme: { setTheme: vi.fn() },
+      },
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "strict",
+          alwaysOnTools: ["read", "write", "edit", "patch"],
+        },
+      },
+    });
+
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).toEqual(["read", "write", "edit", "patch"]);
+    expect(Array.from(runtimeSurface.materializableTools.keys())).toEqual(["read", "write", "edit", "patch"]);
+    expect(runtimeSurface.callBuiltinTools.has("bash")).toBe(false);
+    expect(runtimeSurface.callBuiltinTools.has("operator_set_theme")).toBe(false);
+    expect(runtimeSurface.toolDefinitions.map((tool) => tool.name)).not.toContain("operator_set_theme");
+    expect(runtimeSurface.materializableCapabilities.has("tool_catalog_search")).toBe(false);
+  });
+
+  it("enforces a strict write projection inside the exact sandbox root", async () => {
+    const leaseRoot = await mkdtemp(join(tmpdir(), "kiln-write-lease-"));
+    const siblingRoot = `${leaseRoot}-escape`;
+    await writeFile(join(leaseRoot, "inside.txt"), "before", "utf8");
+    await writeFile(siblingRoot, "outside", "utf8");
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: {
+        toolProjection: {
+          mode: "strict",
+          alwaysOnTools: ["read", "write", "edit", "patch"],
+        },
+      },
+    });
+    const sandbox = {
+      cwd: leaseRoot,
+      policy: new SandboxPolicy({
+        projectPath: leaseRoot,
+        config: {
+          fsPolicy: "read-write",
+          netPolicy: "none",
+          allowedPaths: [leaseRoot],
+          deniedPaths: [],
+          allowedDomains: [],
+        },
+      }),
+    };
+    const authority = {
+      level: 4 as const,
+      allowed: true,
+      requiresApproval: false,
+      reason: "Disposable benchmark lease admitted by the parent runtime.",
+    };
+
+    try {
+      await expect(runtimeSurface.callBuiltinTools.get("write")?.({
+        filePath: "inside.txt",
+        content: "after",
+      }, { sandbox, authority } as RuntimeBuiltinToolExecutionContext)).resolves.toMatchObject({ isError: false });
+      await expect(runtimeSurface.callBuiltinTools.get("write")?.({
+        filePath: siblingRoot,
+        content: "escaped",
+      }, { sandbox, authority } as RuntimeBuiltinToolExecutionContext)).resolves.toMatchObject({
+        isError: true,
+        output: expect.stringContaining("Write access denied"),
+      });
+    } finally {
+      await rm(leaseRoot, { recursive: true, force: true });
+      await rm(siblingRoot, { force: true });
+    }
   });
 
   it("does not admit runtime-attached tools into the materializable catalog", () => {

@@ -14,6 +14,7 @@ import type {
   ManagedAgentLifecycleEvidence,
   ManagedAgentLifecycleState,
   ManagedAgentProviderRoute,
+  ManagedAgentResultHandoff,
   ManagedAgentRequestedAuthority,
   ManagedAgentRouteSource,
   ManagedAgentWriteAuthority,
@@ -512,11 +513,7 @@ export interface SessionAgentInvocationUsageReport {
   };
 }
 
-export interface SessionAgentInvocationResultHandoff {
-  readonly summary: string;
-  readonly resourceUris: readonly string[];
-  readonly memoryWriteProposalUris: readonly string[];
-}
+export type SessionAgentInvocationResultHandoff = ManagedAgentResultHandoff;
 
 export interface SessionAgentInvocationEvidence {
   readonly lifecycle?: ManagedAgentLifecycleEvidence;

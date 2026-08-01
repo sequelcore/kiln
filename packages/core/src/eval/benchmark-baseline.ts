@@ -3,6 +3,9 @@ export type BenchmarkSurface =
   | "managed-child"
   | "managed-team"
   | "managed-coding"
+  | "model-roster"
+  | "model-roster-backend-write"
+  | "model-roster-frontend-render"
   | "safety";
 
 export type BenchmarkTrackId =
@@ -27,7 +30,9 @@ export type BenchmarkEvidenceArtifactKind =
   | "usage"
   | "route"
   | "cost"
-  | "cache-topology";
+  | "cache-topology"
+  | "diff"
+  | "verification";
 
 export interface BenchmarkEvidenceArtifact {
   readonly kind: BenchmarkEvidenceArtifactKind;
@@ -186,6 +191,90 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     ],
     externalTrackCandidates: ["agentdojo"],
   },
+  {
+    id: "kiln-model-roster",
+    version: "2",
+    displayName: "Kiln Model Roster",
+    surface: "model-roster",
+    purpose: "Screens exact provider/model routes on grounded scout, backend, frontend, and research analysis over a synthetic repository fixture.",
+    authorityProfile: "foundation-readonly-plan",
+    requiredScorers: [
+      "evidence-coverage",
+      "citation-grounding",
+      "tool-trajectory",
+      "latency",
+      "cost",
+      "execution-integrity",
+    ],
+    minimumPassAtK: 0.75,
+    minimumK: 5,
+    reproducibilityRequirements: [
+      "synthetic portable fixture workspace",
+      "fixture content hash",
+      "fixed provider/model identity",
+      "versioned dataset",
+      "config hash",
+      "transcript, tool-call, route, usage, and diagnostic artifact URIs",
+    ],
+    externalTrackCandidates: [],
+  },
+  {
+    id: "kiln-model-roster-backend-write",
+    version: "1",
+    displayName: "Kiln Model Roster Backend Write",
+    surface: "model-roster-backend-write",
+    purpose: "Measures bounded backend implementation in a disposable workspace with an out-of-process hidden-test verifier.",
+    authorityProfile: "foundation-apply-approved-writes",
+    requiredScorers: [
+      "test-verification",
+      "diff-integrity",
+      "tool-trajectory",
+      "latency",
+      "cost",
+      "execution-integrity",
+    ],
+    minimumPassAtK: 0.75,
+    minimumK: 5,
+    reproducibilityRequirements: [
+      "synthetic portable disposable fixture workspace",
+      "strict executable tool projection and workspace sandbox",
+      "pinned rootless read-only container verifier",
+      "fixed hidden-test digest and allowed changed paths",
+      "fixed provider/model identity",
+      "versioned dataset and config hash",
+      "diff, verifier, transcript, tool-call, route, usage, and diagnostic evidence",
+    ],
+    externalTrackCandidates: [],
+  },
+  {
+    id: "kiln-model-roster-frontend-render",
+    version: "1",
+    displayName: "Kiln Model Roster Frontend Render",
+    surface: "model-roster-frontend-render",
+    purpose: "Measures bounded React implementation through real Chromium interaction, focus, screenshot, and automated accessibility evidence.",
+    authorityProfile: "foundation-apply-approved-writes",
+    requiredScorers: [
+      "render-verification",
+      "frontend-diff-integrity",
+      "tool-trajectory",
+      "latency",
+      "cost",
+      "execution-integrity",
+    ],
+    minimumPassAtK: 0.75,
+    minimumK: 5,
+    reproducibilityRequirements: [
+      "synthetic portable disposable React fixture workspace",
+      "strict executable tool projection and workspace sandbox",
+      "pinned Playwright browser image and verifier source digest",
+      "fixed viewport, reduced-motion, interaction, focus, and axe-core rules",
+      "fixed allowed changed paths",
+      "fixed provider/model identity",
+      "versioned dataset and config hash",
+      "diff, render report, screenshot, transcript, tool-call, route, usage, and diagnostic evidence",
+    ],
+    externalTrackCandidates: [],
+  },
 ] as const;
 
 export const KILN_EXTERNAL_BENCHMARK_TRACKS: readonly BenchmarkTrack[] = [
@@ -335,6 +424,9 @@ function missingEvidenceArtifacts(baseline: BenchmarkBaselineResult): readonly B
     "route",
     "cost",
     "cache-topology",
+    ...(["kiln-model-roster-backend-write", "kiln-model-roster-frontend-render"].includes(baseline.profileId)
+      ? ["diff" as const, "verification" as const]
+      : []),
   ];
   return required.filter((kind) => !present.has(kind));
 }

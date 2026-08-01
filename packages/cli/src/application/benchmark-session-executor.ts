@@ -7,6 +7,7 @@ import type {
 } from "@kilnai/core";
 import {
   GoalRunStore,
+  SandboxPolicy,
   WorkItemStore,
   createSessionBuiltinToolOptions,
   mapProviderModelRouteErrorToOutcome,
@@ -59,9 +60,32 @@ import { runSession } from "./run-session.js";
 import { createNonHumanRunOutputSink } from "./run-output.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import { resolveConfiguredReasoningEffortEvidence } from "../config/reasoning-policy.js";
+import {
+  hashBenchmarkWorkspace,
+  resolveBenchmarkWorkspace,
+  verifyBenchmarkWorkspaceUnchanged,
+} from "./benchmark-workspace.js";
+import {
+  createBenchmarkWriteWorkspaceLease,
+  type BenchmarkWriteWorkspaceChanges,
+} from "./benchmark-write-workspace.js";
+import {
+  verifyBackendBenchmarkLease,
+  type BackendBenchmarkVerification,
+} from "./benchmark-backend-verifier.js";
+import {
+  verifyFrontendBenchmarkLease,
+  type FrontendBenchmarkVerification,
+} from "./benchmark-frontend-verifier.js";
 
 export const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
+export const BENCHMARK_WRITE_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "workspace-write" };
 export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 8 } } as const;
+const WRITE_BENCHMARK_PROFILE_IDS = new Set([
+  "kiln-model-roster-backend-write",
+  "kiln-model-roster-frontend-render",
+]);
+const WRITE_BENCHMARK_TOOLS = ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"] as const;
 
 export interface BenchmarkSessionExecutorFlags {
   readonly provider?: string;
@@ -83,50 +107,90 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
   let reasoningEffortResolutionPromise: Promise<NormalizedReasoningEffortResolution> | undefined;
   return async (input, context) => {
     const startedAt = Date.now();
-    const cwd = resolveProjectRoot().rootPath;
+    const repositoryRoot = resolveProjectRoot().rootPath;
+    const benchmarkWorkspace = resolveBenchmarkWorkspace(
+      repositoryRoot,
+      context.item.metadata?.workspaceFixture,
+    );
+    const writeMode = WRITE_BENCHMARK_PROFILE_IDS.has(context.profile.id);
+    const writeLease = writeMode
+      ? createBenchmarkWriteWorkspaceLease(repositoryRoot, context.item.metadata?.workspaceFixture)
+      : undefined;
+    const cwd = writeLease?.rootPath ?? benchmarkWorkspace.rootPath;
+    const workspaceFixtureHash = writeLease?.canonicalHash ?? (benchmarkWorkspace.kind === "synthetic-fixture"
+      ? hashBenchmarkWorkspace(benchmarkWorkspace)
+      : undefined);
+    let workspaceChanges: BenchmarkWriteWorkspaceChanges | undefined;
+    let observedVerification: BackendBenchmarkVerification | FrontendBenchmarkVerification | undefined;
+    try {
+    const sessionInput = benchmarkWorkspace.kind === "synthetic-fixture"
+      ? [
+          "Benchmark workspace isolation: the current workspace root is already the complete synthetic fixture.",
+          "Use paths relative to this workspace root. Do not prepend the fixture declaration or inspect parent directories.",
+          "",
+          input,
+        ].join("\n")
+      : input;
     const mode = resolveMode(options.flags);
     const globalConfig = readGlobalConfig();
-    const projectConfig = readKilnYaml(join(cwd, ".kiln"));
-    const resolvedKilnConfig = await loadKilnConfig(cwd);
+    const projectConfig = benchmarkWorkspace.kind === "repository"
+      ? readKilnYaml(join(repositoryRoot, ".kiln"))
+      : undefined;
+    const resolvedKilnConfig = await loadKilnConfig(repositoryRoot);
     const configuredRouteCandidates = resolveProviderRouteCandidates({
       globalConfig,
       flagProvider: options.flags?.provider,
       flagModel: options.flags?.model,
     });
+    if (writeMode && (configuredRouteCandidates.length === 0
+      || configuredRouteCandidates.some((candidate) => !isDirectApiProvider(candidate.provider)))) {
+      throw new Error("Benchmark write profiles require explicit Kiln-executable direct-provider routes.");
+    }
     const preferredProvider = configuredRouteCandidates[0]?.provider;
     const effectiveModel = configuredRouteCandidates[0]?.model
       ?? resolveEffectiveModel(options.flags?.model, resolveGlobalDefaultModel(globalConfig));
+    const permissionPolicy = writeMode ? BENCHMARK_WRITE_POLICY : BENCHMARK_POLICY;
     const wrapperConfig = {
       mode,
       apiKey: options.flags?.apiKey,
       provider: preferredProvider,
-      permissionPolicy: BENCHMARK_POLICY,
+      permissionPolicy,
     };
-    let identityAppConfig = withWorkGovernanceContext(
-      withGlobalIdentityContext(options.appConfig, globalConfig),
-      resolvedKilnConfig?.workGovernance,
-    );
-    identityAppConfig = withContextCandidates(
-      identityAppConfig,
-      resolveInstructionProfileContextCandidates({
-        projectPath: cwd,
-        globalConfig,
-        projectConfig,
-      }),
-    );
-    const runtimeAppConfig = {
-      ...identityAppConfig,
-      buildSystemPrompt: identityAppConfig.buildSystemPrompt ?? defaultBuildSystemPrompt,
-    };
+    let runtimeAppConfig: KilnAppConfig;
+    if (benchmarkWorkspace.kind === "synthetic-fixture") {
+      runtimeAppConfig = {
+        createRegistry: options.appConfig.createRegistry,
+        buildSystemPrompt: defaultBuildSystemPrompt,
+        contextCandidates: [],
+        kilnYaml: { version: "1" },
+      };
+    } else {
+      let identityAppConfig = withWorkGovernanceContext(
+        withGlobalIdentityContext(options.appConfig, globalConfig),
+        resolvedKilnConfig?.workGovernance,
+      );
+      identityAppConfig = withContextCandidates(
+        identityAppConfig,
+        resolveInstructionProfileContextCandidates({
+          projectPath: cwd,
+          globalConfig,
+          projectConfig,
+        }),
+      );
+      runtimeAppConfig = {
+        ...identityAppConfig,
+        buildSystemPrompt: identityAppConfig.buildSystemPrompt ?? defaultBuildSystemPrompt,
+      };
+    }
     const { registry, worktreeManager } = createDefaultRegistry();
     const benchmarkCleanupRegistry = new CleanupRegistry();
     const contextArtifactCache = await getProjectContextArtifactCache(cwd);
     const manager = new SessionManager(wrapperConfig, runtimeAppConfig, contextArtifactCache, worktreeManager);
     const sessionContext = await manager.prepare(
-      input,
+      sessionInput,
       cwd,
       undefined,
-      true,
+      benchmarkWorkspace.kind === "repository",
       undefined,
       undefined,
       preferredProvider,
@@ -144,48 +208,63 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const routeCandidates = reasoningEffort
       ? configuredRouteCandidates.map((candidate) => ({ ...candidate, reasoningEffort }))
       : configuredRouteCandidates;
-    const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(options.appConfig, cwd, {
+    const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
       memoryAuthority: {
         modelFacingSession: true,
-        permissionPolicy: BENCHMARK_POLICY,
+        permissionPolicy,
         caller: { kind: "operator_surface", id: "benchmark" },
       },
     });
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
-    let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
+    const baseBuiltinToolOptions = {
       ...configuredBuiltinToolOptions,
       workItemStore,
       goalRunStore,
       additionalTools: [
         ...(configuredBuiltinToolOptions.additionalTools ?? []),
-        ...createKilnConfigTools(cwd),
-        ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
-          workItemStore,
-          goalRunStore,
-          managedInvocationProofResolver: managedInvocationProofs.resolve,
-        }),
+        ...(benchmarkWorkspace.kind === "repository" ? createKilnConfigTools(repositoryRoot) : []),
+        ...(benchmarkWorkspace.kind === "repository"
+          ? createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
+              workItemStore,
+              goalRunStore,
+              managedInvocationProofResolver: managedInvocationProofs.resolve,
+            })
+          : []),
       ],
-    }, "read-only"));
-    const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
-    const managedAgentProviderModels = await discoverManagedAgentProviderModels();
-    const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
-      cwd,
-      registry,
-      surface: "run",
-      maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
-      isProviderAvailable: (providerId) => engineAvailability.get(providerId),
-      providerModelEligibility: managedAgentProviderModels,
-      directAdapterFactory: createManagedDirectProviderAdapterFactory({
+    };
+    let builtinToolOptions = createSessionBuiltinToolOptions(writeMode
+      ? {
+          ...baseBuiltinToolOptions,
+          toolProjection: {
+            mode: "strict" as const,
+            alwaysOnTools: WRITE_BENCHMARK_TOOLS,
+          },
+        }
+      : withProgressiveRuntimeToolProjection(baseBuiltinToolOptions, "read-only"));
+    let managedInvocation = benchmarkWorkspace.kind === "repository"
+      ? options.appConfig.managedInvocation
+      : undefined;
+    if (benchmarkWorkspace.kind === "repository" && !managedInvocation) {
+      const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
+      const managedAgentProviderModels = await discoverManagedAgentProviderModels();
+      managedInvocation = (await resolveManagedInvocationToolOptions(globalConfig, {
+        cwd,
+        registry,
+        surface: "run",
+        maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
+        isProviderAvailable: (providerId) => engineAvailability.get(providerId),
+        providerModelEligibility: managedAgentProviderModels,
+        directAdapterFactory: createManagedDirectProviderAdapterFactory({
+          builtinToolOptions: () => builtinToolOptions,
+          runtimeEnv: env,
+          executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
+        }),
         builtinToolOptions: () => builtinToolOptions,
-        runtimeEnv: env,
-        executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
-      }),
-      builtinToolOptions: () => builtinToolOptions,
-      artifactStore: builtinToolOptions.artifactResources?.store,
-    });
-    const managedInvocation = options.appConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
+        artifactStore: builtinToolOptions.artifactResources?.store,
+      })).managedInvocation;
+    }
     const managedInvocationWithService = managedInvocation
       ? withManagedInvocationService(managedInvocation)
       : undefined;
@@ -202,26 +281,29 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       } : undefined,
     );
     const sessionConfig = {
-      task: input,
+      task: sessionInput,
       systemPrompt: sessionContext.systemPrompt,
       mcpServerEntryPath: sessionContext.mcpServerEntryPath,
       cwd,
       env,
-      permissionPolicy: BENCHMARK_POLICY,
+      permissionPolicy,
       continuationSessionId: sessionContext.continuationSessionId,
       ephemeral: true,
       skipGitRepoCheck: options.flags?.skipGitRepoCheck,
       builtinToolOptions,
       managedInvocation: managedInvocationAttachment,
       executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
-      requestedAuthority: "read_only" as const,
+      requestedAuthority: writeMode ? "destructive" as const : "read_only" as const,
       model: effectiveModel,
       reasoningEffort,
     };
-    const sessionHooks = new SessionHooks(options.appConfig.kilnYaml?.hooks, {
+    const sessionHooks = new SessionHooks(
+      benchmarkWorkspace.kind === "repository" ? options.appConfig.kilnYaml?.hooks : undefined,
+      {
       sessionId,
       workingDirectory: sessionContext.workingDirectory,
-    });
+      },
+    );
     const runOutput = createNonHumanRunOutputSink();
     const result = await runSession({
       registry,
@@ -234,17 +316,43 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       },
       routeCandidates: routeCandidates.length > 0 ? routeCandidates : undefined,
       sessionConfig,
-      permissionPolicy: BENCHMARK_POLICY,
+      permissionPolicy,
       sessionId,
-      approvalMemoryStore: new ApprovalMemoryStoreImpl(cwd),
+      approvalMemoryStore: new ApprovalMemoryStoreImpl(repositoryRoot),
       env,
       sessionHooks,
+      ...(writeLease ? {
+        toolSandbox: {
+          policy: new SandboxPolicy({
+            projectPath: writeLease.rootPath,
+            config: {
+              fsPolicy: "read-write",
+              netPolicy: "none",
+              allowedPaths: [writeLease.rootPath],
+              deniedPaths: [],
+              allowedDomains: [],
+            },
+          }),
+        },
+      } : {}),
       output: runOutput,
     }).finally(async () => {
       await benchmarkCleanupRegistry.runAll();
       await manager.cleanupWorktree(sessionContext);
       closeBuiltinResources(configuredBuiltinToolOptions);
     });
+    if (workspaceFixtureHash) {
+      verifyBenchmarkWorkspaceUnchanged(repositoryRoot, benchmarkWorkspace, workspaceFixtureHash);
+    }
+    workspaceChanges = writeLease?.collectChanges();
+    if (context.profile.id === "kiln-model-roster-backend-write" && writeLease) {
+      observedVerification = await verifyBackendBenchmarkLease({ lease: writeLease });
+      workspaceChanges = observedVerification.changes;
+    }
+    if (context.profile.id === "kiln-model-roster-frontend-render" && writeLease) {
+      observedVerification = await verifyFrontendBenchmarkLease({ lease: writeLease });
+      workspaceChanges = observedVerification.changes;
+    }
     await recordDirectRouteHealth(configuredRouteCandidates, result.attempts, result.lastError);
     const routeFailures = result.attempts.flatMap((attempt) => {
       if (attempt.succeeded || !attempt.error) return [];
@@ -280,8 +388,21 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         exactArtifacts: result.exactArtifacts,
         ...(result.lastError ? { policyViolations: [result.lastError] } : {}),
         ...(routeFailures.length > 0 ? { routeFailures } : {}),
+        benchmarkWorkspaceKind: benchmarkWorkspace.kind,
+        benchmarkContextKind: benchmarkWorkspace.kind === "synthetic-fixture" ? "sanitized" : "repository",
+        ...(benchmarkWorkspace.fixturePath ? { workspaceFixture: benchmarkWorkspace.fixturePath } : {}),
+        ...(workspaceFixtureHash ? { workspaceFixtureHash } : {}),
+        ...(workspaceChanges ? { workspaceChanges } : {}),
+        ...(observedVerification ? { observedVerification } : {}),
       },
     };
+    } finally {
+      try {
+        writeLease?.verifyCanonicalUnchanged();
+      } finally {
+        writeLease?.cleanup();
+      }
+    }
   };
 }
 

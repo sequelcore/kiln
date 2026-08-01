@@ -227,6 +227,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         }],
         usage: unknownRuntimeUsage(),
         resultHandoff: {
+          provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
           summary: timeoutSummary,
           resourceUris: [
             managedInvocationUri(request.invocationId, "transcript"),
@@ -419,6 +420,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           },
         },
         resultHandoff: {
+          provenance: structuredResult
+            ? submissionToolHandoffProvenance(request.providerRoute.model)
+            : runtimeGeneratedHandoffProvenance(request.providerRoute.model),
           summary,
           resourceUris: uniqueStrings([
             ...resultResourceUris,
@@ -442,6 +446,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           transcript: transcriptPointer(request.invocationId),
           usage: unknownRuntimeUsage(),
           resultHandoff: {
+            provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
             summary: String(input.abortSignal.reason ?? "Managed direct provider invocation cancelled."),
             resourceUris: [managedInvocationUri(request.invocationId, "transcript")],
             memoryWriteProposalUris: [],
@@ -460,6 +465,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         }],
         usage: unknownRuntimeUsage(),
         resultHandoff: {
+          provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
           summary: formatDirectProviderFailure(err, request.providerRoute),
           resourceUris: [managedInvocationUri(request.invocationId, "failure")],
           memoryWriteProposalUris: [],
@@ -495,6 +501,22 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
     };
   }
+}
+
+function runtimeGeneratedHandoffProvenance(model: string | undefined) {
+  return {
+    delivery: "runtime-generated" as const,
+    configuredModelId: model ?? "provider-default",
+    observedModelIds: [],
+  };
+}
+
+function submissionToolHandoffProvenance(model: string | undefined) {
+  return {
+    delivery: "submission-tool" as const,
+    configuredModelId: model ?? "provider-default",
+    observedModelIds: [],
+  };
 }
 
 export interface ManagedDirectProviderBindingAdapter extends ManagedAgentRuntimeAdapter {

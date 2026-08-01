@@ -2465,6 +2465,7 @@ function createCancelledRecord(
     authority: request.authority,
     capabilitySnapshot: decision.capabilitySnapshot,
     resultHandoff: {
+      provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
       summary: reason,
       resourceUris: [],
       memoryWriteProposalUris: [],
@@ -2490,6 +2491,7 @@ function createFailedRecord(
     authority: request.authority,
     capabilitySnapshot: decision.capabilitySnapshot,
     resultHandoff: {
+      provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
       summary: reason,
       resourceUris: [],
       memoryWriteProposalUris: [],
@@ -2515,6 +2517,7 @@ function createStaleRecord(
     authority: request.authority,
     capabilitySnapshot: decision.capabilitySnapshot,
     resultHandoff: {
+      provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
       summary: reason,
       resourceUris: [],
       memoryWriteProposalUris: [],
@@ -2540,6 +2543,7 @@ function createRecoveredRecord(
     authority: request.authority,
     capabilitySnapshot: decision.capabilitySnapshot,
     resultHandoff: {
+      provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
       summary: reason,
       resourceUris: [],
       memoryWriteProposalUris: [],
@@ -2562,11 +2566,22 @@ function mergeCancelledRecords(
         ? { resourceLease: adapterRecord.resourceLease }
         : {}),
     resultHandoff: {
+      provenance: runtimeHandoff?.provenance
+        ?? adapterHandoff?.provenance
+        ?? runtimeGeneratedHandoffProvenance(adapterRecord.providerRoute.model),
       summary: runtimeHandoff?.summary ?? adapterHandoff?.summary ?? "Managed invocation cancelled.",
       resourceUris: adapterHandoff?.resourceUris ?? runtimeHandoff?.resourceUris ?? [],
       memoryWriteProposalUris: adapterHandoff?.memoryWriteProposalUris ?? runtimeHandoff?.memoryWriteProposalUris ?? [],
     },
   });
+}
+
+function runtimeGeneratedHandoffProvenance(model: string | undefined) {
+  return {
+    delivery: "runtime-generated" as const,
+    configuredModelId: model ?? "provider-default",
+    observedModelIds: [],
+  };
 }
 
 function isTerminalLifecycleState(state: ManagedAgentLifecycleState): boolean {

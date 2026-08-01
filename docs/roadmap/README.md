@@ -30,7 +30,7 @@ roadmap reorganization.
 | --- | --- | --- | --- |
 | 1 | [02 - Managed Invocation Routing](./02-managed-invocation-routing.md) | Ready | Deliver issue #34 internal Slice 5: restore provider dispatch behind a real quota-evidence producer, the orchestration migration off `RuntimeBudgetAdmissionService`, and the mandatory pre-effect dispatch fence. Managed-job execution is unavailable until it lands. |
 | 2 | [03 - Model Gateway Lifecycle](./03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
-| 3 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Close OpenCode live parity, then migrate and prove the harness-neutral control-plane bridge. |
+| 3 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Claude read-only entitlement is live-proven; close the remaining OpenCode live parity and harness-neutral bridge proof. |
 | 4 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
 | 5 | [06 - Prompt Governance Plane](./06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
 | 6 | [07 - Stack Governance Plane](./07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |

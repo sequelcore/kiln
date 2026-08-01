@@ -13,8 +13,8 @@ and independent review explicit:
 - Codex OAuth Terra is the default workday coordinator and implementation
   route;
 - Codex OAuth Sol is a read-only architecture advisor;
-- OpenCode Go specialists provide bounded frontend, backend, research, and
-  mechanical-work capacity;
+- OpenCode Go specialists provide bounded frontend, backend, and research
+  capacity;
 - frontend analysis uses a governed heterogeneous team before write authority
   is admitted;
 - task suitability ranks only routes that are already eligible;
@@ -67,8 +67,6 @@ routing:
       model: deepseek-v4-pro
     - provider: opencode-go
       model: qwen3.7-max
-    - provider: opencode-go
-      model: deepseek-v4-flash
 ```
 
 OpenCode Go is not the orchestrator. It supplies eligible specialist routes;
@@ -87,16 +85,18 @@ entry selectable.
 | Independent React/TypeScript review | `codex-oauth/gpt-5.6-terra` | Separately routed correctness and accessibility reviewer. |
 | Frontend visual production | `opencode-go/kimi-k3` | Read-only visual hierarchy, interaction, and acceptance-criteria producer. |
 | Frontend implementation advice | `opencode-go/kimi-k2.7-code` | Read-only repository-grounded component and test handoff. |
-| Frontend implementation | `opencode-go/kimi-k2.7-code` | Separate approved-write route after governance admits mutation. |
+| Frontend implementation | Unassigned | No OpenCode route passed the 2026-08-01 rendered write admission. |
 | Backend/runtime implementation | `opencode-go/glm-5.2` | Preferred OpenCode backend route for this workstation. |
 | Backend comparison | `opencode-go/deepseek-v4-pro` | Challenger for bounded comparative diagnosis. |
 | Research and synthesis | `opencode-go/qwen3.7-max` | Source-grounded comparison specialist. |
-| Scout and mechanical work | `opencode-go/deepseek-v4-flash` | Fast low-risk route. |
+| Scout and mechanical work | `codex-oauth/gpt-5.6-luna` | Current privacy-safe baseline; Hy3 and MiMo V2.5 require profile-v3 comparison before admission. |
 
-Kimi K3 has a productive read-only role; it is not promoted to write authority
-without frontend-specific implementation, visual, accessibility, and test
-evidence. The approved-write Kimi K2.7 route remains a separate authority
-contract rather than an implicit consequence of team membership.
+Kimi K3 and Kimi K2.7 Code have productive read-only roles. Neither has a
+frontend approved-write route after the 2026-08-01 rendered interaction,
+focus, accessibility, and diff evaluation.
+DeepSeek V4 Flash through OpenCode Go is excluded from private repository work:
+the current provider matrix permits model training and offers no retention
+agreement for that route.
 
 ## Governed Frontend Team
 

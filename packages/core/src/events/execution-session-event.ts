@@ -133,10 +133,25 @@ export interface ProviderRequestCachePartitionEvidence {
   readonly dimensions: readonly ProviderRequestCachePartitionDimensionEvidence[];
 }
 
+export interface ExecutionSessionStructuredOutputHarnessEvidence {
+  readonly id: string;
+  /** Portable executable identity; absolute operator paths are forbidden. */
+  readonly executable: string;
+  readonly version: string;
+}
+
 export type ExecutionSessionEvent = (
   | { readonly type: "text_delta"; readonly content: string; readonly isThinking?: boolean }
   /** Native structured result emitted independently of assistant prose. */
-  | { readonly type: "structured_output"; readonly value: unknown }
+  | {
+      readonly type: "structured_output";
+      readonly value: unknown;
+      /** Provider-reported identity of the primary model initialized for the run. */
+      readonly primaryProviderModelId?: string;
+      /** Provider-reported model identities that actually served the run. */
+      readonly providerModelIds?: readonly string[];
+      readonly harness?: ExecutionSessionStructuredOutputHarnessEvidence;
+    }
   | {
       readonly type: "tool_use";
       readonly toolName: string;

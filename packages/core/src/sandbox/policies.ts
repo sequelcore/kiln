@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { SandboxConfig } from "./index.js";
 
 /** Predefined sandbox configs per agent role. */
@@ -85,11 +85,11 @@ export class SandboxPolicy {
 
   private resolvePathAccess(resolvedPath: string): boolean {
     const matchedAllow = this._resolvedAllowedPaths
-      .filter((a) => resolvedPath.startsWith(a))
+      .filter((a) => isContainedPath(resolvedPath, a))
       .reduce<string | null>((best, a) => (best === null || a.length > best.length ? a : best), null);
 
     const matchedDeny = this._resolvedDeniedPaths
-      .filter((d) => resolvedPath.startsWith(d))
+      .filter((d) => isContainedPath(resolvedPath, d))
       .reduce<string | null>((best, d) => (best === null || d.length > best.length ? d : best), null);
 
     if (matchedAllow !== null && matchedDeny !== null) {
@@ -136,6 +136,12 @@ export class SandboxPolicy {
       resolvedDeniedPaths: this._resolvedDeniedPaths,
     };
   }
+}
+
+function isContainedPath(candidate: string, parent: string): boolean {
+  const relation = relative(parent, candidate);
+  return relation === ""
+    || (relation !== ".." && !relation.startsWith(`..${sep}`) && !isAbsolute(relation));
 }
 
 export function createPolicy(

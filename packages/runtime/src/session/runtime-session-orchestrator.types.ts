@@ -322,6 +322,8 @@ export interface PerCallToolConfig {
   readonly temporalContext?: TurnTemporalContext;
   readonly executionScope?: SessionExecutionScope;
   readonly workingDirectory?: string;
+  /** Sandbox policy and validators applied to builtin tool execution for this call. */
+  readonly sandbox?: unknown;
   readonly governedWorkRequirement?: {
     readonly kind: "goal_materialization";
     readonly requiredWorkItemCount: number;

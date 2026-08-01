@@ -206,6 +206,11 @@ function makeRecord(request: ManagedAgentInvocationRequest): ManagedAgentInvocat
       cost: { currency: "unknown", amount: "unknown" },
     },
     resultHandoff: {
+      provenance: {
+        delivery: "runtime-generated",
+        configuredModelId: request.providerRoute.model ?? "provider-default",
+        observedModelIds: [],
+      },
       summary: "Write proposal returned.",
       resourceUris: ["kiln://managed-invocations/invocation-write-1/transcript"],
       memoryWriteProposalUris: ["kiln://memory/proposals/write-proposal-1"],

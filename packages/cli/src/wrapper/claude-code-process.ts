@@ -60,6 +60,11 @@ export interface ClaudeSessionConfig {
    * discovered.  Managed routes resolve this and fail closed without it.
    */
   readonly harnessExecutable?: string;
+  /** Durable, portable identity for the executable bound above. */
+  readonly harnessEvidence?: {
+    readonly executable: string;
+    readonly version: string;
+  };
 }
 
 function derivePermissionPolicy(
@@ -202,6 +207,7 @@ export class ClaudeSession implements IKilnSession {
       allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
       settingSources: ["project"],
       model: this.config.model,
+      ...(this.config.sessionLedgerOwner === "host" ? { persistSession: false } : {}),
       ...(this.config.structuredOutputSchema ? {
         outputFormat: {
           type: "json_schema" as const,
@@ -235,6 +241,8 @@ export class ClaudeSession implements IKilnSession {
     });
 
     let initReceived = false;
+    let initializedModel: string | undefined;
+    let initializedHarnessVersion: string | undefined;
     let totalCostUsd = 0;
     const startTime = Date.now();
 
@@ -242,9 +250,10 @@ export class ClaudeSession implements IKilnSession {
       for await (const message of queryInstance) {
         if (message.type === "system" && message.subtype === "init") {
           initReceived = true;
-          const initMsg = message as { tools?: Array<{ name: string }> };
-          if (initMsg.tools && Array.isArray(initMsg.tools)) {
-            this._capabilities.supportedTools = initMsg.tools.map((t) => t.name);
+          initializedModel = normalizedOptionalText(message.model);
+          initializedHarnessVersion = normalizedOptionalText(message.claude_code_version);
+          if (Array.isArray(message.tools)) {
+            this._capabilities.supportedTools = [...message.tools];
           }
           continue;
         }
@@ -298,10 +307,45 @@ export class ClaudeSession implements IKilnSession {
               cache_read_input_tokens?: number;
             };
             structured_output?: unknown;
+            modelUsage?: Readonly<Record<string, unknown>>;
           };
           totalCostUsd = resultMsg.total_cost_usd ?? 0;
           if (this.config.structuredOutputSchema !== undefined && resultMsg.structured_output !== undefined) {
-            yield { type: "structured_output", value: resultMsg.structured_output };
+            const providerModelIds = Object.keys(resultMsg.modelUsage ?? {})
+              .map((modelId) => modelId.trim())
+              .filter((modelId) => modelId.length > 0);
+            if (initializedModel !== undefined && !providerModelIds.includes(initializedModel)) {
+              providerModelIds.push(initializedModel);
+            }
+            const observedVersion = initializedHarnessVersion ?? this.config.harnessEvidence?.version;
+            yield {
+              type: "structured_output",
+              value: resultMsg.structured_output,
+              ...(initializedModel !== undefined ? { primaryProviderModelId: initializedModel } : {}),
+              ...(providerModelIds.length > 0 ? { providerModelIds } : {}),
+              ...(this.config.harnessEvidence && observedVersion
+                ? {
+                    harness: {
+                      id: "claude-code",
+                      executable: this.config.harnessEvidence.executable,
+                      version: observedVersion,
+                    },
+                  }
+                : {}),
+            };
+          }
+          if (
+            initializedHarnessVersion !== undefined
+            && this.config.harnessEvidence !== undefined
+            && initializedHarnessVersion !== this.config.harnessEvidence.version
+            && options.abortSignal?.aborted !== true
+          ) {
+            yield {
+              type: "error",
+              code: "claude_harness_version_mismatch",
+              message: `Claude Code initialized as version ${initializedHarnessVersion}, but route admission resolved ${this.config.harnessEvidence.version}.`,
+              isRetryable: false,
+            };
           }
           // The SDK carries structured_output only on a success result, and reports why a
           // run ended through its error subtype.  Without this the managed harness sees an
@@ -382,4 +426,10 @@ export class ClaudeSession implements IKilnSession {
       this.abortController = null;
     }
   }
+}
+
+function normalizedOptionalText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
 }

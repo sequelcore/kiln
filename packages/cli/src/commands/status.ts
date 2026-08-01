@@ -91,7 +91,10 @@ export async function statusCommand(
     console.log(`\n  Managed agent routes:`);
     for (const route of managedInvocationResolution.routeHealth) {
       const status = route.available ? "available" : `unavailable - ${route.reason}`;
-      console.log(`    - ${route.routeId}: ${route.kind}/${route.provider}${route.model ? ` ${route.model}` : ""} [${route.profiles.join(", ")}] ${status}`);
+      const economicBoundary = route.kind === "harness"
+        ? "; provider consumption is not bounded by Kiln's managed economic ceiling"
+        : "";
+      console.log(`    - ${route.routeId}: ${route.kind}/${route.provider}${route.model ? ` ${route.model}` : ""} [${route.profiles.join(", ")}] ${status}${economicBoundary}`);
     }
   }
   if (managedInvocationResolution.agentHealth?.length) {

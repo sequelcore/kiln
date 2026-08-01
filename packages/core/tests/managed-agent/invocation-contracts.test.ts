@@ -982,6 +982,34 @@ describe("managed agent invocation contracts", () => {
     expect(record.resultHandoff?.summary).toBe("No file writes were needed.");
   });
 
+  it("requires every durable result handoff to declare how it was produced", () => {
+    const input = makeCompletedRecordInput();
+    expect(() => defineManagedAgentInvocationRecord({
+      ...input,
+      resultHandoff: {
+        summary: input.resultHandoff!.summary,
+        resourceUris: input.resultHandoff!.resourceUris,
+        memoryWriteProposalUris: input.resultHandoff!.memoryWriteProposalUris,
+      } as ManagedAgentInvocationRecord["resultHandoff"],
+    })).toThrow("Managed invocation result handoff provenance is required");
+  });
+
+  it("requires the primary observed model to appear in complete model usage evidence", () => {
+    const input = makeCompletedRecordInput();
+    expect(() => defineManagedAgentInvocationRecord({
+      ...input,
+      resultHandoff: {
+        ...input.resultHandoff!,
+        provenance: {
+          delivery: "native-structured-output",
+          configuredModelId: "claude-sonnet-5",
+          primaryObservedModelId: "claude-sonnet-5",
+          observedModelIds: ["claude-haiku-4-5-20251001"],
+        },
+      },
+    })).toThrow("primary observed model id must be included in observed model ids");
+  });
+
   it("validates required machine handoff fields against canonical structured state", () => {
     const structuredResult = {
       version: "structured-execution-result-v1" as const,
@@ -1026,6 +1054,7 @@ describe("managed agent invocation contracts", () => {
     }, defineManagedAgentInvocationRecord({
       ...makeCompletedRecordInput(),
       resultHandoff: {
+        provenance: runtimeGeneratedProvenance(),
         summary: "Only prose was returned.",
         resourceUris: ["kiln://artifacts/invocation-1/result"],
         memoryWriteProposalUris: [],
@@ -1038,6 +1067,7 @@ describe("managed agent invocation contracts", () => {
       ...makeCompletedRecordInput(),
       lifecycleState: "timed_out",
       resultHandoff: {
+        provenance: runtimeGeneratedProvenance(),
         summary: "Managed child timed out before submitting its result.",
         resourceUris: ["kiln://artifacts/invocation-1/timeout"],
         memoryWriteProposalUris: [],
@@ -1119,6 +1149,7 @@ describe("managed agent invocation contracts", () => {
         },
       }),
       resultHandoff: {
+        provenance: runtimeGeneratedProvenance(),
         summary: "Bounded review summary.",
         resourceUris: ["kiln://managed-agents/invocations/invocation-1/resources/result/final"],
         memoryWriteProposalUris: [],
@@ -1532,9 +1563,18 @@ function makeCompletedRecordInput(
     }],
     usage,
     resultHandoff: {
+      provenance: runtimeGeneratedProvenance(),
       summary: "No file writes were needed.",
       resourceUris: ["kiln://artifacts/invocation-1/result"],
       memoryWriteProposalUris: [],
     },
+  };
+}
+
+function runtimeGeneratedProvenance() {
+  return {
+    delivery: "runtime-generated" as const,
+    configuredModelId: "gpt-5.4",
+    observedModelIds: [],
   };
 }

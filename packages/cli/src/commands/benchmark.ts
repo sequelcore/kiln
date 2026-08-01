@@ -26,14 +26,33 @@ import type { KilnAppConfig } from "../config.js";
 import {
   BENCHMARK_EXECUTION_ENVELOPE,
   BENCHMARK_POLICY,
+  BENCHMARK_WRITE_POLICY,
   createBenchmarkSessionExecutor,
   type BenchmarkSessionExecutorFlags,
 } from "../application/benchmark-session-executor.js";
+import {
+  BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
+  BACKEND_VERIFIER_ID,
+  BACKEND_VERIFIER_IMAGE,
+  BACKEND_VERIFIER_TEST_DIGEST,
+  BACKEND_VERIFIER_VERSION,
+} from "../application/benchmark-backend-verifier.js";
+import {
+  FRONTEND_VERIFIER_ALLOWED_CHANGED_PATHS,
+  FRONTEND_VERIFIER_ID,
+  FRONTEND_VERIFIER_IMAGE,
+  FRONTEND_VERIFIER_IMAGE_ID,
+  FRONTEND_VERIFIER_SOURCE_DIGEST,
+  FRONTEND_VERIFIER_VERSION,
+} from "../application/benchmark-frontend-verifier.js";
+import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../application/benchmark-workspace.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 export interface BenchmarkCommandDependencies {
   readonly executeItem?: BenchmarkItemExecutor;
   readonly createExecuteItem?: (flags: BenchmarkSessionExecutorFlags) => BenchmarkItemExecutor;
   readonly now?: () => Date;
+  readonly repositoryRoot?: string;
 }
 
 export async function benchmarkCommand(
@@ -60,6 +79,9 @@ export async function benchmarkCommand(
     case "run-internal":
       await runInternalBenchmark(config, args, dependencies);
       return;
+    case "prepare-verifiers":
+      prepareBenchmarkVerifiers();
+      return;
     case "project-bfcl":
       projectBfclCommand(args);
       return;
@@ -75,7 +97,7 @@ export async function benchmarkCommand(
       printHelp();
       return;
     default:
-      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, report, run-internal, project-bfcl, project-agentdojo, or project-tau.`);
+      throw new Error(`Unknown benchmark command '${subcommand}'. Use profiles, tracks, readiness, report, run-internal, prepare-verifiers, project-bfcl, project-agentdojo, or project-tau.`);
   }
 }
 
@@ -86,7 +108,8 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
-    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--reasoning-effort <level> | --reasoning-effort-sweep <levels>]",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--provider <id> --model <id>] [--reasoning-effort <level> | --reasoning-effort-sweep <levels>]",
+    "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
     "  kiln benchmark project-agentdojo --input <path> --output <path>",
     "  kiln benchmark project-tau --input <path> --output <path>",
@@ -297,9 +320,17 @@ async function runInternalBenchmark(
   if (!profile) {
     throw new Error(`Unknown benchmark profile '${profileId}'.`);
   }
+  const writeProfile = profile.id === "kiln-model-roster-backend-write"
+    || profile.id === "kiln-model-roster-frontend-render";
   const datasetPath = readFlag(args, "--dataset") ?? defaultDatasetPath(profile.id);
   const datasetContent = readFileSync(datasetPath, "utf-8");
   const dataset = parseDatasetJsonl(datasetNameFromPath(datasetPath), datasetContent);
+  assertNoExecutorOwnedMetadata(dataset.items);
+  const repositoryRoot = dependencies.repositoryRoot ?? resolveProjectRoot().rootPath;
+  const workspaceFixtures = collectWorkspaceFixtureEvidence(repositoryRoot, dataset.items);
+  const workspaceFixtureHashes = new Map(
+    workspaceFixtures.map((fixture) => [fixture.path, fixture.sha256] as const),
+  );
   const k = parsePositiveInteger(readFlag(args, "--k") ?? String(profile.minimumK), "--k");
   const outputPath = readFlag(args, "--output") ?? defaultOutputPath(profile.id, dependencies.now?.() ?? new Date());
   const artifactRoot = resolve(`${outputPath}.artifacts`);
@@ -321,10 +352,43 @@ async function runInternalBenchmark(
         datasetName: dataset.name,
         datasetVersion: datasetVersionFromPath(datasetPath),
         datasetContentHash: hashContent(datasetContent),
+        workspaceFixtures,
+        benchmarkContext: workspaceFixtures.length > 0 ? {
+          mode: writeProfile
+            ? "sanitized-disposable-write-v1"
+            : "sanitized-synthetic-v1",
+          postRunFixtureVerification: true,
+        } : { mode: "repository-worktree-v1" },
         k,
         authorityProfile: profile.authorityProfile,
-        permissionPolicy: BENCHMARK_POLICY,
+        permissionPolicy: writeProfile
+          ? BENCHMARK_WRITE_POLICY
+          : BENCHMARK_POLICY,
         executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
+        ...(profile.id === "kiln-model-roster-backend-write" ? {
+          strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
+          verifier: {
+            id: BACKEND_VERIFIER_ID,
+            version: BACKEND_VERIFIER_VERSION,
+            image: BACKEND_VERIFIER_IMAGE,
+            hiddenTestDigest: BACKEND_VERIFIER_TEST_DIGEST,
+            allowedChangedPaths: BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
+          },
+        } : {}),
+        ...(profile.id === "kiln-model-roster-frontend-render" ? {
+          strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
+          verifier: {
+            id: FRONTEND_VERIFIER_ID,
+            version: FRONTEND_VERIFIER_VERSION,
+            image: FRONTEND_VERIFIER_IMAGE,
+            imageId: FRONTEND_VERIFIER_IMAGE_ID,
+            sourceDigest: FRONTEND_VERIFIER_SOURCE_DIGEST,
+            allowedChangedPaths: FRONTEND_VERIFIER_ALLOWED_CHANGED_PATHS,
+            viewport: { width: 1280, height: 720 },
+            reducedMotion: "reduce",
+            accessibilityEngine: "axe-core@4.12.1",
+          },
+        } : {}),
         provider: readFlag(args, "--provider"),
         model: readFlag(args, "--model"),
         reasoningEffort: effort ?? "provider-default",
@@ -336,7 +400,10 @@ async function runInternalBenchmark(
       }),
       scorers: createBenchmarkProfileScorers(profile),
       artifactStore,
-      executeItem: requireEffortEvidence(executor, effort),
+      executeItem: requireWorkspaceFixtureEvidence(
+        requireEffortEvidence(executor, effort),
+        workspaceFixtureHashes,
+      ),
     });
     const result = await runner.run();
     runs.push({ reasoningEffort: effort ?? null, ...result });
@@ -360,6 +427,110 @@ async function runInternalBenchmark(
     ...(singleRun ? { baseline: singleRun.baseline } : { baselines }),
     readiness: evaluateBenchmarkReadiness({ baselines }),
   });
+}
+
+function prepareBenchmarkVerifiers(): void {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const frontendContext = resolve(currentDir, "..", "..", "verifiers", "frontend");
+  execFileSync("docker", [
+    "build",
+    "--pull=false",
+    "--provenance=false",
+    "--sbom=false",
+    "--tag",
+    FRONTEND_VERIFIER_IMAGE,
+    frontendContext,
+  ], {
+    stdio: "inherit",
+    windowsHide: true,
+  });
+  const evidence = execFileSync("docker", [
+    "image",
+    "inspect",
+    FRONTEND_VERIFIER_IMAGE,
+    "--format",
+    "{{.Id}}|{{index .Config.Labels \"io.kiln.verifier-source\"}}|{{index .Config.Labels \"org.opencontainers.image.version\"}}",
+  ], { encoding: "utf8", windowsHide: true }).trim();
+  const [imageId, sourceDigest, version] = evidence.split("|");
+  if (imageId !== FRONTEND_VERIFIER_IMAGE_ID
+    || sourceDigest !== FRONTEND_VERIFIER_SOURCE_DIGEST
+    || version !== FRONTEND_VERIFIER_VERSION) {
+    throw new Error("Prepared frontend verifier image did not match the admitted image ID, source digest, and version.");
+  }
+  printJson({
+    status: "ready",
+    frontend: {
+      image: FRONTEND_VERIFIER_IMAGE,
+      imageId,
+      sourceDigest,
+      version,
+    },
+    backend: {
+      image: BACKEND_VERIFIER_IMAGE,
+      verifierId: BACKEND_VERIFIER_ID,
+      verifierVersion: BACKEND_VERIFIER_VERSION,
+    },
+  });
+}
+
+function collectWorkspaceFixtureEvidence(
+  repositoryRoot: string,
+  items: readonly { readonly metadata?: Readonly<Record<string, unknown>> }[],
+): readonly { readonly path: string; readonly sha256: string }[] {
+  const fixtures = new Map<string, string>();
+  for (const item of items) {
+    const declared = item.metadata?.workspaceFixture;
+    if (declared === undefined) continue;
+    const workspace = resolveBenchmarkWorkspace(repositoryRoot, declared);
+    if (workspace.kind !== "synthetic-fixture" || !workspace.fixturePath) {
+      throw new Error("Benchmark workspace fixture evidence could not be resolved.");
+    }
+    fixtures.set(workspace.fixturePath, hashBenchmarkWorkspace(workspace));
+  }
+  return [...fixtures.entries()]
+    .sort(([left], [right]) => left.localeCompare(right, "en"))
+    .map(([path, sha256]) => ({ path, sha256 }));
+}
+
+const EXECUTOR_OWNED_BENCHMARK_METADATA = new Set([
+  "observedVerification",
+  "workspaceChanges",
+  "workspaceFixtureHash",
+  "benchmarkWorkspaceKind",
+  "benchmarkContextKind",
+]);
+
+function assertNoExecutorOwnedMetadata(
+  items: readonly { readonly id: string; readonly metadata?: Readonly<Record<string, unknown>> }[],
+): void {
+  for (const item of items) {
+    const reserved = Object.keys(item.metadata ?? {}).filter((key) => EXECUTOR_OWNED_BENCHMARK_METADATA.has(key));
+    if (reserved.length > 0) {
+      throw new Error(`Benchmark item '${item.id}' declares executor-owned metadata: ${reserved.join(", ")}`);
+    }
+  }
+}
+
+function requireWorkspaceFixtureEvidence(
+  executor: BenchmarkItemExecutor,
+  expectedHashes: ReadonlyMap<string, string>,
+): BenchmarkItemExecutor {
+  return async (input, context) => {
+    const result = await executor(input, context);
+    const declared = context.item.metadata?.workspaceFixture;
+    if (declared === undefined) return result;
+    if (typeof declared !== "string") {
+      throw new Error("Benchmark item workspace fixture must be a string.");
+    }
+    const expectedHash = expectedHashes.get(declared);
+    if (!expectedHash
+      || result.metadata?.benchmarkWorkspaceKind !== "synthetic-fixture"
+      || result.metadata.workspaceFixture !== declared
+      || result.metadata.workspaceFixtureHash !== expectedHash) {
+      throw new Error(`Benchmark executor did not prove synthetic workspace fixture '${declared}' at its configured hash.`);
+    }
+    return result;
+  };
 }
 
 function requireEffortEvidence(
@@ -462,6 +633,8 @@ function requireEvidenceArtifactKind(value: unknown, index: number): BenchmarkEv
     "route",
     "cost",
     "cache-topology",
+    "diff",
+    "verification",
   ];
   if (typeof value === "string" && allowed.includes(value as BenchmarkEvidenceArtifactKind)) {
     return value as BenchmarkEvidenceArtifactKind;

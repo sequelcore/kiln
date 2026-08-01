@@ -4943,6 +4943,30 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       expect(context?.sandbox?.cwd).toBe("C:\\workspace\\kiln");
     });
 
+    it("merges the admitted workspace with the per-call sandbox policy", async () => {
+      const provider = makeProvider(1);
+      const toolFn = vi.fn().mockResolvedValue("result");
+      const policy = { marker: "lease-policy" };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", toolFn]]),
+      });
+
+      await orchestrator.processMessage(makeSession(), textParts("fetch data"), undefined, undefined, {
+        workingDirectory: "C:\\workspace\\kiln",
+        sandbox: { policy },
+      });
+
+      const context = toolFn.mock.calls[0]?.[1] as {
+        readonly sandbox?: { readonly cwd?: string; readonly policy?: unknown };
+      } | undefined;
+      expect(context?.sandbox).toEqual({
+        cwd: "C:\\workspace\\kiln",
+        policy,
+      });
+    });
+
     it("allows all tools when no allowlist", async () => {
       const provider = makeProvider(1);
       const toolFn = vi.fn().mockResolvedValue("result");

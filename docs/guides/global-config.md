@@ -90,7 +90,8 @@ environment or encrypted Kiln credential references.
 Kiln's economic routing posture is subscription-first where the provider exposes
 a compliant direct route. Direct subscription providers such as `codex-oauth`,
 `opencode-go`, and `opencode-zen` should be preferred for normal operator work
-because they preserve the user's paid access path without spawning a native CLI
+only when the exact model's current data-use and retention policy is eligible;
+they preserve the user's paid access path without spawning a native CLI
 harness. Native harness providers such as `codex` and `opencode` are fallback
 routes for cases where a provider's terms, available API surface, or local
 capability proof requires the native harness. Keep those harness engines
@@ -121,9 +122,10 @@ provider does not advertise the configured model or when that provider/model has
 not live-proven substantive result handoff for the requested managed profile.
 Native OpenCode managed-child routes remain unavailable even for an advertised
 model because OpenCode permission rules do not prove a hard filesystem
-boundary. Use authorized `opencode-go` or `opencode-zen` direct-provider routes
-for delegated OpenCode capacity; those execute through Kiln's governed builtin
-tool boundary. Synthesized child routes use `models.<engine>` when present, then
+boundary. Use an authorized `opencode-go` or `opencode-zen` direct-provider
+route for delegated OpenCode capacity only after the exact model's data policy
+is admitted; those execute through Kiln's governed builtin tool boundary.
+Synthesized child routes use `models.<engine>` when present, then
 the adapter's safe default for that engine. They do not inherit
 `models.default`, because model IDs are provider-specific. Write-capable routes
 are never synthesized. Synthesized managed-agent routes use a five-minute
@@ -364,10 +366,11 @@ components:
 ## Sanitized Personal Setup Example
 
 This example reflects a local operator setup where direct Codex OAuth is the
-primary deep-reasoning route, OpenCode Go contributes task-specialized direct
-models, OpenCode Zen free routes remain non-sensitive fallbacks, native CLI
-harnesses are disabled by default, and Claude is disabled until a valid
-subscription is available. It is a shape example only; secrets stay in
+primary implementation route, exact Claude Sonnet 5 is a read-only plan route,
+OpenCode Go contributes provisional task-specialized direct models, and native
+write-capable CLI harnesses are disabled by default. OpenCode Go DeepSeek V4 Flash is excluded
+because the current provider matrix permits training and offers no retention
+agreement. It is a shape example only; secrets stay in
 environment variables or credential pools. Enable a native harness only as an
 explicit fallback when direct provider use is unavailable or not compliant with
 the provider terms for the desired workflow.
@@ -379,7 +382,7 @@ managed read-only routes, see
 version: "1"
 engines:
   claude:
-    enabled: false
+    enabled: true
     billing: subscription
   codex-oauth:
     enabled: true
@@ -387,9 +390,6 @@ engines:
   opencode-go:
     enabled: true
     billing: subscription
-  opencode-zen:
-    enabled: true
-    billing: api-key
   codex:
     enabled: true
     billing: plus-quota
@@ -401,25 +401,19 @@ routing:
     - provider: codex-oauth
       model: gpt-5.6-terra
     - provider: codex-oauth
-      model: gpt-5.6
+      model: gpt-5.6-sol
     - provider: codex-oauth
       model: gpt-5.6-luna
+    - provider: claude
+      model: claude-sonnet-5
     - provider: opencode-go
-      model: kimi-k2.6
+      model: kimi-k2.7-code
     - provider: opencode-go
-      model: glm-5.1
+      model: glm-5.2
     - provider: opencode-go
       model: deepseek-v4-pro
     - provider: opencode-go
-      model: qwen3.6-plus
-    - provider: opencode-go
-      model: minimax-m2.7
-    - provider: opencode-go
-      model: deepseek-v4-flash
-    - provider: opencode-zen
-      model: deepseek-v4-flash-free
-    - provider: opencode-zen
-      model: minimax-m2.5-free
+      model: qwen3.7-max
     - provider: codex
       model: gpt-5.3-codex-spark
     - provider: opencode
@@ -437,7 +431,7 @@ reasoningPolicy:
     mechanical-edit: low
 modelTaskSuitability:
   - provider: opencode-go
-    model: kimi-k2.6
+    model: kimi-k2.7-code
     task: frontend-design
     level: preferred
     reason: Operator benchmark preference for frontend and visual implementation tasks.
@@ -447,15 +441,10 @@ modelTaskSuitability:
     level: preferred
     reason: Operator benchmark preference for backend/debugging and provider-runtime tasks.
   - provider: opencode-go
-    model: qwen3.6-plus
+    model: qwen3.7-max
     task: research
     level: preferred
     reason: Operator benchmark preference for synthesis, comparison, and evidence-heavy research.
-  - provider: opencode-go
-    model: deepseek-v4-flash
-    task: mechanical-edit
-    level: preferred
-    reason: Operator preference for fast low-friction mechanical work.
 skills:
   selection:
     mode: auto
@@ -757,10 +746,10 @@ managedAgents:
     mode: git
     rootPath: .kiln/managed-worktrees
   routes:
-    - id: codex-oauth-critical-approved-write
+    - id: opencode-go-service-approved-write
       kind: direct
-      provider: codex-oauth
-      model: gpt-5.6
+      provider: opencode-go
+      model: glm-5.2
       profiles:
         - foundation-apply-approved-writes
       workingDirectory: isolated-worktree
@@ -790,7 +779,7 @@ managedAgents:
         artifacts:
           mode: propose
           resourceUris:
-            - kiln://artifacts/managed-agent-write/codex-oauth-critical-approved-write
+            - kiln://artifacts/managed-agent-write/opencode-go-service-approved-write
           retention: session
         tools:
           allowed:
@@ -803,7 +792,7 @@ managedAgents:
           mode: required-before-apply
       credentials:
         mode: runtime-selected
-        accountPolicyId: managed-codex-sol
+        accountPolicyId: managed-opencode-go-glm
 ```
 
 Live-proven direct-provider adapters expose approved workspace-write routes for
@@ -825,10 +814,10 @@ allowed to edit them. Example:
 ```yaml
 managedAgents:
   routes:
-    - id: opencode-go-qwen3-6-plus-readonly
+    - id: opencode-go-qwen3-7-max-readonly
       kind: direct
       provider: opencode-go
-      model: qwen3.6-plus
+      model: qwen3.7-max
       profiles:
         - foundation-readonly-plan
       workingDirectory: project
@@ -862,7 +851,7 @@ write routes with network authority unavailable instead of silently admitting a
 combined write+internet child. When creating a routed UI work item that uses an
 approved-write route, also set `phaseRoutes.visual-reference-research` to the
 read-only browser-capable route, for example
-`opencode-go-qwen3-6-plus-readonly`. When that visual research must inspect
+`opencode-go-qwen3-7-max-readonly`. When that visual research must inspect
 local sibling or cloned reference repositories, set `referenceRoots` on the
 work item to the concrete roots the read-only route must be able to read. The
 managed invocation request projects those roots as `requiredReadPaths` and
@@ -879,28 +868,30 @@ If every managed route is `foundation-readonly-plan`, delegated implementation
 will correctly report that it cannot edit even when the parent turn is in
 `auto` authority. For subscription-first setups, do not add a native harness
 write route merely to make edits work; that changes the economic and auth
-surface. Use explicit direct managed routes for `codex-oauth`, `opencode-go`,
-and `opencode-zen` with `foundation-apply-approved-writes`, `tools.writes: true`,
-and `writeAuthority.approval.mode: required-before-apply`.
+surface. Use explicit direct managed routes with
+`foundation-apply-approved-writes`, `tools.writes: true`, and
+`writeAuthority.approval.mode: required-before-apply`; for aggregator routes,
+also require an admitted current data-use and retention policy for the exact
+model.
 
 For a task-aware team, keep read-only managed routes derived from
-`routing.routes` and add explicit write routes only for models that should
-implement under supervision. Prefer descriptive route IDs that encode the job:
+`routing.routes` and add explicit write routes only after the exact route passes
+its task-specific write profile. The current sanitized example exposes
+`opencode-go-service-approved-write` for GLM 5.2 service, adapter, and data-flow
+implementation. It intentionally has no Codex, frontend, DeepSeek, or research
+write route because those exact routes have not passed the current admission
+profiles.
 
-- `codex-oauth-critical-approved-write` for critical architecture-sensitive
-  edits, difficult backend changes, and test-heavy work.
-- `opencode-go-frontend-approved-write` for React, TypeScript, layout, and UI
-  implementation.
-- `opencode-go-backend-approved-write` for runtime, provider-routing, and
-  backend debugging.
-- `opencode-go-service-approved-write` for service, adapter, and data-flow
-  implementation.
-- `opencode-go-qwen3-6-plus-readonly` or another explicit read-only
+Additional descriptive route IDs may be introduced only after matching live
+evidence is preserved. Route naming never supplies authority or proof by
+itself.
+
+- `opencode-go-service-approved-write` is the current evidence-backed write
+  example.
+- `opencode-go-qwen3-7-max-readonly` or another explicit read-only
   browser-capable route for visual/reference research before planning.
-- `opencode-go-mechanical-approved-write` and
-  `opencode-zen-mechanical-approved-write` for repetitive low-risk edits.
-- `opencode-zen-free-approved-write` as the cost-conscious direct-provider
-  fallback when the free route is sufficient.
+- a model-specific approved-write route for repetitive low-risk edits only
+  after its exact provider data policy and profile-v3 evidence are admitted.
 
 ### Remote harness managed routes
 
@@ -1251,7 +1242,7 @@ path.
 Visual-reference research should use its own read-only, network-capable route
 and matching profile rather than borrowing the approved-write frontend route.
 For example, configure `visual-researcher` with
-`routeId: opencode-go-qwen3-6-plus-readonly` and expose `web_search`,
+`routeId: opencode-go-qwen3-7-max-readonly` and expose `web_search`,
 `web_fetch`, and `web_extract` on that route. Browser tools can still be added
 when a running product or demo needs to be captured, but the baseline
 frontend-reference phase must also support code-backed frontend implementation

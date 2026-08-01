@@ -105,7 +105,15 @@ function managedCatalogRequirements(): ProviderModelEligibilityRequirements {
 }
 
 const COMMON_OBSERVED_PROVIDER_MODELS = observedProviderModels({
-  claude: ["default", "opus", "haiku"],
+  claude: [
+    "default",
+    "opus",
+    "haiku",
+    "claude-fable-5[1m]",
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-haiku-4-5-20251001",
+  ],
   codex: ["gpt-5.3-codex-spark", "gpt-5.4-mini"],
   opencode: ["opencode/minimax-m2.5-free", "opencode/nemotron-3-super-free"],
   "codex-oauth": ["gpt-5.5", "gpt-5.4-mini", "codex-auto-review"],
@@ -1722,7 +1730,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         id: "claude-readonly",
         kind: "harness",
         provider: "claude",
-        model: "default",
+        model: "claude-fable-5[1m]",
         profiles: ["foundation-readonly-plan"],
         tools: { allowed: ["read"], writes: false },
       }],
@@ -1731,7 +1739,13 @@ describe("resolveManagedInvocationToolOptions", () => {
       registry: createRegistry("claude"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      resolveClaudeExecutable: () => "C:/Users/operator/.local/bin/claude.exe",
+      resolveClaudeExecutable: () => ({
+        path: "C:/tools/claude.exe",
+        evidence: {
+          executable: "<operator-harness>/claude.exe",
+          version: "2.1.220",
+        },
+      }),
     });
 
     // The route still fails, but on the live-proof allowlist rather than on
@@ -1739,9 +1753,87 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.routeHealth[0]).toMatchObject({
       routeId: "claude-readonly",
       available: false,
-      reason: "Provider 'claude' model 'default' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.",
+      reason: "Provider 'claude' model 'claude-fable-5[1m]' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.",
     });
   });
+
+  it.each([
+    ["claude-sonnet-readonly", "claude-sonnet-5"],
+    ["claude-opus-readonly", "claude-opus-5"],
+    ["claude-haiku-readonly", "claude-haiku-4-5-20251001"],
+  ])("admits the exact live-proven Claude read-only route %s", async (routeId, model) => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: routeId,
+        kind: "harness",
+        provider: "claude",
+        model,
+        profiles: ["foundation-readonly-plan"],
+        tools: { allowed: ["read"], writes: false },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("claude"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      resolveClaudeExecutable: () => ({
+        path: "C:/tools/claude.exe",
+        evidence: {
+          executable: "<operator-harness>/claude.exe",
+          version: "2.1.220",
+        },
+      }),
+    });
+
+    expect(result.routeHealth).toEqual([{
+      routeId,
+      routeSource: "explicit-managed-route",
+      kind: "harness",
+      provider: "claude",
+      model,
+      profiles: ["foundation-readonly-plan"],
+      available: true,
+    }]);
+    expect(result.managedInvocation?.routes[0]).toMatchObject({
+      routeId,
+      providerId: "claude",
+      model,
+      surface: "cli-harness",
+    });
+  });
+
+  it.each(["default", "sonnet", "opus", "haiku"])(
+    "rejects the moving Claude model alias '%s' before live-proof admission",
+    async (model) => {
+      const result = await resolveManagedInvocationToolOptions(baseConfig({
+        routes: [{
+          id: "claude-readonly",
+          kind: "harness",
+          provider: "claude",
+          model,
+          profiles: ["foundation-readonly-plan"],
+          tools: { allowed: ["read"], writes: false },
+        }],
+      }), {
+        cwd: "C:/repo",
+        registry: createRegistry("claude"),
+        surface: "gui",
+        providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+        resolveClaudeExecutable: () => ({
+          path: "C:/tools/claude.exe",
+          evidence: {
+            executable: "<operator-harness>/claude.exe",
+            version: "2.1.220",
+          },
+        }),
+      });
+
+      expect(result.routeHealth[0]).toMatchObject({
+        available: false,
+        reason: `Provider 'claude' model '${model}' is a moving alias and cannot carry live-proof admission.`,
+      });
+    },
+  );
 
   it("resolves explicit live-proven harness routes for approved workspace writes", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({

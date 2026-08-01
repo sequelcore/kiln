@@ -26,6 +26,13 @@ describe("doctorCommand", () => {
       runVersion: vi.fn(async () => undefined),
       readConfigProjections: vi.fn(async () => []),
       discoverModels: vi.fn(async () => ({
+        claudeModels: [],
+        claudeDiscovery: {
+          models: [],
+          status: "cli_missing",
+          reason: "Claude Code executable was not found.",
+          authState: "not_required",
+        },
         codexModels: [],
         codexDiscovery: {
           models: [],
@@ -95,6 +102,13 @@ describe("doctorCommand", () => {
         },
       })),
       discoverModels: vi.fn(async () => ({
+        claudeModels: [],
+        claudeDiscovery: {
+          models: [],
+          status: "cli_missing",
+          reason: "Claude Code executable was not found.",
+          authState: "not_required",
+        },
         codexModels: [],
         codexDiscovery: {
           models: [],

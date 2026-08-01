@@ -178,6 +178,10 @@ export interface ProviderCreateConfig {
    * it and must not fall back to an SDK-bundled build.
    */
   readonly harnessExecutable?: string;
+  readonly harnessEvidence?: {
+    readonly executable: string;
+    readonly version: string;
+  };
 }
 
 export interface CreateDefaultRegistryOptions {
@@ -1131,6 +1135,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           model: config.model,
           structuredOutputSchema: config.structuredOutputSchema,
           harnessExecutable: config.harnessExecutable,
+          harnessEvidence: config.harnessEvidence,
         });
         return createPooledHarnessSession(
           "claude-code",

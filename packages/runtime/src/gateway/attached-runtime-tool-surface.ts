@@ -480,6 +480,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
   const toolAuthority = new Map(baseSurface.toolAuthority);
   const toolCallMetadata = new Map(baseSurface.toolCallMetadata);
   const toolDefinitions = [...baseSurface.toolDefinitions];
+  const strictToolAllowlist = options.builtinToolOptions?.toolProjection?.mode === "strict"
+    ? new Set(options.builtinToolOptions.toolProjection.alwaysOnTools ?? [])
+    : undefined;
 
   const goalCreateExecutor = callBuiltinTools.get(GOAL_CREATE_TOOL_NAME);
   if (goalCreateExecutor) {
@@ -608,13 +611,27 @@ export function createAttachedRuntimeBuiltinToolSurface(
   }
 
   return {
-    callBuiltinTools,
-    toolDefinitions,
-    capabilities,
-    materializableTools,
-    materializableCapabilities,
-    toolAuthority,
-    toolCallMetadata,
+    callBuiltinTools: strictToolAllowlist
+      ? filterMapByAllowlist(callBuiltinTools, strictToolAllowlist) ?? new Map()
+      : callBuiltinTools,
+    toolDefinitions: strictToolAllowlist
+      ? toolDefinitions.filter((tool) => strictToolAllowlist.has(tool.name))
+      : toolDefinitions,
+    capabilities: strictToolAllowlist
+      ? filterMapByAllowlist(capabilities, strictToolAllowlist) ?? new Map()
+      : capabilities,
+    materializableTools: strictToolAllowlist
+      ? filterMapByAllowlist(materializableTools, strictToolAllowlist) ?? new Map()
+      : materializableTools,
+    materializableCapabilities: strictToolAllowlist
+      ? filterMapByAllowlist(materializableCapabilities, strictToolAllowlist) ?? new Map()
+      : materializableCapabilities,
+    toolAuthority: strictToolAllowlist
+      ? filterMapByAllowlist(toolAuthority, strictToolAllowlist) ?? new Map()
+      : toolAuthority,
+    toolCallMetadata: strictToolAllowlist
+      ? filterMapByAllowlist(toolCallMetadata, strictToolAllowlist) ?? new Map()
+      : toolCallMetadata,
     analysisStateStore: baseSurface.analysisStateStore,
     authorityStateStore: baseSurface.authorityStateStore,
     planStateStore: baseSurface.planStateStore,

@@ -32,6 +32,18 @@ function createBenchmarkScorer(name: string): Scorer {
       return new CostScorer(DEFAULT_BENCHMARK_MAX_COST_USD);
     case "execution-integrity":
       return new ExecutionIntegrityScorer();
+    case "test-verification":
+      return new BackendTestVerificationScorer();
+    case "diff-integrity":
+      return new BackendDiffIntegrityScorer();
+    case "render-verification":
+      return new FrontendRenderVerificationScorer();
+    case "frontend-diff-integrity":
+      return new FrontendDiffIntegrityScorer();
+    case "evidence-coverage":
+      return new EvidenceCoverageScorer();
+    case "citation-grounding":
+      return new CitationGroundingScorer();
     case "cache-topology":
       return new CacheTopologyEvidenceScorer();
     case "tool-trajectory":
@@ -47,6 +59,166 @@ function createBenchmarkScorer(name: string): Scorer {
     default:
       return new EvidencePresenceScorer(name);
   }
+}
+
+class BackendTestVerificationScorer implements Scorer {
+  readonly name = "test-verification";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const verification = readRecord(input.metadata?.observedVerification);
+    const tests = readRecord(verification?.tests);
+    const valid = verification?.verifierId === "kiln.backend-write.order-reservation"
+      && verification.verifierVersion === "1"
+      && verification.status === "passed"
+      && isSha256(verification.testDigest)
+      && Array.isArray(verification.violations)
+      && verification.violations.length === 0
+      && tests?.exitCode === 0
+      && tests.passed === 4
+      && tests.failed === 0
+      && tests.timedOut === false;
+    return valid
+      ? { name: this.name, score: 1, reasoning: "fixed out-of-process backend verification passed" }
+      : { name: this.name, score: 0, reasoning: "fixed backend verification evidence is missing or failed" };
+  }
+}
+
+class BackendDiffIntegrityScorer implements Scorer {
+  readonly name = "diff-integrity";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const verification = readRecord(input.metadata?.observedVerification);
+    const changes = readRecord(verification?.changes);
+    const changed = readRecordArray(changes?.changed);
+    const added = readRecordArray(changes?.added);
+    const deleted = readRecordArray(changes?.deleted);
+    const valid = changed.length === 1
+      && changed[0]?.path === "src/order-service.mjs"
+      && isSha256(changed[0]?.beforeHash)
+      && isSha256(changed[0]?.afterHash)
+      && changed[0]?.beforeHash !== changed[0]?.afterHash
+      && added.length === 0
+      && deleted.length === 0;
+    return valid
+      ? { name: this.name, score: 1, reasoning: "candidate changed only the admitted backend source file" }
+      : { name: this.name, score: 0, reasoning: "candidate diff is missing or exceeds the admitted backend source scope" };
+  }
+}
+
+class FrontendRenderVerificationScorer implements Scorer {
+  readonly name = "render-verification";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const verification = readRecord(input.metadata?.observedVerification);
+    const runner = readRecord(verification?.runner);
+    const render = readRecord(verification?.render);
+    const assertions = readRecord(render?.assertions);
+    const accessibility = readRecord(render?.accessibility);
+    const screenshot = readRecord(verification?.screenshot);
+    const valid = verification?.verifierId === "kiln.frontend-render.order-queue"
+      && verification.verifierVersion === "1"
+      && verification.status === "passed"
+      && Array.isArray(verification.violations)
+      && verification.violations.length === 0
+      && runner?.kind === "docker-playwright"
+      && runner.image === "kiln/frontend-benchmark-verifier:1"
+      && isSha256(runner.imageId)
+      && isSha256(runner.sourceDigest)
+      && typeof render?.browserVersion === "string"
+      && render.browserVersion.length > 0
+      && Object.values(assertions ?? {}).length === 8
+      && Object.values(assertions ?? {}).every((value) => value === true)
+      && accessibility?.engine === "axe-core"
+      && accessibility.version === "4.12.1"
+      && accessibility.violationCount === 0
+      && isSha256(screenshot?.sha256)
+      && isPositiveNumber(screenshot?.bytes)
+      && typeof screenshot?.base64 === "string"
+      && screenshot.base64.length > 0;
+    return valid
+      ? { name: this.name, score: 1, reasoning: "isolated Chromium interaction and accessibility verification passed" }
+      : { name: this.name, score: 0, reasoning: "render, focus, screenshot, or accessibility verification evidence is missing or failed" };
+  }
+}
+
+class FrontendDiffIntegrityScorer implements Scorer {
+  readonly name = "frontend-diff-integrity";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const verification = readRecord(input.metadata?.observedVerification);
+    const changes = readRecord(verification?.changes);
+    const changed = readRecordArray(changes?.changed);
+    const added = readRecordArray(changes?.added);
+    const deleted = readRecordArray(changes?.deleted);
+    const valid = changed.length === 1
+      && changed[0]?.path === "src/OrderQueue.jsx"
+      && isSha256(changed[0]?.beforeHash)
+      && isSha256(changed[0]?.afterHash)
+      && changed[0]?.beforeHash !== changed[0]?.afterHash
+      && added.length === 0
+      && deleted.length === 0;
+    return valid
+      ? { name: this.name, score: 1, reasoning: "candidate changed only the admitted frontend component" }
+      : { name: this.name, score: 0, reasoning: "candidate diff is missing or exceeds the admitted frontend component scope" };
+  }
+}
+
+interface ExpectedEvidence {
+  readonly id: string;
+  readonly terms: readonly string[];
+}
+
+class EvidenceCoverageScorer implements Scorer {
+  readonly name = "evidence-coverage";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const expected = readExpectedEvidence(input.metadata?.expectedEvidence);
+    if (expected.length === 0) {
+      return { name: this.name, score: 0, reasoning: "expected evidence contract is missing" };
+    }
+    const output = input.output.toLocaleLowerCase("en");
+    const missing = expected.filter((entry) =>
+      entry.terms.some((term) => !output.includes(term.toLocaleLowerCase("en")))
+    );
+    return missing.length === 0
+      ? { name: this.name, score: 1, reasoning: `covered ${expected.length}/${expected.length} expected evidence claims` }
+      : {
+          name: this.name,
+          score: (expected.length - missing.length) / expected.length,
+          reasoning: `missing evidence claims: ${missing.map((entry) => entry.id).join(", ")}`,
+        };
+  }
+}
+
+class CitationGroundingScorer implements Scorer {
+  readonly name = "citation-grounding";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const expected = readStringArray(input.metadata?.expectedCitations);
+    if (expected.length === 0) {
+      return { name: this.name, score: 0, reasoning: "expected citation contract is missing" };
+    }
+    const output = input.output.replace(/\\/gu, "/").toLocaleLowerCase("en");
+    const missing = expected.filter((citation) =>
+      !output.includes(citation.replace(/\\/gu, "/").toLocaleLowerCase("en"))
+    );
+    return missing.length === 0
+      ? { name: this.name, score: 1, reasoning: `grounded ${expected.length}/${expected.length} required fixture citations` }
+      : {
+          name: this.name,
+          score: (expected.length - missing.length) / expected.length,
+          reasoning: `missing fixture citations: ${missing.join(", ")}`,
+        };
+  }
+}
+
+function readExpectedEvidence(value: unknown): readonly ExpectedEvidence[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.id !== "string") return [];
+    const terms = readStringArray(entry.terms);
+    return terms.length > 0 ? [{ id: entry.id, terms }] : [];
+  });
 }
 
 class ExecutionIntegrityScorer implements Scorer {
@@ -298,6 +470,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function readRecordArray(value: unknown): readonly Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
 function isSha256(value: unknown): value is string {
   return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
 }
@@ -349,8 +529,7 @@ class ToolTrajectoryEvidenceScorer implements Scorer {
         reasoning: expected.length > 0 ? "tool trajectory observed" : "no expected tool trajectory declared",
       };
     }
-    const actualNames = new Set(actual.map((call) => call.name));
-    const matched = expected.filter((call) => actualNames.has(call.name));
+    const matched = expected.filter((call) => actual.some((observed) => toolCallSatisfies(call.name, observed.name)));
     return {
       name: this.name,
       score: matched.length / expected.length,
@@ -359,10 +538,22 @@ class ToolTrajectoryEvidenceScorer implements Scorer {
   }
 }
 
+function toolCallSatisfies(expected: string, actual: string): boolean {
+  if (expected === actual) return true;
+  if (expected === "read") {
+    return actual === "read_many" || actual === "resource_read";
+  }
+  return false;
+}
+
 function findRedundantToolCalls(actual: readonly ToolCall[]): readonly string[] {
   const seen = new Set<string>();
   const redundant: string[] = [];
   for (const call of actual) {
+    if (isWorkspaceMutationTool(call.name)) {
+      seen.clear();
+      continue;
+    }
     const key = `${call.name}:${stableStringify(call.args ?? {})}`;
     if (seen.has(key)) {
       redundant.push(call.name);
@@ -371,6 +562,10 @@ function findRedundantToolCalls(actual: readonly ToolCall[]): readonly string[] 
     seen.add(key);
   }
   return redundant;
+}
+
+function isWorkspaceMutationTool(name: string): boolean {
+  return name === "write" || name === "edit" || name === "patch" || name === "apply_patch" || name === "apply-patch";
 }
 
 function evaluateToolBudget(metadata: Record<string, unknown> | undefined, toolCallCount: number): string | undefined {

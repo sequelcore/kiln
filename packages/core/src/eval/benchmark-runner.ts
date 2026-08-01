@@ -202,6 +202,20 @@ export class BenchmarkBaselineRunner {
           cacheGainComparisons: readArrayMetadata(result, "cacheGainComparisons"),
         })),
       },
+      {
+        kind: "diff",
+        title: "workspace diff evidence",
+        value: collectResultEvidence(consistency, (result) => ({
+          workspaceChanges: readMetadata(result, "workspaceChanges"),
+        })),
+      },
+      {
+        kind: "verification",
+        title: "out-of-process verification evidence",
+        value: collectResultEvidence(consistency, (result) => ({
+          observedVerification: readMetadata(result, "observedVerification"),
+        })),
+      },
     ];
 
     return evidence.map((entry) => {

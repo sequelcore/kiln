@@ -21,6 +21,7 @@ import {
 } from "@kilnai/core";
 import type {
   ManagedAgentCapabilitySnapshotInput,
+  ManagedAgentInvocationHandoffContract,
   ManagedAgentInvocationRequest,
   ManagedAgentWriteEvidence,
 } from "@kilnai/core";
@@ -69,6 +70,7 @@ export interface ManagedAgentLiveHarnessReadOnlyRequestOptions {
   readonly model?: string;
   readonly summary?: string;
   readonly prompt?: string;
+  readonly handoff?: ManagedAgentInvocationHandoffContract;
 }
 
 export interface ManagedAgentLiveFilesystemAndEvidenceExpectation {
@@ -273,6 +275,7 @@ export function makeManagedAgentLiveHarnessReadOnlyRequest(
     input: {
       summary: options.summary ?? "Inspect the live fixture without writing.",
       prompt: options.prompt ?? "Inspect the live fixture and report what would change.",
+      ...(options.handoff !== undefined ? { handoff: options.handoff } : {}),
     },
   });
 }
@@ -304,9 +307,11 @@ export function expectManagedAgentLiveDurableEvidenceSafe(
   const observations = collectDurableEvidenceObservations(expectation.evidence);
   for (const forbiddenPath of expectation.forbiddenPaths) {
     const normalizedPath = normalizeEvidencePath(forbiddenPath);
-    expect(
-      observations.values.some((value) => normalizeEvidencePath(value).includes(normalizedPath)),
-    ).toBe(false);
+    const leakingValues = observations.values
+      .map(normalizeEvidencePath)
+      .filter((value) => value.includes(normalizedPath))
+      .map((value) => value.replaceAll(normalizedPath, "<forbidden-path>"));
+    expect(leakingValues).toEqual([]);
   }
   expect(
     observations.keys.some((key) => SENSITIVE_EVIDENCE_KEYS.has(normalizeEvidenceKey(key))),

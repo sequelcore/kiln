@@ -4,10 +4,15 @@ import {
   ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";
+import {
+  discoverClaudeCliModelDiscovery,
+  resolveClaudeCodeExecutable,
+} from "../../src/gateway/gui-provider-models.js";
 import { ClaudeSession } from "../../../cli/src/wrapper/claude-code-process.js";
 import {
   KILN_LIVE_CLAUDE_TESTS_ENV,
   describeManagedAgentProviderLive,
+  expectManagedAgentLiveDurableEvidenceSafe,
   makeManagedAgentLiveCapabilitySnapshotInput,
   makeManagedAgentLiveHarnessReadOnlyRequest,
   withManagedAgentLiveFixtureWorkspace,
@@ -20,7 +25,14 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
       prefix: "kiln-managed-agent-claude-readonly-",
       files: { "proof.txt": "before\n" },
     }, async (workspace) => {
-      const model = process.env.KILN_LIVE_CLAUDE_MODEL ?? "default";
+      const model = requireExplicitClaudeModel(process.env.KILN_LIVE_CLAUDE_MODEL);
+      const executable = resolveClaudeCodeExecutable();
+      if (executable === undefined) {
+        throw new Error("The authorized Claude live proof requires an operator Claude Code executable and version.");
+      }
+      const discovery = await discoverClaudeCliModelDiscovery();
+      expect(discovery.status).toBe("available");
+      expect(discovery.models).toContain(model);
       let observedPermissionMode: "plan" | "default" | undefined;
       const request = makeManagedAgentLiveHarnessReadOnlyRequest({
         invocationId: "invocation-claude-live-readonly-1",
@@ -29,11 +41,16 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
         model,
         summary: "Inspect a fixture through Claude Code plan mode.",
         prompt: "Read proof.txt and report its exact contents. Do not write, create, delete, or rename any file.",
+        handoff: {
+          roleIntent: "read-only fixture inspector",
+          requiredResultFields: ["summary"],
+          doneCriteria: ["Report the exact contents of proof.txt without changing the workspace."],
+        },
       });
       const adapter = new ManagedCliHarnessAdapter({
         providerId: "claude",
         model,
-        factory: createClaudeLiveSessionFactory(model, (mode) => { observedPermissionMode = mode; }),
+        factory: createClaudeLiveSessionFactory(model, executable, (mode) => { observedPermissionMode = mode; }),
         filesystemBoundary: { enabled: true, trackedPaths: [workspace.filePath("proof.txt")], restoreReadOnlyViolations: true },
       });
 
@@ -55,14 +72,37 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
         status: "completed",
       });
       expect(JSON.stringify(result.record.resultHandoff?.structuredResult)).toContain("before");
+      expect(result.record.resultHandoff?.provenance).toMatchObject({
+        delivery: "native-structured-output",
+        configuredModelId: model,
+        harness: {
+          id: "claude-code",
+          executable: executable.evidence.executable,
+          version: executable.evidence.version,
+        },
+      });
+      expect(result.record.resultHandoff?.provenance.primaryObservedModelId).toBe(model);
+      expect(result.record.resultHandoff?.provenance.observedModelIds).toContain(model);
+      expect(result.record.resultHandoff?.provenance.observedModelIds).not.toContain("default");
       await expect(workspace.readFile("proof.txt")).resolves.toBe("before\n");
       expect(result.record.writeEvidence ?? []).toEqual([]);
+      expectManagedAgentLiveDurableEvidenceSafe({
+        evidence: {
+          resultHandoff: result.record.resultHandoff,
+          diagnostics: result.record.diagnostics,
+          transcript: result.record.transcript,
+          usage: result.record.usage,
+          writeEvidence: result.record.writeEvidence,
+        },
+        forbiddenPaths: [workspace.workspaceRoot, executable.path],
+      });
     });
   }, 240000);
 });
 
 function createClaudeLiveSessionFactory(
   model: string,
+  executable: NonNullable<ReturnType<typeof resolveClaudeCodeExecutable>>,
   observePermissionMode: (mode: "plan" | "default") => void,
 ): CliSessionFactory {
   return (systemPrompt, cwd, context) => {
@@ -75,7 +115,20 @@ function createClaudeLiveSessionFactory(
       model,
       permissionMode,
       sessionLedgerOwner: "host",
+      harnessExecutable: executable.path,
+      harnessEvidence: executable.evidence,
       ...(context?.structuredOutput ? { structuredOutputSchema: context.structuredOutput.schema } : {}),
     });
   };
+}
+
+function requireExplicitClaudeModel(value: string | undefined): string {
+  const model = value?.trim();
+  if (!model) {
+    throw new Error("KILN_LIVE_CLAUDE_MODEL must name the explicit Claude catalog value authorized for this probe.");
+  }
+  if (["default", "sonnet", "opus", "haiku"].includes(model)) {
+    throw new Error(`KILN_LIVE_CLAUDE_MODEL cannot use the moving Claude alias '${model}'.`);
+  }
+  return model;
 }

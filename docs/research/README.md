@@ -124,6 +124,25 @@ define the active architecture contract. For doctrine, use
   consolidated Sequel backend router, Spring, PostgreSQL, API, security, and
   testing capability catalog.
 
+- `25-hybrid-model-team-2026.md`
+  Current Claude Code, Codex OAuth, and OpenCode Go catalog research, model and
+  mode evidence, benchmark limitations, candidate team topology, and explicit
+  route-promotion gates.
+
+- `26-opencode-go-roster-2026.md`
+  Live 17-model OpenCode Go catalog audit, commercial and data-policy boundary,
+  current config diagnosis, lean specialist roster, and profile-v3 evaluation
+  queue.
+
+- `27-write-and-render-route-admission-2026.md`
+  Disposable write leases, strict tool/sandbox authority, hidden backend tests,
+  pinned browser/accessibility verification, live repeated results, and the
+  final write-route admission decision.
+
+- `28-claude-model-route-validation-2026.md`
+  Exact live validation and bounded team roles for Claude Opus, Sonnet, and
+  Haiku, plus the explicit reason Fable remains outside the admitted set.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -162,4 +181,8 @@ define the active architecture contract. For doctrine, use
 22. `22-canonical-mcp-integration-2026.md`
 23. `23-prompt-component-governance.md`
 24. `24-backend-skill-scout-2026.md`
-25. `web-retrieval-provider-routing.md`
+25. `25-hybrid-model-team-2026.md`
+26. `26-opencode-go-roster-2026.md`
+27. `27-write-and-render-route-admission-2026.md`
+28. `28-claude-model-route-validation-2026.md`
+29. `web-retrieval-provider-routing.md`

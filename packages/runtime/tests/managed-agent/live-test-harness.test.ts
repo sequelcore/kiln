@@ -12,6 +12,7 @@ import {
   expectManagedAgentLiveFilesystemAndEvidence,
   isManagedAgentLiveTestsEnabled,
   isManagedAgentProviderLiveTestsEnabled,
+  makeManagedAgentLiveHarnessReadOnlyRequest,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import { defineManagedAgentWriteEvidence } from "@kilnai/core";
@@ -119,6 +120,24 @@ describe("managed agent live test harness", () => {
     expect(explicit.enabledProviders).toEqual([
       KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV,
     ]);
+  });
+
+  it("preserves an explicit structured handoff contract in a read-only live request", () => {
+    const request = makeManagedAgentLiveHarnessReadOnlyRequest({
+      invocationId: "invocation-live-readonly-structured-1",
+      workspaceRoot: "C:/portable/workspace",
+      providerId: "claude",
+      model: "claude-sonnet-5",
+      handoff: {
+        roleIntent: "read-only fixture inspector",
+        requiredResultFields: ["summary"],
+      },
+    });
+
+    expect(request.input.handoff).toEqual({
+      roleIntent: "read-only fixture inspector",
+      requiredResultFields: ["summary"],
+    });
   });
 
   it("creates an isolated fixture workspace and removes it after failures", async () => {

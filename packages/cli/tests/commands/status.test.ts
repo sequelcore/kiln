@@ -177,6 +177,7 @@ describe("statusCommand", () => {
     expect(output).toContain("codex-readonly");
     expect(output).toContain("harness/codex gpt-5.3-codex-spark");
     expect(output).toContain("available");
+    expect(output).toContain("provider consumption is not bounded by Kiln's managed economic ceiling");
   });
 
   it("shows configured engine route health", async () => {

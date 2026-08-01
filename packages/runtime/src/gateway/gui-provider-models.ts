@@ -1,4 +1,5 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
 import {
   OPENCODE_BASE_URL,
   createProviderModelEvidence,
@@ -1861,12 +1862,40 @@ export async function discoverOpencodeCliModelDiscovery(): Promise<GuiCliProvide
  * catalog was discovered.  Every Claude executable decision must come through
  * here; a second resolver would reintroduce that divergence.
  */
-export function resolveClaudeCodeExecutable(): string | undefined {
-  return findExecutable([
-    ...homeExecutableCandidates([".local\\bin\\claude.exe"]),
+export interface ClaudeCodeExecutableResolution {
+  readonly path: string;
+  readonly evidence: {
+    readonly executable: string;
+    readonly version: string;
+  };
+}
+
+export function resolveClaudeCodeExecutable(): ClaudeCodeExecutableResolution | undefined {
+  for (const candidate of [
+    ...homeExecutableCandidates(process.platform === "win32"
+      ? [".local/bin/claude.exe", ".local/bin/claude"]
+      : [".local/bin/claude", ".local/bin/claude.exe"]),
     "claude",
     "claude.exe",
-  ]);
+  ]) {
+    try {
+      const output = execFileSync(candidate, ["--version"], { encoding: "utf8" });
+      const version = output.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/u)?.[0];
+      if (version !== undefined) {
+        const executableName = candidate.replaceAll("\\", "/").split("/").at(-1) ?? "claude";
+        return {
+          path: candidate,
+          evidence: {
+            executable: `<operator-harness>/${executableName}`,
+            version,
+          },
+        };
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -1883,10 +1912,13 @@ export async function discoverClaudeCliModelDiscovery(): Promise<GuiCliProviderM
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
     const control = query({
       prompt: "",
-      options: { permissionMode: "plan", pathToClaudeCodeExecutable: executable },
+      options: { permissionMode: "plan", pathToClaudeCodeExecutable: executable.path },
     });
     try {
-      const models = normalizeModelIds((await boundedClaudeSupportedModels(control)).map((model) => model.value));
+      const models = normalizeModelIds((await boundedClaudeSupportedModels(control)).flatMap((model) => [
+        model.value,
+        ...(model.resolvedModel ? [model.resolvedModel] : []),
+      ]));
       return models.length > 0
         ? { models, status: "available", reason: "Claude Code models discovered through the Agent SDK control plane.", authState: "authenticated" }
         : unavailableCliProviderDiscovery("empty_model_list", "Claude Code returned an empty model catalog.", "unknown");
@@ -1903,15 +1935,22 @@ export async function discoverClaudeCliModelDiscovery(): Promise<GuiCliProviderM
 
 class ClaudeModelDiscoveryTimeoutError extends Error {}
 
+const CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
+
 async function boundedClaudeSupportedModels(
-  control: { readonly supportedModels: () => Promise<readonly { readonly value: string }[]> },
-): Promise<readonly { readonly value: string }[]> {
+  control: {
+    readonly supportedModels: () => Promise<readonly {
+      readonly value: string;
+      readonly resolvedModel?: string;
+    }[]>;
+  },
+): Promise<readonly { readonly value: string; readonly resolvedModel?: string }[]> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       control.supportedModels(),
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new ClaudeModelDiscoveryTimeoutError()), 5_000);
+        timeout = setTimeout(() => reject(new ClaudeModelDiscoveryTimeoutError()), CLAUDE_MODEL_DISCOVERY_TIMEOUT_MS);
       }),
     ]);
   } finally {
@@ -2317,13 +2356,13 @@ function homeExecutableCandidates(relativePaths: readonly string[]): string[] {
   if (!home) {
     return [];
   }
-  return relativePaths.map((relativePath) => `${home}\\${relativePath}`);
+  return relativePaths.map((relativePath) => join(home, ...relativePath.split(/[\\/]+/u)));
 }
 
 function findExecutable(candidates: readonly string[]): string | undefined {
   for (const candidate of candidates) {
     try {
-      execSync(`"${candidate}" --version`, { stdio: "ignore" });
+      execFileSync(candidate, ["--version"], { stdio: "ignore" });
       return candidate;
     } catch {
       // try next candidate

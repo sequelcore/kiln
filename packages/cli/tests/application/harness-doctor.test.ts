@@ -11,6 +11,13 @@ const { delimiter, join } = win32;
 
 function createDiscovery(overrides: Partial<HarnessDoctorModelDiscovery> = {}): HarnessDoctorModelDiscovery {
   return {
+    claudeModels: ["claude-fable-5[1m]"],
+    claudeDiscovery: {
+      models: ["claude-fable-5[1m]"],
+      status: "available",
+      reason: "Claude Code models discovered.",
+      authState: "authenticated",
+    },
     codexModels: ["gpt-5.4-mini"],
     codexDiscovery: {
       models: ["gpt-5.4-mini"],
@@ -87,6 +94,7 @@ describe("harness doctor", () => {
       PATH: [npmDir, wingetDir].join(delimiter),
     };
     const existing = new Set([
+      join("C:\\Users\\ExampleUser", ".local", "bin", "claude.exe"),
       join(npmDir, "codex.cmd"),
       join(wingetDir, "codex.exe"),
     ]);
@@ -95,7 +103,10 @@ describe("harness doctor", () => {
       env,
       platform: "win32",
       fileExists: (path) => existing.has(path),
-      runVersion: vi.fn(async (path) => path.endsWith("codex.cmd") ? "codex-cli 0.142.0" : "codex app 0.140.0"),
+      runVersion: vi.fn(async (path) => {
+        if (path.endsWith("claude.exe")) return "2.1.220 (Claude Code)";
+        return path.endsWith("codex.cmd") ? "codex-cli 0.142.0" : "codex app 0.140.0";
+      }),
       discoverModels: vi.fn(async () => createDiscovery()),
       readConfigProjections: vi.fn(async () => []),
     });
@@ -112,6 +123,13 @@ describe("harness doctor", () => {
     expect(report.harnesses.codex.warnings).toContain(
       `Competing codex executable on PATH: ${join(wingetDir, "codex.exe")}`,
     );
+    expect(report.harnesses.claude).toMatchObject({
+      harnessId: "claude",
+      status: "available",
+      version: "2.1.220 (Claude Code)",
+      authState: "authenticated",
+      models: ["claude-fable-5[1m]"],
+    });
   });
 
   it("does not treat a globally installed old kiln command as a repair action", async () => {
@@ -180,6 +198,7 @@ describe("harness doctor", () => {
     expect(output).toContain("Kiln Harness Doctor");
     expect(output).toContain("Mode: read-only diagnostics");
     expect(output).toContain("codex");
+    expect(output).toContain("Claude Code");
     expect(output).toContain("Codex CLI executable was not found.");
     expect(output).toContain("Config projections:");
     expect(output).toContain("repo-shim:agents: current");

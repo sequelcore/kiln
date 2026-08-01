@@ -18,6 +18,7 @@ import type {
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
   ManagedAgentInvocationRequest,
+  ManagedAgentResultHandoffProvenance,
   ManagedAgentWriteEvidence,
   ManagedAgentProviderRoute,
   StructuredExecutionResult,
@@ -42,10 +43,12 @@ import {
   type ManagedInvocationResourceReader,
 } from "./resource-context.js";
 import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
+import { createWorkspaceRootReferencePattern } from "./session-events.js";
 
 export interface ManagedCliHarnessAdapterConfig {
   readonly providerId: string;
   readonly model: string;
+  readonly admittedProviderModelId?: string;
   readonly factory: CliSessionFactory;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly filesystemBoundary?: ManagedCliHarnessFilesystemBoundaryConfig;
@@ -61,7 +64,7 @@ export interface ManagedCliHarnessFilesystemBoundaryConfig {
 
 interface CollectedCliHarnessEvidence {
   readonly textParts: string[];
-  readonly structuredOutputs: unknown[];
+  readonly structuredOutputs: Extract<ExecutionSessionEvent, { readonly type: "structured_output" }>[];
   readonly fileChanges: Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[];
   readonly writeDecisions: Extract<ExecutionSessionEvent, { readonly type: "write_decision" }>[];
   readonly usage: {
@@ -91,6 +94,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   readonly descriptor: ManagedAgentAdapterDescriptor;
   private readonly providerId: string;
   private readonly model: string;
+  private readonly admittedProviderModelId?: string;
   private readonly factory: CliSessionFactory;
   private readonly filesystemBoundary?: ManagedCliHarnessFilesystemBoundaryConfig;
   private readonly resourceReader?: ManagedInvocationResourceReader;
@@ -99,6 +103,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   constructor(config: ManagedCliHarnessAdapterConfig) {
     this.providerId = requireText(config.providerId, "Managed CLI harness provider id is required");
     this.model = requireText(config.model, "Managed CLI harness model is required");
+    this.admittedProviderModelId = config.admittedProviderModelId === undefined
+      ? undefined
+      : requireText(config.admittedProviderModelId, "Managed CLI harness admitted provider model id is required");
     this.factory = config.factory;
     this.filesystemBoundary = config.filesystemBoundary;
     this.resourceReader = config.resourceReader;
@@ -208,6 +215,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         transcript: transcriptPointer(request.invocationId),
         usage: usageReport(collected.usage),
         resultHandoff: {
+          provenance: runtimeGeneratedHandoffProvenance(this.model),
           summary: "Managed CLI harness invocation cancelled.",
           resourceUris: writeEvidence.resultResourceUris,
           memoryWriteProposalUris: [],
@@ -240,6 +248,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         transcript: transcriptPointer(request.invocationId),
         usage: usageReport(collected.usage),
         resultHandoff: {
+          provenance: runtimeGeneratedHandoffProvenance(this.model),
           summary: formatTimeoutSummary({
             timeoutMs: request.authority.timeoutMs,
             childSessionId,
@@ -266,15 +275,43 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       filesystemChanges,
       readOnlyFilesystemViolation,
     });
-    const structuredResult = request.input.handoff
-      ? parseCliHarnessStructuredResult(
-        collected.structuredOutputs.length === 1
-          ? collected.structuredOutputs[0]
-          : collected.structuredOutputs.length === 0 ? collected.textParts.join("") : undefined,
-      )
+    const nativeStructuredOutput = collected.structuredOutputs.length === 1
+      ? collected.structuredOutputs[0]
       : undefined;
-    const lifecycleState = resolveLifecycleState(request, collected, writeEvidence, structuredResult);
-    const summary = structuredResult?.summary ?? summarizeResult(request, collected, writeEvidence);
+    const textFallback = collected.structuredOutputs.length === 0
+      ? collected.textParts.join("")
+      : undefined;
+    const parsedStructuredResult = request.input.handoff
+      ? parseCliHarnessStructuredResult(nativeStructuredOutput?.value ?? textFallback)
+      : undefined;
+    const structuredResult = parsedStructuredResult === undefined
+      ? undefined
+      : redactStructuredExecutionWorkspace(parsedStructuredResult, cwd);
+    const provenance = resultHandoffProvenance(
+      this.model,
+      nativeStructuredOutput,
+      structuredResult !== undefined && nativeStructuredOutput === undefined,
+    );
+    const nativeHandoffFailure = claudeNativeHandoffFailure(
+      this.providerId,
+      request,
+      structuredResult,
+      provenance,
+      this.admittedProviderModelId,
+    );
+    const lifecycleState = resolveLifecycleState(
+      request,
+      collected,
+      writeEvidence,
+      structuredResult,
+      nativeHandoffFailure,
+    );
+    const rawSummary = collected.error !== undefined
+      ? summarizeResult(request, collected, writeEvidence)
+      : nativeHandoffFailure
+        ?? structuredResult?.summary
+        ?? summarizeResult(request, collected, writeEvidence);
+    const summary = redactWorkspaceRoot(rawSummary, cwd);
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
       lifecycleState,
@@ -289,6 +326,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       transcript: transcriptPointer(request.invocationId),
       usage: usageReport(collected.usage),
       resultHandoff: {
+        provenance,
         summary,
         resourceUris: [
           managedInvocationUri(request.invocationId, "transcript"),
@@ -363,7 +401,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         continue;
       }
       if (event.type === "structured_output") {
-        collected.structuredOutputs.push(event.value);
+        collected.structuredOutputs.push(event);
         continue;
       }
       if (event.type === "cost_update") {
@@ -623,11 +661,15 @@ function resolveLifecycleState(
   collected: CollectedCliHarnessEvidence,
   writeEvidence: ReturnType<typeof collectWriteEvidence>,
   structuredResult: StructuredExecutionResult | undefined,
+  nativeHandoffFailure: string | undefined,
 ): ManagedAgentInvocationRecord["lifecycleState"] {
   if (collected.error !== undefined) {
     return isCancellationError(collected.error) ? "cancelled" : "failed";
   }
   if (collected.completed && collected.completed.outcome !== "completed") {
+    return "failed";
+  }
+  if (nativeHandoffFailure !== undefined) {
     return "failed";
   }
   if (requiresApprovedWorkspaceWriteEvidence(request) && !hasCompletedWorkspaceWriteEvidence(writeEvidence)) {
@@ -637,6 +679,104 @@ function resolveLifecycleState(
     return "failed";
   }
   return "completed";
+}
+
+function redactStructuredExecutionWorkspace(
+  result: StructuredExecutionResult,
+  workspaceRoot: string,
+): StructuredExecutionResult {
+  return defineStructuredExecutionResult(
+    redactWorkspaceValue(result, workspaceRoot) as StructuredExecutionResult,
+  );
+}
+
+function redactWorkspaceValue(value: unknown, workspaceRoot: string): unknown {
+  if (typeof value === "string") {
+    return redactWorkspaceRoot(value, workspaceRoot);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactWorkspaceValue(entry, workspaceRoot));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+      key,
+      redactWorkspaceValue(entry, workspaceRoot),
+    ]));
+  }
+  return value;
+}
+
+function redactWorkspaceRoot(value: string, workspaceRoot: string): string {
+  const segments = workspaceRoot.split(/[\\/]+/u).filter((segment) => segment.length > 0);
+  if (segments.length < 2) return value;
+  const pattern = createWorkspaceRootReferencePattern(workspaceRoot);
+  return pattern === undefined ? value : value.replace(pattern, "<workspace>");
+}
+
+function resultHandoffProvenance(
+  configuredModelId: string,
+  nativeStructuredOutput: Extract<ExecutionSessionEvent, { readonly type: "structured_output" }> | undefined,
+  parsedFromAssistantText: boolean,
+): ManagedAgentResultHandoffProvenance {
+  if (nativeStructuredOutput !== undefined) {
+    return {
+      delivery: "native-structured-output",
+      configuredModelId,
+      ...(nativeStructuredOutput.primaryProviderModelId !== undefined
+        ? { primaryObservedModelId: nativeStructuredOutput.primaryProviderModelId }
+        : {}),
+      observedModelIds: [...(nativeStructuredOutput.providerModelIds ?? [])],
+      ...(nativeStructuredOutput.harness ? { harness: nativeStructuredOutput.harness } : {}),
+    };
+  }
+  return parsedFromAssistantText
+    ? {
+        delivery: "assistant-text",
+        configuredModelId,
+        observedModelIds: [],
+      }
+    : runtimeGeneratedHandoffProvenance(configuredModelId);
+}
+
+function runtimeGeneratedHandoffProvenance(
+  configuredModelId: string,
+): ManagedAgentResultHandoffProvenance {
+  return {
+    delivery: "runtime-generated",
+    configuredModelId,
+    observedModelIds: [],
+  };
+}
+
+function claudeNativeHandoffFailure(
+  providerId: string,
+  request: ManagedAgentInvocationRequest,
+  structuredResult: StructuredExecutionResult | undefined,
+  provenance: ManagedAgentResultHandoffProvenance,
+  admittedProviderModelId: string | undefined,
+): string | undefined {
+  if (providerId !== "claude" || request.input.handoff === undefined) {
+    return undefined;
+  }
+  if (structuredResult === undefined) {
+    return "Managed Claude invocation failed: the required native structured-output handoff was missing or invalid.";
+  }
+  if (provenance.delivery !== "native-structured-output") {
+    return "Managed Claude invocation failed: the result handoff did not arrive through the native structured-output channel.";
+  }
+  if (provenance.primaryObservedModelId === undefined || provenance.observedModelIds.length === 0) {
+    return "Managed Claude invocation failed: native result evidence did not report the executed model identity.";
+  }
+  if (
+    admittedProviderModelId !== undefined
+    && provenance.primaryObservedModelId !== admittedProviderModelId
+  ) {
+    return `Managed Claude invocation failed: executed model evidence does not match the admitted model identity '${admittedProviderModelId}'.`;
+  }
+  if (provenance.harness?.id !== "claude-code" || provenance.harness.version.trim().length === 0) {
+    return "Managed Claude invocation failed: native result evidence did not report the Claude Code executable identity and version.";
+  }
+  return undefined;
 }
 
 function isCancellationError(error: Extract<ExecutionSessionEvent, { readonly type: "error" }>): boolean {

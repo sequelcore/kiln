@@ -1,5 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,7 +122,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 
   return {
     ...actual,
-    execSync: vi.fn(() => ""),
+    execFileSync: vi.fn(() => ""),
     spawn: vi.fn(() => {
       const proc = new EventEmitter() as EventEmitter & {
         stdout: EventEmitter;
@@ -306,6 +306,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
           retention: "session",
         },
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary: "GUI child review completed.",
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],
@@ -453,6 +454,7 @@ function makeManagedWriteConflictFixture(): {
         childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
         childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary: "Approved write completed.",
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
           memoryWriteProposalUris: [],
@@ -645,6 +647,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
           retention: "session",
         },
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary: "Gateway isolated worktree child completed.",
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
           memoryWriteProposalUris: [],
@@ -776,6 +779,12 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
+
+const TEST_HANDOFF_PROVENANCE = {
+  delivery: "runtime-generated",
+  configuredModelId: "test-model",
+  observedModelIds: [],
+} as const;
 
 describe("startGuiGateway static mount", () => {
   it("serves /gui/index.html and falls back to index.html for unknown /gui routes", async () => {
@@ -999,12 +1008,12 @@ describe("startGuiGateway static mount", () => {
   });
 
   it("does not probe Codex or OpenCode CLI models when provider availability is empty", async () => {
-    vi.mocked(execSync).mockClear();
+    vi.mocked(execFileSync).mockClear();
     vi.mocked(spawn).mockClear();
 
     const discovery = await resolveGuiOperatorDiscoveryResults({});
 
-    expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+    expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
     expect(vi.mocked(spawn)).not.toHaveBeenCalled();
     expect(discovery.find((entry) => entry.provider === "codex")).toMatchObject({
       provider: "codex",
@@ -1019,7 +1028,7 @@ describe("startGuiGateway static mount", () => {
   });
 
   it("keeps Codex and OpenCode CLI model discovery active when availability admits them", async () => {
-    vi.mocked(execSync).mockClear();
+    vi.mocked(execFileSync).mockClear();
     vi.mocked(spawn).mockClear();
 
     await resolveGuiOperatorDiscoveryResults({
@@ -1027,7 +1036,7 @@ describe("startGuiGateway static mount", () => {
       opencode: true,
     });
 
-    expect(vi.mocked(execSync)).toHaveBeenCalled();
+    expect(vi.mocked(execFileSync)).toHaveBeenCalled();
     expect(vi.mocked(spawn)).toHaveBeenCalled();
   });
 
@@ -4136,6 +4145,7 @@ describe("startGuiGateway static mount", () => {
           authority: adapterRequest.authority,
           capabilitySnapshot: admission.capabilitySnapshot,
           resultHandoff: {
+            provenance: TEST_HANDOFF_PROVENANCE,
             summary: "Promptable child completed.",
             resourceUris: [],
             memoryWriteProposalUris: [],
@@ -4361,6 +4371,7 @@ describe("startGuiGateway static mount", () => {
           authority: adapterRequest.authority,
           capabilitySnapshot: admission.capabilitySnapshot,
           resultHandoff: {
+            provenance: TEST_HANDOFF_PROVENANCE,
             summary: "Gateway join child completed.",
             resourceUris: [],
             memoryWriteProposalUris: [],
@@ -4875,6 +4886,7 @@ describe("startGuiGateway static mount", () => {
             kind: terminalCase.diagnosticKind,
           }],
           resultHandoff: {
+            provenance: TEST_HANDOFF_PROVENANCE,
             summary: `Gateway ${terminalCase.lifecycleState} child terminal evidence.`,
             resourceUris: [
               `kiln://managed-invocations/${adapterRequest.invocationId}/handoff`,
@@ -5918,11 +5930,11 @@ describe("projectGuiOperatorModels", () => {
 
 describe("discoverOpencodeCliModelDiscovery", () => {
   afterEach(() => {
-    vi.mocked(execSync).mockReturnValue("");
+    vi.mocked(execFileSync).mockReturnValue("");
   });
 
   it("discovers local OpenCode CLI models from the models command", async () => {
-    vi.mocked(execSync).mockImplementation((command) => {
+    vi.mocked(execFileSync).mockImplementation((command) => {
       const text = String(command);
       if (text.includes("--version")) {
         return "opencode 1.0.0";
@@ -5957,7 +5969,7 @@ describe("discoverOpencodeCliModelDiscovery", () => {
   });
 
   it("diagnoses missing OpenCode CLI executable", async () => {
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error("missing opencode");
     });
 
@@ -5970,7 +5982,7 @@ describe("discoverOpencodeCliModelDiscovery", () => {
   });
 
   it("diagnoses OpenCode CLI models command failure after the executable is found", async () => {
-    vi.mocked(execSync).mockImplementation((command) => {
+    vi.mocked(execFileSync).mockImplementation((command) => {
       const text = String(command);
       if (text.includes("--version")) {
         return "opencode 1.0.0";
@@ -5999,7 +6011,7 @@ describe("discoverOpencodeCliModelDiscovery", () => {
   });
 
   it("diagnoses an empty OpenCode CLI model list", async () => {
-    vi.mocked(execSync).mockImplementation((command) => {
+    vi.mocked(execFileSync).mockImplementation((command) => {
       const text = String(command);
       if (text.includes("--version")) {
         return "opencode 1.0.0";
@@ -6034,7 +6046,7 @@ describe("discoverOpencodeCliModelDiscovery", () => {
 describe("discoverCodexCliModelDiscovery", () => {
   afterEach(() => {
     vi.useRealTimers();
-    vi.mocked(execSync).mockReturnValue("");
+    vi.mocked(execFileSync).mockReturnValue("");
   });
 
   it("initializes Codex app-server before requesting local models", async () => {
@@ -6111,7 +6123,7 @@ describe("discoverCodexCliModelDiscovery", () => {
   });
 
   it("diagnoses missing Codex CLI executable", async () => {
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error("missing codex");
     });
 

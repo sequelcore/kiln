@@ -114,26 +114,50 @@ shell workaround for a Kiln-managed route.
 
 ### Slice 3 - Claude Entitlement Adapter
 
-Status: Ready - reprioritized ahead of Slice 4 by explicit operator decision
-(2026-07-24). The operator now holds a Claude Pro/Max subscription and is the
-real configured consumer the prior "Conditional" gate was waiting on; the
-motivating goal is spreading governed work across Claude, Codex, and OpenCode
-so no single provider subscription is exhausted by one session (see the
-incident recorded in the changelog/session record for 2026-07-24). This
-reorders the queue for this track only; it does not change Roadmap 03/02 as
-the shared live-activation blocker below this track's header status.
+Status: Read-only Claude entitlement route live-proven and activated.
+The read-only adapter now requires native structured-output provenance, exact
+configured and observed model identity, and portable Claude Code
+executable/version evidence. Moving model aliases fail admission, discovery and
+execution share one resolved executable, `kiln doctor` reports Claude Code, and
+the opt-in live proof requires an explicit model. No model is admitted until
+the authorized provider call succeeds and its exact observed identity is
+recorded in the allowlist.
+
+On 2026-08-01 the operator enabled Claude and authorized three bounded read-only
+attempts with Agent SDK `0.3.220`, Claude Code `2.1.220`, and the explicit
+catalog value `claude-sonnet-5`. The first two are not promotion evidence: the
+live fixture omitted `input.handoff`, so the adapter intentionally did not
+attach the SDK `outputFormat` and Claude returned prose. The third used the
+corrected fixture and proved native structured output, plan mode, portable
+harness evidence, and no fixture write, while revealing that `modelUsage`
+contains both the configured model and an auxiliary Haiku model. Kiln now
+records the SDK init model as the primary observed identity, retains the full
+model-usage set, and admits against the primary. A final authorized probe
+proved primary `claude-sonnet-5`, native structured output, plan mode, portable
+Claude Code `2.1.220` evidence, an unchanged fixture, zero write evidence, and
+no provider-session transcript. Separate authorized probes proved the same
+contract for `claude-opus-5` and `claude-haiku-4-5-20251001`; all three exact
+IDs are now admitted. Moving aliases and every unproven catalog value remain
+closed. Fable remains unconfigured because Kiln cannot yet enforce an
+explicit-route-only, runtime-approved exceptional selection boundary.
 
 Keep Claude Code subscription access distinct from Anthropic API billing.
 Admit no model into the live-proven set until a strict structured live result
 succeeds. Isolate API-key Anthropic usage as a separate, explicitly billed
 direct provider only when the operator configures it; do not let it become an
 implicit additive provider. Document terms and billing boundaries in status.
-Prove project-local gateway binding, `/v1/models` discovery, one real message,
-diagnostics, and exact restore.
+Status must also disclose that native-harness provider consumption is not
+bounded by Kiln's managed economic ceiling. Before activation, the operator
+must acknowledge that enabling `engines.claude` exposes Claude to non-managed
+engine selection surfaces. Prove authenticated SDK catalog discovery, one
+bounded read-only message, native structured handoff, exact model and executable
+identity, diagnostics, privacy-safe durable evidence, and exact config restore.
 
 Exit gate: Claude Code subscription and Anthropic API usage cannot be confused
 in route selection or status, and native-harness routes expose an explicit
-unsupported-proof diagnostic wherever Kiln cannot verify behavior.
+unsupported-proof diagnostic wherever Kiln cannot verify behavior. The exact
+provider model remains admitted only while runtime observations match the
+live-proof identity.
 
 ### Slice 4 - Codex Composite Picker
 

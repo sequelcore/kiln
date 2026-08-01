@@ -132,10 +132,12 @@ describe("BenchmarkBaselineRunner", () => {
       "route",
       "cost",
       "cache-topology",
+      "diff",
+      "verification",
       "result",
     ]);
     expect(result.baseline.artifactUris).toEqual(result.baseline.evidenceArtifacts.map((artifact) => artifact.uri));
-    expect(artifactStore.get("benchmark-baselines", "artifact_8")?.content).toMatchObject({
+    expect(artifactStore.get("benchmark-baselines", "artifact_10")?.content).toMatchObject({
       type: "json",
       value: {
         evidenceManifest: {

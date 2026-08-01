@@ -40,6 +40,15 @@ import type {
   CommandShell,
 } from "./runtime-session-orchestrator.types.js";
 
+function mergePerCallSandbox(sandbox: unknown, workingDirectory: string | undefined): unknown {
+  const base = sandbox && typeof sandbox === "object" && !Array.isArray(sandbox)
+    ? sandbox as Record<string, unknown>
+    : {};
+  return workingDirectory === undefined
+    ? { ...base }
+    : { ...base, cwd: workingDirectory };
+}
+
 const COMMAND_TOOL_SHELL_BY_NAME = new Map<string, CommandShell>([
   ["bash", "bash"],
   ["sh", "sh"],
@@ -1506,8 +1515,8 @@ export class RuntimeSessionToolExecutor {
               );
             }
           },
-          ...(perCallConfig?.workingDirectory
-            ? { sandbox: { cwd: perCallConfig.workingDirectory } }
+          ...((perCallConfig?.workingDirectory || perCallConfig?.sandbox !== undefined)
+            ? { sandbox: mergePerCallSandbox(perCallConfig.sandbox, perCallConfig.workingDirectory) }
             : {}),
           ...(perCallConfig?.toolAllowlist ? { allowedToolNames: [...perCallConfig.toolAllowlist] } : {}),
           ...(authority ? { authority } : {}),

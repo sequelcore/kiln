@@ -887,4 +887,23 @@ describe("default builtin tool surface", () => {
       },
     });
   });
+
+  it("makes a strict projection the complete executable registry boundary", async () => {
+    const surface = createDefaultBuiltinToolSurface({
+      toolProjection: {
+        mode: "strict",
+        alwaysOnTools: ["read", "write", "edit", "patch"],
+      },
+    });
+
+    expect(surface.toolNames).toEqual(["read", "write", "edit", "patch"]);
+    expect(surface.registry.list().map((tool) => tool.name)).toEqual(["read", "write", "edit", "patch"]);
+    expect(surface.registry.size).toBe(4);
+    expect(surface.registry.has("bash")).toBe(false);
+    expect(surface.registry.lookup("tool_catalog_search")).toBeUndefined();
+    await expect(surface.bridge.execute({
+      name: "bash",
+      input: { command: "echo should-not-run" },
+    })).rejects.toThrow(/not found|unknown|not registered/i);
+  });
 });

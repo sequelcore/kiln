@@ -10,6 +10,7 @@ const REQUIRED_DATASETS = [
   "kiln-managed-frontend-team-v1.jsonl",
   "kiln-managed-coding-agent-v1.jsonl",
   "kiln-safety-agent-v1.jsonl",
+  "kiln-model-roster-v1.jsonl",
 ] as const;
 
 describe("benchmark baseline datasets", () => {

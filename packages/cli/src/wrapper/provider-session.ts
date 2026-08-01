@@ -521,6 +521,7 @@ export class ProviderSession implements IKilnSession {
     abortSignal: AbortSignal | undefined,
     turnId: string | undefined,
     workingDirectory: string | undefined,
+    toolSandbox: unknown,
     externalTools: readonly ToolDefinition[] = [],
     externalCapabilities: ReadonlyMap<string, Capability> = new Map(),
   ): PerCallToolConfig {
@@ -538,6 +539,7 @@ export class ProviderSession implements IKilnSession {
         ...(reasoningEffort ? { reasoningEffort } : {}),
         ...(abortSignal ? { abortSignal } : {}),
         ...(workingDirectory ? { workingDirectory } : {}),
+        ...(toolSandbox !== undefined ? { sandbox: toolSandbox } : {}),
         toolAllowlist: admittedToolNames,
         additionalTools: combinedToolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
         perCallCapabilities: filterCapabilityMap(combinedCapabilities, admittedToolNames),
@@ -609,6 +611,7 @@ export class ProviderSession implements IKilnSession {
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(abortSignal ? { abortSignal } : {}),
       ...(workingDirectory ? { workingDirectory } : {}),
+      ...(toolSandbox !== undefined ? { sandbox: toolSandbox } : {}),
       toolAllowlist: admittedToolNames,
       toolAuthority,
       additionalTools: combinedToolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
@@ -652,6 +655,7 @@ export class ProviderSession implements IKilnSession {
       options.abortSignal,
       options.turnId,
       options.cwd ?? this.config.cwd,
+      options.toolSandbox,
       externalTools,
       externalCapabilityMap,
     );

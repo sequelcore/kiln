@@ -30,8 +30,10 @@ The correction is runtime ownership:
 
 - resolve route, provider, model, authority, tools, context, and child identity
   before adapter invocation;
-- filter by phase-required tools and select among multiple routes only when
-  configured task suitability produces a unique winner;
+- filter by phase-required tools and rank multiple routes by configured task
+  suitability. The current implementation breaks equal scores by stable
+  configuration order; a true unique-winner rejection remains an unresolved
+  contract decision rather than current behavior;
 - run intermediate children inside the attached runtime boundary and return a
   canonical invocation id plus bounded handoff to the parent;
 - reject contradictory agent profiles instead of rewriting them;
@@ -117,6 +119,13 @@ selection:
 
 ## Current Routing Position
 
+The 2026-08-01 Claude and cross-provider reassessment is canonical for the
+current candidate roster and promotion queue:
+[`25-hybrid-model-team-2026.md`](25-hybrid-model-team-2026.md). This section
+retains the July operational baseline. The complete current OpenCode Go audit,
+including the Flash privacy quarantine, is
+[`26-opencode-go-roster-2026.md`](26-opencode-go-roster-2026.md).
+
 The operational baseline is evidence-driven, not a universal leaderboard:
 
 - `codex-oauth/gpt-5.6-terra`: default coding, verification, and bounded
@@ -124,6 +133,14 @@ The operational baseline is evidence-driven, not a universal leaderboard:
 - `codex-oauth/gpt-5.6-luna`: fast bounded work where its route is eligible;
 - `codex-oauth/gpt-5.6-sol`: read-only advisor for high-stakes architecture and
   escalation; it is not the everyday worker;
+- `codex-auto-review`: separate read-only Codex review identity for reviewer
+  and adversarial-reviewer profiles;
+- `claude/claude-opus-5`: exact live-proven read-only plan route for the
+  `claude-advisor` architecture-review role;
+- `claude/claude-sonnet-5`: exact live-proven read-only plan route for the
+  independent `claude-reviewer` role;
+- `claude/claude-haiku-4-5-20251001`: exact live-proven read-only plan route
+  for the bounded `claude-scout` role;
 - `opencode-go/kimi-k3`: read-only frontend visual producer for hierarchy,
   interaction states, and bounded design handoffs; public/community evidence is
   a prior, not proof of write-route reliability;
@@ -131,18 +148,25 @@ The operational baseline is evidence-driven, not a universal leaderboard:
   the current approved-write frontend specialist when a separately admitted
   write task is required;
 - `opencode-go/qwen3.7-max`: read-only research and visual-reference route;
-- `opencode-go/deepseek-v4-flash`: scout/mechanical candidate;
+- `opencode-go/deepseek-v4-flash`: historical scout/mechanical route, now
+  quarantined from private Sequel work because OpenCode Go declares training
+  use and no retention agreement;
 - `opencode-go/glm-5.2`: preferred OpenCode backend route based on better local
   terminal reliability and latency than DeepSeek V4 Pro;
 - `opencode-go/deepseek-v4-pro`: retained backend challenger, not the preferred
   route.
+
+`minimax-m3` was removed from direct general routing on 2026-08-01. It passed
+one read-only roster smoke but was slower than both Kimi K2.7 Code and GLM 5.2,
+had no managed route or agent consumer, and therefore did not justify a
+consumerless fallback path.
 
 The rejected Codex OAuth credentials remain invalid and non-executable. A new
 operator login restored fresh provider discovery and all configured Codex OAuth
 managed routes; Kiln did not substitute Codex CLI discovery or an OpenCode
 catalog for the previously missing direct-provider authentication evidence.
 
-These assignments live in config `taskSuitability`, agent profiles, and live
+These assignments live in config `modelTaskSuitability`, agent profiles, and live
 provider discovery. Runtime code consumes that evidence and never embeds model
 rankings.
 

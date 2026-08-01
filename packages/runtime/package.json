@@ -48,7 +48,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.45",
+    "@anthropic-ai/claude-agent-sdk": "0.3.220",
     "@kilnai/gateway-contracts": "3.0.0-beta.1",
     "hono": "^4.7.0",
     "jose": "^5.0.0",
@@ -58,7 +58,7 @@
     "@kilnai/gui": "3.0.0-beta.1"
   },
   "peerDependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "^1.9.0",
     "ioredis": ">=5.0.0",
     "@nut-tree/nut-js": "^5.1.1",

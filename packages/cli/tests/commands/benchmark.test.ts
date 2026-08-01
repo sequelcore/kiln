@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KILN_BENCHMARK_PROFILES } from "@kilnai/core";
 import { benchmarkCommand } from "../../src/commands/benchmark.js";
+import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../../src/application/benchmark-workspace.js";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -29,6 +30,8 @@ const REQUIRED_EVIDENCE_ARTIFACTS = [
   "route",
   "cost",
   "cache-topology",
+  "diff",
+  "verification",
   "result",
 ] as const;
 
@@ -559,6 +562,87 @@ describe("benchmarkCommand", () => {
     expect(first.baseline.configHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(second.baseline.configHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(second.baseline.configHash).not.toBe(first.baseline.configHash);
+  });
+
+  it("includes synthetic workspace contents in the internal benchmark config hash", async () => {
+    const fixturePath = "fixtures/roster";
+    const fixtureRoot = join(root, "fixtures", "roster");
+    const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
+    const firstOutputPath = join(root, "first-roster.json");
+    const secondOutputPath = join(root, "second-roster.json");
+    mkdirSync(fixtureRoot, { recursive: true });
+    writeFileSync(join(fixtureRoot, "evidence.md"), "budget: 100\n", "utf-8");
+    writeFileSync(datasetPath, JSON.stringify({
+      id: "roster-research",
+      input: "Report the budget.",
+      expected: "100",
+      metadata: {
+        workspaceFixture: fixturePath,
+        expectedAgentId: "kiln-tool-agent",
+        expectedToolCalls: [{ name: "read" }],
+        expectedEvidence: [{ id: "budget", terms: ["budget", "100"] }],
+        expectedCitations: ["evidence.md"],
+      },
+    }) + "\n", "utf-8");
+    const executeItem = async () => {
+      const workspace = resolveBenchmarkWorkspace(root, fixturePath);
+      return {
+        output: "The budget is 100 (evidence.md).",
+        durationMs: 10,
+        costUsd: 0.01,
+        inputTokens: 5,
+        outputTokens: 3,
+        metadata: {
+          activeAgentId: "kiln-tool-agent",
+          providerId: "opencode-go",
+          modelId: "test-model",
+          sessionSucceeded: true,
+          toolCalls: [{ name: "read" }],
+          benchmarkWorkspaceKind: "synthetic-fixture",
+          workspaceFixture: fixturePath,
+          workspaceFixtureHash: hashBenchmarkWorkspace(workspace),
+        },
+      };
+    };
+
+    await benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      "--profile", "kiln-tool-agent",
+      "--dataset", datasetPath,
+      "--k", "1",
+      "--output", firstOutputPath,
+    ], { executeItem, repositoryRoot: root });
+    writeFileSync(join(fixtureRoot, "evidence.md"), "budget: 150\n", "utf-8");
+    await benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      "--profile", "kiln-tool-agent",
+      "--dataset", datasetPath,
+      "--k", "1",
+      "--output", secondOutputPath,
+    ], { executeItem, repositoryRoot: root });
+
+    const first = JSON.parse(readFileSync(firstOutputPath, "utf-8")) as { readonly baseline: { readonly configHash: string } };
+    const second = JSON.parse(readFileSync(secondOutputPath, "utf-8")) as { readonly baseline: { readonly configHash: string } };
+    expect(second.baseline.configHash).not.toBe(first.baseline.configHash);
+  });
+
+  it("rejects dataset attempts to provide executor-owned verification evidence", async () => {
+    const datasetPath = join(root, "spoofed-verification-v1.jsonl");
+    writeFileSync(datasetPath, JSON.stringify({
+      id: "spoofed-verification",
+      input: "Claim success.",
+      metadata: {
+        observedVerification: { status: "passed" },
+        workspaceChanges: { changed: [], added: [], deleted: [] },
+      },
+    }) + "\n", "utf8");
+
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      "--profile", "kiln-tool-agent",
+      "--dataset", datasetPath,
+      "--k", "1",
+      "--output", join(root, "spoofed.json"),
+    ], { executeItem: vi.fn() })).rejects.toThrow(
+      "declares executor-owned metadata: observedVerification, workspaceChanges",
+    );
   });
 
   it("keeps run-internal stdout as one benchmark JSON document for exact-format harnesses", async () => {

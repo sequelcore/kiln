@@ -37,6 +37,12 @@ function makeProvider(name = "mock"): ProviderAdapter {
   };
 }
 
+const TEST_HANDOFF_PROVENANCE = {
+  delivery: "runtime-generated",
+  configuredModelId: "test-model",
+  observedModelIds: [],
+} as const;
+
 function makeSession(systemPrompt = "You are helpful."): RuntimeSession {
   return new RuntimeSession({ appName: "app", tenantId: "test-tenant", userId: "user-1", systemPrompt });
 }
@@ -87,6 +93,7 @@ function makeManagedAdapter(summary = "Delegated vision summary."): ManagedAgent
           cost: { currency: "unknown", amount: "unknown" },
         },
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary,
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],

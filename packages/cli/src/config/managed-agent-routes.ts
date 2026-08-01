@@ -38,6 +38,7 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   ConfiguredManagedAccountRuntime,
   resolveClaudeCodeExecutable,
+  type ClaudeCodeExecutableResolution,
   ManagedCliHarnessAdapter,
   ManagedCommittedRouteMismatchError,
   ManagedJobApplicationError,
@@ -125,7 +126,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
    * stays deterministic and network-free in tests; production defaults to the
    * one canonical resolver shared with model discovery.
    */
-  readonly resolveClaudeExecutable?: () => string | undefined;
+  readonly resolveClaudeExecutable?: () => ClaudeCodeExecutableResolution | undefined;
   readonly providerModelEligibility?: ManagedAgentProviderModelCatalogDiagnostics;
   readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
@@ -423,6 +424,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   opencode: "opencode/minimax-m2.5-free",
 };
 const LIVE_PROVEN_WRITE_HARNESS_PROVIDERS = new Set<string>(["codex"]);
+const CLAUDE_MOVING_MODEL_ALIASES = new Set<string>(["default", "sonnet", "opus", "haiku"]);
 const LIVE_PROVEN_HARNESS_WRITE_AUTHORITY = {
   proposalSupported: true,
   approvedApplySupported: true,
@@ -432,9 +434,7 @@ const LIVE_PROVEN_HARNESS_WRITE_AUTHORITY = {
   scopeReduction: true,
 } as const;
 const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] | "*"> = {
-  // Keep Claude fail-closed until the strict provider live proof observes a
-  // completed native structured handoff for an exact catalog value.
-  claude: [],
+  claude: ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5-20251001"],
   codex: "*",
   // OpenCode permission rules do not provide a hard filesystem boundary for a
   // managed child. Keep the native child route closed; authorized OpenCode Go
@@ -1074,6 +1074,12 @@ async function resolveRouteConfig(
   if (!model) {
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
+  if (routeConfig.provider === "claude" && CLAUDE_MOVING_MODEL_ALIASES.has(model)) {
+    return unhealthy(
+      baseHealth,
+      `Provider 'claude' model '${model}' is a moving alias and cannot carry live-proof admission.`,
+    );
+  }
   const catalogEntry = resolveManagedProviderModelCatalogEntry(context, routeConfig.provider, model);
   if (catalogEntry.status === "pending") {
     return unhealthy(baseHealth, `Provider '${routeConfig.provider}' model eligibility evidence is pending.`);
@@ -1104,6 +1110,7 @@ async function resolveRouteConfig(
     : new ManagedCliHarnessAdapter({
         providerId: routeConfig.provider,
         model,
+        ...(routeConfig.provider === "claude" ? { admittedProviderModelId: model } : {}),
         factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context, harnessExecutable),
         ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
         ...(builtinToolsProvider ? { builtinToolsProvider } : {}),
@@ -1843,7 +1850,7 @@ function createHarnessSessionFactory(
   provider: ProviderId,
   model: string,
   context: ResolveManagedInvocationToolOptionsContext,
-  harnessExecutable: string | undefined,
+  harnessExecutable: ClaudeCodeExecutableResolution | undefined,
 ): CliSessionFactory {
   return (systemPrompt, cwd, factoryContext) => {
     const config: ProviderCreateConfig = {
@@ -1856,7 +1863,12 @@ function createHarnessSessionFactory(
       },
       model,
       sessionLedgerOwner: "host",
-      ...(harnessExecutable ? { harnessExecutable } : {}),
+      ...(harnessExecutable
+        ? {
+            harnessExecutable: harnessExecutable.path,
+            harnessEvidence: harnessExecutable.evidence,
+          }
+        : {}),
       ...(factoryContext?.structuredOutput ? { structuredOutputSchema: factoryContext.structuredOutput.schema } : {}),
       ...(factoryContext?.operatorSurface ? { operatorSurface: factoryContext.operatorSurface } : {}),
     };

@@ -187,6 +187,7 @@ export {
   resolveGuiOperatorDiscoveryResults,
   resolveGuiProviderSwitch,
 } from "./gateway/gui-provider-models.js";
+export type { ClaudeCodeExecutableResolution } from "./gateway/gui-provider-models.js";
 export { startProviderAuthRequest } from "./gateway/provider-auth.js";
 export type { ProviderAuthRequest, ProviderAuthResult, ProviderAuthStartResult } from "./gateway/provider-auth.js";
 export {

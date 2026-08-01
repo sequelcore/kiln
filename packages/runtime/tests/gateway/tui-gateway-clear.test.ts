@@ -171,6 +171,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
           retention: "session",
         },
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary: "TUI child review completed.",
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],
@@ -277,6 +278,12 @@ afterEach(() => {
 // We test the gateway clear frame handling by extracting the logic inline,
 // since startTuiGateway() starts a real Bun HTTP server. Instead we exercise
 // the onClear option contract directly as it would be called by the onMessage handler.
+
+const TEST_HANDOFF_PROVENANCE = {
+  delivery: "runtime-generated",
+  configuredModelId: "test-model",
+  observedModelIds: [],
+} as const;
 
 describe("TUI gateway clear frame handling", () => {
   it("sends cleared frame when clear frame received", async () => {

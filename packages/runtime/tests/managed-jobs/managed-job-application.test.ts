@@ -832,6 +832,64 @@ describe("Managed job historical readers", () => {
     }
   });
 
+  it.each([
+    { executable: "<operator-harness>/claude", accepted: true },
+    { executable: "C:\\operator\\bin\\claude.exe", accepted: false },
+  ])("validates persisted harness executable evidence: $executable", async ({ executable, accepted }) => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-harness-evidence-"));
+    const completedAt = "2026-07-29T17:01:00.000Z";
+    const fixture: ManagedJobRecordV3 = {
+      ...historicalBase,
+      version: 3,
+      state: "succeeded",
+      diagnostic: undefined,
+      lifecycle: [
+        { sequence: 1, state: "queued", observedAt: "2026-07-29T17:00:00.000Z" },
+        { sequence: 2, state: "running", observedAt: "2026-07-29T17:00:30.000Z" },
+        { sequence: 3, state: "succeeded", observedAt: completedAt },
+      ],
+      result: {
+        version: 1,
+        jobId: historicalBase.id,
+        runtimeInvocationId: historicalBase.id,
+        configuredAgentProfileId: historicalBase.configuredAgentProfileId,
+        admissionProfileId: historicalBase.admissionProfileId,
+        routeId: historicalBase.routeId,
+        providerId: historicalBase.providerId,
+        terminalState: "completed",
+        completedAt,
+        provenance: {
+          source: "runtime-managed-invocation",
+          trust: "untrusted-child-output",
+        },
+        resultHandoff: {
+          provenance: {
+            delivery: "native-structured-output",
+            configuredModelId: "claude-live-exact",
+            primaryObservedModelId: "claude-live-exact",
+            observedModelIds: ["claude-live-exact"],
+            harness: { id: "claude-code", executable, version: "2.1.220" },
+          },
+          summary: "Managed Claude review completed.",
+          resourceUris: [],
+          memoryWriteProposalUris: [],
+        },
+      },
+    };
+    const path = join(root, "managed-jobs.json");
+    try {
+      await writeFile(path, `${JSON.stringify([fixture])}\n`, "utf8");
+      const read = new FilesystemManagedJobStore(root).get(fixture.id);
+      if (accepted) {
+        await expect(read).resolves.toEqual(fixture);
+      } else {
+        await expect(read).rejects.toMatchObject({ code: "job_persistence_corrupt" });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("recovers historical nonterminal records through their original lifecycle", async () => {
     const running: ManagedJobRecordV4 = {
       ...historicalBase,

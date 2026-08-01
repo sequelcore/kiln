@@ -381,6 +381,7 @@ function makeRecord(
       cost: { currency: "unknown", amount: "unknown" },
     },
     resultHandoff: {
+      provenance: runtimeGeneratedProvenance(request.providerRoute.model),
       summary: "Inspection completed.",
       resourceUris: ["kiln://artifacts/invocation-1/result"],
       memoryWriteProposalUris: [],
@@ -432,11 +433,20 @@ function makeRecordForRequest(
     authority: request.authority,
     capabilitySnapshot,
     resultHandoff: {
+      provenance: runtimeGeneratedProvenance(request.providerRoute.model),
       summary: "Write completed.",
       resourceUris: [`kiln://artifacts/${request.invocationId}/result`],
       memoryWriteProposalUris: [],
     },
   });
+}
+
+function runtimeGeneratedProvenance(model: string | undefined) {
+  return {
+    delivery: "runtime-generated" as const,
+    configuredModelId: model ?? "provider-default",
+    observedModelIds: [],
+  };
 }
 
 function deferred<T>(): {
@@ -733,6 +743,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
           kind: "timeout",
         }],
         resultHandoff: {
+          provenance: runtimeGeneratedProvenance(request.providerRoute.model),
           summary: "Managed invocation timed out before a completed handoff was produced.",
           resourceUris: ["kiln://artifacts/invocation-1/timeout"],
           memoryWriteProposalUris: [],
@@ -3246,6 +3257,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
       ...makeRecordForRequest(request, started.status === "started" ? started.decision.capabilitySnapshot : undefined),
       lifecycleState: "cancelled",
       resultHandoff: {
+        provenance: runtimeGeneratedProvenance(makeRequest().providerRoute.model),
         summary: "Adapter observed cancellation.",
         resourceUris: ["kiln://artifacts/write-1/cancel-cleanup"],
         memoryWriteProposalUris: [],
@@ -5336,6 +5348,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
       ...makeRecord(started.decision.capabilitySnapshot),
       lifecycleState: "cancelled",
       resultHandoff: {
+        provenance: runtimeGeneratedProvenance(makeRequest().providerRoute.model),
         summary: "Adapter cleanup completed after cancellation.",
         resourceUris: ["kiln://artifacts/invocation-1/transcript", "kiln://artifacts/invocation-1/cancel-cleanup"],
         memoryWriteProposalUris: [],

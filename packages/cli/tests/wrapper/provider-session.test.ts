@@ -1016,6 +1016,37 @@ describe("ProviderSession.run()", () => {
     });
   });
 
+  it("forwards a per-run tool sandbox into executable runtime calls", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "sandboxed" }],
+      toolExecutions: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      outcome: "completed",
+    });
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+    }));
+    const toolSandbox = { policy: { marker: "lease-policy" } };
+
+    await collectEvents(session.run({
+      prompt: "execute inside the lease",
+      cwd: "C:/workspace/lease",
+      toolSandbox,
+    }));
+
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      sandbox?: unknown;
+    } | undefined;
+    expect(perCallConfig?.sandbox).toBe(toolSandbox);
+  });
+
   it("keeps invocation-resolvable tools available under audited authority", async () => {
     const bashTool = {
       name: "bash",

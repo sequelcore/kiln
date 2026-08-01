@@ -16,6 +16,8 @@ const REQUIRED_EVIDENCE_ARTIFACTS: readonly BenchmarkEvidenceArtifactKind[] = [
   "route",
   "cost",
   "cache-topology",
+  "diff",
+  "verification",
   "result",
 ];
 
@@ -50,6 +52,9 @@ describe("benchmark baseline readiness", () => {
       "kiln-managed-frontend-team",
       "kiln-managed-coding-agent",
       "kiln-safety-agent",
+      "kiln-model-roster",
+      "kiln-model-roster-backend-write",
+      "kiln-model-roster-frontend-render",
     ]);
     expect(KILN_BENCHMARK_PROFILES[0]).toMatchObject({
       version: "3",
@@ -57,6 +62,25 @@ describe("benchmark baseline readiness", () => {
       requiredScorers: expect.arrayContaining(["tool-calling-accuracy", "tool-trajectory"]),
     });
     expect(KILN_BENCHMARK_PROFILES[0]?.requiredScorers).not.toContain("cache-topology");
+    expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-model-roster")).toMatchObject({
+      version: "2",
+      authorityProfile: "foundation-readonly-plan",
+      requiredScorers: expect.arrayContaining([
+        "evidence-coverage",
+        "citation-grounding",
+        "execution-integrity",
+      ]),
+    });
+    expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-model-roster-backend-write")).toMatchObject({
+      version: "1",
+      authorityProfile: "foundation-apply-approved-writes",
+      requiredScorers: expect.arrayContaining(["test-verification", "diff-integrity", "execution-integrity"]),
+    });
+    expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-model-roster-frontend-render")).toMatchObject({
+      version: "1",
+      authorityProfile: "foundation-apply-approved-writes",
+      requiredScorers: expect.arrayContaining(["render-verification", "frontend-diff-integrity"]),
+    });
   });
 
   it("blocks profiles with no reproducible internal baseline", () => {

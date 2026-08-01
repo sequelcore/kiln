@@ -145,26 +145,60 @@ describe("ClaudeSession implements IKilnSession", () => {
     })());
 
     const schema = { type: "object", required: ["summary"] };
-    const session = new ClaudeSession(baseConfig({ structuredOutputSchema: schema }));
+    const session = new ClaudeSession(baseConfig({
+      structuredOutputSchema: schema,
+      sessionLedgerOwner: "host",
+    }));
     await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
 
     const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     const queryCall = queryCalls[queryCalls.length - 1]?.[0] as {
-      options?: { outputFormat?: { type?: string; schema?: unknown } };
+      options?: {
+        outputFormat?: { type?: string; schema?: unknown };
+        persistSession?: boolean;
+      };
     } | undefined;
     expect(queryCall?.options?.outputFormat).toEqual({ type: "json_schema", schema });
+    expect(queryCall?.options?.persistSession).toBe(false);
   });
 
   it("emits one native structured output event without treating it as prose", async () => {
     (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "system", subtype: "init", model: "claude-fable-5-20260715[1m]", claude_code_version: "2.1.220" };
       yield { type: "assistant", message: { content: [{ type: "text", text: "explanatory prose" }] } };
-      yield { type: "result", total_cost_usd: 0, is_error: false, structured_output: { summary: "canonical" } };
+      yield {
+        type: "result",
+        total_cost_usd: 0,
+        is_error: false,
+        modelUsage: {
+          "claude-haiku-4-5-20251001": {},
+          "claude-fable-5-20260715[1m]": {},
+        },
+        structured_output: { summary: "canonical" },
+      };
     })());
-    const session = new ClaudeSession(baseConfig({ structuredOutputSchema: { type: "object" } }));
+    const session = new ClaudeSession(baseConfig({
+      structuredOutputSchema: { type: "object" },
+      harnessExecutable: "C:/tools/claude.exe",
+      harnessEvidence: {
+        executable: "<operator-harness>/claude.exe",
+        version: "2.1.220",
+      },
+    }));
     const events = await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
 
     expect(events.filter((event) => event.type === "structured_output")).toEqual([
-      { type: "structured_output", value: { summary: "canonical" } },
+      {
+        type: "structured_output",
+        value: { summary: "canonical" },
+        primaryProviderModelId: "claude-fable-5-20260715[1m]",
+        providerModelIds: ["claude-haiku-4-5-20251001", "claude-fable-5-20260715[1m]"],
+        harness: {
+          id: "claude-code",
+          executable: "<operator-harness>/claude.exe",
+          version: "2.1.220",
+        },
+      },
     ]);
     expect(events.findIndex((event) => event.type === "structured_output"))
       .toBeLessThan(events.findIndex((event) => event.type === "completed"));
@@ -224,14 +258,14 @@ describe("ClaudeSession implements IKilnSession", () => {
       yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
     })());
 
-    const session = new ClaudeSession(baseConfig({ harnessExecutable: "C:/Users/operator/.local/bin/claude.exe" }));
+    const session = new ClaudeSession(baseConfig({ harnessExecutable: "C:/tools/claude.exe" }));
     await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
 
     const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     const queryCall = queryCalls[queryCalls.length - 1]?.[0] as {
       options?: { pathToClaudeCodeExecutable?: string };
     } | undefined;
-    expect(queryCall?.options?.pathToClaudeCodeExecutable).toBe("C:/Users/operator/.local/bin/claude.exe");
+    expect(queryCall?.options?.pathToClaudeCodeExecutable).toBe("C:/tools/claude.exe");
   });
 
   it("leaves the executable unset when no operator binary was resolved", async () => {

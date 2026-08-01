@@ -38,6 +38,28 @@ describe("createBenchmarkProfileScorers", () => {
     await expect(trajectory.score(input)).resolves.toMatchObject({ score: 1 });
   });
 
+  it("accepts batch and resource reads as grounded read trajectories", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-model-roster")!;
+    const trajectory = createBenchmarkProfileScorers(profile).find((scorer) => scorer.name === "tool-trajectory")!;
+
+    await expect(trajectory.score({
+      input: "Read the fixture sources.",
+      output: "Grounded synthesis.",
+      metadata: {
+        expectedToolCalls: [{ name: "read" }],
+        toolCalls: [{ name: "read_many", args: { paths: ["research/a.md", "research/b.md"] } }],
+      },
+    })).resolves.toMatchObject({ score: 1 });
+    await expect(trajectory.score({
+      input: "Read the fixture sources.",
+      output: "Unsupported synthesis.",
+      metadata: {
+        expectedToolCalls: [{ name: "read" }],
+        toolCalls: [{ name: "grep", args: { pattern: "budget" } }],
+      },
+    })).resolves.toMatchObject({ score: 0 });
+  });
+
   it("scores governed team roles and dependency contracts from the orchestration work graph", async () => {
     const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-managed-frontend-team")!;
     const composition = createBenchmarkProfileScorers(profile)
@@ -128,6 +150,175 @@ describe("createBenchmarkProfileScorers", () => {
         modelId: "gpt-5.6-terra",
       },
     })).resolves.toMatchObject({ score: 1 });
+  });
+
+  it("scores roster evidence only from grounded output, not predeclared milestones", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-model-roster")!;
+    const scorers = createBenchmarkProfileScorers(profile);
+    const coverage = scorers.find((scorer) => scorer.name === "evidence-coverage")!;
+    const grounding = scorers.find((scorer) => scorer.name === "citation-grounding")!;
+    const metadata = {
+      expectedEvidence: [
+        { id: "boundary", terms: ["inventory", "reservation"] },
+        { id: "idempotency", terms: ["retry", "duplicate"] },
+      ],
+      expectedCitations: ["src/inventory-service.ts", "docs/retry-contract.md"],
+      milestones: [
+        { name: "must-not-be-trusted", completed: true },
+      ],
+    };
+
+    await expect(coverage.score({
+      input: "Inspect the fixture.",
+      output: "The inventory reservation can create a duplicate on retry.",
+      metadata,
+    })).resolves.toMatchObject({ score: 1 });
+    await expect(coverage.score({
+      input: "Inspect the fixture.",
+      output: "Everything looks correct.",
+      metadata,
+    })).resolves.toMatchObject({ score: 0 });
+    await expect(grounding.score({
+      input: "Inspect the fixture.",
+      output: "Evidence: src/inventory-service.ts and docs/retry-contract.md.",
+      metadata,
+    })).resolves.toMatchObject({ score: 1 });
+    await expect(grounding.score({
+      input: "Inspect the fixture.",
+      output: "The code and documentation agree.",
+      metadata,
+    })).resolves.toMatchObject({ score: 0 });
+  });
+
+  it("scores backend writes only from executor-owned verifier and diff evidence", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-model-roster-backend-write")!;
+    const scorers = createBenchmarkProfileScorers(profile);
+    const verification = scorers.find((scorer) => scorer.name === "test-verification")!;
+    const diff = scorers.find((scorer) => scorer.name === "diff-integrity")!;
+    const metadata = {
+      observedVerification: {
+        verifierId: "kiln.backend-write.order-reservation",
+        verifierVersion: "1",
+        status: "passed",
+        testDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        violations: [],
+        changes: {
+          changed: [{
+            path: "src/order-service.mjs",
+            beforeHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            afterHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          }],
+          added: [],
+          deleted: [],
+        },
+        tests: { exitCode: 0, passed: 4, failed: 0, timedOut: false },
+      },
+    };
+
+    await expect(verification.score({ input: "fix", output: "done", metadata })).resolves.toMatchObject({ score: 1 });
+    await expect(diff.score({ input: "fix", output: "done", metadata })).resolves.toMatchObject({ score: 1 });
+    await expect(verification.score({
+      input: "fix",
+      output: "claimed pass",
+      metadata: { ...metadata, observedVerification: { ...metadata.observedVerification, status: "failed" } },
+    })).resolves.toMatchObject({ score: 0 });
+    await expect(diff.score({
+      input: "fix",
+      output: "done",
+      metadata: {
+        observedVerification: {
+          ...metadata.observedVerification,
+          changes: {
+            changed: metadata.observedVerification.changes.changed,
+            added: [{ path: "hidden.test.mjs", hash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }],
+            deleted: [],
+          },
+        },
+      },
+    })).resolves.toMatchObject({ score: 0 });
+  });
+
+  it("does not treat a verification read after a workspace mutation as redundant", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-model-roster-backend-write")!;
+    const trajectory = createBenchmarkProfileScorers(profile)
+      .find((scorer) => scorer.name === "tool-trajectory")!;
+    const metadata = {
+      expectedToolCalls: [{ name: "read" }],
+      toolCalls: [
+        { name: "read", args: { filePath: "src/order-service.mjs" } },
+        { name: "edit", args: { filePath: "src/order-service.mjs" } },
+        { name: "read", args: { filePath: "src/order-service.mjs" } },
+      ],
+      toolBudgets: { maxToolCalls: 8 },
+    };
+
+    await expect(trajectory.score({ input: "fix", output: "done", metadata }))
+      .resolves.toMatchObject({ score: 1 });
+  });
+
+  it("scores frontend work only from rendered interaction, accessibility, screenshot, and bounded diff evidence", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-model-roster-frontend-render")!;
+    const scorers = createBenchmarkProfileScorers(profile);
+    const render = scorers.find((scorer) => scorer.name === "render-verification")!;
+    const diff = scorers.find((scorer) => scorer.name === "frontend-diff-integrity")!;
+    const metadata = {
+      observedVerification: {
+        verifierId: "kiln.frontend-render.order-queue",
+        verifierVersion: "1",
+        status: "passed",
+        violations: [],
+        runner: {
+          kind: "docker-playwright",
+          image: "kiln/frontend-benchmark-verifier:1",
+          imageId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          sourceDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        },
+        changes: {
+          changed: [{
+            path: "src/OrderQueue.jsx",
+            beforeHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            afterHash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          }],
+          added: [],
+          deleted: [],
+        },
+        render: {
+          browserVersion: "Chrome/140",
+          assertions: {
+            heading: true,
+            tableAccessibleName: true,
+            keyboardActivation: true,
+            dialogAccessibleName: true,
+            dialogInitialFocus: true,
+            dialogFocusTrap: true,
+            escapeCloses: true,
+            focusRestored: true,
+          },
+          accessibility: { engine: "axe-core", version: "4.12.1", violationCount: 0 },
+        },
+        screenshot: {
+          sha256: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          bytes: 1024,
+          base64: "iVBORw0KGgo=",
+        },
+      },
+    };
+
+    await expect(render.score({ input: "repair", output: "done", metadata })).resolves.toMatchObject({ score: 1 });
+    await expect(diff.score({ input: "repair", output: "done", metadata })).resolves.toMatchObject({ score: 1 });
+    await expect(render.score({
+      input: "repair",
+      output: "claimed accessible",
+      metadata: {
+        observedVerification: {
+          ...metadata.observedVerification,
+          render: {
+            ...metadata.observedVerification.render,
+            accessibility: { engine: "axe-core", version: "4.12.1", violationCount: 1 },
+          },
+        },
+      },
+    })).resolves.toMatchObject({ score: 0 });
   });
 
   it("scores cache topology only when request evidence includes prefix partition and invalid-reuse probes", async () => {

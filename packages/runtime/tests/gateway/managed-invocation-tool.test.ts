@@ -43,6 +43,12 @@ import {
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
+const TEST_HANDOFF_PROVENANCE = {
+  delivery: "runtime-generated",
+  configuredModelId: "test-model",
+  observedModelIds: [],
+} as const;
+
 function createAttachedRuntimeBuiltinToolSurface(
   options: Omit<NonNullable<Parameters<typeof createRuntimeBuiltinToolSurface>[0]>, "managedInvocation"> & {
     readonly managedInvocation?: ManagedInvocationToolOptions & {
@@ -164,6 +170,7 @@ function makeAdapterWithHandoff(
           retention: "session",
         },
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary,
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],
@@ -246,6 +253,7 @@ function makeAdapterWithProgressHandoff(summary: string): ManagedAgentRuntimeAda
           retention: "session",
         },
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary,
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
           memoryWriteProposalUris: [],
@@ -290,6 +298,7 @@ function makeTimedOutAdapter(): ManagedAgentRuntimeAdapter {
           kind: "timeout",
         }],
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary: "Direct child timed out before handoff.",
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/timeout`],
           memoryWriteProposalUris: [],
@@ -1059,6 +1068,7 @@ describe("managed invocation runtime tool", () => {
       childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
       childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Child review completed.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
         memoryWriteProposalUris: [],
@@ -1375,6 +1385,7 @@ describe("managed invocation runtime tool", () => {
         routeSource: "explicit-managed-route",
       }),
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Progress child completed.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
         memoryWriteProposalUris: [],
@@ -1648,6 +1659,7 @@ describe("managed invocation runtime tool", () => {
         retention: "session",
       },
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Child artifact evidence completed.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/transcript`],
         memoryWriteProposalUris: [],
@@ -1829,6 +1841,7 @@ describe("managed invocation runtime tool", () => {
           authority: request.authority,
           capabilitySnapshot: admission.capabilitySnapshot,
           resultHandoff: {
+            provenance: TEST_HANDOFF_PROVENANCE,
             summary: "Late child success.",
             resourceUris: ["kiln://artifacts/late-child/result"],
             memoryWriteProposalUris: [],
@@ -2051,6 +2064,7 @@ describe("managed invocation runtime tool", () => {
         routeSource: "explicit-managed-route",
       }),
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Child review completed.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
         memoryWriteProposalUris: [],
@@ -2171,6 +2185,7 @@ describe("managed invocation runtime tool", () => {
         routeSource: "explicit-managed-route",
       }),
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Late sandbox output must be suppressed.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/late`],
         memoryWriteProposalUris: [],
@@ -2829,6 +2844,7 @@ describe("managed invocation runtime tool", () => {
       childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
       childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Child review completed before parent joined.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
         memoryWriteProposalUris: [],
@@ -2986,6 +3002,7 @@ describe("managed invocation runtime tool", () => {
           routeSource: "explicit-managed-route",
         }),
         resultHandoff: {
+          provenance: TEST_HANDOFF_PROVENANCE,
           summary: "Child review completed.",
           resourceUris: [`kiln://managed-invocations/${request.invocationId}/result`],
           memoryWriteProposalUris: [],
@@ -3077,6 +3094,7 @@ describe("managed invocation runtime tool", () => {
         routeSource: "explicit-managed-route",
       }),
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Late child output must be ignored.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/late`],
         memoryWriteProposalUris: [],
@@ -3387,6 +3405,7 @@ describe("managed invocation runtime tool", () => {
         routeSource: "explicit-managed-route",
       }),
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Late child output must be ignored.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/late`],
         memoryWriteProposalUris: [],
@@ -3460,6 +3479,7 @@ describe("managed invocation runtime tool", () => {
         retention: "session",
       },
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Adapter cleanup completed.",
         resourceUris: [`kiln://managed-invocations/${request.invocationId}/cancel-cleanup`],
         memoryWriteProposalUris: [],
@@ -5203,6 +5223,7 @@ describe("managed invocation runtime tool", () => {
           childSessionId: `${request.parentSessionId}:managed:${request.invocationId}`,
           childTurnId: `${request.parentSessionId}:managed:${request.invocationId}:turn:1`,
           resultHandoff: {
+            provenance: TEST_HANDOFF_PROVENANCE,
             summary: "Approved write completed.",
             resourceUris: [`kiln://managed-invocations/${request.invocationId}/handoff`],
             memoryWriteProposalUris: [],

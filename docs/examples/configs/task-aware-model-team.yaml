@@ -1,9 +1,11 @@
 # Sanitized task-aware model team example.
 # Copy the shape, not the exact model list. Credentials stay in environment
 # variables or Kiln credential pools, never in this file.
-# This example is subscription-first: direct Codex OAuth and OpenCode Go/Zen are
+# This example is subscription-first: direct Codex OAuth and OpenCode Go are
 # normal routes; native CLI harness engines stay disabled unless intentionally
 # selected as fallback escape hatches.
+# OpenCode Go DeepSeek V4 Flash is intentionally absent because its current
+# provider matrix permits model training and has no retention agreement.
 version: "1"
 engines:
   codex-oauth:
@@ -12,9 +14,6 @@ engines:
   opencode-go:
     enabled: true
     billing: subscription
-  opencode-zen:
-    enabled: true
-    billing: api-key
   codex:
     enabled: false
     billing: plus-quota
@@ -23,33 +22,26 @@ engines:
     billing: free
 routing:
   defaultWorker: codex-oauth
-  fallback: opencode-zen
+  fallback: opencode-go
   routes:
     - provider: codex-oauth
       model: gpt-5.6-terra
     - provider: codex-oauth
-      model: gpt-5.6
+      model: gpt-5.6-sol
     - provider: codex-oauth
       model: gpt-5.6-luna
     - provider: opencode-go
-      model: kimi-k2.6
+      model: kimi-k2.7-code
     - provider: opencode-go
-      model: glm-5.1
+      model: glm-5.2
     - provider: opencode-go
       model: deepseek-v4-pro
     - provider: opencode-go
-      model: qwen3.6-plus
-    - provider: opencode-go
-      model: minimax-m2.7
-    - provider: opencode-go
-      model: deepseek-v4-flash
-    - provider: opencode-zen
-      model: minimax-m2.5-free
+      model: qwen3.7-max
   budgetAware: false
 models:
   codex-oauth: gpt-5.6-terra
-  opencode-go: minimax-m2.7
-  opencode-zen: minimax-m2.5-free
+  opencode-go: glm-5.2
 modelGateway:
   port: 4819
   accounts:
@@ -61,11 +53,6 @@ modelGateway:
     - id: opencode-go-subscription
       providerId: opencode-go
       credentialId: opencode-go-subscription
-      maxConcurrency: 1
-      reservedAffinitySlots: 0
-    - id: opencode-zen-api
-      providerId: opencode-zen
-      credentialId: opencode-zen-api
       maxConcurrency: 1
       reservedAffinitySlots: 0
   replay:
@@ -93,10 +80,6 @@ modelGateway:
         - managed-opencode-go-glm
         - managed-opencode-go-deepseek-pro
         - managed-opencode-go-qwen
-        - managed-opencode-go-deepseek-flash
-        - managed-opencode-go-minimax
-        - managed-opencode-zen-deepseek-flash
-        - managed-opencode-zen-minimax
   virtualModels:
     - id: managed-codex-luna
       providerId: codex-oauth
@@ -106,19 +89,19 @@ modelGateway:
       affinity: { continuity: none }
     - id: managed-codex-sol
       providerId: codex-oauth
-      providerModelId: gpt-5.6
+      providerModelId: gpt-5.6-sol
       accountIds: [codex-subscription]
       capabilities: [text]
       affinity: { continuity: none }
     - id: managed-opencode-go-kimi
       providerId: opencode-go
-      providerModelId: kimi-k2.6
+      providerModelId: kimi-k2.7-code
       accountIds: [opencode-go-subscription]
       capabilities: [text]
       affinity: { continuity: none }
     - id: managed-opencode-go-glm
       providerId: opencode-go
-      providerModelId: glm-5.1
+      providerModelId: glm-5.2
       accountIds: [opencode-go-subscription]
       capabilities: [text]
       affinity: { continuity: none }
@@ -130,32 +113,8 @@ modelGateway:
       affinity: { continuity: none }
     - id: managed-opencode-go-qwen
       providerId: opencode-go
-      providerModelId: qwen3.6-plus
+      providerModelId: qwen3.7-max
       accountIds: [opencode-go-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
-    - id: managed-opencode-go-deepseek-flash
-      providerId: opencode-go
-      providerModelId: deepseek-v4-flash
-      accountIds: [opencode-go-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
-    - id: managed-opencode-go-minimax
-      providerId: opencode-go
-      providerModelId: minimax-m2.7
-      accountIds: [opencode-go-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
-    - id: managed-opencode-zen-deepseek-flash
-      providerId: opencode-zen
-      providerModelId: deepseek-v4-flash-free
-      accountIds: [opencode-zen-api]
-      capabilities: [text]
-      affinity: { continuity: none }
-    - id: managed-opencode-zen-minimax
-      providerId: opencode-zen
-      providerModelId: minimax-m2.5-free
-      accountIds: [opencode-zen-api]
       capabilities: [text]
       affinity: { continuity: none }
 reasoningPolicy:
@@ -170,7 +129,7 @@ reasoningPolicy:
     mechanical-edit: low
 modelTaskSuitability:
   - provider: codex-oauth
-    model: gpt-5.6
+    model: gpt-5.6-sol
     task: architecture-review
     level: preferred
     reason: Prefer GPT-5.6 Sol for architecture decisions, backend-critical changes, and final review.
@@ -185,12 +144,12 @@ modelTaskSuitability:
     level: preferred
     reason: Prefer GPT-5.6 Luna for small bounded edits and repetitive low-risk work.
   - provider: opencode-go
-    model: kimi-k2.6
+    model: kimi-k2.7-code
     task: frontend-design
     level: preferred
     reason: Prefer the OpenCode Go frontend route for UI, layout, and visual implementation.
   - provider: opencode-go
-    model: glm-5.1
+    model: glm-5.2
     task: backend-coding
     level: capable
     reason: Keep GLM available for backend services, adapters, and data-flow reasoning when the preferred backend route is unavailable.
@@ -200,20 +159,10 @@ modelTaskSuitability:
     level: preferred
     reason: Prefer the OpenCode Go backend/debugging route for complex coding and provider/runtime issues.
   - provider: opencode-go
-    model: qwen3.6-plus
+    model: qwen3.7-max
     task: research
     level: preferred
     reason: Prefer the OpenCode Go research route for synthesis and comparison work.
-  - provider: opencode-go
-    model: deepseek-v4-flash
-    task: mechanical-edit
-    level: preferred
-    reason: Prefer the fast OpenCode Go route for repetitive or low-risk edits.
-  - provider: opencode-go
-    model: minimax-m2.7
-    task: mechanical-edit
-    level: capable
-    reason: Keep MiniMax as an efficient all-rounder fallback for mechanical work.
 skills:
   selection:
     mode: auto
@@ -261,80 +210,11 @@ managedAgents:
       credentials:
         mode: runtime-selected
         accountPolicyId: managed-codex-luna
-    - id: codex-oauth-critical-approved-write
-      kind: direct
-      provider: codex-oauth
-      model: gpt-5.6
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-codex-sol
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
-    - id: opencode-go-frontend-approved-write
-      kind: direct
-      provider: opencode-go
-      model: kimi-k2.6
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-go-kimi
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
+    # Only GLM 5.2 passed the 2026-08-01 strict backend write admission.
     - id: opencode-go-service-approved-write
       kind: direct
       provider: opencode-go
-      model: glm-5.1
+      model: glm-5.2
       profiles:
         - foundation-apply-approved-writes
       workingDirectory: project
@@ -355,216 +235,6 @@ managedAgents:
       credentials:
         mode: runtime-selected
         accountPolicyId: managed-opencode-go-glm
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
-    - id: opencode-go-backend-approved-write
-      kind: direct
-      provider: opencode-go
-      model: deepseek-v4-pro
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-go-deepseek-pro
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
-    - id: opencode-go-research-approved-write
-      kind: direct
-      provider: opencode-go
-      model: qwen3.6-plus
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-go-qwen
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
-    - id: opencode-go-mechanical-approved-write
-      kind: direct
-      provider: opencode-go
-      model: deepseek-v4-flash
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-go-deepseek-flash
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
-    - id: opencode-go-general-approved-write
-      kind: direct
-      provider: opencode-go
-      model: minimax-m2.7
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-go-minimax
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
-    - id: opencode-zen-mechanical-approved-write
-      kind: direct
-      provider: opencode-zen
-      model: deepseek-v4-flash-free
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-zen-deepseek-flash
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
-    - id: opencode-zen-free-approved-write
-      kind: direct
-      provider: opencode-zen
-      model: minimax-m2.5-free
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-zen-minimax
       writeAuthority:
         workspace:
           mode: apply-approved

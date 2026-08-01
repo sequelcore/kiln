@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
+import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
 
 const benchmarkExecutorMocks = vi.hoisted(() => ({
@@ -12,6 +15,7 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   discoverGuiDirectProviderModelDiscovery: vi.fn(),
   discoverOpencodeCliModelDiscovery: vi.fn(),
   getProjectContextArtifactCache: vi.fn(),
+  isDirectApiProvider: vi.fn(() => false),
   loadBuiltinToolSurfaceOptions: vi.fn(),
   loadKilnConfig: vi.fn(),
   prepare: vi.fn(),
@@ -23,8 +27,11 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   resolveGlobalDefaultModel: vi.fn(),
   resolveManagedInvocationToolOptions: vi.fn(),
   resolveProviderRouteCandidates: vi.fn(),
+  resolveInstructionProfileContextCandidates: vi.fn(),
   runCleanup: vi.fn(),
   runSession: vi.fn(),
+  withGlobalIdentityContext: vi.fn(),
+  withWorkGovernanceContext: vi.fn(),
 }));
 
 vi.mock("@kilnai/core", async (importOriginal) => {
@@ -51,11 +58,11 @@ vi.mock("@kilnai/runtime", () => ({
 }));
 
 vi.mock("../../src/config/operator-identity-context.js", () => ({
-  withGlobalIdentityContext: vi.fn((config) => config),
+  withGlobalIdentityContext: benchmarkExecutorMocks.withGlobalIdentityContext,
 }));
 
 vi.mock("../../src/application/work-governance-context.js", () => ({
-  withWorkGovernanceContext: vi.fn((config) => config),
+  withWorkGovernanceContext: benchmarkExecutorMocks.withWorkGovernanceContext,
 }));
 
 vi.mock("../../src/application/agent-skill-context.js", () => ({
@@ -63,7 +70,7 @@ vi.mock("../../src/application/agent-skill-context.js", () => ({
 }));
 
 vi.mock("../../src/application/instruction-profile-context.js", () => ({
-  resolveInstructionProfileContextCandidates: vi.fn(() => []),
+  resolveInstructionProfileContextCandidates: benchmarkExecutorMocks.resolveInstructionProfileContextCandidates,
 }));
 
 vi.mock("../../src/config/global-config.js", () => ({
@@ -160,7 +167,7 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
 
 vi.mock("../../src/wrapper/session-registry.js", () => ({
   createDefaultRegistry: benchmarkExecutorMocks.createDefaultRegistry,
-  isDirectApiProvider: vi.fn(() => false),
+  isDirectApiProvider: benchmarkExecutorMocks.isDirectApiProvider,
 }));
 
 vi.mock("../../src/wrapper/index.js", () => ({
@@ -182,15 +189,22 @@ const MOCK_APP_CONFIG = {
   mcpServerName: "kiln",
 };
 
-function makeBenchmarkContext(item: { readonly id: string; readonly input: string }) {
+function makeBenchmarkContext(item: {
+  readonly id: string;
+  readonly input: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}, profile: {
+  readonly id?: string;
+  readonly authorityProfile?: string;
+} = {}) {
   return {
     profile: {
-      id: "kiln-tool-agent",
+      id: profile.id ?? "kiln-tool-agent",
       version: "1",
       displayName: "Kiln Tool Agent",
       surface: "tool-calling",
       purpose: "Tool calling.",
-      authorityProfile: "foundation-readonly-plan",
+      authorityProfile: profile.authorityProfile ?? "foundation-readonly-plan",
       requiredScorers: [],
       minimumPassAtK: 1,
       minimumK: 1,
@@ -207,6 +221,7 @@ function makeBenchmarkContext(item: { readonly id: string; readonly input: strin
 describe("createBenchmarkSessionExecutor", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    benchmarkExecutorMocks.isDirectApiProvider.mockImplementation(() => false);
     benchmarkExecutorMocks.cleanupWorktree.mockResolvedValue(undefined);
     benchmarkExecutorMocks.closeMemoryRepository.mockReturnValue(undefined);
     benchmarkExecutorMocks.createDefaultRegistry.mockReturnValue({
@@ -266,7 +281,10 @@ describe("createBenchmarkSessionExecutor", () => {
     benchmarkExecutorMocks.resolveGlobalDefaultModel.mockReturnValue("benchmark-model");
     benchmarkExecutorMocks.resolveManagedInvocationToolOptions.mockResolvedValue({});
     benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([]);
+    benchmarkExecutorMocks.resolveInstructionProfileContextCandidates.mockReturnValue([]);
     benchmarkExecutorMocks.runCleanup.mockResolvedValue(undefined);
+    benchmarkExecutorMocks.withGlobalIdentityContext.mockImplementation((config) => config);
+    benchmarkExecutorMocks.withWorkGovernanceContext.mockImplementation((config) => config);
     benchmarkExecutorMocks.runSession.mockImplementation(async (options: {
       readonly output?: {
         readonly mode: string;
@@ -389,6 +407,132 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("[tool] status"));
+  });
+
+  it("runs declared synthetic fixtures without loading project context from the repository root", async () => {
+    const repositoryRoot = resolveProjectRoot().rootPath;
+    const fixturePath = "packages/core/evals/fixtures/model-roster-v1";
+    const expectedWorkspace = join(repositoryRoot, ...fixturePath.split("/"));
+    const priorManagedResolutionCount = benchmarkExecutorMocks.resolveManagedInvocationToolOptions.mock.calls.length;
+    const priorIdentityContextCount = benchmarkExecutorMocks.withGlobalIdentityContext.mock.calls.length;
+    const priorGovernanceContextCount = benchmarkExecutorMocks.withWorkGovernanceContext.mock.calls.length;
+    const priorInstructionContextCount = benchmarkExecutorMocks.resolveInstructionProfileContextCandidates.mock.calls.length;
+    const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
+
+    const result = await executor("Inspect only the fixture.", makeBenchmarkContext({
+      id: "synthetic-fixture",
+      input: "Inspect only the fixture.",
+      metadata: { workspaceFixture: fixturePath },
+    }));
+
+    expect(benchmarkExecutorMocks.getProjectContextArtifactCache).toHaveBeenCalledWith(expectedWorkspace);
+    expect(benchmarkExecutorMocks.prepare).toHaveBeenCalledWith(
+      expect.stringContaining("Use paths relative to this workspace root"),
+      expectedWorkspace,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
+      sessionConfig: expect.objectContaining({
+        cwd: expectedWorkspace,
+        task: expect.stringContaining("Do not prepend the fixture declaration"),
+      }),
+    }));
+    expect(result.metadata).toMatchObject({
+      benchmarkWorkspaceKind: "synthetic-fixture",
+      workspaceFixture: fixturePath,
+      workspaceFixtureHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+    });
+    expect(benchmarkExecutorMocks.resolveManagedInvocationToolOptions).toHaveBeenCalledTimes(priorManagedResolutionCount);
+    expect(benchmarkExecutorMocks.withGlobalIdentityContext).toHaveBeenCalledTimes(priorIdentityContextCount);
+    expect(benchmarkExecutorMocks.withWorkGovernanceContext).toHaveBeenCalledTimes(priorGovernanceContextCount);
+    expect(benchmarkExecutorMocks.resolveInstructionProfileContextCandidates).toHaveBeenCalledTimes(priorInstructionContextCount);
+  });
+
+  it("runs write profiles only in a disposable strict direct-provider lease", async () => {
+    const fixturePath = "packages/core/evals/fixtures/model-roster-v1";
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
+      { provider: "opencode-go", model: "glm-5.2" },
+    ]);
+    benchmarkExecutorMocks.prepare.mockImplementationOnce(async (_task, cwd) => ({
+      systemPrompt: "system",
+      projectedContext: { blocks: [], estimatedTokens: 0 },
+      memorySnapshot: undefined,
+      mcpServerEntryPath: "mcp-server",
+      workingDirectory: cwd,
+      task: "Fix the fixture.",
+      domain: {
+        name: "generic",
+        displayName: "Generic",
+        detectPatterns: [],
+        toolTags: new Set(),
+        qualityGates: [],
+        multishotExamples: "",
+        phaseExamples: "",
+      },
+    }));
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation()!;
+    let leaseRoot = "";
+    benchmarkExecutorMocks.runSession.mockImplementationOnce(async (options) => {
+      leaseRoot = options.context.workingDirectory;
+      writeFileSync(join(leaseRoot, "README.md"), "changed inside disposable lease\n", "utf8");
+      return defaultRun(options);
+    });
+    const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
+
+    const result = await executor("Fix the fixture.", makeBenchmarkContext({
+      id: "backend-write",
+      input: "Fix the fixture.",
+      metadata: { workspaceFixture: fixturePath },
+    }, {
+      id: "kiln-model-roster-backend-write",
+      authorityProfile: "foundation-apply-approved-writes",
+    }));
+
+    expect(leaseRoot).toContain("kiln-benchmark-write-");
+    expect(existsSync(leaseRoot)).toBe(false);
+    expect(benchmarkExecutorMocks.createSessionBuiltinToolOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+      toolProjection: {
+        mode: "strict",
+        alwaysOnTools: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
+      },
+    }));
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
+      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      sessionConfig: expect.objectContaining({
+        cwd: leaseRoot,
+        requestedAuthority: "destructive",
+      }),
+      toolSandbox: expect.objectContaining({ policy: expect.anything() }),
+    }));
+    expect(result.metadata?.workspaceChanges).toMatchObject({
+      changed: [expect.objectContaining({ path: "README.md" })],
+      added: [],
+      deleted: [],
+    });
+  });
+
+  it("rejects native CLI routes for write profiles before execution", async () => {
+    const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
+    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
+      { provider: "opencode", model: "glm-5.2" },
+    ]);
+    const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
+
+    await expect(executor("Fix the fixture.", makeBenchmarkContext({
+      id: "backend-write-native",
+      input: "Fix the fixture.",
+      metadata: { workspaceFixture: "packages/core/evals/fixtures/model-roster-v1" },
+    }, {
+      id: "kiln-model-roster-backend-write",
+      authorityProfile: "foundation-apply-approved-writes",
+    }))).rejects.toThrow("require explicit Kiln-executable direct-provider routes");
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
 
   it("resolves supported reasoning effort and records the exact route evidence", async () => {

@@ -617,11 +617,36 @@ export interface ManagedAgentCoordinationUsageReport {
 }
 
 export interface ManagedAgentResultHandoff {
+  readonly provenance: ManagedAgentResultHandoffProvenance;
   readonly summary: string;
   readonly resourceUris: readonly string[];
   readonly memoryWriteProposalUris: readonly string[];
   readonly structuredResult?: StructuredExecutionResult;
   readonly verificationUsage?: VerificationUsageReport;
+}
+
+export type ManagedAgentResultHandoffDelivery =
+  | "native-structured-output"
+  | "assistant-text"
+  | "submission-tool"
+  | "remote-harness"
+  | "runtime-generated";
+
+export interface ManagedAgentResultHandoffHarnessProvenance {
+  readonly id: string;
+  /** Portable executable identity; absolute operator paths are forbidden. */
+  readonly executable: string;
+  readonly version: string;
+}
+
+export interface ManagedAgentResultHandoffProvenance {
+  readonly delivery: ManagedAgentResultHandoffDelivery;
+  readonly configuredModelId: string;
+  /** Exact provider-reported identity of the primary initialized model. */
+  readonly primaryObservedModelId?: string;
+  /** Every provider-reported model that served the run, including auxiliaries. */
+  readonly observedModelIds: readonly string[];
+  readonly harness?: ManagedAgentResultHandoffHarnessProvenance;
 }
 
 export function assertManagedAgentResultHandoffContract(
@@ -2334,6 +2359,7 @@ function requireSupportedUsageTokenClass(
 
 function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentResultHandoff {
   return {
+    provenance: requireResultHandoffProvenance(input.provenance),
     summary: requireText(input.summary, "Managed invocation result handoff summary is required"),
     resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed invocation result resource uri is required")),
     memoryWriteProposalUris: input.memoryWriteProposalUris.map((uri) => requireText(uri, "Managed invocation memory proposal uri is required")),
@@ -2344,6 +2370,60 @@ function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentRes
       ? { verificationUsage: defineVerificationUsageReport(input.verificationUsage) }
       : {}),
   };
+}
+
+function requireResultHandoffProvenance(
+  input: ManagedAgentResultHandoffProvenance | undefined,
+): ManagedAgentResultHandoffProvenance {
+  if (input === undefined) {
+    throw new Error("Managed invocation result handoff provenance is required");
+  }
+  const delivery = input.delivery;
+  if (
+    delivery !== "native-structured-output"
+    && delivery !== "assistant-text"
+    && delivery !== "submission-tool"
+    && delivery !== "remote-harness"
+    && delivery !== "runtime-generated"
+  ) {
+    throw new Error(`Unsupported managed invocation result handoff delivery: ${String(delivery)}`);
+  }
+  const harness = input.harness === undefined
+    ? undefined
+    : {
+        id: requireText(input.harness.id, "Managed invocation result handoff harness id is required"),
+        executable: requirePortableHarnessExecutable(input.harness.executable),
+        version: requireText(input.harness.version, "Managed invocation result handoff harness version is required"),
+      };
+  const observedModelIds = input.observedModelIds.map((modelId) =>
+    requireText(modelId, "Managed invocation result handoff observed model id is required"));
+  const primaryObservedModelId = input.primaryObservedModelId === undefined
+    ? undefined
+    : requireText(
+        input.primaryObservedModelId,
+        "Managed invocation result handoff primary observed model id is required",
+      );
+  if (primaryObservedModelId !== undefined && !observedModelIds.includes(primaryObservedModelId)) {
+    throw new Error("Managed invocation primary observed model id must be included in observed model ids");
+  }
+  return {
+    delivery,
+    configuredModelId: requireText(
+      input.configuredModelId,
+      "Managed invocation result handoff configured model id is required",
+    ),
+    ...(primaryObservedModelId !== undefined ? { primaryObservedModelId } : {}),
+    observedModelIds,
+    ...(harness ? { harness } : {}),
+  };
+}
+
+function requirePortableHarnessExecutable(value: string): string {
+  const executable = requireText(value, "Managed invocation result handoff harness executable is required");
+  if (/^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/u.test(executable)) {
+    throw new Error("Managed invocation result handoff harness executable must be a portable identity");
+  }
+  return executable;
 }
 
 function requireReplayResource(input: ManagedAgentReplayResource): ManagedAgentReplayResource {

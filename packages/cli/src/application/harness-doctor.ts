@@ -1,7 +1,10 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { posix, win32 } from "node:path";
-import { discoverGuiCliOperatorModels } from "@kilnai/runtime";
+import {
+  discoverClaudeCliModelDiscovery,
+  discoverGuiCliOperatorModels,
+} from "@kilnai/runtime";
 import type { KilnConfigStatusSnapshot, KilnProjectionTargetSnapshot, KilnSkillCatalogSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { readConfigStatusSnapshot } from "./config-status.js";
 
@@ -13,6 +16,8 @@ export interface HarnessDoctorProviderDiscovery {
 }
 
 export interface HarnessDoctorModelDiscovery {
+  readonly claudeModels: readonly string[];
+  readonly claudeDiscovery: HarnessDoctorProviderDiscovery;
   readonly codexModels: readonly string[];
   readonly codexDiscovery: HarnessDoctorProviderDiscovery;
   readonly opencodeModels: readonly string[];
@@ -20,7 +25,7 @@ export interface HarnessDoctorModelDiscovery {
 }
 
 export interface HarnessDoctorExecutableReport {
-  readonly harnessId: "kiln" | "codex" | "opencode";
+  readonly harnessId: "kiln" | "claude" | "codex" | "opencode";
   readonly status: "available" | "missing";
   readonly canonicalExecutable?: string;
   readonly pathExecutables: readonly string[];
@@ -31,7 +36,7 @@ export interface HarnessDoctorExecutableReport {
 }
 
 export interface HarnessDoctorHarnessReport extends HarnessDoctorExecutableReport {
-  readonly harnessId: "codex" | "opencode";
+  readonly harnessId: "claude" | "codex" | "opencode";
   readonly discoveryStatus: string;
   readonly discoveryReason: string;
   readonly authState: string;
@@ -47,6 +52,7 @@ export interface HarnessDoctorReport {
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly skills?: KilnSkillCatalogSnapshot;
   readonly harnesses: {
+    readonly claude: HarnessDoctorHarnessReport;
     readonly codex: HarnessDoctorHarnessReport;
     readonly opencode: HarnessDoctorHarnessReport;
   };
@@ -73,7 +79,7 @@ export interface HarnessDoctorOptions {
 }
 
 interface HarnessDefinition {
-  readonly harnessId: "kiln" | "codex" | "opencode";
+  readonly harnessId: "kiln" | "claude" | "codex" | "opencode";
   readonly commandNames: readonly string[];
   readonly preferredCandidates: (
     env: Readonly<Record<string, string | undefined>>,
@@ -92,6 +98,14 @@ const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = [
     commandNames: ["kiln.exe", "kiln.cmd", "kiln"],
     preferredCandidates: () => [],
     releaseWarning: "Global kiln may not include local source changes until a release installs a new build.",
+  },
+  {
+    harnessId: "claude",
+    commandNames: ["claude.exe", "claude.cmd", "claude"],
+    preferredCandidates: (env, platform) => {
+      const home = resolveHome(env);
+      return home ? [pathApi(platform).join(home, ".local", "bin", "claude.exe")] : [];
+    },
   },
   {
     harnessId: "codex",
@@ -130,10 +144,7 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
   const platform = options.platform ?? process.platform;
   const fileExists = options.fileExists ?? existsSync;
   const runVersion = options.runVersion ?? defaultRunVersion;
-  const modelDiscovery = await (options.discoverModels ?? (() => discoverGuiCliOperatorModels({
-    codex: true,
-    opencode: true,
-  })))();
+  const modelDiscovery = await (options.discoverModels ?? discoverHarnessDoctorModels)();
   const configDiagnostics = await readHarnessConfigDiagnostics(options);
   const configProjections = configDiagnostics.projections;
   const generatedAt = (options.now ?? (() => new Date()))().toISOString();
@@ -145,6 +156,14 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
     runVersion,
     platform,
     options.projectRoot,
+  );
+  const claude = await resolveHarnessReport(
+    definitionFor("claude"),
+    modelDiscovery.claudeDiscovery,
+    env,
+    fileExists,
+    runVersion,
+    platform,
   );
   const codex = await resolveHarnessReport(
     definitionFor("codex"),
@@ -172,6 +191,7 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
     permissionIntegrity: aggregateDoctorPermissionIntegrity(configProjections),
     ...(configDiagnostics.skills ? { skills: configDiagnostics.skills } : {}),
     harnesses: {
+      claude,
       codex,
       opencode,
     },
@@ -194,9 +214,22 @@ export function renderHarnessDoctorText(report: HarnessDoctorReport): string {
   appendConfigProjections(lines, report.configProjections);
   appendPermissionIntegrity(lines, report.permissionIntegrity);
   appendSkillCatalog(lines, report.skills);
+  appendHarness(lines, "Claude Code", report.harnesses.claude);
   appendHarness(lines, "Codex", report.harnesses.codex);
   appendHarness(lines, "OpenCode", report.harnesses.opencode);
   return `${lines.join("\n")}\n`;
+}
+
+async function discoverHarnessDoctorModels(): Promise<HarnessDoctorModelDiscovery> {
+  const [cliModels, claudeDiscovery] = await Promise.all([
+    discoverGuiCliOperatorModels({ codex: true, opencode: true }),
+    discoverClaudeCliModelDiscovery(),
+  ]);
+  return {
+    ...cliModels,
+    claudeModels: claudeDiscovery.models,
+    claudeDiscovery,
+  };
 }
 
 function appendSkillCatalog(
@@ -284,7 +317,7 @@ async function resolveHarnessReport(
   const executable = await resolveExecutableReport(definition, env, fileExists, runVersion, platform);
   return {
     ...executable,
-    harnessId: definition.harnessId as "codex" | "opencode",
+    harnessId: definition.harnessId as "claude" | "codex" | "opencode",
     discoveryStatus: discovery.status,
     discoveryReason: discovery.reason,
     authState: discovery.authState,

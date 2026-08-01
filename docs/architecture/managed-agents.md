@@ -407,20 +407,52 @@ capability proof.
 
 ### Claude Code read-only harness
 
-Claude Code has an implemented read-only adapter candidate for
-`foundation-readonly-plan`, but route admission remains fail-closed until the
-strict provider live proof completes with a native structured handoff. A route
+Claude Code has a live-proven read-only adapter for
+`foundation-readonly-plan`. Route admission remains fail-closed for every
+model until its strict provider live proof completes with a native structured handoff. A route
 must name an exact model and that exact catalog value
 must be present in the authenticated Agent SDK `Query.supportedModels()`
-catalog; unobserved aliases and defaults are not route proof. Kiln creates the child
+catalog; `default`, `sonnet`, `opus`, and `haiku` are moving aliases and are
+rejected for managed-route admission. Kiln creates the child
 in Claude `plan` mode, supplies the canonical
 `structured-execution-result-v1` JSON schema through the SDK `outputFormat`,
 and records its native `structured_output` separately from assistant prose.
+The terminal handoff durably records native-versus-prose delivery, configured
+model id, SDK-observed model ids, and a portable Claude Code executable/version
+identity. Production execution fails closed if the observed model differs from
+the admitted exact identity or the initialized Claude Code version differs from
+the executable version admitted during discovery. `kiln doctor` reports Claude
+Code discovery through the same executable resolver used for execution.
 Claude has no managed write-authority descriptor: a configuration requesting a
 write profile fails admission before a Claude process starts. This is native
 Claude Code entitlement routing, not an Anthropic API route or subscription
 pooling mechanism. Static discovery, a weak terminal result, or credential-file
 presence is not sufficient proof to enable the route.
+Enabling `engines.claude` also exposes Claude to non-managed engine selection
+surfaces; that operator-visible scope change requires explicit acknowledgement.
+Native harness provider consumption is reported as outside Kiln's managed
+economic ceiling.
+
+The 2026-08-01 operator activation uses Agent SDK `0.3.220` with the
+operator-resolved Claude Code `2.1.220`. Two bounded read-only attempts did not
+constitute provider proof because the live fixture omitted `input.handoff`, so
+Kiln correctly never supplied `outputFormat` and received assistant prose. A
+third attempt with the corrected fixture proved native structured output, plan
+mode, portable harness evidence, and a clean read-only fixture, but also showed
+that SDK `modelUsage` can include an auxiliary Haiku model alongside the
+configured model. Kiln now records the initialized primary model separately
+from the complete model-usage set and compares admission against that primary
+identity while retaining auxiliary usage as evidence. A final bounded probe
+proved that strengthened path with primary `claude-sonnet-5`. Separate
+authorized probes then proved the same contract for `claude-opus-5` and
+`claude-haiku-4-5-20251001`. These three exact identities are the admitted
+Claude read-only set. Moving aliases remain closed.
+
+`claude-fable-5` is not admitted. Kiln does not yet have a route-level
+`explicit-route-only` selection contract backed by runtime-owned operator
+approval evidence. Adding Fable with a convention or agent prompt would allow
+automatic selectors to consider it and would not enforce the intended
+exception-only boundary.
 
 The snapshot is intentionally normalized rather than provider-native. It records:
 
@@ -1039,7 +1071,7 @@ Current status:
 | --- | --- | --- |
 | OpenCode harness | Adapter and live evidence exist, but native managed-child admission is fail-closed because OpenCode permission rules do not prove a hard filesystem boundary. | OpenCode remains a supported parent/operator harness. Delegated child work uses authorized `opencode-go` or `opencode-zen` direct-provider routes through Kiln tool policy; no native OpenCode child model is admitted from catalog or result-handoff evidence alone. |
 | Codex harness | Live-proven for read-only no-accepted-write and approved bounded write. | Codex file-change and patch-approval output reduce to canonical write evidence. |
-| Claude Code family | Read-only adapter candidate implemented; strict provider live proof has not succeeded, so no Claude catalog value is admitted. | Kiln requires an authenticated SDK catalog match, native `plan` mode, and a validated `structured-execution-result-v1` handoff. Write authority is unsupported and fails before process launch. |
+| Claude Code family | Live-proven for exact `claude-opus-5`, `claude-sonnet-5`, and `claude-haiku-4-5-20251001` identities under `foundation-readonly-plan`: native structured handoff, exact primary identity, complete auxiliary usage, plan mode, portable executable/version evidence, no accepted writes, and no provider-session persistence. | Only these exact live-proven models are admitted. Moving aliases and every other Claude catalog value remain closed. Fable remains unconfigured until Kiln can enforce explicit-route-only operator selection. Write authority is unsupported and fails before process launch. |
 | Hermes Agent | Scouted as ACP-style future adapter candidate. | `delegate_task`, ACP permission, and terminal concepts are adapter inputs only. |
 | OpenClaw | Scouted as future harness or ACP adapter candidate. | Session, subagent, and tool-policy names are not Kiln contract fields. |
 | Direct subscription providers (`codex-oauth`, `opencode-go`, `opencode-zen`) | Runtime adapter supports explicit approved-write managed routes when the route declares `writeAuthority`. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, and `toolExecutions.fileChanges` reduced to canonical write evidence. |
@@ -1049,7 +1081,9 @@ Live tests are disabled by default. They require
 `KILN_LIVE_MANAGED_AGENT_TESTS=1` plus provider-specific flags such as
 `KILN_LIVE_OPENCODE_TESTS=1`, `KILN_LIVE_CODEX_TESTS=1`,
 `KILN_LIVE_OPENAI_DIRECT_TESTS=1`, or
-`KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS=1`. OpenCode write-denial and
+`KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS=1`. Claude proof additionally requires
+`KILN_LIVE_CLAUDE_TESTS=1` and an explicit non-moving
+`KILN_LIVE_CLAUDE_MODEL`; it never chooses a default model. OpenCode write-denial and
 approved-write proofs additionally require
 `KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS=1` and an explicit
 `KILN_LIVE_OPENCODE_MODEL` with proven native write behavior; the write-proof
@@ -1402,6 +1436,10 @@ proof. Live provider checks must never run as part of normal deterministic CI.
   conformance from task completion.
 - [Anthropic strict tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use)
   defines strict input validation and explicit tool choice for Claude routes.
+- [Claude Code model configuration](https://code.claude.com/docs/en/model-config)
+  distinguishes moving aliases from full model names.
+- [Claude model ids](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions)
+  defines concrete provider model identifiers and versioned aliases.
 - [MCP tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
   keeps asynchronous lifecycle state separate from result retrieval.
 - [Temporal workflow execution](https://docs.temporal.io/workflow-execution)

@@ -1031,7 +1031,8 @@ function isValidManagedJobResult(value: unknown, job: ManagedJobRecordV3 | Manag
 }
 function isSafeResultHandoff(value: unknown): value is ManagedAgentResultHandoff {
   return isRecord(value)
-    && hasOnly(value, ["summary", "resourceUris", "memoryWriteProposalUris"])
+    && hasOnly(value, ["provenance", "summary", "resourceUris", "memoryWriteProposalUris"])
+    && isSafeResultHandoffProvenance(value.provenance)
     && typeof value.summary === "string"
     && value.summary.trim().length > 0
     && value.summary.length <= MANAGED_JOB_INLINE_RESULT_LIMIT
@@ -1040,6 +1041,43 @@ function isSafeResultHandoff(value: unknown): value is ManagedAgentResultHandoff
     && value.resourceUris.length === 0
     && value.memoryWriteProposalUris.length === 0
     && redactManagedJobResultText(value.summary) === value.summary;
+}
+function isSafeResultHandoffProvenance(value: unknown): boolean {
+  if (!isRecord(value) || !hasOnly(value, ["delivery", "configuredModelId", "primaryObservedModelId", "observedModelIds", "harness"])) {
+    return false;
+  }
+  if (
+    value.delivery !== "native-structured-output"
+    && value.delivery !== "assistant-text"
+    && value.delivery !== "submission-tool"
+    && value.delivery !== "remote-harness"
+    && value.delivery !== "runtime-generated"
+  ) {
+    return false;
+  }
+  if (
+    typeof value.configuredModelId !== "string"
+    || value.configuredModelId.trim().length === 0
+    || (value.primaryObservedModelId !== undefined
+      && (typeof value.primaryObservedModelId !== "string"
+        || value.primaryObservedModelId.trim().length === 0))
+    || !Array.isArray(value.observedModelIds)
+    || !value.observedModelIds.every((modelId) => typeof modelId === "string" && modelId.trim().length > 0)
+    || (value.primaryObservedModelId !== undefined
+      && !value.observedModelIds.includes(value.primaryObservedModelId))
+  ) {
+    return false;
+  }
+  if (value.harness === undefined) return true;
+  return isRecord(value.harness)
+    && hasOnly(value.harness, ["id", "executable", "version"])
+    && typeof value.harness.id === "string"
+    && value.harness.id.trim().length > 0
+    && typeof value.harness.executable === "string"
+    && value.harness.executable.trim().length > 0
+    && !/^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/u.test(value.harness.executable)
+    && typeof value.harness.version === "string"
+    && value.harness.version.trim().length > 0;
 }
 const MANAGED_JOB_INLINE_RESULT_LIMIT = 2000;
 const MANAGED_JOB_TRUNCATION_NOTICE = "[TRUNCATED: safe inline result limit reached]";
@@ -1057,7 +1095,12 @@ function normalizeManagedJobResultHandoff(value: ManagedAgentResultHandoff, obje
   // diagnostic, write, and provider evidence. This slice has no separately
   // admitted safe result artifact, so omission plus explicit truncation is the
   // truthful representation rather than republishing one of those references.
-  return { summary, resourceUris: [], memoryWriteProposalUris: [] };
+  return {
+    provenance: value.provenance,
+    summary,
+    resourceUris: [],
+    memoryWriteProposalUris: [],
+  };
 }
 
 function redactManagedJobResultText(value: string, objective?: string): string {

@@ -41,6 +41,22 @@ describe("SandboxPolicy", () => {
     expect(policy.canWrite(outside)).toBe(false);
   });
 
+  it("does not treat a sibling path with the same prefix as inside the project", () => {
+    const policy = createPolicy("worker", PROJECT);
+
+    expect(policy.canRead(`${PROJECT}-escape/file.ts`)).toBe(false);
+    expect(policy.canWrite(`${PROJECT}-escape/file.ts`)).toBe(false);
+  });
+
+  it("does not apply a denied directory to a sibling with the same prefix", () => {
+    const policy = createPolicy("worker", PROJECT, {
+      deniedPaths: [join(PROJECT, "secret")],
+    });
+
+    expect(policy.canWrite(join(PROJECT, "secret", "key.txt"))).toBe(false);
+    expect(policy.canWrite(join(PROJECT, "secret-safe", "notes.txt"))).toBe(true);
+  });
+
   // 6. Worker: cannot write to denied path
   it("worker preset denies writing to denied paths", () => {
     const policy = createPolicy("worker", PROJECT);

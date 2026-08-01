@@ -51,6 +51,7 @@ export interface RunSessionOptions {
   readonly env: Record<string, string>;
   readonly sessionHooks: SessionHooks;
   readonly abortSignal?: AbortSignal;
+  readonly toolSandbox?: SessionRunOptions["toolSandbox"];
   readonly output?: RunOutputSink;
   readonly requestApproval?: SessionRunOptions["requestApproval"];
 }
@@ -171,6 +172,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         prompt: buildPreamble(governedContext, options.permissionPolicy, undefined),
         system: options.context.systemPrompt,
         cwd: options.context.workingDirectory,
+        toolSandbox: options.toolSandbox,
         env: options.env,
         abortSignal: options.abortSignal,
         reasoningEffort: candidateReasoningEffort,

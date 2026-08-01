@@ -122,6 +122,11 @@ function completedRecord(
       },
     },
     resultHandoff: {
+      provenance: {
+        delivery: "remote-harness",
+        configuredModelId: childRequest.providerRoute.model ?? "provider-default",
+        observedModelIds: [],
+      },
       summary: "Remote child completed.",
       resourceUris: ["kiln://managed-invocations/inv-remote-1/transcript"],
       memoryWriteProposalUris: [],

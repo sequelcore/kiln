@@ -803,11 +803,11 @@ function portableWorkspacePath(path: string, workspaceRoot: string): string {
 }
 
 function redactWorkspaceReferences(value: string, workspaceRoot: string): string {
-  const pattern = workspaceRootPattern(workspaceRoot);
+  const pattern = createWorkspaceRootReferencePattern(workspaceRoot);
   return pattern === undefined ? value : value.replace(pattern, ".");
 }
 
-function workspaceRootPattern(workspaceRoot: string): RegExp | undefined {
+export function createWorkspaceRootReferencePattern(workspaceRoot: string): RegExp | undefined {
   const dialect = absolutePathDialect(workspaceRoot);
   if (dialect === undefined) {
     return undefined;

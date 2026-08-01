@@ -588,6 +588,11 @@ function createAdapter(input: {
         authority: request.authority,
         capabilitySnapshot: admission.capabilitySnapshot,
         resultHandoff: {
+          provenance: {
+            delivery: "runtime-generated",
+            configuredModelId: request.providerRoute.model ?? "test-model",
+            observedModelIds: [],
+          },
           summary: `Worker ${ordinal} completed`,
           resourceUris: [handoffUri],
           memoryWriteProposalUris: [],

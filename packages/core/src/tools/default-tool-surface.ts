@@ -162,7 +162,7 @@ export interface DefaultMemoryMutationServiceFactoryOptions {
 }
 
 export interface DefaultBuiltinToolProjectionOptions {
-  readonly mode?: "all" | "deferred";
+  readonly mode?: "all" | "deferred" | "strict";
   readonly alwaysOnTools?: readonly string[];
 }
 
@@ -401,7 +401,11 @@ export function createDefaultBuiltinToolSurface(
     artifactResources: { store: artifactStore },
     resourceRegistry: () => resources,
   };
-  const registry = createDefaultBuiltinToolRegistry(surfaceOptions);
+  const canonicalRegistry = createDefaultBuiltinToolRegistry(surfaceOptions);
+  const tools = projectTools(canonicalRegistry.list(), options.toolProjection);
+  const registry = options.toolProjection?.mode === "strict"
+    ? createRegistryFromTools(tools)
+    : canonicalRegistry;
   const catalog = ToolCatalogIndex.fromTools(registry.list());
   const resourceProviders = [
     ...(options.workspaceResources ? [new WorkspaceResourceProvider(options.workspaceResources)] : []),
@@ -422,8 +426,6 @@ export function createDefaultBuiltinToolSurface(
     providers: resourceProviders,
   });
   resources = resourceRegistry;
-  const tools = projectTools(registry.list(), options.toolProjection);
-
   return {
     tools,
     toolNames: tools.map((tool) => tool.name),
@@ -504,6 +506,14 @@ function createRegistryView(registry: DevToolRegistry): DefaultBuiltinToolRegist
   };
 }
 
+function createRegistryFromTools(tools: readonly DevTool[]): DevToolRegistry {
+  const registry = new DevToolRegistry();
+  for (const tool of tools) {
+    registry.register(tool);
+  }
+  return registry;
+}
+
 function resolveResourceNotificationHub(
   options: ToolResourceNotificationHub | ToolResourceNotificationHubOptions | undefined,
 ): ToolResourceNotificationHub {
@@ -552,8 +562,13 @@ function projectTools(
   tools: readonly DevTool[],
   projection: DefaultBuiltinToolProjectionOptions | undefined,
 ): readonly DevTool[] {
-  if (projection?.mode !== "deferred") {
+  if (!projection || projection.mode === undefined || projection.mode === "all") {
     return tools;
+  }
+
+  if (projection.mode === "strict") {
+    const requested = new Set(projection.alwaysOnTools ?? []);
+    return tools.filter((tool) => requested.has(tool.name));
   }
 
   const requested = new Set<string>([

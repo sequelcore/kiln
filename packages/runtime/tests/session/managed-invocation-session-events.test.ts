@@ -35,6 +35,12 @@ function makeSession(sessionId = "session-parent"): RuntimeSession {
   });
 }
 
+const TEST_HANDOFF_PROVENANCE = {
+  delivery: "runtime-generated",
+  configuredModelId: "test-model",
+  observedModelIds: [],
+} as const;
+
 function makeRequest(sessionId = "session-parent", turnId = `${sessionId}:turn:1`): ManagedAgentInvocationRequest {
   return defineManagedAgentInvocationRequest({
     invocationId: "invocation-1",
@@ -294,6 +300,7 @@ function makeRecord(lifecycleState: ManagedAgentInvocationRecord["lifecycleState
       cost: { currency: "unknown", amount: "unknown" },
     },
     resultHandoff: {
+      provenance: TEST_HANDOFF_PROVENANCE,
       summary: lifecycleState === "cancelled" ? "Operator cancelled managed invocation." : "Inspection completed.",
       resourceUris: ["kiln://artifacts/invocation-1/result"],
       memoryWriteProposalUris: ["kiln://memory/write-proposals/1"],
@@ -323,6 +330,7 @@ function makeWriteRecord(request = makeWriteRequest()): ManagedAgentInvocationRe
       retention: "session",
     },
     resultHandoff: {
+      provenance: TEST_HANDOFF_PROVENANCE,
       summary: "Write proposal returned.",
       resourceUris: ["kiln://artifacts/invocation-write-1/result"],
       memoryWriteProposalUris: ["kiln://memory/write-proposals/write-proposal-1"],
@@ -580,6 +588,7 @@ describe("appendManagedInvocationSessionEvents", () => {
         cost: { currency: "unknown", amount: "unknown" },
       },
       resultHandoff: {
+        provenance: TEST_HANDOFF_PROVENANCE,
         summary: "Inspection completed.",
         resourceUris: ["kiln://artifacts/invocation-1/result"],
         memoryWriteProposalUris: ["kiln://memory/write-proposals/1"],

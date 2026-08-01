@@ -264,6 +264,11 @@ function cancelledRecord(
     },
     usage: unknownRemoteUsage(),
     resultHandoff: {
+      provenance: {
+        delivery: "runtime-generated",
+        configuredModelId: request.providerRoute.model ?? "provider-default",
+        observedModelIds: [],
+      },
       summary: reason,
       resourceUris: [managedInvocationUri(request.invocationId, "transcript")],
       memoryWriteProposalUris: [],
