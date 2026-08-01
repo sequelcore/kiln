@@ -97,6 +97,24 @@ function appendConstraintMetadataToSystemPrompt(
   return sections.filter((section) => section.trim().length > 0).join("\n\n");
 }
 
+const CLAUDE_RESULT_ERROR_CODE = "claude_result_error";
+
+/** Declared SDK failure subtypes, so an operator reads a cause instead of an absent handoff. */
+const CLAUDE_RESULT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  error_max_structured_output_retries:
+    "Claude Code exhausted its structured-output retries without producing a schema-valid result.",
+  error_max_turns: "Claude Code reached its maximum turn limit before completing the request.",
+  error_max_budget_usd: "Claude Code reached its configured maximum budget before completing the request.",
+  error_during_execution: "Claude Code failed during execution.",
+};
+
+function claudeResultErrorMessage(subtype: string | undefined, errors: readonly string[] | undefined): string {
+  const reported = (errors ?? []).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  if (reported.length > 0) return reported.join("; ");
+  return (subtype ? CLAUDE_RESULT_ERROR_MESSAGES[subtype] : undefined)
+    ?? "Claude Code returned an error result without a declared cause.";
+}
+
 interface MutableCapabilities {
   supportedTools: readonly string[];
 }
@@ -263,8 +281,10 @@ export class ClaudeSession implements IKilnSession {
 
         if (message.type === "result") {
           const resultMsg = message as {
+            subtype?: string;
             total_cost_usd?: number;
             is_error?: boolean;
+            errors?: readonly string[];
             usage?: {
               input_tokens?: number;
               output_tokens?: number;
@@ -275,6 +295,20 @@ export class ClaudeSession implements IKilnSession {
           totalCostUsd = resultMsg.total_cost_usd ?? 0;
           if (this.config.structuredOutputSchema !== undefined && resultMsg.structured_output !== undefined) {
             yield { type: "structured_output", value: resultMsg.structured_output };
+          }
+          // The SDK carries structured_output only on a success result, and reports why a
+          // run ended through its error subtype.  Without this the managed harness sees an
+          // absent handoff and cannot distinguish schema-retry exhaustion from silence.
+          // A cancelled run keeps its cancellation terminal state and is not reclassified.
+          if (resultMsg.is_error === true && options.abortSignal?.aborted !== true) {
+            yield {
+              type: "error",
+              code: resultMsg.subtype ?? CLAUDE_RESULT_ERROR_CODE,
+              message: claudeResultErrorMessage(resultMsg.subtype, resultMsg.errors),
+              // Every declared subtype is bound exhaustion or an unclassified failure;
+              // replaying the identical request reproduces it.  Fail closed.
+              isRetryable: false,
+            };
           }
           yield {
             type: "cost_update",

@@ -169,4 +169,70 @@ describe("ClaudeSession implements IKilnSession", () => {
     expect(events.findIndex((event) => event.type === "structured_output"))
       .toBeLessThan(events.findIndex((event) => event.type === "completed"));
   });
+
+  it("surfaces the SDK failure subtype so schema-retry exhaustion is not a silent absence", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield {
+        type: "result",
+        subtype: "error_max_structured_output_retries",
+        total_cost_usd: 0.01,
+        is_error: true,
+        errors: ["structured output did not satisfy the schema"],
+      };
+    })());
+
+    const session = new ClaudeSession(baseConfig({ structuredOutputSchema: { type: "object" } }));
+    const events = await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    const error = events.find((event) => event.type === "error");
+    expect(error).toEqual({
+      type: "error",
+      code: "error_max_structured_output_retries",
+      message: "structured output did not satisfy the schema",
+      isRetryable: false,
+    });
+    expect(events.findIndex((event) => event.type === "error"))
+      .toBeLessThan(events.findIndex((event) => event.type === "completed"));
+  });
+
+  it("reports a failed result without an errors array using its subtype", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", subtype: "error_max_turns", total_cost_usd: 0, is_error: true };
+    })());
+
+    const session = new ClaudeSession(baseConfig());
+    const events = await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    const error = events.find((event) => event.type === "error");
+    expect(error).toMatchObject({ type: "error", code: "error_max_turns", isRetryable: false });
+    expect((error as { message: string }).message.length).toBeGreaterThan(0);
+  });
+
+  it("emits no error event for a successful result", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
+    })());
+
+    const session = new ClaudeSession(baseConfig());
+    const events = await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+  });
+
+  it("keeps a cancelled run cancelled instead of reclassifying it as a provider failure", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", subtype: "error_during_execution", total_cost_usd: 0, is_error: true };
+    })());
+
+    const controller = new AbortController();
+    controller.abort();
+    const session = new ClaudeSession(baseConfig());
+    const events = await collectEvents(
+      session.run({ prompt: "test prompt", cwd: process.cwd(), abortSignal: controller.signal }),
+    );
+
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+    expect(events.find((event) => event.type === "completed"))
+      .toMatchObject({ outcome: "cancelled" });
+  });
 });
