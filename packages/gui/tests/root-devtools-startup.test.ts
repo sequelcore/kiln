@@ -6,7 +6,7 @@ describe("GUI root startup graph", () => {
   it("keeps router devtools out of the initial dev module graph", () => {
     const source = readFileSync(resolve(import.meta.dirname, "../src/routes/__root.tsx"), "utf8");
 
-    expect(source).not.toContain('from "@tanstack/router-devtools"');
-    expect(source).toContain('import("@tanstack/router-devtools")');
+    expect(source).not.toContain('from "@tanstack/react-router-devtools"');
+    expect(source).toContain('import("@tanstack/react-router-devtools")');
   });
 });

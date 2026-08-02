@@ -16,6 +16,10 @@ describe("GUI Vite startup config", () => {
 
     expect(source).toContain("chunkSizeWarningLimit: 560");
     expect(source).not.toContain("chunkSizeWarningLimit: 1000");
+    expect(source).toContain("rolldownOptions");
+    expect(source).toContain("codeSplitting");
+    expect(source).not.toContain("rollupOptions");
+    expect(source).not.toContain("manualChunks");
     expect(source).toContain('"vendor-kiln-contracts"');
     expect(source).toContain('"vendor-query"');
     expect(source).toContain('"vendor-react-ui"');

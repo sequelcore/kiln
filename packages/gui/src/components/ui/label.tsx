@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils"
 
 function Label({ className, ...props }: ComponentProps<"label">) {
   return (
-    // eslint-disable-next-line jsx-a11y/label-has-associated-control -- Reusable label wrapper; call sites provide htmlFor or children.
     <label
       data-slot="label"
       className={cn(

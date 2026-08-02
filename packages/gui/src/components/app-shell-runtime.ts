@@ -5,6 +5,7 @@ const OPERATOR_TERMINAL_HEIGHT_KEY_PREFIX = "kiln.gui.operatorTerminalHeight";
 export const DEFAULT_OPERATOR_TERMINAL_HEIGHT = 280;
 export const MIN_OPERATOR_TERMINAL_HEIGHT = 160;
 export const MAX_OPERATOR_TERMINAL_HEIGHT = 720;
+export const OPERATOR_TERMINAL_PANEL_ID = "operator-terminal-panel";
 const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
 const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 

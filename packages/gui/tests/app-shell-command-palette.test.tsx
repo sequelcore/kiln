@@ -121,7 +121,6 @@ vi.mock("../src/components/app-shell-frame-handler.js", () => ({
 }));
 
 vi.mock("../src/components/operator-terminal-dock.js", () => ({
-  OPERATOR_TERMINAL_PANEL_ID: "operator-terminal-panel",
   OperatorTerminalDock: ({ expanded }: { expanded: boolean }) => (
     <section
       id="operator-terminal-panel"

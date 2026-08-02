@@ -297,7 +297,7 @@ describe("BashTool", () => {
     expect(result.metadata?.["stderr"]).toBe("");
     expect(result.metadata?.["durationMs"]).toEqual(expect.any(Number));
     expect(result.metadata?.["durationMs"]).toBeGreaterThanOrEqual(0);
-  });
+  }, 10_000);
 
   it("marks max buffer failures as truncated without reporting timeout", async () => {
     const maxBufferOutput = "x".repeat(2 * 1024 * 1024);

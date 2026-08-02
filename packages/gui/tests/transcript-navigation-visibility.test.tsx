@@ -20,7 +20,7 @@ vi.mock("../src/components/ui/message-scroller.js", () => ({
     </div>
   ),
   MessageScrollerProvider: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  MessageScrollerViewport: ({ children }: { children: ReactNode }) => <div aria-label="Transcript">{children}</div>,
+  MessageScrollerViewport: ({ children }: { children: ReactNode }) => <div aria-label="Transcript" role="region">{children}</div>,
   useMessageScroller: () => ({ scrollToMessage: vi.fn() }),
   useMessageScrollerVisibility: () => visibilityState,
 }));

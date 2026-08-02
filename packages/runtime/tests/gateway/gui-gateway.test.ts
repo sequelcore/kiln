@@ -8025,6 +8025,21 @@ describe("resolveGuiProviderSwitch", () => {
         type: "session_event",
         event: expect.objectContaining({ eventId: "goal-event-1", kind: "goal.updated" }),
       }));
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "goal_control",
+            requestId: "goal-control-invalid",
+            goalRunId: "goal-1",
+            action: "restart",
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(control).toHaveBeenCalledTimes(1);
+      expect(mockWs.send).not.toHaveBeenCalledWith(expect.stringContaining('"action":"restart"'));
     } finally {
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });

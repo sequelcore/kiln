@@ -57,7 +57,7 @@ export function ContextMeter(props: { readonly usage?: ContextUsageProjection | 
           {percentage === undefined ? (
             <Gauge className="size-3.5" />
           ) : (
-            <svg viewBox="0 0 20 20" className="size-4 -rotate-90">
+            <svg viewBox="0 0 20 20" className="size-4 -rotate-90" aria-hidden="true">
               <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2" />
               <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="50" strokeDashoffset={dashOffset} />
             </svg>

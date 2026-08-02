@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -33,9 +35,8 @@ import { deriveChangedFiles, derivePendingApprovals, deriveWorkItems } from "../
 import { deriveSessionContinuity } from "../lib/session-continuity.js";
 import { buildComposerContinuityHint } from "../lib/session-continuity-view.js";
 import type { OperatorSurfaceKind } from "./operator-surface-tabs.js";
-import { CommandPalette, type CommandPaletteItem } from "./command-palette.js";
+import type { CommandPaletteItem } from "./command-palette.js";
 import { ErrorBanner } from "./error-banner.js";
-import { ProviderPicker } from "./provider-picker.js";
 import { ProviderStatus } from "./provider-status.js";
 import { WorkbenchSurfaces } from "./workbench-surfaces.js";
 import { useWorkspaceDocuments } from "./use-workspace-documents.js";
@@ -59,6 +60,7 @@ import {
   readSidebarCollapsedPreference,
   resolveGatewayHttpBaseUrl,
   toWsUrl,
+  OPERATOR_TERMINAL_PANEL_ID,
 } from "./app-shell-runtime.js";
 import {
   AppGatewayTargetSelector,
@@ -84,7 +86,19 @@ import {
 } from "./workbench-navigation.js";
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, projectConversationTimelineEntries } from "../lib/timeline-visibility.js";
-import { OperatorTerminalDock, OPERATOR_TERMINAL_PANEL_ID } from "./operator-terminal-dock.js";
+
+const CommandPalette = lazy(async () => {
+  const module = await import("./command-palette.js");
+  return { default: module.CommandPalette };
+});
+const ProviderPicker = lazy(async () => {
+  const module = await import("./provider-picker.js");
+  return { default: module.ProviderPicker };
+});
+const OperatorTerminalDock = lazy(async () => {
+  const module = await import("./operator-terminal-dock.js");
+  return { default: module.OperatorTerminalDock };
+});
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
@@ -585,8 +599,7 @@ function useAppShellRuntimeView() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  // Effect Events intentionally stay outside effect dependency arrays.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Effect Events intentionally stay outside effect dependency arrays.
   }, [isNarrow, isPaletteOpen]);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
@@ -1032,25 +1045,27 @@ function useAppShellRuntimeView() {
         </div>
       ) : null}
 
-      <CommandPalette
-        open={isPaletteOpen}
-        title={paletteMode === "theme" ? "Theme Commands" : "Command Palette"}
-        placeholder={paletteMode === "theme" ? "Filter themes…" : "Filter commands…"}
-        query={paletteQuery}
-        commands={paletteCommands}
-        canGoBack={paletteMode === "theme"}
-        onQueryChange={setPaletteQuery}
-        onExecute={executePaletteCommand}
-        onOpenChange={(open) => {
-          if (!open) {
-            closePalette();
-          }
-        }}
-        onBack={() => {
-          setPaletteMode("root");
-          setPaletteQuery("");
-        }}
-      />
+      <Suspense fallback={null}>
+        <CommandPalette
+          open={isPaletteOpen}
+          title={paletteMode === "theme" ? "Theme Commands" : "Command Palette"}
+          placeholder={paletteMode === "theme" ? "Filter themes…" : "Filter commands…"}
+          query={paletteQuery}
+          commands={paletteCommands}
+          canGoBack={paletteMode === "theme"}
+          onQueryChange={setPaletteQuery}
+          onExecute={executePaletteCommand}
+          onOpenChange={(open) => {
+            if (!open) {
+              closePalette();
+            }
+          }}
+          onBack={() => {
+            setPaletteMode("root");
+            setPaletteQuery("");
+          }}
+        />
+      </Suspense>
 
       <WorkbenchBody>
         {!isNarrow ? (
@@ -1315,15 +1330,19 @@ function useAppShellRuntimeView() {
             }}
           />
           </div>
-          <OperatorTerminalDock
-            available={operatorTerminalAvailable}
-            expanded={operatorTerminalExpanded}
-            layout={isNarrow ? "surface" : "drawer"}
-            workspaceScope={workingDirectory ?? window.location.origin}
-            onExpandedChange={setOperatorTerminalExpanded}
-            send={send}
-            subscribe={subscribeOperatorTerminal}
-          />
+          {operatorTerminalAvailable ? (
+            <Suspense fallback={null}>
+              <OperatorTerminalDock
+                available
+                expanded={operatorTerminalExpanded}
+                layout={isNarrow ? "surface" : "drawer"}
+                workspaceScope={workingDirectory ?? window.location.origin}
+                onExpandedChange={setOperatorTerminalExpanded}
+                send={send}
+                subscribe={subscribeOperatorTerminal}
+              />
+            </Suspense>
+          ) : null}
         </WorkbenchMain>
         {!isNarrow && inspectorOpen ? (
           <InspectorRail>
@@ -1347,21 +1366,25 @@ function useAppShellRuntimeView() {
         {mobileDrawerMode === "sessions" ? sessionsPanel : inspector}
       </MobileWorkbenchDrawer>
 
-      <ProviderPicker
-        open={isProviderPickerOpen}
-        providers={providers}
-        providerModelDiscovery={providerModelDiscovery}
-        activeProvider={activeProvider}
-        activeModel={activeModel}
-        onSwitchProvider={providerPickerActions.onSwitchProvider}
-        onRefreshProviders={providerPickerActions.onRefreshProviders}
-        onAuthenticateProvider={providerPickerActions.onAuthenticateProvider}
-        providerAuthenticating={providerAuthenticating}
-        providerAuthProvider={providerAuthProvider}
-        providerAuthMessage={providerAuthMessage}
-        providerAuthDetails={providerAuthDetails}
-        onOpenChange={(open) => setIsProviderPickerOpen(open)}
-      />
+      {isProviderPickerOpen ? (
+        <Suspense fallback={null}>
+          <ProviderPicker
+            open
+            providers={providers}
+            providerModelDiscovery={providerModelDiscovery}
+            activeProvider={activeProvider}
+            activeModel={activeModel}
+            onSwitchProvider={providerPickerActions.onSwitchProvider}
+            onRefreshProviders={providerPickerActions.onRefreshProviders}
+            onAuthenticateProvider={providerPickerActions.onAuthenticateProvider}
+            providerAuthenticating={providerAuthenticating}
+            providerAuthProvider={providerAuthProvider}
+            providerAuthMessage={providerAuthMessage}
+            providerAuthDetails={providerAuthDetails}
+            onOpenChange={(open) => setIsProviderPickerOpen(open)}
+          />
+        </Suspense>
+      ) : null}
     </WorkbenchChrome>
   );
 }

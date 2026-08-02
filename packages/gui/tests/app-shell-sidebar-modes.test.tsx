@@ -504,7 +504,7 @@ describe("AppShell sidebar modes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
-    expect(screen.getByTestId("activity-log-panel")).toHaveTextContent("Activity: 2");
+    expect(await screen.findByTestId("activity-log-panel")).toHaveTextContent("Activity: 2");
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
@@ -551,7 +551,7 @@ describe("AppShell sidebar modes", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open work item work-shell-resource resource" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open work item work-shell-resource resource" }));
 
     await waitFor(() => {
       expect(loadResourceDataUrlMock).toHaveBeenCalledWith("kiln://session/work-items/work-shell-resource");
@@ -607,7 +607,7 @@ describe("AppShell sidebar modes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
 
-    expect(screen.getByLabelText("Managed agents")).toHaveTextContent("child-gui");
+    expect(await screen.findByLabelText("Managed agents")).toHaveTextContent("child-gui");
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
@@ -646,7 +646,7 @@ describe("AppShell sidebar modes", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel managed child child-gui" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel managed child child-gui" }));
 
     expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "managed_agent_control",
@@ -789,7 +789,7 @@ describe("AppShell sidebar modes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Setup" }));
 
-    expect(screen.getByRole("region", { name: "Setup" })).toHaveTextContent("Setup");
+    expect(await screen.findByRole("region", { name: "Setup" })).toHaveTextContent("Setup");
     expect(screen.getByRole("region", { name: "Required Setup Actions" })).toHaveTextContent(
       "No setup actions are required.",
     );

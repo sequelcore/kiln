@@ -116,7 +116,7 @@ function ManagedAgentResources(props: {
     return <p className="text-xs text-muted-foreground">No transcript or evidence resources attached.</p>;
   }
   return (
-    <div className="mt-3 flex flex-wrap gap-2" aria-label="Managed child resources">
+    <div className="mt-3 flex flex-wrap gap-2" aria-label="Managed child resources" role="group">
       {resources.map((resource) => (
         <Button
           key={resource.uri}

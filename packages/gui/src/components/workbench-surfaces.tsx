@@ -1,15 +1,36 @@
 import { lazy, Suspense, type ComponentProps } from "react";
-import { ActivityLogPanel } from "./activity-log-panel.js";
 import { ChatWorkbench } from "./chat-workbench.js";
 import { Composer } from "./composer.js";
-import { ManagedAgentCockpitPanel } from "./managed-agent-cockpit-panel.js";
-import { OperatorSurfaceTabs } from "./operator-surface-tabs.js";
-import { SetupPanel } from "./setup-panel.js";
-import { Transcript } from "./transcript.js";
-import { WorkItemsPanel } from "./work-items-panel.js";
-import { WorkflowOverviewPanel } from "./workflow-overview-panel.js";
 import type { WorkbenchSurface } from "./workbench-navigation.js";
 
+const ActivityLogPanel = lazy(async () => {
+  const module = await import("./activity-log-panel.js");
+  return { default: module.ActivityLogPanel };
+});
+const ManagedAgentCockpitPanel = lazy(async () => {
+  const module = await import("./managed-agent-cockpit-panel.js");
+  return { default: module.ManagedAgentCockpitPanel };
+});
+const OperatorSurfaceTabs = lazy(async () => {
+  const module = await import("./operator-surface-tabs.js");
+  return { default: module.OperatorSurfaceTabs };
+});
+const Transcript = lazy(async () => {
+  const module = await import("./transcript.js");
+  return { default: module.Transcript };
+});
+const SetupPanel = lazy(async () => {
+  const module = await import("./setup-panel.js");
+  return { default: module.SetupPanel };
+});
+const WorkItemsPanel = lazy(async () => {
+  const module = await import("./work-items-panel.js");
+  return { default: module.WorkItemsPanel };
+});
+const WorkflowOverviewPanel = lazy(async () => {
+  const module = await import("./workflow-overview-panel.js");
+  return { default: module.WorkflowOverviewPanel };
+});
 const MemoryLatticePanel = lazy(async () => {
   const module = await import("./memory-lattice/memory-lattice-panel.js");
   return { default: module.MemoryLatticePanel };
@@ -57,21 +78,31 @@ function MemoryLatticeFallback() {
   );
 }
 
+function OperatorSurfaceFallback(props: { readonly label: string }) {
+  return (
+    <section aria-label={props.label} className="grid min-h-0 flex-1 place-items-center bg-workspace-viewer" role="status">
+      <p className="text-sm text-muted-foreground">Preparing operator surface.</p>
+    </section>
+  );
+}
+
 export function WorkbenchSurfaces(props: WorkbenchSurfacesProps) {
   if (props.activeSurface === "chat") {
     return (
       <ChatWorkbench
         {...props.chatWorkbench}
         surfaces={(
-          <OperatorSurfaceTabs
-            {...props.operatorSurfaceTabs}
-            chatContent={<Transcript {...props.transcript} />}
-            memoryContent={(
-              <Suspense fallback={<MemoryLatticeFallback />}>
-                <MemoryLatticeSurface {...props.memory} />
-              </Suspense>
-            )}
-          />
+          <Suspense fallback={<OperatorSurfaceFallback label="Loading conversation" />}>
+            <OperatorSurfaceTabs
+              {...props.operatorSurfaceTabs}
+              chatContent={<Transcript {...props.transcript} />}
+              memoryContent={(
+                <Suspense fallback={<MemoryLatticeFallback />}>
+                  <MemoryLatticeSurface {...props.memory} />
+                </Suspense>
+              )}
+            />
+          </Suspense>
         )}
         composer={<Composer {...props.composer} />}
       />
@@ -80,30 +111,36 @@ export function WorkbenchSurfaces(props: WorkbenchSurfacesProps) {
 
   if (props.activeSurface === "work") {
     return (
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(16rem,0.9fr)_minmax(18rem,1.1fr)] overflow-hidden bg-workspace-viewer lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] lg:grid-rows-1">
-        <div className="min-h-0 overflow-hidden border-b border-border/70 lg:border-b-0 lg:border-r">
-          <WorkflowOverviewPanel {...props.workflowOverview} />
+      <Suspense fallback={<OperatorSurfaceFallback label="Loading work surface" />}>
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(16rem,0.9fr)_minmax(18rem,1.1fr)] overflow-hidden bg-workspace-viewer lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] lg:grid-rows-1">
+          <div className="min-h-0 overflow-hidden border-b border-border/70 lg:border-b-0 lg:border-r">
+            <WorkflowOverviewPanel {...props.workflowOverview} />
+          </div>
+          <div className="min-h-0 overflow-hidden">
+            <WorkItemsPanel {...props.workItems} />
+          </div>
         </div>
-        <div className="min-h-0 overflow-hidden">
-          <WorkItemsPanel {...props.workItems} />
-        </div>
-      </div>
+      </Suspense>
     );
   }
 
   if (props.activeSurface === "agents") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
-        <ManagedAgentCockpitPanel {...props.managedAgents} />
-      </div>
+      <Suspense fallback={<OperatorSurfaceFallback label="Loading managed agents" />}>
+        <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
+          <ManagedAgentCockpitPanel {...props.managedAgents} />
+        </div>
+      </Suspense>
     );
   }
 
   if (props.activeSurface === "activity") {
     return (
-      <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
-        <ActivityLogPanel {...props.activityLog} />
-      </div>
+      <Suspense fallback={<OperatorSurfaceFallback label="Loading activity" />}>
+        <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
+          <ActivityLogPanel {...props.activityLog} />
+        </div>
+      </Suspense>
     );
   }
 
@@ -119,8 +156,10 @@ export function WorkbenchSurfaces(props: WorkbenchSurfacesProps) {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
-      <SetupPanel {...props.setup} />
-    </div>
+    <Suspense fallback={<OperatorSurfaceFallback label="Loading setup" />}>
+      <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
+        <SetupPanel {...props.setup} />
+      </div>
+    </Suspense>
   );
 }

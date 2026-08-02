@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 
 const TanStackRouterDevtools = lazy(async () => {
-  const module = await import("@tanstack/router-devtools");
+  const module = await import("@tanstack/react-router-devtools");
   return { default: module.TanStackRouterDevtools };
 });
 

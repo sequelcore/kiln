@@ -105,8 +105,8 @@ export function CommandMenuSurface(props: CommandMenuSurfaceProps) {
   };
 
   return (
-    <div role="presentation" onKeyDown={onSurfaceKeyDown}>
-      <Command shouldFilter={false}>
+    <div role="presentation">
+      <Command shouldFilter={false} onKeyDown={onSurfaceKeyDown}>
         <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{props.title}</p>
           <div className="flex items-center gap-2">

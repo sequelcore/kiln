@@ -317,7 +317,7 @@ function SetupStatusIcon(props: { readonly issueCount: number; readonly loading:
 
 function SetupLoading() {
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-5 py-7 sm:px-8 sm:py-9" aria-label="Loading setup status">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-5 py-7 sm:px-8 sm:py-9" aria-label="Loading setup status" role="status">
       <Skeleton className="h-28 rounded-md" />
       <Skeleton className="h-40 rounded-md" />
       <Skeleton className="h-52 rounded-md" />

@@ -43,7 +43,8 @@
     "@kilnai/gateway-contracts": "3.0.0-beta.1"
   },
   "devDependencies": {
+    "@types/bun": "^1.3.9",
     "jsdom": "^25.0.0",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }

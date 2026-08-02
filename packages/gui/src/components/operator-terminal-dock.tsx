@@ -12,13 +12,12 @@ import { useAppliedOperatorThemeSignature } from "@/lib/use-operator-theme";
 import {
   MAX_OPERATOR_TERMINAL_HEIGHT,
   MIN_OPERATOR_TERMINAL_HEIGHT,
+  OPERATOR_TERMINAL_PANEL_ID,
   persistOperatorTerminalHeightPreference,
   readOperatorTerminalHeightPreference,
 } from "./app-shell-runtime.js";
 
 type TerminalFrame = Extract<GuiInboundFrame, { type: `operator_terminal_${string}` }>;
-
-export const OPERATOR_TERMINAL_PANEL_ID = "operator-terminal-panel";
 
 interface OperatorTerminalDockProps {
   readonly available: boolean;
@@ -295,9 +294,6 @@ export function OperatorTerminalDock(props: OperatorTerminalDockProps) {
       style={expanded && drawer ? { height: `${height}px` } : undefined}
     >
       {drawer ? (
-        // A focusable ARIA separator is the standard interactive splitter pattern;
-        // jsx-a11y classifies every separator as non-interactive.
-        /* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
         <div
           role="separator"
           aria-label="Resize terminal"
@@ -313,7 +309,6 @@ export function OperatorTerminalDock(props: OperatorTerminalDockProps) {
           onPointerCancel={handleResizePointerEnd}
           onKeyDown={handleResizeKeyDown}
         />
-        /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
       ) : null}
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3">
         <SquareTerminal className="size-4 text-primary" aria-hidden="true" />

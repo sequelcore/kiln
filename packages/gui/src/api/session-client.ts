@@ -1,4 +1,4 @@
-import { type GuiOutboundFrame, type GuiInboundFrame, type GuiSessionConnectionState } from "@kilnai/gateway-contracts";
+import type { GuiOutboundFrame, GuiInboundFrame, GuiSessionConnectionState } from "@kilnai/gateway-contracts";
 
 export type { GuiInboundFrame, GuiOutboundFrame, GuiSessionConnectionState };
 

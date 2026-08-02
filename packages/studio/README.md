@@ -15,8 +15,8 @@ Development UI for [Kiln](https://github.com/sequelcore/kiln). Private package -
 
 ## Stack
 
-- React 19 + TypeScript 5.6+
-- Vite 7+ (dev server and build)
+- React 19 + TypeScript 7+
+- Vite 8+ (dev server and build)
 - TanStack Query (server state)
 - `@xyflow/react` (graph visualization)
 - `@kilnai/react` (hooks for gateway communication)

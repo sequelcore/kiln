@@ -816,7 +816,7 @@ function BrowserCaptureGallery(props: {
     let cancelled = false;
     const loadingCaptureUris = loadingCaptureUrisRef.current;
     for (const uri of loadableCaptureUris) {
-      if (Object.prototype.hasOwnProperty.call(previewDataUrls, uri)) continue;
+      if (Object.hasOwn(previewDataUrls, uri)) continue;
       if (loadingCaptureUris.has(uri)) continue;
       loadingCaptureUris.add(uri);
       loadResourceDataUrl(uri)
@@ -830,7 +830,7 @@ function BrowserCaptureGallery(props: {
         .catch(() => {
           if (cancelled) return;
           setPreviewDataUrls((current) => (
-            Object.prototype.hasOwnProperty.call(current, uri) ? current : { ...current, [uri]: null }
+            Object.hasOwn(current, uri) ? current : { ...current, [uri]: null }
           ));
         })
         .finally(() => {
@@ -1822,7 +1822,7 @@ function renderTranscriptEntries(
     }
     if (item.kind === "event") {
       const entry = entriesById.get(item.entryId);
-      if (!entry || entry.type !== "event") return null;
+      if (entry?.type !== "event") return null;
       let row: ReactNode;
       if (entry.eventKind === "approval_requested") {
         row = <ApprovalEventRow entry={entry} onApprove={onApprove} onDeny={onDeny} />;
@@ -1838,7 +1838,7 @@ function renderTranscriptEntries(
       );
     }
     const entry = entriesById.get(item.entryId);
-    if (!entry || entry.type !== "message") return null;
+    if (entry?.type !== "message") return null;
     return (
       <MessageScrollerItem
         key={entry.id}

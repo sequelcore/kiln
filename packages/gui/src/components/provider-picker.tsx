@@ -421,7 +421,7 @@ export function ProviderPicker(props: ProviderPickerProps) {
         return;
       }
       const active = document.activeElement;
-      const currentIndex = focusable.findIndex((element) => element === active);
+      const currentIndex = active instanceof HTMLElement ? focusable.indexOf(active) : -1;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (!first || !last) {

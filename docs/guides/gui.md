@@ -605,10 +605,9 @@ Current measured dev-mode optimizations:
 
 - `@tanstack/router-devtools` is lazy-loaded from the root route so devtools do
   not compete with first usable GUI interaction.
-- `@kilnai/gateway-contracts` is included in Vite `optimizeDeps` because warm
-  profiling showed many linked-workspace `/@fs/` contract modules on the
-  initial resource path. The targeted pre-bundle collapses that graph into a
-  single optimized dependency request.
+- `@kilnai/gateway-contracts` is excluded from Vite `optimizeDeps` so the dev
+  server resolves the linked workspace package directly instead of serving a
+  stale pre-bundled contract after a workspace rebuild.
 - Production builds keep Vite's 560 kB chunk warning gate active. Large,
   stable dependency families are split by ownership in `packages/gui/vite.config.ts`:
   React/router/UI runtime, query runtime, shared Kiln contracts, validators,

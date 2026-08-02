@@ -955,7 +955,7 @@ export class GuiWsClient {
 
     // Exponential backoff: 1s → 2s → 4s → ... → 30s, with ±20% jitter
     const baseDelay = Math.min(
-      RECONNECT_MIN_MS * Math.pow(2, this.backoffAttempts),
+      RECONNECT_MIN_MS * 2 ** this.backoffAttempts,
       RECONNECT_MAX_MS
     );
 

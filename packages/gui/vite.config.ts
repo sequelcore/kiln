@@ -1,6 +1,4 @@
-/// <reference types="vitest" />
-
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
@@ -11,13 +9,13 @@ const resolvedGatewayPort = Number.isFinite(gatewayPort) && gatewayPort > 0 ? ga
 const guiPort = Number.parseInt(process.env.GUI_DEV_PORT ?? "5183", 10);
 const resolvedGuiPort = Number.isFinite(guiPort) && guiPort > 0 ? guiPort : 5183;
 
-function guiManualChunks(id: string): string | undefined {
+function guiChunkName(id: string): string | null {
   const normalized = id.replace(/\\/g, "/");
   if (normalized.includes("/packages/gateway-contracts/dist/")) {
     return "vendor-kiln-contracts";
   }
   if (!normalized.includes("/node_modules/")) {
-    return undefined;
+    return null;
   }
   if (
     normalized.includes("/react/")
@@ -94,7 +92,7 @@ function guiManualChunks(id: string): string | undefined {
   ) {
     return "vendor-markdown";
   }
-  return undefined;
+  return null;
 }
 
 export default defineConfig({
@@ -143,14 +141,17 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 560,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: guiManualChunks,
+        codeSplitting: {
+          groups: [
+            {
+              name: guiChunkName,
+              priority: 10,
+            },
+          ],
+        },
       },
     },
-  },
-  test: {
-    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
-    exclude: ["**/tests/parity/**", "**/node_modules/**", "**/dist/**"],
   },
 });

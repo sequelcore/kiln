@@ -309,7 +309,7 @@ export function MemoryLatticeSurface(props: Omit<MemoryLatticePanelProps, "filte
 
 function MemoryLatticeLoading() {
   return (
-    <div aria-label="Loading Memory Lattice" className="flex flex-col gap-2">
+    <div aria-label="Loading Memory Lattice" className="flex flex-col gap-2" role="status">
       <Skeleton className="h-32" />
       <Skeleton className="h-10" />
       <Skeleton className="h-10" />

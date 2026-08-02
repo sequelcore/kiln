@@ -113,6 +113,7 @@ function SessionStateIndicator({ state }: { readonly state: SessionIndicator }) 
     <span
       data-slot="session-status"
       aria-label={label}
+      role="status"
       title={label}
       className={cn("grid size-4 shrink-0 place-items-center [&_svg]:size-3.5", className)}
     >

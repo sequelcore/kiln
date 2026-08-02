@@ -429,7 +429,8 @@ export function MemoryGraphScene(props: MemoryGraphSceneProps) {
       <canvas
         ref={canvasRef}
         className="relative h-full w-full touch-none"
-        aria-hidden="true"
+        aria-label="Memory graph visualization"
+        role="img"
       />
       <div className="absolute right-3 top-3 flex items-center gap-2">
         <Button

@@ -392,6 +392,10 @@ function isManagedAgentControlAction(value: unknown): value is GuiManagedAgentCo
   return value === "cancel" || value === "join" || value === "prompt";
 }
 
+function isGoalControlAction(value: unknown): value is GuiGoalControlAction {
+  return value === "pause" || value === "resume" || value === "update_objective" || value === "cancel";
+}
+
 function findManagedInvocationTerminalSessionEvents(
   events: readonly CanonicalSessionEvent[],
   invocationId: string,
@@ -1216,6 +1220,9 @@ function wireOperatorTransport(
               const requestId = typeof frame.requestId === "string" ? frame.requestId.trim() : "";
               const goalRunId = typeof frame.goalRunId === "string" ? frame.goalRunId.trim() : "";
               const action = frame.action;
+              if (!isGoalControlAction(action)) {
+                return;
+              }
               const respond = (status: "accepted" | "failed", reason?: string): void => {
                 ws.send(JSON.stringify({
                   type: "goal_control_result",

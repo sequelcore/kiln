@@ -103,6 +103,7 @@ function WorkspaceTreeRow(props: {
           className={cn("justify-self-end rounded border border-current/30 px-1 font-mono text-[10px] leading-4", vcsTextClass(props.entry.vcs))}
           title={vcsTitle(props.entry.vcs)}
           aria-label={`Git ${vcsTitle(props.entry.vcs)}`}
+          role="status"
         >
           {vcsLabel(props.entry.vcs)}
         </span>
@@ -189,7 +190,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
       <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)]">
         <div className="border-b border-border/60 px-3 py-2.5">
           {workspaceRoot ? (
-            <div aria-label="Workspace root" className="flex min-w-0 flex-col gap-1.5">
+            <div aria-label="Workspace root" className="flex min-w-0 flex-col gap-1.5" role="group">
               <div className="flex min-w-0 items-center gap-2">
                 <p className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">Root</p>
                 <p className="min-w-0 truncate font-mono text-[12px] leading-5 text-foreground" title={normalizePath(workspaceRoot)}>
@@ -213,7 +214,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
         <section aria-label="Workspace tree" className="min-h-0 min-w-0 overflow-y-auto">
           {rootSnapshot ? (
             <div className="min-w-0 px-2 py-2">
-              <div aria-label="Workspace files" className="flex flex-col gap-0.5">{renderEntries(rootSnapshot)}</div>
+              <div aria-label="Workspace files" className="flex flex-col gap-0.5" role="group">{renderEntries(rootSnapshot)}</div>
               {loadingPath ? <p className="px-3 py-2 text-xs text-muted-foreground">Loading {normalizePath(loadingPath)}...</p> : null}
               {treeError ? <p className="px-3 py-2 text-xs text-destructive">{treeError}</p> : null}
               {rootSnapshot.truncated ? <p className="px-3 py-2 text-xs text-muted-foreground">Showing first {rootSnapshot.entries.length} entries.</p> : null}

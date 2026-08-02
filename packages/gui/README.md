@@ -21,7 +21,7 @@ only needed when working on the GUI source in this repository.
 bun run dev          # Vite dev server on http://localhost:5183
 bun run build        # Production bundle → dist/
 bun run typecheck    # TypeScript check
-bun run lint         # ESLint
+bun run lint         # Biome
 bun run test         # Vitest unit/component tests (single run)
 ```
 

@@ -75,7 +75,6 @@ export class GuiGatewayClient {
         return payload;
       } catch (error) {
         failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
-        continue;
       }
     }
 
@@ -102,7 +101,6 @@ export class GuiGatewayClient {
           this.resolvedBaseUrl = candidateBaseUrl;
           return;
         } catch {
-          continue;
         }
       }
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -255,7 +253,6 @@ export class GuiGatewayClient {
         this.resolvedBaseUrl = candidateBaseUrl;
         return payload;
       } catch {
-        continue;
       }
     }
 
@@ -293,7 +290,6 @@ export class GuiGatewayClient {
         this.resolvedBaseUrl = candidateBaseUrl;
         return;
       } catch {
-        continue;
       }
     }
   }
@@ -388,7 +384,6 @@ export class GuiGatewayClient {
         this.resolvedBaseUrl = candidateBaseUrl;
         return payload;
       } catch {
-        continue;
       }
     }
     return null;

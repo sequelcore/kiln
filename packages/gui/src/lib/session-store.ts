@@ -1516,7 +1516,7 @@ function interactiveSnapshotFromPersistedToolEvent(
   status: Record<string, unknown> | null,
 ): GuiInteractiveUseSnapshot | null {
   const metadata = isObjectRecord(payload.metadata) ? payload.metadata : null;
-  if (!metadata || metadata.kind !== "interactive") {
+  if (metadata?.kind !== "interactive") {
     return null;
   }
   const target = readInteractiveTarget(metadata.target);
@@ -1550,7 +1550,7 @@ function interactiveSnapshotFromPersistedToolEvent(
 function browserSessionStateFromSnapshot(
   snapshot: GuiInteractiveUseSnapshot | null,
 ): GuiBrowserSessionState | null {
-  if (!snapshot || snapshot.target !== "browser") {
+  if (snapshot?.target !== "browser") {
     return null;
   }
   return {
@@ -3491,7 +3491,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return false;
     }
     const target = state.messages.find((message) => message.id === messageId);
-    if (!target || target.role !== "assistant" || !target.sourceMessageId || target.voiceSynthesisStatus === "pending") {
+    if (target?.role !== "assistant" || !target.sourceMessageId || target.voiceSynthesisStatus === "pending") {
       return false;
     }
 

@@ -23,7 +23,7 @@ runtime services directly.
 The accepted stack is:
 
 - React 19 and TypeScript
-- Vite 7
+- Vite 8
 - TanStack Router with committed generated route tree
 - TanStack Query for gateway server state
 - Zustand for local UI state
