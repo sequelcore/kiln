@@ -7,7 +7,7 @@ on:
     branches: [main, codex/cross-harness-gateway]
 
 jobs:
-  check:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -24,8 +24,34 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test
-        run: bun run test
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [scripts, foundation, runtime, cli, surfaces]
+    name: Test (${{ matrix.lane }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run test:${{ matrix.lane }}
+
+  startup-profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - run: bun install --frozen-lockfile
 
       - name: Install Chromium for startup profile
         run: bunx playwright install --with-deps chromium
@@ -33,5 +59,27 @@ jobs:
       - name: Test GUI startup profile
         run: bun run test:startup-profile
 
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - run: bun install --frozen-lockfile
+
       - name: Build
         run: bun run build
+
+  check:
+    if: ${{ always() }}
+    needs: [validate, test, startup-profile, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every CI lane
+        if: ${{ needs.validate.result != 'success' || needs.test.result != 'success' || needs.startup-profile.result != 'success' || needs.build.result != 'success' }}
+        run: exit 1
+
+      - run: echo "All CI lanes passed."

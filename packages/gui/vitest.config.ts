@@ -15,5 +15,6 @@ export default defineConfig({
     globals: true,
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     exclude: ["node_modules", "dist", "e2e/**", "tests/parity/**"],
+    maxWorkers: "50%",
   },
 });

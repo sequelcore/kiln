@@ -5,19 +5,15 @@ projectName: kiln
 packageManager: bun
 scripts:
   build: bun run --filter '*' build
-  test: bun run --filter @kilnai/gateway-contracts test && bun run --filter
-    @kilnai/core test && bun run --filter @kilnai/runtime test && bun run
-    --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run
-    --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run
-    --filter @kilnai/native test && bun run --filter @kilnai/studio test && bun
-    run --filter @kilnai/gui test
+  test: bun run test
   test:e2e: bun run --cwd packages/gui test:e2e
-  test:managed-agents:live: vitest run packages/runtime/tests/managed-agent/*.live.test.ts --maxWorkers=1
-  typecheck: tsc -b packages/gateway-contracts packages/core packages/runtime
-    packages/sdk packages/cli packages/tui packages/native && tsc -p
+  test:benchmark-verifiers:live: bun run --cwd packages/cli test:live
+  test:managed-agents:live: bun run scripts/run-managed-agent-live-tests.ts
+  typecheck: tsc -b packages/gateway-contracts packages/tools packages/core
+    packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p
     packages/widget/tsconfig.json --noEmit && tsc -p
     packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json
-    --noEmit
+    --noEmit && tsc -p scripts/tsconfig.json --noEmit
 workspacePackages:
   - packages/*
 canonicalDocs:

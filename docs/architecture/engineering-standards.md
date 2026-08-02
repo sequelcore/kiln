@@ -151,10 +151,19 @@ discarding it is preferred over carrying readers that exist only to parse it.
   that still reproduces the failure.
 - Shared surface behavior needs at least one non-primary surface test so parity
   is protected.
+- Classify tests by resource ownership. Isolated tests may use bounded file
+  parallelism. Tests that mutate process state, exercise real subprocesses, or
+  share filesystem, port, database, or repository resources must run in an
+  explicit sequential lane or integration project after isolated tests complete.
+- Keep package worker limits proportional to available CPUs and validate them
+  with repeated full-suite measurements. Do not disable isolation or increase
+  timeouts to conceal shared state, leaked resources, or accidental integration
+  work in unit tests.
 - CLI package tests must be deterministic and diagnosable in the canonical
-  workspace command. Keep `@kilnai/cli` Vitest runs single-worker, emit a
-  progress reporter under workspace filters, and bound test, hook, and teardown
-  stalls at the package config boundary.
+  workspace command. Keep the CLI suite single-worker while its process-global
+  and subprocess-heavy tests cannot pass repeated parallel runs. Emit a progress
+  reporter under workspace filters and bound test, hook, and teardown stalls at
+  the package config boundary.
 - CLI tests must stay hermetic by default. Do not depend on live credentials,
   installed native harnesses, operator-local state, broad skips, or sleep-based
   stabilization unless the test is explicitly marked live and excluded from

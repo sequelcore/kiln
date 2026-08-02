@@ -7,15 +7,18 @@ type PackageJson = {
 };
 
 describe("CLI test harness", () => {
-  it("keeps the default package test command bounded and low-noise", () => {
+  it("keeps the default package test command low-noise", () => {
     const packageJson = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     ) as PackageJson;
 
-    expect(packageJson.scripts?.test).toContain("--maxWorkers=1");
     expect(packageJson.scripts?.test).toContain("--reporter=dot");
     expect(packageJson.scripts?.test).toContain("--silent=passed-only");
     expect(packageJson.scripts?.test).not.toContain("--reporter=verbose");
+  });
+
+  it("uses one isolated worker for process-global CLI tests", () => {
+    expect(vitestConfig.test?.maxWorkers).toBe(1);
   });
 
   it("keeps verbose CLI test diagnostics explicit", () => {

@@ -21,10 +21,10 @@
   "scripts": {
     "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --maxWorkers=1 --exclude \"tests/**/*.live.test.ts\" --reporter=dot --silent=passed-only",
-    "test:verbose": "vitest run --maxWorkers=1 --exclude \"tests/**/*.live.test.ts\" --reporter=verbose",
-    "test:profile": "vitest run --maxWorkers=1 --exclude \"tests/**/*.live.test.ts\" --reporter=json --outputFile=../../.kiln/cli-vitest-profile.json",
-    "test:live": "vitest run --dir tests/application .live.test --maxWorkers=1"
+    "test": "vitest run --reporter=dot --silent=passed-only",
+    "test:verbose": "vitest run --reporter=verbose",
+    "test:profile": "vitest run --reporter=json --outputFile=../../.kiln/cli-vitest-profile.json",
+    "test:live": "vitest run --config vitest.live.config.ts"
   },
   "license": "Apache-2.0",
   "engines": {

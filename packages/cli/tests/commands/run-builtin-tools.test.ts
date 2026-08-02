@@ -301,6 +301,49 @@ vi.mock("../../src/config/env-config.js", () => ({
   resolveEnvProvider: vi.fn(() => undefined),
 }));
 
+vi.mock("../../src/application/project-root-resolver.js", () => ({
+  resolveProjectRoot: vi.fn(() => ({ rootPath: REPO_ROOT, source: "cwd" })),
+}));
+
+vi.mock("../../src/kiln-yaml.js", () => ({
+  readKilnYaml: vi.fn(() => ({ version: "1", skillGeneration: { enabled: false } })),
+}));
+
+vi.mock("../../src/config/config-merger.js", () => ({
+  loadKilnConfig: vi.fn().mockResolvedValue(undefined),
+  loadResolvedKilnMcpConfiguration: vi.fn(() => ({ diagnostics: [], servers: {} })),
+}));
+
+vi.mock("../../src/application/agent-skill-context.js", () => ({
+  resolveAgentSkillContextCandidates: vi.fn(() => []),
+  withContextCandidates: vi.fn((appConfig: unknown) => appConfig),
+}));
+
+vi.mock("../../src/application/instruction-profile-context.js", () => ({
+  resolveInstructionProfileContextCandidates: vi.fn(() => []),
+}));
+
+vi.mock("../../src/application/work-governance-context.js", () => ({
+  withWorkGovernanceContext: vi.fn((appConfig: unknown) => appConfig),
+}));
+
+vi.mock("../../src/config/operator-identity-context.js", () => ({
+  withGlobalIdentityContext: vi.fn((appConfig: unknown) => appConfig),
+}));
+
+vi.mock("../../src/config/interactive-use-config.js", () => ({
+  loadConfiguredInteractiveUseToolSurfaceOptions: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("../../src/config/managed-agent-provider-models.js", () => ({
+  discoverManagedAgentProviderModels: vi.fn().mockResolvedValue(new Map()),
+}));
+
+vi.mock("../../src/config/managed-agent-routes.js", () => ({
+  closeManagedAccountRuntimeComposition: vi.fn().mockResolvedValue(undefined),
+  resolveManagedInvocationToolOptions: vi.fn().mockResolvedValue({ routeHealth: [] }),
+}));
+
 vi.mock("../../src/wrapper/session-store.js", () => ({
   TranscriptStore: class {
     async init(...args: unknown[]) {
