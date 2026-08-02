@@ -189,6 +189,16 @@ describe("AnthropicAdapter", () => {
       ]);
     });
 
+    it("serializes an explicit no-tool finalization choice without tool definitions", async () => {
+      mockCreate.mockResolvedValueOnce(makeMessageResponse());
+
+      await adapter.createMessage(makeOptions({ toolChoice: { type: "none" } }));
+
+      const params = mockCreate.mock.calls[0]![0];
+      expect(params.tools).toBeUndefined();
+      expect(params.tool_choice).toEqual({ type: "none" });
+    });
+
     it("projects strict tool contracts only when the tool explicitly requires them", async () => {
       mockCreate.mockResolvedValueOnce(makeMessageResponse());
 

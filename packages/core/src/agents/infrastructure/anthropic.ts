@@ -156,7 +156,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       }));
     }
 
-    if (options.toolChoice && params.tools) {
+    if (options.toolChoice) {
       if (options.toolChoice.type === "tool") {
         params.tool_choice = { type: "tool", name: options.toolChoice.name };
       } else {

@@ -411,6 +411,9 @@ success. `tool_round_budget_exhausted` records a paused canonical turn so an
 operator can continue from the transcript and tool evidence. Failed finalization
 (`no_tool_finalization_failed`) and required managed state transitions
 (`managed_invocation_state_transition_required`) remain failed outcomes.
+The finalization request carries an explicit provider-level no-tool choice even
+when the tool definition list is empty; a provider that still returns tool calls
+fails closed and those calls are never executed.
 Direct-provider children that exhaust their bounded envelope still terminate as
 `failed` because they cannot produce a successful governed handoff; their
 transcript, tool execution, and write evidence remain replayable.

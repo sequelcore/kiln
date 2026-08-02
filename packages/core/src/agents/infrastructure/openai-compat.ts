@@ -429,25 +429,25 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
           ...(tool.strict === true ? { strict: true as const } : {}),
         },
       }));
+    }
 
-      if (options.toolChoice) {
-        switch (options.toolChoice.type) {
-          case "auto":
-            body.tool_choice = "auto";
-            break;
-          case "any":
-            body.tool_choice = "required";
-            break;
-          case "none":
-            body.tool_choice = "none";
-            break;
-          case "tool":
-            body.tool_choice = {
-              type: "function",
-              function: { name: toolNames.toProviderName(options.toolChoice.name) },
-            };
-            break;
-        }
+    if (options.toolChoice) {
+      switch (options.toolChoice.type) {
+        case "auto":
+          body.tool_choice = "auto";
+          break;
+        case "any":
+          body.tool_choice = "required";
+          break;
+        case "none":
+          body.tool_choice = "none";
+          break;
+        case "tool":
+          body.tool_choice = {
+            type: "function",
+            function: { name: toolNames.toProviderName(options.toolChoice.name) },
+          };
+          break;
       }
     }
 

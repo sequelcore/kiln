@@ -202,6 +202,17 @@ describe("OpenAIAdapter", () => {
     }]);
   });
 
+  it("serializes an explicit no-tool finalization choice without tool definitions", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await adapter.createMessage(makeOptions({ tools: undefined, toolChoice: { type: "none" } }));
+
+    const body = JSON.parse(mockFetch.mock.calls[0]![1].body);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBe("none");
+  });
+
   it("uses deterministic distinct provider names when canonical names normalize to the same value", async () => {
     const mockFetch = mockFetchResponse(makeOpenAIResponse());
     vi.stubGlobal("fetch", mockFetch);

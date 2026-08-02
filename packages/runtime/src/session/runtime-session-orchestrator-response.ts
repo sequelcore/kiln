@@ -142,6 +142,7 @@ export async function requestRuntimeSessionFallbackResponse(
     system: effectivePrompt.finalPrompt,
     messages,
     maxTokens,
+    toolChoice: { type: "none" },
   });
 
   return {

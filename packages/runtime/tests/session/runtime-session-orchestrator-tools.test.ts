@@ -4185,10 +4185,12 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       const result = await orchestrator.processMessage(makeSession(), textParts("write file"));
       const finalCall = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[2]?.[0] as {
         readonly tools?: readonly ToolDefinition[];
+        readonly toolChoice?: { readonly type: string };
       };
 
       expect(provider.createMessage).toHaveBeenCalledTimes(3);
       expect(finalCall.tools).toBeUndefined();
+      expect(finalCall.toolChoice).toEqual({ type: "none" });
       expect(toolFn).not.toHaveBeenCalled();
       expect(result.stopReason).toBe("no_tool_finalization_failed");
       expect(result.parts).toEqual(textParts(
