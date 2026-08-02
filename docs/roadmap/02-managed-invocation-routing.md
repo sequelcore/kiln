@@ -1,7 +1,7 @@
 # 02 - Managed Invocation Routing
 
 Status: Active delivery track
-Execution: Slices 1, 2, 3, and 4 complete; Slice 5 queued.
+Execution: Slices 1, 2, 3, and 4 complete; Slice 5 queued; Slice 6 research deferred behind Slice 5.
 Created: 2026-07-23
 
 > **Managed-job execution is unavailable in shipped builds.** Every managed-job
@@ -36,6 +36,7 @@ Harness adapters only submit and project canonical state.
 - Per-job leases, concurrency, reservations, affinity, and explicit rebind policy.
 - Lifecycle/result/replay evidence including selection reason.
 - Cost/quota-class route explanation after lease correctness is proven.
+- Provider-neutral approval evidence for structured or headless managed writes.
 - Deterministic and bounded live verification.
 
 ## Non-Goals
@@ -44,6 +45,8 @@ Harness adapters only submit and project canonical state.
 - No quota evasion, subscription rotation, or retry across accounts after provider commitment.
 - No harness-local job store or route policy.
 - No Model Gateway service lifecycle or native picker projection.
+- No `--yes`, environment-variable, prompt-text, or output-mode path that
+  converts a non-interactive write into implicit approval.
 
 ## Ordered Slices
 
@@ -172,6 +175,39 @@ jobs target the same configured accounts. Replace the ingress
 with the same stable-capacity, settlement-conservative, fenced semantics,
 without importing gateway process recovery into managed invocation.
 
+### Slice 6 - Governed Structured Write Approval
+
+Status: Research deferred behind Slice 5. Implementation requires an explicit
+operator priority decision.
+
+Define one provider-neutral approval-evidence contract for approved managed
+writes initiated through structured or headless surfaces. Interactive
+`kiln run` already handles `approval_requested`; non-interactive and
+`--output json` execution must continue failing closed until this slice is
+promoted. Output format, requested authority, pairing, possession of a session
+token, and parent-model text are not approval evidence.
+
+The research slice must specify:
+
+- an authenticated approver identity and immutable approval identifier;
+- exact binding to the work item or invocation, route, authority profile,
+  workspace scope, proposed effect, and relevant config/evidence revisions;
+- issuance, expiry, revocation, one-time consumption, replay rejection, and
+  mismatch semantics;
+- a secret-free durable record and resource URI that CLI, GUI, TUI, SDK, MCP,
+  replay, and managed-job projections consume without creating surface-local
+  approval owners; and
+- pre-effect atomic validation, terminal evidence, cleanup, rollback, and
+  recovery behavior when approval becomes stale or execution settlement is
+  unknown.
+
+Admission requires synthetic portable fixtures followed by one explicitly
+authorized bounded live write against a disposable repository fixture. The
+proof must show that matching evidence permits exactly one scoped write, while
+missing, expired, revoked, broadened, replayed, or cross-route evidence denies
+before provider effect. Remote pairing from Roadmap 08 may authenticate the
+approver session, but never grants write approval by itself.
+
 ## Promotion Gates
 
 - Managed economic jobs use the one Runtime SQLite commitment writer; no
@@ -180,6 +216,11 @@ without importing gateway process recovery into managed invocation.
   selection and releases proven pre-fence interim work correctly.
 - Missing or stale usage is `unknown`, never fabricated.
 - No provider commitment triggers hidden account retry.
+- Structured or headless writes remain fail-closed unless Runtime consumes one
+  current, exact, single-use approval record before provider effect.
+- Interactive and structured surfaces project the same canonical approval
+  lifecycle; no CLI-, SDK-, MCP-, GUI-, TUI-, or harness-local approval owner
+  exists.
 - Focused tests, workspace typecheck, package builds, and teardown are reliable.
 
 ## Verification
@@ -187,11 +228,16 @@ without importing gateway process recovery into managed invocation.
 Focused Core/Runtime/CLI tests, injected-clock integration tests, clean
 output-tree typecheck/build, full affected-package tests, `git diff --check`,
 and independent review. The authorized bounded live probe remains Slice 3 and
-is not evidence for Slice 2.
+is not evidence for Slice 2. Slice 6 additionally requires replay, expiry,
+revocation, scope-broadening, cross-route, crash-recovery, and exactly-once
+approval-consumption tests before its bounded disposable-repository live proof.
 
 ## Completion Criteria
 
 Managed jobs have deterministic, explainable, replayable economic route and
 account-backed or accountless commitment with conservative recovery and no
-harness-specific policy owner. Provider dispatch remains issue #34 internal
-Slice 5; Model Gateway authority convergence remains Roadmap 02 Slice 5.
+harness-specific policy owner. Structured/headless approved writes remain
+unavailable until Slice 6 supplies canonical approval evidence; fail-closed
+structured output is the required interim behavior. Provider dispatch remains
+issue #34 internal Slice 5; Model Gateway authority convergence remains Roadmap
+02 Slice 5.

@@ -40,7 +40,8 @@ roadmap reorganization.
 
 ## Dependency Rules
 
-- `02` owns managed-job routing, leases, account selection, lifecycle, result, and replay.
+- `02` owns managed-job routing, leases, account selection, lifecycle, result,
+  replay, and provider-neutral structured/headless write-approval evidence.
 - `03` owns the user-scoped Model Gateway process, configuration, authentication, and supervision.
 - `04` owns harness adapters, native projection, protocol parity, live cross-harness proof, and deferred federation research.
 - `05` decides whether a skill is healthy, compatible, trusted, and admitted.
