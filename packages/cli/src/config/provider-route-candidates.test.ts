@@ -39,6 +39,74 @@ describe("resolveProviderRouteCandidates", () => {
     ]);
   });
 
+  it("resolves an explicit virtual model to its exact provider model and account binding", () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "1",
+      modelGateway: {
+        port: 4910,
+        accounts: [
+          { id: "primary", providerId: "codex-oauth", credentialId: "subscription-primary", maxConcurrency: 1, reservedAffinitySlots: 0 },
+          { id: "secondary", providerId: "codex-oauth", credentialId: "subscription-secondary", maxConcurrency: 1, reservedAffinitySlots: 0 },
+        ],
+        replay: { ttlMs: 1_000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
+        principals: [],
+        surfaces: {},
+        virtualModels: [{
+          id: "managed-terra",
+          providerId: "codex-oauth",
+          providerModelId: "gpt-terra",
+          accountIds: ["secondary"],
+          capabilities: ["text"],
+          affinity: { continuity: "none" },
+        }],
+      },
+    };
+
+    expect(resolveProviderRouteCandidates({
+      globalConfig,
+      flagProvider: "codex-oauth",
+      flagModel: "managed-terra",
+    })).toEqual([{
+      provider: "codex-oauth",
+      model: "gpt-terra",
+      accountBinding: {
+        virtualModelId: "managed-terra",
+        accountId: "secondary",
+        credentialId: "subscription-secondary",
+      },
+    }]);
+  });
+
+  it("fails closed when a virtual model does not identify exactly one compatible account", () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "1",
+      modelGateway: {
+        port: 4910,
+        accounts: [
+          { id: "first", providerId: "codex-oauth", credentialId: "subscription-first", maxConcurrency: 1, reservedAffinitySlots: 0 },
+          { id: "second", providerId: "codex-oauth", credentialId: "subscription-second", maxConcurrency: 1, reservedAffinitySlots: 0 },
+        ],
+        replay: { ttlMs: 1_000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
+        principals: [],
+        surfaces: {},
+        virtualModels: [{
+          id: "ambiguous-terra",
+          providerId: "codex-oauth",
+          providerModelId: "gpt-terra",
+          accountIds: ["first", "second"],
+          capabilities: ["text"],
+          affinity: { continuity: "none" },
+        }],
+      },
+    };
+
+    expect(() => resolveProviderRouteCandidates({
+      globalConfig,
+      flagProvider: "codex-oauth",
+      flagModel: "ambiguous-terra",
+    })).toThrow("must bind exactly one account");
+  });
+
   it("projects ordered global provider routes with route-specific models", () => {
     const globalConfig: KilnGlobalConfig = {
       version: "1",

@@ -6,6 +6,7 @@ import type {
   KilnPermissionPolicy,
   KilnToolPermissionRule,
 } from "./session.js";
+import type { DirectProviderAccountBinding } from "./direct-provider-adapter-factory.js";
 import { debug } from "./debug.js";
 import {
   getFieldStrength,
@@ -156,6 +157,7 @@ export interface ProviderCreateConfig {
   readonly mcpToolAllowlist?: ReadonlySet<string>;
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
+  readonly accountBinding?: DirectProviderAccountBinding;
   readonly reasoningEffort?: ReasoningEffort;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly continuationSessionId?: string;
@@ -169,6 +171,7 @@ export interface ProviderCreateConfig {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
+  readonly runtimeExecutionMode?: "execute" | "plan";
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   /** Provider-neutral managed child result contract. */
@@ -1033,6 +1036,7 @@ function createDirectProviderSession(
     provider,
     ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
     model: config.model,
+    ...(config.accountBinding ? { accountBinding: config.accountBinding } : {}),
     requestedAuthority: config.requestedAuthority,
     task: config.task,
     systemPrompt: config.systemPrompt,
@@ -1044,6 +1048,7 @@ function createDirectProviderSession(
     ...(config.operatorSurface ? { operatorSurface: config.operatorSurface } : {}),
     ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
     ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
+    ...(config.runtimeExecutionMode ? { runtimeExecutionMode: config.runtimeExecutionMode } : {}),
     ...(config.budgetAdmission ? { budgetAdmission: config.budgetAdmission } : {}),
     ...(config.executionEnvelope ? { executionEnvelope: config.executionEnvelope } : {}),
     ...(config.canonicalMcpServers ? {

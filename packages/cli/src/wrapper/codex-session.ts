@@ -14,6 +14,7 @@ import type {
   IKilnSession,
   KilnPermissionPolicy,
 } from "./session.js";
+import { NativeToolEventIdentity } from "./session.js";
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
@@ -144,6 +145,7 @@ interface CodexJsonlLine {
       kind?: string;
     }>;
     status?: string;
+    result?: unknown;
   };
   usage?: {
     input_tokens?: number;
@@ -152,6 +154,26 @@ interface CodexJsonlLine {
   };
   message?: string;
   error?: { message?: string; type?: string };
+}
+
+type CodexItem = NonNullable<CodexJsonlLine["item"]>;
+
+function codexToolName(item: CodexItem | undefined): string | undefined {
+  switch (item?.type) {
+    case "command_execution": return "bash";
+    case "mcp_tool_call": return item.tool ?? item.title ?? "mcp_tool";
+    case "file_change": return "file_change";
+    case "collab_tool_call": return "collab_tool_call";
+    case "web_search": return "web_search";
+    case "todo_list": return "todo_list";
+    default: return undefined;
+  }
+}
+
+function codexToolInput(item: CodexItem): Record<string, unknown> {
+  if (item.type === "command_execution") return { command: item.command ?? "" };
+  if (item.type === "web_search") return { query: item.query ?? item.message ?? "" };
+  return item.arguments ?? {};
 }
 
 export class CodexSession implements IKilnSession {
@@ -302,6 +324,11 @@ export class CodexSession implements IKilnSession {
     let turnCompleted = false;
     let lastError: string | null = null;
     const startTime = Date.now();
+    const toolIdentity = new NativeToolEventIdentity({
+      providerId: "codex",
+      kilnSessionId: options.kilnSessionId ?? this.sessionId,
+      turnId: options.turnId ?? "turn:1",
+    });
     let exitCode: number | null = null;
 
     const stdoutLines: string[] = [];
@@ -365,11 +392,19 @@ export class CodexSession implements IKilnSession {
 
         case "item.started": {
           const item = line.item;
-          if (item?.type) {
+          const toolName = codexToolName(item);
+          if (item && toolName) {
+            const identity = toolIdentity.start(toolName, item.id);
+            if (!identity.emit) break;
             yield {
               type: "tool_use",
-              toolName: item.type,
-              input: item.arguments ?? {},
+              toolCallId: identity.toolCallId,
+              toolCallScopeId: identity.toolCallScopeId,
+              toolName,
+              input: codexToolInput(item),
+              ...(item.type === "mcp_tool_call"
+                ? { source: "mcp" as const, mcpSelector: normalizeMcpSelector(toolName) }
+                : {}),
             };
           }
           break;
@@ -394,16 +429,29 @@ export class CodexSession implements IKilnSession {
 
             case "command_execution":
               if (item.command !== undefined) {
-                yield {
-                  type: "tool_use",
-                  toolName: "bash",
-                  input: { command: item.command },
-                };
+                const identity = toolIdentity.start("bash", item.id);
+                if (identity.emit) yield {
+                    type: "tool_use",
+                    toolCallId: identity.toolCallId,
+                    toolCallScopeId: identity.toolCallScopeId,
+                    toolName: "bash",
+                    input: { command: item.command },
+                  };
               }
               if (item.exit_code !== null && item.exit_code !== undefined) {
-                yield {
+                const completion = toolIdentity.complete("bash", item.id);
+                if (completion.startRequired) yield {
+                    type: "tool_use",
+                    toolCallId: completion.toolCallId,
+                    toolCallScopeId: completion.toolCallScopeId,
+                    toolName: completion.toolName,
+                    input: { command: item.command ?? "" },
+                  };
+                if (completion.emit) yield {
                   type: "tool_result",
-                  toolName: "bash",
+                  toolCallId: completion.toolCallId,
+                  toolCallScopeId: completion.toolCallScopeId,
+                  toolName: completion.toolName,
                   output: item.aggregated_output ?? "",
                 };
               }
@@ -411,12 +459,23 @@ export class CodexSession implements IKilnSession {
 
             case "mcp_tool_call": {
               const mcpToolName = item.tool ?? item.title ?? "mcp_tool";
-              yield {
+              const identity = toolIdentity.start(mcpToolName, item.id);
+              if (identity.emit) yield {
                 type: "tool_use",
+                toolCallId: identity.toolCallId,
+                toolCallScopeId: identity.toolCallScopeId,
                 toolName: mcpToolName,
                 input: item.arguments ?? {},
                 source: "mcp",
                 mcpSelector: normalizeMcpSelector(mcpToolName),
+              };
+              const completion = toolIdentity.complete(mcpToolName, item.id);
+              if (completion.emit) yield {
+                type: "tool_result",
+                toolCallId: completion.toolCallId,
+                toolCallScopeId: completion.toolCallScopeId,
+                toolName: completion.toolName,
+                output: stringifyCodexToolResult(item.result ?? item.message ?? item.status),
               };
               break;
             }
@@ -447,36 +506,83 @@ export class CodexSession implements IKilnSession {
                   reason: "Codex file change was not applied",
                 };
               }
-              yield {
+              {
+                const completion = toolIdentity.complete("file_change", item.id);
+                if (completion.startRequired) yield {
+                    type: "tool_use",
+                    toolCallId: completion.toolCallId,
+                    toolCallScopeId: completion.toolCallScopeId,
+                    toolName: completion.toolName,
+                    input: {},
+                  };
+                if (completion.emit) yield {
                 type: "tool_result",
-                toolName: "file_change",
+                toolCallId: completion.toolCallId,
+                toolCallScopeId: completion.toolCallScopeId,
+                toolName: completion.toolName,
                 output: summarizeCodexFileChange(item),
-              };
+                };
+              }
               break;
 
-            case "collab_tool_call":
-              yield {
+            case "collab_tool_call": {
+              const identity = toolIdentity.start("collab_tool_call", item.id);
+              if (identity.emit) yield {
                 type: "tool_use",
+                toolCallId: identity.toolCallId,
+                toolCallScopeId: identity.toolCallScopeId,
                 toolName: "collab_tool_call",
                 input: item.arguments ?? {},
               };
+              const completion = toolIdentity.complete("collab_tool_call", item.id);
+              if (completion.emit) yield {
+                type: "tool_result",
+                toolCallId: completion.toolCallId,
+                toolCallScopeId: completion.toolCallScopeId,
+                toolName: completion.toolName,
+                output: stringifyCodexToolResult(item.result ?? item.message ?? item.status),
+              };
               break;
+            }
 
-            case "web_search":
-              yield {
+            case "web_search": {
+              const identity = toolIdentity.start("web_search", item.id);
+              if (identity.emit) yield {
                 type: "tool_use",
+                toolCallId: identity.toolCallId,
+                toolCallScopeId: identity.toolCallScopeId,
                 toolName: "web_search",
                 input: { query: item.query ?? item.message ?? "" },
               };
-              break;
-
-            case "todo_list":
-              yield {
+              const completion = toolIdentity.complete("web_search", item.id);
+              if (completion.emit) yield {
                 type: "tool_result",
-                toolName: "todo_list",
+                toolCallId: completion.toolCallId,
+                toolCallScopeId: completion.toolCallScopeId,
+                toolName: completion.toolName,
+                output: stringifyCodexToolResult(item.result ?? item.message ?? item.status),
+              };
+              break;
+            }
+
+            case "todo_list": {
+              const completion = toolIdentity.complete("todo_list", item.id);
+              if (completion.startRequired) yield {
+                  type: "tool_use",
+                  toolCallId: completion.toolCallId,
+                  toolCallScopeId: completion.toolCallScopeId,
+                  toolName: completion.toolName,
+                  input: {},
+                };
+              if (completion.emit) yield {
+                type: "tool_result",
+                toolCallId: completion.toolCallId,
+                toolCallScopeId: completion.toolCallScopeId,
+                toolName: completion.toolName,
                 output: JSON.stringify(item.todos ?? []),
               };
               break;
+            }
 
             default:
               break;
@@ -706,6 +812,12 @@ function summarizeCodexFileChange(item: NonNullable<CodexJsonlLine["item"]>): st
     return `File changes ${item.status ?? "completed"}: ${changes}`;
   }
   return `File ${item.path ?? "unknown"}: ${item.change_type ?? "modified"}`;
+}
+
+function stringifyCodexToolResult(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "";
+  return JSON.stringify(value);
 }
 
 function isBenignCodexItemError(message: string | undefined): boolean {

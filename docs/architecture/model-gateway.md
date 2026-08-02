@@ -109,6 +109,15 @@ identity as tie breakers. Reserved accounts are excluded from new work unless
 the policy explicitly admits their use. Random selection is not an operational
 gateway policy.
 
+Direct `kiln run` accepts a virtual-model ID only when that model binds exactly
+one configured account. CLI resolution separates the operator's virtual ID from
+the physical provider model, validates discovery against the physical model,
+and materializes the exact selected credential revision. Session evidence records
+the virtual-model ID, configured account ID, and immutable credential revision
+before provider dispatch. A rejected binding records an explicit pre-dispatch
+state without a fabricated revision; neither path records the credential ID or
+secret material.
+
 An affinity binds a Kiln session and provider route to an opaque account
 reference. It does not pin the whole Kiln session to one provider, model, or
 account. A provider-native thread created under one account must never be

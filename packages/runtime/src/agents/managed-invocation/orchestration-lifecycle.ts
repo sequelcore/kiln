@@ -1,12 +1,14 @@
 import { posix, resolve, win32 } from "node:path";
 import {
   buildManagedAgentOrchestrationResultEvidence,
+  digestManagedEconomicValue,
   defineManagedAgentInvocationRequest,
   type BudgetAdmissionPolicy,
   type BudgetAdmissionRouteCandidate,
   type ManagedAgentAdmissionDecision,
   type ManagedAgentAdmissionProfile,
   type ManagedAgentAuthorityProfile,
+  type ManagedAgentCallerAttachmentIdentity,
   type ManagedAgentInvocationRecord,
   type ManagedAgentInvocationRequest,
   type ManagedAgentLifecycleState,
@@ -28,6 +30,7 @@ import {
   type RuntimeBudgetUsageReader,
 } from "../../session/runtime-budget-admission.js";
 import { resolveManagedInvocationAgentProfile } from "./agent-profile-catalog.js";
+import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "./index.js";
 
 const ORCHESTRATION_CONTEXT_MODE = "isolated";
 
@@ -48,6 +51,8 @@ export interface ManagedAgentOrchestrationLifecycleInput {
   readonly profile: ManagedAgentAdmissionProfile;
   readonly routeSelector?: ManagedAgentOrchestrationLifecycleRouteSelector;
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
+  readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+  readonly economicAdoptedDecisionAt?: string;
   readonly budgetAdmission?: ManagedAgentOrchestrationBudgetAdmissionInput;
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }
@@ -91,10 +96,12 @@ interface PreparedOrchestrationChild {
   readonly agentProfile?: string;
   readonly route: ManagedInvocationToolRoute;
   readonly profile: ManagedInvocationRouteProfile;
+  readonly economicCandidateSet?: ManagedEconomicCandidateSet;
 }
 
 interface ExecutableOrchestrationChild extends PreparedOrchestrationChild {
   readonly request: ManagedAgentInvocationRequest;
+  readonly economicDispatch?: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>;
 }
 
 export async function runManagedAgentOrchestrationLifecycle(
@@ -113,13 +120,14 @@ export async function runManagedAgentOrchestrationLifecycle(
     if (agent?.authorityProfile && agent.authorityProfile !== input.profile) {
       throw new Error(`Managed orchestration agent profile '${agent.name}' requires '${agent.authorityProfile}', not '${input.profile}'`);
     }
+    let economicCandidateSet: ManagedEconomicCandidateSet | undefined;
     if (agent?.economicPolicyId && agent.economicPolicyRevision) {
-      throw new ManagedEconomicCommitmentUnavailableError(
-        collectManagedEconomicCandidates({
+      economicCandidateSet = collectManagedEconomicCandidates({
           economicPolicyId: agent.economicPolicyId,
           economicPolicyRevision: agent.economicPolicyRevision,
           configuredAgentProfileId: agent.name,
           admissionProfileId: input.profile,
+          ...(input.callerIdentity ? { callerIdentity: input.callerIdentity } : {}),
           ...(child.routeId ?? input.routeSelector?.routeId
             ? { routeId: child.routeId ?? input.routeSelector?.routeId }
             : {}),
@@ -134,8 +142,10 @@ export async function runManagedAgentOrchestrationLifecycle(
                 },
               }
             : {}),
-        }, input.managedInvocation.routes, input.managedInvocation.unavailableRoutes),
-      );
+        }, input.managedInvocation.routes, input.managedInvocation.unavailableRoutes);
+      if (!input.managedInvocation.economicDispatch) {
+        throw new ManagedEconomicCommitmentUnavailableError(economicCandidateSet);
+      }
     }
     if (child.routeId && agent?.routeId && child.routeId !== agent.routeId) {
       throw new Error(`Managed orchestration child route '${child.routeId}' contradicts agent profile '${agent.name}' route '${agent.routeId}'`);
@@ -146,12 +156,14 @@ export async function runManagedAgentOrchestrationLifecycle(
       input.profile,
       input.orchestrationRequest.isolation.workingDirectoryMode,
       routeId ? { routeId } : input.routeSelector,
+      economicCandidateSet !== undefined,
     );
     assertOrchestrationAgentRoute(agent, route);
     return {
       child,
       ...(agent ? { agentProfile: agent.name } : {}),
       route,
+      ...(economicCandidateSet ? { economicCandidateSet } : {}),
       profile: requireOrchestrationProfile(
         route,
         input.profile,
@@ -193,8 +205,9 @@ export async function runManagedAgentOrchestrationLifecycle(
         const dependencyRecords = entry.child.dependsOn
           .map((key) => recordsByKey.get(key)?.record)
           .filter((record): record is ManagedAgentInvocationRecord => record !== undefined);
+        const dispatched = await prepareOrchestrationEconomicDispatch(input, entry);
         executable.push({
-          ...entry,
+          ...dispatched,
           request: buildOrchestrationChildInvocationRequest({
             orchestrationRequest: input.orchestrationRequest,
             childId: entry.child.childId,
@@ -203,8 +216,8 @@ export async function runManagedAgentOrchestrationLifecycle(
             roleIntent: entry.child.roleIntent,
             ...(entry.agentProfile ? { agentProfile: entry.agentProfile } : {}),
             dependencyRecords,
-            route: entry.route,
-            profile: entry.profile,
+            route: dispatched.route,
+            profile: dispatched.profile,
             requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
             requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
             requestedAuthority: input.requestedAuthority ?? "audited",
@@ -215,6 +228,9 @@ export async function runManagedAgentOrchestrationLifecycle(
       const completed = await runOrchestrationBatch({
         service,
         entries: executable,
+        ...(input.managedInvocation.invocationOwner
+          ? { invocationOwner: input.managedInvocation.invocationOwner }
+          : {}),
         ...(input.lifecycleObserver ? { lifecycleObserver: input.lifecycleObserver } : {}),
       });
       for (const record of completed) {
@@ -260,12 +276,68 @@ export async function runManagedAgentOrchestrationLifecycle(
   };
 }
 
+async function prepareOrchestrationEconomicDispatch(
+  input: ManagedAgentOrchestrationLifecycleInput,
+  entry: PreparedOrchestrationChild,
+): Promise<PreparedOrchestrationChild & {
+  readonly economicDispatch?: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>;
+}> {
+  if (!entry.economicCandidateSet) return entry;
+  const economicDispatch = input.managedInvocation.economicDispatch;
+  if (!economicDispatch || !input.economicAdoptedDecisionAt) {
+    throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
+  }
+  const economicIdentity = digestManagedEconomicValue({
+    parentSessionId: input.orchestrationRequest.parentSessionId,
+    parentTurnId: input.orchestrationRequest.parentTurnId,
+    childId: entry.child.childId,
+    task: entry.child.task,
+    roleIntent: entry.child.roleIntent,
+    agentProfile: entry.agentProfile,
+    admissionProfileId: input.profile,
+    candidateSet: entry.economicCandidateSet,
+  }).slice("sha256:".length);
+  const preparation = await economicDispatch.prepare({
+    candidateSet: entry.economicCandidateSet,
+    jobId: `managed-economic-job:${economicIdentity}`,
+    economicAttemptId: `economic-attempt:${economicIdentity}`,
+    intentFingerprint: digestManagedEconomicValue({ candidateSet: entry.economicCandidateSet, economicIdentity }),
+    adoptedDecisionAt: input.economicAdoptedDecisionAt,
+    parentSessionId: input.orchestrationRequest.parentSessionId,
+    parentTurnId: input.orchestrationRequest.parentTurnId,
+  });
+  if (preparation.status === "already-dispatched") {
+    throw new Error(`Managed orchestration economic child '${entry.child.childId}' is already dispatch-fenced; replay will not dispatch it again.`);
+  }
+  if (preparation.status === "denied") {
+    throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
+  }
+  const selected = preparation.commitment.reservation.selectedIdentity.route;
+  if (selected.routeId !== entry.route.routeId
+    || selected.providerId !== entry.route.providerId
+    || selected.modelId !== entry.route.model) {
+    preparation.releaseBeforeProviderEffect();
+    throw new Error(`Managed orchestration economic commitment does not match selected route '${entry.route.routeId}'.`);
+  }
+  return {
+    ...entry,
+    route: { ...entry.route, adapter: preparation.adapter },
+    economicDispatch: {
+      commitment: preparation.commitment,
+      beforeProviderEffect: preparation.beforeProviderEffect,
+      releaseBeforeProviderEffect: preparation.releaseBeforeProviderEffect,
+      registerExecutionSettlement: preparation.registerExecutionSettlement,
+    },
+  };
+}
+
 async function runOrchestrationBatch(input: {
   readonly service: NonNullable<ManagedInvocationToolOptions["invocationService"]>;
   readonly entries: readonly ExecutableOrchestrationChild[];
+  readonly invocationOwner?: object;
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }): Promise<readonly ManagedAgentOrchestrationLifecycleChildRecord[]> {
-  const startResults = await Promise.allSettled(input.entries.map(async ({ request, route }) => {
+  const startResults = await Promise.allSettled(input.entries.map(async ({ request, route, economicDispatch }) => {
     const adapter = route.adapter;
     if (!adapter) {
       throw new Error("economic_commitment_unavailable");
@@ -299,7 +371,10 @@ async function runOrchestrationBatch(input: {
         displayName: route.routeId,
         ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
       },
-    });
+    }, input.invocationOwner || economicDispatch ? {
+      ...(input.invocationOwner ? { owner: input.invocationOwner } : {}),
+      ...(economicDispatch ? { economicDispatch } : {}),
+    } : undefined);
     await input.lifecycleObserver?.onAdmissionResolved({ request, decision: startResult.decision });
     if (startResult.status === "denied") {
       throw new Error(`Managed orchestration child '${request.invocationId}' denied: ${startResult.decision.reason}`);
@@ -482,6 +557,7 @@ function selectOrchestrationRoute(
   admissionProfile: ManagedAgentAdmissionProfile,
   workingDirectoryMode: ManagedAgentWorkingDirectory["mode"] | undefined,
   selector: ManagedAgentOrchestrationLifecycleRouteSelector | undefined,
+  allowEconomicAdapterlessRoute = false,
 ): ManagedInvocationToolRoute {
   const matches = options.routes.filter((route) => {
     if (selector?.providerId && route.providerId !== selector.providerId) return false;
@@ -491,9 +567,10 @@ function selectOrchestrationRoute(
     return profile !== undefined
       && profile.workingDirectory.mode === workingDirectoryMode
       && (workingDirectoryMode !== "isolated-worktree" || profile.workingDirectoryLease !== undefined)
-      && route.adapter !== undefined
-      && route.adapter.descriptor.lifecycle.exposesStart
-      && route.adapter.descriptor.lifecycle.exposesTerminal;
+      && (route.adapter !== undefined
+        ? route.adapter.descriptor.lifecycle.exposesStart && route.adapter.descriptor.lifecycle.exposesTerminal
+        : allowEconomicAdapterlessRoute
+          && route.economicCapability?.status === "verified");
   });
   if (matches.length === 1) {
     return matches[0]!;

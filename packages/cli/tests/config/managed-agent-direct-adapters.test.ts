@@ -43,6 +43,30 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });
 
+  it("constructs a runtime-selected adapter only for the exact committed account binding", async () => {
+    const createProviderAdapter = vi.fn(async () => provider());
+    const factory = createManagedDirectProviderAdapterFactory({ createProviderAdapter });
+    const accountBinding = {
+      virtualModelId: "managed-codex",
+      accountId: "account-b",
+      credentialId: "credential-b",
+    };
+
+    await expect(factory({
+      id: "codex-managed",
+      kind: "direct",
+      provider: "codex-oauth",
+      model: "gpt-5.4",
+      profiles: ["foundation-readonly-plan"],
+      credentials: { mode: "runtime-selected", accountPolicyId: "managed-codex" },
+    }, accountBinding)).resolves.toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
+    expect(createProviderAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "codex-oauth",
+      model: "gpt-5.4",
+      accountBinding,
+    }));
+  });
+
   it("builds a direct managed runtime adapter from a tool-capable direct provider route", async () => {
     const createProviderAdapter = vi.fn(async (_options: DirectProviderAdapterOptions) => provider());
     const factory = createManagedDirectProviderAdapterFactory({

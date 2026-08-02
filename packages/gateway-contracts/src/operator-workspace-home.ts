@@ -111,21 +111,31 @@ export interface OperatorWorkspaceConfigHealthSummary {
 export interface OperatorWorkspaceRouteHealthItem {
   readonly routeId: string;
   readonly routeSource: string;
-  readonly status: OperatorWorkspaceHealthStatus;
+  readonly admissionStatus: OperatorWorkspaceHealthStatus;
   readonly capturedAt: string;
+  readonly executionHealth: {
+    readonly status: "healthy" | "degraded" | "unknown";
+    readonly capturedAt?: string;
+    readonly lastTerminalState?: "completed" | "failed" | "timed_out" | "cancelled";
+    readonly errorCode?: string;
+    readonly reason?: string;
+  };
   readonly providerId?: string;
   readonly model?: string;
   readonly adapterKind?: string;
   readonly executionMode?: string;
-  readonly reason?: string;
+  readonly admissionReason?: string;
 }
 
 export interface OperatorWorkspaceRouteHealthSummary {
   readonly totalCount: number;
-  readonly healthyCount: number;
-  readonly degradedCount: number;
-  readonly blockedCount: number;
-  readonly unknownCount: number;
+  readonly admissionReadyCount: number;
+  readonly admissionDegradedCount: number;
+  readonly admissionBlockedCount: number;
+  readonly admissionUnknownCount: number;
+  readonly executionHealthyCount: number;
+  readonly executionDegradedCount: number;
+  readonly executionUnknownCount: number;
   readonly items: readonly OperatorWorkspaceRouteHealthItem[];
 }
 
@@ -398,10 +408,13 @@ const EMPTY_CONFIG_HEALTH_SUMMARY: OperatorWorkspaceConfigHealthSummary = {
 
 const EMPTY_ROUTE_HEALTH_SUMMARY: OperatorWorkspaceRouteHealthSummary = {
   totalCount: 0,
-  healthyCount: 0,
-  degradedCount: 0,
-  blockedCount: 0,
-  unknownCount: 0,
+  admissionReadyCount: 0,
+  admissionDegradedCount: 0,
+  admissionBlockedCount: 0,
+  admissionUnknownCount: 0,
+  executionHealthyCount: 0,
+  executionDegradedCount: 0,
+  executionUnknownCount: 0,
   items: [],
 };
 
@@ -498,7 +511,9 @@ function createRouteHealthSummary(events: readonly OperatorSessionEvent[]): Oper
     return EMPTY_ROUTE_HEALTH_SUMMARY;
   }
   const byRoute = new Map<string, OperatorWorkspaceRouteHealthItem>();
-  for (const event of events) {
+  for (const event of [...events].sort((left, right) =>
+    left.sequence - right.sequence || left.timestamp.localeCompare(right.timestamp)
+  )) {
     const payload = asRecord(event.payload);
     const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
     const routeId = readString(capabilitySnapshot.routeId) ?? readString(payload.routeId);
@@ -511,28 +526,69 @@ function createRouteHealthSummary(events: readonly OperatorSessionEvent[]): Oper
     const model = readString(providerRoute.model);
     const adapterKind = readString(capabilitySnapshot.adapterKind);
     const executionMode = readString(capabilitySnapshot.executionMode);
-    const reason = readString(routeHealth.reason);
+    const admissionReason = readString(routeHealth.reason);
+    const previous = byRoute.get(routeId);
+    const terminal = routeExecutionHealth(event, payload);
     byRoute.set(routeId, {
       routeId,
-      routeSource: readString(capabilitySnapshot.routeSource) ?? readString(payload.routeSource) ?? "unknown",
-      status: normalizeHealthStatus(readString(routeHealth.status)),
-      capturedAt: readString(capabilitySnapshot.capturedAt) ?? event.timestamp,
-      ...(providerId ? { providerId } : {}),
-      ...(model ? { model } : {}),
-      ...(adapterKind ? { adapterKind } : {}),
-      ...(executionMode ? { executionMode } : {}),
-      ...(reason ? { reason } : {}),
+      routeSource: readString(capabilitySnapshot.routeSource) ?? readString(payload.routeSource) ?? previous?.routeSource ?? "unknown",
+      admissionStatus: readString(routeHealth.status)
+        ? normalizeHealthStatus(readString(routeHealth.status))
+        : previous?.admissionStatus ?? "unknown",
+      capturedAt: readString(capabilitySnapshot.capturedAt) ?? previous?.capturedAt ?? event.timestamp,
+      executionHealth: terminal ?? previous?.executionHealth ?? { status: "unknown" },
+      ...(providerId ?? previous?.providerId ? { providerId: providerId ?? previous!.providerId } : {}),
+      ...(model ?? previous?.model ? { model: model ?? previous!.model } : {}),
+      ...(adapterKind ?? previous?.adapterKind ? { adapterKind: adapterKind ?? previous!.adapterKind } : {}),
+      ...(executionMode ?? previous?.executionMode ? { executionMode: executionMode ?? previous!.executionMode } : {}),
+      ...(admissionReason ?? previous?.admissionReason
+        ? { admissionReason: admissionReason ?? previous!.admissionReason }
+        : {}),
     });
   }
   const items = [...byRoute.values()].sort((a, b) => a.routeId.localeCompare(b.routeId));
   return {
     totalCount: items.length,
-    healthyCount: items.filter((item) => item.status === "healthy").length,
-    degradedCount: items.filter((item) => item.status === "degraded").length,
-    blockedCount: items.filter((item) => item.status === "blocked").length,
-    unknownCount: items.filter((item) => item.status === "unknown").length,
+    admissionReadyCount: items.filter((item) => item.admissionStatus === "healthy").length,
+    admissionDegradedCount: items.filter((item) => item.admissionStatus === "degraded").length,
+    admissionBlockedCount: items.filter((item) => item.admissionStatus === "blocked").length,
+    admissionUnknownCount: items.filter((item) => item.admissionStatus === "unknown").length,
+    executionHealthyCount: items.filter((item) => item.executionHealth.status === "healthy").length,
+    executionDegradedCount: items.filter((item) => item.executionHealth.status === "degraded").length,
+    executionUnknownCount: items.filter((item) => item.executionHealth.status === "unknown").length,
     items,
   };
+}
+
+function routeExecutionHealth(
+  event: OperatorSessionEvent,
+  payload: Record<string, unknown>,
+): OperatorWorkspaceRouteHealthItem["executionHealth"] | undefined {
+  if (event.kind === "agent_invocation_completed") {
+    return { status: "healthy", capturedAt: event.timestamp, lastTerminalState: "completed" };
+  }
+  if (event.kind === "agent_invocation_failed") {
+    const lifecycleState = readString(payload.lifecycleState) === "timed_out" ? "timed_out" : "failed";
+    const errorCode = readString(payload.errorCode);
+    const reason = readString(payload.errorMessage);
+    return {
+      status: "degraded",
+      capturedAt: event.timestamp,
+      lastTerminalState: lifecycleState,
+      ...(errorCode ? { errorCode } : {}),
+      ...(reason ? { reason } : {}),
+    };
+  }
+  if (event.kind === "agent_invocation_cancelled") {
+    const reason = readString(payload.reason);
+    return {
+      status: "unknown",
+      capturedAt: event.timestamp,
+      lastTerminalState: "cancelled",
+      ...(reason ? { reason } : {}),
+    };
+  }
+  return undefined;
 }
 
 function createProviderReadinessSummary(events: readonly OperatorSessionEvent[]): OperatorWorkspaceProviderReadinessSummary {
@@ -550,7 +606,11 @@ function createProviderReadinessSummary(events: readonly OperatorSessionEvent[])
     }
     const model = readString(providerRoute.model);
     const providerModelProof = asRecord(capabilitySnapshot.providerModelProof);
-    const status = normalizeProviderReadinessStatus(readString(providerModelProof.status));
+    const proofStatus = readString(providerModelProof.status);
+    if (!proofStatus) {
+      continue;
+    }
+    const status = normalizeProviderReadinessStatus(proofStatus);
     const source = readString(providerModelProof.source);
     byProviderModel.set(`${providerId}:${model ?? ""}`, {
       providerId,

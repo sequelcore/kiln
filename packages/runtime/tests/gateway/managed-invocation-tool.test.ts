@@ -1953,6 +1953,95 @@ describe("managed invocation runtime tool", () => {
     expect(joinedAfterLateOutput.record.resultHandoff?.summary).toBe("Parent runtime turn interrupted.");
   });
 
+  it("disposes a surface-owned background child through adapter cleanup and publishes one terminal event", async () => {
+    let adapterSignal: AbortSignal | undefined;
+    const cleanup = vi.fn();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission, abortSignal, registerExecutionSettlement }) => {
+        adapterSignal = abortSignal;
+        const executionSettlement = new Promise<void>((resolve) => {
+          abortSignal.addEventListener("abort", () => {
+            cleanup();
+            resolve();
+          }, { once: true });
+        });
+        registerExecutionSettlement(executionSettlement);
+        await executionSettlement;
+        return defineManagedAgentInvocationRecord({
+          invocationId: request.invocationId,
+          agentId: request.agentId,
+          parentSessionId: request.parentSessionId,
+          parentTurnId: request.parentTurnId,
+          profile: request.profile,
+          lifecycleState: "cancelled",
+          providerRoute: request.providerRoute,
+          adapterKind: request.adapterKind,
+          executionMode: request.executionMode,
+          authority: request.authority,
+          capabilitySnapshot: admission.capabilitySnapshot,
+          resultHandoff: {
+            provenance: TEST_HANDOFF_PROVENANCE,
+            summary: "Adapter cleanup settled.",
+            resourceUris: [],
+            memoryWriteProposalUris: [],
+          },
+        });
+      }),
+    };
+    const invocationService = makeObservedRuntimeInvocationService({
+      credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
+        allowedRouteIds: ["credential-route:opencode-readonly"],
+      }),
+    });
+    const published: unknown[] = [];
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        invocationService,
+        sessionEventSink: {
+          publish: vi.fn(async (events) => {
+            published.push(...events);
+          }),
+        },
+        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", adapter)],
+      },
+    });
+    const session = makeSession();
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation lifecycle.",
+      requestedAuthority: "read_only",
+    }, {
+      session,
+      toolCall: {
+        id: "tool-call-surface-dispose",
+        name: "managed_agent.start",
+        input: {},
+      },
+    }) as { readonly metadata: { readonly invocationId: string } };
+
+    await Promise.all([surface.dispose(), surface.dispose()]);
+    await surface.dispose();
+
+    expect(adapterSignal?.aborted).toBe(true);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(invocationService.status(started.metadata.invocationId)).toMatchObject({
+      lifecycleState: "cancelled",
+      record: {
+        lifecycleState: "cancelled",
+        resultHandoff: { summary: "Attached runtime tool surface disposed." },
+      },
+    });
+    expect(published.filter((event) => (
+      (event as { kind?: string }).kind === "agent_invocation_cancelled"
+    ))).toHaveLength(1);
+  });
+
   it("shares fallback sandbox services across nonblocking lifecycle tools", async () => {
     const { adapter, terminal } = makeDeferredAdapter();
     const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", adapter);
@@ -2953,6 +3042,116 @@ describe("managed invocation runtime tool", () => {
     ], expect.objectContaining({
       toolCall: expect.objectContaining({ name: "managed_agent.start" }),
     }));
+  });
+
+  it("publishes exactly one terminal event when background handoff validation fails", async () => {
+    const adapter = makeAdapterWithHandoff(
+      "Review returned without the required verification evidence.",
+      {},
+      { verificationResults: [] },
+    );
+    const sessionEventSink = { publish: vi.fn() };
+    const surface = makeSurface(adapter, sessionEventSink);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-invalid-handoff",
+        name: "managed_agent.start",
+        input: {},
+      },
+    };
+
+    const started = await surface.callBuiltinTools.get("managed_agent.start")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+      requiredResultFields: ["verificationResults"],
+    }, context) as {
+      readonly metadata: { readonly invocationId: string };
+    };
+
+    await waitForCondition(() =>
+      session.sessionEvents.some((event) => event.kind === "agent_invocation_failed")
+    );
+    const terminalEvents = () => session.sessionEvents.filter((event) =>
+      event.kind === "agent_invocation_completed"
+      || event.kind === "agent_invocation_failed"
+      || event.kind === "agent_invocation_cancelled"
+    );
+
+    expect(terminalEvents()).toHaveLength(1);
+    expect(terminalEvents()[0]).toMatchObject({
+      kind: "agent_invocation_failed",
+      invocationId: started.metadata.invocationId,
+      errorMessage: expect.stringContaining("missing required structured fields: verificationResults"),
+    });
+    expect(sessionEventSink.publish).toHaveBeenCalledTimes(2);
+
+    const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
+      invocationId: started.metadata.invocationId,
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-invalid-handoff-join", name: "managed_agent.join", input: {} },
+    }) as { readonly isError: boolean };
+
+    expect(joined.isError).toBe(true);
+    expect(terminalEvents()).toHaveLength(1);
+    expect(sessionEventSink.publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes and returns the canonical terminal failure when foreground handoff validation fails", async () => {
+    const adapter = makeAdapterWithHandoff(
+      "Review returned without the required verification evidence.",
+      {},
+      { verificationResults: [] },
+    );
+    const sessionEventSink = { publish: vi.fn() };
+    const surface = makeSurface(adapter, sessionEventSink);
+    const session = makeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      toolCall: {
+        id: "tool-call-invalid-foreground-handoff",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      providerRoute: {
+        providerId: "opencode",
+        model: "opencode-default-model",
+      },
+      task: "Inspect the managed invocation tool contract and report risks.",
+      requestedAuthority: "read_only",
+      requiredResultFields: ["verificationResults"],
+    }, context) as {
+      readonly isError: boolean;
+      readonly metadata: { readonly invocationId: string; readonly lifecycleState: string };
+    };
+
+    const terminalEvents = session.sessionEvents.filter((event) =>
+      event.kind === "agent_invocation_completed"
+      || event.kind === "agent_invocation_failed"
+      || event.kind === "agent_invocation_cancelled"
+    );
+    expect(result).toMatchObject({
+      isError: true,
+      metadata: { lifecycleState: "failed" },
+    });
+    expect(terminalEvents).toHaveLength(1);
+    expect(terminalEvents[0]).toMatchObject({
+      kind: "agent_invocation_failed",
+      invocationId: result.metadata.invocationId,
+      errorMessage: expect.stringContaining("missing required structured fields: verificationResults"),
+    });
+    expect(sessionEventSink.publish).toHaveBeenCalledTimes(2);
   });
 
   it("records nonblocking terminal duration from child runtime time instead of join wait time", async () => {

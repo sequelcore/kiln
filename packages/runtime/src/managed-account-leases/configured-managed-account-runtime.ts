@@ -1,4 +1,5 @@
 import {
+  type AccountRef,
   createAccountPolicyId,
   type DirectProviderId,
   type ModelGatewayConfig,
@@ -40,10 +41,31 @@ export interface ConfiguredManagedCodexAccountPool {
   listUsage(now?: Date): Promise<readonly ProviderUsageSnapshot[]>;
 }
 
+export interface CommittedManagedAccountBindingInput {
+  readonly accountPolicyId: string;
+  readonly providerId: DirectProviderId;
+  readonly model: string;
+  readonly capacityIdentity: string;
+  readonly accountRef: AccountRef;
+  readonly credentialRevisionId: string;
+}
+
+export interface CommittedManagedAccountBinding {
+  readonly virtualModelId: string;
+  readonly accountId: string;
+  readonly credentialId: string;
+  readonly credentialRevision: string;
+}
+
 type ExecutionAccount =
   | ({ readonly providerId: "codex-oauth" } & CodexOAuthExecutionAccount)
   | OpenCodeExecutionAccount
   | DirectProviderExecutionAccount;
+
+interface ConfiguredManagedAccountSnapshot {
+  readonly resolution: ManagedAccountCandidateResolution;
+  readonly bound: readonly ModelGatewayBoundCandidate[];
+}
 
 /**
  * Projects configured account policy and materializes only the credential revision
@@ -74,6 +96,12 @@ implements ManagedAccountCandidatePort {
   }
 
   async resolve(input: Parameters<ManagedAccountCandidatePort["resolve"]>[0]): Promise<ManagedAccountCandidateResolution> {
+    return (await this.#resolveSnapshot(input)).resolution;
+  }
+
+  async #resolveSnapshot(
+    input: Parameters<ManagedAccountCandidatePort["resolve"]>[0],
+  ): Promise<ConfiguredManagedAccountSnapshot> {
     const policyId = createAccountPolicyId(input.accountPolicyId);
     const model = this.#config.virtualModels.find((candidate) => candidate.id === policyId);
     if (model === undefined) throw new Error(`Managed account policy '${policyId}' is unavailable.`);
@@ -99,28 +127,63 @@ implements ManagedAccountCandidatePort {
       reservedForNewWork: () => false,
     });
     return {
-      route: {
-        providerId: model.providerId,
-        providerModelId: model.providerModelId,
-        scope: `virtual:${model.id}`,
-      },
-      affinityPolicy: model.affinity.continuity === "none"
-        ? { continuity: "none" }
-        : {
-            continuity: model.affinity.continuity,
-            scope: requireAffinityScope(model.affinity.scope),
-            ...(model.affinity.allowRebind === undefined ? {} : { allowRebind: model.affinity.allowRebind }),
-          },
-      candidates: bound.map((entry) => ({
-        candidate: {
-          ...entry.candidate,
-          pressure: usagePressure(entry),
+      bound,
+      resolution: {
+        route: {
+          providerId: model.providerId,
+          providerModelId: model.providerModelId,
+          scope: `virtual:${model.id}`,
         },
-        capacityIdentity: entry.binding.accountId,
-        credentialRevisionId: createModelGatewayCredentialRevisionId(entry.binding),
-        usageEvidence: entry.usageEvidence,
-        capacity: entry.capacity,
-      })),
+        affinityPolicy: model.affinity.continuity === "none"
+          ? { continuity: "none" }
+          : {
+              continuity: model.affinity.continuity,
+              scope: requireAffinityScope(model.affinity.scope),
+              ...(model.affinity.allowRebind === undefined ? {} : { allowRebind: model.affinity.allowRebind }),
+            },
+        candidates: bound.map((entry) => ({
+          candidate: {
+            ...entry.candidate,
+            pressure: usagePressure(entry),
+          },
+          capacityIdentity: entry.binding.accountId,
+          credentialRevisionId: createModelGatewayCredentialRevisionId(entry.binding),
+          usageEvidence: entry.usageEvidence,
+          capacity: entry.capacity,
+        })),
+      },
+    };
+  }
+
+  /** Re-resolves current secret-free evidence and returns only the revision durably committed by authority. */
+  async resolveCommittedAccountBinding(
+    input: CommittedManagedAccountBindingInput,
+  ): Promise<CommittedManagedAccountBinding> {
+    const snapshot = await this.#resolveSnapshot({
+      accountPolicyId: createAccountPolicyId(input.accountPolicyId),
+      providerRoute: {
+        providerId: input.providerId,
+        model: input.model,
+        surface: "managed-economic-postcommit",
+      },
+    });
+    const selected = snapshot.bound.find((candidate) =>
+      candidate.binding.accountId === input.capacityIdentity
+      && candidate.candidate.account === input.accountRef);
+    if (!selected) {
+      throw new Error("Committed managed account is no longer executable.");
+    }
+    if (createModelGatewayCredentialRevisionId(selected.binding) !== input.credentialRevisionId) {
+      throw new Error("Committed managed account credential revision changed.");
+    }
+    if (selected.binding.providerId !== input.providerId) {
+      throw new Error("Committed managed account binding is unavailable.");
+    }
+    return {
+      virtualModelId: input.accountPolicyId,
+      accountId: selected.binding.accountId,
+      credentialId: selected.binding.credentialId,
+      credentialRevision: selected.binding.execution.revision,
     };
   }
 

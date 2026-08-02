@@ -624,23 +624,22 @@ describe("managed-agent command", () => {
         configHealth: { status: "unknown", issueCount: 0, items: [] },
         routeHealth: {
           totalCount: 0,
-          healthyCount: 0,
-          degradedCount: 0,
-          blockedCount: 0,
-          unknownCount: 0,
+          admissionReadyCount: 0,
+          admissionDegradedCount: 0,
+          admissionBlockedCount: 0,
+          admissionUnknownCount: 0,
+          executionHealthyCount: 0,
+          executionDegradedCount: 0,
+          executionUnknownCount: 0,
           items: [],
         },
         providerReadiness: {
-          totalCount: 1,
+          totalCount: 0,
           liveProvenCount: 0,
           configuredCount: 0,
           unprovenCount: 0,
-          unknownCount: 1,
-          items: [{
-            providerId: "codex",
-            model: "gpt-5.5",
-            status: "unknown",
-          }],
+          unknownCount: 0,
+          items: [],
         },
         gatewayTargets: [{
           gatewayTarget: {

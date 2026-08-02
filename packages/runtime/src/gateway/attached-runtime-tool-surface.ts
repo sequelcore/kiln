@@ -101,6 +101,7 @@ export interface AttachedRuntimeBuiltinToolSurface {
   listResources(): readonly ToolResourceDisplayDescriptor[];
   listResourceTemplates(): readonly ToolResourceTemplateDescriptor[];
   readResource(uri: string, options?: ToolResourceReadOptions): Promise<ToolResourceReadResult>;
+  dispose(): Promise<void>;
 }
 
 export type AttachedRuntimeManagedInvocationConfig =
@@ -465,6 +466,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
         ...managedInvocationAttachment,
         options: {
           ...managedInvocationAttachment.options,
+          invocationOwner: managedInvocationAttachment.options.invocationOwner ?? {},
           pauseRequirementResolver: managedInvocationAttachment.options.pauseRequirementResolver
             ?? ((workItemId: string) => coreSurface.workItemStore?.get(workItemId)?.pauseRequirements),
         },
@@ -480,6 +482,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
   const toolAuthority = new Map(baseSurface.toolAuthority);
   const toolCallMetadata = new Map(baseSurface.toolCallMetadata);
   const toolDefinitions = [...baseSurface.toolDefinitions];
+  let dispose = async (): Promise<void> => undefined;
   const strictToolAllowlist = options.builtinToolOptions?.toolProjection?.mode === "strict"
     ? new Set(options.builtinToolOptions.toolProjection.alwaysOnTools ?? [])
     : undefined;
@@ -538,6 +541,15 @@ export function createAttachedRuntimeBuiltinToolSurface(
   if (managedInvocation) {
     const managedInvocationOptions = managedInvocation.options;
     const managedInvocationService = resolveManagedInvocationService(managedInvocationOptions);
+    let disposePromise: Promise<void> | undefined;
+    dispose = async () => {
+      disposePromise ??= managedInvocationService.shutdownOwner(
+        managedInvocationOptions.invocationOwner!,
+        "Attached runtime tool surface disposed.",
+      )
+        .then(() => undefined);
+      await disposePromise;
+    };
     const managedInvocationExecutors = createManagedInvocationLifecycleToolExecutors(
       managedInvocation,
       managedInvocationService,
@@ -639,6 +651,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     listResources: baseSurface.listResources,
     listResourceTemplates: baseSurface.listResourceTemplates,
     readResource: baseSurface.readResource,
+    dispose,
   };
 }
 
@@ -1322,6 +1335,7 @@ function buildRuntimeSurface(
     listResources: () => coreSurface.resources.list().map(projectToolResourceDescriptor),
     listResourceTemplates: () => coreSurface.resources.listTemplates(),
     readResource: (uri: string, options?: ToolResourceReadOptions) => coreSurface.resources.read(uri, options),
+    dispose: async () => undefined,
   };
 }
 

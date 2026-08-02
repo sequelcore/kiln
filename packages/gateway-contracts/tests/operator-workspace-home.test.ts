@@ -400,6 +400,29 @@ describe("operator workspace home projection", () => {
         },
       },
     };
+    const failedInvocationEvent: OperatorSessionEvent = {
+      eventId: "workspace-home:event:capability-failed",
+      kilnSessionId: "workspace-home:session:1",
+      sequence: 34,
+      timestamp: "2026-06-25T12:01:34.000Z",
+      kind: "agent_invocation_failed",
+      payload: {
+        instanceId: "workspace-home:instance:1",
+        sessionId: "workspace-home:session:1",
+        invocationId: "workspace-home:child:health",
+        agentId: "codex-oauth:foundation-readonly-plan",
+        routeId: "codex-oauth-readonly",
+        routeSource: "explicit-managed-route",
+        lifecycleState: "failed",
+        providerRoute: {
+          providerId: "codex-oauth",
+          model: "gpt-5.4-mini",
+          surface: "direct-provider",
+        },
+        errorCode: "handoff_invalid",
+        errorMessage: "Structured handoff evidence was incomplete.",
+      },
+    };
     const cockpitProjection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-06-25T12:01:00.000Z",
       attachTargets: [
@@ -431,6 +454,7 @@ describe("operator workspace home projection", () => {
         goalEvent,
         approvalRequestedEvent,
         capabilitySnapshotEvent,
+        failedInvocationEvent,
       ],
     });
     const cockpitView = createOperatorCockpitReadOnlyViewState({
@@ -449,6 +473,7 @@ describe("operator workspace home projection", () => {
         goalEvent,
         approvalRequestedEvent,
         capabilitySnapshotEvent,
+        failedInvocationEvent,
       ],
     });
 
@@ -498,20 +523,30 @@ describe("operator workspace home projection", () => {
     });
     expect(home.routeHealth).toMatchObject({
       totalCount: 1,
-      healthyCount: 1,
-      degradedCount: 0,
-      blockedCount: 0,
-      unknownCount: 0,
+      admissionReadyCount: 1,
+      admissionDegradedCount: 0,
+      admissionBlockedCount: 0,
+      admissionUnknownCount: 0,
+      executionHealthyCount: 0,
+      executionDegradedCount: 1,
+      executionUnknownCount: 0,
       items: [
         {
           routeId: "codex-oauth-readonly",
           routeSource: "explicit-managed-route",
-          status: "healthy",
+          admissionStatus: "healthy",
+          executionHealth: {
+            status: "degraded",
+            lastTerminalState: "failed",
+            capturedAt: "2026-06-25T12:01:34.000Z",
+            errorCode: "handoff_invalid",
+            reason: "Structured handoff evidence was incomplete.",
+          },
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
           adapterKind: "direct",
           executionMode: "direct-provider",
-          reason: "Configured route admitted by managed invocation policy.",
+          admissionReason: "Configured route admitted by managed invocation policy.",
         },
       ],
     });
@@ -708,6 +743,97 @@ describe("operator workspace home projection", () => {
           status: "blocked",
         },
       ],
+    });
+  });
+
+  it("keeps admission proof while deriving execution health from the latest terminal sequence", () => {
+    const base = {
+      kilnSessionId: "route-health:session",
+      timestamp: "2026-07-01T12:00:00.000Z",
+    } as const;
+    const requested: OperatorSessionEvent = {
+      ...base,
+      eventId: "route-health:requested",
+      sequence: 1,
+      kind: "agent_invocation_requested",
+      payload: {
+        instanceId: "route-health:instance",
+        sessionId: "route-health:session",
+        invocationId: "route-health:invocation",
+        agentId: "fixture-agent",
+        routeId: "fixture-route",
+        capabilitySnapshot: {
+          routeId: "fixture-route",
+          routeSource: "explicit-managed-route",
+          capturedAt: base.timestamp,
+          routeHealth: { status: "healthy", reason: "Static admission proof." },
+          providerRoute: { providerId: "fixture-provider", model: "fixture-model" },
+        },
+      },
+    };
+    const failed: OperatorSessionEvent = {
+      ...base,
+      eventId: "route-health:failed",
+      sequence: 2,
+      kind: "agent_invocation_failed",
+      payload: {
+        instanceId: "route-health:instance",
+        sessionId: "route-health:session",
+        invocationId: "route-health:invocation",
+        agentId: "fixture-agent",
+        routeId: "fixture-route",
+        lifecycleState: "failed",
+        errorMessage: "Synthetic failure.",
+      },
+    };
+    const completed: OperatorSessionEvent = {
+      ...base,
+      eventId: "route-health:completed",
+      sequence: 3,
+      kind: "agent_invocation_completed",
+      payload: {
+        instanceId: "route-health:instance",
+        sessionId: "route-health:session",
+        invocationId: "route-health:invocation",
+        agentId: "fixture-agent",
+        routeId: "fixture-route",
+        lifecycleState: "completed",
+      },
+    };
+    const events = [completed, requested, failed];
+    const cockpitView = createOperatorCockpitReadOnlyViewState({
+      projection: projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-07-01T12:01:00.000Z",
+        attachTargets: [{
+          instanceId: "route-health:instance",
+          label: "Synthetic route health",
+          kind: "local",
+        }],
+        events,
+      }),
+      viewState: {},
+    });
+
+    const home = createOperatorWorkspaceHomeProjection({
+      projectedAt: "2026-07-01T12:01:00.000Z",
+      cockpitView,
+      events,
+    });
+
+    expect(home.routeHealth).toMatchObject({
+      admissionReadyCount: 1,
+      admissionDegradedCount: 0,
+      admissionBlockedCount: 0,
+      admissionUnknownCount: 0,
+      executionHealthyCount: 1,
+      executionDegradedCount: 0,
+      executionUnknownCount: 0,
+      items: [{
+        routeId: "fixture-route",
+        admissionStatus: "healthy",
+        admissionReason: "Static admission proof.",
+        executionHealth: { status: "healthy", lastTerminalState: "completed" },
+      }],
     });
   });
 

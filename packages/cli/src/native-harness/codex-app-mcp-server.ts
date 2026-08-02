@@ -240,11 +240,12 @@ export class NativeHarnessMcpServer {
         state: job.state,
         configuredAgentProfileId: job.configuredAgentProfileId,
         admissionProfileId: job.admissionProfileId,
-        ...(job.version === 5 || job.version === 6
+        ...(job.version === 5 || job.version === 6 || job.version === 7
           ? {
               economicPolicyId: job.economicPolicyId,
               economicPolicyRevision: job.economicPolicyRevision,
               constraints: job.constraints,
+              ...(job.version === 7 && job.result ? { routeId: job.result.routeId } : {}),
             }
           : {
               routeId: job.routeId,

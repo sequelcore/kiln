@@ -11,6 +11,7 @@ import {
   assertScopedExecutionSessionToolEvent,
   resolveExecutionCostEvidence,
   type ExecutionCostEvidence,
+  type ExecutionSessionBindingEvidence,
   type ProviderRequestEvidence,
 } from "@kilnai/core";
 import { createPermissionEvaluator } from "../wrapper/index.js";
@@ -18,6 +19,7 @@ import type {
   ProviderCreateConfig,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
+import type { DirectProviderAccountBinding } from "../wrapper/direct-provider-adapter-factory.js";
 import type { SessionRunOptions } from "../wrapper/session.js";
 import type { PersistedProviderTokenUsage } from "../wrapper/session-store.js";
 import { isDirectApiProvider } from "../wrapper/session-registry.js";
@@ -59,6 +61,7 @@ export interface RunSessionOptions {
 export interface RunSessionRouteCandidate {
   readonly provider: ProviderId;
   readonly model?: string;
+  readonly accountBinding?: DirectProviderAccountBinding;
   readonly reasoningEffort?: ReasoningEffort;
 }
 
@@ -91,6 +94,7 @@ export interface RunSessionResult {
   readonly transcript: RunSessionTranscriptEvent[];
   readonly providersUsed: readonly string[];
   readonly providerTokenUsage: readonly PersistedProviderTokenUsage[];
+  readonly executionBindings: readonly ExecutionSessionBindingEvidence[];
   readonly exactArtifacts: readonly string[];
   readonly submittedPlan?: string;
 }
@@ -133,6 +137,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   let successfulProviderId: ProviderId | undefined;
   let successfulModelId: string | undefined;
   const providerTokenUsage = new Map<string, PersistedProviderTokenUsage>();
+  const executionBindings = new Map<string, ExecutionSessionBindingEvidence>();
   const providersUsed = new Set<string>();
   const attempts: RunSessionAttemptResult[] = [];
   const transcript: RunSessionTranscriptEvent[] = [];
@@ -150,6 +155,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     const effectiveSessionConfig = {
       ...options.sessionConfig,
       ...(candidate.model ? { model: candidate.model } : {}),
+      ...(candidate.accountBinding ? { accountBinding: candidate.accountBinding } : {}),
       ...(candidateReasoningEffort ? { reasoningEffort: candidateReasoningEffort } : {}),
       ...(scopedMcpToolAllowlist ? { mcpToolAllowlist: scopedMcpToolAllowlist } : {}),
     };
@@ -169,6 +175,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
 
     try {
       for await (const event of session.run({
+        kilnSessionId: options.sessionId ?? session.sessionId,
+        turnId: `attempt:${candidateIndex + 1}`,
         prompt: buildPreamble(governedContext, options.permissionPolicy, undefined),
         system: options.context.systemPrompt,
         cwd: options.context.workingDirectory,
@@ -452,6 +460,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             break;
           }
           case "cost_update": {
+            if (event.executionBinding) {
+              recordExecutionBinding(executionBindings, event.executionBinding);
+            }
             finalCostUsd = event.usd;
             inputTokens = event.inputTokens ?? inputTokens;
             outputTokens = event.outputTokens ?? outputTokens;
@@ -508,6 +519,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             break;
           }
           case "error": {
+            if (event.executionBinding) {
+              recordExecutionBinding(executionBindings, event.executionBinding);
+            }
             attemptError = event.message;
             lastError = attemptError;
             if (event.message.trim() !== "") {
@@ -568,9 +582,17 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     transcript,
     providersUsed: [...providersUsed],
     providerTokenUsage: [...providerTokenUsage.values()],
+    executionBindings: [...executionBindings.values()],
     exactArtifacts: [...exactArtifacts],
     submittedPlan,
   };
+}
+
+function recordExecutionBinding(
+  bindings: Map<string, ExecutionSessionBindingEvidence>,
+  binding: ExecutionSessionBindingEvidence,
+): void {
+  bindings.set(`${binding.virtualModelId}\0${binding.accountId}`, binding);
 }
 
 function recordProviderTokenUsage(

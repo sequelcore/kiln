@@ -214,6 +214,7 @@ export type ExecutionSessionEvent = (
       readonly cacheWriteTokens?: number;
       readonly providerRequests?: readonly ProviderRequestEvidence[];
       readonly costEvidence?: ExecutionCostEvidence;
+      readonly executionBinding?: ExecutionSessionBindingEvidence;
     }
   | {
       readonly type: "completed";
@@ -222,8 +223,27 @@ export type ExecutionSessionEvent = (
       readonly outcome: SessionTurnOutcome;
       readonly isPreflightCrash: boolean;
     }
-  | { readonly type: "error"; readonly code: string; readonly message: string; readonly isRetryable: boolean }
+  | {
+      readonly type: "error";
+      readonly code: string;
+      readonly message: string;
+      readonly isRetryable: boolean;
+      readonly executionBinding?: ExecutionSessionBindingEvidence;
+    }
 ) & { readonly executionScope?: SessionExecutionScope };
+
+export type ExecutionSessionBindingEvidence =
+  | {
+      readonly status: "bound";
+      readonly virtualModelId: string;
+      readonly accountId: string;
+      readonly credentialRevision: string;
+    }
+  | {
+      readonly status: "rejected-pre-dispatch";
+      readonly virtualModelId: string;
+      readonly accountId: string;
+    };
 
 export type ScopedExecutionSessionToolEvent = Extract<
   ExecutionSessionEvent,

@@ -14,6 +14,7 @@ import {
   type Credential,
   type CredentialExhaustionDiagnostic,
   type CredentialOutcome,
+  type CreateMessageOptions,
   type ProviderUsageSnapshot,
   type ProviderAdapter,
 } from "@kilnai/core";
@@ -76,6 +77,12 @@ export interface CodexOAuthExecutionCredential {
 export interface CreateCodexOAuthPooledAdapterOptions {
   readonly defaultModel: string;
   readonly createAdapter?: (credential: CodexOAuthPoolCredential) => ProviderAdapter;
+}
+
+export interface CreateExactCodexOAuthAdapterOptions {
+  readonly selected: CodexOAuthExecutionAccount;
+  readonly defaultModel: string;
+  readonly createAdapter?: (credential: CodexOAuthExecutionCredential) => ProviderAdapter;
 }
 
 export interface CodexOAuthPoolCredential {
@@ -421,6 +428,40 @@ export class CodexOAuthCredentialPoolService {
       mapError: mapCodexOAuthProviderError,
       shouldRetryOutcome: isRetryableCodexOAuthOutcome,
     });
+  }
+
+  /** Materializes one previously selected account revision without consulting pooled order. */
+  async createExactAdapter(options: CreateExactCodexOAuthAdapterOptions): Promise<ProviderAdapter> {
+    const credential = await this.resolveExecutionCredential(options.selected);
+    const delegate = options.createAdapter?.(credential) ?? new CodexOAuthAdapter({
+      auth: { getValidAccessToken: async () => credential.accessToken },
+      defaultModel: options.defaultModel,
+    });
+    const recordOutcome = async (error?: unknown): Promise<void> => {
+      await this.recordProviderOutcome(credential.credentialId, error);
+    };
+    return {
+      name: delegate.name,
+      createMessage: async (messageOptions: CreateMessageOptions) => {
+        try {
+          const response = await delegate.createMessage(messageOptions);
+          await recordOutcome();
+          return response;
+        } catch (error) {
+          await recordOutcome(error);
+          throw error;
+        }
+      },
+      streamMessage: async function* (messageOptions: CreateMessageOptions) {
+        try {
+          yield* delegate.streamMessage(messageOptions);
+          await recordOutcome();
+        } catch (error) {
+          await recordOutcome(error);
+          throw error;
+        }
+      },
+    };
   }
 
   async #createPool(): Promise<CredentialPool<CodexOAuthPoolCredential>> {

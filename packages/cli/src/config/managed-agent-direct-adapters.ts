@@ -20,6 +20,7 @@ import {
 import type { KilnManagedAgentRouteConfig } from "../kiln-yaml-types.js";
 import {
   createDirectProviderAdapter,
+  type DirectProviderAccountBinding,
   type DirectProviderAdapterOptions,
 } from "../wrapper/direct-provider-adapter-factory.js";
 import { createCanonicalMcpClient } from "./mcp-credentials.js";
@@ -61,13 +62,16 @@ export interface ManagedDirectProviderAdapterFactoryOptions {
 
 export function createManagedDirectProviderAdapterFactory(
   options: ManagedDirectProviderAdapterFactoryOptions = {},
-): (route: KilnManagedAgentRouteConfig) => Promise<ManagedAgentRuntimeAdapter | undefined> {
+): (
+  route: KilnManagedAgentRouteConfig,
+  accountBinding?: DirectProviderAccountBinding,
+) => Promise<ManagedAgentRuntimeAdapter | undefined> {
   const resolveBuiltinToolSurface = () => createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: resolveBuiltinToolOptions(options.builtinToolOptions),
   });
   const createProvider = options.createProviderAdapter ?? createDirectProviderAdapter;
 
-  return async (route) => {
+  return async (route, accountBinding) => {
     if (route.kind !== "direct") {
       return undefined;
     }
@@ -82,11 +86,12 @@ export function createManagedDirectProviderAdapterFactory(
       throw new Error(`Direct provider route '${route.id}' requires a tool-call-capable model; '${provider}/${model}' is not eligible.`);
     }
 
-    const providerAdapter = route.credentials?.mode === "runtime-selected"
+    const providerAdapter = route.credentials?.mode === "runtime-selected" && !accountBinding
       ? unboundManagedProvider(provider)
       : await createProvider({
         provider,
         model: executionProfile.model,
+        ...(accountBinding ? { accountBinding } : {}),
         configEnv: options.configEnv,
         runtimeEnv: options.runtimeEnv,
         processEnv: options.processEnv,

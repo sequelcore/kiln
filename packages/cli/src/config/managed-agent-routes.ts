@@ -25,6 +25,7 @@ import type {
 } from "@kilnai/core";
 import {
   adoptManagedEconomicSnapshot,
+  createAccountRef,
   createAccountPolicyId,
   createManagedAccountAffinityKey,
   createProviderModelEvidence,
@@ -33,6 +34,7 @@ import {
   defineManagedAgentWriteScope,
   deriveProviderModelEligibility,
   digestManagedEconomicValue,
+  isDirectProviderId,
 } from "@kilnai/core";
 import {
   createAttachedRuntimeBuiltinToolSurface,
@@ -41,6 +43,7 @@ import {
   type ClaudeCodeExecutableResolution,
   ManagedCliHarnessAdapter,
   ManagedCommittedRouteMismatchError,
+  ManagedEconomicDispatchCoordinator,
   ManagedJobApplicationError,
   ManagedFilesystemRuntimeRecoveryStore,
   ManagedGitWorktreeLeaseManager,
@@ -78,6 +81,7 @@ import type {
   ProviderId,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
+import type { DirectProviderAccountBinding } from "../wrapper/direct-provider-adapter-factory.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "../application/agent-loader.js";
 import { readSkillCatalogStatus } from "./skill-catalog-status.js";
@@ -129,7 +133,10 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly resolveClaudeExecutable?: () => ClaudeCodeExecutableResolution | undefined;
   readonly providerModelEligibility?: ManagedAgentProviderModelCatalogDiagnostics;
   readonly includeUnavailableRoutes?: boolean;
-  readonly directAdapterFactory?: (route: KilnManagedAgentRouteConfig) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
+  readonly directAdapterFactory?: (
+    route: KilnManagedAgentRouteConfig,
+    accountBinding?: DirectProviderAccountBinding,
+  ) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly builtinToolOptions?: BuiltinToolOptionsSource;
   readonly artifactStore?: ArtifactResourceStore;
   readonly invocationService?: RuntimeManagedAgentInvocationService;
@@ -175,10 +182,22 @@ export interface ManagedAccountRuntimeComposition {
   close(): void;
 }
 
+export type ManagedEconomicAdoptionSubject = Pick<
+  ManagedJobRecordV6,
+  | "economicPolicyId"
+  | "economicPolicyRevision"
+  | "candidateSet"
+  | "constraints"
+  | "adoptedDecisionAt"
+  | "projectId"
+  | "callerId"
+  | "parent"
+>;
+
 /** Projects validated config and persisted admission into immutable Core evidence. */
 export async function projectManagedEconomicJobAdoption(
   config: ManagedAgentRouteConfigSource,
-  job: ManagedJobRecordV6,
+  job: ManagedEconomicAdoptionSubject,
   routing: ConfiguredManagedAccountRuntime,
 ): Promise<ManagedJobEconomicAdoption> {
   const managed = config.managedAgents;
@@ -360,7 +379,7 @@ export async function projectManagedEconomicJobAdoption(
 }
 
 function managedEconomicAffinityRequest(
-  job: ManagedJobRecordV6,
+  job: ManagedEconomicAdoptionSubject,
   routeId: string,
   policy: Exclude<Awaited<ReturnType<ConfiguredManagedAccountRuntime["resolve"]>>["affinityPolicy"], { continuity: "none" }>,
 ) {
@@ -555,6 +574,14 @@ export async function resolveManagedInvocationToolOptions(
   const invocationServiceKey = executionComposition
     ? managedInvocationServiceKey(config, context.cwd)
     : undefined;
+  const economicDispatch = managedAccountComposition
+    ? createManagedEconomicDispatchComposition(
+        config,
+        context.cwd,
+        routes,
+        managedAccountComposition,
+      ).port
+    : undefined;
 
   return {
     routeHealth,
@@ -574,6 +601,7 @@ export async function resolveManagedInvocationToolOptions(
         ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
         ...(invocationService ? { invocationService } : {}),
         ...(invocationService && invocationServiceKey ? { invocationServiceKey } : {}),
+        ...(economicDispatch ? { economicDispatch } : {}),
         contextResolver: createManagedInvocationContextResolver(context.cwd, userHome, {
           skillConfig: config.skills,
           modelTaskSuitability: config.modelTaskSuitability,
@@ -581,6 +609,62 @@ export async function resolveManagedInvocationToolOptions(
       },
     } : {}),
   };
+}
+
+export function createManagedEconomicDispatchComposition(
+  config: ManagedAgentRouteConfigSource,
+  cwd: string,
+  routes: readonly ManagedInvocationToolRoute[],
+  composition: ManagedAccountRuntimeComposition,
+): {
+  readonly coordinator: ManagedEconomicDispatchCoordinator;
+  readonly port: NonNullable<ManagedInvocationToolOptions["economicDispatch"]>;
+} {
+  const coordinator = new ManagedEconomicDispatchCoordinator({
+    authority: {
+      acquire: (input) => composition.authority.acquireCommitment(input),
+      releasePreFence: (jobId, economicAttemptId) =>
+        composition.authority.releaseCommitmentPreFence(jobId, economicAttemptId),
+      fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) =>
+        composition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId),
+      settleSuccessfulExecution: (jobId, economicAttemptId, dispatchFenceId) =>
+        composition.authority.settleSuccessfulExecution(jobId, economicAttemptId, dispatchFenceId),
+      recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
+        composition.authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
+    },
+    createAdapter: async (request) => {
+      const routeId = request.commitment.reservation.selectedIdentity.route.routeId;
+      const route = routes.find((candidate) => candidate.routeId === routeId);
+      if (!route?.createCommittedAdapter) {
+        throw new Error(`Committed managed economic route '${routeId}' has no postcommit adapter factory.`);
+      }
+      return await route.createCommittedAdapter(request);
+    },
+  });
+  const projectId = `project-${createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 32)}`;
+  return { coordinator, port: {
+    prepare: async (input) => {
+      const adoption = await projectManagedEconomicJobAdoption(config, {
+        economicPolicyId: input.candidateSet.economicPolicyId,
+        economicPolicyRevision: input.candidateSet.economicPolicyRevision,
+        candidateSet: input.candidateSet,
+        constraints: input.candidateSet.constraints,
+        adoptedDecisionAt: input.adoptedDecisionAt,
+        projectId,
+        callerId: input.parentSessionId,
+        parent: {
+          invocationId: input.parentSessionId,
+          turnId: input.parentTurnId,
+        },
+      }, composition.routing);
+      return await coordinator.prepare({
+        jobId: input.jobId,
+        economicAttemptId: input.economicAttemptId,
+        intentFingerprint: input.intentFingerprint,
+        adoption,
+      });
+    },
+  } };
 }
 
 function validateManagedAgentEconomicPolicyBindings(
@@ -594,6 +678,8 @@ function validateManagedAgentEconomicPolicyBindings(
   const failures: ManagedAgentProfileHealth[] = [];
   for (const agent of agents) {
     if (agent.mode !== "managed-child" && agent.mode !== "all") continue;
+    const configuredRoute = agent.routeId ? configuredRoutes.get(agent.routeId) : undefined;
+    if (configuredRoute?.kind === "harness") continue;
     if (!agent.economicPolicyId) {
       failures.push({
         agentName: agent.name,
@@ -1571,6 +1657,7 @@ async function resolveDirectRouteConfig(
       ? {
           createCommittedAdapter: async (request: ManagedCommittedInvocationRequest) => {
             const committedRoute = request.commitment.reservation.selectedIdentity.route;
+            const committedAccount = request.commitment.reservation.selectedIdentity.account;
             if (
               committedRoute.routeId !== routeConfig.id
               || committedRoute.providerId !== routeConfig.provider
@@ -1586,7 +1673,29 @@ async function resolveDirectRouteConfig(
                 },
               });
             }
-            return await context.directAdapterFactory?.(routeConfig);
+            let accountBinding: DirectProviderAccountBinding | undefined;
+            if (committedAccount.kind === "account-bound") {
+              const accountComposition = context.managedAccountComposition
+                ?? createManagedAccountRuntimeComposition(config, context.cwd);
+              if (
+                routeConfig.credentials?.mode !== "runtime-selected"
+                || !accountComposition
+                || !isDirectProviderId(routeConfig.provider)
+              ) {
+                throw new Error("Committed account-bound managed route has no process-owned account authority.");
+              }
+              accountBinding = await accountComposition.routing.resolveCommittedAccountBinding({
+                accountPolicyId: routeConfig.credentials.accountPolicyId,
+                providerId: routeConfig.provider,
+                model,
+                capacityIdentity: committedAccount.capacityIdentity,
+                accountRef: createAccountRef(committedAccount.accountRef),
+                credentialRevisionId: committedAccount.credentialRevision,
+              });
+            } else if (routeConfig.credentials?.mode !== "credentialless") {
+              throw new Error("Accountless managed commitment does not match the configured credential route.");
+            }
+            return await context.directAdapterFactory?.(routeConfig, accountBinding);
           },
         }
       : {}),
@@ -1954,6 +2063,19 @@ export function createManagedAccountRuntimeComposition(
   const authority = new SqliteManagedAccountLeaseAuthority({
     path: join(runtimeDirectory, "managed-account-leases.sqlite"),
   });
+  try {
+    for (const commitment of authority.recoverCommitments()) {
+      if (commitment.state === "held") {
+        authority.releaseCommitmentPreFence(
+          commitment.commitment.reservation.jobId,
+          commitment.commitment.reservation.economicAttemptId,
+        );
+      }
+    }
+  } catch (error) {
+    authority.close();
+    throw new Error("Managed account startup recovery failed.", { cause: error });
+  }
   const composition: ManagedAccountRuntimeComposition = {
     routing,
     authority,

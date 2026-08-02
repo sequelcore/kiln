@@ -14,6 +14,7 @@ import type {
   IKilnSession,
   KilnPermissionPolicy,
 } from "./session.js";
+import { NativeToolEventIdentity } from "./session.js";
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
@@ -135,6 +136,8 @@ export class ClaudeSession implements IKilnSession {
 
   private readonly _capabilities: MutableCapabilities & Omit<SessionCapabilities, "supportedTools">;
   private abortController: AbortController | null = null;
+  private activeQuery: Query | null = null;
+  private readonly queryClosures = new WeakMap<Query, Promise<void>>();
 
   constructor(private readonly config: ClaudeSessionConfig) {
     this.sessionId = config.runtimeSessionId ?? randomUUID();
@@ -239,12 +242,18 @@ export class ClaudeSession implements IKilnSession {
       prompt: options.prompt,
       options: sdkOptions,
     });
+    this.activeQuery = queryInstance;
 
     let initReceived = false;
     let initializedModel: string | undefined;
     let initializedHarnessVersion: string | undefined;
     let totalCostUsd = 0;
     const startTime = Date.now();
+    const toolIdentity = new NativeToolEventIdentity({
+      providerId: "claude-code",
+      kilnSessionId: options.kilnSessionId ?? this.sessionId,
+      turnId: options.turnId ?? "turn:1",
+    });
 
     try {
       for await (const message of queryInstance) {
@@ -263,6 +272,7 @@ export class ClaudeSession implements IKilnSession {
             message?: {
               content?: Array<{
                 type: string;
+                id?: string;
                 text?: string;
                 name?: string;
                 input?: unknown;
@@ -279,18 +289,68 @@ export class ClaudeSession implements IKilnSession {
             } else if (block.type === "text" && block.text !== undefined) {
               yield { type: "text_delta", content: block.text };
             } else if ((block.type === "tool_use" || block.type === "mcp_tool_use") && block.name) {
+              const identity = toolIdentity.start(block.name, block.id);
+              if (!identity.emit) continue;
               if (block.type === "mcp_tool_use") {
                 yield {
                   type: "tool_use",
+                  toolCallId: identity.toolCallId,
+                  toolCallScopeId: identity.toolCallScopeId,
                   toolName: block.name,
                   input: block.input,
                   source: "mcp",
                   mcpSelector: normalizeMcpSelector(block.name),
                 };
               } else {
-                yield { type: "tool_use", toolName: block.name, input: block.input };
+                yield {
+                  type: "tool_use",
+                  toolCallId: identity.toolCallId,
+                  toolCallScopeId: identity.toolCallScopeId,
+                  toolName: block.name,
+                  input: block.input,
+                };
               }
             }
+          }
+          continue;
+        }
+
+        if (message.type === "user") {
+          const userMessage = message as {
+            message?: {
+              content?: string | Array<{
+                type: string;
+                tool_use_id?: string;
+                content?: unknown;
+                is_error?: boolean;
+              }>;
+            };
+          };
+          const blocks = Array.isArray(userMessage.message?.content) ? userMessage.message.content : [];
+          for (const block of blocks) {
+            if (block.type !== "tool_result") continue;
+            const completion = toolIdentity.complete(
+              block.tool_use_id === undefined ? "claude_tool" : undefined,
+              block.tool_use_id,
+            );
+            if (!completion.emit) continue;
+            if (completion.startRequired) {
+              yield {
+                type: "tool_use",
+                toolCallId: completion.toolCallId,
+                toolCallScopeId: completion.toolCallScopeId,
+                toolName: completion.toolName,
+                input: {},
+              };
+            }
+            yield {
+              type: "tool_result",
+              toolCallId: completion.toolCallId,
+              toolCallScopeId: completion.toolCallScopeId,
+              toolName: completion.toolName,
+              output: stringifyClaudeToolResult(block.content),
+              ...(block.is_error === true ? { isError: true } : {}),
+            };
           }
           continue;
         }
@@ -416,15 +476,29 @@ export class ClaudeSession implements IKilnSession {
         isRetryable: false,
       };
     } finally {
+      await this.closeQuery(queryInstance);
+      if (this.activeQuery === queryInstance) {
+        this.activeQuery = null;
+      }
       this.abortController = null;
     }
   }
 
   async dispose(): Promise<void> {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
+    this.abortController?.abort();
+    this.abortController = null;
+    await this.closeQuery(this.activeQuery);
+  }
+
+  private closeQuery(query: Query | null): Promise<void> {
+    if (query === null) return Promise.resolve();
+    const existing = this.queryClosures.get(query);
+    if (existing !== undefined) return existing;
+    const closure = Promise.resolve()
+      .then(() => query.return(undefined))
+      .then(() => undefined);
+    this.queryClosures.set(query, closure);
+    return closure;
   }
 }
 
@@ -432,4 +506,10 @@ function normalizedOptionalText(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function stringifyClaudeToolResult(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "";
+  return JSON.stringify(value);
 }

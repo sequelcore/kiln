@@ -31,6 +31,7 @@ import {
   ManagedAgentRuntimeRecoveryDaemon,
   ManagedAgentWorktreeReviewRequiredError,
   ManagedRuntimeSandboxLeaseManager,
+  MANAGED_AGENT_OWNER_TIMEOUT_SETTLEMENT_GRACE_MS,
   RuntimeManagedAgentInvocationService,
   createManagedAgentInvocationResourceProvider,
   validateManagedAgentRuntimeRecoveryCheckpoint,
@@ -4400,16 +4401,25 @@ describe("RuntimeManagedAgentInvocationService", () => {
       const validCheckpoint = JSON.parse(await readFile(originalPath, "utf-8")) as RecoveryCheckpointJson;
       const missingRouteSource = JSON.parse(JSON.stringify(validCheckpoint)) as RecoveryCheckpointJson;
       delete missingRouteSource.decision.capabilitySnapshot.routeSource;
+      const explicitRouteTimeoutSource = JSON.parse(JSON.stringify(validCheckpoint)) as RecoveryCheckpointJson;
+      explicitRouteTimeoutSource.request.authority.timeoutSource = "explicit-route";
+      const defaultTimeoutSource = JSON.parse(JSON.stringify(validCheckpoint)) as RecoveryCheckpointJson;
+      defaultTimeoutSource.request.authority.timeoutSource = "default";
       const requestTimeoutSource = JSON.parse(JSON.stringify(validCheckpoint)) as RecoveryCheckpointJson;
       requestTimeoutSource.request.authority.timeoutSource = "request";
 
       await rm(originalPath, { force: true });
       await writeFile(join(rootPath, "missing-route-source.json"), JSON.stringify(missingRouteSource), "utf-8");
+      await writeFile(join(rootPath, "explicit-route-timeout-source.json"), JSON.stringify(explicitRouteTimeoutSource), "utf-8");
+      await writeFile(join(rootPath, "default-timeout-source.json"), JSON.stringify(defaultTimeoutSource), "utf-8");
       await writeFile(join(rootPath, "request-timeout-source.json"), JSON.stringify(requestTimeoutSource), "utf-8");
 
       const checkpoints = await recoveryStore.listRecoverable();
 
-      expect(checkpoints).toEqual([]);
+      expect(checkpoints.map((checkpoint) => checkpoint.request.authority.timeoutSource)).toEqual([
+        "default",
+        "explicit-route",
+      ]);
       const quarantined = await readdir(join(rootPath, "quarantine"));
       expect(quarantined.some((fileName) => fileName.endsWith(".missing-route-source.json"))).toBe(true);
       expect(quarantined.some((fileName) => fileName.endsWith(".request-timeout-source.json"))).toBe(true);
@@ -4421,7 +4431,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
           ) as Record<string, unknown>),
       )).map((metadata) => String(metadata.reason)).join("\n");
       expect(metadataReasons).toContain("Unsupported managed capability snapshot route source");
-      expect(metadataReasons).toContain("Unsupported managed invocation timeout source");
+      expect(metadataReasons).toContain("timeout source");
 
       terminal.resolve(makeRecordForRequest(
         request,
@@ -5141,6 +5151,112 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
   });
 
+  it("releases a prepared economic commitment exactly once on admission denial or pre-effect observation failure", async () => {
+    const request = makeRequest();
+    const commitment = {
+      reservation: {
+        selectedIdentity: {
+          route: {
+            routeId: "opencode:managed-test-route",
+            providerId: "opencode",
+            modelId: "sonic",
+            accountPolicyId: null,
+          },
+          account: { kind: "accountless" },
+        },
+      },
+    } as never;
+    const deniedRelease = vi.fn();
+    const denied = await new RuntimeManagedAgentInvocationService().start(
+      request,
+      {
+        descriptor: makeDescriptor({ supportedProfiles: ["foundation-propose-writes"] }),
+        invoke: vi.fn(),
+      },
+      makeSnapshotInput(),
+      {
+        economicDispatch: {
+          commitment,
+          beforeProviderEffect: vi.fn(),
+          releaseBeforeProviderEffect: deniedRelease,
+          registerExecutionSettlement: vi.fn(),
+        },
+      },
+    );
+    expect(denied.status).toBe("denied");
+    expect(deniedRelease).toHaveBeenCalledOnce();
+
+    const observationRelease = vi.fn();
+    const throwing = new RuntimeManagedAgentInvocationService({
+      authorityObserver: { observe: vi.fn(async () => { throw new Error("synthetic observation failure"); }) },
+    });
+    const observationStarted = await throwing.start(request, {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(),
+    }, makeSnapshotInput(), {
+      economicDispatch: {
+        commitment,
+        beforeProviderEffect: vi.fn(),
+        releaseBeforeProviderEffect: observationRelease,
+        registerExecutionSettlement: vi.fn(),
+      },
+    });
+    expect(observationStarted.status).toBe("started");
+    await expect(throwing.join(request.invocationId)).resolves.toMatchObject({
+      status: "completed",
+      record: { lifecycleState: "failed" },
+    });
+    expect(observationRelease).toHaveBeenCalledOnce();
+  });
+
+  it("records and observes one terminal failure when post-adapter handoff validation fails", async () => {
+    const request = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      input: {
+        summary: "Inspect the contract",
+        handoff: {
+          roleIntent: "managed reviewer",
+          requiredResultFields: ["verificationResults"],
+        },
+      },
+    });
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeReadonlyRecordForRequest(
+        request,
+        admission.capabilitySnapshot,
+      )),
+    };
+    const terminalObserver = vi.fn();
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const started = await service.start(request, adapter, makeSnapshotInput(), { terminalObserver });
+    expect(started.status).toBe("started");
+    await expect(service.join(request.invocationId)).rejects.toThrow(
+      "missing required structured fields: verificationResults",
+    );
+    await flushMicrotasks();
+
+    expect(service.status(request.invocationId)).toMatchObject({
+      lifecycleState: "failed",
+      record: {
+        lifecycleState: "failed",
+        resultHandoff: {
+          summary: expect.stringContaining("missing required structured fields: verificationResults"),
+        },
+      },
+    });
+    expect(terminalObserver).toHaveBeenCalledTimes(1);
+    expect(terminalObserver).toHaveBeenCalledWith(expect.objectContaining({
+      record: expect.objectContaining({ lifecycleState: "failed" }),
+    }));
+
+    await expect(service.join(request.invocationId)).rejects.toThrow(
+      "missing required structured fields: verificationResults",
+    );
+    expect(terminalObserver).toHaveBeenCalledTimes(1);
+  });
+
   it("cancels a running invocation by aborting the adapter and suppressing late adapter failure", async () => {
     const terminal = deferred<ManagedAgentInvocationRecord>();
     let adapterSignal: AbortSignal | undefined;
@@ -5183,6 +5299,122 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(joined.record.lifecycleState).toBe("cancelled");
     expect(service.status("invocation-1")?.record?.lifecycleState).toBe("cancelled");
     expect(service.status("invocation-1")?.error).toBeUndefined();
+  });
+
+  it("shuts down only invocations owned by one attached surface and awaits child execution settlement", async () => {
+    const owner = {};
+    const unrelatedOwner = {};
+    const ownedSettlement = deferred<void>();
+    let ownedSignal: AbortSignal | undefined;
+    let unrelatedSignal: AbortSignal | undefined;
+    const terminalObserver = vi.fn();
+    const ownedRequest = makeRequest();
+    const unrelatedRequest = defineManagedAgentInvocationRequest({
+      ...makeRequest(),
+      invocationId: "invocation-2",
+      agentId: "agent-unrelated",
+      parentSessionId: "session-unrelated",
+    });
+    const ownedAdapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ abortSignal, registerExecutionSettlement }) => {
+        ownedSignal = abortSignal;
+        registerExecutionSettlement(ownedSettlement.promise);
+        await ownedSettlement.promise;
+        throw new Error("owned provider execution settled after cancellation");
+      }),
+    };
+    const unrelatedTerminal = deferred<ManagedAgentInvocationRecord>();
+    const unrelatedAdapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ request, admission, abortSignal }) => {
+        unrelatedSignal = abortSignal;
+        await unrelatedTerminal.promise;
+        return makeReadonlyRecordForRequest(request, admission.capabilitySnapshot);
+      }),
+    };
+    const service = new RuntimeManagedAgentInvocationService();
+
+    await service.start(ownedRequest, ownedAdapter, makeSnapshotInput(), {
+      owner,
+      terminalObserver,
+    });
+    await service.start(unrelatedRequest, unrelatedAdapter, makeSnapshotInput({
+      routeId: "opencode:unrelated-route",
+    }), { owner: unrelatedOwner });
+
+    let shutdownSettled = false;
+    const shutdown = service.shutdownOwner(owner, "Parent provider session disposed.")
+      .then((snapshots) => {
+        shutdownSettled = true;
+        return snapshots;
+      });
+    await flushMicrotasks();
+
+    expect(ownedSignal?.aborted).toBe(true);
+    expect(unrelatedSignal?.aborted).toBe(false);
+    expect(shutdownSettled).toBe(false);
+    expect(service.status(ownedRequest.invocationId)?.lifecycleState).toBe("cancelled");
+    expect(service.status(unrelatedRequest.invocationId)?.lifecycleState).toBe("running");
+
+    ownedSettlement.resolve();
+    const stopped = await shutdown;
+
+    expect(stopped.map((snapshot) => snapshot.invocationId)).toEqual([ownedRequest.invocationId]);
+    expect(stopped[0]?.record?.resultHandoff?.summary).toBe("Parent provider session disposed.");
+    expect(terminalObserver).toHaveBeenCalledTimes(1);
+
+    await service.shutdownOwner(owner, "Repeated disposal must be idempotent.");
+    expect(terminalObserver).toHaveBeenCalledTimes(1);
+    expect(unrelatedSignal?.aborted).toBe(false);
+
+    unrelatedTerminal.resolve(makeReadonlyRecordForRequest(unrelatedRequest));
+    await service.join(unrelatedRequest.invocationId);
+  });
+
+  it("bounds owner shutdown after a timed-out provider leaves raw execution settlement unresolved", async () => {
+    vi.useFakeTimers();
+    try {
+      const owner = {};
+      const rawSettlement = deferred<void>();
+      const observerSettlement = deferred<void>();
+      const request = makeRequest();
+      const service = new RuntimeManagedAgentInvocationService();
+      const started = await service.start(request, {
+        descriptor: makeDescriptor(),
+        invoke: async ({ admission, registerExecutionSettlement }) => {
+          registerExecutionSettlement(rawSettlement.promise);
+          return defineManagedAgentInvocationRecord({
+            ...makeRecord(admission.capabilitySnapshot),
+            lifecycleState: "timed_out",
+          });
+        },
+      }, makeSnapshotInput(), {
+        owner,
+        terminalObserver: async () => await observerSettlement.promise,
+      });
+      expect(started.status).toBe("started");
+      await service.join(request.invocationId);
+
+      let shutdownSettled = false;
+      const shutdown = service.shutdownOwner(owner).then((result) => {
+        shutdownSettled = true;
+        return result;
+      });
+      await vi.advanceTimersByTimeAsync(MANAGED_AGENT_OWNER_TIMEOUT_SETTLEMENT_GRACE_MS);
+
+      expect(shutdownSettled).toBe(false);
+      observerSettlement.resolve();
+      await expect(shutdown).resolves.toMatchObject([{
+        invocationId: request.invocationId,
+        lifecycleState: "timed_out",
+      }]);
+      expect(service.status(request.invocationId)?.lifecycleState).toBe("timed_out");
+
+      rawSettlement.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("honors a pre-aborted parent signal without invoking the adapter", async () => {

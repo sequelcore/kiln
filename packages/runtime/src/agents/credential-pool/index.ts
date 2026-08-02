@@ -79,6 +79,7 @@ export type {
   CodexOAuthExecutionCredential,
   CodexOAuthPoolCredential,
   CreateCodexOAuthPooledAdapterOptions,
+  CreateExactCodexOAuthAdapterOptions,
   LinkCodexOAuthCredentialOptions,
 } from "./codex-oauth-credential-pool.js";
 
@@ -89,6 +90,7 @@ export {
 } from "./opencode-credential-pool.js";
 export type {
   CreateOpenCodePooledAdapterOptions,
+  CreateExactOpenCodeAdapterOptions,
   LinkOpenCodeCredentialOptions,
   OpenCodeCredentialPoolServiceConfig,
   OpenCodeCredentialStatus,

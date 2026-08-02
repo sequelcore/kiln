@@ -11,6 +11,7 @@ import {
   WORK_CLASSIFICATION_MODES,
   defineManagedAgentInvocationRequest,
   defineWorkClassification,
+  digestManagedEconomicValue,
   isKilnWorkGovernanceEvidence,
   projectStructuredExecutionResult,
   resolveEvidenceRealization,
@@ -68,6 +69,7 @@ import {
 import type {
   ManagedAgentRuntimeAdapter,
   ManagedAgentRuntimeInvocationResult,
+  ManagedAgentRuntimeInvocationLifecycleOptions,
   ManagedAgentRuntimeInvocationSnapshot,
   ManagedAgentRuntimeInvocationTerminalNotification,
 } from "./index.js";
@@ -82,6 +84,7 @@ import {
   buildManagedInvocationPhaseRecovery,
   managedInvocationFailureReasonFromStatus,
 } from "./phase-recovery.js";
+import type { ManagedEconomicDispatchPreparation } from "./economic-dispatch-coordinator.js";
 import {
   projectManagedInvocationAuthorityResources,
   projectManagedInvocationCapabilitySnapshotResources,
@@ -205,6 +208,19 @@ export interface ManagedInvocationToolOptions {
   readonly maxParallelChildren?: number;
   readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly pauseRequirementResolver?: ManagedInvocationPauseRequirementResolver;
+  /** Unique in-process owner used to stop only children created by one attached surface. */
+  readonly invocationOwner?: object;
+  readonly economicDispatch?: {
+    prepare(input: {
+      readonly candidateSet: ManagedEconomicCandidateSet;
+      readonly jobId: string;
+      readonly economicAttemptId: string;
+      readonly intentFingerprint: string;
+      readonly adoptedDecisionAt: string;
+      readonly parentSessionId: string;
+      readonly parentTurnId: string;
+    }): Promise<ManagedEconomicDispatchPreparation>;
+  };
 }
 
 export type ManagedInvocationPauseRequirementResolver = (
@@ -1168,7 +1184,7 @@ export function createManagedInvocationLifecycleToolExecutors(
     [MANAGED_AGENT_LIST_TOOL_NAME, async (_input, context) => executeManagedInvocationListTool(context, service)],
     [MANAGED_AGENT_JOIN_TOOL_NAME, async (input, context) => executeManagedInvocationJoinTool(input, context, options, service)],
     [MANAGED_AGENT_CANCEL_TOOL_NAME, async (input, context) => executeManagedInvocationCancelTool(input, context, options, service)],
-    [MANAGED_AGENT_ORCHESTRATE_TOOL_NAME, async (input, context) => executeManagedAgentOrchestrationTool(input, context, {
+    [MANAGED_AGENT_ORCHESTRATE_TOOL_NAME, async (input, context) => executeManagedAgentOrchestrationTool(input, context, attachment.callerIdentity, {
       ...options,
       invocationService: service,
     })],
@@ -1412,6 +1428,7 @@ interface PreparedManagedInvocationRequest {
   readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
   readonly capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput;
   readonly canonicalizedForbiddenInputFields?: readonly string[];
+  readonly lifecycleOptions?: ManagedAgentRuntimeInvocationLifecycleOptions;
 }
 
 function canonicalizeManagedInvocationRawInput(
@@ -1593,17 +1610,112 @@ async function prepareManagedInvocationRequest(
       requiresNetwork: (parsed.input.requiredToolNames ?? []).some(requiresNetworkCapability),
       requiresWrite: parsed.input.profile !== "foundation-readonly-plan",
     }, options.routes, options.unavailableRoutes);
+    if (!options.economicDispatch) {
+      return {
+        ok: false,
+        result: errorResult(
+          "Managed economic invocation requires a durable route commitment before execution.",
+          { errorCode: "economic_commitment_unavailable", status: "denied", candidateSet },
+          toolName,
+        ),
+      };
+    }
+    const economicIdentity = digestManagedEconomicValue({
+      parentSessionId: context.session.id,
+      parentTurnId: context.turnId ?? context.toolCall.id,
+      toolCallId: context.toolCall.id,
+      configuredAgentProfileId: agentProfile.name,
+      profile: parsed.input.profile,
+      task: parsed.input.task,
+      summary: parsed.input.summary,
+      candidateSet,
+    }).slice("sha256:".length);
+    const economicPreparation = await options.economicDispatch.prepare({
+      candidateSet,
+      jobId: `managed-economic-job:${economicIdentity}`,
+      economicAttemptId: `economic-attempt:${economicIdentity}`,
+      intentFingerprint: digestManagedEconomicValue({ candidateSet, economicIdentity }),
+      adoptedDecisionAt: context.session.createdAt.toISOString(),
+      parentSessionId: context.session.id,
+      parentTurnId: context.turnId ?? context.toolCall.id,
+    });
+    if (economicPreparation.status !== "prepared") {
+      return {
+        ok: false,
+        result: errorResult(
+          economicPreparation.status === "already-dispatched"
+            ? "Managed economic invocation was already dispatch-fenced; replay will not dispatch it again."
+            : "Managed economic authority denied every admitted candidate.",
+          {
+            errorCode: economicPreparation.status === "already-dispatched"
+              ? "managed_economic_replay_fenced"
+              : "economic_commitment_unavailable",
+            status: "denied",
+            candidateSet,
+          },
+          toolName,
+        ),
+      };
+    }
+    const selected = economicPreparation.commitment.reservation.selectedIdentity.route;
+    const committedRoute = options.routes.find((route) =>
+      route.routeId === selected.routeId
+      && route.providerId === selected.providerId
+      && route.model === selected.modelId);
+    if (!committedRoute) {
+      throw new ManagedCommittedRouteMismatchError({
+        code: "committed-route-mismatch",
+        expected: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
+        committed: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
+      });
+    }
+    const fixedAgentCatalog = options.agentCatalog?.map((entry) => {
+      if (entry.name !== agentProfile.name) return entry;
+      const {
+        economicPolicyId: _economicPolicyId,
+        economicPolicyRevision: _economicPolicyRevision,
+        economicPolicyCandidateRouteIds: _economicPolicyCandidateRouteIds,
+        ...fixed
+      } = entry;
+      return {
+        ...fixed,
+        routeId: selected.routeId,
+        providerRoute: { providerId: selected.providerId, model: selected.modelId },
+      };
+    });
+    const recursivelyPrepared = await prepareManagedInvocationRequest({
+      ...rawInput,
+      routeId: selected.routeId,
+      providerRoute: {
+        ...parsed.input.providerRoute,
+        providerId: selected.providerId,
+        model: selected.modelId,
+      },
+    }, context, {
+      ...attachment,
+      options: {
+        ...options,
+        routes: options.routes.map((route) => route.routeId === committedRoute.routeId
+          ? { ...route, adapter: economicPreparation.adapter }
+          : route),
+        ...(fixedAgentCatalog ? { agentCatalog: fixedAgentCatalog } : {}),
+      },
+    }, toolName, "already-admitted");
+    if (!recursivelyPrepared.ok) return recursivelyPrepared;
     return {
-      ok: false,
-      result: errorResult(
-        "Managed economic invocation requires a durable route commitment before execution.",
-        {
-          errorCode: "economic_commitment_unavailable",
-          status: "denied",
-          candidateSet,
+      ok: true,
+      prepared: {
+        ...recursivelyPrepared.prepared,
+        canonicalizedRawInput: canonicalizedRawInput.input,
+        lifecycleOptions: {
+          economicDispatch: {
+            commitment: economicPreparation.commitment,
+            beforeProviderEffect: economicPreparation.beforeProviderEffect,
+            releaseBeforeProviderEffect: economicPreparation.releaseBeforeProviderEffect,
+            registerExecutionSettlement: economicPreparation.registerExecutionSettlement,
+          },
         },
-        toolName,
-      ),
+      },
     };
   }
   if (!parsed.input.providerRoute.providerId) {
@@ -2191,7 +2303,11 @@ async function executeManagedInvocationTool(
     prepared.request,
     prepared.route.adapter,
     prepared.capabilitySnapshotInput,
-    prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {},
+    {
+      ...prepared.lifecycleOptions,
+      ...(options.invocationOwner ? { owner: options.invocationOwner } : {}),
+      ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
+    },
   );
   const startEvents = await appendAndPublishManagedInvocationStartSessionEvents({
     options,
@@ -2255,7 +2371,42 @@ async function executeManagedInvocationTool(
       },
     };
   }
-  const invocationResult = await service.join(startResult.snapshot.invocationId);
+  let invocationResult: Awaited<ReturnType<RuntimeManagedAgentInvocationService["join"]>>;
+  try {
+    invocationResult = await service.join(startResult.snapshot.invocationId);
+  } catch (error) {
+    const terminalizedSnapshot = service.status(prepared.request.invocationId);
+    if (terminalizedSnapshot?.record === undefined) {
+      throw error;
+    }
+    const terminalEvents = await appendAndPublishManagedInvocationTerminalSessionEvent({
+      options,
+      context: prepared.context,
+      request: terminalizedSnapshot.request,
+      record: terminalizedSnapshot.record,
+      ...(terminalizedSnapshot.durationMs !== undefined
+        ? { durationMs: terminalizedSnapshot.durationMs }
+        : {}),
+    });
+    const record = projectManagedInvocationRecordResources(terminalizedSnapshot.record, {
+      artifactStore: options.artifactStore,
+    });
+    return terminalManagedInvocationResult({
+      toolName: MANAGED_AGENT_INVOKE_TOOL_NAME,
+      rawInput: prepared.canonicalizedRawInput,
+      routeId: terminalizedSnapshot.decision.capabilitySnapshot.routeId,
+      voiceProfile: terminalizedSnapshot.decision.capabilitySnapshot.childIdentity.voiceProfile,
+      contextMode: terminalizedSnapshot.decision.capabilitySnapshot.contextMode,
+      request: terminalizedSnapshot.request,
+      record,
+      pauseRequirementResolver: options.pauseRequirementResolver,
+      progressEvents: terminalizedSnapshot.progressEvents,
+      ...(prepared.canonicalizedForbiddenInputFields
+        ? { canonicalizedForbiddenInputFields: prepared.canonicalizedForbiddenInputFields }
+        : {}),
+      sessionEventIds: [...startEvents, ...terminalEvents].map((event) => event.eventId),
+    });
+  }
   if (invocationResult.status !== "completed") {
     throw new Error("Admitted managed invocation returned a denied terminal result.");
   }
@@ -2333,6 +2484,8 @@ async function executeManagedInvocationStartTool(
       prepared.route.adapter,
       prepared.capabilitySnapshotInput,
       {
+        ...prepared.lifecycleOptions,
+        ...(options.invocationOwner ? { owner: options.invocationOwner } : {}),
         ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
         terminalObserver: publishBackgroundTerminal,
       },
@@ -2520,6 +2673,7 @@ interface ResolvedManagedOrchestrationWorkItem extends ManagedOrchestrationWorkI
 async function executeManagedAgentOrchestrationTool(
   rawInput: Record<string, unknown>,
   context: RuntimeBuiltinToolExecutionContext | undefined,
+  callerIdentity: ManagedAgentCallerAttachmentIdentity,
   options: ManagedInvocationToolOptionsWithService,
 ): Promise<ManagedInvocationToolResult> {
   const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
@@ -2638,6 +2792,8 @@ async function executeManagedAgentOrchestrationTool(
       managedInvocation: options,
       profile,
       requestedAuthority: managedOrchestrationRequestedAuthority(profile),
+      callerIdentity,
+      economicAdoptedDecisionAt: session.context.session.createdAt.toISOString(),
       lifecycleObserver: {
         onAdmissionResolved: async ({ request, decision: admissionDecision }) => {
           await appendAndPublishManagedInvocationStartSessionEvents({
@@ -2838,9 +2994,9 @@ function eligibleManagedOrchestrationRoutes(
     return routeProfile !== undefined
       && routeProfile.workingDirectory.mode !== "workspace-write"
       && (routeProfile.workingDirectory.mode !== "isolated-worktree" || routeProfile.workingDirectoryLease !== undefined)
-      && route.adapter !== undefined
-      && route.adapter.descriptor.lifecycle.exposesStart
-      && route.adapter.descriptor.lifecycle.exposesTerminal;
+      && (route.adapter !== undefined
+        ? route.adapter.descriptor.lifecycle.exposesStart && route.adapter.descriptor.lifecycle.exposesTerminal
+        : options.economicDispatch !== undefined && route.economicCapability?.status === "verified");
   });
 }
 

@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  defineManagedAgentAdapterDescriptor,
+  defineManagedAgentInvocationRecord,
+} from "@kilnai/core";
 import {
   createManagedAgentOrchestrateToolDefinition,
   createManagedInvocationLifecycleToolExecutors,
@@ -72,9 +76,83 @@ describe("managed_agent.orchestrate", () => {
       },
     });
   });
+
+  it("dispatches adapterless economic children through the attached executor with stable caller-bound commitments", async () => {
+    const invoked = vi.fn();
+    const adapter = economicAdapter(invoked);
+    const prepare = vi.fn(async (input) => ({
+      status: "prepared" as const,
+      commitment: {
+        reservation: {
+          selectedIdentity: {
+            route: {
+              routeId: "economic-route",
+              providerId: "codex",
+              modelId: "gpt-test",
+              accountPolicyId: null,
+            },
+            account: { kind: "accountless" },
+          },
+        },
+      } as never,
+      adapter,
+      beforeProviderEffect: vi.fn(),
+      releaseBeforeProviderEffect: vi.fn(),
+      registerExecutionSettlement: (settlement: PromiseLike<unknown>) => void Promise.resolve(settlement),
+    }));
+    const input = {
+      profile: "foundation-readonly-plan",
+      taskRisk: "low",
+      requiresIndependentReview: false,
+      workItems: [
+        { id: "economic-a", roleIntent: "scout", task: "Inspect A.", agentProfile: "economic-worker" },
+        { id: "economic-b", roleIntent: "verifier", task: "Inspect B.", agentProfile: "economic-worker" },
+      ],
+    };
+    const result = await execute(input, {
+      routes: [economicRoute()],
+      agentCatalog: [{
+        name: "economic-worker",
+        role: "Economic worker",
+        goal: "Execute after durable economic commitment.",
+        tier: "reasoning",
+        authorityProfile: "foundation-readonly-plan",
+        economicPolicyId: "economic-policy",
+        economicPolicyRevision: "revision-001",
+        economicPolicyCandidateRouteIds: ["economic-route"],
+      }],
+      invocationService: new RuntimeManagedAgentInvocationService({
+        authorityObserver: {
+          observe: async () => ({
+            approval: "on-request" as const,
+            sandbox: "read-only" as const,
+            source: "runtime-observation" as const,
+            proof: "proven" as const,
+            observedAt: "2026-08-01T00:00:00.000Z",
+            validUntil: "2099-01-01T00:00:00.000Z",
+          }),
+        },
+      }),
+      economicDispatch: { prepare },
+    });
+
+    expect(result.isError, result.output).toBe(false);
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(invoked).toHaveBeenCalledTimes(2);
+    expect(prepare.mock.calls.map(([call]) => call.adoptedDecisionAt)).toEqual([
+      "2026-08-01T00:00:00.000Z",
+      "2026-08-01T00:00:00.000Z",
+    ]);
+    expect(prepare.mock.calls.map(([call]) => call.candidateSet)).toEqual([
+      expect.objectContaining({ candidates: [expect.objectContaining({ routeId: "economic-route" })], rejections: [] }),
+      expect.objectContaining({ candidates: [expect.objectContaining({ routeId: "economic-route" })], rejections: [] }),
+    ]);
+    expect(new Set(prepare.mock.calls.map(([call]) => call.jobId)).size).toBe(2);
+    expect(new Set(prepare.mock.calls.map(([call]) => call.economicAttemptId)).size).toBe(2);
+  });
 });
 
-async function execute(input: Record<string, unknown>): Promise<{
+async function execute(input: Record<string, unknown>, optionOverrides: ManagedInvocationToolAttachment["options"] = {}): Promise<{
   readonly output: string;
   readonly isError: boolean;
   readonly metadata: Record<string, unknown>;
@@ -84,19 +162,26 @@ async function execute(input: Record<string, unknown>): Promise<{
       routes: [],
       invocationService: new RuntimeManagedAgentInvocationService(),
       maxParallelChildren: 2,
+      ...optionOverrides,
     },
     callerIdentity: {
-      kind: "operator-surface",
+      kind: "kiln-runtime",
       surface: "test",
       attachmentId: "attachment:test",
-      evidenceId: "evidence:test",
     },
   };
   const executor = createManagedInvocationLifecycleToolExecutors(attachment)
     .get("managed_agent.orchestrate");
   if (!executor) throw new Error("managed_agent.orchestrate executor was not registered");
+  const sessionEvents: any[] = [];
   return await executor(input, {
-    session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
+    session: {
+      id: "session-test",
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+      get sessionEvents() { return sessionEvents; },
+      nextSessionEventSequence: () => sessionEvents.length + 1,
+      appendSessionEvents: (events: readonly unknown[]) => { sessionEvents.push(...events); },
+    } as RuntimeBuiltinToolExecutionContext["session"],
     turnId: "turn-test",
     toolCall: {
       id: "tool-call-test",
@@ -107,5 +192,68 @@ async function execute(input: Record<string, unknown>): Promise<{
     readonly output: string;
     readonly isError: boolean;
     readonly metadata: Record<string, unknown>;
+  };
+}
+
+function economicRoute() {
+  return {
+    routeId: "economic-route",
+    routeSource: "explicit-managed-route" as const,
+    providerId: "codex",
+    model: "gpt-test",
+    surface: "cli-harness" as const,
+    adapter: undefined,
+    economicPolicyIds: ["economic-policy"],
+    economicCapability: {
+      status: "verified" as const,
+      adapterCapabilityId: "codex-direct",
+      adapterCapabilityVersion: "1",
+    },
+    profiles: {
+      "foundation-readonly-plan": {
+        authorityProfileId: "authority:economic",
+        permissionProfile: "read-only" as const,
+        allowedToolNames: ["read", "grep"],
+        workingDirectory: { path: "C:/repo", mode: "read-only" as const },
+        timeoutMs: 1000,
+        credentialRoute: { mode: "credentialless" as const },
+        memoryScope: { scope: { kind: "project" as const, id: "test" }, access: "none" as const },
+      },
+    },
+  };
+}
+
+function economicAdapter(invoked: ReturnType<typeof vi.fn>) {
+  return {
+    descriptor: defineManagedAgentAdapterDescriptor({
+      adapterDescriptorId: "adapter:economic-test",
+      providerId: "codex",
+      adapterKind: "harness",
+      supportedProfiles: ["foundation-readonly-plan"],
+      supportedExecutionModes: ["cli-harness"],
+      lifecycle: { exposesStart: true, exposesTerminal: true, exposesCleanup: true },
+      cancellation: { supported: true }, timeout: { supported: true, diagnosticArtifactOnTimeout: true },
+      transcript: { supported: true, redactionKnown: true, truncationKnown: true, persistenceKnown: true, retentionKnown: true },
+      usage: { supported: true, preservesProviderTokenClasses: true, supportsExplicitUnknowns: true, tokenClasses: ["input"], semanticSourceGranularity: "unknown", evidenceBasis: "adapter" },
+      resultHandoff: { boundedSummary: true, resourcePointers: true }, credentialRoute: { supported: true },
+      memoryContext: { governedAdmission: true }, writeAuthority: { proposalSupported: true, approvedApplySupported: true, memoryProposalSupported: true, rollbackEvidence: true, cleanupEvidence: true, scopeReduction: true }, unsupportedFieldPolicy: "reject", cleanup: { supported: true },
+    }),
+    invoke: async ({ request, admission, registerExecutionSettlement }: any) => {
+      invoked(request.invocationId);
+      registerExecutionSettlement(Promise.resolve());
+      return defineManagedAgentInvocationRecord({
+        invocationId: request.invocationId, agentId: request.agentId, parentSessionId: request.parentSessionId, parentTurnId: request.parentTurnId,
+        profile: request.profile, lifecycleState: "completed", providerRoute: request.providerRoute, adapterKind: request.adapterKind,
+        executionMode: request.executionMode, authority: request.authority, capabilitySnapshot: admission.capabilitySnapshot,
+        resultHandoff: {
+          provenance: { delivery: "runtime-generated", configuredModelId: "gpt-test", observedModelIds: [] },
+          summary: "completed", resourceUris: ["kiln://test/economic-handoff"], memoryWriteProposalUris: [],
+          structuredResult: {
+            version: "structured-execution-result-v1", status: "completed", summary: "completed", uncertainty: 0,
+            limitations: [], operatorDecisions: [], evidence: [{ uri: "kiln://test/economic-handoff", kind: "artifact" }], citations: [], warnings: [], failures: [], approvalRequirements: [], residualRisks: ["Synthetic adapter only."], verificationResults: [{ requirementId: "handoff", method: "deterministic", status: "passed", summary: "handoff", evidenceUris: ["kiln://test/economic-handoff"] }],
+          },
+        },
+      });
+    },
   };
 }

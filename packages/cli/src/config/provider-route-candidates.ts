@@ -4,10 +4,12 @@ import { resolveEnvModel, resolveEnvProvider } from "./env-config.js";
 import type { ProviderId } from "../wrapper/session-registry.js";
 import type { ModelTaskSuitabilityLevel, ModelTaskSuitabilityTask } from "@kilnai/core";
 import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
+import type { DirectProviderAccountBinding } from "../wrapper/direct-provider-adapter-factory.js";
 
 export interface ProviderRouteCandidate {
   readonly provider: ProviderId;
   readonly model?: string;
+  readonly accountBinding?: DirectProviderAccountBinding;
 }
 
 export interface ResolveProviderRouteCandidatesInput {
@@ -27,10 +29,20 @@ export function resolveProviderRouteCandidates(
     const model = resolveCandidateModel(input.globalConfig, explicitProvider, explicitModel, {
       useConfiguredRouteFallback: true,
     });
-    return [{
-      provider: explicitProvider,
-      ...(model ? { model } : {}),
-    }];
+    return [materializeProviderRouteCandidate(input.globalConfig, explicitProvider, model)];
+  }
+
+  if (explicitModel) {
+    const virtualModel = input.globalConfig?.modelGateway?.virtualModels.find(
+      (candidate) => candidate.id === explicitModel,
+    );
+    if (virtualModel) {
+      return [materializeProviderRouteCandidate(
+        input.globalConfig,
+        virtualModel.providerId as ProviderId,
+        explicitModel,
+      )];
+    }
   }
 
   const configuredRoutes = input.globalConfig?.routing?.routes
@@ -38,10 +50,7 @@ export function resolveProviderRouteCandidates(
       const provider = normalizeProvider(route.provider);
       if (!provider) return undefined;
       const model = resolveCandidateModel(input.globalConfig, provider, route.model);
-      return {
-        provider,
-        ...(model ? { model } : {}),
-      };
+      return materializeProviderRouteCandidate(input.globalConfig, provider, model);
     })
     .filter((candidate): candidate is ProviderRouteCandidate => candidate !== undefined);
   if (configuredRoutes && configuredRoutes.length > 0) {
@@ -59,19 +68,58 @@ export function resolveProviderRouteCandidates(
   if (!defaultProvider) {
     return [];
   }
-  const candidates: ProviderRouteCandidate[] = [{
-    provider: defaultProvider,
-    ...(resolveGlobalDefaultModel(input.globalConfig) ? { model: resolveGlobalDefaultModel(input.globalConfig) } : {}),
-  }];
+  const candidates: ProviderRouteCandidate[] = [materializeProviderRouteCandidate(
+    input.globalConfig,
+    defaultProvider,
+    resolveGlobalDefaultModel(input.globalConfig),
+  )];
   const fallback = normalizeProvider(input.globalConfig?.routing?.fallback);
   if (fallback && fallback !== defaultProvider) {
     const model = resolveCandidateModel(input.globalConfig, fallback);
-    candidates.push({
-      provider: fallback,
-      ...(model ? { model } : {}),
-    });
+    candidates.push(materializeProviderRouteCandidate(input.globalConfig, fallback, model));
   }
   return candidates;
+}
+
+function materializeProviderRouteCandidate(
+  globalConfig: KilnGlobalConfig | null | undefined,
+  provider: ProviderId,
+  selectedModel: string | undefined,
+): ProviderRouteCandidate {
+  const model = normalizeModel(selectedModel);
+  const virtualModel = model
+    ? globalConfig?.modelGateway?.virtualModels.find((candidate) => candidate.id === model)
+    : undefined;
+  if (!virtualModel) {
+    return { provider, ...(model ? { model } : {}) };
+  }
+  if (virtualModel.providerId !== provider) {
+    throw new Error(
+      `Virtual model '${virtualModel.id}' is bound to provider '${virtualModel.providerId}', not '${provider}'.`,
+    );
+  }
+  if (virtualModel.accountIds.length !== 1) {
+    throw new Error(`Virtual model '${virtualModel.id}' must bind exactly one account for direct CLI execution.`);
+  }
+  const accountId = virtualModel.accountIds[0]!;
+  const account = globalConfig?.modelGateway?.accounts.find((candidate) => candidate.id === accountId);
+  if (!account) {
+    throw new Error(`Virtual model '${virtualModel.id}' references unknown account '${accountId}'.`);
+  }
+  if (account.providerId !== provider) {
+    throw new Error(
+      `Virtual model '${virtualModel.id}' account '${accountId}' is bound to provider '${account.providerId}', not '${provider}'.`,
+    );
+  }
+  return {
+    provider,
+    model: virtualModel.providerModelId,
+    accountBinding: {
+      virtualModelId: virtualModel.id,
+      accountId,
+      credentialId: account.credentialId,
+    },
+  };
 }
 
 export function inferRouteTask(input: {
@@ -248,7 +296,7 @@ function dedupeCandidates(candidates: readonly ProviderRouteCandidate[]): readon
   const seen = new Set<string>();
   const deduped: ProviderRouteCandidate[] = [];
   for (const candidate of candidates) {
-    const key = `${candidate.provider}\0${candidate.model ?? ""}`;
+    const key = `${candidate.provider}\0${candidate.model ?? ""}\0${candidate.accountBinding?.credentialId ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(candidate);

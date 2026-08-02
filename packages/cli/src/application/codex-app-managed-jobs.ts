@@ -1,6 +1,9 @@
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { createSessionBuiltinToolOptions } from "@kilnai/core";
+import {
+  createSessionBuiltinToolOptions,
+  defineManagedAgentInvocationRequest,
+} from "@kilnai/core";
 import {
   collectManagedEconomicCandidates,
   FilesystemManagedJobStore,
@@ -16,6 +19,7 @@ import { createStagedManagedInvocationRouteCatalog } from "../config/managed-age
 import {
   closeManagedAccountRuntimeComposition,
   createManagedAccountRuntimeComposition,
+  createManagedEconomicDispatchComposition,
   projectManagedEconomicJobAdoption,
   type ManagedInvocationRouteResolution,
 } from "../config/managed-agent-routes.js";
@@ -135,6 +139,12 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   if (!managedAccountComposition) {
     throw new ManagedJobApplicationError("route_unavailable", "Configure the managed economic account authority.");
   }
+  const economicDispatch = createManagedEconomicDispatchComposition(
+    initialConfig,
+    root.rootPath,
+    managedInvocation.routes,
+    managedAccountComposition,
+  );
   const commitmentRecovery = managedAccountComposition.authority.createManagedJobCommitmentRecoveryPort();
   const configuredAgents = await loadAgentDefinitions(root.rootPath);
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
@@ -246,10 +256,87 @@ export async function createNativeHarnessManagedJobApplicationComposition(
         managedAccountComposition.authority.recordCommitmentReleaseFailure(input);
       },
     },
+    economicDispatch: economicDispatch.coordinator,
+    economicExecution: {
+      execute: async ({ job, preparation }) => {
+        const selected = preparation.commitment.reservation.selectedIdentity.route;
+        const route = managedInvocation.routes.find((candidate) =>
+          candidate.routeId === selected.routeId
+          && candidate.providerId === selected.providerId
+          && candidate.model === selected.modelId);
+        const profile = route?.profiles[job.admissionProfileId];
+        const invocationService = managedInvocation.invocationService;
+        if (!route || !profile || !invocationService) {
+          throw new ManagedJobApplicationError("route_unavailable", "Restore the exact committed managed Runtime route.");
+        }
+        const request = defineManagedAgentInvocationRequest({
+          invocationId: `managed-job:${job.id}`,
+          agentId: job.configuredAgentProfileId,
+          parentSessionId: job.parent?.invocationId ?? job.id,
+          parentTurnId: job.parent?.turnId ?? job.id,
+          profile: job.admissionProfileId,
+          requestedBy: job.callerId,
+          requestSource: `${options.harness}-managed-job`,
+          providerRoute: {
+            providerId: selected.providerId,
+            surface: route.surface ?? "direct-provider",
+            model: selected.modelId,
+          },
+          adapterKind: preparation.adapter.descriptor.adapterKind,
+          executionMode: preparation.adapter.descriptor.supportedExecutionModes[0] ?? "direct-provider",
+          requestedAuthority: "read_only",
+          authority: {
+            authorityProfileId: profile.authorityProfileId,
+            permissionProfile: profile.permissionProfile,
+            toolAuthority: {
+              allowedToolNames: profile.allowedToolNames,
+              writeAllowed: profile.writeAllowed ?? false,
+              networkAllowed: profile.networkAllowed ?? false,
+            },
+            workingDirectory: profile.workingDirectory,
+            timeoutMs: profile.timeoutMs,
+            credentialRoute: profile.credentialRoute,
+            memoryScope: profile.memoryScope,
+            ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
+            ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
+          },
+          input: { summary: job.objective },
+        });
+        const started = await invocationService.start(request, preparation.adapter, {
+          capturedAt: new Date().toISOString(),
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          callerIdentity: {
+            kind: "kiln-runtime",
+            surface: `${options.harness}-managed-job`,
+            attachmentId: `managed-job:${job.id}`,
+          },
+          ...(route.providerModelProof ? { providerModelProof: route.providerModelProof } : {}),
+        }, {
+          economicDispatch: {
+            commitment: preparation.commitment,
+            beforeProviderEffect: preparation.beforeProviderEffect,
+            releaseBeforeProviderEffect: preparation.releaseBeforeProviderEffect,
+            registerExecutionSettlement: preparation.registerExecutionSettlement,
+          },
+        });
+        if (started.status !== "started") {
+          throw new ManagedJobApplicationError("admission_denied", "Review the exact committed managed Runtime authority.");
+        }
+        const joined = await invocationService.join(request.invocationId);
+        if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
+          throw new ManagedJobApplicationError("invocation_failed", "Inspect durable managed Runtime terminal evidence.");
+        }
+        return {
+          runtimeInvocationId: joined.record.invocationId,
+          completedAt: new Date().toISOString(),
+          resultHandoff: joined.record.resultHandoff,
+        };
+      },
+    },
     commitmentRecovery,
     store: managedJobStore,
   });
-  managedAccountComposition.authority.recoverCommitments();
   await service.recoverInterrupted();
   const application: NativeHarnessManagedJobApplicationPort = {
     submit: (input) => service.start(input),

@@ -182,6 +182,47 @@ describe("runSession output routing", () => {
     expect(stdoutWrite).not.toHaveBeenCalled();
   });
 
+  it("retains sanitized direct-provider binding evidence from pre-dispatch events", async () => {
+    const binding = {
+      status: "bound" as const,
+      virtualModelId: "direct-codex-terra-primary",
+      accountId: "codex-plus-primary",
+      credentialRevision: "sha256:portable-revision",
+    };
+    const session = createSessionFromEvents([
+      { type: "cost_update", usd: 0, executionBinding: binding },
+      { type: "cost_update", usd: 0, inputTokens: 10, outputTokens: 2, executionBinding: binding },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      registry: {
+        selectBest: () => ({ primary: "codex-oauth", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as never,
+        reportFailure: () => {},
+        reportSuccess: () => {},
+      } as never,
+      cleanupRegistry: { register: () => {} } as never,
+      manager: { trackCostUpdate: () => {} } as never,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      },
+      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse: () => {},
+        postToolUse: () => {},
+      } as never,
+    });
+
+    expect(result.executionBindings).toEqual([binding]);
+    expect(JSON.stringify(result.executionBindings)).not.toContain("credentialId");
+  });
+
   it("routes provider fallback notices through the supplied output sink", async () => {
     const output = {
       mode: "answer" as const,

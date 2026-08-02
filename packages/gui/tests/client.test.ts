@@ -262,10 +262,13 @@ describe("GuiGatewayClient", () => {
         configHealth: { status: "unknown", issueCount: 0, items: [] },
         routeHealth: {
           totalCount: 0,
-          healthyCount: 0,
-          degradedCount: 0,
-          blockedCount: 0,
-          unknownCount: 0,
+          admissionReadyCount: 0,
+          admissionDegradedCount: 0,
+          admissionBlockedCount: 0,
+          admissionUnknownCount: 0,
+          executionHealthyCount: 0,
+          executionDegradedCount: 0,
+          executionUnknownCount: 0,
           items: [],
         },
         providerReadiness: {

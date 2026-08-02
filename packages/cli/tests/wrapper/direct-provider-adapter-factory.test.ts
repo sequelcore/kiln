@@ -14,14 +14,20 @@ type MockAdapterName =
 const adapterMocks = vi.hoisted(
   (): Record<MockAdapterName, ReturnType<typeof vi.fn>> & {
     readonly codexPoolCreateAdapter: ReturnType<typeof vi.fn>;
+    readonly codexPoolCreateExactAdapter: ReturnType<typeof vi.fn>;
+    readonly codexPoolListExecutionAccounts: ReturnType<typeof vi.fn>;
     readonly directPoolCreateAdapter: ReturnType<typeof vi.fn>;
     readonly directPoolListStatus: ReturnType<typeof vi.fn>;
     readonly opencodeAuthLoad: ReturnType<typeof vi.fn>;
     readonly opencodePoolListStatus: ReturnType<typeof vi.fn>;
     readonly opencodePoolCreateAdapter: ReturnType<typeof vi.fn>;
+    readonly opencodePoolCreateExactAdapter: ReturnType<typeof vi.fn>;
+    readonly opencodePoolListExecutionAccounts: ReturnType<typeof vi.fn>;
   } => ({
     anthropic: vi.fn(),
     codexPoolCreateAdapter: vi.fn(),
+    codexPoolCreateExactAdapter: vi.fn(),
+    codexPoolListExecutionAccounts: vi.fn(),
     codexOauth: vi.fn(),
     deepseek: vi.fn(),
     directPoolCreateAdapter: vi.fn(),
@@ -33,6 +39,8 @@ const adapterMocks = vi.hoisted(
     opencodeAuthLoad: vi.fn(),
     opencodePoolListStatus: vi.fn(),
     opencodePoolCreateAdapter: vi.fn(),
+    opencodePoolCreateExactAdapter: vi.fn(),
+    opencodePoolListExecutionAccounts: vi.fn(),
     openrouter: vi.fn(),
   }),
 );
@@ -65,6 +73,15 @@ vi.mock("@kilnai/runtime", () => ({
       adapterMocks.codexPoolCreateAdapter(config);
       return { name: "pooled-codex-oauth" };
     }
+
+    listExecutionAccounts() {
+      return adapterMocks.codexPoolListExecutionAccounts();
+    }
+
+    createExactAdapter(config: unknown) {
+      adapterMocks.codexPoolCreateExactAdapter(config);
+      return { name: "exact-codex-oauth" };
+    }
   },
   DirectProviderCredentialPoolService: class MockDirectProviderCredentialPoolService {
     constructor(config: unknown) {
@@ -90,6 +107,15 @@ vi.mock("@kilnai/runtime", () => ({
     createPooledAdapter(config: unknown) {
       adapterMocks.opencodePoolCreateAdapter(config);
       return { name: "pooled-opencode" };
+    }
+
+    listExecutionAccounts(tier: unknown) {
+      return adapterMocks.opencodePoolListExecutionAccounts(tier);
+    }
+
+    createExactAdapter(config: unknown) {
+      adapterMocks.opencodePoolCreateExactAdapter(config);
+      return { name: "exact-opencode" };
     }
   },
 }));
@@ -181,6 +207,99 @@ describe("createDirectProviderAdapter", () => {
     expect(adapterMocks.codexOauth).not.toHaveBeenCalled();
   });
 
+  it("materializes an explicitly bound Codex OAuth credential revision", async () => {
+    const exactAccount = {
+      credentialId: "subscription-secondary",
+      fileIdentity: "a".repeat(64),
+      revision: "b".repeat(64),
+    };
+    adapterMocks.codexPoolListExecutionAccounts.mockResolvedValue([{
+      credentialId: "subscription-primary",
+      fileIdentity: "c".repeat(64),
+      revision: "d".repeat(64),
+    }, exactAccount]);
+
+    const adapter = await createDirectProviderAdapter({
+      provider: "codex-oauth",
+      model: "gpt-terra",
+      accountBinding: {
+        virtualModelId: "managed-terra",
+        accountId: "secondary",
+        credentialId: "subscription-secondary",
+      },
+    });
+
+    expect(adapter).toEqual({
+      name: "exact-codex-oauth",
+      executionBinding: {
+        status: "bound",
+        virtualModelId: "managed-terra",
+        accountId: "secondary",
+        credentialRevision: "b".repeat(64),
+      },
+    });
+    expect(adapterMocks.codexPoolCreateExactAdapter).toHaveBeenCalledWith({
+      selected: exactAccount,
+      defaultModel: "gpt-terra",
+    });
+    expect(adapterMocks.codexPoolCreateAdapter).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when an explicitly bound Codex OAuth credential is not executable", async () => {
+    adapterMocks.codexPoolListExecutionAccounts.mockResolvedValue([]);
+
+    await expect(createDirectProviderAdapter({
+      provider: "codex-oauth",
+      model: "gpt-terra",
+      accountBinding: {
+        virtualModelId: "managed-terra",
+        accountId: "secondary",
+        credentialId: "subscription-secondary",
+      },
+    })).rejects.toMatchObject({
+      name: "DirectProviderBindingError",
+      evidence: {
+        status: "rejected-pre-dispatch",
+        virtualModelId: "managed-terra",
+        accountId: "secondary",
+      },
+    });
+  });
+
+  it("rejects a changed committed Codex OAuth credential revision", async () => {
+    adapterMocks.codexPoolListExecutionAccounts.mockResolvedValue([{
+      credentialId: "subscription-secondary",
+      fileIdentity: "a".repeat(64),
+      revision: "c".repeat(64),
+    }]);
+
+    await expect(createDirectProviderAdapter({
+      provider: "codex-oauth",
+      model: "gpt-terra",
+      accountBinding: {
+        virtualModelId: "managed-terra",
+        accountId: "secondary",
+        credentialId: "subscription-secondary",
+        credentialRevision: "b".repeat(64),
+      },
+    })).rejects.toMatchObject({ name: "DirectProviderBindingError" });
+    expect(adapterMocks.codexPoolCreateExactAdapter).not.toHaveBeenCalled();
+  });
+
+  it("does not silently pool an exact account binding for an unsupported provider", async () => {
+    await expect(createDirectProviderAdapter({
+      provider: "openai",
+      model: "gpt",
+      accountBinding: {
+        virtualModelId: "managed-gpt",
+        accountId: "primary",
+        credentialId: "subscription-primary",
+      },
+      runtimeEnv: { OPENAI_API_KEY: "key" },
+    })).rejects.toThrow("does not support exact account binding");
+    expect(adapterMocks.directPoolCreateAdapter).not.toHaveBeenCalled();
+  });
+
   it("creates Ollama adapters without requiring an API key", async () => {
     await createDirectProviderAdapter({
       provider: "ollama",
@@ -245,6 +364,123 @@ describe("createDirectProviderAdapter", () => {
     expect(adapter).toEqual({ name: "pooled-opencode" });
     expect(adapterMocks.opencodePoolCreateAdapter).toHaveBeenCalledWith({
       tier,
+      defaultModel: "chosen-model",
+    });
+  });
+
+  it.each([
+    ["opencode-go", "go"],
+    ["opencode-zen", "zen"],
+  ] as const)("materializes an explicitly bound %s credential revision", async (provider, tier) => {
+    const exactAccount = {
+      providerId: provider,
+      credentialId: "subscription-secondary",
+      tier,
+      fileIdentity: "a".repeat(64),
+      revision: "b".repeat(64),
+    };
+    adapterMocks.opencodePoolListExecutionAccounts.mockResolvedValue([exactAccount]);
+
+    const adapter = await createDirectProviderAdapter({
+      provider,
+      model: "chosen-model",
+      accountBinding: {
+        virtualModelId: `managed-${tier}`,
+        accountId: "secondary",
+        credentialId: "subscription-secondary",
+        credentialRevision: "b".repeat(64),
+      },
+      runtimeEnv: { OPENCODE_API_KEY: "must-not-override-binding" },
+    });
+
+    expect(adapter).toEqual({
+      name: "exact-opencode",
+      executionBinding: {
+        status: "bound",
+        virtualModelId: `managed-${tier}`,
+        accountId: "secondary",
+        credentialRevision: "b".repeat(64),
+      },
+    });
+    expect(adapterMocks.opencodePoolListExecutionAccounts).toHaveBeenCalledWith(tier);
+    expect(adapterMocks.opencodePoolCreateExactAdapter).toHaveBeenCalledWith({
+      selected: exactAccount,
+      defaultModel: "chosen-model",
+    });
+    expect(adapterMocks.opencodePoolCreateAdapter).not.toHaveBeenCalled();
+    expect(adapterMocks.opencode).not.toHaveBeenCalled();
+  });
+
+  it("rejects a changed committed OpenCode credential revision before adapter construction", async () => {
+    adapterMocks.opencodePoolListExecutionAccounts.mockResolvedValue([{
+      providerId: "opencode-go",
+      credentialId: "subscription-primary",
+      tier: "go",
+      fileIdentity: "a".repeat(64),
+      revision: "c".repeat(64),
+    }]);
+
+    await expect(createDirectProviderAdapter({
+      provider: "opencode-go",
+      model: "chosen-model",
+      accountBinding: {
+        virtualModelId: "managed-go",
+        accountId: "primary",
+        credentialId: "subscription-primary",
+        credentialRevision: "b".repeat(64),
+      },
+    })).rejects.toMatchObject({
+      name: "DirectProviderBindingError",
+      evidence: {
+        status: "rejected-pre-dispatch",
+        virtualModelId: "managed-go",
+        accountId: "primary",
+      },
+    });
+    expect(adapterMocks.opencodePoolCreateExactAdapter).not.toHaveBeenCalled();
+  });
+
+  it("rejects a bound OpenCode credential unavailable in the requested tier", async () => {
+    adapterMocks.opencodePoolListExecutionAccounts.mockResolvedValue([]);
+
+    await expect(createDirectProviderAdapter({
+      provider: "opencode-go",
+      model: "chosen-model",
+      accountBinding: {
+        virtualModelId: "managed-go",
+        accountId: "zen-account",
+        credentialId: "zen-credential",
+      },
+    })).rejects.toMatchObject({ name: "DirectProviderBindingError" });
+    expect(adapterMocks.opencodePoolCreateExactAdapter).not.toHaveBeenCalled();
+    expect(adapterMocks.opencodePoolCreateAdapter).not.toHaveBeenCalled();
+  });
+
+  it("keeps ordinary exact-one-account aliases revision-adopting at adapter creation", async () => {
+    const exactAccount = {
+      providerId: "opencode-go",
+      credentialId: "subscription-primary",
+      tier: "go",
+      fileIdentity: "a".repeat(64),
+      revision: "d".repeat(64),
+    };
+    adapterMocks.opencodePoolListExecutionAccounts.mockResolvedValue([exactAccount]);
+
+    const adapter = await createDirectProviderAdapter({
+      provider: "opencode-go",
+      model: "chosen-model",
+      accountBinding: {
+        virtualModelId: "direct-go",
+        accountId: "primary",
+        credentialId: "subscription-primary",
+      },
+    });
+
+    expect(adapter).toMatchObject({
+      executionBinding: { credentialRevision: "d".repeat(64) },
+    });
+    expect(adapterMocks.opencodePoolCreateExactAdapter).toHaveBeenCalledWith({
+      selected: exactAccount,
       defaultModel: "chosen-model",
     });
   });

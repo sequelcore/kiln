@@ -6,6 +6,7 @@ import {
 } from "../../src/wrapper/opencode-session.js";
 import type { OpenCodeSessionConfig } from "../../src/wrapper/opencode-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
+import type { ExecutionSessionEvent } from "@kilnai/core";
 
 const createOpencodeClient = vi.fn();
 const viRuntime = vi as typeof vi & { mocked?: <T>(item: T) => T };
@@ -724,7 +725,7 @@ describe("OpenCodeSession.run() integration", () => {
       events.push(event);
     }
 
-    expect(events).toContainEqual({ type: "tool_use", toolName: "read", input: { filePath: "/tmp/test.txt" } });
+    expect(events).toContainEqual(expect.objectContaining({ type: "tool_use", toolName: "read", input: { filePath: "/tmp/test.txt" } }));
   });
 
   it("run() marks tool_use source as mcp when tool name was registered by mcp.tools.changed", async () => {
@@ -785,13 +786,13 @@ describe("OpenCodeSession.run() integration", () => {
       events.push(event);
     }
 
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       type: "tool_use",
       toolName: "memory_store",
       input: { key: "k", value: "v" },
       source: "mcp",
       mcpSelector: "memory_store",
-    });
+    }));
   });
 
   it("run() keeps normal tool_use unmarked when tool is not in MCP registry", async () => {
@@ -845,11 +846,11 @@ describe("OpenCodeSession.run() integration", () => {
       events.push(event);
     }
 
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       type: "tool_use",
       toolName: "bash",
       input: { command: "pwd" },
-    });
+    }));
     expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "tool_use",
@@ -896,7 +897,51 @@ describe("OpenCodeSession.run() integration", () => {
       events.push(event);
     }
 
-    expect(events).toContainEqual({ type: "tool_result", toolName: "bash", output: "hi\n" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "tool_result", toolName: "bash", output: "hi\n" }));
+  });
+
+  it("de-duplicates repeated tool starts and pairs completion by OpenCode call id", async () => {
+    const toolPart = (status: "running" | "completed") => ({
+      directory: "/tmp",
+      payload: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_identity",
+          part: {
+            type: "tool",
+            tool: "read",
+            callID: "call_read_identity",
+            state: { status, input: { filePath: "README.md" }, ...(status === "completed" ? { output: "ok" } : {}) },
+          },
+        },
+      },
+    });
+    const mock = makeMockClient("ses_identity", [
+      toolPart("running"),
+      toolPart("running"),
+      toolPart("completed"),
+      { directory: "/tmp", payload: { type: "session.status", properties: { sessionID: "ses_identity", status: { type: "idle" } } } },
+    ], 0.001);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const session = new OpenCodeSession(baseConfig());
+    const events: ExecutionSessionEvent[] = [];
+    for await (const event of session.run({ prompt: "test", kilnSessionId: "session-scope", turnId: "turn-5" })) {
+      events.push(event);
+    }
+
+    expect(events.filter((event) => event.type === "tool_use" || event.type === "tool_result")).toEqual([
+      expect.objectContaining({
+        type: "tool_use",
+        toolCallId: "call_read_identity",
+        toolCallScopeId: "session-scope:turn-5:opencode",
+      }),
+      expect.objectContaining({
+        type: "tool_result",
+        toolCallId: "call_read_identity",
+        toolCallScopeId: "session-scope:turn-5:opencode",
+      }),
+    ]);
   });
 
   it("run() maps session.diff events to provider-neutral file_changed events", async () => {

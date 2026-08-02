@@ -29,6 +29,7 @@ import type {
   ManagedAgentResourceLeaseEvidence,
   ManagedAgentWorktreeConflictEvidence,
   ManagedAgentWorktreeReviewEvidence,
+  ManagedEconomicCommitment,
   StructuredExecutionResult,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
@@ -248,6 +249,14 @@ export type {
   ManagedInvocationToolRoute,
 } from "./runtime-tool.js";
 export { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
+export { ManagedEconomicDispatchCoordinator } from "./economic-dispatch-coordinator.js";
+export type {
+  ManagedEconomicDispatchAdoption,
+  ManagedEconomicDispatchAuthorityPort,
+  ManagedEconomicDispatchCoordinatorOptions,
+  ManagedEconomicDispatchPreparation,
+  ManagedEconomicDispatchPrepareInput,
+} from "./economic-dispatch-coordinator.js";
 export type { ManagedInvocationCallerCapabilityInput } from "./caller-capability-policy.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
@@ -299,6 +308,14 @@ export type ManagedAgentRuntimeInvocationTerminalObserver = (
 export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly abortSignal?: AbortSignal;
   readonly terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
+  /** Runtime-only identity for the attached surface that owns child cleanup. */
+  readonly owner?: object;
+  readonly economicDispatch?: {
+    readonly commitment: ManagedEconomicCommitment;
+    readonly beforeProviderEffect: () => void | Promise<void>;
+    readonly releaseBeforeProviderEffect: () => void;
+    readonly registerExecutionSettlement: (settlement: PromiseLike<unknown>) => void;
+  };
 }
 
 export interface ManagedAgentRuntimeAdapter {
@@ -1010,10 +1027,20 @@ interface ManagedAgentRuntimeInvocationEntry {
   terminal?: ManagedAgentRuntimeInvocationTerminal;
   terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
   terminalObserverNotified?: boolean;
+  terminalObserverSettlement?: Promise<void>;
   executionSettlement?: Promise<void>;
+  adapterSettlement?: Promise<void>;
+  readonly owner?: object;
 }
 
 type ManagedAgentRuntimeLeaseStage = ManagedAgentRuntimeRecoveryLeaseStage;
+
+/**
+ * A timed-out adapter has already recorded terminal timeout evidence, but its
+ * provider-side settlement may ignore abort indefinitely. Owner shutdown gives
+ * that settlement one short cleanup opportunity without claiming it settled.
+ */
+export const MANAGED_AGENT_OWNER_TIMEOUT_SETTLEMENT_GRACE_MS = 100;
 
 export class RuntimeManagedAgentInvocationService {
   private readonly invocations = new Map<string, ManagedAgentRuntimeInvocationEntry>();
@@ -1045,19 +1072,33 @@ export class RuntimeManagedAgentInvocationService {
     if (this.invocations.has(request.invocationId)) {
       throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is already registered");
     }
-    if (request.authority.credentialRoute.mode === "account-leased") {
+    if (request.authority.credentialRoute.mode === "account-leased" && !lifecycleOptions.economicDispatch) {
       throw new ManagedAgentRuntimeAdmissionError(
         "Runtime-selected managed invocation requires a durable economic commitment and postcommit dispatch support.",
       );
     }
+    if (lifecycleOptions.economicDispatch) {
+      assertManagedEconomicCommitmentMatchesRequest(
+        request,
+        capabilitySnapshotInput.routeId,
+        lifecycleOptions.economicDispatch.commitment,
+      );
+    }
 
-    const admittedSnapshotInput = this.options.authorityObserver === undefined
-      ? capabilitySnapshotInputWithRuntimeAuthorityProjection(request, adapter, capabilitySnapshotInput, this.now())
-      : await this.capabilitySnapshotInputWithObservedRuntimeAuthority(request, adapter, capabilitySnapshotInput);
+    let admittedSnapshotInput: ManagedAgentCapabilitySnapshotInput;
+    try {
+      admittedSnapshotInput = this.options.authorityObserver === undefined
+        ? capabilitySnapshotInputWithRuntimeAuthorityProjection(request, adapter, capabilitySnapshotInput, this.now())
+        : await this.capabilitySnapshotInputWithObservedRuntimeAuthority(request, adapter, capabilitySnapshotInput);
+    } catch (error) {
+      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+      throw error;
+    }
     const decision = evaluateManagedAgentAdmission(request, adapter.descriptor, admittedSnapshotInput, {
       evaluatedAt: this.now().toISOString(),
     });
     if (decision.status === "denied") {
+      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
       return {
         status: "denied",
         decision: cloneJson(decision),
@@ -1065,6 +1106,7 @@ export class RuntimeManagedAgentInvocationService {
     }
     const writeLeaseConflict = this.detectActiveWriteLeaseConflict(request, decision);
     if (writeLeaseConflict) {
+      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
       return {
         status: "denied",
         decision: cloneJson(writeLeaseConflict),
@@ -1088,6 +1130,7 @@ export class RuntimeManagedAgentInvocationService {
       progressEvents: [],
       adapterStarted: false,
       terminal,
+      ...(lifecycleOptions.owner !== undefined ? { owner: lifecycleOptions.owner } : {}),
       ...(lifecycleOptions.terminalObserver !== undefined
         ? { terminalObserver: lifecycleOptions.terminalObserver }
         : {}),
@@ -1102,12 +1145,14 @@ export class RuntimeManagedAgentInvocationService {
     if (lifecycleOptions.abortSignal?.aborted) {
       await this.cancel(request.invocationId, managedInvocationAbortReason(lifecycleOptions.abortSignal.reason));
       if (entry.lifecycleState === "cancelled" && entry.record) {
+        lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
     }
     try {
       await this.acquireRuntimeResourceLeases(entry);
     } catch (error) {
+      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
       if ((entry.lifecycleState === "cancelled" || entry.lifecycleState === "stale") && entry.record) {
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
@@ -1131,9 +1176,11 @@ export class RuntimeManagedAgentInvocationService {
       throw runtimeError;
     }
     if (entry.lifecycleState === "cancelled" && entry.record) {
+      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     if (entry.lifecycleState === "stale" && entry.record) {
+      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     const executableAdapter = entry.adapter;
@@ -1154,10 +1201,23 @@ export class RuntimeManagedAgentInvocationService {
           abortSignal: abortController.signal,
           promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
           progressObserver: (event) => this.recordProgress(entry, event),
-          registerExecutionSettlement: (settlement) => this.registerExecutionSettlement(entry, settlement),
+          registerExecutionSettlement: (settlement) => {
+            this.registerExecutionSettlement(entry, settlement);
+            lifecycleOptions.economicDispatch?.registerExecutionSettlement(settlement);
+          },
           ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
         });
         const beginInvocation = () => {
+          if (lifecycleOptions.economicDispatch) {
+            return Promise.resolve(lifecycleOptions.economicDispatch.beforeProviderEffect()).then(() => {
+              signalDispatchReady();
+              return invoke();
+            }, (error: unknown) => {
+              lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+              signalDispatchReady();
+              throw error;
+            });
+          }
           signalDispatchReady();
           return invoke();
         };
@@ -1165,6 +1225,7 @@ export class RuntimeManagedAgentInvocationService {
           ? this.saveRuntimeRecoveryCheckpoint(entry).then(beginInvocation)
           : beginInvocation();
       }, (error: unknown) => {
+        lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
         signalDispatchReady();
         throw error;
       });
@@ -1265,6 +1326,10 @@ export class RuntimeManagedAgentInvocationService {
       },
     );
     adapterTerminal.catch(() => undefined);
+    entry.adapterSettlement = adapterTerminal.then(
+      () => undefined,
+      () => undefined,
+    );
     if (this.options.recoveryStore) {
       await dispatchReady;
     }
@@ -1442,6 +1507,7 @@ export class RuntimeManagedAgentInvocationService {
         });
       } catch (error) {
         const runtimeError = toError(error);
+        entry.abortController.abort(reason);
         entry.finishedAt = new Date();
         entry.lifecycleState = "failed";
         entry.error = runtimeError;
@@ -1482,6 +1548,24 @@ export class RuntimeManagedAgentInvocationService {
       decision: cloneJson(entry.decision),
       record: cloneJson(entry.record),
     };
+  }
+
+  async shutdownOwner(
+    owner: object,
+    reason = "Managed invocation owner disposed.",
+  ): Promise<readonly ManagedAgentRuntimeInvocationSnapshot[]> {
+    const ownedEntries = [...this.invocations.values()].filter((entry) => entry.owner === owner);
+    const activeEntries = ownedEntries.filter((entry) => !isTerminalLifecycleState(entry.lifecycleState));
+
+    await Promise.allSettled(activeEntries.map((entry) => this.cancel(entry.request.invocationId, reason)));
+    await Promise.all(ownedEntries.map(async (entry) => {
+      await this.waitForOwnerShutdownExecutionSettlement(entry);
+      await entry.adapterSettlement;
+      await entry.leaseFinalization;
+      await entry.terminalObserverSettlement;
+    }));
+
+    return ownedEntries.map(snapshotInvocation);
   }
 
   async join(invocationId: string): Promise<ManagedAgentRuntimeInvocationResult> {
@@ -2165,9 +2249,26 @@ export class RuntimeManagedAgentInvocationService {
       record: cloneJson(entry.record),
       ...(durationMs !== undefined ? { durationMs } : {}),
     };
-    void Promise.resolve()
+    entry.terminalObserverSettlement = Promise.resolve()
       .then(() => observer(notification))
-      .catch(() => undefined);
+      .then(() => undefined, () => undefined);
+  }
+
+  private async waitForOwnerShutdownExecutionSettlement(entry: ManagedAgentRuntimeInvocationEntry): Promise<void> {
+    if (!entry.executionSettlement || entry.lifecycleState !== "timed_out") {
+      await entry.executionSettlement;
+      return;
+    }
+    await Promise.race([
+      entry.executionSettlement,
+      new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, Math.min(
+          entry.request.authority.timeoutMs,
+          MANAGED_AGENT_OWNER_TIMEOUT_SETTLEMENT_GRACE_MS,
+        ));
+        entry.executionSettlement!.finally(() => clearTimeout(timeout));
+      }),
+    ]);
   }
 
   private async finalizeTerminalLease(
@@ -3253,6 +3354,40 @@ function projectedAuthoritySourceForAdapter(
     return "remote-harness-adapter";
   }
   return "direct-provider-adapter";
+}
+
+function assertManagedEconomicCommitmentMatchesRequest(
+  request: ManagedAgentInvocationRequest,
+  routeId: string,
+  commitment: ManagedEconomicCommitment,
+): void {
+  const selected = commitment.reservation.selectedIdentity;
+  if (
+    selected.route.routeId !== routeId
+    || selected.route.providerId !== request.providerRoute.providerId
+    || selected.route.modelId !== request.providerRoute.model
+  ) {
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Managed economic commitment does not match the admitted provider route.",
+    );
+  }
+  const credentialRoute = request.authority.credentialRoute;
+  if (selected.account.kind === "account-bound") {
+    if (
+      credentialRoute.mode !== "account-leased"
+      || selected.route.accountPolicyId !== credentialRoute.accountPolicyId
+    ) {
+      throw new ManagedAgentRuntimeAdmissionError(
+        "Managed economic commitment does not match the admitted account policy.",
+      );
+    }
+    return;
+  }
+  if (credentialRoute.mode !== "credentialless") {
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Accountless managed economic commitment requires a credentialless admitted route.",
+    );
+  }
 }
 
 function capabilitySnapshotInputWithRuntimeAuthorityProjection(

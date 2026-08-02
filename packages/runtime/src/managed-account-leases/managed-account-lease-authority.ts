@@ -868,6 +868,83 @@ export class SqliteManagedAccountLeaseAuthority {
     });
   }
 
+  recordExecutionSettlementPending(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    reason: string,
+  ): ManagedEconomicCommitmentRecord {
+    return this.#transaction(() => {
+      this.#heartbeat();
+      requireCanonicalText(dispatchFenceId, "Managed economic dispatch fence id is required.");
+      requireAuditReason(reason, "Managed economic pending settlement reason is invalid.");
+      const row = this.#requiredCommitmentRow(jobId, economicAttemptId);
+      if (row.dispatch_fence_id !== dispatchFenceId) {
+        throw new Error("Managed economic settlement does not own the durable dispatch fence.");
+      }
+      if (row.state === "settlement-pending") {
+        return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
+      }
+      if (row.state !== "dispatch-fenced") {
+        throw new Error("Managed economic settlement cannot become pending from its current state.");
+      }
+      const settlement: ManagedEconomicSettlement = {
+        kind: "unknown",
+        reservationId: row.reservation_id,
+        dispatchFenceId,
+        actualIdentity: null,
+        reason,
+        evidence: null,
+      };
+      const changed = this.#db.query(`UPDATE economic_commitments
+        SET state='settlement-pending',settlement_json=?
+        WHERE commitment_id=? AND state='dispatch-fenced' AND dispatch_fence_id=? AND owner_generation=?`)
+        .run(JSON.stringify(settlement), row.commitment_id, dispatchFenceId, this.#ownerGeneration);
+      if (changed.changes !== 1) throw new Error("Managed economic pending settlement lost its dispatch fence.");
+      const pending = this.#requiredCommitmentRow(jobId, economicAttemptId);
+      return recordFromCommitmentRow(pending, this.#rowForOptionalLease(pending.lease_id));
+    });
+  }
+
+  settleSuccessfulExecution(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+  ): ManagedEconomicCommitmentRecord {
+    return this.#transaction(() => {
+      this.#heartbeat();
+      requireCanonicalText(dispatchFenceId, "Managed economic dispatch fence id is required.");
+      const row = this.#requiredCommitmentRow(jobId, economicAttemptId);
+      if (row.dispatch_fence_id !== dispatchFenceId) {
+        throw new Error("Managed economic settlement does not own the durable dispatch fence.");
+      }
+      if (row.state === "released") {
+        return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
+      }
+      if (row.state !== "dispatch-fenced" && row.state !== "settlement-pending") {
+        throw new Error("Managed economic execution cannot settle from its current state.");
+      }
+      const commitment = JSON.parse(row.commitment_json!) as ManagedEconomicCommitment;
+      const settlement: ManagedEconomicSettlement = {
+        kind: "unknown",
+        reservationId: row.reservation_id,
+        dispatchFenceId,
+        actualIdentity: commitment.reservation.selectedIdentity,
+        reason: "execution-settled",
+        evidence: null,
+      };
+      if (row.lease_id) this.#releaseEconomicLeaseAndAffinity(row.lease_id);
+      const changed = this.#db.query(`UPDATE economic_commitments
+        SET state='released',settlement_json=?
+        WHERE commitment_id=? AND state IN ('dispatch-fenced','settlement-pending')
+          AND dispatch_fence_id=? AND owner_generation=?`)
+        .run(JSON.stringify(settlement), row.commitment_id, dispatchFenceId, this.#ownerGeneration);
+      if (changed.changes !== 1) throw new Error("Managed economic successful settlement lost its dispatch fence.");
+      const released = this.#requiredCommitmentRow(jobId, economicAttemptId);
+      return recordFromCommitmentRow(released, this.#rowForOptionalLease(released.lease_id));
+    });
+  }
+
   createManagedJobCommitmentRecoveryPort(): ManagedEconomicCommitmentRecoveryPort {
     return {
       query: ({ jobId, economicAttemptId }) => {

@@ -70,7 +70,10 @@ import { createManagedDirectProviderAdapterFactory } from "../config/managed-age
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
-import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
+import {
+  closeManagedAccountRuntimeComposition,
+  resolveManagedInvocationToolOptions,
+} from "../config/managed-agent-routes.js";
 import {
   loadConfiguredBuiltinToolSurfaceOptions,
   withProgressiveRuntimeToolProjection,
@@ -155,6 +158,25 @@ function resolveMode(flags: RunFlags): SessionMode {
 }
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "workspace-write" };
+const RUN_PLAN_ALWAYS_ON_TOOLS = [
+  "managed_agent.invoke",
+  "managed_agent.start",
+  "managed_agent.status",
+  "managed_agent.list",
+  "managed_agent.join",
+  "managed_agent.cancel",
+  "managed_agent.orchestrate",
+] as const;
+
+export function resolveRunBuiltinToolProjection(plan: boolean): {
+  readonly profile: "read-only" | "execute";
+  readonly alwaysOnTools: readonly string[];
+} {
+  return plan
+    ? { profile: "read-only", alwaysOnTools: RUN_PLAN_ALWAYS_ON_TOOLS }
+    : { profile: "execute", alwaysOnTools: [] };
+}
+
 export const PLAN_POLICY: KilnPermissionPolicy = {
   approval: "untrusted",
   sandbox: "read-only",
@@ -181,16 +203,6 @@ export const PLAN_POLICY: KilnPermissionPolicy = {
       tool: "work_profile.list",
       action: "allow",
       reason: "Plan mode may inspect configured work profiles.",
-    },
-    {
-      tool: "goal.*",
-      action: "allow",
-      reason: "Plan mode may materialize governed planning goals.",
-    },
-    {
-      tool: "work_item.*",
-      action: "allow",
-      reason: "Plan mode may materialize governed planning work items.",
     },
     {
       tool: "managed_agent.*",
@@ -1095,6 +1107,7 @@ export async function runCommand(
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
+  const runToolProjection = resolveRunBuiltinToolProjection(flags.plan === true);
   let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
@@ -1109,7 +1122,7 @@ export async function runCommand(
         managedInvocationProofResolver: managedInvocationProofs.resolve,
       }),
     ],
-  }, "execute"));
+  }, runToolProjection.profile, runToolProjection.alwaysOnTools));
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
@@ -1128,6 +1141,7 @@ export async function runCommand(
     builtinToolOptions: () => builtinToolOptions,
     artifactStore: builtinToolOptions.artifactResources?.store,
   });
+  cleanupRegistry.register(async () => closeManagedAccountRuntimeComposition(cwd));
   const managedInvocation = runtimeAppConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)
@@ -1331,6 +1345,7 @@ export async function runCommand(
     localProvider: flags.localProvider,
     builtinToolOptions,
     managedInvocation: managedInvocationWithTranscriptSink,
+    runtimeExecutionMode: flags.plan ? "plan" as const : "execute" as const,
     ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
     model: effectiveModel,
     reasoningEffort: flags.reasoningEffort,
@@ -1349,6 +1364,11 @@ export async function runCommand(
     outputInteractive: process.stdout.isTTY === true,
   });
   const runAbortController = new AbortController();
+  let runtimeCleanup: Promise<void> | undefined;
+  const cleanupRuntimeOnce = (): Promise<void> => {
+    runtimeCleanup ??= cleanupRegistry.runAll();
+    return runtimeCleanup;
+  };
 
   let signalHandlersRegistered = false;
   let shutdownStarted = false;
@@ -1357,7 +1377,7 @@ export async function runCommand(
     shutdownStarted = true;
     runAbortController.abort(`Parent run interrupted by ${signal}.`);
     unregisterSignalHandlers();
-    void cleanupRegistry.runAll()
+    void cleanupRuntimeOnce()
       .then(cleanupWorktreeOnce)
       .finally(() => {
         process.exit(130);
@@ -1419,6 +1439,7 @@ export async function runCommand(
   } finally {
     sessionHooks.sessionEnd();
     unregisterSignalHandlers();
+    await cleanupRuntimeOnce();
   }
 
   const {
@@ -1436,6 +1457,7 @@ export async function runCommand(
     transcript,
     providersUsed,
     providerTokenUsage = [],
+    executionBindings = [],
     exactArtifacts,
     submittedPlan: submittedPlanFromSession,
   } = runResult;
@@ -1541,6 +1563,7 @@ export async function runCommand(
       inputTokens,
       outputTokens,
       providerTokenUsage,
+      executionBindings,
       toolCount: toolCallCount,
       turnDepth,
       resumeStrategy: context.resumeStrategy,
@@ -1640,6 +1663,7 @@ export async function runCommand(
       inputTokens,
       outputTokens,
       providerTokenUsage,
+      executionBindings,
       toolCount: toolCallCount,
       turnDepth,
       resumeStrategy: context.resumeStrategy,

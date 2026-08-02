@@ -1,7 +1,13 @@
 import { join } from 'node:path';
 import { appendFile, mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import type { ResumeFeedback, ResumeOutcome, ResumeStrategy } from './index.js';
-import type { CanonicalSessionEventKind, SessionEventEnvelope, SessionEventSource, SessionTurnOutcome } from '@kilnai/core';
+import type {
+  CanonicalSessionEventKind,
+  ExecutionSessionBindingEvidence,
+  SessionEventEnvelope,
+  SessionEventSource,
+  SessionTurnOutcome,
+} from '@kilnai/core';
 
 export interface ProviderThreadMeta {
   provider: string;
@@ -340,6 +346,7 @@ export interface PersistedSessionMeta {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   providerTokenUsage?: readonly PersistedProviderTokenUsage[];
+  executionBindings?: readonly ExecutionSessionBindingEvidence[];
   toolCount?: number;
   turnDepth?: number;
   providerThread?: ProviderThreadMeta;
@@ -390,6 +397,17 @@ function mergePersistedProviderTokenUsage(
     });
   }
   return [...usageByProviderModel.values()];
+}
+
+function mergeExecutionBindings(
+  existing: readonly ExecutionSessionBindingEvidence[] | undefined,
+  updates: readonly ExecutionSessionBindingEvidence[],
+): readonly ExecutionSessionBindingEvidence[] {
+  const bindings = new Map<string, ExecutionSessionBindingEvidence>();
+  for (const binding of [...(existing ?? []), ...updates]) {
+    bindings.set(`${binding.virtualModelId}\0${binding.accountId}`, binding);
+  }
+  return [...bindings.values()];
 }
 
 function readTokenCount(value: number | undefined): number {
@@ -682,6 +700,9 @@ export class TranscriptStore {
           ...updates,
           ...(updates.providerTokenUsage !== undefined ? {
             providerTokenUsage: mergePersistedProviderTokenUsage(existing.providerTokenUsage, updates.providerTokenUsage),
+          } : {}),
+          ...(updates.executionBindings !== undefined ? {
+            executionBindings: mergeExecutionBindings(existing.executionBindings, updates.executionBindings),
           } : {}),
         }),
         'utf-8',

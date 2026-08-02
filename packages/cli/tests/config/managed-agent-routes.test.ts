@@ -1757,6 +1757,50 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
+  it("does not require a Kiln economic policy for a schema-v2 native harness agent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-harness-agent-"));
+    try {
+      const agentsDir = join(root, ".kiln", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(join(agentsDir, "harness-advisor.md"), [
+        "---",
+        "name: harness-advisor",
+        "role: Native harness advisor",
+        "goal: Review through native harness authority.",
+        "tier: reasoning",
+        "mode: managed-child",
+        "routeId: codex-readonly",
+        "---",
+        "Remain within the native harness route.",
+      ].join("\n"));
+
+      const result = await resolveManagedInvocationToolOptions(baseConfig({
+        schemaVersion: 2,
+        routes: [{
+          id: "codex-readonly",
+          kind: "harness",
+          provider: "codex",
+          model: "gpt-5.3-codex-spark",
+          profiles: ["foundation-readonly-plan"],
+        }],
+      }), {
+        cwd: root,
+        userHome: root,
+        registry: createRegistry("codex"),
+        surface: "gui",
+        providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      });
+
+      expect(result.agentHealth).toBeUndefined();
+      expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
+        name: "harness-advisor",
+        routeId: "codex-readonly",
+      }));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     ["claude-sonnet-readonly", "claude-sonnet-5"],
     ["claude-opus-readonly", "claude-opus-5"],

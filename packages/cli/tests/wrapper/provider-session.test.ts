@@ -28,6 +28,7 @@ const runtimeMocks = vi.hoisted(() => ({
   emitApprovalReceived: vi.fn(),
   addUserMessage: vi.fn(),
   addAssistantMessage: vi.fn(),
+  attachedToolSurfaceOptions: vi.fn(),
   attachedToolSurfaceOverride: undefined as unknown,
 }));
 
@@ -226,8 +227,9 @@ vi.mock("@kilnai/runtime", () => {
     ],
     describeEffectiveTurnAuthorityActionability: (input: {
       requestedAuthority?: string;
+      executionMode: "execute" | "plan";
     }) => ({
-      authorityMode: input.requestedAuthority ?? "auto",
+      authorityMode: input.executionMode === "plan" ? "planning" : input.requestedAuthority ?? "auto",
       admittedAuthority: "unknown",
       mutationUnavailable: false,
       approvalActionable: false,
@@ -246,6 +248,7 @@ vi.mock("@kilnai/runtime", () => {
       "Only runtime approval_requested events create approval actions in CLI, TUI, and GUI surfaces.",
     ].join("\n"),
     createAttachedRuntimeBuiltinToolSurface: vi.fn((options?: {
+      executionMode?: "execute" | "plan";
       operatorSurface?: {
         theme?: {
           setTheme(input: { theme: string; scope: "session" | "persisted"; reason?: string }): Promise<{
@@ -256,6 +259,7 @@ vi.mock("@kilnai/runtime", () => {
         };
       };
     }) => {
+      runtimeMocks.attachedToolSurfaceOptions(options);
       if (runtimeMocks.attachedToolSurfaceOverride) {
         return runtimeMocks.attachedToolSurfaceOverride;
       }
@@ -304,6 +308,7 @@ vi.mock("@kilnai/runtime", () => {
         materializableTools,
         materializableCapabilities,
         toolAuthority: new Map(),
+        dispose: vi.fn(async () => undefined),
       };
     }),
     RuntimeSessionOrchestrator: class MockRuntimeSessionOrchestrator {
@@ -316,6 +321,18 @@ vi.mock("@kilnai/runtime", () => {
     RuntimeSession: MockRuntimeSession,
     CodexOAuthCredentialPoolService: class MockCodexOAuthCredentialPoolService {
       async createPooledAdapter(config: { defaultModel?: string }) {
+        const Adapter = makeAdapter("codex-oauth");
+        return new Adapter(config);
+      }
+
+      async listExecutionAccounts() {
+        return [
+          { credentialId: "subscription-primary", fileIdentity: "a".repeat(64), revision: "b".repeat(64) },
+          { credentialId: "subscription-secondary", fileIdentity: "c".repeat(64), revision: "d".repeat(64) },
+        ];
+      }
+
+      async createExactAdapter(config: { defaultModel?: string; selected: unknown }) {
         const Adapter = makeAdapter("codex-oauth");
         return new Adapter(config);
       }
@@ -521,6 +538,35 @@ describe("ProviderSession implements IKilnSession", () => {
     await expect(session.dispose()).resolves.toBeUndefined();
     expect(disconnect).toHaveBeenCalledTimes(1);
   });
+
+  it("dispose shuts down the attached managed-child surface before disconnecting MCP sessions", async () => {
+    const order: string[] = [];
+    const disposeSurface = vi.fn(async () => {
+      order.push("managed-children");
+    });
+    runtimeMocks.attachedToolSurfaceOverride = {
+      callBuiltinTools: new Map(),
+      toolDefinitions: [],
+      capabilities: new Map(),
+      materializableTools: new Map(),
+      materializableCapabilities: new Map(),
+      toolAuthority: new Map(),
+      dispose: disposeSurface,
+    };
+    const disconnect = vi.fn(async () => {
+      order.push("mcp");
+    });
+    const session = new ProviderSession(baseConfig({
+      mcpClients: [{ disconnect }] as unknown as readonly KilnMcpClient[],
+    }));
+
+    await session.dispose();
+    await session.dispose();
+
+    expect(disposeSurface).toHaveBeenCalledTimes(1);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["managed-children", "mcp"]);
+  });
 });
 
 describe("ProviderSession.run()", () => {
@@ -537,6 +583,7 @@ describe("ProviderSession.run()", () => {
     runtimeMocks.emitApprovalReceived.mockReset();
     runtimeMocks.addUserMessage.mockReset();
     runtimeMocks.addAssistantMessage.mockReset();
+    runtimeMocks.attachedToolSurfaceOptions.mockReset();
     runtimeMocks.attachedToolSurfaceOverride = undefined;
     coreSurfaceMocks.createDefaultBuiltinToolSurface.mockClear();
     coreSurfaceMocks.bridgeExecute.mockClear();
@@ -730,6 +777,67 @@ describe("ProviderSession.run()", () => {
       cacheWriteTokens: 7,
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+  });
+
+  it("executes a virtual-model route through its exact Codex OAuth account binding", async () => {
+    adapterMocks["codex-oauth"].stream.mockReturnValue(streamEvents([
+      { type: "done", content: "" },
+    ]));
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-terra",
+      accountBinding: {
+        virtualModelId: "managed-terra",
+        accountId: "secondary",
+        credentialId: "subscription-secondary",
+      },
+      executionMode: "text-only",
+    }));
+
+    const events = await collectEvents(session.run({ prompt: "use exact binding" }));
+
+    expect(adapterMocks["codex-oauth"].ctor).toHaveBeenCalledWith({
+      defaultModel: "gpt-terra",
+      selected: {
+        credentialId: "subscription-secondary",
+        fileIdentity: "c".repeat(64),
+        revision: "d".repeat(64),
+      },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "cost_update",
+      executionBinding: {
+        status: "bound",
+        virtualModelId: "managed-terra",
+        accountId: "secondary",
+        credentialRevision: "d".repeat(64),
+      },
+    }));
+  });
+
+  it("records exact binding rejection as pre-dispatch evidence", async () => {
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-terra",
+      accountBinding: {
+        virtualModelId: "managed-terra",
+        accountId: "missing-account",
+        credentialId: "subscription-missing",
+      },
+      executionMode: "text-only",
+    }));
+
+    const events = await collectEvents(session.run({ prompt: "fail before dispatch" }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      executionBinding: {
+        status: "rejected-pre-dispatch",
+        virtualModelId: "managed-terra",
+        accountId: "missing-account",
+      },
+    }));
+    expect(adapterMocks["codex-oauth"].stream).not.toHaveBeenCalled();
   });
 
   it("attaches admitted qualified MCP capabilities to direct-provider execution", async () => {
@@ -1014,6 +1122,55 @@ describe("ProviderSession.run()", () => {
       toolCount: 1,
       deniedToolCount: 1,
     });
+  });
+
+  it("publishes a real plan surface with read-only authority and planning guidance", async () => {
+    runtimeMocks.processMessage.mockResolvedValueOnce({
+      parts: [{ type: "text", text: "plan prepared" }],
+      toolExecutions: [],
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      queued: false,
+      outcome: "completed",
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      runtimeExecutionMode: "plan",
+    }));
+    await collectEvents(session.run({ prompt: "prepare a governed plan" }));
+
+    expect(runtimeMocks.attachedToolSurfaceOptions).toHaveBeenCalledWith(expect.objectContaining({
+      executionMode: "plan",
+    }));
+    const runtimeSessionConfig = runtimeMocks.runtimeSessionConstructor.mock.calls.at(-1)?.[0] as {
+      systemPrompt?: string;
+    } | undefined;
+    expect(runtimeSessionConfig?.systemPrompt).toContain("Authority mode: planning.");
+    const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+      additionalTools?: readonly { readonly name: string }[];
+      effectiveTurnAuthority?: {
+        executionMode?: string;
+        requestedAuthority?: string;
+        admittedAuthority?: string;
+        policyInputs?: readonly { readonly source: string; readonly status: string }[];
+      };
+    } | undefined;
+    expect(perCallConfig?.additionalTools?.map((tool) => tool.name)).toEqual(["mock_builtin"]);
+    expect(perCallConfig?.effectiveTurnAuthority).toMatchObject({
+      executionMode: "plan",
+      requestedAuthority: "read_only",
+      admittedAuthority: "read_only",
+    });
+    expect(perCallConfig?.effectiveTurnAuthority?.policyInputs).toContainEqual(expect.objectContaining({
+      source: "plan_approval",
+      status: "applied",
+    }));
   });
 
   it("forwards a per-run tool sandbox into executable runtime calls", async () => {

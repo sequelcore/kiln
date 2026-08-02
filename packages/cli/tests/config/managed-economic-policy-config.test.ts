@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createAccountRef } from "@kilnai/core";
+import { SqliteManagedAccountLeaseAuthority } from "@kilnai/runtime";
 import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   closeManagedAccountRuntimeComposition,
@@ -161,6 +163,86 @@ function accountlessEconomicConfig(): KilnGlobalConfig {
   config.modelGateway.accounts = [];
   config.modelGateway.virtualModels[0].accountIds = [];
   return config as KilnGlobalConfig;
+}
+
+function economicJob(jobId: string, economicAttemptId: string) {
+  return {
+    version: 6,
+    id: jobId,
+    projectId: "project-a",
+    callerId: "caller-a",
+    economicAttemptId,
+    adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
+    economicPolicyId: "default-economic-policy",
+    economicPolicyRevision: "rev-2026-07",
+    constraints: {},
+    candidateSet: { candidates: [{
+      routeId: "codex-standard",
+      routeSource: "explicit-managed-route",
+      providerId: "codex-oauth",
+      model: "gpt-5.6-codex",
+      accountPolicyId: "codex-standard-policy",
+      adapterCapabilityId: "codex-direct",
+      adapterCapabilityVersion: "v1",
+    }] },
+  } as never;
+}
+
+function economicRoutingResolution() {
+  return {
+    route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
+    affinityPolicy: { continuity: "none" as const },
+    candidates: [{
+      candidate: {
+        account: createAccountRef("configured:codex-account:fixture"),
+        route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
+        health: "healthy" as const,
+        leaseCapacity: "available" as const,
+        pressure: 0,
+        reservedForNewWork: false,
+      },
+      capacityIdentity: "codex-capacity",
+      credentialRevisionId: "a".repeat(64),
+      usageEvidence: { health: "healthy" as const, freshness: "missing" as const },
+      quotaEvidence: {
+        kind: "known" as const,
+        capacityIdentity: "codex-capacity",
+        subscriptionClass: "metered" as const,
+        quotaClassId: "codex-standard",
+        buckets: [{
+          bucketId: "request-budget",
+          dimension: "request",
+          remaining: {
+            atoms: "100",
+            scale: 0,
+            unit: "request",
+            scheme: { kind: "currency" as const, currency: "USD" },
+          },
+          resetsAt: null,
+        }],
+        evidence: economicConfig().modelGateway!.virtualModels[0]!.economics!.priceEvidence.evidence,
+      },
+      capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 },
+    }],
+  };
+}
+
+async function acquireRecoveryFixture(
+  composition: NonNullable<ReturnType<typeof createManagedAccountRuntimeComposition>>,
+  jobId: string,
+  economicAttemptId: string,
+) {
+  const adoption = await projectManagedEconomicJobAdoption(
+    economicConfig(),
+    economicJob(jobId, economicAttemptId),
+    { resolve: async () => economicRoutingResolution() } as never,
+  );
+  return composition.authority.acquireCommitment({
+    jobId,
+    economicAttemptId,
+    intentFingerprint: `sha256:${"9".repeat(64)}`,
+    ...adoption,
+  });
 }
 
 describe("managed economic policy config", () => {
@@ -357,6 +439,61 @@ describe("managed economic policy config", () => {
       expect(composition?.authority).toBeDefined();
       expect(composition?.routing).toBeDefined();
     } finally {
+      closeManagedAccountRuntimeComposition(cwd);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("releases orphaned pre-fence commitments when a new composition takes ownership", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kiln-economic-held-recovery-"));
+    try {
+      const first = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
+      await expect(acquireRecoveryFixture(first, "job-held", "economic-attempt:held-001"))
+        .resolves.toMatchObject({ status: "committed", record: { state: "held" } });
+      closeManagedAccountRuntimeComposition(cwd);
+
+      const restarted = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
+      expect(restarted.authority.queryCommitment("job-held", "economic-attempt:held-001"))
+        .toMatchObject({ state: "released" });
+      await expect(acquireRecoveryFixture(restarted, "job-next", "economic-attempt:held-002"))
+        .resolves.toMatchObject({ status: "committed" });
+    } finally {
+      closeManagedAccountRuntimeComposition(cwd);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps recovered dispatch-fenced commitments settlement-pending and capacity-consuming", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kiln-economic-fenced-recovery-"));
+    try {
+      const first = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
+      await acquireRecoveryFixture(first, "job-fenced", "economic-attempt:fenced-001");
+      first.authority.fenceDispatch("job-fenced", "economic-attempt:fenced-001", "dispatch-fence-a");
+      closeManagedAccountRuntimeComposition(cwd);
+
+      const restarted = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
+      expect(restarted.authority.queryCommitment("job-fenced", "economic-attempt:fenced-001"))
+        .toMatchObject({ state: "settlement-pending" });
+      await expect(acquireRecoveryFixture(restarted, "job-next", "economic-attempt:fenced-002"))
+        .resolves.toMatchObject({ status: "denied" });
+    } finally {
+      closeManagedAccountRuntimeComposition(cwd);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("fails composition startup and closes the authority when recovery fails", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kiln-economic-recovery-failure-"));
+    const recover = vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "recoverCommitments")
+      .mockImplementationOnce(() => { throw new Error("synthetic recovery failure"); });
+    const close = vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "close");
+    try {
+      expect(() => createManagedAccountRuntimeComposition(economicConfig(), cwd))
+        .toThrow("Managed account startup recovery failed");
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      recover.mockRestore();
+      close.mockRestore();
       closeManagedAccountRuntimeComposition(cwd);
       rmSync(cwd, { recursive: true, force: true });
     }

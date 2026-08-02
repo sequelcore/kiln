@@ -24,6 +24,49 @@ async function collectEvents(iter: AsyncIterable<ExecutionSessionEvent>): Promis
   return events;
 }
 
+function queryFixture(messages: readonly unknown[]) {
+  let index = 0;
+  const close = vi.fn(async () => ({ done: true as const, value: undefined }));
+  return {
+    close,
+    query: {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      async next() {
+        const value = messages[index];
+        index += 1;
+        return value === undefined
+          ? { done: true as const, value: undefined }
+          : { done: false as const, value };
+      },
+      return: close,
+    },
+  };
+}
+
+function pendingQueryFixture() {
+  let settleNext: ((result: IteratorResult<unknown, void>) => void) | undefined;
+  const close = vi.fn(async () => {
+    settleNext?.({ done: true, value: undefined });
+    return { done: true as const, value: undefined };
+  });
+  const next = vi.fn(() => new Promise<IteratorResult<unknown, void>>((resolve) => {
+    settleNext = resolve;
+  }));
+  return {
+    close,
+    next,
+    query: {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next,
+      return: close,
+    },
+  };
+}
+
 describe("ClaudeSession implements IKilnSession", () => {
   it("declares implements IKilnSession", () => {
     const session: IKilnSession = new ClaudeSession(baseConfig());
@@ -93,6 +136,52 @@ describe("ClaudeSession implements IKilnSession", () => {
     await expect(session.dispose()).resolves.toBeUndefined();
   });
 
+  it("closes the Agent SDK query exactly once after natural completion", async () => {
+    const fixture = queryFixture([
+      { type: "result", subtype: "success", total_cost_usd: 0, is_error: false },
+    ]);
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void })
+      .mockReturnValueOnce(fixture.query);
+
+    const session = new ClaudeSession(baseConfig({ sessionLedgerOwner: "host" }));
+    await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+    await session.dispose();
+
+    expect(fixture.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces Agent SDK query cleanup failure instead of claiming a settled child", async () => {
+    const fixture = queryFixture([
+      { type: "result", subtype: "success", total_cost_usd: 0, is_error: false },
+    ]);
+    fixture.close.mockRejectedValueOnce(new Error("query transport did not close"));
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void })
+      .mockReturnValueOnce(fixture.query);
+
+    const session = new ClaudeSession(baseConfig({ sessionLedgerOwner: "host" }));
+
+    await expect(collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() })))
+      .rejects.toThrow("query transport did not close");
+    expect(fixture.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes and settles an in-flight Agent SDK query when disposed", async () => {
+    const fixture = pendingQueryFixture();
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void })
+      .mockReturnValueOnce(fixture.query);
+
+    const session = new ClaudeSession(baseConfig({ sessionLedgerOwner: "host" }));
+    const iterator = session.run({ prompt: "test prompt", cwd: process.cwd() })[Symbol.asyncIterator]();
+    const pending = iterator.next();
+    await vi.waitFor(() => expect(fixture.next).toHaveBeenCalledTimes(1));
+
+    await session.dispose();
+
+    await expect(pending).resolves.toEqual({ done: true, value: undefined });
+    await session.dispose();
+    expect(fixture.close).toHaveBeenCalledTimes(1);
+  });
+
   it("run() emits MCP-origin tool_use events with source mcp", async () => {
     (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
       yield {
@@ -112,13 +201,50 @@ describe("ClaudeSession implements IKilnSession", () => {
     const session = new ClaudeSession(baseConfig());
     const events = await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
 
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       type: "tool_use",
       toolName: "memory_store",
       input: { key: "k", value: "v" },
       source: "mcp",
       mcpSelector: "memory_store",
-    });
+    }));
+  });
+
+  it("preserves Claude tool ids and pairs tool results in the host turn scope", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield {
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id: "toolu_provider_1", name: "Read", input: { path: "README.md" } }] },
+      };
+      yield {
+        type: "user",
+        message: { content: [{ type: "tool_result", tool_use_id: "toolu_provider_1", content: "ok" }] },
+      };
+    })());
+
+    const session = new ClaudeSession(baseConfig());
+    const events = await collectEvents(session.run({
+      prompt: "test prompt",
+      kilnSessionId: "session-scope",
+      turnId: "turn-4",
+    }));
+
+    expect(events.filter((event) => event.type === "tool_use" || event.type === "tool_result")).toEqual([
+      {
+        type: "tool_use",
+        toolCallId: "toolu_provider_1",
+        toolCallScopeId: "session-scope:turn-4:claude-code",
+        toolName: "Read",
+        input: { path: "README.md" },
+      },
+      {
+        type: "tool_result",
+        toolCallId: "toolu_provider_1",
+        toolCallScopeId: "session-scope:turn-4:claude-code",
+        toolName: "Read",
+        output: "ok",
+      },
+    ]);
   });
 
   it("injects execution identity into the SDK system prompt append", async () => {

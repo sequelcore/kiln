@@ -8,7 +8,10 @@ import { describeWebToolConfiguration } from "../config/web-tools-config.js";
 import { describeInteractiveUseConfiguration } from "../config/interactive-use-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
-import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
+import {
+  closeManagedAccountRuntimeComposition,
+  resolveManagedInvocationToolOptions,
+} from "../config/managed-agent-routes.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import type { KilnSkillCatalogSnapshot } from "@kilnai/gateway-contracts";
 import {
@@ -78,19 +81,25 @@ export async function statusCommand(
       managedAgents: config.managedAgents ?? globalConfig.managedAgents,
     }
     : config;
-  const managedInvocationResolution = await resolveManagedInvocationToolOptions(managedInvocationConfig, {
-    cwd: root,
-    registry,
-    surface: "operator",
-    isProviderAvailable: (provider) => engineAvailability.get(provider),
-    providerModelEligibility: managedAgentProviderModels,
-    directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
-    builtinToolOptions,
-  });
+  const managedInvocationResolution = await (async () => {
+    try {
+      return await resolveManagedInvocationToolOptions(managedInvocationConfig, {
+        cwd: root,
+        registry,
+        surface: "operator",
+        isProviderAvailable: (provider) => engineAvailability.get(provider),
+        providerModelEligibility: managedAgentProviderModels,
+        directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
+        builtinToolOptions,
+      });
+    } finally {
+      closeManagedAccountRuntimeComposition(root);
+    }
+  })();
   if (managedInvocationResolution.routeHealth.length > 0) {
     console.log(`\n  Managed agent routes:`);
     for (const route of managedInvocationResolution.routeHealth) {
-      const status = route.available ? "available" : `unavailable - ${route.reason}`;
+      const status = route.available ? "admission-ready" : `admission-unavailable - ${route.reason}`;
       const economicBoundary = route.kind === "harness"
         ? "; provider consumption is not bounded by Kiln's managed economic ceiling"
         : "";

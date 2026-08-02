@@ -9,6 +9,7 @@ import {
   PooledProviderAdapter,
   type Credential,
   type CredentialOutcome,
+  type CreateMessageOptions,
   type OpenCodeAuthFile,
   type OpenCodeTier,
   type ProviderAdapter,
@@ -75,6 +76,12 @@ export interface CreateOpenCodePooledAdapterOptions {
   readonly tier: OpenCodeTier;
   readonly defaultModel: string;
   readonly createAdapter?: (auth: OpenCodeAuthFile) => ProviderAdapter;
+}
+
+export interface CreateExactOpenCodeAdapterOptions {
+  readonly selected: OpenCodeExecutionAccount;
+  readonly defaultModel: string;
+  readonly createAdapter?: (credential: OpenCodeExecutionCredential) => ProviderAdapter;
 }
 
 export class OpenCodeCredentialPoolService {
@@ -228,6 +235,42 @@ export class OpenCodeCredentialPoolService {
       })),
       mapError: mapOpenCodeProviderError,
     });
+  }
+
+  /** Materializes one previously selected account revision without consulting pooled order. */
+  async createExactAdapter(options: CreateExactOpenCodeAdapterOptions): Promise<ProviderAdapter> {
+    const credential = await this.resolveExecutionCredential(options.selected);
+    const delegate = options.createAdapter?.(credential) ?? new OpenCodeAdapter({
+      apiKey: credential.auth.api_key,
+      tier: credential.tier,
+      defaultModel: options.defaultModel,
+      internalRetry: false,
+    });
+    const recordOutcome = async (error?: unknown): Promise<void> => {
+      await this.recordProviderOutcome(credential.providerId, credential.credentialId, error);
+    };
+    return {
+      name: delegate.name,
+      createMessage: async (messageOptions: CreateMessageOptions) => {
+        try {
+          const response = await delegate.createMessage(messageOptions);
+          await recordOutcome();
+          return response;
+        } catch (error) {
+          await recordOutcome(error);
+          throw error;
+        }
+      },
+      streamMessage: async function* (messageOptions: CreateMessageOptions) {
+        try {
+          yield* delegate.streamMessage(messageOptions);
+          await recordOutcome();
+        } catch (error) {
+          await recordOutcome(error);
+          throw error;
+        }
+      },
+    };
   }
 
   async createPool(tier: OpenCodeTier): Promise<CredentialPool<OpenCodeAuthFile>> {

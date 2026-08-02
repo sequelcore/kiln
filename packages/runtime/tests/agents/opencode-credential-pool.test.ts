@@ -234,6 +234,69 @@ describe("OpenCodeCredentialPoolService", () => {
     await expect(service.resolveExecutionCredential(selected)).rejects.toThrow("revision changed");
   });
 
+  it("fails closed when a selected OpenCode credential disappears or becomes unhealthy", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "missing", apiKey: "sk-missing", tier: "go" });
+    await service.linkCredential({ id: "unhealthy", apiKey: "sk-unhealthy", tier: "go" });
+    const accounts = await service.listExecutionAccounts("go");
+    const missing = accounts.find((entry) => entry.credentialId === "missing")!;
+    const unhealthy = accounts.find((entry) => entry.credentialId === "unhealthy")!;
+
+    await service.clearCredentials({ id: "missing" });
+    await service.recordProviderOutcome("opencode-go", "unhealthy", Object.assign(new Error("auth"), { status: 401 }));
+
+    await expect(service.resolveExecutionCredential(missing)).rejects.toThrow("unavailable");
+    await expect(service.resolveExecutionCredential(unhealthy)).rejects.toThrow("unhealthy");
+    await expect(service.listExecutionAccounts("go")).resolves.toEqual([]);
+  });
+
+  it("rejects a selected OpenCode account whose tier and provider disagree", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "work", apiKey: "sk-work", tier: "go" });
+    const selected = (await service.listExecutionAccounts("go"))[0]!;
+
+    await expect(service.resolveExecutionCredential({
+      ...selected,
+      providerId: "opencode-zen",
+    })).rejects.toThrow("provider is invalid");
+  });
+
+  it("materializes only the exact selected OpenCode account revision", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "first", apiKey: "sk-first", tier: "go" });
+    await service.linkCredential({ id: "second", apiKey: "sk-second", tier: "go" });
+    const selected = (await service.listExecutionAccounts("go"))
+      .find((entry) => entry.credentialId === "second")!;
+    const materialized: string[] = [];
+
+    const adapter = await service.createExactAdapter({
+      selected,
+      defaultModel: "model",
+      createAdapter: (credential) => new TestAdapter(async () => {
+        materialized.push(credential.credentialId);
+        return makeResponse(credential.auth.api_key);
+      }),
+    });
+
+    await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse("sk-second"));
+    expect(materialized).toEqual(["second"]);
+  });
+
+  it("rejects stale exact OpenCode account evidence before adapter construction", async () => {
+    const service = new OpenCodeCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "selected", apiKey: "sk-before", tier: "zen" });
+    const [selected] = await service.listExecutionAccounts("zen");
+    const createAdapter = vi.fn(() => new TestAdapter(async () => makeResponse("unexpected")));
+    await service.linkCredential({ id: "selected", apiKey: "sk-after-with-a-different-length", tier: "zen" });
+
+    await expect(service.createExactAdapter({
+      selected: selected!,
+      defaultModel: "model",
+      createAdapter,
+    })).rejects.toThrow("revision changed");
+    expect(createAdapter).not.toHaveBeenCalled();
+  });
+
   it("records provider outcome against the exact OpenCode credential", async () => {
     const service = new OpenCodeCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "first", apiKey: "sk-first", tier: "go" });

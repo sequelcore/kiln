@@ -200,11 +200,6 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
   if (typeof rawCapabilitySnapshot.routeSource !== "string") {
     throw new ManagedAgentRuntimeAdmissionError("Unsupported managed capability snapshot route source");
   }
-  const rawRequest = isRecord(input.request) ? input.request : {};
-  const rawAuthority = isRecord(rawRequest.authority) ? rawRequest.authority : {};
-  if (Object.prototype.hasOwnProperty.call(rawAuthority, "timeoutSource")) {
-    throw new ManagedAgentRuntimeAdmissionError("Unsupported managed invocation timeout source");
-  }
   const decision = validateAdmittedDecision(input.decision);
   const request = defineManagedAgentInvocationRequest(input.request as ManagedAgentInvocationRequest);
   const checkpoint: ManagedAgentRuntimeRecoveryCheckpoint = {

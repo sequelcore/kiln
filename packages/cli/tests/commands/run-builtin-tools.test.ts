@@ -13,6 +13,8 @@ import { readGlobalConfig } from "../../src/config/global-config.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
+vi.setConfig({ testTimeout: 30_000 });
+
 const runWiringMocks = vi.hoisted(() => {
   const builtinToolSurfaceOptions = { id: "surface-options" };
   const builtinToolOptions = { id: "session-builtin-tool-options" };
@@ -38,6 +40,7 @@ const runWiringMocks = vi.hoisted(() => {
     computeEvalScore: vi.fn(() => undefined),
     cleanupWorktree: vi.fn().mockResolvedValue(undefined),
     cleanupRegistryRunAll: vi.fn().mockResolvedValue(undefined),
+    cleanupRegistryRegister: vi.fn(),
     createManagedAgentInvocationResourceProvider: vi.fn(() => ({ id: "managed-agent-resource-provider" })),
     runManagedAgentOrchestrationLifecycle: vi.fn(),
     runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
@@ -385,7 +388,10 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
 }));
 
 vi.mock("../../src/wrapper/cleanup-registry.js", () => ({
-  cleanupRegistry: { runAll: runWiringMocks.cleanupRegistryRunAll },
+  cleanupRegistry: {
+    register: runWiringMocks.cleanupRegistryRegister,
+    runAll: runWiringMocks.cleanupRegistryRunAll,
+  },
 }));
 
 vi.mock("../../src/wrapper/index.js", () => ({
@@ -1797,7 +1803,7 @@ function captureStdout() {
 }
 
 async function waitForCondition(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));

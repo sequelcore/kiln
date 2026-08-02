@@ -739,6 +739,29 @@ does not receive `managed_agent.invoke` authority.
 Unhealthy configured routes are still carried as diagnostics so a failed tool
 call can explain why the route is unavailable rather than pretending it was
 never configured.
+Route admission readiness and recent execution health are separate evidence.
+Configuration, catalog eligibility, and a live provider/model proof may establish
+that a route is admission-ready; they do not establish that its latest child
+completed successfully. Operator workspace projections preserve that static
+admission evidence and independently derive recent execution health from the
+latest canonical terminal invocation event. A failed or timed-out child therefore
+degrades execution health without erasing the route's historical live proof, while
+cancellation remains execution-unknown rather than fabricating a provider failure.
+
+Economic managed dispatch crosses one explicit postcommit boundary. Candidate
+collection is secret-free. The SQLite authority selects and reserves an exact
+route/account revision; only then may Runtime materialize that adapter. Runtime
+persists the dispatch fence immediately before the provider effect. A replay of
+an already-fenced commitment never dispatches again. Successful registered
+execution settlement releases capacity; rejected, timed-out, cancelled, or
+otherwise unknown settlement remains capacity-consuming until durable recovery
+or operator reconciliation proves a terminal outcome.
+
+Managed-job V7 is the sole writer contract and persists the objective plus the
+canonical terminal Runtime handoff. V5 and V6 are historical recovery readers,
+not compatibility writers. They can be removed once no durable `.kiln`
+managed-job record at those versions remains and recovery evidence confirms no
+active commitment refers to one.
 The model-facing route catalog includes each healthy route's timeout budget.
 Parent agents should route broad repository review, long reasoning, or
 multi-file analysis to a child route with enough admitted time, or split work

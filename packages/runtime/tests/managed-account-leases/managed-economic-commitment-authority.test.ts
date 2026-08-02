@@ -184,6 +184,62 @@ describe("managed economic commitment authority", () => {
       .toThrow("cannot be dispatch-fenced");
   });
 
+  it("releases accountless capacity only after a registered execution settles successfully", async () => {
+    const authority = create();
+    authority.acquireCommitment(input());
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+
+    expect(authority.recordExecutionSettlementPending(
+      "job-a",
+      "economic-attempt-a",
+      "fence-a",
+      "provider outcome is not authoritative",
+    )).toMatchObject({ state: "settlement-pending", settlement: { kind: "unknown" } });
+    expect(authority.acquireCommitment({
+      ...input(),
+      jobId: "job-b",
+      economicAttemptId: "economic-attempt-b",
+    })).toMatchObject({ status: "denied" });
+
+    expect(authority.settleSuccessfulExecution(
+      "job-a",
+      "economic-attempt-a",
+      "fence-a",
+    )).toMatchObject({ state: "released", settlement: { kind: "unknown", reason: "execution-settled" } });
+    expect(authority.acquireCommitment({
+      ...input(),
+      jobId: "job-c",
+      economicAttemptId: "economic-attempt-c",
+    })).toMatchObject({ status: "committed" });
+  });
+
+  it("keeps account capacity consumed after an unknown post-fence outcome", () => {
+    const authority = create();
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    authority.acquireCommitment({
+      ...input(adopted),
+      routeCapacity: [{
+        routeId: "route-direct",
+        route,
+        affinityRequest: { continuity: "none" },
+        candidates: [candidate],
+      }],
+    });
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    authority.recordExecutionSettlementPending(
+      "job-a",
+      "economic-attempt-a",
+      "fence-a",
+      "execution settlement rejected",
+    );
+
+    expect(authority.queryCommitment("job-a", "economic-attempt-a")).toMatchObject({
+      state: "settlement-pending",
+      lease: { lifecycleState: "held" },
+    });
+  });
+
   it("persists exact final-unit denial evidence and replays it without partial reservation", () => {
     const authority = create();
     expect(authority.acquireCommitment(input())).toMatchObject({ status: "committed" });

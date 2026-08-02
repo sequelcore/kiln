@@ -6,6 +6,7 @@ import {
   type ModelGatewayConfig,
 } from "@kilnai/core";
 import { ConfiguredManagedAccountRuntime } from "../../src/managed-account-leases/configured-managed-account-runtime.js";
+import { OpenCodeCredentialPoolService } from "../../src/agents/credential-pool/opencode-credential-pool.js";
 
 const config: ModelGatewayConfig = {
   port: 4819,
@@ -159,6 +160,93 @@ describe("ConfiguredManagedAccountRuntime", () => {
     expect(resolution.candidates).toHaveLength(1);
     expect(codexPool.resolveExecutionCredential).not.toHaveBeenCalled();
   });
+
+  it("materializes only the exact committed account revision from a two-account policy", async () => {
+    const accounts = [
+      { credentialId: "credential-a", fileIdentity: "a".repeat(64), revision: "1".repeat(64) },
+      { credentialId: "credential-b", fileIdentity: "b".repeat(64), revision: "2".repeat(64) },
+    ];
+    const runtime = new ConfiguredManagedAccountRuntime({
+      config: twoAccountConfig(),
+      codexPool: {
+        listExecutionAccounts: vi.fn(async () => accounts),
+        listUsage: vi.fn(async () => []),
+      },
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const resolution = await runtime.resolve({
+      accountPolicyId: "managed-codex",
+      providerRoute: { providerId: "codex-oauth", surface: "direct", model: "gpt-test" },
+    });
+    const selected = resolution.candidates.find((candidate) => candidate.capacityIdentity === "account-b");
+    if (!selected) throw new Error("fixture");
+    expect(selected.credentialRevisionId).not.toBe(accounts[1]!.revision);
+
+    await expect(runtime.resolveCommittedAccountBinding({
+      accountPolicyId: "managed-codex",
+      providerId: "codex-oauth",
+      model: "gpt-test",
+      capacityIdentity: selected.capacityIdentity,
+      accountRef: selected.candidate.account,
+      credentialRevisionId: selected.credentialRevisionId,
+    })).resolves.toEqual({
+      virtualModelId: "managed-codex",
+      accountId: "account-b",
+      credentialId: "credential-b",
+      credentialRevision: accounts[1]!.revision,
+    });
+
+    await expect(runtime.resolveCommittedAccountBinding({
+      accountPolicyId: "managed-codex",
+      providerId: "codex-oauth",
+      model: "gpt-test",
+      capacityIdentity: selected.capacityIdentity,
+      accountRef: selected.candidate.account,
+      credentialRevisionId: "f".repeat(64),
+    })).rejects.toThrow("revision");
+  });
+
+  it("carries the committed OpenCode revision from account selection to execution binding", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-configured-opencode-account-"));
+    const pool = new OpenCodeCredentialPoolService({ rootDir: root });
+    await pool.linkCredential({ id: "go-primary", apiKey: "sk-synthetic", tier: "go" });
+    const runtime = new ConfiguredManagedAccountRuntime({
+      config: openCodeConfig(),
+      credentialRootDir: root,
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const resolution = await runtime.resolve({
+      accountPolicyId: "managed-go",
+      providerRoute: { providerId: "opencode-go", surface: "direct", model: "glm-test" },
+    });
+    const selected = resolution.candidates[0]!;
+    const physicalRevision = (await pool.listExecutionAccounts("go"))[0]!.revision;
+    expect(selected.credentialRevisionId).not.toBe(physicalRevision);
+
+    await expect(runtime.resolveCommittedAccountBinding({
+      accountPolicyId: "managed-go",
+      providerId: "opencode-go",
+      model: "glm-test",
+      capacityIdentity: selected.capacityIdentity,
+      accountRef: selected.candidate.account,
+      credentialRevisionId: selected.credentialRevisionId,
+    })).resolves.toEqual({
+      virtualModelId: "managed-go",
+      accountId: "go-account",
+      credentialId: "go-primary",
+      credentialRevision: physicalRevision,
+    });
+
+    await pool.linkCredential({ id: "go-primary", apiKey: "sk-replaced-with-different-length", tier: "go" });
+    await expect(runtime.resolveCommittedAccountBinding({
+      accountPolicyId: "managed-go",
+      providerId: "opencode-go",
+      model: "glm-test",
+      capacityIdentity: selected.capacityIdentity,
+      accountRef: selected.candidate.account,
+      credentialRevisionId: selected.credentialRevisionId,
+    })).rejects.toThrow("no longer executable");
+  });
 });
 
 function twoAccountConfig(): ModelGatewayConfig {
@@ -175,6 +263,27 @@ function twoAccountConfig(): ModelGatewayConfig {
       accountIds: ["account-a", "account-b"],
       capabilities: ["text"],
       affinity: { continuity: "prefer", scope: "session", allowRebind: true },
+    }],
+  };
+}
+
+function openCodeConfig(): ModelGatewayConfig {
+  return {
+    ...config,
+    accounts: [{
+      id: "go-account",
+      providerId: "opencode-go",
+      credentialId: "go-primary",
+      maxConcurrency: 1,
+      reservedAffinitySlots: 0,
+    }],
+    virtualModels: [{
+      id: "managed-go",
+      providerId: "opencode-go",
+      providerModelId: "glm-test",
+      accountIds: ["go-account"],
+      capabilities: ["text"],
+      affinity: { continuity: "none" },
     }],
   };
 }

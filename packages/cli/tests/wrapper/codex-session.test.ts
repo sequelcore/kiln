@@ -561,8 +561,8 @@ describe("CodexSession.run() JSONL parsing", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    expect(events).toContainEqual({ type: "tool_use", toolName: "bash", input: { command: "echo hello" } });
-    expect(events).toContainEqual({ type: "tool_result", toolName: "bash", output: "hello\n" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "tool_use", toolName: "bash", input: { command: "echo hello" } }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "tool_result", toolName: "bash", output: "hello\n" }));
   });
 
   it("run() maps completed Codex file_change items to provider-neutral file_changed events", async () => {
@@ -592,12 +592,12 @@ describe("CodexSession.run() JSONL parsing", () => {
 
     const events = await collectPromise;
 
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       type: "file_changed",
       path: expect.stringContaining("added.txt"),
       changeType: "created",
       diffTruncated: true,
-    });
+    }));
     expect(events).toContainEqual({
       type: "file_changed",
       path: expect.stringContaining("deleted.txt"),
@@ -659,13 +659,13 @@ describe("CodexSession.run() JSONL parsing", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       type: "tool_use",
       toolName: "memory_store",
       input: { key: "test", value: "42" },
       source: "mcp",
       mcpSelector: "memory_store",
-    });
+    }));
   });
 
   it("run() emits reasoning items as text_delta with isThinking flag", async () => {
@@ -701,7 +701,85 @@ describe("CodexSession.run() JSONL parsing", () => {
     const events = await collectPromise;
     const toolUse = events.find((e) => e.type === "tool_use");
     expect(toolUse).toBeDefined();
-    expect((toolUse as { toolName: string }).toolName).toBe("command_execution");
+    expect((toolUse as { toolName: string }).toolName).toBe("bash");
+  });
+
+  it.each([
+    { type: "mcp_tool_call", tool: "memory_store", arguments: { key: "k" }, result: { stored: true }, expectedTool: "memory_store" },
+    { type: "collab_tool_call", arguments: { task: "review" }, result: "reviewed", expectedTool: "collab_tool_call" },
+    { type: "web_search", query: "Kiln docs", result: ["https://example.test/kiln"], expectedTool: "web_search" },
+  ])("pairs started and completed $type items exactly once", async (fixture) => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({ prompt: "test", kilnSessionId: "session-tools", turnId: "turn-1" }));
+    const item = { id: `item-${fixture.type}`, ...fixture };
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "item.started", item });
+    emitLine({ type: "item.completed", item });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 50, cached_input_tokens: 0, output_tokens: 10 } });
+    resolveExit(0);
+
+    const events = (await collectPromise).filter((event) => event.type === "tool_use" || event.type === "tool_result");
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ type: "tool_use", toolCallId: `item-${fixture.type}`, toolName: fixture.expectedTool });
+    expect(events[1]).toMatchObject({ type: "tool_result", toolCallId: `item-${fixture.type}`, toolName: fixture.expectedTool });
+  });
+
+  it("synthesizes a paired MCP start when item.completed is the first observation", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({ prompt: "test", kilnSessionId: "session-tools", turnId: "turn-2" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "item.completed", item: { id: "mcp-completed-only", type: "mcp_tool_call", tool: "memory_store", arguments: { key: "k" }, result: "ok" } });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 50, cached_input_tokens: 0, output_tokens: 10 } });
+    resolveExit(0);
+
+    const events = (await collectPromise).filter((event) => event.type === "tool_use" || event.type === "tool_result");
+    expect(events).toEqual([
+      expect.objectContaining({ type: "tool_use", toolCallId: "mcp-completed-only", toolName: "memory_store" }),
+      expect.objectContaining({ type: "tool_result", toolCallId: "mcp-completed-only", toolName: "memory_store", output: "ok" }),
+    ]);
+  });
+
+  it("de-duplicates started/completed command notifications and preserves the Codex item id", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({
+      prompt: "test",
+      kilnSessionId: "session-scope",
+      turnId: "turn-2",
+    }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.started" });
+    emitLine({ type: "item.started", item: { id: "item-command-1", type: "command_execution", command: "pwd" } });
+    emitLine({ type: "item.completed", item: { id: "item-command-1", type: "command_execution", command: "pwd", exit_code: 0, aggregated_output: "/workspace\n" } });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 50, cached_input_tokens: 0, output_tokens: 10 } });
+    resolveExit(0);
+
+    const events = (await collectPromise).filter((event) => event.type === "tool_use" || event.type === "tool_result");
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_use",
+        toolCallId: "item-command-1",
+        toolCallScopeId: "session-scope:turn-2:codex",
+        toolName: "bash",
+      }),
+      expect.objectContaining({
+        type: "tool_result",
+        toolCallId: "item-command-1",
+        toolCallScopeId: "session-scope:turn-2:codex",
+        toolName: "bash",
+      }),
+    ]);
   });
 
   it("run() yields error event for item.type error", async () => {

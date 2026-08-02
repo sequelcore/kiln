@@ -11,6 +11,7 @@ import type {
   KilnPermissionPolicy,
   KilnSandboxMode,
 } from "./session.js";
+import { NativeToolEventIdentity } from "./session.js";
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { debug } from "./debug.js";
 import { SessionStore } from "./session-store.js";
@@ -530,6 +531,11 @@ export class OpenCodeSession implements IKilnSession {
     const messageRoles = new Map<string, string>();
     const textPartSnapshots = new Map<string, string>();
     const pendingPartDeltas = new Map<string, string>();
+    const toolIdentity = new NativeToolEventIdentity({
+      providerId: "opencode",
+      kilnSessionId: options.kilnSessionId ?? this.sessionId,
+      turnId: options.turnId ?? "turn:1",
+    });
     const cwd = options.cwd ?? this._config.cwd;
     let sawProviderEvidence = false;
     let emittedAssistantText = false;
@@ -901,9 +907,13 @@ export class OpenCodeSession implements IKilnSession {
             sawProviderEvidence = true;
             if (part.state?.status === "pending" || part.state?.status === "running") {
               const toolName = part.tool ?? "unknown";
+              const identity = toolIdentity.start(toolName, part.callID ?? part.id);
+              if (!identity.emit) continue;
               const isMcpTool = knownMcpToolNames.has(toolName);
               yield {
                 type: "tool_use",
+                toolCallId: identity.toolCallId,
+                toolCallScopeId: identity.toolCallScopeId,
                 toolName,
                 input: part.state?.input ?? {},
                 ...(isMcpTool
@@ -911,6 +921,8 @@ export class OpenCodeSession implements IKilnSession {
                   : {}),
               };
             } else if (part.state?.status === "completed") {
+              const completion = toolIdentity.complete(part.tool ?? "unknown", part.callID ?? part.id);
+              if (!completion.emit) continue;
               const output = part.state?.output;
               const outputStr =
                 output !== undefined
@@ -918,9 +930,18 @@ export class OpenCodeSession implements IKilnSession {
                   : part.state?.metadata?.output !== undefined
                     ? String(part.state.metadata.output)
                     : "";
+              if (completion.startRequired) yield {
+                  type: "tool_use",
+                  toolCallId: completion.toolCallId,
+                  toolCallScopeId: completion.toolCallScopeId,
+                  toolName: completion.toolName,
+                  input: part.state?.input ?? {},
+                };
               yield {
                 type: "tool_result",
-                toolName: part.tool ?? "unknown",
+                toolCallId: completion.toolCallId,
+                toolCallScopeId: completion.toolCallScopeId,
+                toolName: completion.toolName,
                 output: outputStr,
               };
             } else if (part.state?.status === "error") {
@@ -933,10 +954,22 @@ export class OpenCodeSession implements IKilnSession {
                   reason: part.state.error ?? "OpenCode denied write tool execution",
                 };
               }
+              const completion = toolIdentity.complete(part.tool ?? "unknown", part.callID ?? part.id);
+              if (!completion.emit) continue;
+              if (completion.startRequired) yield {
+                  type: "tool_use",
+                  toolCallId: completion.toolCallId,
+                  toolCallScopeId: completion.toolCallScopeId,
+                  toolName: completion.toolName,
+                  input: part.state?.input ?? {},
+                };
               yield {
                 type: "tool_result",
-                toolName: part.tool ?? "unknown",
+                toolCallId: completion.toolCallId,
+                toolCallScopeId: completion.toolCallScopeId,
+                toolName: completion.toolName,
                 output: part.state.error ?? "Tool failed",
+                isError: true,
               };
             }
           }
@@ -1000,7 +1033,21 @@ export class OpenCodeSession implements IKilnSession {
           const output = props?.tokens !== undefined
             ? `Context compacted to approximately ${props.tokens} tokens`
             : "Context compacted";
-          yield { type: "tool_result", toolName: "session.compacted", output };
+          const completion = toolIdentity.complete("session.compacted");
+          yield {
+            type: "tool_use",
+            toolCallId: completion.toolCallId,
+            toolCallScopeId: completion.toolCallScopeId,
+            toolName: completion.toolName,
+            input: {},
+          };
+          yield {
+            type: "tool_result",
+            toolCallId: completion.toolCallId,
+            toolCallScopeId: completion.toolCallScopeId,
+            toolName: completion.toolName,
+            output,
+          };
           continue;
         }
 
@@ -1036,7 +1083,21 @@ export class OpenCodeSession implements IKilnSession {
           }
           const toolList = props?.tools?.map((t) => t.name).join(", ") ?? "";
           sawProviderEvidence = true;
-          yield { type: "tool_result", toolName: "mcp.tools.changed", output: toolList };
+          const completion = toolIdentity.complete("mcp.tools.changed");
+          yield {
+            type: "tool_use",
+            toolCallId: completion.toolCallId,
+            toolCallScopeId: completion.toolCallScopeId,
+            toolName: completion.toolName,
+            input: {},
+          };
+          yield {
+            type: "tool_result",
+            toolCallId: completion.toolCallId,
+            toolCallScopeId: completion.toolCallScopeId,
+            toolName: completion.toolName,
+            output: toolList,
+          };
           continue;
         }
       }

@@ -495,13 +495,42 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     })).rejects.toThrow("Managed orchestration requires an isolated-worktree");
   });
 
-  it("candidate-admits a policy child without selecting or starting a route", async () => {
+  it("commits, fences, invokes, and settles every economic orchestration child", async () => {
     const managedInvocation = createManagedInvocation();
     const primaryRoute = managedInvocation.routes[0]!;
-    const start = vi.spyOn(managedInvocation.invocationService!, "start");
     const orchestrationRequest = request(2);
+    const events: string[] = [];
+    const preparation = vi.fn(async (input) => ({
+      status: "prepared" as const,
+      commitment: {
+        reservation: {
+          selectedIdentity: {
+            route: {
+              routeId: primaryRoute.routeId,
+              providerId: primaryRoute.providerId,
+              modelId: primaryRoute.model,
+              accountPolicyId: null,
+            },
+            account: { kind: "accountless" },
+          },
+        },
+      } as never,
+      adapter: {
+        ...primaryRoute.adapter!,
+        invoke: async (invocation) => {
+          invocation.registerExecutionSettlement(Promise.resolve());
+          return await primaryRoute.adapter!.invoke(invocation);
+        },
+      },
+      beforeProviderEffect: async () => { events.push(`fence:${input.jobId}`); },
+      releaseBeforeProviderEffect: () => { events.push(`release:${input.jobId}`); },
+      registerExecutionSettlement: (settlement) => {
+        events.push(`settlement:${input.jobId}`);
+        void Promise.resolve(settlement).then(() => events.push(`settled:${input.jobId}`));
+      },
+    }));
 
-    await expect(runManagedAgentOrchestrationLifecycle({
+    const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: {
         ...orchestrationRequest,
         childRequests: orchestrationRequest.childRequests.map((child) => ({
@@ -531,15 +560,87 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: [primaryRoute.routeId],
         }],
+        economicDispatch: { prepare: preparation },
       },
       profile: "foundation-apply-approved-writes",
-    })).rejects.toMatchObject({
-      code: "economic_commitment_unavailable",
-      candidateSet: {
-        candidates: [{ routeId: primaryRoute.routeId }],
-      },
+      economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     });
-    expect(start).not.toHaveBeenCalled();
+
+    expect(result.orchestrationResult.status).toBe("completed");
+    expect(preparation).toHaveBeenCalledTimes(2);
+    expect(events.filter((event) => event.startsWith("fence:"))).toHaveLength(2);
+    expect(events.filter((event) => event.startsWith("settlement:"))).toHaveLength(2);
+    await vi.waitFor(() => expect(events.filter((event) => event.startsWith("settled:"))).toHaveLength(2));
+    expect(events.some((event) => event.startsWith("release:"))).toBe(false);
+  });
+
+  it("releases an economic commitment when the pre-effect fence denies dispatch", async () => {
+    const managedInvocation = createEconomicManagedInvocation({
+      beforeProviderEffect: async () => { throw new Error("synthetic fence denial"); },
+    });
+
+    const result = await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: economicRequest(2),
+      managedInvocation: managedInvocation.options,
+      profile: "foundation-apply-approved-writes",
+      economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
+    });
+
+    expect(managedInvocation.releaseBeforeProviderEffect).toHaveBeenCalledTimes(2);
+    expect(managedInvocation.invoked).not.toHaveBeenCalled();
+    expect(result.childRecords.map((child) => child.error)).toEqual([
+      "synthetic fence denial",
+      "synthetic fence denial",
+    ]);
+  });
+
+  it("does not prepare an economic commitment for a dependency-blocked child", async () => {
+    const managedInvocation = createEconomicManagedInvocation({ failOrdinals: new Set([1]) });
+
+    const result = await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: buildManagedAgentDecompositionOrchestrationRequest({
+        orchestrationId: "economic-blocked-team",
+        parentSessionId: "parent-session",
+        parentTurnId: "parent-turn",
+        requestedBy: "operator",
+        requestSource: "runtime-test",
+        task: "Produce and integrate through committed routes.",
+        childPlans: [{
+          key: "producer",
+          roleIntent: "producer",
+          task: "Produce.",
+          agentProfile: "economic-worker",
+        }, {
+          key: "integrator",
+          roleIntent: "integrator",
+          task: "Integrate.",
+          agentProfile: "economic-worker",
+          dependsOn: ["producer"],
+        }],
+        maxConcurrentChildren: 2,
+        workingDirectoryMode: "isolated-worktree",
+      }),
+      managedInvocation: managedInvocation.options,
+      profile: "foundation-apply-approved-writes",
+      economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
+    });
+
+    expect(managedInvocation.prepare).toHaveBeenCalledOnce();
+    expect(result.childRecords[1]?.error).toContain("Blocked by failed dependencies: producer");
+  });
+
+  it("does not redispatch an economic child whose durable commitment is already fenced", async () => {
+    const managedInvocation = createEconomicManagedInvocation({ status: "already-dispatched" });
+
+    await expect(runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: economicRequest(2),
+      managedInvocation: managedInvocation.options,
+      profile: "foundation-apply-approved-writes",
+      economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
+    })).rejects.toThrow("already dispatch-fenced");
+
+    expect(managedInvocation.prepare).toHaveBeenCalledOnce();
+    expect(managedInvocation.invoked).not.toHaveBeenCalled();
   });
 
   it("fails closed when lifecycle route selection is ambiguous", async () => {
@@ -670,6 +771,86 @@ function createManagedInvocation(input: {
         },
       },
     }],
+  };
+}
+
+function economicRequest(childCount: number) {
+  const orchestrationRequest = request(childCount);
+  return {
+    ...orchestrationRequest,
+    childRequests: orchestrationRequest.childRequests.map((child) => ({
+      ...child,
+      agentProfile: "economic-worker",
+    })),
+  };
+}
+
+function createEconomicManagedInvocation(input: {
+  readonly status?: "prepared" | "already-dispatched";
+  readonly beforeProviderEffect?: () => Promise<void>;
+  readonly failOrdinals?: ReadonlySet<number>;
+} = {}) {
+  const base = createManagedInvocation({
+    ...(input.failOrdinals ? { failOrdinals: input.failOrdinals } : {}),
+  });
+  const route = base.routes[0]!;
+  const invoked = vi.fn();
+  const adapter = {
+    ...route.adapter!,
+    invoke: async (invocation: ManagedAgentRuntimeInvocationInput) => {
+      invoked(invocation.request.invocationId);
+      return await route.adapter!.invoke(invocation);
+    },
+  };
+  const releaseBeforeProviderEffect = vi.fn();
+  const prepare = vi.fn(async () => {
+    if (input.status === "already-dispatched") {
+      return { status: "already-dispatched" as const, record: {} as never };
+    }
+    return {
+      status: "prepared" as const,
+      commitment: {
+        reservation: {
+          selectedIdentity: {
+            route: { routeId: route.routeId, providerId: route.providerId, modelId: route.model, accountPolicyId: null },
+            account: { kind: "accountless" },
+          },
+        },
+      } as never,
+      adapter,
+      beforeProviderEffect: input.beforeProviderEffect ?? (async () => undefined),
+      releaseBeforeProviderEffect,
+      registerExecutionSettlement: () => undefined,
+    };
+  });
+  return {
+    options: {
+      ...base,
+      routes: [{
+        ...route,
+        adapter: undefined,
+        economicPolicyIds: ["economy-policy"],
+        economicCapability: {
+          status: "verified" as const,
+          adapterCapabilityId: "codex-direct",
+          adapterCapabilityVersion: "1",
+        },
+      }],
+      agentCatalog: [{
+        name: "economic-worker",
+        role: "Economic worker",
+        goal: "Execute only after durable commitment.",
+        tier: "reasoning",
+        authorityProfile: "foundation-apply-approved-writes" as const,
+        economicPolicyId: "economy-policy",
+        economicPolicyRevision: "revision-001",
+        economicPolicyCandidateRouteIds: [route.routeId],
+      }],
+      economicDispatch: { prepare },
+    } satisfies ManagedInvocationToolOptions,
+    prepare,
+    releaseBeforeProviderEffect,
+    invoked,
   };
 }
 

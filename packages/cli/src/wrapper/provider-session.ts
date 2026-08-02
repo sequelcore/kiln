@@ -52,13 +52,19 @@ import type {
 import { buildProviderSystemPrompt } from "./preamble-builder.js";
 import { PermissionPolicyAuthorizer } from "./permission-policy-authorizer.js";
 import { ProviderContextTracker } from "./provider-context.js";
-import { createDirectProviderAdapter } from "./direct-provider-adapter-factory.js";
+import {
+  createDirectProviderAdapter,
+  DirectProviderBindingError,
+  directProviderExecutionBinding,
+} from "./direct-provider-adapter-factory.js";
+import type { DirectProviderAccountBinding } from "./direct-provider-adapter-factory.js";
 import { createCliOperatorThemeController } from "../application/operator-theme-preferences.js";
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
   readonly runtimeSessionId?: string;
   readonly model?: string;
+  readonly accountBinding?: DirectProviderAccountBinding;
   readonly reasoningEffort?: ReasoningEffort;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly task: string;
@@ -72,6 +78,7 @@ export interface ProviderSessionConfig {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
+  readonly runtimeExecutionMode?: "execute" | "plan";
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly mcpClients?: readonly KilnMcpClient[];
@@ -230,6 +237,7 @@ export class ProviderSession implements IKilnSession {
   private readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
   private readonly capabilityMap: ReadonlyMap<string, Capability>;
   private readonly eventBus: EventBus;
+  private readonly builtinToolSurface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>;
   private disposePromise?: Promise<void>;
 
   constructor(readonly config: ProviderSessionConfig) {
@@ -248,7 +256,9 @@ export class ProviderSession implements IKilnSession {
       operatorSurface,
       builtinToolOptions: config.builtinToolOptions,
       managedInvocation: config.managedInvocation,
+      executionMode: config.runtimeExecutionMode ?? "execute",
     });
+    this.builtinToolSurface = builtinToolSurface;
     this.builtinTools = builtinToolSurface.callBuiltinTools;
     this.toolDefinitions = builtinToolSurface.toolDefinitions;
     this.materializableTools = builtinToolSurface.materializableTools;
@@ -322,7 +332,13 @@ export class ProviderSession implements IKilnSession {
       const message = this.executionMode === "kiln-executable"
         ? formatExecutableSessionError(err)
         : formatProviderSessionError(err);
-      yield { type: "error", code, message, isRetryable: isProviderSessionErrorRetryable(err) };
+      yield {
+        type: "error",
+        code,
+        message,
+        isRetryable: isProviderSessionErrorRetryable(err),
+        ...(err instanceof DirectProviderBindingError ? { executionBinding: err.evidence } : {}),
+      };
       yield {
         type: "completed",
         totalUsd: 0,
@@ -334,7 +350,9 @@ export class ProviderSession implements IKilnSession {
   }
 
   async dispose(): Promise<void> {
-    this.disposePromise ??= Promise.all((this.config.mcpClients ?? []).map((client) => client.disconnect())).then(() => undefined);
+    this.disposePromise ??= this.builtinToolSurface.dispose()
+      .then(() => Promise.all((this.config.mcpClients ?? []).map((client) => client.disconnect())))
+      .then(() => undefined);
     await this.disposePromise;
   }
 
@@ -378,6 +396,7 @@ export class ProviderSession implements IKilnSession {
     const baseSystemPrompt = options.system ?? (hasStructuredPreamble ? options.prompt : (this.config.systemPrompt ?? ""));
     const userPrompt = hasStructuredPreamble ? this.config.task : options.prompt;
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority ?? "auto";
+    const runtimeExecutionMode = this.config.runtimeExecutionMode ?? "execute";
     const systemPrompt = appendExecutionIdentity(
       buildProviderSystemPrompt(
         baseSystemPrompt,
@@ -386,7 +405,7 @@ export class ProviderSession implements IKilnSession {
           executionMode: this.executionMode,
           authorityGuidance: formatEffectiveTurnAuthorityGuidance(describeEffectiveTurnAuthorityActionability({
             authority: effectiveTurnAuthority,
-            executionMode: "execute",
+            executionMode: runtimeExecutionMode,
             requestedAuthority,
           })),
         },
@@ -440,11 +459,26 @@ export class ProviderSession implements IKilnSession {
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
+      accountBinding: this.config.accountBinding,
       configEnv: this.config.env,
       runtimeEnv: options.env,
     });
+    const executionBinding = directProviderExecutionBinding(adapter);
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options);
     const messages = this.buildConversationMessages(userPrompt, options.messages);
+
+    if (executionBinding) {
+      yield {
+        type: "cost_update",
+        usd: 0,
+        mode: "computed",
+        provider: this.config.provider,
+        model: this.resolvedModel,
+        canonicalModel: this.resolvedModel,
+        billingMode: resolveProviderDefaultBillingMode(this.config.provider),
+        executionBinding,
+      };
+    }
 
     for await (const event of adapter.streamMessage({
       system: systemPrompt,
@@ -525,9 +559,11 @@ export class ProviderSession implements IKilnSession {
     externalTools: readonly ToolDefinition[] = [],
     externalCapabilities: ReadonlyMap<string, Capability> = new Map(),
   ): PerCallToolConfig {
+    const runtimeExecutionMode = this.config.runtimeExecutionMode ?? "execute";
+    const effectiveRequestedAuthority = runtimeExecutionMode === "plan" ? "read_only" : requestedAuthority;
     const combinedToolDefinitions = [...this.toolDefinitions, ...externalTools];
     const combinedCapabilities = new Map([...this.capabilityMap, ...externalCapabilities]);
-    if (!requestedAuthority || requestedAuthority === "auto") {
+    if (!effectiveRequestedAuthority || effectiveRequestedAuthority === "auto") {
       const admittedToolNames = new Set(this.materializableTools.keys());
       for (const tool of externalTools) {
         if (!this.config.mcpToolAllowlist || this.config.mcpToolAllowlist.has(tool.name)) {
@@ -543,10 +579,10 @@ export class ProviderSession implements IKilnSession {
         toolAllowlist: admittedToolNames,
         additionalTools: combinedToolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
         perCallCapabilities: filterCapabilityMap(combinedCapabilities, admittedToolNames),
-        ...(requestedAuthority ? {
+        ...(effectiveRequestedAuthority ? {
           effectiveTurnAuthority: {
-            executionMode: "execute",
-            requestedAuthority,
+            executionMode: runtimeExecutionMode,
+            requestedAuthority: effectiveRequestedAuthority,
             admittedAuthority: "unknown",
             sourcePolicy: "runtime_surface_projection",
             reason: "cli direct-provider requested turn authority",
@@ -554,8 +590,8 @@ export class ProviderSession implements IKilnSession {
             toolCount: admittedToolNames.size,
             deniedToolCount: 0,
             policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
-              executionMode: "execute",
-              requestedAuthority,
+              executionMode: runtimeExecutionMode,
+              requestedAuthority: effectiveRequestedAuthority,
               admittedAuthority: "unknown",
               routeReason: "cli direct-provider requested turn authority",
             }),
@@ -579,14 +615,14 @@ export class ProviderSession implements IKilnSession {
       if (!authority) {
         continue;
       }
-      if (requestedAuthority === "read_only") {
+      if (effectiveRequestedAuthority === "read_only") {
         if (authority.allowed && !authority.requiresApproval && isReadOnlyCapability(tool.name, capability) && authority.level <= 1) {
           admittedToolNames.add(tool.name);
           toolAuthority.set(tool.name, authority);
         }
         continue;
       }
-      if (requestedAuthority === "destructive" && capability) {
+      if (effectiveRequestedAuthority === "destructive" && capability) {
         admittedToolNames.add(tool.name);
         toolAuthority.set(tool.name, {
           level: authority.level,
@@ -605,7 +641,7 @@ export class ProviderSession implements IKilnSession {
       }
     }
 
-    const admittedAuthority = admittedToolNames.size === 0 ? "fail_closed" : requestedAuthority;
+    const admittedAuthority = admittedToolNames.size === 0 ? "fail_closed" : effectiveRequestedAuthority;
     return {
       ...(turnId ? { turnId } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
@@ -617,8 +653,8 @@ export class ProviderSession implements IKilnSession {
       additionalTools: combinedToolDefinitions.filter((tool) => admittedToolNames.has(tool.name)),
       perCallCapabilities: filterCapabilityMap(combinedCapabilities, admittedToolNames),
       effectiveTurnAuthority: {
-        executionMode: "execute",
-        requestedAuthority,
+        executionMode: runtimeExecutionMode,
+        requestedAuthority: effectiveRequestedAuthority,
         admittedAuthority,
         sourcePolicy: "runtime_surface_projection",
         reason: "cli direct-provider requested turn authority",
@@ -626,8 +662,8 @@ export class ProviderSession implements IKilnSession {
         toolCount: admittedToolNames.size,
         deniedToolCount: Math.max(0, candidateTools.size - admittedToolNames.size),
         policyInputs: buildEffectiveTurnAuthorityPolicyInputs({
-          executionMode: "execute",
-          requestedAuthority,
+          executionMode: runtimeExecutionMode,
+          requestedAuthority: effectiveRequestedAuthority,
           admittedAuthority,
           routeReason: "cli direct-provider requested turn authority",
         }),
@@ -663,9 +699,23 @@ export class ProviderSession implements IKilnSession {
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
+      accountBinding: this.config.accountBinding,
       configEnv: this.config.env,
       runtimeEnv: options.env,
     });
+    const executionBinding = directProviderExecutionBinding(adapter);
+    if (executionBinding) {
+      yield {
+        type: "cost_update",
+        usd: 0,
+        mode: "computed",
+        provider: this.config.provider,
+        model: this.resolvedModel,
+        canonicalModel: this.resolvedModel,
+        billingMode: resolveProviderDefaultBillingMode(this.config.provider),
+        executionBinding,
+      };
+    }
     const authorizer = new PermissionPolicyAuthorizer(this.config.permissionPolicy);
 
     const cliSession = new RuntimeSession({

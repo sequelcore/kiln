@@ -566,6 +566,39 @@ describe("CodexOAuthCredentialPoolService", () => {
     await expect(service.createPooledAdapter({ defaultModel: "model" })).rejects.toThrow("exactly one executable credential");
   });
 
+  it("materializes only an exact selected Codex OAuth account revision", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "first", tokenFile: accountToken("account-a") });
+    await service.linkCredential({ id: "second", tokenFile: accountToken("account-b") });
+    const selected = (await service.listExecutionAccounts()).find((entry) => entry.credentialId === "second")!;
+    const materialized: string[] = [];
+
+    const adapter = await service.createExactAdapter({
+      selected,
+      defaultModel: "model",
+      createAdapter: (credential) => new TestAdapter(async () => {
+        materialized.push(credential.credentialId);
+        return makeResponse(credential.accessToken);
+      }),
+    });
+
+    await expect(adapter.createMessage(makeOptions())).resolves.toEqual(makeResponse(accountToken("account-b").access_token));
+    expect(materialized).toEqual(["second"]);
+    await expect(service.createPooledAdapter({ defaultModel: "model" })).rejects.toThrow("exactly one executable credential");
+  });
+
+  it("rejects stale exact Codex OAuth account evidence before adapter construction", async () => {
+    const service = new CodexOAuthCredentialPoolService({ rootDir });
+    await service.linkCredential({ id: "selected", tokenFile: accountToken("account-a") });
+    const [selected] = await service.listExecutionAccounts();
+    await service.linkCredential({ id: "selected", tokenFile: accountToken("account-a", { refresh_token: "replacement" }) });
+
+    await expect(service.createExactAdapter({
+      selected: selected!,
+      defaultModel: "model",
+    })).rejects.toThrow("revision changed");
+  });
+
   it("resets persisted authentication failure when the operator relinks the same credential", async () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "work", tokenFile: token({ access_token: "access-revoked" }) });
