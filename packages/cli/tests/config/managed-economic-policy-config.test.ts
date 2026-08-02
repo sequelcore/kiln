@@ -204,6 +204,13 @@ function economicRoutingResolution() {
       capacityIdentity: "codex-capacity",
       credentialRevisionId: "a".repeat(64),
       usageEvidence: { health: "healthy" as const, freshness: "missing" as const },
+      accountEconomics: {
+        capacityIdentity: "codex-capacity",
+        subscriptionClass: "metered" as const,
+        quotaClassId: "codex-standard",
+        creditPosture: "disabled" as const,
+        overagePosture: "disabled" as const,
+      },
       quotaEvidence: {
         kind: "known" as const,
         capacityIdentity: "codex-capacity",

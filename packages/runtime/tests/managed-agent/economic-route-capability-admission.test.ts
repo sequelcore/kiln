@@ -298,10 +298,10 @@ describe("managed economic candidate admission", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
-  it("releases a prepared commitment when postcommit request realization fails", async () => {
+  it("records a fenced commitment as pending when postcommit request realization fails", async () => {
     const service = new RuntimeManagedAgentInvocationService();
     const start = vi.spyOn(service, "start");
-    const releaseBeforeProviderEffect = vi.fn();
+    const recordExecutionSettlementPending = vi.fn();
     const contextResolver = vi.fn()
       .mockResolvedValueOnce({ admittedAgentProfile: "scout" })
       .mockRejectedValueOnce(new Error("synthetic postcommit context failure"));
@@ -341,9 +341,9 @@ describe("managed economic candidate admission", () => {
               },
             } as never,
             adapter: { descriptor: {} } as never,
-            beforeProviderEffect: async () => undefined,
-            releaseBeforeProviderEffect,
-            registerExecutionSettlement: () => undefined,
+            recordExecutionSettlementPending,
+            createExecutionSettlement: () => ({} as never),
+            registerEconomicSettlement: () => undefined,
           }),
         },
       },
@@ -368,7 +368,8 @@ describe("managed economic candidate admission", () => {
     }) as { readonly isError: boolean; readonly output: string };
 
     expect(result).toMatchObject({ isError: true, output: "synthetic postcommit context failure" });
-    expect(releaseBeforeProviderEffect).toHaveBeenCalledOnce();
+    expect(recordExecutionSettlementPending).toHaveBeenCalledOnce();
+    expect(recordExecutionSettlementPending).toHaveBeenCalledWith("postcommit-request-denied");
     expect(start).not.toHaveBeenCalled();
   });
 

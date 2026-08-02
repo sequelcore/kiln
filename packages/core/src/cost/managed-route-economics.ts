@@ -41,6 +41,28 @@ export interface ManagedEconomicAmount {
   readonly scheme: ManagedEconomicScheme;
 }
 
+/** Parses a provider decimal string without routing the value through Number. */
+export function createManagedEconomicAmountFromDecimal(input: {
+  readonly value: string;
+  readonly unit: string;
+  readonly scheme: ManagedEconomicScheme;
+}): ManagedEconomicAmount {
+  if (typeof input.value !== "string" || !/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u.test(input.value)) {
+    throw new ManagedEconomicValidationError("managed economic decimal must be canonical and non-negative");
+  }
+  const [integer, fraction = ""] = input.value.split(".");
+  const trimmedFraction = fraction.replace(/0+$/u, "");
+  const atoms = `${integer}${trimmedFraction}`.replace(/^0+(?=[0-9])/u, "") || "0";
+  const amount: ManagedEconomicAmount = {
+    atoms,
+    scale: trimmedFraction.length,
+    unit: input.unit,
+    scheme: input.scheme,
+  };
+  validateManagedEconomicAmount(amount);
+  return amount;
+}
+
 export type ManagedEconomicClass =
   | "subscription"
   | "included"
@@ -99,10 +121,39 @@ export interface ManagedEconomicQuotaBucket {
   readonly bucketId: string;
   readonly dimension: string;
   readonly remaining: ManagedEconomicAmount | null;
+  readonly windowDurationMinutes?: number | null;
   readonly resetsAt: string | null;
 }
 
-export type ManagedEconomicQuotaEvidence =
+export interface ManagedEconomicCreditEvidence {
+  readonly status: "available" | "unavailable" | "unlimited" | "unknown";
+  readonly balance: ManagedEconomicAmount | null;
+}
+
+export interface ManagedEconomicSpendControlEvidence {
+  readonly status: "available" | "exhausted" | "unknown";
+  readonly limit: ManagedEconomicAmount | null;
+  readonly used: ManagedEconomicAmount | null;
+  readonly remainingPercent: number | null;
+  readonly resetsAt: string | null;
+}
+
+export type ManagedEconomicQuotaExhaustionReason =
+  | "rate-limit-reached"
+  | "workspace-owner-credits-depleted"
+  | "workspace-member-credits-depleted"
+  | "workspace-owner-usage-limit-reached"
+  | "workspace-member-usage-limit-reached"
+  | "spend-control-reached"
+  | "unknown";
+
+export interface ManagedEconomicQuotaObservation {
+  readonly credits?: ManagedEconomicCreditEvidence | null;
+  readonly spendControl?: ManagedEconomicSpendControlEvidence | null;
+  readonly exhaustionReason?: ManagedEconomicQuotaExhaustionReason | null;
+}
+
+export type ManagedEconomicQuotaEvidence = ManagedEconomicQuotaObservation & (
   | {
       readonly kind: "known";
       readonly capacityIdentity: string;
@@ -124,7 +175,7 @@ export type ManagedEconomicQuotaEvidence =
       readonly subscriptionClass: "unknown";
       readonly reason: string;
       readonly evidence: ManagedEconomicEvidenceIdentity | null;
-    };
+    });
 
 export interface ManagedEconomicRouteIdentity {
   readonly routeId: string;
@@ -448,6 +499,223 @@ export type ManagedEconomicSettlement =
       readonly dispatchFenceId: string;
       readonly reason: string;
     };
+
+export interface ManagedEconomicSettlementExpectation {
+  readonly reservationId: string;
+  readonly dispatchFenceId: string;
+  readonly selectedIdentity: ManagedEconomicExecutionIdentity;
+}
+
+export interface ManagedEconomicExecutionReport {
+  readonly actualIdentity: ManagedEconomicExecutionIdentity;
+  readonly usage:
+    | {
+        readonly kind: "complete";
+        readonly units: readonly ManagedEconomicAmount[];
+      }
+    | {
+        readonly kind: "incomplete";
+        readonly knownUnits: readonly ManagedEconomicAmount[];
+        readonly reason: string;
+      };
+  readonly evidence: ManagedEconomicEvidenceIdentity;
+  readonly providerCharge?: {
+    readonly amount: ManagedEconomicAmount;
+    readonly evidence: ManagedEconomicEvidenceIdentity;
+  };
+}
+
+export function createManagedEconomicSettlement(input: {
+  readonly commitment: ManagedEconomicCommitment;
+  readonly dispatchFenceId: string;
+  readonly adoptedRoute: ManagedEconomicAdoptedRoute;
+  readonly report: ManagedEconomicExecutionReport;
+}): ManagedEconomicSettlement {
+  const expectation: ManagedEconomicSettlementExpectation = {
+    reservationId: input.commitment.reservation.reservationId,
+    dispatchFenceId: input.dispatchFenceId,
+    selectedIdentity: input.commitment.reservation.selectedIdentity,
+  };
+  requireEvidenceIdentity(input.report.evidence);
+  if (
+    digestManagedEconomicValue(input.report.actualIdentity)
+    !== digestManagedEconomicValue(expectation.selectedIdentity)
+  ) {
+    throw new ManagedEconomicValidationError("execution report actual identity does not match commitment");
+  }
+  const units = input.report.usage.kind === "complete"
+    ? input.report.usage.units
+    : input.report.usage.knownUnits;
+  for (const unit of units) validateManagedEconomicAmount(unit);
+  if (input.report.providerCharge !== undefined) {
+    validateManagedEconomicAmount(input.report.providerCharge.amount);
+    requireEvidenceIdentity(input.report.providerCharge.evidence);
+    if (
+      input.report.providerCharge.amount.unit !== input.adoptedRoute.route.unit
+      || !sameScheme(input.report.providerCharge.amount.scheme, input.adoptedRoute.route.scheme)
+    ) {
+      throw new ManagedEconomicValidationError(
+        "provider charge does not match the committed route scheme",
+      );
+    }
+    return validateManagedEconomicSettlement({
+      kind: "charged",
+      reservationId: expectation.reservationId,
+      dispatchFenceId: expectation.dispatchFenceId,
+      actualIdentity: input.report.actualIdentity,
+      units,
+      charge: input.report.providerCharge.amount,
+      evidence: input.report.providerCharge.evidence,
+    }, expectation);
+  }
+  if (input.report.usage.kind === "incomplete") {
+    requireIdentity(input.report.usage.reason, "incomplete execution usage reason");
+    return validateManagedEconomicSettlement({
+      kind: "unknown",
+      reservationId: expectation.reservationId,
+      dispatchFenceId: expectation.dispatchFenceId,
+      actualIdentity: input.report.actualIdentity,
+      reason: input.report.usage.reason,
+      evidence: input.report.evidence,
+    }, expectation);
+  }
+  const common = {
+    reservationId: expectation.reservationId,
+    dispatchFenceId: expectation.dispatchFenceId,
+    actualIdentity: input.report.actualIdentity,
+    units,
+    evidence: input.report.evidence,
+  } as const;
+  const price = input.adoptedRoute.priceEvidence;
+  if (price.kind === "subscription" || price.kind === "free") {
+    return validateManagedEconomicSettlement({ ...common, kind: price.kind }, expectation);
+  }
+  if (price.kind === "included") {
+    return validateManagedEconomicSettlement({
+      ...common,
+      kind: "included",
+      allowanceId: price.allowanceId,
+    }, expectation);
+  }
+  if (price.kind === "metered" || price.kind === "estimated") {
+    if (input.adoptedRoute.route.scheme.kind === "unit") {
+      return validateManagedEconomicSettlement({
+        kind: "unknown",
+        reservationId: expectation.reservationId,
+        dispatchFenceId: expectation.dispatchFenceId,
+        actualIdentity: input.report.actualIdentity,
+        reason: "local-estimate-scheme-unavailable",
+        evidence: input.report.evidence,
+      }, expectation);
+    }
+    const estimate = deriveManagedEconomicMinimumReservation({
+      unitRates: input.adoptedRoute.rateSchedule.unitRates,
+      usageLimits: units,
+      auxiliaryCharges: input.adoptedRoute.rateSchedule.auxiliaryCharges,
+      outputUnit: input.adoptedRoute.route.unit,
+      targetScheme: input.adoptedRoute.route.scheme,
+    });
+    const sourceDigest = digestManagedEconomicValue({
+      report: input.report,
+      rateSchedule: input.adoptedRoute.rateSchedule,
+      priceIdentity: price.identity,
+    });
+    return validateManagedEconomicSettlement({
+      ...common,
+      kind: "estimated",
+      estimate,
+      evidence: {
+        sourceIdentity: `kiln-local-estimate:${input.report.evidence.sourceIdentity}`,
+        sourceRevision: sourceDigest,
+        sourceDigest,
+        observedAt: input.report.evidence.observedAt,
+        validUntil: input.report.evidence.validUntil,
+        confidence: input.report.evidence.confidence,
+        authority: "calculated-estimate",
+      },
+    }, expectation);
+  }
+  return validateManagedEconomicSettlement({
+    kind: "unknown",
+    reservationId: expectation.reservationId,
+    dispatchFenceId: expectation.dispatchFenceId,
+    actualIdentity: input.report.actualIdentity,
+    reason: "price-authority-unavailable",
+    evidence: input.report.evidence,
+  }, expectation);
+}
+
+/** Validates settlement identity and exact economic evidence against one commitment fence. */
+export function validateManagedEconomicSettlement(
+  settlement: ManagedEconomicSettlement,
+  expectation: ManagedEconomicSettlementExpectation,
+): ManagedEconomicSettlement {
+  requireAllowed(
+    settlement.kind,
+    ["charged", "estimated", "subscription", "included", "free", "unknown", "pending", "leaked"],
+    "settlement kind",
+  );
+  requireIdentity(settlement.reservationId, "settlement reservation id");
+  requireIdentity(settlement.dispatchFenceId, "settlement dispatch fence id");
+  if (settlement.reservationId !== expectation.reservationId) {
+    throw new ManagedEconomicValidationError("settlement reservation does not match commitment");
+  }
+  if (settlement.dispatchFenceId !== expectation.dispatchFenceId) {
+    throw new ManagedEconomicValidationError("settlement dispatch fence does not match commitment");
+  }
+  if (settlement.kind === "pending") return settlement;
+  if (settlement.kind === "leaked") {
+    requireIdentity(settlement.reason, "leaked settlement reason");
+    return settlement;
+  }
+  if (settlement.kind === "unknown") {
+    requireIdentity(settlement.reason, "unknown settlement reason");
+    if (
+      settlement.actualIdentity !== null
+      && digestManagedEconomicValue(settlement.actualIdentity)
+        !== digestManagedEconomicValue(expectation.selectedIdentity)
+    ) {
+      throw new ManagedEconomicValidationError("settlement actual identity does not match commitment");
+    }
+    if (settlement.evidence !== null) requireEvidenceIdentity(settlement.evidence);
+    return settlement;
+  }
+  if (
+    digestManagedEconomicValue(settlement.actualIdentity)
+    !== digestManagedEconomicValue(expectation.selectedIdentity)
+  ) {
+    throw new ManagedEconomicValidationError("settlement actual identity does not match commitment");
+  }
+  if (!Array.isArray(settlement.units)) {
+    throw new ManagedEconomicValidationError("settlement units must be an array");
+  }
+  const units = new Set<string>();
+  for (const unit of settlement.units) {
+    validateManagedEconomicAmount(unit);
+    if (unit.scheme.kind !== "unit") {
+      throw new ManagedEconomicValidationError("settlement provider units must use the unit scheme");
+    }
+    if (units.has(unit.unit)) {
+      throw new ManagedEconomicValidationError("settlement provider units must be unique");
+    }
+    units.add(unit.unit);
+  }
+  requireEvidenceIdentity(settlement.evidence);
+  if (settlement.kind === "charged") {
+    validateManagedEconomicAmount(settlement.charge);
+    if (settlement.evidence.authority !== "provider-reported") {
+      throw new ManagedEconomicValidationError("charged settlement requires provider-reported evidence");
+    }
+  } else if (settlement.kind === "estimated") {
+    validateManagedEconomicAmount(settlement.estimate);
+    if (settlement.evidence.authority !== "calculated-estimate") {
+      throw new ManagedEconomicValidationError("estimated settlement requires calculated evidence");
+    }
+  } else if (settlement.kind === "included") {
+    requireIdentity(settlement.allowanceId, "included settlement allowance id");
+  }
+  return settlement;
+}
 
 const CANONICAL_ATOMS = /^(?:0|[1-9][0-9]*)$/;
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -907,6 +1175,7 @@ function validateQuotaEvidence(
   if (quota.capacityIdentity !== capacityIdentity) {
     throw new ManagedEconomicValidationError("quota evidence belongs to another capacity identity");
   }
+  validateQuotaObservation(quota);
   if (quota.kind === "unknown") {
     if (quota.subscriptionClass !== "unknown") {
       throw new ManagedEconomicValidationError("unknown quota requires unknown subscription class");
@@ -940,10 +1209,62 @@ function validateQuotaEvidence(
       if (bucket.remaining !== null) {
         validateManagedEconomicAmount(bucket.remaining);
       }
+      if (
+        bucket.windowDurationMinutes !== undefined
+        && bucket.windowDurationMinutes !== null
+        && (!Number.isSafeInteger(bucket.windowDurationMinutes) || bucket.windowDurationMinutes <= 0)
+      ) {
+        throw new ManagedEconomicValidationError("quota bucket window duration must be a positive integer");
+      }
       if (bucket.resetsAt !== null) {
         requireTimestamp(bucket.resetsAt, "quota reset time");
       }
     }
+  }
+}
+
+function validateQuotaObservation(quota: ManagedEconomicQuotaObservation): void {
+  if (quota.credits !== undefined && quota.credits !== null) {
+    requireAllowed(
+      quota.credits.status,
+      ["available", "unavailable", "unlimited", "unknown"],
+      "quota credit status",
+    );
+    if (quota.credits.balance !== null) validateManagedEconomicAmount(quota.credits.balance);
+    if (quota.credits.status === "unavailable" && quota.credits.balance !== null) {
+      throw new ManagedEconomicValidationError("unavailable quota credits cannot include a balance");
+    }
+  }
+  if (quota.spendControl !== undefined && quota.spendControl !== null) {
+    requireAllowed(
+      quota.spendControl.status,
+      ["available", "exhausted", "unknown"],
+      "quota spend control status",
+    );
+    if (quota.spendControl.limit !== null) validateManagedEconomicAmount(quota.spendControl.limit);
+    if (quota.spendControl.used !== null) validateManagedEconomicAmount(quota.spendControl.used);
+    if (
+      quota.spendControl.remainingPercent !== null
+      && (!Number.isSafeInteger(quota.spendControl.remainingPercent)
+        || quota.spendControl.remainingPercent < 0
+        || quota.spendControl.remainingPercent > 100)
+    ) {
+      throw new ManagedEconomicValidationError("quota spend control remaining percent is invalid");
+    }
+    if (quota.spendControl.resetsAt !== null) {
+      requireTimestamp(quota.spendControl.resetsAt, "quota spend control reset time");
+    }
+  }
+  if (quota.exhaustionReason !== undefined && quota.exhaustionReason !== null) {
+    requireAllowed(quota.exhaustionReason, [
+      "rate-limit-reached",
+      "workspace-owner-credits-depleted",
+      "workspace-member-credits-depleted",
+      "workspace-owner-usage-limit-reached",
+      "workspace-member-usage-limit-reached",
+      "spend-control-reached",
+      "unknown",
+    ], "quota exhaustion reason");
   }
 }
 

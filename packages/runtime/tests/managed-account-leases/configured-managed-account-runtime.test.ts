@@ -161,6 +161,158 @@ describe("ConfiguredManagedAccountRuntime", () => {
     expect(codexPool.resolveExecutionCredential).not.toHaveBeenCalled();
   });
 
+  it("binds authoritative provider quota to configured economic capacity", async () => {
+    const execution = {
+      credentialId: "credential-a",
+      fileIdentity: "a".repeat(64),
+      revision: "b".repeat(64),
+    };
+    const economicConfig: ModelGatewayConfig = {
+      ...twoAccountConfig(),
+      accounts: [{
+        ...twoAccountConfig().accounts[0]!,
+        economics: {
+          capacityIdentity: "codex-capacity-a",
+          subscriptionClass: "subscription",
+          quotaClassId: "codex-five-hour-window",
+          creditPosture: "committed",
+          overagePosture: "disabled",
+        },
+      }],
+      virtualModels: [{
+        ...twoAccountConfig().virtualModels[0]!,
+        accountIds: ["account-a"],
+      }],
+    };
+    const runtime = new ConfiguredManagedAccountRuntime({
+      config: economicConfig,
+      codexPool: {
+        listExecutionAccounts: vi.fn(async () => [execution]),
+        listUsage: vi.fn(async () => [{
+          ...usage("credential-a", "available"),
+          primary: {
+            bucketId: "primary" as const,
+            usedPercent: 37.5,
+            windowDurationMinutes: 300,
+            resetsAt: "2026-07-22T13:00:00.000Z",
+          },
+          credits: {
+            status: "available" as const,
+            balance: {
+              atoms: "175",
+              scale: 1,
+              unit: "credit",
+              scheme: { kind: "credit" as const, creditSchemeId: "codex-oauth" },
+            },
+          },
+          exhaustionReason: null,
+        }]),
+      },
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    const resolution = await runtime.resolve({
+      accountPolicyId: "managed-codex",
+      providerRoute: { providerId: "codex-oauth", surface: "direct", model: "gpt-test" },
+    });
+
+    expect(resolution.candidates).toHaveLength(1);
+    expect(resolution.candidates[0]).toMatchObject({
+      capacityIdentity: "codex-capacity-a",
+      accountEconomics: {
+        capacityIdentity: "codex-capacity-a",
+        subscriptionClass: "subscription",
+        quotaClassId: "codex-five-hour-window",
+        creditPosture: "committed",
+        overagePosture: "disabled",
+      },
+      quotaEvidence: {
+        kind: "known",
+        capacityIdentity: "codex-capacity-a",
+        subscriptionClass: "subscription",
+        quotaClassId: "codex-five-hour-window",
+        buckets: [{
+          bucketId: "primary",
+          dimension: "percent",
+          remaining: { atoms: "625", scale: 1, unit: "percent", scheme: { kind: "unit" } },
+          windowDurationMinutes: 300,
+          resetsAt: "2026-07-22T13:00:00.000Z",
+        }],
+        credits: {
+          status: "available",
+          balance: {
+            atoms: "175",
+            scale: 1,
+            unit: "credit",
+            scheme: { kind: "credit", creditSchemeId: "codex-oauth" },
+          },
+        },
+        exhaustionReason: null,
+        evidence: {
+          observedAt: "2026-07-22T11:59:00.000Z",
+          validUntil: "2026-07-22T12:05:00.000Z",
+          confidence: "high",
+          authority: "provider-reported",
+        },
+      },
+    });
+
+    const selected = resolution.candidates[0]!;
+    await expect(runtime.resolveCommittedAccountBinding({
+      accountPolicyId: "managed-codex",
+      providerId: "codex-oauth",
+      model: "gpt-test",
+      capacityIdentity: selected.capacityIdentity,
+      accountRef: selected.candidate.account,
+      credentialRevisionId: selected.credentialRevisionId,
+    })).resolves.toMatchObject({ accountId: "account-a" });
+  });
+
+  it("keeps OpenCode Go quota unknown when the provider exposes no authoritative snapshot", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-configured-opencode-economic-"));
+    const pool = new OpenCodeCredentialPoolService({ rootDir: root });
+    await pool.linkCredential({ id: "go-primary", apiKey: "sk-synthetic", tier: "go" });
+    const base = openCodeConfig();
+    const runtime = new ConfiguredManagedAccountRuntime({
+      config: {
+        ...base,
+        accounts: [{
+          ...base.accounts[0]!,
+          economics: {
+            capacityIdentity: "opencode-go-capacity",
+            subscriptionClass: "subscription",
+            quotaClassId: "opencode-go-subscription",
+            creditPosture: "disabled",
+            overagePosture: "disabled",
+          },
+        }],
+      },
+      credentialRootDir: root,
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    const resolution = await runtime.resolve({
+      accountPolicyId: "managed-go",
+      providerRoute: { providerId: "opencode-go", surface: "direct", model: "glm-test" },
+    });
+
+    expect(resolution.candidates).toHaveLength(1);
+    expect(resolution.candidates[0]).toMatchObject({
+      capacityIdentity: "opencode-go-capacity",
+      accountEconomics: {
+        capacityIdentity: "opencode-go-capacity",
+        creditPosture: "disabled",
+        overagePosture: "disabled",
+      },
+      quotaEvidence: {
+        kind: "unknown",
+        capacityIdentity: "opencode-go-capacity",
+        subscriptionClass: "unknown",
+        reason: "provider-quota-missing",
+      },
+    });
+  });
+
   it("materializes only the exact committed account revision from a two-account policy", async () => {
     const accounts = [
       { credentialId: "credential-a", fileIdentity: "a".repeat(64), revision: "1".repeat(64) },
@@ -297,6 +449,7 @@ function usage(credentialId: string, availability: "available" | "exhausted") {
     validUntil: "2026-07-22T12:05:00.000Z",
     source: "provider-endpoint" as const,
     confidence: "authoritative" as const,
+    exhaustionReason: availability === "exhausted" ? "rate-limit-reached" as const : null,
   };
 }
 

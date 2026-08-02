@@ -10,6 +10,8 @@ import type {
   ManagedAgentUsageReport,
   ManagedAgentWriteEvidence,
   ProviderAdapter,
+  ManagedEconomicExecutionIdentity,
+  ManagedEconomicExecutionReport,
   SandboxConfig,
   StructuredExecutionResult,
   ToolDefinition,
@@ -29,6 +31,7 @@ import {
   STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
   defineStructuredExecutionResult,
   textParts,
+  digestManagedEconomicValue,
 } from "@kilnai/core";
 import { RuntimeSession } from "../../session/runtime-session.js";
 import { RuntimeSessionOrchestrator } from "../../session/runtime-session-orchestrator.js";
@@ -72,6 +75,8 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
+  readonly economicIdentity?: ManagedEconomicExecutionIdentity;
+  readonly now?: () => Date;
 }
 
 const TIMEOUT = { type: "managed-direct-runtime-timeout" } as const;
@@ -79,6 +84,7 @@ const MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE: RuntimeExecutionEnvelope = { t
 const RESULT_SUMMARY_LIMIT = 2000;
 const CHILD_EXECUTION_RESOURCE_LIMIT = 12000;
 const TOOL_OUTPUT_LIMIT = 1200;
+const ECONOMIC_EXECUTION_EVIDENCE_VALIDITY_MS = 5 * 60 * 1000;
 const RESULT_RESOURCE_NOTICE = "Full child result is available through the managed invocation result resource.";
 const NO_DIRECT_HANDOFF_SUMMARY = "Direct provider managed invocation finished without final handoff text.";
 const MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME = "managed_agent.submit_handoff";
@@ -98,6 +104,17 @@ const MANAGED_AGENT_SUBMIT_HANDOFF_AUTHORITY: AuthorityDescriptor = {
   reason: "Runtime-internal structured handoff submission is an audited process-local mutation",
 };
 
+function managedEconomicUsageUnit(
+  name: ManagedAgentUsageReport["tokenClasses"][number]["name"],
+): string {
+  switch (name) {
+    case "input": return "input-token";
+    case "output": return "output-token";
+    case "cache_read": return "cache-read-token";
+    case "cache_write": return "cache-write-token";
+  }
+}
+
 export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeAdapter {
   readonly descriptor;
   private readonly config: ManagedDirectProviderRuntimeAdapterConfig;
@@ -110,6 +127,8 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   private readonly capabilityMap?: ReadonlyMap<string, Capability>;
   private readonly toolAuthority?: ReadonlyMap<string, AuthorityDescriptor>;
   private readonly executionEnvelope: RuntimeExecutionEnvelope;
+  private readonly economicIdentity?: ManagedEconomicExecutionIdentity;
+  private readonly now: () => Date;
 
   constructor(config: ManagedDirectProviderRuntimeAdapterConfig) {
     this.config = config;
@@ -122,6 +141,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     this.capabilityMap = config.capabilityMap;
     this.toolAuthority = config.toolAuthority;
     this.executionEnvelope = config.executionEnvelope ?? MANAGED_DIRECT_PROVIDER_EXECUTION_ENVELOPE;
+    this.economicIdentity = config.economicIdentity;
+    this.now = config.now ?? (() => new Date());
+    if (this.economicIdentity !== undefined && (
+      this.economicIdentity.route.providerId !== this.providerId
+      || this.economicIdentity.route.modelId !== this.model
+    )) {
+      throw new Error("Managed direct adapter economic identity does not match its provider route.");
+    }
     const writeAuthority = config.writeAuthority !== undefined
       ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
       : undefined;
@@ -178,6 +205,18 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
   }
 
   async invoke(input: ManagedAgentRuntimeInvocationInput): Promise<ManagedAgentInvocationRecord> {
+    if (
+      this.economicIdentity !== undefined
+      && (input.registerEconomicSettlement === undefined || input.createEconomicSettlement === undefined)
+    ) {
+      throw new Error("Managed economic direct adapter requires typed economic settlement ownership.");
+    }
+    if (
+      this.economicIdentity === undefined
+      && (input.registerEconomicSettlement !== undefined || input.createEconomicSettlement !== undefined)
+    ) {
+      throw new Error("Managed direct adapter received economic settlement ownership without a committed identity.");
+    }
     const request = input.request;
     const childSessionId = buildChildSessionId(request);
     const childTurnId = `${childSessionId}:turn:1`;
@@ -197,7 +236,16 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     }
     const progressEvents: ManagedAgentRuntimeInvocationProgressEvent[] = [];
     const execution = this.runChildRuntime(input, childSession, abortController.signal, progressEvents);
-    input.registerExecutionSettlement(execution);
+    input.registerAdapterCompletion(execution);
+    if (
+      this.economicIdentity !== undefined
+      && input.registerEconomicSettlement !== undefined
+      && input.createEconomicSettlement !== undefined
+    ) {
+      input.registerEconomicSettlement(execution.then((record) => input.createEconomicSettlement!(
+        this.createEconomicExecutionReport(record),
+      )));
+    }
     const timeout = createManagedInvocationTimeout(request.authority.timeoutMs, abortController);
     let raced: ManagedAgentInvocationRecord | typeof TIMEOUT;
     try {
@@ -240,6 +288,62 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     }
 
     return raced as ManagedAgentInvocationRecord;
+  }
+
+  private createEconomicExecutionReport(record: ManagedAgentInvocationRecord): ManagedEconomicExecutionReport {
+    if (this.economicIdentity === undefined) {
+      throw new Error("Managed direct adapter cannot report economics without a committed identity.");
+    }
+    const tokenClasses = record.usage?.tokenClasses ?? [];
+    const units = tokenClasses.flatMap((usage) => {
+      if (usage.value === "unknown") return [];
+      return [{
+        atoms: String(usage.value),
+        scale: 0,
+        unit: managedEconomicUsageUnit(usage.name),
+        scheme: { kind: "unit" as const },
+      }];
+    });
+    const unknownTokenClasses = tokenClasses
+      .filter((usage) => usage.value === "unknown")
+      .map((usage) => usage.name)
+      .sort();
+    const usage: ManagedEconomicExecutionReport["usage"] = tokenClasses.length === 0
+      ? {
+          kind: "incomplete",
+          knownUnits: units,
+          reason: "provider-usage-missing",
+        }
+      : unknownTokenClasses.length > 0
+        ? {
+            kind: "incomplete",
+            knownUnits: units,
+            reason: `provider-usage-unknown:${unknownTokenClasses.join(",")}`,
+          }
+        : { kind: "complete", units };
+    const observedAtDate = this.now();
+    const observedAt = observedAtDate.toISOString();
+    const validUntil = new Date(
+      observedAtDate.getTime() + ECONOMIC_EXECUTION_EVIDENCE_VALIDITY_MS,
+    ).toISOString();
+    const sourceDigest = digestManagedEconomicValue({
+      invocationId: record.invocationId,
+      actualIdentity: this.economicIdentity,
+      usage,
+    });
+    return {
+      actualIdentity: this.economicIdentity,
+      usage,
+      evidence: {
+        sourceIdentity: `managed-direct-runtime:${this.providerId}:${this.model}`,
+        sourceRevision: sourceDigest,
+        sourceDigest,
+        observedAt,
+        validUntil,
+        confidence: "medium",
+        authority: "calculated-estimate",
+      },
+    };
   }
 
   private async runChildRuntime(

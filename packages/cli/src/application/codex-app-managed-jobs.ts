@@ -317,9 +317,9 @@ export async function createNativeHarnessManagedJobApplicationComposition(
           economicDispatch: {
             commitment: preparation.commitment,
             dispatchFenceId: preparation.dispatchFenceId,
-            beforeProviderEffect: preparation.beforeProviderEffect,
-            releaseBeforeProviderEffect: preparation.releaseBeforeProviderEffect,
-            registerExecutionSettlement: preparation.registerExecutionSettlement,
+            recordExecutionSettlementPending: preparation.recordExecutionSettlementPending,
+            createExecutionSettlement: preparation.createExecutionSettlement,
+            registerEconomicSettlement: preparation.registerEconomicSettlement,
           },
         });
         if (started.status !== "started") {

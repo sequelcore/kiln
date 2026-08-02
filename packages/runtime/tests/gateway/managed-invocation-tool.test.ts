@@ -1958,7 +1958,7 @@ describe("managed invocation runtime tool", () => {
     const cleanup = vi.fn();
     const adapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ request, admission, abortSignal, registerExecutionSettlement }) => {
+      invoke: vi.fn(async ({ request, admission, abortSignal, registerAdapterCompletion }) => {
         adapterSignal = abortSignal;
         const executionSettlement = new Promise<void>((resolve) => {
           abortSignal.addEventListener("abort", () => {
@@ -1966,7 +1966,7 @@ describe("managed invocation runtime tool", () => {
             resolve();
           }, { once: true });
         });
-        registerExecutionSettlement(executionSettlement);
+        registerAdapterCompletion(executionSettlement);
         await executionSettlement;
         return defineManagedAgentInvocationRecord({
           invocationId: request.invocationId,

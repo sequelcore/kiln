@@ -26,8 +26,8 @@ describe("model gateway explicit account binding", () => {
       accounts,
       executionAccounts: execution,
       usage: [
-        { provider: "codex-oauth", credentialId: "credential-plus", availability: "exhausted", observedAt: "2026-07-22T11:59:00.000Z", validUntil: "2026-07-22T12:05:00.000Z", source: "provider-endpoint", confidence: "authoritative" },
-        { provider: "codex-oauth", credentialId: "credential-free", availability: "unknown", observedAt: "2026-07-22T11:59:00.000Z", validUntil: "2026-07-22T12:05:00.000Z", source: "unknown", confidence: "unknown" },
+        { provider: "codex-oauth", credentialId: "credential-plus", availability: "exhausted", exhaustionReason: "rate-limit-reached", observedAt: "2026-07-22T11:59:00.000Z", validUntil: "2026-07-22T12:05:00.000Z", source: "provider-endpoint", confidence: "authoritative" },
+        { provider: "codex-oauth", credentialId: "credential-free", availability: "unknown", exhaustionReason: null, observedAt: "2026-07-22T11:59:00.000Z", validUntil: "2026-07-22T12:05:00.000Z", source: "unknown", confidence: "unknown" },
       ],
       now: new Date("2026-07-22T12:00:00.000Z"),
       pressure: () => 0,
@@ -45,7 +45,7 @@ describe("model gateway explicit account binding", () => {
       virtualModel: { ...model, accountIds: ["plus"] },
       accounts,
       executionAccounts: [...execution, { credentialId: "unbound", fileIdentity: "u".repeat(64), revision: "3".repeat(64) }],
-      usage: [{ provider: "codex-oauth", credentialId: "credential-plus", availability: "exhausted", observedAt: "2026-07-22T11:00:00.000Z", validUntil: "2026-07-22T11:59:59.000Z", source: "provider-endpoint", confidence: "authoritative" }],
+      usage: [{ provider: "codex-oauth", credentialId: "credential-plus", availability: "exhausted", exhaustionReason: "rate-limit-reached", observedAt: "2026-07-22T11:00:00.000Z", validUntil: "2026-07-22T11:59:59.000Z", source: "provider-endpoint", confidence: "authoritative" }],
       now: new Date("2026-07-22T12:00:00.000Z"), pressure: () => 3, reservedForNewWork: () => false,
     });
     expect(candidates).toHaveLength(1);

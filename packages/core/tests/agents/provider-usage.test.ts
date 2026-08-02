@@ -10,8 +10,25 @@ describe("provider usage snapshot", () => {
       provider: "codex-oauth",
       credentialId: "credential-opaque-1",
       plan: "plus",
-      primary: { usedPercent: 25.5, resetsAt: "2026-07-22T17:00:00.000Z" },
-      secondary: { usedPercent: 80, resetsAt: "2026-07-29T12:00:00.000Z" },
+      primary: { bucketId: "primary", usedPercent: 25.5, windowDurationMinutes: 300, resetsAt: "2026-07-22T17:00:00.000Z" },
+      secondary: { bucketId: "secondary", usedPercent: 80, windowDurationMinutes: 10_080, resetsAt: "2026-07-29T12:00:00.000Z" },
+      credits: {
+        status: "available",
+        balance: {
+          atoms: "175",
+          scale: 1,
+          unit: "credit",
+          scheme: { kind: "credit", creditSchemeId: "codex-oauth" },
+        },
+      },
+      spendControl: {
+        status: "available",
+        limit: { atoms: "25000", scale: 0, unit: "provider-spend-unit", scheme: { kind: "unit" } },
+        used: { atoms: "8000", scale: 0, unit: "provider-spend-unit", scheme: { kind: "unit" } },
+        remainingPercent: 68,
+        resetsAt: "2026-07-22T13:00:00.000Z",
+      },
+      exhaustionReason: null,
       availability: "available",
       observedAt: OBSERVED_AT,
       validUntil: VALID_UNTIL,
@@ -23,8 +40,25 @@ describe("provider usage snapshot", () => {
       provider: "codex-oauth",
       credentialId: "credential-opaque-1",
       plan: "plus",
-      primary: { usedPercent: 25.5, resetsAt: "2026-07-22T17:00:00.000Z" },
-      secondary: { usedPercent: 80, resetsAt: "2026-07-29T12:00:00.000Z" },
+      primary: { bucketId: "primary", usedPercent: 25.5, windowDurationMinutes: 300, resetsAt: "2026-07-22T17:00:00.000Z" },
+      secondary: { bucketId: "secondary", usedPercent: 80, windowDurationMinutes: 10_080, resetsAt: "2026-07-29T12:00:00.000Z" },
+      credits: {
+        status: "available",
+        balance: {
+          atoms: "175",
+          scale: 1,
+          unit: "credit",
+          scheme: { kind: "credit", creditSchemeId: "codex-oauth" },
+        },
+      },
+      spendControl: {
+        status: "available",
+        limit: { atoms: "25000", scale: 0, unit: "provider-spend-unit", scheme: { kind: "unit" } },
+        used: { atoms: "8000", scale: 0, unit: "provider-spend-unit", scheme: { kind: "unit" } },
+        remainingPercent: 68,
+        resetsAt: "2026-07-22T13:00:00.000Z",
+      },
+      exhaustionReason: null,
       availability: "available",
       observedAt: OBSERVED_AT,
       validUntil: VALID_UNTIL,
@@ -44,8 +78,8 @@ describe("provider usage snapshot", () => {
     const input: any = {
       provider: "codex-oauth",
       credentialId: "credential-opaque-1",
-      primary: { usedPercent: 10 },
-      secondary: { usedPercent: 20 },
+      primary: { bucketId: "primary", usedPercent: 10 },
+      secondary: { bucketId: "secondary", usedPercent: 20 },
       availability: "available",
       observedAt: OBSERVED_AT,
       validUntil: VALID_UNTIL,
@@ -68,5 +102,22 @@ describe("provider usage snapshot", () => {
       source: "unknown",
       confidence: "unknown",
     })).toThrow(/validUntil/);
+  });
+
+  it("rejects floating-point credit balances at the sanitized boundary", () => {
+    expect(() => createProviderUsageSnapshot({
+      provider: "codex-oauth",
+      credentialId: "credential-opaque-1",
+      credits: {
+        status: "available",
+        balance: 17.5,
+      },
+      exhaustionReason: null,
+      availability: "available",
+      observedAt: OBSERVED_AT,
+      validUntil: VALID_UNTIL,
+      source: "provider-endpoint",
+      confidence: "authoritative",
+    } as never)).toThrow(/credits\.balance/);
   });
 });

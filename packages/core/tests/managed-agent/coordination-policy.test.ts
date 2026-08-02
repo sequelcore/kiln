@@ -6,7 +6,6 @@ describe("managed agent coordination policy", () => {
     managedRouteCount: 2,
     maxParallelWorkers: 3,
     routeHealth: "available" as const,
-    budget: "available" as const,
     workspace: "available" as const,
   };
 

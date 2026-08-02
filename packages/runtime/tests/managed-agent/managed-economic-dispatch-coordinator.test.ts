@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ManagedEconomicCommitment } from "@kilnai/core";
+import type { ManagedEconomicCommitment, ManagedEconomicSettlement } from "@kilnai/core";
 import {
   ManagedEconomicDispatchCoordinator,
   type ManagedEconomicDispatchAuthorityPort,
@@ -50,14 +50,14 @@ function authority(state: "held" | "dispatch-fenced" = "held") {
     })),
     releasePreFence: vi.fn(),
     fenceDispatch: vi.fn(),
-    settleSuccessfulExecution: vi.fn(),
+    settleExecution: vi.fn(),
     recordExecutionSettlementPending: vi.fn(),
   };
   return port;
 }
 
 describe("ManagedEconomicDispatchCoordinator", () => {
-  it("constructs the exact adapter only after commitment and fences immediately before effect", async () => {
+  it("fences before constructing the exact committed adapter", async () => {
     const events: string[] = [];
     const economicAuthority = authority();
     vi.mocked(economicAuthority.acquire).mockImplementation((input) => {
@@ -89,19 +89,23 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionProfile: "foundation-readonly-plan",
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
-    expect(events).toEqual(["commit:economic-attempt-a", "adapter:account-bound"]);
-
-    await prepared.beforeProviderEffect();
+    expect(events).toEqual(["commit:economic-attempt-a", "fence", "adapter:account-bound"]);
     events.push("provider-effect");
     expect(events).toEqual([
       "commit:economic-attempt-a",
-      "adapter:account-bound",
       "fence",
+      "adapter:account-bound",
       "provider-effect",
     ]);
 
-    prepared.registerExecutionSettlement(Promise.resolve());
-    await vi.waitFor(() => expect(economicAuthority.settleSuccessfulExecution).toHaveBeenCalledOnce());
+    const economicSettlement = settlement(prepared.dispatchFenceId);
+    prepared.registerEconomicSettlement(Promise.resolve(economicSettlement));
+    await vi.waitFor(() => expect(economicAuthority.settleExecution).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      prepared.dispatchFenceId,
+      economicSettlement,
+    ));
   });
 
   it("does not redispatch a replay whose durable commitment is already fenced", async () => {
@@ -122,7 +126,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(createAdapter).not.toHaveBeenCalled();
   });
 
-  it("releases a definitely pre-fence commitment when exact adapter construction fails", async () => {
+  it("keeps capacity pending when adapter construction fails after the dispatch fence", async () => {
     const economicAuthority = authority();
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
@@ -137,7 +141,14 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       adoption: {} as never,
       admissionProfile: "foundation-readonly-plan",
     })).rejects.toThrow("synthetic adapter failure");
-    expect(economicAuthority.releasePreFence).toHaveBeenCalledWith("job-a", "economic-attempt-a");
+    expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
+    expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      expect.any(String),
+      "post-fence-adapter-materialization-failed",
+    );
+    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
   });
 
   it("releases a commitment when its configured lifecycle timeout is invalid", async () => {
@@ -158,7 +169,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
   });
 
-  it("aborts bounded adapter materialization and releases the pre-fence commitment", async () => {
+  it("aborts bounded adapter materialization and keeps the fenced commitment pending", async () => {
     const economicAuthority = authority();
     const controller = new AbortController();
     const coordinator = new ManagedEconomicDispatchCoordinator({
@@ -178,10 +189,16 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     controller.abort(new Error("synthetic lifecycle deadline"));
 
     await expect(preparation).rejects.toThrow("synthetic lifecycle deadline");
-    expect(economicAuthority.releasePreFence).toHaveBeenCalledTimes(1);
+    expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      expect.any(String),
+      "registered-execution-settlement-missing",
+    );
+    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
   });
 
-  it("expires an unused prepared commitment at the route lifecycle deadline", async () => {
+  it("expires an unused fenced commitment as settlement-pending", async () => {
     const economicAuthority = authority();
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
@@ -198,14 +215,44 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     });
     if (preparation.status !== "prepared") throw new Error("fixture");
 
-    await vi.waitFor(() => expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce());
-    await expect(preparation.beforeProviderEffect()).rejects.toThrow(
-      "Managed economic lifecycle timed out after 5ms.",
-    );
-    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      preparation.dispatchFenceId,
+      "registered-execution-settlement-missing",
+    ));
+    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
+    expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
   });
 
-  it("keeps capacity when a registered provider settlement remains unknown", async () => {
+  it("expires a registered settlement that does not resolve", async () => {
+    const economicAuthority = authority();
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 5,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    });
+    const preparation = await coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      adoption: {} as never,
+      admissionProfile: "foundation-readonly-plan",
+    });
+    if (preparation.status !== "prepared") throw new Error("fixture");
+    preparation.registerEconomicSettlement(new Promise<ManagedEconomicSettlement>(() => undefined));
+
+    await vi.waitFor(() => expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      preparation.dispatchFenceId,
+      "registered-execution-settlement-timed-out",
+    ));
+    expect(economicAuthority.settleExecution).not.toHaveBeenCalled();
+    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
+  });
+
+  it("keeps capacity pending when a typed settlement reports unknown outcome", async () => {
     const economicAuthority = authority();
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
@@ -220,35 +267,50 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionProfile: "foundation-readonly-plan",
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
-    await prepared.beforeProviderEffect();
-    prepared.registerExecutionSettlement(Promise.reject(new Error("provider outcome unknown")));
+    const unknown: ManagedEconomicSettlement = {
+      kind: "unknown",
+      reservationId: prepared.commitment.reservation.reservationId,
+      dispatchFenceId: prepared.dispatchFenceId,
+      actualIdentity: prepared.commitment.reservation.selectedIdentity,
+      reason: "provider-charge-unavailable",
+      evidence: null,
+    };
+    prepared.registerEconomicSettlement(Promise.resolve(unknown));
 
-    await vi.waitFor(() => expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledOnce());
-    expect(economicAuthority.settleSuccessfulExecution).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(economicAuthority.settleExecution).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      prepared.dispatchFenceId,
+      unknown,
+    ));
+    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
   });
 
-  it("compensates a prepared pre-effect dispatch exactly once and never releases after fencing", async () => {
+  it("keeps capacity when a registered provider settlement rejects", async () => {
     const economicAuthority = authority();
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
       resolveLifecycleTimeoutMs: () => 1_000,
       createAdapter: async () => ({ descriptor: {} }) as never,
     });
-    const preEffect = await coordinator.prepare({
+    const prepared = await coordinator.prepare({
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
       adoption: {} as never,
       admissionProfile: "foundation-readonly-plan",
     });
-    if (preEffect.status !== "prepared") throw new Error("fixture");
-    preEffect.releaseBeforeProviderEffect();
-    preEffect.releaseBeforeProviderEffect();
-    expect(economicAuthority.releasePreFence).toHaveBeenCalledTimes(1);
+    if (prepared.status !== "prepared") throw new Error("fixture");
+    prepared.registerEconomicSettlement(Promise.reject(new Error("provider outcome unknown")));
 
-    const postFenceAuthority = authority();
-    const postFence = await new ManagedEconomicDispatchCoordinator({
-      authority: postFenceAuthority,
+    await vi.waitFor(() => expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledOnce());
+    expect(economicAuthority.settleExecution).not.toHaveBeenCalled();
+  });
+
+  it("does not expose pre-fence compensation after preparation", async () => {
+    const economicAuthority = authority();
+    const prepared = await new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
       resolveLifecycleTimeoutMs: () => 1_000,
       createAdapter: async () => ({ descriptor: {} }) as never,
     }).prepare({
@@ -258,9 +320,29 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       adoption: {} as never,
       admissionProfile: "foundation-readonly-plan",
     });
-    if (postFence.status !== "prepared") throw new Error("fixture");
-    await postFence.beforeProviderEffect();
-    postFence.releaseBeforeProviderEffect();
-    expect(postFenceAuthority.releasePreFence).not.toHaveBeenCalled();
+
+    expect(prepared).toMatchObject({ status: "prepared" });
+    expect(prepared).not.toHaveProperty("releaseBeforeProviderEffect");
+    expect(prepared).not.toHaveProperty("beforeProviderEffect");
+    expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
   });
+
+  function settlement(dispatchFenceId: string): ManagedEconomicSettlement {
+    return {
+      kind: "subscription",
+      reservationId: "reservation-a",
+      dispatchFenceId,
+      actualIdentity: commitment().reservation.selectedIdentity,
+      units: [{ atoms: "12", scale: 0, unit: "input-token", scheme: { kind: "unit" } }],
+      evidence: {
+        sourceIdentity: "provider-usage",
+        sourceRevision: "usage-1",
+        sourceDigest: `sha256:${"d".repeat(64)}`,
+        observedAt: "2026-08-01T00:00:00.000Z",
+        validUntil: "2026-08-01T01:00:00.000Z",
+        confidence: "high",
+        authority: "provider-reported",
+      },
+    };
+  }
 });

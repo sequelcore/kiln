@@ -3,6 +3,7 @@ import {
   adoptManagedEconomicSnapshot,
   canonicalizeManagedEconomicValue,
   compareManagedEconomicAmounts,
+  createManagedEconomicSettlement,
   digestManagedEconomicValue,
   deriveManagedEconomicMinimumReservation,
   narrowManagedEconomicExecutionAlternatives,
@@ -267,6 +268,37 @@ function adoptedSnapshotInput(): ManagedEconomicAdoptedSnapshotInput {
       ceiling: selected.ceiling,
     }],
   };
+}
+
+function settlementFixture() {
+  const adopted = adoptManagedEconomicSnapshot(adoptedSnapshotInput());
+  const adoptedRoute = adopted.routes[0]!;
+  const selectedIdentity = {
+    route: adoptedRoute.route,
+    account: { kind: "accountless" as const },
+  };
+  const commitment = {
+    commitmentId: "commitment-settlement",
+    reservation: {
+      reservationId: "reservation-settlement",
+      jobId: "job-settlement",
+      economicAttemptId: "economic-attempt-settlement",
+      policy: adopted.policy,
+      selectedIdentity,
+      priceIdentity: adoptedRoute.priceEvidence.identity,
+      envelope: adoptedRoute.executionEnvelope,
+      amounts: [amount("100")],
+      authorityRevision: digestManagedEconomicValue(adopted),
+    },
+    rejected: [],
+    notSelected: [],
+  };
+  const reportEvidence: ManagedEconomicEvidenceIdentity = {
+    ...currentEvidence,
+    sourceIdentity: "direct-adapter-usage",
+    authority: "calculated-estimate",
+  };
+  return { adoptedRoute, commitment, selectedIdentity, reportEvidence };
 }
 
 describe("managed route economics", () => {
@@ -912,6 +944,105 @@ describe("managed route economics", () => {
       expect(settlement).not.toHaveProperty("charge");
       expect(settlement).not.toHaveProperty("estimate");
     }
+  });
+
+  it("projects exact provider units to a local estimate without relabelling it as a charge", () => {
+    const fixture = settlementFixture();
+    const settlement = createManagedEconomicSettlement({
+      commitment: fixture.commitment,
+      dispatchFenceId: "dispatch-fence-settlement",
+      adoptedRoute: fixture.adoptedRoute,
+      report: {
+        actualIdentity: fixture.selectedIdentity,
+        usage: {
+          kind: "complete",
+          units: [{ atoms: "200000", scale: 0, unit: "input-token", scheme: { kind: "unit" } }],
+        },
+        evidence: fixture.reportEvidence,
+      },
+    });
+
+    expect(settlement).toMatchObject({
+      kind: "estimated",
+      estimate: { atoms: "25", scale: 0, unit: "currency", scheme: { kind: "currency", currency: "USD" } },
+      evidence: { authority: "calculated-estimate" },
+    });
+    expect(settlement).not.toHaveProperty("charge");
+  });
+
+  it("accepts only a provider-reported charge matching the committed unit and scheme", () => {
+    const fixture = settlementFixture();
+    const providerEvidence: ManagedEconomicEvidenceIdentity = {
+      ...fixture.reportEvidence,
+      sourceIdentity: "provider-billing-response",
+      authority: "provider-reported",
+    };
+    const create = (currency: string) => createManagedEconomicSettlement({
+      commitment: fixture.commitment,
+      dispatchFenceId: "dispatch-fence-settlement",
+      adoptedRoute: fixture.adoptedRoute,
+      report: {
+        actualIdentity: fixture.selectedIdentity,
+        usage: {
+          kind: "complete",
+          units: [{ atoms: "10", scale: 0, unit: "input-token", scheme: { kind: "unit" } }],
+        },
+        evidence: fixture.reportEvidence,
+        providerCharge: {
+          amount: { atoms: "25", scale: 2, unit: "currency", scheme: { kind: "currency", currency } },
+          evidence: providerEvidence,
+        },
+      },
+    });
+
+    expect(create("USD")).toMatchObject({
+      kind: "charged",
+      charge: { atoms: "25", scale: 2, scheme: { currency: "USD" } },
+      evidence: { authority: "provider-reported" },
+    });
+    expect(() => create("EUR")).toThrow(/committed route scheme/u);
+  });
+
+  it("rejects settlement reports whose actual execution identity differs from the commitment", () => {
+    const fixture = settlementFixture();
+    expect(() => createManagedEconomicSettlement({
+      commitment: fixture.commitment,
+      dispatchFenceId: "dispatch-fence-settlement",
+      adoptedRoute: fixture.adoptedRoute,
+      report: {
+        actualIdentity: {
+          ...fixture.selectedIdentity,
+          route: { ...fixture.selectedIdentity.route, modelId: "different-model" },
+        },
+        usage: { kind: "complete", units: [] },
+        evidence: fixture.reportEvidence,
+      },
+    })).toThrow(/actual identity does not match commitment/u);
+  });
+
+  it("keeps incomplete provider usage unknown without an authoritative provider charge", () => {
+    const fixture = settlementFixture();
+    const settlement = createManagedEconomicSettlement({
+      commitment: fixture.commitment,
+      dispatchFenceId: "dispatch-fence-settlement",
+      adoptedRoute: fixture.adoptedRoute,
+      report: {
+        actualIdentity: fixture.selectedIdentity,
+        usage: {
+          kind: "incomplete",
+          knownUnits: [{ atoms: "10", scale: 0, unit: "input-token", scheme: { kind: "unit" } }],
+          reason: "provider-usage-unknown:output",
+        },
+        evidence: fixture.reportEvidence,
+      },
+    });
+
+    expect(settlement).toMatchObject({
+      kind: "unknown",
+      reason: "provider-usage-unknown:output",
+      actualIdentity: fixture.selectedIdentity,
+    });
+    expect(settlement).not.toHaveProperty("estimate");
   });
 });
 

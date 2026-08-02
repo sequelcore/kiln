@@ -82,7 +82,6 @@ import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
   createCliTranscriptBudgetUsageReader,
   createRuntimeBudgetAdmissionFromGlobalConfig,
-  projectGlobalRoutingBudgetPolicy,
 } from "../application/runtime-budget-admission.js";
 import {
   createKilnRuntimeManagedInvocationAttachment,
@@ -123,7 +122,6 @@ import {
 } from "../application/operator-transcript-projection.js";
 import type { ContextArtifactCache } from "@kilnai/core";
 import type {
-  ManagedAgentOrchestrationBudgetAdmissionInput,
   ManagedInvocationToolOptions,
   RuntimeBudgetUsageReader,
 } from "@kilnai/runtime";
@@ -1130,7 +1128,6 @@ export async function runCommand(
     registry,
     surface: "run",
     maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
-    ...(runtimeBudgetAdmission ? { orchestrationBudgetAdmission: runtimeBudgetAdmission } : {}),
     isProviderAvailable: (providerId) => engineAvailability.get(providerId),
     providerModelEligibility: managedAgentProviderModels,
     directAdapterFactory: createManagedDirectProviderAdapterFactory({
@@ -2079,26 +2076,12 @@ function resolveParallelWorkerAdmissionLimits(
   return {
     maxChildren: appConfig.kilnYaml?.parallelWorkers ?? workerCount,
     routeHealth: hasSingleLifecycleRoute ? "available" : "unavailable",
-    budget: "available",
     workspace: hasSingleLifecycleRoute ? "available" : "unavailable",
     taskRisk: complexity === "complex" || complexity === "expert"
       ? "high"
       : complexity === "moderate"
         ? "medium"
         : "low",
-  };
-}
-
-function projectParallelWorkerBudgetAdmission(
-  globalConfig: KilnGlobalConfig | null | undefined,
-  executionOptions: RunCommandExecutionOptions,
-): ManagedAgentOrchestrationBudgetAdmissionInput | undefined {
-  if (globalConfig?.routing?.budgetAware !== true) {
-    return undefined;
-  }
-  return {
-    policy: projectGlobalRoutingBudgetPolicy(globalConfig),
-    ...(executionOptions.budgetUsageReader ? { usageReader: executionOptions.budgetUsageReader } : {}),
   };
 }
 
@@ -2146,7 +2129,6 @@ export async function runParallelWorkers(
 
   let lifecycleResult: Awaited<ReturnType<typeof runManagedAgentOrchestrationLifecycle>>;
   try {
-    const budgetAdmission = projectParallelWorkerBudgetAdmission(executionOptions.globalConfig, executionOptions);
     lifecycleResult = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: admission.request,
       managedInvocation: managedInvocationWithService,
@@ -2156,7 +2138,6 @@ export async function runParallelWorkers(
         ...(flags.model ? { model: flags.model } : {}),
       },
       requestedAuthority: flags.requestedAuthority ?? "audited",
-      ...(budgetAdmission ? { budgetAdmission } : {}),
     });
   } catch (error) {
     console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);

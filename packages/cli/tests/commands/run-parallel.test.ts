@@ -164,65 +164,13 @@ describe("runParallelWorkers", () => {
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-  it("denies worker fan-out before launching children when budget-aware routing has no live usage source", async () => {
+  it("does not use runtime-session budget policy as managed worker route authority", async () => {
     const managedInvocation = createManagedInvocation();
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit called");
-    });
-
-    await expect(runParallelWorkers(
-      MOCK_APP_CONFIG,
-      "test task",
-      {},
-      2,
-      managedInvocation,
-      {
-        globalConfig: budgetAwareGlobalConfig(),
-      },
-    )).rejects.toThrow("process.exit called");
-
-    expect(managedInvocation.invocationService?.list()).toEqual([]);
-    expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain(
-      "Managed orchestration budget admission denied: Budget admission requires a live usage reader.",
-    );
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-  it("denies worker fan-out before launching children when every eligible route is over budget", async () => {
-    const managedInvocation = createManagedInvocation();
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit called");
-    });
-
-    await expect(runParallelWorkers(
-      MOCK_APP_CONFIG,
-      "test task",
-      {},
-      2,
-      managedInvocation,
-      {
-        globalConfig: budgetAwareGlobalConfig(),
-        budgetUsageReader: async ({ providerId }) => ({
-          providerId,
-          tokensUsed: 11,
-          source: "test-meter",
-        }),
-      },
-    )).rejects.toThrow("process.exit called");
-
-    expect(managedInvocation.invocationService?.list()).toEqual([]);
-    expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain(
-      "Managed orchestration budget admission denied: All route candidates are over their configured budget ceilings.",
-    );
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-  it("admits worker fan-out through runtime budget admission when an eligible route is within budget", async () => {
-    const managedInvocation = createManagedInvocation();
+    const budgetUsageReader = vi.fn(async ({ providerId }: { readonly providerId: string }) => ({
+      providerId,
+      tokensUsed: 11,
+      source: "test-meter",
+    }));
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -235,15 +183,12 @@ describe("runParallelWorkers", () => {
       {
         globalConfig: budgetAwareGlobalConfig(),
         exitOnFailure: false,
-        budgetUsageReader: async ({ providerId }) => ({
-          providerId,
-          tokensUsed: 1,
-          source: "test-meter",
-        }),
+        budgetUsageReader,
       },
     );
 
     expect(managedInvocation.invocationService?.list()).toHaveLength(2);
+    expect(budgetUsageReader).not.toHaveBeenCalled();
   });
 
   it("denies worker fan-out before launching children when managed lifecycle route selection is ambiguous", async () => {

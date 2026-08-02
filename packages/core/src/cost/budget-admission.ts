@@ -1,4 +1,4 @@
-export type BudgetAdmissionSubject = "runtime-session-turn" | "managed-orchestration";
+export type BudgetAdmissionSubject = "runtime-session-turn";
 
 export interface BudgetRouteBudget {
   readonly providerId: string;

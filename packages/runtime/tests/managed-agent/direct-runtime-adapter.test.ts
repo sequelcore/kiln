@@ -149,6 +149,196 @@ function startManaged(
 }
 
 describe("ManagedDirectProviderRuntimeAdapter", () => {
+  it("rejects an economic adapter before provider effect when typed settlement ownership is absent", async () => {
+    const provider = providerWithResponses([response("must not execute")]);
+    const childRequest = request();
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+      economicIdentity: {
+        route: {
+          routeId: `${childRequest.providerRoute.providerId}:${childRequest.profile}`,
+          providerId: "openai",
+          modelId: "gpt-test",
+          accountPolicyId: null,
+        },
+        account: { kind: "accountless" },
+      } as never,
+    });
+
+    await expect(invokeManaged(
+      new RuntimeManagedAgentInvocationService(),
+      childRequest,
+      adapter,
+    )).rejects.toThrow(/typed economic settlement ownership/u);
+    expect(provider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects an economic identity whose provider or model differs from the adapter route", () => {
+    expect(() => new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider: providerWithResponses([response("must not execute")]),
+      tools: [],
+      builtinTools: new Map(),
+      economicIdentity: {
+        route: { providerId: "openai", modelId: "different-model" },
+        account: { kind: "accountless" },
+      } as never,
+    })).toThrow(/economic identity does not match/u);
+  });
+
+  it("reports committed actual identity and exact provider units for economic settlement", async () => {
+    const provider = providerWithResponses([response("Economic work completed.")]);
+    const childRequest = request();
+    const routeId = `${childRequest.providerRoute.providerId}:${childRequest.profile}`;
+    const economicIdentity = {
+      route: {
+        routeId,
+        providerId: "openai",
+        modelId: "gpt-test",
+        accountPolicyId: null,
+      },
+      account: { kind: "accountless" as const },
+    } as never;
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+      economicIdentity,
+      now: () => new Date("2026-08-01T12:00:00.000Z"),
+    });
+    const createExecutionSettlement = vi.fn(() => ({} as never));
+    const registerEconomicSettlement = vi.fn();
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const started = await service.start(childRequest, adapter, snapshotInputFor(childRequest), {
+      economicDispatch: {
+        commitment: {
+          commitmentId: "commitment-direct",
+          reservation: {
+            reservationId: "reservation-direct",
+            jobId: "job-direct",
+            economicAttemptId: "economic-attempt-direct",
+            policy: {} as never,
+            selectedIdentity: economicIdentity,
+            priceIdentity: null,
+            envelope: { kind: "bounded", digest: `sha256:${"a".repeat(64)}`, limits: [] },
+            amounts: [],
+            authorityRevision: `sha256:${"b".repeat(64)}`,
+          },
+          rejected: [],
+          notSelected: [],
+        },
+        dispatchFenceId: "dispatch-fence-direct",
+        recordExecutionSettlementPending: vi.fn(),
+        createExecutionSettlement,
+        registerEconomicSettlement,
+      },
+    });
+    expect(started.status).toBe("started");
+    await service.join(childRequest.invocationId);
+
+    await vi.waitFor(() => expect(registerEconomicSettlement).toHaveBeenCalledOnce());
+    expect(createExecutionSettlement).toHaveBeenCalledWith({
+      actualIdentity: economicIdentity,
+      usage: {
+        kind: "complete",
+        units: [
+          { atoms: "10", scale: 0, unit: "input-token", scheme: { kind: "unit" } },
+          { atoms: "5", scale: 0, unit: "output-token", scheme: { kind: "unit" } },
+          { atoms: "1", scale: 0, unit: "cache-read-token", scheme: { kind: "unit" } },
+          { atoms: "0", scale: 0, unit: "cache-write-token", scheme: { kind: "unit" } },
+        ],
+      },
+      evidence: {
+        sourceIdentity: "managed-direct-runtime:openai:gpt-test",
+        sourceRevision: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        sourceDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        observedAt: "2026-08-01T12:00:00.000Z",
+        validUntil: "2026-08-01T12:05:00.000Z",
+        confidence: "medium",
+        authority: "calculated-estimate",
+      },
+    });
+  });
+
+  it("reports provider failures as incomplete economic usage", async () => {
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn(async () => {
+        throw new Error("provider exploded");
+      }),
+      streamMessage: async function* (): AsyncGenerator<never> {
+        return;
+      },
+    };
+    const childRequest = request();
+    const economicIdentity = {
+      route: {
+        routeId: `${childRequest.providerRoute.providerId}:${childRequest.profile}`,
+        providerId: "openai",
+        modelId: "gpt-test",
+        accountPolicyId: null,
+      },
+      account: { kind: "accountless" as const },
+    } as never;
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+      economicIdentity,
+      now: () => new Date("2026-08-01T12:00:00.000Z"),
+    });
+    const createExecutionSettlement = vi.fn(() => ({} as never));
+    const registerEconomicSettlement = vi.fn();
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const started = await service.start(childRequest, adapter, snapshotInputFor(childRequest), {
+      economicDispatch: {
+        commitment: {
+          commitmentId: "commitment-direct-failure",
+          reservation: {
+            reservationId: "reservation-direct-failure",
+            jobId: "job-direct-failure",
+            economicAttemptId: "economic-attempt-direct-failure",
+            policy: {} as never,
+            selectedIdentity: economicIdentity,
+            priceIdentity: null,
+            envelope: { kind: "bounded", digest: `sha256:${"a".repeat(64)}`, limits: [] },
+            amounts: [],
+            authorityRevision: `sha256:${"b".repeat(64)}`,
+          },
+          rejected: [],
+          notSelected: [],
+        },
+        dispatchFenceId: "dispatch-fence-direct-failure",
+        recordExecutionSettlementPending: vi.fn(),
+        createExecutionSettlement,
+        registerEconomicSettlement,
+      },
+    });
+    expect(started.status).toBe("started");
+    await service.join(childRequest.invocationId);
+
+    await vi.waitFor(() => expect(registerEconomicSettlement).toHaveBeenCalledOnce());
+    expect(createExecutionSettlement).toHaveBeenCalledWith(expect.objectContaining({
+      actualIdentity: economicIdentity,
+      usage: {
+        kind: "incomplete",
+        knownUnits: [],
+        reason: "provider-usage-unknown:cache_read,cache_write,input,output",
+      },
+    }));
+  });
+
   it("projects the managed handoff contract into the child prompt and accepts its structured result", async () => {
     const structuredResult = {
       version: "structured-execution-result-v1",

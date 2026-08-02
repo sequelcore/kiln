@@ -30,6 +30,8 @@ import type {
   ManagedAgentWorktreeConflictEvidence,
   ManagedAgentWorktreeReviewEvidence,
   ManagedEconomicCommitment,
+  ManagedEconomicExecutionReport,
+  ManagedEconomicSettlement,
   StructuredExecutionResult,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
@@ -118,7 +120,6 @@ export {
   runManagedAgentOrchestrationLifecycle,
 } from "./orchestration-lifecycle.js";
 export type {
-  ManagedAgentOrchestrationBudgetAdmissionInput,
   ManagedAgentOrchestrationLifecycleChildRecord,
   ManagedAgentOrchestrationLifecycleInput,
   ManagedAgentOrchestrationLifecycleResult,
@@ -269,7 +270,13 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly promptDelivery: ManagedAgentRuntimePromptDeliveryCoordinator;
   readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
   readonly environment?: ManagedAgentEnvironmentVariables;
-  readonly registerExecutionSettlement: (settlement: PromiseLike<unknown>) => void;
+  readonly registerAdapterCompletion: (completion: PromiseLike<unknown>) => void;
+  readonly registerEconomicSettlement?: (
+    settlement: PromiseLike<ManagedEconomicSettlement>,
+  ) => void;
+  readonly createEconomicSettlement?: (
+    report: ManagedEconomicExecutionReport,
+  ) => ManagedEconomicSettlement;
 }
 
 export interface ManagedAgentRuntimeCancellationInput {
@@ -315,9 +322,13 @@ export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly economicDispatch?: {
     readonly commitment: ManagedEconomicCommitment;
     readonly dispatchFenceId: string;
-    readonly beforeProviderEffect: () => void | Promise<void>;
-    readonly releaseBeforeProviderEffect: () => void;
-    readonly registerExecutionSettlement: (settlement: PromiseLike<unknown>) => void;
+    readonly recordExecutionSettlementPending: (reason: string) => void;
+    readonly createExecutionSettlement: (
+      report: ManagedEconomicExecutionReport,
+    ) => ManagedEconomicSettlement;
+    readonly registerEconomicSettlement: (
+      settlement: PromiseLike<ManagedEconomicSettlement>,
+    ) => void;
   };
 }
 
@@ -1035,7 +1046,7 @@ interface ManagedAgentRuntimeInvocationEntry {
   terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
   terminalObserverNotified?: boolean;
   terminalObserverSettlement?: Promise<void>;
-  executionSettlement?: Promise<void>;
+  adapterCompletion?: Promise<void>;
   adapterSettlement?: Promise<void>;
   readonly owner?: object;
 }
@@ -1076,11 +1087,8 @@ export class RuntimeManagedAgentInvocationService {
     capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput,
     lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): Promise<ManagedAgentRuntimeInvocationStartResult> {
-    let preFenceReleaseAttempted = false;
-    const releaseEconomicPreFence = () => {
-      if (preFenceReleaseAttempted || !lifecycleOptions.economicDispatch) return;
-      preFenceReleaseAttempted = true;
-      lifecycleOptions.economicDispatch.releaseBeforeProviderEffect();
+    const recordEconomicPending = (reason: string) => {
+      lifecycleOptions.economicDispatch?.recordExecutionSettlementPending(reason);
     };
     try {
       if (this.invocations.has(request.invocationId)) {
@@ -1099,7 +1107,7 @@ export class RuntimeManagedAgentInvocationService {
         );
       }
     } catch (error) {
-      releaseEconomicPreFence();
+      recordEconomicPending("runtime-prestart-validation-failed");
       throw error;
     }
 
@@ -1114,14 +1122,14 @@ export class RuntimeManagedAgentInvocationService {
             lifecycleOptions.abortSignal,
           );
     } catch (error) {
-      releaseEconomicPreFence();
+      recordEconomicPending("runtime-authority-observation-failed");
       throw error;
     }
     const decision = evaluateManagedAgentAdmission(request, adapter.descriptor, admittedSnapshotInput, {
       evaluatedAt: this.now().toISOString(),
     });
     if (decision.status === "denied") {
-      releaseEconomicPreFence();
+      recordEconomicPending("runtime-admission-denied");
       return {
         status: "denied",
         decision: cloneJson(decision),
@@ -1129,7 +1137,7 @@ export class RuntimeManagedAgentInvocationService {
     }
     const writeLeaseConflict = this.detectActiveWriteLeaseConflict(request, decision);
     if (writeLeaseConflict) {
-      releaseEconomicPreFence();
+      recordEconomicPending("runtime-write-lease-conflict");
       return {
         status: "denied",
         decision: cloneJson(writeLeaseConflict),
@@ -1171,14 +1179,14 @@ export class RuntimeManagedAgentInvocationService {
     if (lifecycleOptions.abortSignal?.aborted) {
       await this.cancel(request.invocationId, managedInvocationAbortReason(lifecycleOptions.abortSignal.reason));
       if (entry.lifecycleState === "cancelled" && entry.record) {
-        releaseEconomicPreFence();
+        recordEconomicPending("runtime-cancelled-before-adapter-start");
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
     }
     try {
       await this.acquireRuntimeResourceLeases(entry);
     } catch (error) {
-      releaseEconomicPreFence();
+      recordEconomicPending("runtime-resource-lease-acquisition-failed");
       if ((entry.lifecycleState === "cancelled" || entry.lifecycleState === "stale") && entry.record) {
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
@@ -1202,22 +1210,23 @@ export class RuntimeManagedAgentInvocationService {
       throw runtimeError;
     }
     if (entry.lifecycleState === "cancelled" && entry.record) {
-      releaseEconomicPreFence();
+      recordEconomicPending("runtime-cancelled-before-adapter-start");
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     if (entry.lifecycleState === "stale" && entry.record) {
-      releaseEconomicPreFence();
+      recordEconomicPending("runtime-stale-before-adapter-start");
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     const executableAdapter = entry.adapter;
     if (executableAdapter === undefined) {
-      releaseEconomicPreFence();
+      recordEconomicPending("runtime-adapter-unavailable");
       throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation has no executable adapter");
     }
     let signalDispatchReady!: () => void;
     const dispatchReady = new Promise<void>((resolve) => {
       signalDispatchReady = resolve;
     });
+    let dispatchPhase: "poststart-authority" | "recovery-checkpoint" | "adapter-execution" = "poststart-authority";
     const authorityCheckedInvocation = this.assertPostStartAuthority(request, executableAdapter, registeredDecision, abortController)
       .then(() => {
         entry.adapterStarted = true;
@@ -1228,32 +1237,33 @@ export class RuntimeManagedAgentInvocationService {
           abortSignal: abortController.signal,
           promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
           progressObserver: (event) => this.recordProgress(entry, event),
-          registerExecutionSettlement: (settlement) => {
-            this.registerExecutionSettlement(entry, settlement);
-            lifecycleOptions.economicDispatch?.registerExecutionSettlement(settlement);
+          registerAdapterCompletion: (completion) => {
+            this.registerAdapterCompletion(entry, completion);
           },
+          ...(lifecycleOptions.economicDispatch
+            ? {
+                registerEconomicSettlement: lifecycleOptions.economicDispatch.registerEconomicSettlement,
+                createEconomicSettlement: lifecycleOptions.economicDispatch.createExecutionSettlement,
+              }
+            : {}),
           ...(entry.runtimeEnvironment !== undefined ? { environment: cloneJson(entry.runtimeEnvironment) } : {}),
         });
         const beginInvocation = () => {
-          if (lifecycleOptions.economicDispatch) {
-            return Promise.resolve(lifecycleOptions.economicDispatch.beforeProviderEffect()).then(() => {
-              signalDispatchReady();
-              return invoke();
-            }, (error: unknown) => {
-              releaseEconomicPreFence();
-              signalDispatchReady();
-              throw error;
-            });
-          }
+          dispatchPhase = "adapter-execution";
           signalDispatchReady();
           return invoke();
         };
-        return this.options.recoveryStore
-          ? this.saveRuntimeRecoveryCheckpoint(entry).then(beginInvocation)
-          : beginInvocation();
+        if (!this.options.recoveryStore) return beginInvocation();
+        dispatchPhase = "recovery-checkpoint";
+        return this.saveRuntimeRecoveryCheckpoint(entry).then(beginInvocation);
       })
       .catch((error: unknown) => {
-        releaseEconomicPreFence();
+        const reason = dispatchPhase === "poststart-authority"
+          ? "runtime-poststart-authority-failed"
+          : dispatchPhase === "recovery-checkpoint"
+            ? "runtime-recovery-checkpoint-failed"
+            : "runtime-adapter-execution-failed";
+        recordEconomicPending(reason);
         signalDispatchReady();
         throw error;
       });
@@ -1733,7 +1743,13 @@ export class RuntimeManagedAgentInvocationService {
     readonly promptDelivery?: ManagedAgentRuntimePromptDeliveryCoordinator;
     readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
     readonly environment?: ManagedAgentEnvironmentVariables;
-    readonly registerExecutionSettlement?: (settlement: PromiseLike<unknown>) => void;
+    readonly registerAdapterCompletion?: (completion: PromiseLike<unknown>) => void;
+    readonly registerEconomicSettlement?: (
+      settlement: PromiseLike<ManagedEconomicSettlement>,
+    ) => void;
+    readonly createEconomicSettlement?: (
+      report: ManagedEconomicExecutionReport,
+    ) => ManagedEconomicSettlement;
   }): Promise<ManagedAgentInvocationRecord> {
     const admission = this.requireRuntimeAdmission(input);
     const environment = input.environment === undefined ? undefined : validateManagedEnvironment(input.environment);
@@ -1744,7 +1760,13 @@ export class RuntimeManagedAgentInvocationService {
       promptDelivery: input.promptDelivery ?? this.promptDeliveryCoordinator(input.request.invocationId),
       ...(input.progressObserver !== undefined ? { progressObserver: input.progressObserver } : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
-      registerExecutionSettlement: input.registerExecutionSettlement ?? (() => undefined),
+      registerAdapterCompletion: input.registerAdapterCompletion ?? (() => undefined),
+      ...(input.registerEconomicSettlement === undefined
+        ? {}
+        : { registerEconomicSettlement: input.registerEconomicSettlement }),
+      ...(input.createEconomicSettlement === undefined
+        ? {}
+        : { createEconomicSettlement: input.createEconomicSettlement }),
     });
     const canonicalRecord = attachStructuredVerificationUsage(record);
     const attributedRecord = defineManagedAgentInvocationRecord({
@@ -2074,14 +2096,14 @@ export class RuntimeManagedAgentInvocationService {
     }
   }
 
-  private registerExecutionSettlement(
+  private registerAdapterCompletion(
     entry: ManagedAgentRuntimeInvocationEntry,
-    settlement: PromiseLike<unknown>,
+    completion: PromiseLike<unknown>,
   ): void {
-    if (entry.executionSettlement !== undefined) {
-      throw new ManagedAgentRuntimeAdmissionError("Managed adapter registered execution settlement more than once");
+    if (entry.adapterCompletion !== undefined) {
+      throw new ManagedAgentRuntimeAdmissionError("Managed adapter registered execution completion more than once");
     }
-    entry.executionSettlement = Promise.resolve(settlement).then(
+    entry.adapterCompletion = Promise.resolve(completion).then(
       () => undefined,
       () => undefined,
     );
@@ -2297,18 +2319,18 @@ export class RuntimeManagedAgentInvocationService {
   }
 
   private async waitForOwnerShutdownExecutionSettlement(entry: ManagedAgentRuntimeInvocationEntry): Promise<void> {
-    if (!entry.executionSettlement || entry.lifecycleState !== "timed_out") {
-      await entry.executionSettlement;
+    if (!entry.adapterCompletion || entry.lifecycleState !== "timed_out") {
+      await entry.adapterCompletion;
       return;
     }
     await Promise.race([
-      entry.executionSettlement,
+      entry.adapterCompletion,
       new Promise<void>((resolve) => {
         const timeout = setTimeout(resolve, Math.min(
           entry.request.authority.timeoutMs,
           MANAGED_AGENT_OWNER_TIMEOUT_SETTLEMENT_GRACE_MS,
         ));
-        entry.executionSettlement!.finally(() => clearTimeout(timeout));
+        entry.adapterCompletion!.finally(() => clearTimeout(timeout));
       }),
     ]);
   }

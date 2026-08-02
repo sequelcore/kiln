@@ -350,7 +350,6 @@ export type {
   ManagedAgentRuntimeRecoveryStore,
   ManagedAgentStaleRecoveryInput,
   ManagedAgentStaleRecoveryResult,
-  ManagedAgentOrchestrationBudgetAdmissionInput,
   ManagedAgentOrchestrationLifecycleChildRecord,
   ManagedAgentOrchestrationLifecycleInput,
   ManagedAgentOrchestrationLifecycleResult,

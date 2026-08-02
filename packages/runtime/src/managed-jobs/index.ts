@@ -578,7 +578,7 @@ export class ManagedJobApplicationService {
         };
         return await this.options.store.completeSuccess(job.id, result, execution.completedAt) as ManagedJobRecordV7;
       } catch {
-        preparation.releaseBeforeProviderEffect();
+        preparation.recordExecutionSettlementPending("managed-job-execution-failed");
         return this.transition(job.id, "failed", "invocation_failed") as Promise<ManagedJobRecordV7>;
       }
     } catch (error) {

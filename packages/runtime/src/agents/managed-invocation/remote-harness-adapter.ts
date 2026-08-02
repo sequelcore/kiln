@@ -124,7 +124,7 @@ export class ManagedRemoteHarnessAdapter implements ManagedAgentRuntimeAdapter {
         abortSignal: input.abortSignal,
         ...(input.environment !== undefined ? { environment: input.environment } : {}),
       });
-      input.registerExecutionSettlement(execution);
+      input.registerAdapterCompletion(execution);
       const remoteRecord = await execution;
       if (input.abortSignal.aborted) {
         await cancellation;

@@ -59,7 +59,6 @@ import {
   type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
-  type RuntimeBudgetAdmissionPort,
   type ManagedEconomicCandidateSet,
   type ManagedJobEconomicAdoption,
   type ManagedJobRecordV6,
@@ -137,6 +136,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
     route: KilnManagedAgentRouteConfig,
     accountBinding?: DirectProviderAccountBinding,
     abortSignal?: AbortSignal,
+    committedRequest?: ManagedCommittedInvocationRequest,
   ) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly builtinToolOptions?: BuiltinToolOptionsSource;
   readonly artifactStore?: ArtifactResourceStore;
@@ -144,7 +144,6 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly invocationServiceKey?: string;
   readonly userHome?: string;
   readonly maxParallelChildren?: number;
-  readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly managedAccountComposition?: ManagedAccountRuntimeComposition;
   /** Candidate admission projects static route evidence without constructing execution owners. */
   readonly compositionMode?: "execution" | "candidate-admission";
@@ -591,9 +590,6 @@ export async function resolveManagedInvocationToolOptions(
       managedInvocation: {
         routes,
         maxParallelChildren: context.maxParallelChildren ?? 1,
-        ...(context.orchestrationBudgetAdmission
-          ? { orchestrationBudgetAdmission: context.orchestrationBudgetAdmission }
-          : {}),
         ...(agentCatalog.length > 0 ? { agentCatalog } : {}),
         ...(skillCatalog.length > 0 ? { skillCatalog } : {}),
         ...(unavailableRoutes.length > 0 ? { unavailableRoutes } : {}),
@@ -628,8 +624,8 @@ export function createManagedEconomicDispatchComposition(
         composition.authority.releaseCommitmentPreFence(jobId, economicAttemptId),
       fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) =>
         composition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId),
-      settleSuccessfulExecution: (jobId, economicAttemptId, dispatchFenceId) =>
-        composition.authority.settleSuccessfulExecution(jobId, economicAttemptId, dispatchFenceId),
+      settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) =>
+        composition.authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement),
       recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
         composition.authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
     },
@@ -1024,9 +1020,6 @@ export function createManagedInvocationToolOptionsCatalog(
       },
       get maxParallelChildren() {
         return current.maxParallelChildren;
-      },
-      get orchestrationBudgetAdmission() {
-        return current.orchestrationBudgetAdmission;
       },
     },
     update(next: ManagedInvocationToolOptions) {
@@ -1707,7 +1700,12 @@ async function resolveDirectRouteConfig(
             } else if (routeConfig.credentials?.mode !== "credentialless") {
               throw new Error("Accountless managed commitment does not match the configured credential route.");
             }
-            return await context.directAdapterFactory?.(routeConfig, accountBinding, request.abortSignal);
+            return await context.directAdapterFactory?.(
+              routeConfig,
+              accountBinding,
+              request.abortSignal,
+              request,
+            );
           },
         }
       : {}),

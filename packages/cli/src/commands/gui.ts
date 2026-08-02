@@ -197,7 +197,6 @@ export async function guiCommand(
       registry,
       surface: "gui",
       maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
-      ...(runtimeBudgetAdmission ? { orchestrationBudgetAdmission: runtimeBudgetAdmission } : {}),
       isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,

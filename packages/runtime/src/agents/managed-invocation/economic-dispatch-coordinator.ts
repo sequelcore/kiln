@@ -1,8 +1,11 @@
 import {
   digestManagedEconomicValue,
+  createManagedEconomicSettlement,
   type ManagedEconomicAdoptedSnapshot,
   type ManagedEconomicAdoptedSnapshotExpectation,
   type ManagedEconomicCommitment,
+  type ManagedEconomicSettlement,
+  type ManagedEconomicExecutionReport,
   type ManagedAgentAdmissionProfile,
 } from "@kilnai/core";
 import type { ManagedAgentRuntimeAdapter } from "./index.js";
@@ -29,7 +32,12 @@ export interface ManagedEconomicDispatchAuthorityPort {
   }): ManagedEconomicCommitmentAcquireResult;
   releasePreFence(jobId: string, economicAttemptId: string): unknown;
   fenceDispatch(jobId: string, economicAttemptId: string, dispatchFenceId: string): unknown;
-  settleSuccessfulExecution(jobId: string, economicAttemptId: string, dispatchFenceId: string): unknown;
+  settleExecution(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    settlement: ManagedEconomicSettlement,
+  ): unknown;
   recordExecutionSettlementPending(
     jobId: string,
     economicAttemptId: string,
@@ -75,9 +83,11 @@ export type ManagedEconomicDispatchPreparation =
       readonly dispatchFenceId: string;
       readonly adapter: ManagedAgentRuntimeAdapter;
       readonly abortSignal: AbortSignal;
-      readonly beforeProviderEffect: () => Promise<void>;
-      readonly releaseBeforeProviderEffect: () => void;
-      readonly registerExecutionSettlement: (settlement: PromiseLike<unknown>) => void;
+      readonly recordExecutionSettlementPending: (reason: string) => void;
+      readonly createExecutionSettlement: (
+        report: ManagedEconomicExecutionReport,
+      ) => ManagedEconomicSettlement;
+      readonly registerEconomicSettlement: (settlement: PromiseLike<ManagedEconomicSettlement>) => void;
     };
 
 /** Owns the only transition from secret-free selection evidence to a provider-capable adapter. */
@@ -109,70 +119,91 @@ export class ManagedEconomicDispatchCoordinator {
       this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       throw error;
     }
+    try {
+      throwManagedEconomicAbort(lifecycle.signal);
+      this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId);
+    } catch (error) {
+      lifecycle.dispose();
+      throw error;
+    }
+
+    let settlementRegistered = false;
+    let settlementPendingRecorded = false;
+    const recordSettlementPending = (reason: string) => {
+      if (settlementPendingRecorded) return;
+      this.options.authority.recordExecutionSettlementPending(
+        input.jobId,
+        input.economicAttemptId,
+        dispatchFenceId,
+        reason,
+      );
+      settlementPendingRecorded = true;
+    };
+    const onAbort = () => {
+      recordSettlementPending(settlementRegistered
+        ? "registered-execution-settlement-timed-out"
+        : "registered-execution-settlement-missing");
+    };
+    lifecycle.signal.addEventListener("abort", onAbort, { once: true });
+
     let adapter: ManagedAgentRuntimeAdapter | undefined;
     try {
-      adapter = await awaitManagedEconomicPreFenceStep(this.options.createAdapter({
+      adapter = await awaitManagedEconomicMaterializationStep(this.options.createAdapter({
         commitment: result.record.commitment,
         dispatchFenceId,
         abortSignal: lifecycle.signal,
       }), lifecycle.signal);
       if (!adapter) throw new Error("Committed managed route has no executable adapter.");
     } catch (error) {
+      lifecycle.signal.removeEventListener("abort", onAbort);
+      recordSettlementPending("post-fence-adapter-materialization-failed");
       lifecycle.dispose();
-      this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       throw error;
     }
-
-    let dispatchFenced = false;
-    let preFenceReleased = false;
-    let settlementRegistered = false;
-    const releasePreFence = () => {
-      if (dispatchFenced || preFenceReleased) return;
-      lifecycle.dispose();
-      this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
-      preFenceReleased = true;
-    };
-    const onAbort = () => releasePreFence();
-    lifecycle.signal.addEventListener("abort", onAbort, { once: true });
     return {
       status: "prepared",
       commitment: result.record.commitment,
       dispatchFenceId,
       adapter,
       abortSignal: lifecycle.signal,
-      beforeProviderEffect: async () => {
-        if (dispatchFenced) return;
-        throwManagedEconomicAbort(lifecycle.signal);
-        this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId);
-        dispatchFenced = true;
-        lifecycle.signal.removeEventListener("abort", onAbort);
-      },
-      releaseBeforeProviderEffect: releasePreFence,
-      registerExecutionSettlement: (settlement) => {
-        if (!dispatchFenced) {
-          throw new Error("Managed economic execution settlement was registered before the dispatch fence.");
+      recordExecutionSettlementPending: recordSettlementPending,
+      createExecutionSettlement: (report) => {
+        const adoptedRoute = input.adoption.snapshot.routes.find((candidate) =>
+          candidate.route.routeId === result.record.commitment.reservation.selectedIdentity.route.routeId
+        );
+        if (adoptedRoute === undefined) {
+          throw new Error("Committed managed economic route is absent from its adopted snapshot.");
         }
+        return createManagedEconomicSettlement({
+          commitment: result.record.commitment,
+          dispatchFenceId,
+          adoptedRoute,
+          report,
+        });
+      },
+      registerEconomicSettlement: (settlement) => {
         if (settlementRegistered) {
           throw new Error("Managed economic execution settlement was registered more than once.");
         }
         settlementRegistered = true;
         void Promise.resolve(settlement).then(
-          () => {
-            this.options.authority.settleSuccessfulExecution(
+          (resolved) => {
+            this.options.authority.settleExecution(
               input.jobId,
               input.economicAttemptId,
               dispatchFenceId,
+              resolved,
             );
           },
           () => {
-            this.options.authority.recordExecutionSettlementPending(
-              input.jobId,
-              input.economicAttemptId,
-              dispatchFenceId,
-              "registered-execution-settlement-rejected",
-            );
+            recordSettlementPending("registered-execution-settlement-rejected");
           },
-        ).finally(lifecycle.dispose).catch(() => undefined);
+        ).catch(() => recordSettlementPending("registered-execution-settlement-invalid"))
+          .finally(() => {
+            lifecycle.signal.removeEventListener("abort", onAbort);
+            lifecycle.dispose();
+          })
+          .catch(() => undefined);
       },
     };
   }
@@ -207,7 +238,7 @@ function createManagedEconomicLifecycleDeadline(timeoutMs: number, parentSignal:
   };
 }
 
-function awaitManagedEconomicPreFenceStep<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+function awaitManagedEconomicMaterializationStep<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (!signal) return promise;
   throwManagedEconomicAbort(signal);
   return new Promise<T>((resolve, reject) => {

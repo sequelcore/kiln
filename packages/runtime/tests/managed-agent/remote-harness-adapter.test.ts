@@ -175,13 +175,13 @@ describe("ManagedRemoteHarnessAdapter", () => {
       ],
     });
     const decision = admitted(childRequest, adapter);
-    const registerExecutionSettlement = vi.fn();
+    const registerAdapterCompletion = vi.fn();
 
     const record = await adapter.invoke({
       request: childRequest,
       admission: decision,
       abortSignal: new AbortController().signal,
-      registerExecutionSettlement,
+      registerAdapterCompletion,
     });
 
     expect(adapter.descriptor).toMatchObject({
@@ -194,7 +194,7 @@ describe("ManagedRemoteHarnessAdapter", () => {
       request: childRequest,
       admission: decision,
     }));
-    expect(registerExecutionSettlement).toHaveBeenCalledOnce();
+    expect(registerAdapterCompletion).toHaveBeenCalledOnce();
     expect(JSON.stringify((transport.invoke as ReturnType<typeof vi.fn>).mock.calls[0])).not.toContain("KILN_REMOTE_HARNESS_TOKEN");
     expect(record).toMatchObject({
       invocationId: "inv-remote-1",

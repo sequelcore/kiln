@@ -186,19 +186,16 @@ configuration, environment, credentials, or timeout inputs.
 Production composition creates the Runtime `ManagedJobApplicationService`,
 uses the persistent `.kiln/managed-jobs` owner, canonical governance status,
 and a candidate-admission-only configured-agent catalog. It creates one
-project-scoped Runtime SQLite economic commitment authority, recovers that
-authority before job recovery, and does not construct a provider adapter during
-candidate admission or commitment. The application boundary refreshes
-canonical eligibility for every submission, resolves the configured policy and
-narrow-only route constraints, and persists the V6 precommit record with its
+project-scoped Runtime SQLite economic commitment authority and recovers that
+authority before job recovery. The application boundary refreshes canonical
+eligibility for every submission, resolves the configured policy and
+narrow-only route constraints, and persists the V7 precommit record with its
 `economicAttemptId` and pinned `adoptedDecisionAt` before snapshot adoption.
-Roadmap issue #34 internal Slice 4 stops before provider dispatch, so managed
-jobs cannot execute in shipped builds today: every submission acquires its
-commitment, releases it pre-fence with reason
-`slice-4-provider-dispatch-unavailable`, and terminates `failed` /
-`economic_commitment_unavailable`. This is a deliberate ordered-delivery state
-that ends with issue #34 internal Slice 5, and it is not Roadmap 02 Slice 5
-cross-path convergence. The MCP adapter never selects a route. Capability
+Only after atomic commitment and the durable dispatch fence may Runtime resolve
+the committed account revision, materialize the exact adapter, and execute the
+job. Typed settlement reconciles capacity; missing, rejected, timed-out, or
+otherwise ambiguous post-fence settlement remains pending. The MCP adapter
+never selects a route. Capability
 inspection projects safe configured-agent identity, optional role/display
 name, availability,
 provider family, admission profile, and stable action; it does not expose route
@@ -304,15 +301,16 @@ unavailable:
 
 - child count exceeds configured limits
 - no unique healthy lifecycle route is available
-- budget admission denies every eligible route or live usage is unavailable
+- economic commitment denies every eligible route or required evidence is unavailable
 - workspace isolation cannot be acquired
 - task risk is too high for unmanaged parallel execution
 
-Runtime/session budget admission is the owning budget plane. CLI config may
-project `routing.budget` into a `BudgetAdmissionPolicy`, but the admission
-decision is evaluated by the runtime budget admission service. There is no
-CLI-local, managed-orchestration-local, or gateway-billing shim for child
-budget admission.
+The Runtime economic commitment authority is the owning managed-child economic
+plane. It may only narrow routes already admitted by capability, security, and
+profile policy. Normal session-turn budget admission remains separate and does
+not authorize a managed route. There is no CLI-local,
+managed-orchestration-local, or gateway-billing shim for managed-child economic
+admission.
 
 `managed_agent.orchestrate` is the canonical cross-surface entrypoint for an
 explicit work graph. It rejects duplicate ids, unknown dependencies, cycles,
@@ -750,18 +748,22 @@ cancellation remains execution-unknown rather than fabricating a provider failur
 
 Economic managed dispatch crosses one explicit postcommit boundary. Candidate
 collection is secret-free. The SQLite authority selects and reserves an exact
-route/account revision; only then may Runtime materialize that adapter. Runtime
-persists the dispatch fence immediately before the provider effect. A replay of
-an already-fenced commitment never dispatches again. Successful registered
-execution settlement releases capacity; rejected, timed-out, cancelled, or
-otherwise unknown settlement remains capacity-consuming until durable recovery
-or operator reconciliation proves a terminal outcome.
+route/account revision and persists the dispatch fence before Runtime may
+resolve credentials or materialize the adapter. A replay of an already-fenced
+commitment never dispatches again. Typed settlement preserves provider units,
+provider-reported charge, and calculated estimate as distinct evidence.
+Rejected, timed-out, cancelled, missing, or otherwise unknown settlement
+remains capacity-consuming until durable recovery or operator reconciliation
+proves a terminal outcome.
 
 The committed route's configured timeout starts at commitment acquisition, not
 at the later provider call. Runtime propagates one abort signal through
 postcommit adapter construction, startup, leases, checkpointing, and execution.
-Every pre-fence exit owns exactly-once compensation; orchestration cannot retain
-an earlier child's hold while a later child fails preparation.
+Every definitely pre-fence exit owns exactly-once compensation. Once fenced,
+adapter construction, credential materialization, process startup, and provider
+execution failures record settlement-pending evidence rather than releasing the
+reservation. Orchestration cannot silently free or lose an earlier child's
+reservation when a later child fails preparation.
 Recovery checkpoints reference the economic commitment and dispatch fence by
 immutable identifiers. They never duplicate the account lease held by the
 SQLite economic authority.
@@ -839,13 +841,12 @@ Policy execution has three distinct contracts:
 
 Candidate collection cannot construct an adapter, resolve a credential, launch
 a process, acquire a lease, reserve capacity, or call a provider. A new managed
-job is persisted as V6 with policy/revision and constraints, a namespaced
+job is persisted as V7 with policy/revision and constraints, a namespaced
 `economicAttemptId`, and pinned `adoptedDecisionAt`, but without a selected
 `routeId` or `providerId`. Core then adopts an immutable economic snapshot whose
 policy, candidate set, price/rate evidence, and full contents are bound by
-canonical sorted SHA-256 digests. V5 remains a strict historical reader and
-recovery format; it is never used for a new submission or inferred into a V6
-attempt.
+canonical sorted SHA-256 digests. V5 and V6 remain strict historical recovery
+readers; neither is used for a new submission or inferred into a V7 attempt.
 
 Runtime acquires the commitment synchronously from its single-owner SQLite
 authority in one immediate transaction. That transaction revalidates the

@@ -22,7 +22,6 @@ export interface ManagedAgentCoordinationSignals {
   readonly managedRouteCount: number;
   readonly maxParallelWorkers: number;
   readonly routeHealth: ManagedAgentOrchestrationAvailability;
-  readonly budget: ManagedAgentOrchestrationAvailability;
   readonly workspace: ManagedAgentOrchestrationAvailability;
 }
 
@@ -134,7 +133,6 @@ function missingOrchestrationCapabilities(
 ): readonly string[] {
   return [
     ...(signals.managedRouteCount > 0 && signals.routeHealth === "available" ? [] : ["managed-route"]),
-    ...(signals.budget === "available" ? [] : ["budget"]),
     ...(signals.workspace === "available" ? [] : ["workspace"]),
   ];
 }
@@ -143,8 +141,6 @@ function missingCapabilityReason(capability: string): string {
   switch (capability) {
     case "managed-route":
       return "managed orchestration requires an available route";
-    case "budget":
-      return "managed orchestration requires available budget";
     case "workspace":
       return "managed orchestration requires an available workspace";
     default:

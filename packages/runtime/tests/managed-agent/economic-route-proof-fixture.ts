@@ -1,0 +1,299 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  adoptManagedEconomicSnapshot,
+  createAccountRef,
+  digestManagedEconomicValue,
+  type ManagedEconomicAmount,
+  type ManagedEconomicClass,
+  type ManagedEconomicEvidenceIdentity,
+  type ManagedEconomicPriceEvidence,
+  type ManagedEconomicQuotaEvidence,
+} from "@kilnai/core";
+import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
+import { ManagedEconomicDispatchCoordinator } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
+import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+
+const DECISION_AT = "2026-08-02T12:00:00.000Z";
+
+export interface EconomicRouteProofInput {
+  readonly providerId: "codex-oauth" | "opencode-go" | "opencode-zen";
+  readonly routeId: string;
+  readonly modelId: string;
+  readonly priceKind: "metered" | "subscription";
+  readonly quotaEvidence: ManagedEconomicQuotaEvidence;
+}
+
+export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput) {
+  const root = mkdtempSync(join(tmpdir(), `kiln-${input.providerId}-economic-proof-`));
+  const authority = new SqliteManagedAccountLeaseAuthority({
+    path: join(root, "authority.sqlite"),
+    ownerId: `owner-${input.providerId}`,
+    now: () => Date.parse(DECISION_AT),
+  });
+  try {
+    const adoption = createAdoption(input);
+    const events: string[] = [];
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: {
+        acquire: (request) => {
+          events.push("commitment");
+          return authority.acquireCommitment(request);
+        },
+        releasePreFence: (jobId, economicAttemptId) =>
+          authority.releaseCommitmentPreFence(jobId, economicAttemptId),
+        fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) => {
+          events.push("dispatch-fence");
+          return authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId);
+        },
+        settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) => {
+          events.push("settlement");
+          return authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement);
+        },
+        recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
+          authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
+      },
+      resolveLifecycleTimeoutMs: () => 5_000,
+      createAdapter: async ({ commitment }) => {
+        events.push("adapter-binding");
+        return new ManagedDirectProviderRuntimeAdapter({
+          providerId: input.providerId,
+          model: input.modelId,
+          provider: unusedProvider(input.providerId),
+          tools: [],
+          builtinTools: new Map(),
+          economicIdentity: commitment.reservation.selectedIdentity,
+          now: () => new Date(DECISION_AT),
+        });
+      },
+    });
+    const prepared = await coordinator.prepare({
+      jobId: `job-${input.providerId}`,
+      economicAttemptId: `economic-attempt-${input.providerId}`,
+      intentFingerprint: digestManagedEconomicValue(input),
+      adoption,
+      admissionProfile: "foundation-readonly-plan",
+    });
+    if (prepared.status !== "prepared") {
+      throw new Error(`Expected ${input.providerId} economic route to be prepared.`);
+    }
+    const settlement = prepared.createExecutionSettlement({
+      actualIdentity: prepared.commitment.reservation.selectedIdentity,
+      usage: {
+        kind: "complete",
+        units: [{ atoms: "20", scale: 0, unit: "input-token", scheme: { kind: "unit" } }],
+      },
+      evidence: executionEvidence(input.providerId),
+    });
+    prepared.registerEconomicSettlement(Promise.resolve(settlement));
+    await waitForSettlement();
+    const record = authority.queryCommitment(
+      `job-${input.providerId}`,
+      `economic-attempt-${input.providerId}`,
+    );
+    if (record === "absent") throw new Error("Expected durable economic commitment record.");
+    return { events, record, settlement };
+  } finally {
+    authority.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function createAdoption(input: EconomicRouteProofInput) {
+  const evidence = configuredEvidence(input.providerId);
+  const scheme = { kind: "currency" as const, currency: "USD" };
+  const unitRates = input.priceKind === "metered"
+    ? [{ usageUnit: "input-token", price: { atoms: "1", scale: 2, unit: "input-token", scheme } }]
+    : [];
+  const auxiliaryCharges: never[] = [];
+  const unitScheduleDigest = digestManagedEconomicValue(unitRates);
+  const auxiliaryScheduleDigest = digestManagedEconomicValue(auxiliaryCharges);
+  const priceIdentity = {
+    providerId: input.providerId,
+    modelId: input.modelId,
+    authBillingChannel: "direct",
+    executionMode: "standard",
+    serviceTier: "default",
+    rateCardId: `${input.providerId}-rate-card`,
+    rateCardRevision: "2026-08-02",
+    unit: "currency",
+    scheme,
+    unitScheduleDigest,
+    contextClass: "standard",
+    cacheClass: "default",
+    auxiliaryScheduleDigest,
+    evidence,
+  };
+  const priceEvidence: ManagedEconomicPriceEvidence = input.priceKind === "metered"
+    ? { kind: "metered", identity: priceIdentity }
+    : { kind: "subscription", identity: priceIdentity };
+  const comparisonDomain = {
+    id: `${input.providerId}-usd`,
+    rank: 0,
+    basis: {
+      unit: "currency",
+      scheme,
+      rateCardBasis: `${priceIdentity.rateCardId}:${priceIdentity.rateCardRevision}`,
+      envelopeSemantics: "worst-case-v1",
+    },
+  };
+  const envelope = {
+    kind: "bounded" as const,
+    digest: digestManagedEconomicValue({ providerId: input.providerId, maxInputTokens: 100 }),
+    limits: [{ atoms: "100", scale: 0, unit: "input-token", scheme: { kind: "unit" as const } }],
+  };
+  const route = {
+    routeId: input.routeId,
+    providerId: input.providerId,
+    modelId: input.modelId,
+    adapterCapabilityId: "direct-provider",
+    adapterCapabilityVersion: "1",
+    authBillingChannel: "direct",
+    executionMode: "standard",
+    serviceTier: "default",
+    accountPolicyId: `${input.providerId}-accounts`,
+    fallbackPosture: "disabled" as const,
+    overagePosture: "disabled" as const,
+    rateCardId: priceIdentity.rateCardId,
+    rateCardRevision: priceIdentity.rateCardRevision,
+    priceEvidenceDigest: evidence.sourceDigest,
+    unit: "currency",
+    scheme,
+    contextClass: "standard",
+    cacheClass: "default",
+    auxiliaryScheduleDigest,
+    envelopeDigest: envelope.digest,
+  };
+  const snapshot = adoptManagedEconomicSnapshot({
+    policy: {
+      policyId: `${input.providerId}-policy`,
+      schemaVersion: 1,
+      policyRevision: "revision-1",
+      policyDigest: digestManagedEconomicValue({ providerId: input.providerId, policy: 1 }),
+      comparisonDomains: [comparisonDomain],
+      noRouteAction: "deny",
+      evidenceRequirements: {
+        quota: input.quotaEvidence.kind === "known" ? "required-for-account-bound" : "optional",
+        price: "required",
+      },
+    },
+    adoptedAt: DECISION_AT,
+    adoptedDecisionAt: DECISION_AT,
+    callerConstraints: { providerIds: [input.providerId], modelIds: [input.modelId] },
+    routes: [{
+      admittedIdentity: {
+        routeId: input.routeId,
+        sourceIdentity: "managed-route-config",
+        providerId: input.providerId,
+        modelId: input.modelId,
+        adapterCapabilityId: "direct-provider",
+        adapterCapabilityVersion: "1",
+        accountPolicy: { kind: "account-bound", accountPolicyId: `${input.providerId}-accounts` },
+      },
+      route,
+      comparisonDomain,
+      priorityRank: 0,
+      priceEvidence,
+      rateSchedule: { unitRates, auxiliaryCharges },
+      executionEnvelope: envelope,
+      worstCaseReservation: input.priceKind === "metered"
+        ? { kind: "exact", amount: currencyAmount("100") }
+        : { kind: "not-comparable", reason: "subscription-basis" },
+      ceiling: input.priceKind === "metered"
+        ? { kind: "finite", amount: currencyAmount("100") }
+        : { kind: "none" },
+    }],
+  });
+  const accountRoute = {
+    providerId: input.providerId,
+    providerModelId: input.modelId,
+    scope: `economic:${input.routeId}`,
+  };
+  return {
+    snapshot,
+    expectation: {
+      policyId: snapshot.policy.policyId,
+      policyRevision: snapshot.policy.policyRevision,
+      candidateSetDigest: snapshot.candidateSetDigest,
+      admittedCandidates: snapshot.routes.map(({ admittedIdentity }) => admittedIdentity),
+      callerConstraints: snapshot.callerConstraints,
+    },
+    routeCapacity: [{
+      routeId: input.routeId,
+      route: accountRoute,
+      candidates: [{
+        candidate: {
+          account: createAccountRef(`configured:${input.providerId}-account`),
+          route: accountRoute,
+          health: "healthy" as const,
+          leaseCapacity: "available" as const,
+          pressure: 0,
+          reservedForNewWork: false,
+        },
+        capacityIdentity: `${input.providerId}-capacity`,
+        credentialRevisionId: digestManagedEconomicValue({ providerId: input.providerId, credential: 1 }).slice("sha256:".length),
+        usageEvidence: { health: "healthy" as const, freshness: "missing" as const },
+        accountEconomics: {
+          capacityIdentity: `${input.providerId}-capacity`,
+          subscriptionClass: subscriptionClass(input),
+          quotaClassId: `${input.providerId}-quota`,
+          creditPosture: "disabled" as const,
+          overagePosture: "disabled" as const,
+        },
+        quotaEvidence: input.quotaEvidence,
+        capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 },
+      }],
+    }],
+  };
+}
+
+function subscriptionClass(input: EconomicRouteProofInput): Exclude<ManagedEconomicClass, "estimated"> {
+  return input.priceKind === "subscription" ? "subscription" : "metered";
+}
+
+function currencyAmount(atoms: string): ManagedEconomicAmount {
+  return { atoms, scale: 2, unit: "currency", scheme: { kind: "currency", currency: "USD" } };
+}
+
+function configuredEvidence(providerId: string): ManagedEconomicEvidenceIdentity {
+  return {
+    sourceIdentity: `${providerId}-configured-economics`,
+    sourceRevision: "revision-1",
+    sourceDigest: digestManagedEconomicValue({ providerId, evidence: 1 }),
+    observedAt: DECISION_AT,
+    validUntil: "2026-08-02T13:00:00.000Z",
+    confidence: "high",
+    authority: "configured",
+  };
+}
+
+function executionEvidence(providerId: string): ManagedEconomicEvidenceIdentity {
+  return {
+    sourceIdentity: `${providerId}-direct-runtime-usage`,
+    sourceRevision: "revision-1",
+    sourceDigest: digestManagedEconomicValue({ providerId, usage: 20 }),
+    observedAt: DECISION_AT,
+    validUntil: "2026-08-02T12:05:00.000Z",
+    confidence: "medium",
+    authority: "calculated-estimate",
+  };
+}
+
+function unusedProvider(providerId: string) {
+  return {
+    name: providerId,
+    createMessage: async (): Promise<never> => {
+      throw new Error("Economic proof fixture must not call a provider.");
+    },
+    streamMessage: async function* (): AsyncGenerator<never> {
+      throw new Error("Economic proof fixture must not call a provider.");
+    },
+  };
+}
+
+async function waitForSettlement(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}

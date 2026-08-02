@@ -611,11 +611,12 @@ When at least one healthy route exists, runtime tool projection exposes
 `managed_agent.invoke`. Missing or unhealthy routes fail closed with operator
 diagnostics. Surfaces do not decide their own child-agent provider list.
 
-Budget-aware routing config projects into the runtime/session budget admission
-service. CLI surfaces may supply `routing.budget` and a live usage reader, but
-they do not evaluate a parallel child admission policy locally. Enabled
-budget-aware orchestration fails closed when every eligible route is over its
-ceiling or when required live usage is unavailable.
+Budget-aware routing config projects only into normal runtime-session-turn
+budget admission. CLI surfaces may supply `routing.budget` and a live usage
+reader, but they do not evaluate that policy locally. Policy-bearing managed
+children instead use the configured managed economic policy and Runtime's
+atomic commitment authority; the session-turn budget decision cannot authorize
+or widen a managed route.
 
 Synthesized child routes are read-only and use `foundation-readonly-plan`. Write
 capable routes require an explicit `managedAgents.routes[]` entry with

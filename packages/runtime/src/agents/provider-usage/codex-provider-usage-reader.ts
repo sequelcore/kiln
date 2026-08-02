@@ -61,6 +61,7 @@ export class CodexProviderUsageReader {
       snapshot = createProviderUsageSnapshot({
         provider: input.provider,
         credentialId: input.credentialId,
+        exhaustionReason: null,
         availability: "unknown",
         observedAt: observedAt.toISOString(),
         validUntil: validUntil.toISOString(),

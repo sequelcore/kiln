@@ -1,22 +1,15 @@
 # 02 - Managed Invocation Routing
 
 Status: Active delivery track
-Execution: Slices 1, 2, 3, and 4 complete; Slice 5 queued; Slice 6 research deferred behind Slice 5.
+Execution: Slices 1, 2, 3, and 4 complete; issue #34 internal Slice 5 dispatch enforcement complete; Roadmap Slice 5 queued; Slice 6 research deferred behind Roadmap Slice 5.
 Created: 2026-07-23
 
-> **Managed-job execution is unavailable in shipped builds.** Every managed-job
-> submission currently terminates `failed` / `economic_commitment_unavailable`.
-> The economic commitment is acquired and then released pre-fence with reason
-> `slice-4-provider-dispatch-unavailable`, because provider dispatch is not yet
-> wired (`packages/runtime/src/managed-jobs/index.ts:496-577`).
->
-> This is a deliberate ordered-delivery state, not a regression. Dispatch
-> returns with issue #34 internal Slice 5. "Slices 1-4 complete" above describes
-> the delivered authority contracts, not a working end-to-end managed route.
->
-> Unaffected surfaces: `kiln run` sessions, the GUI, and the managed-invocation
-> runtime tool all execute normally. They do not traverse
-> `ManagedJobApplication`.
+> Managed jobs dispatch only through an issue #34 economic commitment. Runtime
+> atomically selects and reserves one route/account identity, persists the
+> dispatch fence before adapter or credential materialization, and accepts only
+> typed settlement bound to that identity and fence. Missing or ambiguous
+> post-fence settlement remains capacity-consuming. This is Kiln-local
+> reservation authority, not provider-global exclusivity.
 
 ## Objective
 
@@ -149,9 +142,10 @@ One project-runtime SQLite writer performs route capacity, account-backed or
 accountless selection, reservation, and commitment synchronously in one
 immediate transaction. Its versioned schema, live owner generation, exact
 replay, identity/revision conflict, dispatch fence, conservative recovery,
-pre-fence release, release-failure evidence, and explicit reconciliation make
-SQLite authoritative while job JSON remains a projection. POSIX database
-artifacts are owner-only.
+proven pre-fence release, release-failure evidence, and explicit reconciliation
+formed the Slice 4 authority that Slice 5 now uses for dispatch. SQLite remains
+authoritative while job JSON is a projection. POSIX database artifacts are
+owner-only.
 
 The old managed-invocation account-only writer and port are deleted. Direct
 account-leased invocation outside the economic job path fails closed. The
@@ -160,10 +154,10 @@ route when used by an economic policy; runtime-selected account policy remains
 supported. A committed route mismatch emits sanitized evidence before adapter
 construction.
 
-This slice performs no provider dispatch. Issue #34 internal Slice 5 will wire
-committed dispatch and settlement. That internal sequence is separate from
-Roadmap 02 Slice 5 below, which converges the managed-job authority with Model
-Gateway ingress.
+Issue #34 internal Slice 5 wires committed dispatch and typed settlement for
+managed jobs and policy-bearing managed runtime/orchestration calls. That
+internal sequence is separate from Roadmap 02 Slice 5 below, which converges
+the managed-job authority with Model Gateway ingress.
 
 ### Slice 5 - Cross-Path Account Authority Convergence
 
@@ -235,9 +229,9 @@ approval-consumption tests before its bounded disposable-repository live proof.
 ## Completion Criteria
 
 Managed jobs have deterministic, explainable, replayable economic route and
-account-backed or accountless commitment with conservative recovery and no
-harness-specific policy owner. Structured/headless approved writes remain
-unavailable until Slice 6 supplies canonical approval evidence; fail-closed
-structured output is the required interim behavior. Provider dispatch remains
-issue #34 internal Slice 5; Model Gateway authority convergence remains Roadmap
-02 Slice 5.
+account-backed or accountless commitment, fenced dispatch, typed settlement,
+and conservative recovery with no harness-specific policy owner.
+Structured/headless approved writes remain unavailable until Slice 6 supplies
+canonical approval evidence; fail-closed structured output is the required
+interim behavior. Model Gateway authority convergence remains Roadmap 02 Slice
+5.

@@ -2829,9 +2829,9 @@ describe("RuntimeManagedAgentInvocationService", () => {
           },
         } as never,
         dispatchFenceId: "managed-economic-dispatch:test",
-        beforeProviderEffect: vi.fn(),
-        releaseBeforeProviderEffect: vi.fn(),
-        registerExecutionSettlement: vi.fn(),
+        recordExecutionSettlementPending: vi.fn(),
+        createExecutionSettlement: vi.fn(() => ({} as never)),
+        registerEconomicSettlement: vi.fn(),
       },
     });
 
@@ -5255,7 +5255,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
   });
 
-  it("releases a prepared economic commitment exactly once on admission denial or pre-effect observation failure", async () => {
+  it("records a fenced commitment as pending on admission denial or authority observation failure", async () => {
     const request = makeRequest();
     const commitment = {
       commitmentId: "commitment-test",
@@ -5273,7 +5273,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
         },
       },
     } as never;
-    const deniedRelease = vi.fn();
+    const deniedPending = vi.fn();
     const denied = await new RuntimeManagedAgentInvocationService().start(
       request,
       {
@@ -5285,16 +5285,17 @@ describe("RuntimeManagedAgentInvocationService", () => {
         economicDispatch: {
           commitment,
           dispatchFenceId: "managed-economic-dispatch:test",
-          beforeProviderEffect: vi.fn(),
-          releaseBeforeProviderEffect: deniedRelease,
-          registerExecutionSettlement: vi.fn(),
+          recordExecutionSettlementPending: deniedPending,
+          createExecutionSettlement: vi.fn(() => ({} as never)),
+          registerEconomicSettlement: vi.fn(),
         },
       },
     );
     expect(denied.status).toBe("denied");
-    expect(deniedRelease).toHaveBeenCalledOnce();
+    expect(deniedPending).toHaveBeenCalledOnce();
+    expect(deniedPending).toHaveBeenCalledWith("runtime-admission-denied");
 
-    const observationRelease = vi.fn();
+    const observationPending = vi.fn();
     const throwing = new RuntimeManagedAgentInvocationService({
       authorityObserver: { observe: vi.fn(async () => { throw new Error("synthetic observation failure"); }) },
     });
@@ -5305,9 +5306,9 @@ describe("RuntimeManagedAgentInvocationService", () => {
       economicDispatch: {
         commitment,
         dispatchFenceId: "managed-economic-dispatch:test",
-        beforeProviderEffect: vi.fn(),
-        releaseBeforeProviderEffect: observationRelease,
-        registerExecutionSettlement: vi.fn(),
+        recordExecutionSettlementPending: observationPending,
+        createExecutionSettlement: vi.fn(() => ({} as never)),
+        registerEconomicSettlement: vi.fn(),
       },
     });
     expect(observationStarted.status).toBe("started");
@@ -5315,10 +5316,11 @@ describe("RuntimeManagedAgentInvocationService", () => {
       status: "completed",
       record: { lifecycleState: "failed" },
     });
-    expect(observationRelease).toHaveBeenCalledOnce();
+    expect(observationPending).toHaveBeenCalledOnce();
+    expect(observationPending).toHaveBeenCalledWith("runtime-poststart-authority-failed");
   });
 
-  it("releases a prepared commitment when the final pre-fence recovery checkpoint fails", async () => {
+  it("records a fenced commitment as pending when the final recovery checkpoint fails", async () => {
     const request = makeIsolatedWorktreeRequest();
     const recoveryStore = makeRecoveryStore();
     let saveCount = 0;
@@ -5341,8 +5343,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
         cleanupStatus: "completed" as const,
       })),
     };
-    const releaseBeforeProviderEffect = vi.fn();
-    const beforeProviderEffect = vi.fn();
+    const recordExecutionSettlementPending = vi.fn();
     const invoke = vi.fn();
     const service = new RuntimeManagedAgentInvocationService({ recoveryStore, worktreeLeaseManager });
     const started = await service.start(request, {
@@ -5371,16 +5372,16 @@ describe("RuntimeManagedAgentInvocationService", () => {
           },
         } as never,
         dispatchFenceId: "managed-economic-dispatch:write-test",
-        beforeProviderEffect,
-        releaseBeforeProviderEffect,
-        registerExecutionSettlement: vi.fn(),
+        recordExecutionSettlementPending,
+        createExecutionSettlement: vi.fn(() => ({} as never)),
+        registerEconomicSettlement: vi.fn(),
       },
     });
 
     expect(started.status).toBe("started");
     await expect(service.join(request.invocationId)).rejects.toThrow("synthetic pre-fence checkpoint failure");
-    expect(releaseBeforeProviderEffect).toHaveBeenCalledOnce();
-    expect(beforeProviderEffect).not.toHaveBeenCalled();
+    expect(recordExecutionSettlementPending).toHaveBeenCalledOnce();
+    expect(recordExecutionSettlementPending).toHaveBeenCalledWith("runtime-recovery-checkpoint-failed");
     expect(invoke).not.toHaveBeenCalled();
   });
 
@@ -5492,9 +5493,9 @@ describe("RuntimeManagedAgentInvocationService", () => {
     });
     const ownedAdapter: ManagedAgentRuntimeAdapter = {
       descriptor: makeDescriptor(),
-      invoke: vi.fn(async ({ abortSignal, registerExecutionSettlement }) => {
+      invoke: vi.fn(async ({ abortSignal, registerAdapterCompletion }) => {
         ownedSignal = abortSignal;
-        registerExecutionSettlement(ownedSettlement.promise);
+        registerAdapterCompletion(ownedSettlement.promise);
         await ownedSettlement.promise;
         throw new Error("owned provider execution settled after cancellation");
       }),
@@ -5557,8 +5558,8 @@ describe("RuntimeManagedAgentInvocationService", () => {
       const service = new RuntimeManagedAgentInvocationService();
       const started = await service.start(request, {
         descriptor: makeDescriptor(),
-        invoke: async ({ admission, registerExecutionSettlement }) => {
-          registerExecutionSettlement(rawSettlement.promise);
+        invoke: async ({ admission, registerAdapterCompletion }) => {
+          registerAdapterCompletion(rawSettlement.promise);
           return defineManagedAgentInvocationRecord({
             ...makeRecord(admission.capabilitySnapshot),
             lifecycleState: "timed_out",

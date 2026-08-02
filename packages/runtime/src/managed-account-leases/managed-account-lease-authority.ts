@@ -25,6 +25,8 @@ import {
   type ManagedEconomicQuotaEvidence,
   type ManagedEconomicSelectionDecision,
   type ManagedEconomicSettlement,
+  validateManagedEconomicSettlement,
+  type ModelGatewayAccountEconomicsConfig,
   selectManagedEconomicExecutionAlternative,
   validateManagedEconomicAdoptedSnapshot,
 } from "@kilnai/core";
@@ -37,6 +39,7 @@ export interface ManagedAccountCandidateBinding {
   readonly capacityIdentity: string;
   readonly credentialRevisionId: string;
   readonly usageEvidence: ModelGatewayBoundUsageEvidence;
+  readonly accountEconomics?: ModelGatewayAccountEconomicsConfig;
   readonly quotaEvidence?: ManagedEconomicQuotaEvidence | null;
   readonly capacity: {
     readonly maxConcurrency: number;
@@ -742,6 +745,9 @@ export class SqliteManagedAccountLeaseAuthority {
         }
         const binding = candidates.find((candidate) => candidate.candidate.account === selection.selected!.account);
         if (!binding) throw new Error("Selected managed economic account binding is unavailable.");
+        if (binding.accountEconomics === undefined) {
+          throw new TypeError("Managed economic account candidate requires configured account economics.");
+        }
         accountSelections.set(adopted.route.routeId, {
           binding, resolution, selection: selection.selected, rejections: selection.rejections,
         });
@@ -754,8 +760,8 @@ export class SqliteManagedAccountLeaseAuthority {
               capacityIdentity: binding.capacityIdentity,
               accountRef: binding.candidate.account,
               credentialRevision: binding.credentialRevisionId,
-              creditPosture: "disabled",
-              overagePosture: adopted.route.overagePosture,
+              creditPosture: binding.accountEconomics.creditPosture,
+              overagePosture: binding.accountEconomics.overagePosture,
               ...(binding.quotaEvidence !== undefined ? { quotaEvidence: binding.quotaEvidence } : {}),
             },
           },
@@ -906,10 +912,11 @@ export class SqliteManagedAccountLeaseAuthority {
     });
   }
 
-  settleSuccessfulExecution(
+  settleExecution(
     jobId: string,
     economicAttemptId: string,
     dispatchFenceId: string,
+    settlement: ManagedEconomicSettlement,
   ): ManagedEconomicCommitmentRecord {
     return this.#transaction(() => {
       this.#heartbeat();
@@ -918,30 +925,41 @@ export class SqliteManagedAccountLeaseAuthority {
       if (row.dispatch_fence_id !== dispatchFenceId) {
         throw new Error("Managed economic settlement does not own the durable dispatch fence.");
       }
-      if (row.state === "released") {
+      const commitment = JSON.parse(row.commitment_json!) as ManagedEconomicCommitment;
+      validateManagedEconomicSettlement(settlement, {
+        reservationId: row.reservation_id,
+        dispatchFenceId,
+        selectedIdentity: commitment.reservation.selectedIdentity,
+      });
+      const serialized = JSON.stringify(settlement);
+      if (row.settlement_json === serialized) {
         return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
+      }
+      if (row.state === "released" || row.state === "leaked") {
+        throw new Error("Managed economic settlement conflicts with the durable terminal settlement.");
       }
       if (row.state !== "dispatch-fenced" && row.state !== "settlement-pending") {
         throw new Error("Managed economic execution cannot settle from its current state.");
       }
-      const commitment = JSON.parse(row.commitment_json!) as ManagedEconomicCommitment;
-      const settlement: ManagedEconomicSettlement = {
-        kind: "unknown",
-        reservationId: row.reservation_id,
-        dispatchFenceId,
-        actualIdentity: commitment.reservation.selectedIdentity,
-        reason: "execution-settled",
-        evidence: null,
-      };
-      if (row.lease_id) this.#releaseEconomicLeaseAndAffinity(row.lease_id);
+      const terminal = settlement.kind === "charged"
+        || settlement.kind === "estimated"
+        || settlement.kind === "subscription"
+        || settlement.kind === "included"
+        || settlement.kind === "free";
+      const nextState: ManagedEconomicCommitmentState = terminal
+        ? "released"
+        : settlement.kind === "leaked"
+          ? "leaked"
+          : "settlement-pending";
+      if (terminal && row.lease_id) this.#releaseEconomicLeaseAndAffinity(row.lease_id);
       const changed = this.#db.query(`UPDATE economic_commitments
-        SET state='released',settlement_json=?
+        SET state=?,settlement_json=?
         WHERE commitment_id=? AND state IN ('dispatch-fenced','settlement-pending')
           AND dispatch_fence_id=? AND owner_generation=?`)
-        .run(JSON.stringify(settlement), row.commitment_id, dispatchFenceId, this.#ownerGeneration);
-      if (changed.changes !== 1) throw new Error("Managed economic successful settlement lost its dispatch fence.");
-      const released = this.#requiredCommitmentRow(jobId, economicAttemptId);
-      return recordFromCommitmentRow(released, this.#rowForOptionalLease(released.lease_id));
+        .run(nextState, serialized, row.commitment_id, dispatchFenceId, this.#ownerGeneration);
+      if (changed.changes !== 1) throw new Error("Managed economic settlement lost its dispatch fence.");
+      const settled = this.#requiredCommitmentRow(jobId, economicAttemptId);
+      return recordFromCommitmentRow(settled, this.#rowForOptionalLease(settled.lease_id));
     });
   }
 
@@ -1076,8 +1094,14 @@ export class SqliteManagedAccountLeaseAuthority {
       requireKilnEvidenceUri(input.evidenceUri);
       const row = this.#requiredCommitmentRow(input.jobId, input.economicAttemptId);
       if (row.state === "released") return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
-      if (row.state !== "release-failed" && row.state !== "leaked") {
-        throw new Error("Only release-failed or leaked managed economic commitments may be reconciled.");
+      if (
+        row.state !== "release-failed"
+        && row.state !== "settlement-pending"
+        && row.state !== "leaked"
+      ) {
+        throw new Error(
+          "Only release-failed, settlement-pending, or leaked managed economic commitments may be reconciled.",
+        );
       }
       if (row.lease_id !== null) {
         this.#releaseReconciledLease(row.lease_id, input.evidenceUri, row.state === "release-failed");
@@ -1514,6 +1538,19 @@ function validateCandidateBinding(binding: ManagedAccountCandidateBinding): void
   }
   if (!/^[a-f0-9]{64}$/.test(binding.credentialRevisionId)) {
     throw new TypeError("Managed account credential revision identity must be a SHA-256 digest.");
+  }
+  if (binding.accountEconomics !== undefined) {
+    if (binding.accountEconomics.capacityIdentity !== binding.capacityIdentity) {
+      throw new TypeError("Managed account economics must match candidate capacity identity.");
+    }
+    requireCanonicalText(binding.accountEconomics.subscriptionClass, "Managed account subscription class is required.");
+    requireCanonicalText(binding.accountEconomics.quotaClassId, "Managed account quota class id is required.");
+    if (!["disabled", "committed"].includes(binding.accountEconomics.creditPosture)) {
+      throw new TypeError("Managed account credit posture is invalid.");
+    }
+    if (!["disabled", "committed"].includes(binding.accountEconomics.overagePosture)) {
+      throw new TypeError("Managed account overage posture is invalid.");
+    }
   }
   const { maxConcurrency, reservedAffinitySlots } = binding.capacity;
   if (!Number.isSafeInteger(maxConcurrency) || maxConcurrency < 1) {

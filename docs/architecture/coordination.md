@@ -62,7 +62,7 @@ policy-backed `sandbox` routes need no worktree lease. Unisolated
 
 The common lifecycle executor:
 
-1. performs budget admission;
+1. obtains one economic commitment for each policy-bearing child before dispatch;
 2. starts at most `maxConcurrentChildren` dependency-ready children;
 3. verifies the running lifecycle projection;
 4. joins every started child;
@@ -70,6 +70,10 @@ The common lifecycle executor:
 6. passes successful dependency summaries and resource URIs into downstream
    child requests, while blocking dependents of failed children;
 7. builds typed completed, partial, or failed orchestration evidence.
+
+Normal `runtime-session-turn` budget admission is not managed-child route
+authority. Managed orchestration uses the same atomic economic commitment,
+dispatch fence, and settlement authority as a single managed invocation.
 
 High-risk orchestration is admissible only when serialized. Parallel high-risk
 execution fails admission.

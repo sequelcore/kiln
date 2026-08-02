@@ -432,7 +432,6 @@ describe("managed agent orchestration contracts", () => {
     expect(admitManagedAgentOrchestrationRequest(request, {
       maxChildren: 2,
       routeHealth: "available",
-      budget: "available",
       workspace: "available",
       taskRisk: "medium",
     })).toMatchObject({
@@ -445,7 +444,6 @@ describe("managed agent orchestration contracts", () => {
     expect(admitManagedAgentOrchestrationRequest(request, {
       maxChildren: 1,
       routeHealth: "available",
-      budget: "available",
       workspace: "available",
       taskRisk: "medium",
     })).toEqual({
@@ -459,7 +457,6 @@ describe("managed agent orchestration contracts", () => {
     expect(admitManagedAgentOrchestrationRequest(request, {
       maxChildren: 2,
       routeHealth: "unavailable",
-      budget: "unavailable",
       workspace: "unavailable",
       taskRisk: "high",
     })).toEqual({
@@ -469,7 +466,6 @@ describe("managed agent orchestration contracts", () => {
       reason: "managed orchestration admission failed",
       missingCapabilities: [
         "orchestration.routeHealth.available",
-        "orchestration.budget.available",
         "orchestration.workspace.available",
         "orchestration.taskRisk.parallelAdmissible",
       ],
@@ -495,7 +491,6 @@ describe("managed agent orchestration contracts", () => {
     expect(admitManagedAgentOrchestrationRequest(request, {
       maxChildren: 2,
       routeHealth: "available",
-      budget: "available",
       workspace: "available",
       taskRisk: "high",
     })).toMatchObject({

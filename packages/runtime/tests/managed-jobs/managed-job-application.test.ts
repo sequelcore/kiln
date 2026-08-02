@@ -261,7 +261,7 @@ describe("ManagedJobApplicationService V6 precommit", () => {
 
   it("persists one V7 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
     const fenceDispatch = vi.fn();
-    const settleSuccessfulExecution = vi.fn();
+    const settleExecution = vi.fn();
     const selectedCommitment = {
       commitmentId: "commitment-managed-job",
       reservation: {
@@ -296,7 +296,7 @@ describe("ManagedJobApplicationService V6 precommit", () => {
         }),
         releasePreFence: vi.fn(),
         fenceDispatch,
-        settleSuccessfulExecution,
+        settleExecution,
         recordExecutionSettlementPending: vi.fn(),
       },
       resolveLifecycleTimeoutMs: () => 1_000,
@@ -304,12 +304,20 @@ describe("ManagedJobApplicationService V6 precommit", () => {
     });
     const service = new ManagedJobApplicationService({
       ...createOptions(),
-      economicAdoption: { adopt: async () => adoptedEconomicEvidence() },
+      economicAdoption: { adopt: async () => sqliteAdoptedEconomicEvidence() },
       economicDispatch: coordinator,
       economicExecution: {
         execute: async ({ preparation }) => {
-          await preparation.beforeProviderEffect();
-          preparation.registerExecutionSettlement(Promise.resolve());
+          preparation.registerEconomicSettlement(Promise.resolve(
+            preparation.createExecutionSettlement({
+              actualIdentity: preparation.commitment.reservation.selectedIdentity,
+              usage: {
+                kind: "complete",
+                units: [{ atoms: "3", scale: 0, unit: "request", scheme: { kind: "unit" } }],
+              },
+              evidence: sqliteAdoptedEconomicEvidence().snapshot.routes[0]!.priceEvidence.identity.evidence,
+            }),
+          ));
           return {
             runtimeInvocationId: "runtime-invocation-managed-job",
             completedAt: now.toISOString(),
@@ -356,7 +364,7 @@ describe("ManagedJobApplicationService V6 precommit", () => {
       ],
     });
     expect(fenceDispatch).toHaveBeenCalledOnce();
-    await vi.waitFor(() => expect(settleSuccessfulExecution).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(settleExecution).toHaveBeenCalledOnce());
   });
 
   it("recovers a persisted V5 precommit crash as commitment unavailable", async () => {

@@ -105,13 +105,13 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
       readonly policy: { readonly enabled: boolean };
       readonly usageReader?: (input: {
         readonly providerId: string;
-        readonly subject: "runtime-session-turn" | "managed-orchestration";
+        readonly subject: "runtime-session-turn";
         readonly sessionId: string;
       }) => Promise<unknown>;
     }) {}
 
     async admit(request: {
-      readonly subject: "runtime-session-turn" | "managed-orchestration";
+      readonly subject: "runtime-session-turn";
       readonly sessionId: string;
       readonly routeCandidates: readonly { readonly providerId: string }[];
     }) {
@@ -607,7 +607,7 @@ describe("run command builtin tool wiring", () => {
     });
   });
 
-  it("projects runtime-owned budget admission and session lineage into parallel fan-out", async () => {
+  it("keeps routing budget admission out of parallel fan-out and preserves session lineage", async () => {
     readGlobalConfigMock.mockReturnValue({
       version: "1",
       routing: {
@@ -633,28 +633,9 @@ describe("run command builtin tool wiring", () => {
       throw new Error("Expected parallel fan-out lifecycle input.");
     }
 
-    expect(input.budgetAdmission?.policy).toMatchObject({
-      enabled: true,
-      routeBudgets: [{
-        providerId: "codex",
-        dailyTokenCeiling: 100,
-        onCeiling: "stop",
-      }],
-    });
-    expect(input.budgetAdmission?.usageReader).toEqual(expect.any(Function));
+    expect(input).not.toHaveProperty("budgetAdmission");
     expect(input.orchestrationRequest.parentSessionId).not.toBe("cli-run");
     expect(input.orchestrationRequest.orchestrationId).toContain(input.orchestrationRequest.parentSessionId);
-
-    const usage = await input.budgetAdmission?.usageReader?.({
-      providerId: "codex",
-      subject: "managed-orchestration",
-      sessionId: input.orchestrationRequest.parentSessionId,
-    });
-    expect(usage).toMatchObject({
-      providerId: "codex",
-      tokensUsed: 0,
-      source: "cli-transcript-session-usage",
-    });
   });
 
   it("projects runtime-owned budget admission into normal run sessions", async () => {

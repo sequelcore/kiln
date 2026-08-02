@@ -129,5 +129,12 @@ function deriveUsageHealth(usage: ProviderUsageSnapshot | undefined, now: Date):
     validUntil: usage.validUntil,
     source: usage.source,
     confidence: usage.confidence,
+    quota: {
+      ...(usage.primary === undefined ? {} : { primary: usage.primary }),
+      ...(usage.secondary === undefined ? {} : { secondary: usage.secondary }),
+      ...(usage.credits === undefined ? {} : { credits: usage.credits }),
+      ...(usage.spendControl === undefined ? {} : { spendControl: usage.spendControl }),
+      exhaustionReason: usage.exhaustionReason,
+    },
   });
 }

@@ -8,7 +8,7 @@ describe("RuntimeBudgetAdmissionService", () => {
     });
 
     await expect(service.admit({
-      subject: "managed-orchestration",
+      subject: "runtime-session-turn",
       sessionId: "session-1",
       routeCandidates: [{ routeId: "codex-write", providerId: "codex", model: "gpt-5.5" }],
     })).resolves.toMatchObject({
@@ -26,7 +26,7 @@ describe("RuntimeBudgetAdmissionService", () => {
     });
 
     await expect(service.admit({
-      subject: "managed-orchestration",
+      subject: "runtime-session-turn",
       sessionId: "session-1",
       routeCandidates: [{ routeId: "codex-write", providerId: "codex", model: "gpt-5.5" }],
     })).resolves.toMatchObject({
@@ -54,7 +54,7 @@ describe("RuntimeBudgetAdmissionService", () => {
     });
 
     const decision = await service.admit({
-      subject: "managed-orchestration",
+      subject: "runtime-session-turn",
       sessionId: "session-1",
       routeCandidates: [
         { routeId: "codex-write", providerId: "codex", model: "gpt-5.5" },
@@ -84,7 +84,7 @@ describe("RuntimeBudgetAdmissionService", () => {
     });
 
     await expect(service.admit({
-      subject: "managed-orchestration",
+      subject: "runtime-session-turn",
       sessionId: "session-1",
       routeCandidates: [{ routeId: "codex-write", providerId: "codex", model: "gpt-5.5" }],
     })).resolves.toMatchObject({

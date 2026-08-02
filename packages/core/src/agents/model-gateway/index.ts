@@ -5,8 +5,10 @@ import {
 import type {
   ProviderUsageAvailability,
   ProviderUsageConfidence,
+  ProviderUsageQuotaObservation,
   ProviderUsageSource,
 } from "../provider-usage.js";
+import { createProviderUsageQuotaObservation } from "../provider-usage.js";
 
 export {
   dispatchModelGatewayOneRound,
@@ -77,6 +79,7 @@ export interface ModelGatewayAccountUsageEvidence {
   readonly validUntil?: string;
   readonly source?: ProviderUsageSource;
   readonly confidence?: ProviderUsageConfidence;
+  readonly quota?: ProviderUsageQuotaObservation;
 }
 
 export function defineModelGatewayAccountUsageEvidence(
@@ -96,6 +99,7 @@ export function defineModelGatewayAccountUsageEvidence(
       || input.validUntil !== undefined
       || input.source !== undefined
       || input.confidence !== undefined
+      || input.quota !== undefined
     ) {
       throw new TypeError("Missing Model Gateway usage evidence cannot contain an observation.");
     }
@@ -132,6 +136,7 @@ export function defineModelGatewayAccountUsageEvidence(
     validUntil: input.validUntil,
     source: input.source,
     confidence: input.confidence,
+    ...(input.quota === undefined ? {} : { quota: createProviderUsageQuotaObservation(input.quota) }),
   });
 }
 

@@ -14,6 +14,7 @@ import {
 import {
   createAttachedRuntimeBuiltinToolSurface,
   ManagedDirectProviderRuntimeAdapter,
+  type ManagedCommittedInvocationRequest,
   type RuntimeExecutionEnvelope,
   type ManagedAgentRuntimeAdapter,
 } from "@kilnai/runtime";
@@ -66,13 +67,14 @@ export function createManagedDirectProviderAdapterFactory(
   route: KilnManagedAgentRouteConfig,
   accountBinding?: DirectProviderAccountBinding,
   abortSignal?: AbortSignal,
+  committedRequest?: ManagedCommittedInvocationRequest,
 ) => Promise<ManagedAgentRuntimeAdapter | undefined> {
   const resolveBuiltinToolSurface = () => createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: resolveBuiltinToolOptions(options.builtinToolOptions),
   });
   const createProvider = options.createProviderAdapter ?? createDirectProviderAdapter;
 
-  return async (route, accountBinding, abortSignal) => {
+  return async (route, accountBinding, abortSignal, committedRequest) => {
     throwIfAborted(abortSignal);
     if (route.kind !== "direct") {
       return undefined;
@@ -87,6 +89,7 @@ export function createManagedDirectProviderAdapterFactory(
     if (!executionProfile?.supportsKilnExecutableTools || executionProfile.executionMode !== "kiln-executable") {
       throw new Error(`Direct provider route '${route.id}' requires a tool-call-capable model; '${provider}/${model}' is not eligible.`);
     }
+    assertCommittedEconomicRoute(route.id, provider, executionProfile.model, committedRequest);
 
     const providerAdapter = route.credentials?.mode === "runtime-selected" && !accountBinding
       ? unboundManagedProvider(provider)
@@ -154,9 +157,31 @@ export function createManagedDirectProviderAdapterFactory(
       capabilityMap: runtimeCapabilities,
       toolAuthority: builtinToolSurface.toolAuthority,
       ...(executionEnvelope ? { executionEnvelope } : {}),
+      ...(committedRequest
+        ? { economicIdentity: committedRequest.commitment.reservation.selectedIdentity }
+        : {}),
       ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
   };
+}
+
+function assertCommittedEconomicRoute(
+  routeId: string,
+  providerId: string,
+  modelId: string,
+  committedRequest: ManagedCommittedInvocationRequest | undefined,
+): void {
+  if (committedRequest === undefined) return;
+  const committedRoute = committedRequest.commitment.reservation.selectedIdentity.route;
+  if (
+    committedRoute.routeId !== routeId
+    || committedRoute.providerId !== providerId
+    || committedRoute.modelId !== modelId
+  ) {
+    throw new Error(
+      `Managed direct route '${routeId}' does not match the committed economic route.`,
+    );
+  }
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {

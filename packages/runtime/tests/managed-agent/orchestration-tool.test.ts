@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  type ManagedEconomicSettlement,
 } from "@kilnai/core";
 import {
   createManagedAgentOrchestrateToolDefinition,
   createManagedInvocationLifecycleToolExecutors,
   RuntimeManagedAgentInvocationService,
+  type ManagedAgentRuntimeInvocationInput,
   type ManagedInvocationToolAttachment,
 } from "../../src/agents/managed-invocation/index.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
@@ -96,9 +98,9 @@ describe("managed_agent.orchestrate", () => {
         },
       } as never,
       adapter,
-      beforeProviderEffect: vi.fn(),
-      releaseBeforeProviderEffect: vi.fn(),
-      registerExecutionSettlement: (settlement: PromiseLike<unknown>) => void Promise.resolve(settlement),
+      recordExecutionSettlementPending: vi.fn(),
+      createExecutionSettlement: () => ({} as never),
+      registerEconomicSettlement: (settlement: PromiseLike<ManagedEconomicSettlement>) => void Promise.resolve(settlement),
     }));
     const input = {
       profile: "foundation-readonly-plan",
@@ -238,9 +240,13 @@ function economicAdapter(invoked: ReturnType<typeof vi.fn>) {
       resultHandoff: { boundedSummary: true, resourcePointers: true }, credentialRoute: { supported: true },
       memoryContext: { governedAdmission: true }, writeAuthority: { proposalSupported: true, approvedApplySupported: true, memoryProposalSupported: true, rollbackEvidence: true, cleanupEvidence: true, scopeReduction: true }, unsupportedFieldPolicy: "reject", cleanup: { supported: true },
     }),
-    invoke: async ({ request, admission, registerExecutionSettlement }: any) => {
+    invoke: async ({
+      request,
+      admission,
+      registerAdapterCompletion,
+    }: ManagedAgentRuntimeInvocationInput) => {
       invoked(request.invocationId);
-      registerExecutionSettlement(Promise.resolve());
+      registerAdapterCompletion(Promise.resolve());
       return defineManagedAgentInvocationRecord({
         invocationId: request.invocationId, agentId: request.agentId, parentSessionId: request.parentSessionId, parentTurnId: request.parentTurnId,
         profile: request.profile, lifecycleState: "completed", providerRoute: request.providerRoute, adapterKind: request.adapterKind,

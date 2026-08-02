@@ -28,10 +28,10 @@ set, price evidence, rate schedules, and complete snapshot. Reordered object
 keys cannot change a digest. A later config read or clock value cannot rewrite
 the adopted decision basis.
 
-Managed-job V6 is the only writer. It durably creates a namespaced
+Managed-job V7 is the only writer. It durably creates a namespaced
 `economicAttemptId` and `adoptedDecisionAt` before adoption or commitment. V5
-is a strict historical reader/recovery format only and is never upgraded into
-a new economic attempt by inference.
+and V6 are strict historical reader/recovery formats only and are never
+upgraded into a new economic attempt by inference.
 
 ## Atomic Commitment
 
@@ -60,6 +60,14 @@ selection creates no account identity or account lease. Missing, stale,
 contradictory, or unverifiable authority fails closed; there is no implicit
 route, account, overage, or fallback.
 
+Configured account economics owns the stable capacity identity, subscription
+and quota classes, credit posture, and overage posture. Codex provider usage may
+project authoritative percentage windows, exact decimal credits, spend control,
+reset evidence, and exhaustion reasons into that identity. Providers without a
+stable proactive quota snapshot, including the current OpenCode Go boundary,
+remain explicitly `unknown`; required quota policy cannot treat that as
+unlimited or zero.
+
 Exact replay returns the prior result without consuming capacity twice. A
 changed intent fingerprint, policy revision, candidate digest, snapshot digest,
 or selected identity evidence returns explicit conflict or drift evidence.
@@ -67,9 +75,10 @@ or selected identity evidence returns explicit conflict or drift evidence.
 ## Dispatch And Release
 
 Commitment state and account-lease lifecycle are separate contracts. The
-commitment is initially held. Runtime writes a distinct dispatch fence
-immediately before provider effects; the fence does not finalize or release an
-account lease and forbids route or account reassignment.
+commitment is initially held. Runtime writes a distinct dispatch fence before
+adapter construction, credential materialization, process launch, or provider
+effects. The fence does not finalize or release an account lease and forbids
+route or account reassignment.
 
 Any interim failure that is proven pre-fence releases the commitment and its
 optional account lease before the job is projected terminal. Release is
@@ -77,32 +86,41 @@ idempotent and owner-generation fenced. Once dispatch is fenced, unknown
 external work continues consuming capacity until authoritative settlement or
 explicit reconciliation proves release safe.
 
+Execution settlement is a typed union. Provider-reported charge requires
+provider authority and the committed unit/scheme. A local rate-card calculation
+is `estimated`, never `charged`; subscription, included allowance, proven free,
+unknown, pending, and leaked remain separate variants. Exact replay is
+idempotent, while a conflicting terminal settlement fails closed.
+
 The selected route timeout governs one lifecycle beginning when the authority
 acquires the held commitment. Adapter materialization, exact account binding,
 runtime authority observation, resource acquisition, recovery checkpointing,
-and provider execution share that deadline and cancellation signal. Expiry
-before the dispatch fence releases the hold exactly once. Expiry after the
-fence cancels execution but never fabricates a safe release; settlement or
-reconciliation remains authoritative.
+and provider execution share that deadline and cancellation signal. Invalid
+pre-fence preparation releases the hold exactly once. Adapter, credential,
+startup, checkpoint, or provider failure after the fence never fabricates a
+safe release; typed settlement or reconciliation remains authoritative.
 
 For an economically owned account route, the Runtime recovery checkpoint stores
 only the immutable commitment, job, attempt, and dispatch-fence identifiers.
 SQLite remains the sole account-lease authority; the checkpoint must not copy a
 second lease record or combine runtime-owned and economically owned authority.
 
-Release failure becomes `release-failed`; unmatched work can become `leaked`.
-Both remain capacity-consuming and carry sanitized reconciliation evidence.
-Runtime exposes an explicit reconciliation transaction for those states rather
-than a timer or terminal-job projection that fabricates settlement.
+Release failure becomes `release-failed`; unknown fenced work becomes
+`settlement-pending`; unmatched work can become `leaked`. All remain
+capacity-consuming and carry sanitized settlement or reconciliation evidence.
+Runtime exposes an explicit operator-identity, reason, and evidence-bound
+reconciliation transaction for those states rather than a timer or terminal-job
+projection that fabricates settlement.
 
 ## Recovery
 
 Startup first recovers the SQLite authority and then recovers managed jobs.
 Recovery queries the exact `(jobId, economicAttemptId)`:
 
-- `absent` may be committed from the persisted V6 intent;
-- a held commitment on the interim no-dispatch path is released directly from
-  its durable job and economic-attempt identity without re-adopting config;
+- `absent` may be committed from the persisted V7 intent;
+- a historical V6 held commitment from the interim no-dispatch path is released
+  directly from its durable job and economic-attempt identity without
+  re-adopting config;
 - a dispatch-fenced, settlement-pending, release-failed, or leaked commitment
   remains conservatively fenced; and
 - conflicting identity or revision evidence fails closed.

@@ -71,11 +71,12 @@ kiln config set --global skills.selection.mode auto
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
 When `routing.budgetAware` is true, budget ceilings are projected into the
-runtime/session budget admission service. CLI commands may provide the config
-source, but they do not own budget decisions. If an enabled budget-aware route
-requires live usage and no meter is available, managed orchestration admission
-fails closed instead of estimating, falling back to a local token shim, or
-reusing gateway billing state.
+runtime/session-turn budget admission service. CLI commands may provide the
+config source, but they do not own budget decisions. This policy does not admit
+managed children. Policy-bearing managed invocation and orchestration use the
+configured managed economic policy, provider quota/price evidence, and the
+Runtime atomic commitment authority instead of a local token shim or gateway
+billing state.
 
 MCP server entries may include `requestTimeoutMs` to override the default
 Kiln-owned MCP client request timeout for that server. Use it for servers with
@@ -667,10 +668,12 @@ constraints, governance evidence, admitted candidate set, `economicAttemptId`,
 and adopted decision time before the atomic commitment transaction. The
 selected route, reservation, optional account lease, and dispatch fence remain
 SQLite-authoritative rather than duplicated into the job projection. V5 is a
-strict historical reader only. Until #34-internal Slice 5 installs provider
-dispatch, committed policy work releases pre-fence and terminates with
-`economic_commitment_unavailable`; Kiln does not queue it indefinitely or
-invent a hidden `routeId`.
+strict historical reader only. #34 internal Slice 5 dispatches committed work
+only after the durable fence, materializes the exact committed adapter and
+credential identity, and requires typed settlement. Unknown or incomplete
+provider outcomes remain capacity-consuming until authoritative settlement or
+audited operator reconciliation; Kiln does not invent a hidden `routeId` or a
+safe release.
 Non-managed session-turn budgeting remains owned by its existing configuration
 until its separate migration closes.
 

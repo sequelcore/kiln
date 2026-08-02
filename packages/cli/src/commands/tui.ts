@@ -1403,7 +1403,6 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       registry,
       surface: "tui",
       maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
-      ...(runtimeBudgetAdmission ? { orchestrationBudgetAdmission: runtimeBudgetAdmission } : {}),
       isProviderAvailable: (providerId) => managedRouteEngineAvailability.get(providerId),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: () => builtinToolOptions,

@@ -59,7 +59,6 @@ import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
 } from "../../session/runtime-session-orchestrator.types.js";
-import type { RuntimeBudgetAdmissionPort } from "../../session/runtime-budget-admission.js";
 import { RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON } from "../../session/runtime-session-orchestrator.types.js";
 import {
   ManagedRuntimeCredentialRouteLeaseManager,
@@ -206,7 +205,6 @@ export interface ManagedInvocationToolOptions {
   readonly sessionEventSink?: ManagedInvocationSessionEventSink;
   readonly contextResolver?: ManagedInvocationContextResolver;
   readonly maxParallelChildren?: number;
-  readonly orchestrationBudgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly pauseRequirementResolver?: ManagedInvocationPauseRequirementResolver;
   /** Unique in-process owner used to stop only children created by one attached surface. */
   readonly invocationOwner?: object;
@@ -1666,6 +1664,7 @@ async function prepareManagedInvocationRequest(
       && route.providerId === selected.providerId
       && route.model === selected.modelId);
     if (!committedRoute) {
+      economicPreparation.recordExecutionSettlementPending("committed-route-unavailable");
       throw new ManagedCommittedRouteMismatchError({
         code: "committed-route-mismatch",
         expected: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
@@ -1707,11 +1706,11 @@ async function prepareManagedInvocationRequest(
         },
       }, toolName, "already-admitted");
     } catch (error) {
-      economicPreparation.releaseBeforeProviderEffect();
+      economicPreparation.recordExecutionSettlementPending("postcommit-request-realization-failed");
       throw error;
     }
     if (!recursivelyPrepared.ok) {
-      economicPreparation.releaseBeforeProviderEffect();
+      economicPreparation.recordExecutionSettlementPending("postcommit-request-denied");
       return recursivelyPrepared;
     }
     return {
@@ -1724,9 +1723,9 @@ async function prepareManagedInvocationRequest(
           economicDispatch: {
             commitment: economicPreparation.commitment,
             dispatchFenceId: economicPreparation.dispatchFenceId,
-            beforeProviderEffect: economicPreparation.beforeProviderEffect,
-            releaseBeforeProviderEffect: economicPreparation.releaseBeforeProviderEffect,
-            registerExecutionSettlement: economicPreparation.registerExecutionSettlement,
+            recordExecutionSettlementPending: economicPreparation.recordExecutionSettlementPending,
+            createExecutionSettlement: economicPreparation.createExecutionSettlement,
+            registerEconomicSettlement: economicPreparation.registerEconomicSettlement,
           },
         },
       },
@@ -2712,12 +2711,6 @@ async function executeManagedAgentOrchestrationTool(
   }
   const availableRoutes = eligibleManagedOrchestrationRoutes(options, profile);
   const maxParallelWorkers = Math.max(1, options.maxParallelChildren ?? 1);
-  const budgetAdmission = await admitManagedOrchestrationBudget({
-    budgetAdmission: options.orchestrationBudgetAdmission,
-    sessionId: session.context.session.id,
-    turnId: session.context.turnId,
-    routes: availableRoutes,
-  });
   const decision = decideManagedAgentCoordination({
     governanceRecommendation: "orchestrate",
     workItemCount: orderedWorkItems.workItems.length,
@@ -2727,17 +2720,12 @@ async function executeManagedAgentOrchestrationTool(
     managedRouteCount: availableRoutes.length,
     maxParallelWorkers,
     routeHealth: availableRoutes.length > 0 ? "available" : "unavailable",
-    budget: budgetAdmission.available ? "available" : "unavailable",
     workspace: availableRoutes.length > 0 ? "available" : "unavailable",
   });
   if (decision.status === "denied") {
-    return errorResult([
-      ...decision.reasons,
-      ...(!budgetAdmission.available ? [budgetAdmission.reason] : []),
-    ].join("; "), {
+    return errorResult(decision.reasons.join("; "), {
       operation: "managed_orchestration_denied",
       coordinationDecision: decision,
-      ...(!budgetAdmission.available ? { budgetAdmissionReason: budgetAdmission.reason } : {}),
     }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   }
   if (decision.topology === "direct" || !decision.orchestrationMode) {
@@ -2878,35 +2866,6 @@ function managedOrchestrationRequestedAuthority(
     || profile === "comparison-only"
     ? "read_only"
     : "audited";
-}
-
-async function admitManagedOrchestrationBudget(input: {
-  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
-  readonly sessionId: string;
-  readonly turnId?: string;
-  readonly routes: readonly ManagedInvocationToolRoute[];
-}): Promise<{ readonly available: true } | { readonly available: false; readonly reason: string }> {
-  if (!input.budgetAdmission) return { available: true };
-  try {
-    const decision = await input.budgetAdmission.admit({
-      subject: "managed-orchestration",
-      sessionId: input.sessionId,
-      ...(input.turnId ? { turnId: input.turnId } : {}),
-      routeCandidates: input.routes.map((route) => ({
-        routeId: route.routeId,
-        providerId: route.providerId,
-        ...(route.model ? { model: route.model } : {}),
-      })),
-    });
-    return decision.status === "admitted"
-      ? { available: true }
-      : { available: false, reason: decision.message ?? decision.reason };
-  } catch (error) {
-    return {
-      available: false,
-      reason: `Managed orchestration budget admission failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
 }
 
 function readManagedOrchestrationWorkItems(value: unknown):

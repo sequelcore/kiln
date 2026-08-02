@@ -3,8 +3,6 @@ import {
   buildManagedAgentOrchestrationResultEvidence,
   digestManagedEconomicValue,
   defineManagedAgentInvocationRequest,
-  type BudgetAdmissionPolicy,
-  type BudgetAdmissionRouteCandidate,
   type ManagedAgentAdmissionDecision,
   type ManagedAgentAdmissionProfile,
   type ManagedAgentAuthorityProfile,
@@ -25,10 +23,6 @@ import {
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
 } from "./runtime-tool.js";
-import {
-  RuntimeBudgetAdmissionService,
-  type RuntimeBudgetUsageReader,
-} from "../../session/runtime-budget-admission.js";
 import { resolveManagedInvocationAgentProfile } from "./agent-profile-catalog.js";
 import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "./index.js";
 
@@ -40,11 +34,6 @@ export interface ManagedAgentOrchestrationLifecycleRouteSelector {
   readonly routeId?: string;
 }
 
-export interface ManagedAgentOrchestrationBudgetAdmissionInput {
-  readonly policy: BudgetAdmissionPolicy;
-  readonly usageReader?: RuntimeBudgetUsageReader;
-}
-
 export interface ManagedAgentOrchestrationLifecycleInput {
   readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
   readonly managedInvocation: ManagedInvocationToolOptions;
@@ -54,7 +43,6 @@ export interface ManagedAgentOrchestrationLifecycleInput {
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
   readonly economicAdoptedDecisionAt?: string;
   readonly abortSignal?: AbortSignal;
-  readonly budgetAdmission?: ManagedAgentOrchestrationBudgetAdmissionInput;
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }
 
@@ -174,11 +162,6 @@ export async function runManagedAgentOrchestrationLifecycle(
     };
   });
   assertIndependentReviewRouteDiversity(input.orchestrationRequest, preparedChildren);
-  await assertOrchestrationBudgetAdmission({
-    orchestrationRequest: input.orchestrationRequest,
-    routes: uniqueRoutes(preparedChildren.map((entry) => entry.route)),
-    ...(input.budgetAdmission ? { budgetAdmission: input.budgetAdmission } : {}),
-  });
   const recordsByKey = new Map<string, ManagedAgentOrchestrationLifecycleChildRecord>();
   const pending = new Map(preparedChildren.map((entry) => [entry.child.key, entry]));
   while (pending.size > 0) {
@@ -232,13 +215,15 @@ export async function runManagedAgentOrchestrationLifecycle(
         const releaseErrors: unknown[] = [];
         for (const prepared of executable) {
           try {
-            prepared.economicDispatch?.releaseBeforeProviderEffect();
+            prepared.economicDispatch?.recordExecutionSettlementPending(
+              "orchestration-wave-preparation-failed",
+            );
           } catch (releaseError) {
             releaseErrors.push(releaseError);
           }
         }
         if (releaseErrors.length > 0) {
-          throw new AggregateError([error, ...releaseErrors], "Managed orchestration pre-fence cleanup failed.");
+          throw new AggregateError([error, ...releaseErrors], "Managed orchestration post-fence pending recording failed.");
         }
         throw error;
       }
@@ -335,7 +320,7 @@ async function prepareOrchestrationEconomicDispatch(
   if (selected.routeId !== entry.route.routeId
     || selected.providerId !== entry.route.providerId
     || selected.modelId !== entry.route.model) {
-    preparation.releaseBeforeProviderEffect();
+    preparation.recordExecutionSettlementPending("committed-route-mismatch");
     throw new Error(`Managed orchestration economic commitment does not match selected route '${entry.route.routeId}'.`);
   }
   return {
@@ -345,9 +330,9 @@ async function prepareOrchestrationEconomicDispatch(
     economicDispatch: {
       commitment: preparation.commitment,
       dispatchFenceId: preparation.dispatchFenceId,
-      beforeProviderEffect: preparation.beforeProviderEffect,
-      releaseBeforeProviderEffect: preparation.releaseBeforeProviderEffect,
-      registerExecutionSettlement: preparation.registerExecutionSettlement,
+      recordExecutionSettlementPending: preparation.recordExecutionSettlementPending,
+      createExecutionSettlement: preparation.createExecutionSettlement,
+      registerEconomicSettlement: preparation.registerEconomicSettlement,
     },
   };
 }
@@ -471,30 +456,6 @@ async function runOrchestrationBatch(input: {
   });
 }
 
-async function assertOrchestrationBudgetAdmission(input: {
-  readonly budgetAdmission?: ManagedAgentOrchestrationBudgetAdmissionInput;
-  readonly orchestrationRequest: ManagedAgentOrchestrationRequest;
-  readonly routes: readonly ManagedInvocationToolRoute[];
-}): Promise<void> {
-  if (!input.budgetAdmission) {
-    return;
-  }
-  const budgetAdmission = new RuntimeBudgetAdmissionService(input.budgetAdmission);
-  const decision = await budgetAdmission.admit({
-    subject: "managed-orchestration",
-    sessionId: input.orchestrationRequest.parentSessionId,
-    turnId: input.orchestrationRequest.parentTurnId,
-    routeCandidates: input.routes.map(budgetRouteCandidate),
-  });
-  if (decision.status === "denied") {
-    throw new Error(`Managed orchestration budget admission denied: ${decision.message ?? decision.reason}`);
-  }
-}
-
-function uniqueRoutes(routes: readonly ManagedInvocationToolRoute[]): readonly ManagedInvocationToolRoute[] {
-  return [...new Map(routes.map((route) => [route.routeId, route])).values()];
-}
-
 function assertIndependentReviewRouteDiversity(
   request: ManagedAgentOrchestrationRequest,
   children: readonly PreparedOrchestrationChild[],
@@ -517,14 +478,6 @@ function assertOrchestrationAgentRoute(
   if (agent.providerRoute?.model && agent.providerRoute.model !== route.model) {
     throw new Error(`Managed orchestration agent profile '${agent.name}' model does not match route '${route.routeId}'`);
   }
-}
-
-function budgetRouteCandidate(route: ManagedInvocationToolRoute): BudgetAdmissionRouteCandidate {
-  return {
-    routeId: route.routeId,
-    providerId: route.providerId,
-    ...(route.model ? { model: route.model } : {}),
-  };
 }
 
 async function cleanupStartedOrchestrationChildren(

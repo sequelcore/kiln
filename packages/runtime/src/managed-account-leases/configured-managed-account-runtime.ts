@@ -1,7 +1,13 @@
 import {
+  createManagedEconomicAmountFromDecimal,
   type AccountRef,
   createAccountPolicyId,
+  digestManagedEconomicValue,
   type DirectProviderId,
+  type ManagedEconomicEvidenceIdentity,
+  type ManagedEconomicQuotaEvidence,
+  type ModelGatewayAccountEconomicsConfig,
+  type ModelGatewayAccountUsageEvidence,
   type ModelGatewayConfig,
   type ProviderUsageSnapshot,
 } from "@kilnai/core";
@@ -142,11 +148,15 @@ implements ManagedAccountCandidatePort {
               ...(model.affinity.allowRebind === undefined ? {} : { allowRebind: model.affinity.allowRebind }),
             },
         candidates: bound.map((entry) => ({
+          ...projectConfiguredEconomicCandidate(
+            requireConfiguredAccount(this.#config, entry.binding.accountId),
+            entry.usageEvidence,
+            entry.binding.credentialId,
+          ),
           candidate: {
             ...entry.candidate,
             pressure: usagePressure(entry),
           },
-          capacityIdentity: entry.binding.accountId,
           credentialRevisionId: createModelGatewayCredentialRevisionId(entry.binding),
           usageEvidence: entry.usageEvidence,
           capacity: entry.capacity,
@@ -168,7 +178,7 @@ implements ManagedAccountCandidatePort {
       },
     });
     const selected = snapshot.bound.find((candidate) =>
-      candidate.binding.accountId === input.capacityIdentity
+      configuredCapacityIdentity(this.#config, candidate.binding.accountId) === input.capacityIdentity
       && candidate.candidate.account === input.accountRef);
     if (!selected) {
       throw new Error("Committed managed account is no longer executable.");
@@ -202,6 +212,167 @@ implements ManagedAccountCandidatePort {
     return providerId === "codex-oauth" ? this.#codexPool.listUsage(now) : [];
   }
 
+}
+
+function projectConfiguredEconomicCandidate(
+  account: ModelGatewayConfig["accounts"][number],
+  usage: ModelGatewayAccountUsageEvidence,
+  credentialId: string,
+): {
+  readonly capacityIdentity: string;
+  readonly accountEconomics?: ModelGatewayAccountEconomicsConfig;
+  readonly quotaEvidence?: ManagedEconomicQuotaEvidence;
+} {
+  const economics = account.economics;
+  if (economics === undefined) return { capacityIdentity: account.id };
+  return {
+    capacityIdentity: economics.capacityIdentity,
+    accountEconomics: Object.freeze({ ...economics }),
+    quotaEvidence: projectManagedEconomicQuotaEvidence(
+      economics,
+      usage,
+      account.providerId,
+      credentialId,
+    ),
+  };
+}
+
+function projectManagedEconomicQuotaEvidence(
+  economics: ModelGatewayAccountEconomicsConfig,
+  usage: ModelGatewayAccountUsageEvidence,
+  providerId: DirectProviderId,
+  credentialId: string,
+): ManagedEconomicQuotaEvidence {
+  const evidence = providerQuotaEvidenceIdentity(usage, providerId, credentialId);
+  const quota = usage.quota;
+  const observation = quota === undefined
+    ? {}
+    : {
+        ...(quota.credits === undefined ? {} : { credits: quota.credits }),
+        ...(quota.spendControl === undefined ? {} : { spendControl: quota.spendControl }),
+        exhaustionReason: quota.exhaustionReason,
+      };
+  if (usage.freshness !== "fresh") {
+    return {
+      kind: "unknown",
+      capacityIdentity: economics.capacityIdentity,
+      subscriptionClass: "unknown",
+      reason: usage.freshness === "missing" ? "provider-quota-missing" : "provider-quota-stale",
+      evidence,
+      ...observation,
+    };
+  }
+  if (usage.confidence !== "authoritative" || usage.source === "unknown") {
+    return {
+      kind: "unknown",
+      capacityIdentity: economics.capacityIdentity,
+      subscriptionClass: "unknown",
+      reason: "provider-quota-not-authoritative",
+      evidence,
+      ...observation,
+    };
+  }
+  const windows = [quota?.primary, quota?.secondary].filter((window) => window !== undefined);
+  if (windows.length === 0) {
+    return {
+      kind: "unknown",
+      capacityIdentity: economics.capacityIdentity,
+      subscriptionClass: "unknown",
+      reason: "provider-quota-buckets-unavailable",
+      evidence,
+      ...observation,
+    };
+  }
+  if (evidence === null) throw new Error("Fresh authoritative provider quota requires evidence identity.");
+  return {
+    kind: "known",
+    capacityIdentity: economics.capacityIdentity,
+    subscriptionClass: economics.subscriptionClass,
+    quotaClassId: economics.quotaClassId,
+    buckets: windows.map((window) => ({
+      bucketId: window.bucketId,
+      dimension: "percent",
+      remaining: createManagedEconomicAmountFromDecimal({
+        value: subtractPercentFromHundred(window.usedPercent),
+        unit: "percent",
+        scheme: { kind: "unit" },
+      }),
+      ...(window.windowDurationMinutes === undefined
+        ? {}
+        : { windowDurationMinutes: window.windowDurationMinutes }),
+      resetsAt: window.resetsAt ?? null,
+    })),
+    evidence,
+    ...observation,
+  };
+}
+
+function providerQuotaEvidenceIdentity(
+  usage: ModelGatewayAccountUsageEvidence,
+  providerId: DirectProviderId,
+  credentialId: string,
+): ManagedEconomicEvidenceIdentity | null {
+  if (
+    usage.freshness === "missing"
+    || usage.observedAt === undefined
+    || usage.validUntil === undefined
+    || usage.confidence !== "authoritative"
+    || usage.source === undefined
+    || usage.source === "unknown"
+  ) return null;
+  const sourceDigest = digestManagedEconomicValue({
+    providerId,
+    credentialId,
+    observedAt: usage.observedAt,
+    validUntil: usage.validUntil,
+    source: usage.source,
+    quota: usage.quota ?? null,
+  });
+  return {
+    sourceIdentity: `${providerId}:quota:${credentialId}`,
+    sourceRevision: sourceDigest,
+    sourceDigest,
+    observedAt: usage.observedAt,
+    validUntil: usage.validUntil,
+    confidence: "high",
+    authority: "provider-reported",
+  };
+}
+
+function subtractPercentFromHundred(usedPercent: number): string {
+  const decimal = expandDecimal(String(usedPercent));
+  const [whole, fraction = ""] = decimal.split(".");
+  const scale = fraction.length;
+  const factor = 10n ** BigInt(scale);
+  const usedAtoms = BigInt(`${whole}${fraction}`);
+  const remainingAtoms = 100n * factor - usedAtoms;
+  if (scale === 0) return remainingAtoms.toString();
+  const padded = remainingAtoms.toString().padStart(scale + 1, "0");
+  return `${padded.slice(0, -scale)}.${padded.slice(-scale)}`;
+}
+
+function expandDecimal(value: string): string {
+  const match = /^(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/iu.exec(value);
+  if (!match) throw new TypeError("Provider usage percentage is not a decimal number.");
+  const digits = `${match[1]}${match[2] ?? ""}`;
+  const decimalIndex = match[1]!.length + Number(match[3] ?? 0);
+  if (decimalIndex <= 0) return `0.${"0".repeat(-decimalIndex)}${digits}`;
+  if (decimalIndex >= digits.length) return `${digits}${"0".repeat(decimalIndex - digits.length)}`;
+  return `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`;
+}
+
+function requireConfiguredAccount(
+  config: ModelGatewayConfig,
+  accountId: string,
+): ModelGatewayConfig["accounts"][number] {
+  const account = config.accounts.find((candidate) => candidate.id === accountId);
+  if (account === undefined) throw new Error(`Configured managed account '${accountId}' is unavailable.`);
+  return account;
+}
+
+function configuredCapacityIdentity(config: ModelGatewayConfig, accountId: string): string {
+  const account = requireConfiguredAccount(config, accountId);
+  return account.economics?.capacityIdentity ?? account.id;
 }
 
 function usagePressure(candidate: ModelGatewayBoundCandidate): number {

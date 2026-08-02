@@ -24,8 +24,18 @@ describe("Codex provider usage adapter", () => {
         rate_limit: {
           allowed: true,
           limit_reached: false,
-          primary_window: { used_percent: 37.5, reset_at: 1784725200 },
-          secondary_window: { used_percent: 82, reset_at: 1785326400 },
+          primary_window: { used_percent: 37.5, limit_window_seconds: 18_000, reset_at: 1784725200 },
+          secondary_window: { used_percent: 82, limit_window_seconds: 604_800, reset_at: 1785326400 },
+        },
+        credits: { has_credits: true, unlimited: false, balance: "17.5" },
+        spend_control: {
+          reached: false,
+          individual_limit: {
+            limit: "25000",
+            used: "8000",
+            remaining_percent: 68,
+            reset_at: 1784725200,
+          },
         },
         access_token: "must-not-survive",
         email: "operator@example.test",
@@ -36,8 +46,25 @@ describe("Codex provider usage adapter", () => {
       provider: "codex-oauth",
       credentialId: "credential-opaque-1",
       plan: "plus",
-      primary: { usedPercent: 37.5, resetsAt: "2026-07-22T13:00:00.000Z" },
-      secondary: { usedPercent: 82, resetsAt: "2026-07-29T12:00:00.000Z" },
+      primary: { bucketId: "primary", usedPercent: 37.5, windowDurationMinutes: 300, resetsAt: "2026-07-22T13:00:00.000Z" },
+      secondary: { bucketId: "secondary", usedPercent: 82, windowDurationMinutes: 10_080, resetsAt: "2026-07-29T12:00:00.000Z" },
+      credits: {
+        status: "available",
+        balance: {
+          atoms: "175",
+          scale: 1,
+          unit: "credit",
+          scheme: { kind: "credit", creditSchemeId: "codex-oauth" },
+        },
+      },
+      spendControl: {
+        status: "available",
+        limit: { atoms: "25000", scale: 0, unit: "provider-spend-unit", scheme: { kind: "unit" } },
+        used: { atoms: "8000", scale: 0, unit: "provider-spend-unit", scheme: { kind: "unit" } },
+        remainingPercent: 68,
+        resetsAt: "2026-07-22T13:00:00.000Z",
+      },
+      exhaustionReason: null,
       availability: "available",
       observedAt: OBSERVED_AT,
       validUntil: VALID_UNTIL,
@@ -69,11 +96,124 @@ describe("Codex provider usage adapter", () => {
       availability: "exhausted",
       source: "provider-response-headers",
       confidence: "authoritative",
-      primary: { usedPercent: 100, resetsAt: "2026-07-22T13:00:00.000Z" },
-      secondary: { usedPercent: 65, resetsAt: "2026-07-29T12:00:00.000Z" },
+      primary: { bucketId: "primary", usedPercent: 100, resetsAt: "2026-07-22T13:00:00.000Z" },
+      secondary: { bucketId: "secondary", usedPercent: 65, resetsAt: "2026-07-29T12:00:00.000Z" },
     });
     expect(JSON.stringify(snapshot)).not.toContain("Bearer");
     expect(JSON.stringify(snapshot)).not.toContain("operator@example.test");
+  });
+
+  it("preserves provider exhaustion classification without raw payload details", () => {
+    const snapshot = parseCodexProviderUsage({
+      provider: "codex-oauth",
+      credentialId: "credential-opaque-5",
+      observedAt: OBSERVED_AT,
+      validUntil: VALID_UNTIL,
+      body: {
+        plan_type: "team",
+        rate_limit: { allowed: false, limit_reached: true },
+        rate_limit_reached_type: { kind: "workspace_member_credits_depleted" },
+      },
+    });
+
+    expect(snapshot).toMatchObject({
+      availability: "exhausted",
+      exhaustionReason: "workspace-member-credits-depleted",
+    });
+  });
+
+  it("preserves exact credit decrements and spend-control exhaustion", () => {
+    const available = parseCodexProviderUsage({
+      provider: "codex-oauth",
+      credentialId: "credential-opaque-6",
+      observedAt: OBSERVED_AT,
+      validUntil: VALID_UNTIL,
+      body: {
+        rate_limit: { allowed: true, limit_reached: false },
+        credits: { has_credits: true, unlimited: false, balance: "17.500" },
+        spend_control: {
+          reached: false,
+          individual_limit: { limit: "25.00", used: "8.125", remaining_percent: 67 },
+        },
+      },
+    });
+    const exhausted = parseCodexProviderUsage({
+      provider: "codex-oauth",
+      credentialId: "credential-opaque-6",
+      observedAt: "2026-07-22T12:01:00.000Z",
+      validUntil: "2026-07-22T12:06:00.000Z",
+      body: {
+        rate_limit: { allowed: true, limit_reached: false },
+        credits: { has_credits: true, unlimited: false, balance: "16.375" },
+        spend_control: {
+          reached: true,
+          individual_limit: { limit: "25.00", used: "25.00", remaining_percent: 0 },
+        },
+      },
+    });
+
+    expect(available.credits?.balance).toEqual({
+      atoms: "175", scale: 1, unit: "credit",
+      scheme: { kind: "credit", creditSchemeId: "codex-oauth" },
+    });
+    expect(exhausted.credits?.balance).toEqual({
+      atoms: "16375", scale: 3, unit: "credit",
+      scheme: { kind: "credit", creditSchemeId: "codex-oauth" },
+    });
+    expect(exhausted).toMatchObject({
+      availability: "exhausted",
+      exhaustionReason: "spend-control-reached",
+      spendControl: {
+        status: "exhausted",
+        used: { atoms: "25", scale: 0 },
+        remainingPercent: 0,
+      },
+    });
+  });
+
+  it("replaces an exhausted window with fresh provider rollover evidence", () => {
+    const store = new InMemoryProviderUsageStore();
+    store.put(parseCodexProviderUsage({
+      provider: "codex-oauth",
+      credentialId: "credential-opaque-7",
+      observedAt: OBSERVED_AT,
+      validUntil: "2026-07-22T13:00:00.000Z",
+      body: {
+        rate_limit: {
+          allowed: false,
+          limit_reached: true,
+          primary_window: { used_percent: 100, limit_window_seconds: 18_000, reset_at: 1784725200 },
+        },
+      },
+    }));
+    store.put(parseCodexProviderUsage({
+      provider: "codex-oauth",
+      credentialId: "credential-opaque-7",
+      observedAt: "2026-07-22T13:00:01.000Z",
+      validUntil: "2026-07-22T13:05:01.000Z",
+      body: {
+        rate_limit: {
+          allowed: true,
+          limit_reached: false,
+          primary_window: { used_percent: 0, limit_window_seconds: 18_000, reset_at: 1784743200 },
+        },
+      },
+    }));
+
+    expect(store.get(
+      "codex-oauth",
+      "credential-opaque-7",
+      new Date("2026-07-22T13:01:00.000Z"),
+    )).toMatchObject({
+      availability: "available",
+      exhaustionReason: null,
+      primary: {
+        bucketId: "primary",
+        usedPercent: 0,
+        windowDurationMinutes: 300,
+        resetsAt: "2026-07-22T18:00:00.000Z",
+      },
+    });
   });
 
   it("fails soft to explicit unknown for malformed evidence", () => {
@@ -87,6 +227,7 @@ describe("Codex provider usage adapter", () => {
     })).toEqual({
       provider: "codex-oauth",
       credentialId: "credential-opaque-3",
+      exhaustionReason: null,
       availability: "unknown",
       observedAt: OBSERVED_AT,
       validUntil: VALID_UNTIL,
@@ -135,6 +276,7 @@ describe("provider usage store", () => {
     store.put({
       provider: "codex-oauth",
       credentialId: "credential-opaque-1",
+      exhaustionReason: null,
       availability: "unknown",
       observedAt: OBSERVED_AT,
       validUntil: VALID_UNTIL,

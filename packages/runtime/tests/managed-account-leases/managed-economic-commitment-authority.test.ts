@@ -135,6 +135,10 @@ function accountCapacity(adopted = accountSnapshot()) {
       leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false },
     capacityIdentity: "account-a", credentialRevisionId: "a".repeat(64),
     usageEvidence: { health: "healthy" as const, freshness: "missing" as const },
+    accountEconomics: {
+      capacityIdentity: "account-a", subscriptionClass: "metered" as const,
+      quotaClassId: "quota", creditPosture: "disabled" as const, overagePosture: "disabled" as const,
+    },
     quotaEvidence: { kind: "known" as const, capacityIdentity: "account-a",
       subscriptionClass: "metered" as const, quotaClassId: "quota",
       buckets: [{ bucketId: "money", dimension: "currency", remaining: amount("100"), resetsAt: null }],
@@ -184,7 +188,7 @@ describe("managed economic commitment authority", () => {
       .toThrow("cannot be dispatch-fenced");
   });
 
-  it("releases accountless capacity only after a registered execution settles successfully", async () => {
+  it("releases accountless capacity only after a matching typed execution settlement", async () => {
     const authority = create();
     authority.acquireCommitment(input());
     authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
@@ -201,11 +205,28 @@ describe("managed economic commitment authority", () => {
       economicAttemptId: "economic-attempt-b",
     })).toMatchObject({ status: "denied" });
 
-    expect(authority.settleSuccessfulExecution(
+    const pending = authority.queryCommitment("job-a", "economic-attempt-a");
+    if (pending === "absent") throw new Error("fixture");
+    const settlement = {
+      kind: "subscription" as const,
+      reservationId: pending.commitment.reservation.reservationId,
+      dispatchFenceId: "fence-a",
+      actualIdentity: pending.commitment.reservation.selectedIdentity,
+      units: [{ atoms: "7", scale: 0, unit: "input-token", scheme: { kind: "unit" as const } }],
+      evidence: snapshot().routes[0]!.priceEvidence.identity.evidence,
+    };
+    expect(authority.settleExecution(
       "job-a",
       "economic-attempt-a",
       "fence-a",
-    )).toMatchObject({ state: "released", settlement: { kind: "unknown", reason: "execution-settled" } });
+      settlement,
+    )).toMatchObject({ state: "released", settlement });
+    expect(authority.settleExecution(
+      "job-a",
+      "economic-attempt-a",
+      "fence-a",
+      settlement,
+    )).toMatchObject({ state: "released", settlement });
     expect(authority.acquireCommitment({
       ...input(),
       jobId: "job-c",
@@ -238,6 +259,39 @@ describe("managed economic commitment authority", () => {
       state: "settlement-pending",
       lease: { lifecycleState: "held" },
     });
+  });
+
+  it("requires audited operator evidence to reconcile settlement-pending capacity", () => {
+    const authority = create();
+    authority.acquireCommitment(input());
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    authority.recordExecutionSettlementPending(
+      "job-a",
+      "economic-attempt-a",
+      "fence-a",
+      "provider outcome is not authoritative",
+    );
+
+    expect(authority.reconcileCommitment({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      operatorIdentity: "operator-a",
+      reason: "provider console confirms no outstanding charge",
+      evidenceUri: "kiln://evidence/pending-settlement-audit",
+    })).toMatchObject({
+      state: "released",
+      settlement: { kind: "unknown" },
+      lifecycleEvidence: {
+        operatorIdentity: "operator-a",
+        previousState: "settlement-pending",
+        evidenceUri: "kiln://evidence/pending-settlement-audit",
+      },
+    });
+    expect(authority.acquireCommitment({
+      ...input(),
+      jobId: "job-b",
+      economicAttemptId: "economic-attempt-b",
+    })).toMatchObject({ status: "committed" });
   });
 
   it("persists exact final-unit denial evidence and replays it without partial reservation", () => {
@@ -314,6 +368,47 @@ describe("managed economic commitment authority", () => {
       .toMatchObject({ status: "denied", evidence: { authorityRejections: [{
         stage: "account-selection", rejections: [{ reason: "lease-conflict" }],
       }] } });
+  });
+
+  it("commits account credit and overage posture from configured account economics", () => {
+    const authority = create();
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    const acquired = authority.acquireCommitment({
+      ...input(adopted),
+      routeCapacity: [{
+        routeId: "route-direct",
+        route,
+        affinityRequest: { continuity: "none" },
+        candidates: [{
+          ...candidate,
+          accountEconomics: {
+            capacityIdentity: "account-a",
+            subscriptionClass: "metered",
+            quotaClassId: "quota",
+            creditPosture: "committed",
+            overagePosture: "committed",
+          },
+        }],
+      }],
+    });
+
+    expect(acquired).toMatchObject({
+      status: "committed",
+      record: {
+        commitment: {
+          reservation: {
+            selectedIdentity: {
+              account: {
+                kind: "account-bound",
+                creditPosture: "committed",
+                overagePosture: "committed",
+              },
+            },
+          },
+        },
+      },
+    });
   });
 
   it("fails closed when an account-bound commitment references a missing lease row", () => {

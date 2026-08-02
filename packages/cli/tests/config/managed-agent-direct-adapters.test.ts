@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentResponse, ProviderAdapter, ResolvedMcpServer, ToolResourceProvider } from "@kilnai/core";
 import { createSessionBuiltinToolOptions, defineManagedAgentInvocationRequest, textParts } from "@kilnai/core";
-import { ManagedDirectProviderRuntimeAdapter, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
+import {
+  ManagedDirectProviderRuntimeAdapter,
+  RuntimeManagedAgentInvocationService,
+  type ManagedCommittedInvocationRequest,
+} from "@kilnai/runtime";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
 import type { DirectProviderAdapterOptions } from "../../src/wrapper/direct-provider-adapter-factory.js";
 
@@ -65,6 +69,40 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       model: "gpt-5.4",
       accountBinding,
     }));
+  });
+
+  it("rejects a committed route mismatch before provider or credential materialization", async () => {
+    const createProviderAdapter = vi.fn(async () => provider());
+    const factory = createManagedDirectProviderAdapterFactory({ createProviderAdapter });
+    const committedRequest = {
+      commitment: {
+        reservation: {
+          selectedIdentity: {
+            route: {
+              routeId: "codex-managed",
+              providerId: "codex-oauth",
+              modelId: "different-model",
+            },
+          },
+        },
+      },
+      dispatchFenceId: "dispatch-fence-test",
+      abortSignal: new AbortController().signal,
+    } as ManagedCommittedInvocationRequest;
+
+    await expect(factory({
+      id: "codex-managed",
+      kind: "direct",
+      provider: "codex-oauth",
+      model: "gpt-5.4",
+      profiles: ["foundation-readonly-plan"],
+      credentials: { mode: "runtime-selected", accountPolicyId: "managed-codex" },
+    }, {
+      virtualModelId: "managed-codex",
+      accountId: "account-b",
+      credentialId: "credential-b",
+    }, undefined, committedRequest)).rejects.toThrow(/committed economic route/u);
+    expect(createProviderAdapter).not.toHaveBeenCalled();
   });
 
   it("builds a direct managed runtime adapter from a tool-capable direct provider route", async () => {

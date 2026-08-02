@@ -317,35 +317,17 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     });
   });
 
-  it("fails closed before starting children when runtime budget admission denies fan-out", async () => {
-    const managedInvocation = createManagedInvocation();
-    const usageRequests: string[] = [];
-
+  it("fails closed before starting children when economic commitment is denied", async () => {
+    const managedInvocation = createEconomicManagedInvocation({ status: "denied" });
     await expect(runManagedAgentOrchestrationLifecycle({
-      orchestrationRequest: request(2),
-      managedInvocation,
+      orchestrationRequest: economicRequest(2),
+      managedInvocation: managedInvocation.options,
       profile: "foundation-apply-approved-writes",
-      budgetAdmission: {
-        policy: {
-          enabled: true,
-          routeBudgets: [{
-            providerId: "codex",
-            dailyTokenCeiling: 10,
-          }],
-        },
-        usageReader: async ({ providerId }) => {
-          usageRequests.push(providerId);
-          return {
-            providerId,
-            tokensUsed: 11,
-            source: "test-meter",
-          };
-        },
-      },
-    })).rejects.toThrow("Managed orchestration budget admission denied");
+      economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
+    })).rejects.toThrow("durable economic commitment");
 
-    expect(usageRequests).toEqual(["codex"]);
-    expect(managedInvocation.invocationService?.list()).toEqual([]);
+    expect(managedInvocation.prepare).toHaveBeenCalledOnce();
+    expect(managedInvocation.invoked).not.toHaveBeenCalled();
   });
 
   it("cancels already-started children when a later child start fails", async () => {
@@ -518,13 +500,14 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       adapter: {
         ...primaryRoute.adapter!,
         invoke: async (invocation) => {
-          invocation.registerExecutionSettlement(Promise.resolve());
+          invocation.registerAdapterCompletion(Promise.resolve());
+          invocation.registerEconomicSettlement?.(Promise.resolve({} as never));
           return await primaryRoute.adapter!.invoke(invocation);
         },
       },
-      beforeProviderEffect: async () => { events.push(`fence:${input.jobId}`); },
-      releaseBeforeProviderEffect: () => { events.push(`release:${input.jobId}`); },
-      registerExecutionSettlement: (settlement) => {
+      recordExecutionSettlementPending: () => { events.push(`pending:${input.jobId}`); },
+      createExecutionSettlement: () => ({} as never),
+      registerEconomicSettlement: (settlement) => {
         events.push(`settlement:${input.jobId}`);
         void Promise.resolve(settlement).then(() => events.push(`settled:${input.jobId}`));
       },
@@ -568,33 +551,24 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
 
     expect(result.orchestrationResult.status).toBe("completed");
     expect(preparation).toHaveBeenCalledTimes(2);
-    expect(events.filter((event) => event.startsWith("fence:"))).toHaveLength(2);
     expect(events.filter((event) => event.startsWith("settlement:"))).toHaveLength(2);
     await vi.waitFor(() => expect(events.filter((event) => event.startsWith("settled:"))).toHaveLength(2));
-    expect(events.some((event) => event.startsWith("release:"))).toBe(false);
+    expect(events.some((event) => event.startsWith("pending:"))).toBe(false);
   });
 
-  it("releases an economic commitment when the pre-effect fence denies dispatch", async () => {
-    const managedInvocation = createEconomicManagedInvocation({
-      beforeProviderEffect: async () => { throw new Error("synthetic fence denial"); },
-    });
-
-    const result = await runManagedAgentOrchestrationLifecycle({
+  it("does not invoke an economic child whose commitment is already dispatch-fenced", async () => {
+    const managedInvocation = createEconomicManagedInvocation({ status: "already-dispatched" });
+    await expect(runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
       profile: "foundation-apply-approved-writes",
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
-    });
+    })).rejects.toThrow("already dispatch-fenced");
 
-    expect(managedInvocation.releaseBeforeProviderEffect).toHaveBeenCalledTimes(2);
     expect(managedInvocation.invoked).not.toHaveBeenCalled();
-    expect(result.childRecords.map((child) => child.error)).toEqual([
-      "synthetic fence denial",
-      "synthetic fence denial",
-    ]);
   });
 
-  it("releases every prepared commitment when a later child cannot be prepared", async () => {
+  it("marks every fenced commitment pending when a later child cannot be prepared", async () => {
     const managedInvocation = createEconomicManagedInvocation();
     const successfulPreparation = managedInvocation.prepare.getMockImplementation();
     if (!successfulPreparation) throw new Error("fixture");
@@ -609,7 +583,7 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("synthetic second preparation failure");
 
-    expect(managedInvocation.releaseBeforeProviderEffect).toHaveBeenCalledOnce();
+    expect(managedInvocation.recordExecutionSettlementPending).toHaveBeenCalledOnce();
     expect(managedInvocation.invoked).not.toHaveBeenCalled();
   });
 
@@ -805,8 +779,7 @@ function economicRequest(childCount: number) {
 }
 
 function createEconomicManagedInvocation(input: {
-  readonly status?: "prepared" | "already-dispatched";
-  readonly beforeProviderEffect?: () => Promise<void>;
+  readonly status?: "prepared" | "already-dispatched" | "denied";
   readonly failOrdinals?: ReadonlySet<number>;
 } = {}) {
   const base = createManagedInvocation({
@@ -818,13 +791,17 @@ function createEconomicManagedInvocation(input: {
     ...route.adapter!,
     invoke: async (invocation: ManagedAgentRuntimeInvocationInput) => {
       invoked(invocation.request.invocationId);
+      invocation.registerEconomicSettlement?.(Promise.resolve({} as never));
       return await route.adapter!.invoke(invocation);
     },
   };
-  const releaseBeforeProviderEffect = vi.fn();
+  const recordExecutionSettlementPending = vi.fn();
   const prepare = vi.fn(async () => {
     if (input.status === "already-dispatched") {
       return { status: "already-dispatched" as const, record: {} as never };
+    }
+    if (input.status === "denied") {
+      return { status: "denied" as const, decision: {} as never };
     }
     return {
       status: "prepared" as const,
@@ -837,9 +814,9 @@ function createEconomicManagedInvocation(input: {
         },
       } as never,
       adapter,
-      beforeProviderEffect: input.beforeProviderEffect ?? (async () => undefined),
-      releaseBeforeProviderEffect,
-      registerExecutionSettlement: () => undefined,
+      recordExecutionSettlementPending,
+      createExecutionSettlement: () => ({} as never),
+      registerEconomicSettlement: () => undefined,
     };
   });
   return {
@@ -868,7 +845,7 @@ function createEconomicManagedInvocation(input: {
       economicDispatch: { prepare },
     } satisfies ManagedInvocationToolOptions,
     prepare,
-    releaseBeforeProviderEffect,
+    recordExecutionSettlementPending,
     invoked,
   };
 }

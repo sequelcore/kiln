@@ -111,7 +111,6 @@ export type ManagedAgentOrchestrationTaskRisk = "low" | "medium" | "high" | "unk
 export interface ManagedAgentOrchestrationAdmissionLimits {
   readonly maxChildren: number;
   readonly routeHealth: ManagedAgentOrchestrationAvailability;
-  readonly budget: ManagedAgentOrchestrationAvailability;
   readonly workspace: ManagedAgentOrchestrationAvailability;
   readonly taskRisk: ManagedAgentOrchestrationTaskRisk;
 }
@@ -409,9 +408,6 @@ export function admitManagedAgentOrchestrationRequest(
   }
   if (normalizedLimits.routeHealth !== "available") {
     missingCapabilities.push("orchestration.routeHealth.available");
-  }
-  if (normalizedLimits.budget !== "available") {
-    missingCapabilities.push("orchestration.budget.available");
   }
   if (normalizedLimits.workspace !== "available") {
     missingCapabilities.push("orchestration.workspace.available");
@@ -788,7 +784,6 @@ function requireAdmissionLimits(
   return {
     maxChildren: requirePositiveInteger(input.maxChildren, "Managed orchestration max children must be greater than zero"),
     routeHealth: requireAvailability(input.routeHealth, "route health"),
-    budget: requireAvailability(input.budget, "budget"),
     workspace: requireAvailability(input.workspace, "workspace"),
     taskRisk: requireTaskRisk(input.taskRisk),
   };

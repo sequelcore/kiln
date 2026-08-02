@@ -190,7 +190,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       system,
       ...(input.environment !== undefined ? { env: input.environment } : {}),
     }, collected);
-    input.registerExecutionSettlement(runPromise);
+    input.registerAdapterCompletion(runPromise);
     const timeoutPromise = sleep(request.authority.timeoutMs).then(() => TIMEOUT);
     const cancelPromise = abortSignalPromise(input.abortSignal).then(() => CANCELLED);
     const raced = await Promise.race([runPromise, timeoutPromise, cancelPromise]);
