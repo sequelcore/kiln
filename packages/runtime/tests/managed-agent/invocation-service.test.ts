@@ -2794,6 +2794,110 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(service.status("invocation-1")).toBeUndefined();
   });
 
+  it("checkpoints an economically owned account route without duplicating account lease authority", async () => {
+    const request = makeCredentialRouteRequest();
+    const recoveryStore = makeRecoveryStore();
+    const credentialRouteLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => lease),
+      release: vi.fn(async ({ lease }) => lease),
+    };
+    const adapter: ManagedAgentRuntimeAdapter = {
+      descriptor: makeDescriptor(),
+      invoke: vi.fn(async ({ admission }) => makeReadonlyRecordForRequest(request, admission.capabilitySnapshot)),
+    };
+    const service = new RuntimeManagedAgentInvocationService({ recoveryStore, credentialRouteLeaseManager });
+    const started = await service.start(request, adapter, {
+      capturedAt: "2026-08-02T00:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
+    }, {
+      economicDispatch: {
+        commitment: {
+          commitmentId: "commitment-economic-account",
+          reservation: {
+            jobId: "managed-economic-job:test",
+            economicAttemptId: "economic-attempt:test",
+            selectedIdentity: {
+              route: {
+                routeId: "opencode:managed-test-route",
+                providerId: request.providerRoute.providerId,
+                modelId: request.providerRoute.model,
+                accountPolicyId: "managed-opencode",
+              },
+              account: { kind: "account-bound" },
+            },
+          },
+        } as never,
+        dispatchFenceId: "managed-economic-dispatch:test",
+        beforeProviderEffect: vi.fn(),
+        releaseBeforeProviderEffect: vi.fn(),
+        registerExecutionSettlement: vi.fn(),
+      },
+    });
+
+    expect(started.status).toBe("started");
+    await expect(service.join(request.invocationId)).resolves.toMatchObject({
+      status: "completed",
+      record: { lifecycleState: "completed" },
+    });
+    expect(recoveryStore.save).toHaveBeenCalledWith(expect.objectContaining({
+      economicDispatch: {
+        commitmentId: "commitment-economic-account",
+        jobId: "managed-economic-job:test",
+        economicAttemptId: "economic-attempt:test",
+        dispatchFenceId: "managed-economic-dispatch:test",
+      },
+    }));
+    const checkpoint = recoveryStore.save.mock.calls
+      .map(([saved]) => saved)
+      .find((saved) => saved.adapterStarted && saved.economicDispatch !== undefined);
+    expect(checkpoint).toBeDefined();
+    if (!checkpoint) throw new Error("expected an economically owned recovery checkpoint");
+
+    expect(validateManagedAgentRuntimeRecoveryCheckpoint(checkpoint).economicDispatch).toEqual(
+      checkpoint.economicDispatch,
+    );
+    expect(() => validateManagedAgentRuntimeRecoveryCheckpoint({
+      ...checkpoint,
+      economicDispatch: { ...checkpoint.economicDispatch, dispatchFenceId: " managed-economic-dispatch:test" },
+    })).toThrow("dispatch fence id is invalid");
+    const { economicDispatch: _economicDispatch, ...withoutEconomicAuthority } = checkpoint;
+    expect(() => validateManagedAgentRuntimeRecoveryCheckpoint(withoutEconomicAuthority)).toThrow(
+      "requires one account lease authority reference",
+    );
+    expect(() => validateManagedAgentRuntimeRecoveryCheckpoint({
+      ...checkpoint,
+      accountLease: {
+        leaseId: "account-lease-duplicate",
+        accountPolicyId: "managed-opencode",
+        accountRef: "configured:test:opaque",
+        route: {
+          providerId: request.providerRoute.providerId,
+          providerModelId: request.providerRoute.model,
+          scope: "virtual:managed-opencode",
+        },
+        jobId: "managed-economic-job:test",
+        runtimeInvocationId: request.invocationId,
+        credentialRevisionId: "a".repeat(64),
+        selectionReason: "least-pressure",
+        candidateRejections: [],
+        usageEvidence: {
+          health: "healthy",
+          freshness: "fresh",
+          availability: "available",
+          observedAt: "2026-08-02T00:00:00.000Z",
+          validUntil: "2026-08-02T00:05:00.000Z",
+          source: "provider-endpoint",
+          confidence: "authoritative",
+        },
+        acquiredAt: "2026-08-02T00:00:00.000Z",
+        lifecycleState: "held",
+        resourceUris: ["kiln://managed-accounts/leases/account-lease-duplicate"],
+        diagnosticUris: [],
+      },
+    })).toThrow("cannot duplicate account lease authority");
+  });
+
   it("does not acquire credential-route leases for credentialless invocations", async () => {
     const credentialRouteLeaseManager = {
       acquire: vi.fn(async ({ lease }) => lease),
@@ -5154,7 +5258,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
   it("releases a prepared economic commitment exactly once on admission denial or pre-effect observation failure", async () => {
     const request = makeRequest();
     const commitment = {
+      commitmentId: "commitment-test",
       reservation: {
+        jobId: "managed-economic-job:test",
+        economicAttemptId: "economic-attempt:test",
         selectedIdentity: {
           route: {
             routeId: "opencode:managed-test-route",
@@ -5177,6 +5284,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
       {
         economicDispatch: {
           commitment,
+          dispatchFenceId: "managed-economic-dispatch:test",
           beforeProviderEffect: vi.fn(),
           releaseBeforeProviderEffect: deniedRelease,
           registerExecutionSettlement: vi.fn(),
@@ -5196,6 +5304,7 @@ describe("RuntimeManagedAgentInvocationService", () => {
     }, makeSnapshotInput(), {
       economicDispatch: {
         commitment,
+        dispatchFenceId: "managed-economic-dispatch:test",
         beforeProviderEffect: vi.fn(),
         releaseBeforeProviderEffect: observationRelease,
         registerExecutionSettlement: vi.fn(),
@@ -5207,6 +5316,72 @@ describe("RuntimeManagedAgentInvocationService", () => {
       record: { lifecycleState: "failed" },
     });
     expect(observationRelease).toHaveBeenCalledOnce();
+  });
+
+  it("releases a prepared commitment when the final pre-fence recovery checkpoint fails", async () => {
+    const request = makeIsolatedWorktreeRequest();
+    const recoveryStore = makeRecoveryStore();
+    let saveCount = 0;
+    recoveryStore.save.mockImplementation(async (checkpoint) => {
+      saveCount++;
+      if (saveCount === 2) throw new Error("synthetic pre-fence checkpoint failure");
+      recoveryStore.entries.set(
+        checkpoint.request.invocationId,
+        JSON.parse(JSON.stringify(checkpoint)) as ManagedAgentRuntimeRecoveryCheckpoint,
+      );
+    });
+    const worktreeLeaseManager = {
+      acquire: vi.fn(async ({ lease }) => ({
+        ...lease,
+        resourceUris: [...lease.resourceUris, "kiln://artifacts/write-1/worktree-lease"],
+      })),
+      release: vi.fn(async ({ lease }) => ({
+        ...lease,
+        healthStatus: "released" as const,
+        cleanupStatus: "completed" as const,
+      })),
+    };
+    const releaseBeforeProviderEffect = vi.fn();
+    const beforeProviderEffect = vi.fn();
+    const invoke = vi.fn();
+    const service = new RuntimeManagedAgentInvocationService({ recoveryStore, worktreeLeaseManager });
+    const started = await service.start(request, {
+      descriptor: makeWriteDescriptor(),
+      invoke,
+    }, {
+      capturedAt: "2026-08-02T00:00:00.000Z",
+      routeId: "opencode:managed-test-route",
+      routeSource: "explicit-managed-route",
+    }, {
+      economicDispatch: {
+        commitment: {
+          commitmentId: "commitment-write-test",
+          reservation: {
+            jobId: "managed-economic-job:write-test",
+            economicAttemptId: "economic-attempt:write-test",
+            selectedIdentity: {
+              route: {
+                routeId: "opencode:managed-test-route",
+                providerId: request.providerRoute.providerId,
+                modelId: request.providerRoute.model,
+                accountPolicyId: null,
+              },
+              account: { kind: "accountless" },
+            },
+          },
+        } as never,
+        dispatchFenceId: "managed-economic-dispatch:write-test",
+        beforeProviderEffect,
+        releaseBeforeProviderEffect,
+        registerExecutionSettlement: vi.fn(),
+      },
+    });
+
+    expect(started.status).toBe("started");
+    await expect(service.join(request.invocationId)).rejects.toThrow("synthetic pre-fence checkpoint failure");
+    expect(releaseBeforeProviderEffect).toHaveBeenCalledOnce();
+    expect(beforeProviderEffect).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("records and observes one terminal failure when post-adapter handoff validation fails", async () => {

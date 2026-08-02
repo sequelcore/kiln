@@ -53,6 +53,7 @@ export interface ManagedAgentOrchestrationLifecycleInput {
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
   readonly economicAdoptedDecisionAt?: string;
+  readonly abortSignal?: AbortSignal;
   readonly budgetAdmission?: ManagedAgentOrchestrationBudgetAdmissionInput;
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }
@@ -102,6 +103,7 @@ interface PreparedOrchestrationChild {
 interface ExecutableOrchestrationChild extends PreparedOrchestrationChild {
   readonly request: ManagedAgentInvocationRequest;
   readonly economicDispatch?: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>;
+  readonly abortSignal?: AbortSignal;
 }
 
 export async function runManagedAgentOrchestrationLifecycle(
@@ -189,41 +191,56 @@ export async function runManagedAgentOrchestrationLifecycle(
     for (let offset = 0; offset < ready.length; offset += input.orchestrationRequest.maxConcurrentChildren) {
       const wave = ready.slice(offset, offset + input.orchestrationRequest.maxConcurrentChildren);
       const executable: ExecutableOrchestrationChild[] = [];
-      for (const entry of wave) {
-        const failedDependencies = entry.child.dependsOn.filter((key) =>
-          !isSuccessfulLifecycleState(recordsByKey.get(key)?.record?.lifecycleState)
-        );
-        if (failedDependencies.length > 0) {
-          recordsByKey.set(entry.child.key, {
-            childId: entry.child.childId,
-            ordinal: entry.child.ordinal,
-            invocationId: sanitizeInvocationId(entry.child.childId),
-            error: `Blocked by failed dependencies: ${failedDependencies.join(", ")}`,
+      try {
+        for (const entry of wave) {
+          const failedDependencies = entry.child.dependsOn.filter((key) =>
+            !isSuccessfulLifecycleState(recordsByKey.get(key)?.record?.lifecycleState)
+          );
+          if (failedDependencies.length > 0) {
+            recordsByKey.set(entry.child.key, {
+              childId: entry.child.childId,
+              ordinal: entry.child.ordinal,
+              invocationId: sanitizeInvocationId(entry.child.childId),
+              error: `Blocked by failed dependencies: ${failedDependencies.join(", ")}`,
+            });
+            continue;
+          }
+          const dependencyRecords = entry.child.dependsOn
+            .map((key) => recordsByKey.get(key)?.record)
+            .filter((record): record is ManagedAgentInvocationRecord => record !== undefined);
+          const dispatched = await prepareOrchestrationEconomicDispatch(input, entry);
+          executable.push({
+            ...dispatched,
+            request: buildOrchestrationChildInvocationRequest({
+              orchestrationRequest: input.orchestrationRequest,
+              childId: entry.child.childId,
+              ordinal: entry.child.ordinal,
+              task: entry.child.task,
+              roleIntent: entry.child.roleIntent,
+              ...(entry.agentProfile ? { agentProfile: entry.agentProfile } : {}),
+              dependencyRecords,
+              route: dispatched.route,
+              profile: dispatched.profile,
+              requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
+              requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
+              requestedAuthority: input.requestedAuthority ?? "audited",
+              admissionProfile: input.profile,
+            }),
           });
-          continue;
         }
-        const dependencyRecords = entry.child.dependsOn
-          .map((key) => recordsByKey.get(key)?.record)
-          .filter((record): record is ManagedAgentInvocationRecord => record !== undefined);
-        const dispatched = await prepareOrchestrationEconomicDispatch(input, entry);
-        executable.push({
-          ...dispatched,
-          request: buildOrchestrationChildInvocationRequest({
-            orchestrationRequest: input.orchestrationRequest,
-            childId: entry.child.childId,
-            ordinal: entry.child.ordinal,
-            task: entry.child.task,
-            roleIntent: entry.child.roleIntent,
-            ...(entry.agentProfile ? { agentProfile: entry.agentProfile } : {}),
-            dependencyRecords,
-            route: dispatched.route,
-            profile: dispatched.profile,
-            requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
-            requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
-            requestedAuthority: input.requestedAuthority ?? "audited",
-            admissionProfile: input.profile,
-          }),
-        });
+      } catch (error) {
+        const releaseErrors: unknown[] = [];
+        for (const prepared of executable) {
+          try {
+            prepared.economicDispatch?.releaseBeforeProviderEffect();
+          } catch (releaseError) {
+            releaseErrors.push(releaseError);
+          }
+        }
+        if (releaseErrors.length > 0) {
+          throw new AggregateError([error, ...releaseErrors], "Managed orchestration pre-fence cleanup failed.");
+        }
+        throw error;
       }
       const completed = await runOrchestrationBatch({
         service,
@@ -281,6 +298,7 @@ async function prepareOrchestrationEconomicDispatch(
   entry: PreparedOrchestrationChild,
 ): Promise<PreparedOrchestrationChild & {
   readonly economicDispatch?: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>;
+  readonly abortSignal?: AbortSignal;
 }> {
   if (!entry.economicCandidateSet) return entry;
   const economicDispatch = input.managedInvocation.economicDispatch;
@@ -305,6 +323,7 @@ async function prepareOrchestrationEconomicDispatch(
     adoptedDecisionAt: input.economicAdoptedDecisionAt,
     parentSessionId: input.orchestrationRequest.parentSessionId,
     parentTurnId: input.orchestrationRequest.parentTurnId,
+    ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
   });
   if (preparation.status === "already-dispatched") {
     throw new Error(`Managed orchestration economic child '${entry.child.childId}' is already dispatch-fenced; replay will not dispatch it again.`);
@@ -322,8 +341,10 @@ async function prepareOrchestrationEconomicDispatch(
   return {
     ...entry,
     route: { ...entry.route, adapter: preparation.adapter },
+    abortSignal: preparation.abortSignal,
     economicDispatch: {
       commitment: preparation.commitment,
+      dispatchFenceId: preparation.dispatchFenceId,
       beforeProviderEffect: preparation.beforeProviderEffect,
       releaseBeforeProviderEffect: preparation.releaseBeforeProviderEffect,
       registerExecutionSettlement: preparation.registerExecutionSettlement,
@@ -337,7 +358,7 @@ async function runOrchestrationBatch(input: {
   readonly invocationOwner?: object;
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }): Promise<readonly ManagedAgentOrchestrationLifecycleChildRecord[]> {
-  const startResults = await Promise.allSettled(input.entries.map(async ({ request, route, economicDispatch }) => {
+  const startResults = await Promise.allSettled(input.entries.map(async ({ request, route, economicDispatch, abortSignal }) => {
     const adapter = route.adapter;
     if (!adapter) {
       throw new Error("economic_commitment_unavailable");
@@ -371,9 +392,10 @@ async function runOrchestrationBatch(input: {
         displayName: route.routeId,
         ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
       },
-    }, input.invocationOwner || economicDispatch ? {
+    }, input.invocationOwner || economicDispatch || abortSignal ? {
       ...(input.invocationOwner ? { owner: input.invocationOwner } : {}),
       ...(economicDispatch ? { economicDispatch } : {}),
+      ...(abortSignal ? { abortSignal } : {}),
     } : undefined);
     await input.lifecycleObserver?.onAdmissionResolved({ request, decision: startResult.decision });
     if (startResult.status === "denied") {

@@ -77,6 +77,19 @@ idempotent and owner-generation fenced. Once dispatch is fenced, unknown
 external work continues consuming capacity until authoritative settlement or
 explicit reconciliation proves release safe.
 
+The selected route timeout governs one lifecycle beginning when the authority
+acquires the held commitment. Adapter materialization, exact account binding,
+runtime authority observation, resource acquisition, recovery checkpointing,
+and provider execution share that deadline and cancellation signal. Expiry
+before the dispatch fence releases the hold exactly once. Expiry after the
+fence cancels execution but never fabricates a safe release; settlement or
+reconciliation remains authoritative.
+
+For an economically owned account route, the Runtime recovery checkpoint stores
+only the immutable commitment, job, attempt, and dispatch-fence identifiers.
+SQLite remains the sole account-lease authority; the checkpoint must not copy a
+second lease record or combine runtime-owned and economically owned authority.
+
 Release failure becomes `release-failed`; unmatched work can become `leaked`.
 Both remain capacity-consuming and carry sanitized reconciliation evidence.
 Runtime exposes an explicit reconciliation transaction for those states rather

@@ -65,13 +65,15 @@ export function createManagedDirectProviderAdapterFactory(
 ): (
   route: KilnManagedAgentRouteConfig,
   accountBinding?: DirectProviderAccountBinding,
+  abortSignal?: AbortSignal,
 ) => Promise<ManagedAgentRuntimeAdapter | undefined> {
   const resolveBuiltinToolSurface = () => createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: resolveBuiltinToolOptions(options.builtinToolOptions),
   });
   const createProvider = options.createProviderAdapter ?? createDirectProviderAdapter;
 
-  return async (route, accountBinding) => {
+  return async (route, accountBinding, abortSignal) => {
+    throwIfAborted(abortSignal);
     if (route.kind !== "direct") {
       return undefined;
     }
@@ -96,6 +98,7 @@ export function createManagedDirectProviderAdapterFactory(
         runtimeEnv: options.runtimeEnv,
         processEnv: options.processEnv,
       });
+    throwIfAborted(abortSignal);
     const builtinToolSurface = resolveBuiltinToolSurface();
     const admittedMcpSelectors = new Set(
       (route.tools?.allowed ?? []).filter((name) => name.startsWith("mcp:")),
@@ -110,6 +113,7 @@ export function createManagedDirectProviderAdapterFactory(
     } finally {
       await Promise.all(mcpClients.map(disconnectMcpClient));
     }
+    throwIfAborted(abortSignal);
     const mcpCapabilities = discoveredMcpCapabilities.flat()
       .filter((capability) => admittedMcpSelectors.has(capability.name));
     const mcpTools: ToolDefinition[] = mcpCapabilities.map((capability) => ({
@@ -153,6 +157,11 @@ export function createManagedDirectProviderAdapterFactory(
       ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
   };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error("Managed adapter construction was aborted.");
 }
 
 function unboundManagedProvider(provider: DirectProviderId): ProviderAdapter {

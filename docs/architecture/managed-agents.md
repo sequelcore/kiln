@@ -757,6 +757,15 @@ execution settlement releases capacity; rejected, timed-out, cancelled, or
 otherwise unknown settlement remains capacity-consuming until durable recovery
 or operator reconciliation proves a terminal outcome.
 
+The committed route's configured timeout starts at commitment acquisition, not
+at the later provider call. Runtime propagates one abort signal through
+postcommit adapter construction, startup, leases, checkpointing, and execution.
+Every pre-fence exit owns exactly-once compensation; orchestration cannot retain
+an earlier child's hold while a later child fails preparation.
+Recovery checkpoints reference the economic commitment and dispatch fence by
+immutable identifiers. They never duplicate the account lease held by the
+SQLite economic authority.
+
 Managed-job V7 is the sole writer contract and persists the objective plus the
 canonical terminal Runtime handoff. V5 and V6 are historical recovery readers,
 not compatibility writers. They can be removed once no durable `.kiln`

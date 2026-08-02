@@ -39,6 +39,7 @@ import {
 } from "./recovery-store.js";
 import type {
   ManagedAgentRuntimeRecoveryCheckpoint,
+  ManagedAgentRuntimeEconomicDispatchCheckpoint,
   ManagedAgentRuntimeRecoveryLeaseStage,
   ManagedAgentRuntimeRecoveryStore,
   ManagedFilesystemRuntimeRecoveryStoreConfig,
@@ -166,6 +167,7 @@ export {
   validateManagedAgentRuntimeRecoveryCheckpoint,
 };
 export type {
+  ManagedAgentRuntimeEconomicDispatchCheckpoint,
   ManagedAgentRuntimeRecoveryCheckpoint,
   ManagedAgentRuntimeRecoveryLeaseStage,
   ManagedAgentRuntimeRecoveryStore,
@@ -312,6 +314,7 @@ export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly owner?: object;
   readonly economicDispatch?: {
     readonly commitment: ManagedEconomicCommitment;
+    readonly dispatchFenceId: string;
     readonly beforeProviderEffect: () => void | Promise<void>;
     readonly releaseBeforeProviderEffect: () => void;
     readonly registerExecutionSettlement: (settlement: PromiseLike<unknown>) => void;
@@ -328,6 +331,7 @@ export interface ManagedAgentRuntimeAuthorityObservationInput {
   readonly phase: "pre-start" | "post-start" | "recovery";
   readonly request: ManagedAgentInvocationRequest;
   readonly adapterDescriptor: ManagedAgentAdapterDescriptor;
+  readonly abortSignal?: AbortSignal;
 }
 
 export interface ManagedAgentRuntimeAuthorityObserver {
@@ -340,6 +344,7 @@ export interface ManagedAgentWorktreeLeaseManagerInput {
   readonly request: ManagedAgentInvocationRequest;
   readonly decision: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
   readonly lease: ManagedAgentResourceLeaseEvidence;
+  readonly abortSignal?: AbortSignal;
 }
 
 export interface ManagedAgentWorktreeLeaseReleaseInput extends ManagedAgentWorktreeLeaseManagerInput {
@@ -488,7 +493,7 @@ export class ManagedGitWorktreeLeaseManager implements ManagedAgentWorktreeLease
       throw new ManagedAgentRuntimeAdmissionError("Managed git worktree lease manager only supports isolated worktree leases");
     }
     this.assertWorktreePath(input.lease.workingDirectoryPath);
-    await this.ensureWorktree(input.lease.workingDirectoryPath);
+    await this.ensureWorktree(input.lease.workingDirectoryPath, input.abortSignal);
     return {
       ...input.lease,
       healthStatus: "healthy",
@@ -518,7 +523,7 @@ export class ManagedGitWorktreeLeaseManager implements ManagedAgentWorktreeLease
     };
   }
 
-  private async ensureWorktree(path: string): Promise<void> {
+  private async ensureWorktree(path: string, abortSignal: AbortSignal | undefined): Promise<void> {
     if (await pathExists(path)) {
       throw new ManagedAgentWorktreeLeaseAcquireError(
         "Managed git worktree lease path already exists; refusing to adopt unmanaged checkout",
@@ -526,7 +531,7 @@ export class ManagedGitWorktreeLeaseManager implements ManagedAgentWorktreeLease
       );
     }
     try {
-      await this.git(["-C", this.repositoryPath, "worktree", "add", "--detach", path, this.ref]);
+      await this.git(["-C", this.repositoryPath, "worktree", "add", "--detach", path, this.ref], abortSignal);
     } catch (error) {
       throw new ManagedAgentWorktreeLeaseAcquireError(toError(error).message, true);
     }
@@ -543,9 +548,10 @@ export class ManagedGitWorktreeLeaseManager implements ManagedAgentWorktreeLease
     }
   }
 
-  private async git(args: readonly string[]): Promise<string> {
+  private async git(args: readonly string[], signal?: AbortSignal): Promise<string> {
     const { stdout } = await execFileAsync(this.gitBinary, [...args], {
       windowsHide: true,
+      ...(signal ? { signal } : {}),
     });
     return stdout.toString();
   }
@@ -1019,6 +1025,7 @@ interface ManagedAgentRuntimeInvocationEntry {
   promptInbox: ManagedAgentRuntimePromptAdmissionRecord[];
   progressEvents: ManagedAgentRuntimeInvocationProgressEvent[];
   adapterStarted: boolean;
+  economicDispatch?: ManagedAgentRuntimeEconomicDispatchCheckpoint;
   parentAbortCleanup?: () => void;
   leaseFinalization?: Promise<ManagedAgentInvocationRecord>;
   finishedAt?: Date;
@@ -1069,36 +1076,52 @@ export class RuntimeManagedAgentInvocationService {
     capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput,
     lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): Promise<ManagedAgentRuntimeInvocationStartResult> {
-    if (this.invocations.has(request.invocationId)) {
-      throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is already registered");
-    }
-    if (request.authority.credentialRoute.mode === "account-leased" && !lifecycleOptions.economicDispatch) {
-      throw new ManagedAgentRuntimeAdmissionError(
-        "Runtime-selected managed invocation requires a durable economic commitment and postcommit dispatch support.",
-      );
-    }
-    if (lifecycleOptions.economicDispatch) {
-      assertManagedEconomicCommitmentMatchesRequest(
-        request,
-        capabilitySnapshotInput.routeId,
-        lifecycleOptions.economicDispatch.commitment,
-      );
+    let preFenceReleaseAttempted = false;
+    const releaseEconomicPreFence = () => {
+      if (preFenceReleaseAttempted || !lifecycleOptions.economicDispatch) return;
+      preFenceReleaseAttempted = true;
+      lifecycleOptions.economicDispatch.releaseBeforeProviderEffect();
+    };
+    try {
+      if (this.invocations.has(request.invocationId)) {
+        throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation is already registered");
+      }
+      if (request.authority.credentialRoute.mode === "account-leased" && !lifecycleOptions.economicDispatch) {
+        throw new ManagedAgentRuntimeAdmissionError(
+          "Runtime-selected managed invocation requires a durable economic commitment and postcommit dispatch support.",
+        );
+      }
+      if (lifecycleOptions.economicDispatch) {
+        assertManagedEconomicCommitmentMatchesRequest(
+          request,
+          capabilitySnapshotInput.routeId,
+          lifecycleOptions.economicDispatch.commitment,
+        );
+      }
+    } catch (error) {
+      releaseEconomicPreFence();
+      throw error;
     }
 
     let admittedSnapshotInput: ManagedAgentCapabilitySnapshotInput;
     try {
       admittedSnapshotInput = this.options.authorityObserver === undefined
         ? capabilitySnapshotInputWithRuntimeAuthorityProjection(request, adapter, capabilitySnapshotInput, this.now())
-        : await this.capabilitySnapshotInputWithObservedRuntimeAuthority(request, adapter, capabilitySnapshotInput);
+        : await this.capabilitySnapshotInputWithObservedRuntimeAuthority(
+            request,
+            adapter,
+            capabilitySnapshotInput,
+            lifecycleOptions.abortSignal,
+          );
     } catch (error) {
-      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+      releaseEconomicPreFence();
       throw error;
     }
     const decision = evaluateManagedAgentAdmission(request, adapter.descriptor, admittedSnapshotInput, {
       evaluatedAt: this.now().toISOString(),
     });
     if (decision.status === "denied") {
-      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+      releaseEconomicPreFence();
       return {
         status: "denied",
         decision: cloneJson(decision),
@@ -1106,7 +1129,7 @@ export class RuntimeManagedAgentInvocationService {
     }
     const writeLeaseConflict = this.detectActiveWriteLeaseConflict(request, decision);
     if (writeLeaseConflict) {
-      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+      releaseEconomicPreFence();
       return {
         status: "denied",
         decision: cloneJson(writeLeaseConflict),
@@ -1129,6 +1152,9 @@ export class RuntimeManagedAgentInvocationService {
       promptInbox: [],
       progressEvents: [],
       adapterStarted: false,
+      ...(lifecycleOptions.economicDispatch !== undefined
+        ? { economicDispatch: economicDispatchCheckpoint(lifecycleOptions.economicDispatch) }
+        : {}),
       terminal,
       ...(lifecycleOptions.owner !== undefined ? { owner: lifecycleOptions.owner } : {}),
       ...(lifecycleOptions.terminalObserver !== undefined
@@ -1145,14 +1171,14 @@ export class RuntimeManagedAgentInvocationService {
     if (lifecycleOptions.abortSignal?.aborted) {
       await this.cancel(request.invocationId, managedInvocationAbortReason(lifecycleOptions.abortSignal.reason));
       if (entry.lifecycleState === "cancelled" && entry.record) {
-        lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+        releaseEconomicPreFence();
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
     }
     try {
       await this.acquireRuntimeResourceLeases(entry);
     } catch (error) {
-      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+      releaseEconomicPreFence();
       if ((entry.lifecycleState === "cancelled" || entry.lifecycleState === "stale") && entry.record) {
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
@@ -1176,15 +1202,16 @@ export class RuntimeManagedAgentInvocationService {
       throw runtimeError;
     }
     if (entry.lifecycleState === "cancelled" && entry.record) {
-      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+      releaseEconomicPreFence();
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     if (entry.lifecycleState === "stale" && entry.record) {
-      lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+      releaseEconomicPreFence();
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     const executableAdapter = entry.adapter;
     if (executableAdapter === undefined) {
+      releaseEconomicPreFence();
       throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation has no executable adapter");
     }
     let signalDispatchReady!: () => void;
@@ -1213,7 +1240,7 @@ export class RuntimeManagedAgentInvocationService {
               signalDispatchReady();
               return invoke();
             }, (error: unknown) => {
-              lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+              releaseEconomicPreFence();
               signalDispatchReady();
               throw error;
             });
@@ -1224,8 +1251,9 @@ export class RuntimeManagedAgentInvocationService {
         return this.options.recoveryStore
           ? this.saveRuntimeRecoveryCheckpoint(entry).then(beginInvocation)
           : beginInvocation();
-      }, (error: unknown) => {
-        lifecycleOptions.economicDispatch?.releaseBeforeProviderEffect();
+      })
+      .catch((error: unknown) => {
+        releaseEconomicPreFence();
         signalDispatchReady();
         throw error;
       });
@@ -1738,11 +1766,13 @@ export class RuntimeManagedAgentInvocationService {
     request: ManagedAgentInvocationRequest,
     adapter: ManagedAgentRuntimeAdapter,
     input: ManagedAgentCapabilitySnapshotInput,
+    abortSignal: AbortSignal | undefined,
   ): Promise<ManagedAgentCapabilitySnapshotInput> {
     const observedRuntime = await this.observeRuntimeAuthority({
       phase: "pre-start",
       request,
       adapter,
+      abortSignal,
     });
     return {
       ...input,
@@ -1766,6 +1796,7 @@ export class RuntimeManagedAgentInvocationService {
       phase: "post-start",
       request,
       adapter,
+      abortSignal: abortController.signal,
     });
     const evidence = buildManagedAgentAuthorityEvidence({
       request,
@@ -1792,13 +1823,18 @@ export class RuntimeManagedAgentInvocationService {
     readonly phase: ManagedAgentRuntimeAuthorityObservationInput["phase"];
     readonly request: ManagedAgentInvocationRequest;
     readonly adapter: ManagedAgentRuntimeAdapter;
+    readonly abortSignal?: AbortSignal;
   }): Promise<ManagedAgentObservedRuntimeAuthorityEvidence | undefined> {
     try {
-      return await this.options.authorityObserver?.observe({
+      const observation = this.options.authorityObserver?.observe({
         phase: input.phase,
         request: cloneJson(input.request),
         adapterDescriptor: cloneJson(input.adapter.descriptor),
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       });
+      return observation
+        ? await awaitManagedInvocationAbortableStep(observation, input.abortSignal)
+        : undefined;
     } catch (error) {
       const runtimeError = toError(error);
       return {
@@ -2062,6 +2098,7 @@ export class RuntimeManagedAgentInvocationService {
           request: cloneJson(entry.request),
           decision: cloneJson(entry.decision),
           lease: cloneJson(lease),
+          abortSignal: entry.abortController.signal,
         }));
       } catch (error) {
         if (isSideEffectedLeaseAcquireError(error)) {
@@ -2084,6 +2121,7 @@ export class RuntimeManagedAgentInvocationService {
           request: cloneJson(entry.request),
           decision: cloneJson(entry.decision),
           lease: cloneJson(lease),
+          abortSignal: entry.abortController.signal,
         }));
       } catch (error) {
         if (isSideEffectedLeaseAcquireError(error)) {
@@ -2103,6 +2141,7 @@ export class RuntimeManagedAgentInvocationService {
           request: cloneJson(entry.request),
           decision: cloneJson(entry.decision),
           lease: cloneJson(lease),
+          abortSignal: entry.abortController.signal,
         }));
       } catch (error) {
         if (isSideEffectedLeaseAcquireError(error)) {
@@ -2122,6 +2161,7 @@ export class RuntimeManagedAgentInvocationService {
           request: cloneJson(entry.request),
           decision: cloneJson(entry.decision),
           lease: cloneJson(lease),
+          abortSignal: entry.abortController.signal,
         }));
       } catch (error) {
         if (isSideEffectedLeaseAcquireError(error)) {
@@ -2142,6 +2182,7 @@ export class RuntimeManagedAgentInvocationService {
           request: cloneJson(entry.request),
           decision: cloneJson(entry.decision),
           lease: cloneJson(lease),
+          abortSignal: entry.abortController.signal,
         });
         markLeaseStageAcquired(entry, "environment");
         lease = validateResourceLease(entry.request, entry.decision, environmentLease.lease);
@@ -2184,6 +2225,7 @@ export class RuntimeManagedAgentInvocationService {
           request: cloneJson(entry.request),
           decision: cloneJson(entry.decision),
           lease: cloneJson(lease),
+          abortSignal: entry.abortController.signal,
         }));
       } catch (error) {
         if (isSideEffectedLeaseAcquireError(error)) {
@@ -2487,6 +2529,9 @@ function invocationEntryFromRecoveryCheckpoint(
     promptInbox: [],
     progressEvents: [],
     adapterStarted: validated.adapterStarted,
+    ...(validated.economicDispatch !== undefined
+      ? { economicDispatch: cloneJson(validated.economicDispatch) }
+      : {}),
     ...(validated.finishedAt !== undefined ? { finishedAt: new Date(validated.finishedAt) } : {}),
     ...(validated.record !== undefined ? { record: cloneJson(validated.record) } : {}),
     ...(validated.error !== undefined ? { error: new Error(validated.error.message) } : {}),
@@ -2511,6 +2556,9 @@ function recoveryCheckpointFromInvocationEntry(
     acquiredLeaseStages: [...entry.acquiredLeaseStages],
     releasedLeaseStages: [...entry.releasedLeaseStages],
     adapterStarted: entry.adapterStarted,
+    ...(entry.economicDispatch !== undefined
+      ? { economicDispatch: cloneJson(entry.economicDispatch) }
+      : {}),
     ...(entry.record !== undefined ? { record: cloneJson(entry.record) } : {}),
     ...(entry.error !== undefined ? { error: { message: entry.error.message } } : {}),
     updatedAt: new Date().toISOString(),
@@ -2677,6 +2725,17 @@ function mergeCancelledRecords(
   });
 }
 
+function economicDispatchCheckpoint(
+  dispatch: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>,
+): ManagedAgentRuntimeEconomicDispatchCheckpoint {
+  return {
+    commitmentId: dispatch.commitment.commitmentId,
+    jobId: dispatch.commitment.reservation.jobId,
+    economicAttemptId: dispatch.commitment.reservation.economicAttemptId,
+    dispatchFenceId: dispatch.dispatchFenceId,
+  };
+}
+
 function runtimeGeneratedHandoffProvenance(model: string | undefined) {
   return {
     delivery: "runtime-generated" as const,
@@ -2809,6 +2868,31 @@ function normalizeLeasePath(value: string): string {
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function awaitManagedInvocationAbortableStep<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(managedInvocationAbortError(signal));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(managedInvocationAbortError(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    void promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function managedInvocationAbortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error(managedInvocationAbortReason(signal.reason));
 }
 
 function toError(error: unknown): Error {

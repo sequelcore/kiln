@@ -594,6 +594,25 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     ]);
   });
 
+  it("releases every prepared commitment when a later child cannot be prepared", async () => {
+    const managedInvocation = createEconomicManagedInvocation();
+    const successfulPreparation = managedInvocation.prepare.getMockImplementation();
+    if (!successfulPreparation) throw new Error("fixture");
+    managedInvocation.prepare
+      .mockImplementationOnce(successfulPreparation)
+      .mockRejectedValueOnce(new Error("synthetic second preparation failure"));
+
+    await expect(runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: economicRequest(2),
+      managedInvocation: managedInvocation.options,
+      profile: "foundation-apply-approved-writes",
+      economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
+    })).rejects.toThrow("synthetic second preparation failure");
+
+    expect(managedInvocation.releaseBeforeProviderEffect).toHaveBeenCalledOnce();
+    expect(managedInvocation.invoked).not.toHaveBeenCalled();
+  });
+
   it("does not prepare an economic commitment for a dependency-blocked child", async () => {
     const managedInvocation = createEconomicManagedInvocation({ failOrdinals: new Set([1]) });
 

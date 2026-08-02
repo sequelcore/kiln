@@ -298,6 +298,80 @@ describe("managed economic candidate admission", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it("releases a prepared commitment when postcommit request realization fails", async () => {
+    const service = new RuntimeManagedAgentInvocationService();
+    const start = vi.spyOn(service, "start");
+    const releaseBeforeProviderEffect = vi.fn();
+    const contextResolver = vi.fn()
+      .mockResolvedValueOnce({ admittedAgentProfile: "scout" })
+      .mockRejectedValueOnce(new Error("synthetic postcommit context failure"));
+    const committedRoute = route({
+      routeId: "codex-primary",
+      providerId: "codex-oauth",
+      model: "gpt-test",
+      policy: true,
+      capability: "verified",
+    });
+    const attachment: ManagedInvocationToolAttachment = {
+      options: {
+        routes: [committedRoute],
+        agentCatalog: [{
+          name: "scout",
+          role: "Scout",
+          goal: "Inspect bounded work.",
+          tier: "reasoning",
+          economicPolicyId: "economy-policy",
+          economicPolicyRevision: "revision-001",
+          economicPolicyCandidateRouteIds: ["codex-primary"],
+        }],
+        contextResolver,
+        invocationService: service,
+        economicDispatch: {
+          prepare: async () => ({
+            status: "prepared",
+            commitment: {
+              reservation: {
+                selectedIdentity: {
+                  route: {
+                    routeId: "codex-primary",
+                    providerId: "codex-oauth",
+                    modelId: "gpt-test",
+                  },
+                },
+              },
+            } as never,
+            adapter: { descriptor: {} } as never,
+            beforeProviderEffect: async () => undefined,
+            releaseBeforeProviderEffect,
+            registerExecutionSettlement: () => undefined,
+          }),
+        },
+      },
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: "test",
+        attachmentId: "attachment:test",
+      },
+    };
+    const executor = createManagedInvocationLifecycleToolExecutors(attachment)
+      .get("managed_agent.invoke");
+    if (!executor) throw new Error("managed_agent.invoke was not registered");
+
+    const result = await executor({
+      profile: "foundation-readonly-plan",
+      agentProfile: "scout",
+      task: "Inspect the policy boundary.",
+    }, {
+      session: { id: "session-test", createdAt: new Date("2026-08-01T00:00:00.000Z") } as RuntimeBuiltinToolExecutionContext["session"],
+      turnId: "turn-test",
+      toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
+    }) as { readonly isError: boolean; readonly output: string };
+
+    expect(result).toMatchObject({ isError: true, output: "synthetic postcommit context failure" });
+    expect(releaseBeforeProviderEffect).toHaveBeenCalledOnce();
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it("denies skills before exposing economic candidates", async () => {
     const service = new RuntimeManagedAgentInvocationService();
     const attachment: ManagedInvocationToolAttachment = {

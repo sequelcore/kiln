@@ -26,6 +26,13 @@ export type ManagedAgentRuntimeRecoveryLeaseStage =
   | "environment"
   | "credential-route";
 
+export interface ManagedAgentRuntimeEconomicDispatchCheckpoint {
+  readonly commitmentId: string;
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  readonly dispatchFenceId: string;
+}
+
 export interface ManagedAgentRuntimeRecoveryCheckpoint {
   readonly version: 2;
   readonly lifecycleState: ManagedAgentLifecycleState;
@@ -39,6 +46,7 @@ export interface ManagedAgentRuntimeRecoveryCheckpoint {
   readonly releasedLeaseStages: readonly ManagedAgentRuntimeRecoveryLeaseStage[];
   readonly adapterStarted: boolean;
   readonly accountLease?: ManagedAccountLeaseEvidence;
+  readonly economicDispatch?: ManagedAgentRuntimeEconomicDispatchCheckpoint;
   readonly record?: ManagedAgentInvocationRecord;
   readonly error?: {
     readonly message: string;
@@ -219,6 +227,9 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
     ...(input.accountLease !== undefined
       ? { accountLease: defineManagedAccountLeaseEvidence(input.accountLease as ManagedAccountLeaseEvidence) }
       : {}),
+    ...(input.economicDispatch !== undefined
+      ? { economicDispatch: validateEconomicDispatchCheckpoint(input.economicDispatch) }
+      : {}),
     ...(input.record !== undefined ? { record: defineManagedAgentInvocationRecord(input.record as ManagedAgentInvocationRecord) } : {}),
     ...(isRecord(input.error) && typeof input.error.message === "string" ? { error: { message: input.error.message } } : {}),
     updatedAt: validateIsoTimestamp(input.updatedAt, "Managed runtime recovery checkpoint update timestamp is required"),
@@ -247,8 +258,16 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
     checkpoint.request.authority.credentialRoute.mode === "account-leased"
     && checkpoint.adapterStarted
     && checkpoint.accountLease === undefined
+    && checkpoint.economicDispatch === undefined
   ) {
-    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery checkpoint requires account lease evidence");
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Managed runtime recovery checkpoint requires one account lease authority reference",
+    );
+  }
+  if (checkpoint.accountLease !== undefined && checkpoint.economicDispatch !== undefined) {
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Managed runtime recovery checkpoint cannot duplicate account lease authority",
+    );
   }
   if (
     checkpoint.accountLease !== undefined
@@ -257,6 +276,32 @@ export function validateManagedAgentRuntimeRecoveryCheckpoint(input: unknown): M
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery account lease invocation identity does not match");
   }
   return checkpoint;
+}
+
+function validateEconomicDispatchCheckpoint(input: unknown): ManagedAgentRuntimeEconomicDispatchCheckpoint {
+  if (!isRecord(input)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery economic dispatch reference must be an object");
+  }
+  return {
+    commitmentId: validateAuthorityReference(input.commitmentId, "commitment id"),
+    jobId: validateAuthorityReference(input.jobId, "job id"),
+    economicAttemptId: validateAuthorityReference(input.economicAttemptId, "attempt id"),
+    dispatchFenceId: validateAuthorityReference(input.dispatchFenceId, "dispatch fence id"),
+  };
+}
+
+function validateAuthorityReference(input: unknown, field: string): string {
+  if (
+    typeof input !== "string"
+    || input.length === 0
+    || input !== input.trim()
+    || input.length > 512
+  ) {
+    throw new ManagedAgentRuntimeAdmissionError(
+      `Managed runtime recovery economic dispatch ${field} is invalid`,
+    );
+  }
+  return input;
 }
 
 function isTerminalRecoveryLifecycleState(state: ManagedAgentLifecycleState): boolean {

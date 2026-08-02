@@ -136,6 +136,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly directAdapterFactory?: (
     route: KilnManagedAgentRouteConfig,
     accountBinding?: DirectProviderAccountBinding,
+    abortSignal?: AbortSignal,
   ) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly builtinToolOptions?: BuiltinToolOptionsSource;
   readonly artifactStore?: ArtifactResourceStore;
@@ -632,6 +633,14 @@ export function createManagedEconomicDispatchComposition(
       recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
         composition.authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
     },
+    resolveLifecycleTimeoutMs: (commitment, admissionProfile) => {
+      const routeId = commitment.reservation.selectedIdentity.route.routeId;
+      const route = routes.find((candidate) => candidate.routeId === routeId);
+      if (!route) throw new Error(`Committed managed economic route '${routeId}' is not configured.`);
+      const profile = route.profiles[admissionProfile];
+      if (!profile) throw new Error(`Committed managed economic route '${routeId}' does not admit '${admissionProfile}'.`);
+      return profile.timeoutMs;
+    },
     createAdapter: async (request) => {
       const routeId = request.commitment.reservation.selectedIdentity.route.routeId;
       const route = routes.find((candidate) => candidate.routeId === routeId);
@@ -644,7 +653,7 @@ export function createManagedEconomicDispatchComposition(
   const projectId = `project-${createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 32)}`;
   return { coordinator, port: {
     prepare: async (input) => {
-      const adoption = await projectManagedEconomicJobAdoption(config, {
+      const adoption = await awaitManagedRoutePreparation(projectManagedEconomicJobAdoption(config, {
         economicPolicyId: input.candidateSet.economicPolicyId,
         economicPolicyRevision: input.candidateSet.economicPolicyRevision,
         candidateSet: input.candidateSet,
@@ -656,12 +665,14 @@ export function createManagedEconomicDispatchComposition(
           invocationId: input.parentSessionId,
           turnId: input.parentTurnId,
         },
-      }, composition.routing);
+      }, composition.routing), input.abortSignal);
       return await coordinator.prepare({
         jobId: input.jobId,
         economicAttemptId: input.economicAttemptId,
         intentFingerprint: input.intentFingerprint,
         adoption,
+        admissionProfile: input.candidateSet.admissionProfileId,
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       });
     },
   } };
@@ -1692,10 +1703,11 @@ async function resolveDirectRouteConfig(
                 accountRef: createAccountRef(committedAccount.accountRef),
                 credentialRevisionId: committedAccount.credentialRevision,
               });
+              throwIfManagedRoutePreparationAborted(request.abortSignal);
             } else if (routeConfig.credentials?.mode !== "credentialless") {
               throw new Error("Accountless managed commitment does not match the configured credential route.");
             }
-            return await context.directAdapterFactory?.(routeConfig, accountBinding);
+            return await context.directAdapterFactory?.(routeConfig, accountBinding, request.abortSignal);
           },
         }
       : {}),
@@ -1717,6 +1729,38 @@ async function resolveDirectRouteConfig(
     },
     route,
   };
+}
+
+function throwIfManagedRoutePreparationAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Managed route preparation was aborted.");
+}
+
+function awaitManagedRoutePreparation<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  throwIfManagedRoutePreparationAborted(signal);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      try {
+        throwIfManagedRoutePreparationAborted(signal);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function validateDirectAdapterWriteSupport(

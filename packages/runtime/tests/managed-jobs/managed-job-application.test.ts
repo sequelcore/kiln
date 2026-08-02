@@ -299,6 +299,7 @@ describe("ManagedJobApplicationService V6 precommit", () => {
         settleSuccessfulExecution,
         recordExecutionSettlementPending: vi.fn(),
       },
+      resolveLifecycleTimeoutMs: () => 1_000,
       createAdapter: async () => ({ descriptor: {} }) as never,
     });
     const service = new ManagedJobApplicationService({

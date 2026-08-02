@@ -219,6 +219,7 @@ export interface ManagedInvocationToolOptions {
       readonly adoptedDecisionAt: string;
       readonly parentSessionId: string;
       readonly parentTurnId: string;
+      readonly abortSignal?: AbortSignal;
     }): Promise<ManagedEconomicDispatchPreparation>;
   };
 }
@@ -531,6 +532,7 @@ export function collectManagedEconomicCandidates(
 export interface ManagedCommittedInvocationRequest {
   readonly commitment: ManagedEconomicCommitment;
   readonly dispatchFenceId: string;
+  readonly abortSignal: AbortSignal;
 }
 
 export interface ManagedCommittedRouteMismatchEvidence {
@@ -1638,6 +1640,7 @@ async function prepareManagedInvocationRequest(
       adoptedDecisionAt: context.session.createdAt.toISOString(),
       parentSessionId: context.session.id,
       parentTurnId: context.turnId ?? context.toolCall.id,
+      ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
     });
     if (economicPreparation.status !== "prepared") {
       return {
@@ -1683,33 +1686,44 @@ async function prepareManagedInvocationRequest(
         providerRoute: { providerId: selected.providerId, model: selected.modelId },
       };
     });
-    const recursivelyPrepared = await prepareManagedInvocationRequest({
-      ...rawInput,
-      routeId: selected.routeId,
-      providerRoute: {
-        ...parsed.input.providerRoute,
-        providerId: selected.providerId,
-        model: selected.modelId,
-      },
-    }, context, {
-      ...attachment,
-      options: {
-        ...options,
-        routes: options.routes.map((route) => route.routeId === committedRoute.routeId
-          ? { ...route, adapter: economicPreparation.adapter }
-          : route),
-        ...(fixedAgentCatalog ? { agentCatalog: fixedAgentCatalog } : {}),
-      },
-    }, toolName, "already-admitted");
-    if (!recursivelyPrepared.ok) return recursivelyPrepared;
+    let recursivelyPrepared: Awaited<ReturnType<typeof prepareManagedInvocationRequest>>;
+    try {
+      recursivelyPrepared = await prepareManagedInvocationRequest({
+        ...rawInput,
+        routeId: selected.routeId,
+        providerRoute: {
+          ...parsed.input.providerRoute,
+          providerId: selected.providerId,
+          model: selected.modelId,
+        },
+      }, context, {
+        ...attachment,
+        options: {
+          ...options,
+          routes: options.routes.map((route) => route.routeId === committedRoute.routeId
+            ? { ...route, adapter: economicPreparation.adapter }
+            : route),
+          ...(fixedAgentCatalog ? { agentCatalog: fixedAgentCatalog } : {}),
+        },
+      }, toolName, "already-admitted");
+    } catch (error) {
+      economicPreparation.releaseBeforeProviderEffect();
+      throw error;
+    }
+    if (!recursivelyPrepared.ok) {
+      economicPreparation.releaseBeforeProviderEffect();
+      return recursivelyPrepared;
+    }
     return {
       ok: true,
       prepared: {
         ...recursivelyPrepared.prepared,
         canonicalizedRawInput: canonicalizedRawInput.input,
         lifecycleOptions: {
+          abortSignal: economicPreparation.abortSignal,
           economicDispatch: {
             commitment: economicPreparation.commitment,
+            dispatchFenceId: economicPreparation.dispatchFenceId,
             beforeProviderEffect: economicPreparation.beforeProviderEffect,
             releaseBeforeProviderEffect: economicPreparation.releaseBeforeProviderEffect,
             registerExecutionSettlement: economicPreparation.registerExecutionSettlement,
@@ -2306,7 +2320,9 @@ async function executeManagedInvocationTool(
     {
       ...prepared.lifecycleOptions,
       ...(options.invocationOwner ? { owner: options.invocationOwner } : {}),
-      ...(prepared.context.abortSignal ? { abortSignal: prepared.context.abortSignal } : {}),
+      ...(!prepared.lifecycleOptions?.abortSignal && prepared.context.abortSignal
+        ? { abortSignal: prepared.context.abortSignal }
+        : {}),
     },
   );
   const startEvents = await appendAndPublishManagedInvocationStartSessionEvents({
@@ -2794,6 +2810,7 @@ async function executeManagedAgentOrchestrationTool(
       requestedAuthority: managedOrchestrationRequestedAuthority(profile),
       callerIdentity,
       economicAdoptedDecisionAt: session.context.session.createdAt.toISOString(),
+      ...(session.context.abortSignal ? { abortSignal: session.context.abortSignal } : {}),
       lifecycleObserver: {
         onAdmissionResolved: async ({ request, decision: admissionDecision }) => {
           await appendAndPublishManagedInvocationStartSessionEvents({

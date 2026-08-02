@@ -553,6 +553,7 @@ export class ManagedJobApplicationService {
         economicAttemptId: job.economicAttemptId,
         intentFingerprint,
         adoption: adopted,
+        admissionProfile: job.admissionProfileId,
       });
       if (preparation.status === "denied") {
         return this.transition(job.id, "failed", "economic_commitment_unavailable") as Promise<ManagedJobRecordV7>;

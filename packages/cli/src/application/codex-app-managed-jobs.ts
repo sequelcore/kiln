@@ -313,8 +313,10 @@ export async function createNativeHarnessManagedJobApplicationComposition(
           },
           ...(route.providerModelProof ? { providerModelProof: route.providerModelProof } : {}),
         }, {
+          abortSignal: preparation.abortSignal,
           economicDispatch: {
             commitment: preparation.commitment,
+            dispatchFenceId: preparation.dispatchFenceId,
             beforeProviderEffect: preparation.beforeProviderEffect,
             releaseBeforeProviderEffect: preparation.releaseBeforeProviderEffect,
             registerExecutionSettlement: preparation.registerExecutionSettlement,
