@@ -1811,17 +1811,39 @@ export async function runCommand(
     durationMs: Date.now() - (manager.sessionStartTimeMs ?? Date.now()),
     verificationPassed: verificationResult?.passed,
   };
+  const terminalPhase = verificationResult?.passed === false ? "verification_failed" as const : "completed" as const;
 
   try {
     await transcriptStore.finalize(sessionId, {
       resumeOutcome,
+      ...(terminalPhase === "verification_failed"
+        ? {
+            lastTurnOutcome: "failed",
+            sessionLedger: {
+              currentPhase: terminalPhase,
+              resumedFrom: continuationSessionId,
+              workingDirectory: context.workingDirectory,
+              worktreePath: context.worktreePath,
+              lastProvider: successfulProviderId,
+              lastError: "Verification gates failed.",
+              toolCallCount,
+              turnDepth,
+            },
+          }
+        : {}),
     });
   } catch {
     // fail-open
   }
 
   try {
-    const report = manager.cleanup(sessionId, finalCostUsd, verificationResult, evalScore);
+    const report = manager.cleanup({
+      sessionId,
+      terminalPhase,
+      totalCostUsd: finalCostUsd,
+      verificationResult,
+      evalScore,
+    });
     const reportWithResumeStrategy = {
       ...report,
       resumeStrategy: context.resumeStrategy,

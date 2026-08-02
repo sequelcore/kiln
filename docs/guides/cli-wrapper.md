@@ -83,6 +83,12 @@ role is to expose what Kiln is regulating:
 
 They should not present Kiln as if the backend itself were the product.
 
+The CLI session report and persisted session ledger consume the same explicit
+terminal projection. `completed`, `failed`, and `verification_failed` are run
+outcomes; they are not inferred from tool count or from an unused phase machine.
+Tool edits therefore do not manufacture success, and a completed provider turn
+cannot be reported as the default `analyze` phase.
+
 ## Context Usage
 
 When CLI already prints a session report, it includes the shared context-usage

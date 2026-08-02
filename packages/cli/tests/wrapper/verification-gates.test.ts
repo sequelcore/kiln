@@ -94,7 +94,7 @@ describe("verification-gates", () => {
         maxIterations: 1,
       };
 
-      const report = manager.cleanup("session-1", 0, verificationResult);
+      const report = manager.cleanup({ sessionId: "session-1", terminalPhase: "completed", totalCostUsd: 0, verificationResult });
 
       expect(report.verificationResult).toBeDefined();
       expect(report.verificationResult!.passed).toBe(true);
@@ -106,7 +106,7 @@ describe("verification-gates", () => {
       const manager = new SessionManager(MOCK_WRAPPER_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       await manager.prepare("task", "/project");
 
-      const report = manager.cleanup("session-1", 0);
+      const report = manager.cleanup({ sessionId: "session-1", terminalPhase: "completed", totalCostUsd: 0 });
 
       expect(report.verificationResult).toBeUndefined();
     });

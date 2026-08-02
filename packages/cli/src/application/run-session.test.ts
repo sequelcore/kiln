@@ -5,6 +5,46 @@ import type { SessionContext } from "../wrapper/index.js";
 import type { SessionHooks } from "./session-hooks.js";
 
 describe("runSession", () => {
+  it("records a failed terminal outcome on the provider attempt", async () => {
+    const run = vi.fn(async function* () {
+      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false };
+    });
+    const result = await runSession({
+      registry: {
+        createSession: vi.fn(() => ({ run, dispose: vi.fn(async () => undefined) })),
+        selectBest: vi.fn(),
+        reportSuccess: vi.fn(),
+        reportFailure: vi.fn(),
+      } as unknown as SessionRegistry,
+      cleanupRegistry: { register: vi.fn() } as never,
+      manager: {} as never,
+      context: {
+        mode: "cli-wrapper",
+        domain: { name: "test", displayName: "Test", toolTags: new Set(), qualityGates: [], detectPatterns: [], multishotExamples: "", phaseExamples: "" },
+        systemPrompt: "system",
+        projectedContext: { blocks: [], totalTokens: 0, omitted: [] },
+        mcpServerEntryPath: "",
+        workingDirectory: "/repo",
+        task: "Run bounded work",
+        resumeStrategy: "none",
+      } as unknown as SessionContext,
+      requirements: {},
+      routeCandidates: [{ provider: "codex-oauth", model: "gpt-5.5" }],
+      sessionConfig: { task: "Run bounded work", permissionPolicy: { approval: "never", sandbox: "read-only" } },
+      permissionPolicy: { approval: "never", sandbox: "read-only" },
+      env: {},
+      sessionHooks: { userPromptSubmit: vi.fn() } as unknown as SessionHooks,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toBe("Provider codex-oauth ended with terminal outcome 'failed'");
+    expect(result.attempts).toEqual([expect.objectContaining({
+      providerId: "codex-oauth",
+      succeeded: false,
+      error: "Provider codex-oauth ended with terminal outcome 'failed'",
+    })]);
+  });
+
   it("passes per-route reasoning effort to the selected session attempt", async () => {
     const run = vi.fn(async function* () {
       yield {

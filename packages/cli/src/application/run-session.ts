@@ -506,7 +506,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
               break;
             }
             if (event.outcome !== "completed") {
-              lastError = attemptError ?? `Provider ${providerId} ended with error`;
+              attemptError ??= `Provider ${providerId} ended with terminal outcome '${event.outcome}'`;
+              lastError = attemptError;
               exactArtifacts.add(lastError);
               options.registry.reportFailure(providerId, false);
               break;

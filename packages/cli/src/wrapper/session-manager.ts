@@ -1,8 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DefaultContextGovernor, Orchestrator, GateRunner, VerificationLoop, EventBus } from "@kilnai/core";
-import type { ContextArtifactCache, DomainConfig, RoleUsage, QualityGate, VerificationResult } from "@kilnai/core";
-import { MODEL_PRICING } from "@kilnai/core";
+import { DefaultContextGovernor, GateRunner, VerificationLoop, EventBus } from "@kilnai/core";
+import type { ContextArtifactCache, DomainConfig, QualityGate, VerificationResult } from "@kilnai/core";
 import type { ResumeFeedback, ResumeStrategy, WrapperConfig, SessionContext, SessionReport } from "./index.js";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
@@ -171,7 +170,6 @@ export class SessionManager {
   private readonly appConfig: KilnAppConfig;
   private readonly contextArtifactCache: ContextArtifactCache;
   private readonly worktreeManager?: WorktreeManager;
-  private orchestrator: Orchestrator | null = null;
   private domain: DomainConfig | null = null;
   private task: string | null = null;
   private sessionStartTime: number | null = null;
@@ -225,7 +223,6 @@ export class SessionManager {
       "..", "mcp", "index.js",
     );
 
-    this.orchestrator = new Orchestrator();
     this.task = task;
     this.sessionStartTime = Date.now();
 
@@ -322,45 +319,35 @@ export class SessionManager {
 
   /**
    * Post-session cleanup: build report.
-   * @param totalCostUsd Cost reported directly from the session (ClaudeSession.total_cost_usd).
-   *                       Falls back to Orchestrator costSummary when session cost is unavailable.
+   * Builds a report from the same explicit terminal projection persisted by the run command.
    */
-  cleanup(
-    sessionId: string,
-    totalCostUsd?: number,
-    verificationResult?: VerificationResult,
-    evalScore?: SessionReport["evalScore"],
-  ): SessionReport {
+  cleanup(input: {
+    readonly sessionId: string;
+    readonly terminalPhase: "completed" | "failed" | "verification_failed";
+    readonly totalCostUsd?: number;
+    readonly verificationResult?: VerificationResult;
+    readonly evalScore?: SessionReport["evalScore"];
+  }): SessionReport {
     const duration = this.sessionStartTime
       ? Date.now() - this.sessionStartTime
       : 0;
 
-    const costSummary = this.orchestrator?.costSummary;
-    const byRoleModel: Record<string, number> = {};
-    if (costSummary) {
-      for (const [key, usage] of Object.entries(costSummary.byRoleModel)) {
-        byRoleModel[key] = computeRoleCostUsd(usage);
-      }
-    }
-
     const report: SessionReport = {
-      sessionId,
-      task: this.orchestrator?.task ?? this.task ?? "",
+      sessionId: input.sessionId,
+      task: this.task ?? "",
       domain: this.domain?.displayName ?? "Unknown",
-      phaseReached: this.orchestrator?.currentPhase ?? "analyze",
+      phaseReached: input.terminalPhase,
       cost: {
-        total: totalCostUsd ?? costSummary?.totalCostUsd ?? 0,
-        byRoleModel,
+        total: input.totalCostUsd ?? 0,
+        byRoleModel: {},
         breakdown: this.costTurns,
       },
       duration,
-      verificationResult: verificationResult
-        ? { passed: verificationResult.passed, checks: verificationResult.checks }
+      verificationResult: input.verificationResult
+        ? { passed: input.verificationResult.passed, checks: input.verificationResult.checks }
         : undefined,
-      evalScore,
+      evalScore: input.evalScore,
     };
-    this.orchestrator?.dispose();
-    this.orchestrator = null;
     this.task = null;
     return report;
   }
@@ -419,24 +406,4 @@ export class SessionManager {
     });
     return loop.run();
   }
-}
-
-
-/** Compute USD cost for a single role usage entry */
-function computeRoleCostUsd(usage: RoleUsage): number {
-  const pricing = MODEL_PRICING.get(usage.model);
-  if (!pricing) return 0;
-
-  const uncachedInput = Math.max(
-    0,
-    usage.inputTokens - usage.cacheReadTokens - usage.cacheWriteTokens,
-  );
-
-  return (
-    (uncachedInput * pricing.inputRate +
-      usage.outputTokens * pricing.outputRate +
-      usage.cacheReadTokens * pricing.inputRate * pricing.cacheReadMultiplier +
-      usage.cacheWriteTokens * pricing.inputRate * pricing.cacheWriteMultiplier) /
-    1_000_000
-  );
 }

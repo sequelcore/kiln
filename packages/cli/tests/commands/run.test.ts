@@ -583,7 +583,7 @@ describe("run command", () => {
       expect(ctx.domain).toBeTruthy();
       expect(ctx.mcpServerEntryPath).toBeTruthy();
 
-      const report = manager.cleanup("session-123");
+      const report = manager.cleanup({ sessionId: "session-123", terminalPhase: "completed" });
       expect(report.sessionId).toBe("session-123");
       expect(report.task).toBe("Add tests");
     });

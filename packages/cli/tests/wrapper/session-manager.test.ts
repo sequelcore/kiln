@@ -114,9 +114,13 @@ describe("SessionManager", () => {
     it("returns a SessionReport", async () => {
       const manager = new SessionManager(MOCK_CONFIG, MOCK_APP_CONFIG, MOCK_CACHE);
       await manager.prepare("Fix the login bug", "/home/user/project");
-      const report = manager.cleanup("test-session-id");
+      const report = manager.cleanup({
+        sessionId: "test-session-id",
+        terminalPhase: "completed",
+      });
 
       expect(report.sessionId).toBe("test-session-id");
+      expect(report.phaseReached).toBe("completed");
       expect(report.domain).toBeTruthy();
       expect(report.cost).toHaveProperty("total");
       expect(report.cost).toHaveProperty("byRoleModel");
