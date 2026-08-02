@@ -139,7 +139,7 @@ export async function resolveRuntimeSessionRouting(
   let routedModelIdentity: string | undefined;
   const phaseAwareSignals = resolvePhaseAwareRoutingSignals(perCallConfig?.modelRoutingPolicy);
 
-  if (perCallConfig?.modelOverride) {
+  if (perCallConfig?.modelOverride?.source === "operator") {
     const override = perCallConfig.modelOverride;
     routedProviderIdentity = override.provider;
     routedModelIdentity = override.model;
@@ -155,7 +155,7 @@ export async function resolveRuntimeSessionRouting(
       reasoning: "Explicit model override",
       confidence: 1.0,
       routingTier: "rule",
-      selectionMode: "manual_override",
+      selectionMode: "explicit-operator-only",
     };
   } else if (deps.modelRouter) {
     try {
@@ -174,7 +174,7 @@ export async function resolveRuntimeSessionRouting(
       });
       routingDecision = {
         ...decision,
-        selectionMode: "auto",
+        selectionMode: "automatic",
       };
 
       const poolProvider = deps.providerPool?.get(decision.provider);
@@ -851,7 +851,7 @@ function buildModelRoutingRationale(
     selectedProvider: decision.provider,
     selectedModel: decision.model,
     canonicalModel: decision.canonicalModel,
-    selectionMode: decision.selectionMode ?? "auto",
+    selectionMode: decision.selectionMode ?? "automatic",
     reasoningEffort: perCallConfig?.reasoningEffort,
     routingReason: decision.reasoning,
     confidence: decision.confidence,
@@ -872,7 +872,7 @@ function buildModelRoutingRationale(
       ...ranking.diagnostics,
       ...reasoningEffortDiagnostics(decision, perCallConfig?.reasoningEffort, perCallConfig?.modelRoutingPolicy),
     ],
-    ...(decision.selectionMode === "manual_override"
+    ...(decision.selectionMode === "explicit-operator-only"
       ? { overrideSource: perCallConfig?.modelOverride?.source ?? "operator" }
       : {}),
   };

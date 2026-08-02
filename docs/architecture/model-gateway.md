@@ -82,6 +82,21 @@ reconstruct runtime eligibility.
 10. Stream canonical events and project them back to the ingress protocol.
 11. Record the terminal outcome, health evidence, usage, and affinity state.
 
+## Selection Mode
+
+Route eligibility resolves one admitted model turn under a public `selectionMode`
+contract:
+
+- `automatic`: the default routed path. The gateway selects the provider/model
+  route from canonical evidence and must not silently honor a gateway-provided
+  model override.
+- `explicit-operator-only`: admitted only when the direct override carries
+  valid literal operator provenance. Missing or non-operator provenance fails
+  closed into `automatic` routing and produces no override rationale.
+
+The obsolete `auto | manual_override` contract was replaced outright by
+`automatic | explicit-operator-only` and is not parsed or projected.
+
 ## Account Selection
 
 Account selection happens after route eligibility. Account health cannot make

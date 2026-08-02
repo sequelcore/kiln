@@ -137,7 +137,7 @@ export interface GuiModelRoutingRationale {
   readonly selectedProvider: string;
   readonly selectedModel: string;
   readonly canonicalModel?: string;
-  readonly selectionMode: "auto" | "manual_override";
+  readonly selectionMode: "automatic" | "explicit-operator-only";
   readonly reasoningEffort?: GuiProviderReasoningEffort;
   readonly routingReason: string;
   readonly confidence: number;

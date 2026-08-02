@@ -1767,7 +1767,7 @@ describe("session-store provider selection", () => {
       routingRationale: {
         selectedProvider: "claude",
         selectedModel: "claude-sonnet-4-6",
-        selectionMode: "auto",
+        selectionMode: "automatic",
         routingReason: "Rule matched",
         confidence: 1,
         routingTier: "rule",
@@ -1791,7 +1791,7 @@ describe("session-store provider selection", () => {
     expect(state.messages[0]?.routingRationale).toMatchObject({
       selectedProvider: "claude",
       selectedModel: "claude-sonnet-4-6",
-      selectionMode: "auto",
+      selectionMode: "automatic",
       routingReason: "Rule matched",
     });
     expect(state.timelineEntries.at(-1)).toMatchObject({
@@ -1799,7 +1799,7 @@ describe("session-store provider selection", () => {
       eventKind: "turn_completed",
       details: {
         routingRationale: {
-          selectionMode: "auto",
+          selectionMode: "automatic",
           routingReason: "Rule matched",
         },
       },

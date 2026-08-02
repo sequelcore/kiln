@@ -6,7 +6,19 @@ import type { ExecutionBillingMode } from "../../agents/execution-identity.js";
 /** Routing tier describes how the model was selected */
 export type RoutingTier = "rule" | "complexity" | "cascade" | "default";
 
-export type ModelSelectionMode = "auto" | "manual_override";
+/**
+ * How a model route was selected for one turn.
+ *
+ * `automatic`: the runtime used its default provider/model or ran the model
+ * router. It never honors an explicit gateway override silently. A `modelOverride`
+ * supplied without valid explicit-operator provenance is ignored in automatic
+ * mode and the routed/default provider is used instead.
+ *
+ * `explicit-operator-only`: the turn used a direct model override that carried
+ * valid explicit operator provenance (`source: "operator"`). Only provenanced
+ * explicit overrides may drive a non-automatic route.
+ */
+export type ModelSelectionMode = "automatic" | "explicit-operator-only";
 export type ModelRoutingReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 export type ModelRoutingDiagnosticSeverity = "info" | "warning" | "error";
 

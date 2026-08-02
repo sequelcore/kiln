@@ -1788,7 +1788,7 @@ function toPublicRoutingDecision(
     readonly billingMode?: import("@kilnai/core").ExecutionBillingMode;
     readonly routingTier: string;
     readonly reasoning: string;
-    readonly selectionMode?: "auto" | "manual_override";
+    readonly selectionMode?: "automatic" | "explicit-operator-only";
     readonly reasoningEffort?: import("@kilnai/core").ReasoningEffort;
     readonly rationale?: import("@kilnai/core").ModelRoutingRationale;
   } | undefined,

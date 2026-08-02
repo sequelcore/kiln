@@ -1465,7 +1465,7 @@ describe("session-store", () => {
         routingRationale: {
           selectedProvider: "codex-oauth",
           selectedModel: "gpt-5.4-mini",
-          selectionMode: "auto",
+          selectionMode: "automatic",
           routingReason: "Auto by Kiln selected the default route.",
           routingTier: "default",
         },
@@ -1490,7 +1490,7 @@ describe("session-store", () => {
       eventKind: "turn_completed",
       details: expect.objectContaining({
         routingRationale: expect.objectContaining({
-          selectionMode: "auto",
+          selectionMode: "automatic",
           routingReason: "Auto by Kiln selected the default route.",
         }),
         authorityStatus: {
@@ -3180,7 +3180,7 @@ describe("session-store", () => {
             routingRationale: {
               selectedProvider: "codex-oauth",
               selectedModel: "gpt-5.4-mini",
-              selectionMode: "auto",
+              selectionMode: "automatic",
               routingReason: "Auto by Kiln selected the default route.",
               routingTier: "default",
             },
@@ -3205,7 +3205,7 @@ describe("session-store", () => {
       eventKind: "turn_completed",
       details: expect.objectContaining({
         routingRationale: expect.objectContaining({
-          selectionMode: "auto",
+          selectionMode: "automatic",
           routingReason: "Auto by Kiln selected the default route.",
         }),
         authorityStatus: {

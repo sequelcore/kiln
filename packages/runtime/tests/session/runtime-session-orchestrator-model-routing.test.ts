@@ -250,11 +250,11 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(result.routingDecision!.model).toBe("routed-model");
     expect(result.routingDecision!.routingTier).toBe("rule");
     expect(result.routingDecision!.reasoning).toBe("Test rule matched");
-    expect(result.routingDecision!.selectionMode).toBe("auto");
+    expect(result.routingDecision!.selectionMode).toBe("automatic");
     expect(result.routingDecision!.rationale).toMatchObject({
       selectedProvider: "routed",
       selectedModel: "routed-model",
-      selectionMode: "auto",
+      selectionMode: "automatic",
       routingReason: "Test rule matched",
     });
   });
@@ -1203,7 +1203,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     });
     const session = makeSession();
     const result = await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
-      modelOverride: { provider: "override", model: "override-model" },
+      modelOverride: { provider: "override", model: "override-model", source: "operator" },
     });
 
     // Override provider should be used, not the routed one
@@ -1215,14 +1215,95 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(result.routingDecision).toBeDefined();
     expect(result.routingDecision!.provider).toBe("override");
     expect(result.routingDecision!.model).toBe("override-model");
-    expect(result.routingDecision!.selectionMode).toBe("manual_override");
+    expect(result.routingDecision!.selectionMode).toBe("explicit-operator-only");
     expect(result.routingDecision!.rationale).toMatchObject({
       selectedProvider: "override",
       selectedModel: "override-model",
-      selectionMode: "manual_override",
+      selectionMode: "explicit-operator-only",
       overrideSource: "operator",
       routingReason: "Explicit model override",
     });
+  });
+
+  it("ignores modelOverride without explicit operator provenance and falls back to automatic routing", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Default automatic route",
+      confidence: 1.0,
+      routingTier: "rule",
+    });
+    const overrideProvider = makeProvider("override");
+    const providerPool = new Map<string, ProviderAdapter>([
+      ["routed", routedProvider],
+      ["override", overrideProvider],
+    ]);
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+      providerPool,
+    });
+    const session = makeSession();
+    const result = await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
+      // No `source: "operator"` provenance: the override must fail closed.
+      modelOverride: { provider: "override", model: "override-model" },
+    });
+
+    // The override is not honored; automatic routing drives the turn.
+    expect(routedProvider.createMessage).toHaveBeenCalled();
+    expect(overrideProvider.createMessage).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+    expect(router.route).toHaveBeenCalled();
+    expect(result.routingDecision).toBeDefined();
+    expect(result.routingDecision!.provider).toBe("routed");
+    expect(result.routingDecision!.model).toBe("routed-model");
+    expect(result.routingDecision!.selectionMode).toBe("automatic");
+    expect(result.routingDecision!.rationale).toMatchObject({
+      selectedProvider: "routed",
+      selectedModel: "routed-model",
+      selectionMode: "automatic",
+      routingReason: "Default automatic route",
+    });
+    // No override provenance is recorded for a non-honored override.
+    expect(result.routingDecision!.rationale?.overrideSource).toBeUndefined();
+  });
+
+  it("ignores modelOverride whose source is not the operator provenance literal", async () => {
+    const routedProvider = makeProvider("routed");
+    const router = makeRouter({
+      provider: "routed",
+      model: "routed-model",
+      reasoning: "Default automatic route",
+      confidence: 1.0,
+      routingTier: "rule",
+    });
+    const overrideProvider = makeProvider("override");
+    const providerPool = new Map<string, ProviderAdapter>([
+      ["routed", routedProvider],
+      ["override", overrideProvider],
+    ]);
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      modelRouter: router,
+      providerPool,
+    });
+    const session = makeSession();
+    // A malformed/non-operator source must fail closed even if it reaches the
+    // override path. The public type only admits `"operator"`, so cast to
+    // exercise the runtime fail-closed guard against adversarial input.
+    const result = await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
+      modelOverride: {
+        provider: "override",
+        model: "override-model",
+        source: "scheduler" as "operator",
+      },
+    });
+
+    expect(routedProvider.createMessage).toHaveBeenCalled();
+    expect(overrideProvider.createMessage).not.toHaveBeenCalled();
+    expect(result.routingDecision!.selectionMode).toBe("automatic");
+    expect(result.routingDecision!.rationale?.overrideSource).toBeUndefined();
   });
 
   it("records stale ranking evidence as diagnostics without making it authoritative", async () => {
@@ -1277,7 +1358,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
 
     await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
-      modelOverride: { provider: "openai", model: "gpt-4o-mini" },
+      modelOverride: { provider: "openai", model: "gpt-4o-mini", source: "operator" },
     });
 
     const defaultCall = (defaultProvider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
@@ -1333,7 +1414,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
 
     await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
-      modelOverride: { provider: "opencode", model: "opencode/minimax-m2.5-free" },
+      modelOverride: { provider: "opencode", model: "opencode/minimax-m2.5-free", source: "operator" },
     });
 
     const costUpdateEvents = eventBus.emit.mock.calls.filter(
@@ -1384,7 +1465,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
 
     await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
-      modelOverride: { provider: "opencode", model: "opencode/nemotron-3-super-free" },
+      modelOverride: { provider: "opencode", model: "opencode/nemotron-3-super-free", source: "operator" },
     });
 
     const costUpdateEvents = eventBus.emit.mock.calls.filter(
@@ -1435,7 +1516,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
 
     await orchestrator.processMessage(session, textParts("hello"), undefined, undefined, {
-      modelOverride: { provider: "codex-oauth", model: "gpt-5.5" },
+      modelOverride: { provider: "codex-oauth", model: "gpt-5.5", source: "operator" },
     });
 
     const costUpdateEvents = eventBus.emit.mock.calls.filter(
@@ -1471,7 +1552,7 @@ describe("RuntimeSessionOrchestrator model routing", () => {
 
     eventBus.emit.mockClear();
     await orchestrator.processMessage(makeSession(), textParts("hello"), undefined, undefined, {
-      modelOverride: { provider: "openai", model: "unknown-metered-model" },
+      modelOverride: { provider: "openai", model: "unknown-metered-model", source: "operator" },
     });
 
     const unknownCostUpdateEvents = eventBus.emit.mock.calls.filter(
@@ -1516,11 +1597,11 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       billingMode: "metered",
       routingTier: "rule",
       reasoning: "Budget saving rule",
-      selectionMode: "auto",
+      selectionMode: "automatic",
       rationale: expect.objectContaining({
         selectedProvider: "anthropic",
         selectedModel: "claude-haiku-4-5-20251001",
-        selectionMode: "auto",
+        selectionMode: "automatic",
         routingReason: "Budget saving rule",
       }),
     });

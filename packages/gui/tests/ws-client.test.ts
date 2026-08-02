@@ -1148,7 +1148,7 @@ describe("GuiWsClient", () => {
             routingRationale: {
               selectedProvider: "codex-oauth",
               selectedModel: "gpt-5.4-mini",
-              selectionMode: "auto",
+              selectionMode: "automatic",
               reasoningEffort: "medium",
               routingReason: "Rule matched",
               confidence: 1,
@@ -1185,7 +1185,7 @@ describe("GuiWsClient", () => {
             routingRationale: {
               selectedProvider: "codex-oauth",
               selectedModel: "gpt-5.4-mini",
-              selectionMode: "auto",
+              selectionMode: "automatic",
               reasoningEffort: "medium",
               routingReason: "Rule matched",
               confidence: 1,

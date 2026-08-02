@@ -641,7 +641,7 @@ export interface ModelRoutedEvent extends KilnEvent {
   readonly routingTier: "rule" | "complexity" | "cascade" | "default";
   readonly complexityScore?: number;
   readonly reason: string;
-  readonly selectionMode?: "auto" | "manual_override";
+  readonly selectionMode?: "automatic" | "explicit-operator-only";
   readonly reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   readonly rationale?: import("../engine/domain/model-router.js").ModelRoutingRationale;
 }

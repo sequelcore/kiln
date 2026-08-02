@@ -107,7 +107,7 @@ describe("WorkflowOverviewPanel", () => {
           routingRationale: {
             selectedProvider: "claude",
             selectedModel: "claude-sonnet-4-6",
-            selectionMode: "auto",
+            selectionMode: "automatic",
             routingReason: "Rule matched ui-change route",
             routingTier: "rule",
             requestedReasoningEffort: "high",
@@ -124,7 +124,7 @@ describe("WorkflowOverviewPanel", () => {
 
     expect(screen.getByText("Authority and route")).toBeInTheDocument();
     expect(screen.getByText("claude-sonnet-4-6")).toBeInTheDocument();
-    expect(screen.getByText("auto selection")).toBeInTheDocument();
+    expect(screen.getByText("automatic selection")).toBeInTheDocument();
     expect(screen.getByText("rule route")).toBeInTheDocument();
     expect(screen.getByText("read only authority")).toBeInTheDocument();
     expect(screen.getByText("authoritative")).toBeInTheDocument();

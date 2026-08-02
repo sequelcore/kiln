@@ -2259,11 +2259,11 @@ describe("startGuiGateway static mount", () => {
           model: GPT4O,
           routingTier: "rule",
           reasoning: "GUI route selected",
-          selectionMode: "auto",
+          selectionMode: "automatic",
           rationale: {
             selectedProvider: "openai",
             selectedModel: GPT4O,
-            selectionMode: "auto",
+            selectionMode: "automatic",
             routingReason: "GUI route selected",
             confidence: 1,
             routingTier: "rule",
@@ -2325,7 +2325,7 @@ describe("startGuiGateway static mount", () => {
         routingRationale: expect.objectContaining({
           selectedProvider: "openai",
           selectedModel: GPT4O,
-          selectionMode: "auto",
+          selectionMode: "automatic",
           routingReason: "GUI route selected",
         }),
       }));

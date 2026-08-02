@@ -349,7 +349,7 @@ const GuiModelRoutingRationaleSchema = z.object({
   selectedProvider: z.string(),
   selectedModel: z.string(),
   canonicalModel: z.string().optional(),
-  selectionMode: z.enum(["auto", "manual_override"]),
+  selectionMode: z.enum(["automatic", "explicit-operator-only"]),
   reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
   routingReason: z.string(),
   confidence: z.number(),

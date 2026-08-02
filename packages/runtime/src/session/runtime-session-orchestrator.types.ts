@@ -204,7 +204,7 @@ export interface OrchestrateResult {
     readonly billingMode?: ExecutionBillingMode;
     readonly routingTier: string;
     readonly reasoning: string;
-    readonly selectionMode?: "auto" | "manual_override";
+    readonly selectionMode?: "automatic" | "explicit-operator-only";
     readonly reasoningEffort?: ReasoningEffort;
     readonly rationale?: ModelRoutingRationale;
   };
@@ -342,7 +342,7 @@ export interface PerCallToolConfig {
     readonly model: string;
     readonly canonicalModel?: string;
     readonly billingMode?: ExecutionBillingMode;
-    readonly source?: string;
+    readonly source?: "operator";
   };
   readonly reasoningEffort?: ReasoningEffort;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
