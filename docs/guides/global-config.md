@@ -166,8 +166,7 @@ change explicitly.
 ```yaml
 deliberationPolicy:
   default:
-    mode: fixed
-    preferredLevel: medium
+    mode: provider-default
     onUnsupported: omit
   byTask:
     architecture-review: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: deny }
@@ -180,6 +179,14 @@ deliberationPolicy:
       preferredLevel: xhigh
       onUnsupported: deny
 ```
+Exact-route rules take precedence over task rules. Keep `byRoute` sparse: a
+route-level `max` also applies when that route is selected for a mechanical
+task. Prefer task rules unless one model has a durable route-wide requirement.
+Codex OAuth capabilities come from its authenticated model catalog. OpenCode
+Go and Zen currently remain provider-default: their model catalog advertises
+variants, but the direct gateway does not provide an executable, revisioned
+effort contract that Kiln can safely lower.
+
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from
 `.kiln/agents`, `~/.kiln/agents`, `.kiln/instructions`,

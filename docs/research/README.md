@@ -149,6 +149,11 @@ define the active architecture contract. For doctrine, use
   within-session compliance decay finding and the explicit refusal to justify a
   file-size cap on adherence grounds.
 
+- `30-deliberation-policy-2026.md`
+  Cross-provider inference-effort evidence, transport boundaries, and the
+  adopted global policy for provider defaults, task-level effort, and explicit
+  maximum-compute requests.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -191,4 +196,6 @@ define the active architecture contract. For doctrine, use
 26. `26-opencode-go-roster-2026.md`
 27. `27-write-and-render-route-admission-2026.md`
 28. `28-claude-model-route-validation-2026.md`
-29. `web-retrieval-provider-routing.md`
+29. `29-instruction-file-evidence-2026.md`
+30. `30-deliberation-policy-2026.md`
+31. `web-retrieval-provider-routing.md`

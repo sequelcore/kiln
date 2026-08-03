@@ -51,6 +51,9 @@ provider-neutral `provider-default`, `fixed`, or bounded `adaptive` intent.
 After route selection, Runtime resolves it against that exact model's ordered,
 revisioned capabilities. The result records `exact`, `clamped`, `defaulted`,
 `omitted`, or `denied`; unsupported behavior is never silent.
+Direct OpenCode routes remain at provider default. The OpenCode catalog can
+name variants, but Kiln does not treat catalog names as executable capability
+evidence while the direct gateway rejects the corresponding wire override.
 
 | Model | Provider | Quality | Tools | Streaming | Vision | Context |
 |-------|----------|---------|-------|-----------|--------|---------|
