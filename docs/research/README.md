@@ -143,6 +143,12 @@ define the active architecture contract. For doctrine, use
   Exact live validation and bounded team roles for Claude Opus, Sonnet, and
   Haiku, plus the explicit reason Fable remains outside the admitted set.
 
+- `29-instruction-file-evidence-2026.md`
+  Measured evidence on instruction-file structure, adherence, and configuration
+  smells behind the `executionDiscipline` doctrine section, including the
+  within-session compliance decay finding and the explicit refusal to justify a
+  file-size cap on adherence grounds.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
