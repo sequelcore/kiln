@@ -34,6 +34,7 @@ describe("OpenCodeAdapter", () => {
       expect(adapter.name).toBe("opencode-go");
       expect(adapter.tier).toBe("go");
       expect(adapter.defaultModel).toBe("minimax-m2.5");
+      expect(adapter.deliberationTransport).toBe("none");
     });
 
     it("tier 'zen' uses providerName 'opencode-zen' and the selected model", async () => {
