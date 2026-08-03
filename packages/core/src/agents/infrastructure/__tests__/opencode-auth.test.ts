@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeFile } from "node:fs/promises";
 import { mkdtempSync, rmSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenCodeAuthFile } from "../opencode-auth.js";
 
 describe("OpenCodeAuth", () => {
@@ -15,6 +15,7 @@ describe("OpenCodeAuth", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -171,6 +172,25 @@ describe("OpenCodeAuth", () => {
   });
 
   describe("importFromOpenCodeConfig", () => {
+    it("reads native auth from the OpenCode XDG data directory", async () => {
+      const dataHome = join(tempDir, "data");
+      const sourceDirectory = join(dataHome, "opencode");
+      await mkdir(sourceDirectory, { recursive: true });
+      await writeFile(
+        join(sourceDirectory, "auth.json"),
+        JSON.stringify({ "opencode-go": { type: "api", key: "sk-go" } }),
+        "utf8",
+      );
+      vi.stubEnv("XDG_DATA_HOME", dataHome);
+      vi.stubEnv("OPENCODE_CONFIG_DIR", join(tempDir, "config"));
+
+      const { OpenCodeAuth } = await import("../opencode-auth.js");
+      const auth = new OpenCodeAuth({ tokenPath });
+      const result = await auth.readFromOpenCodeConfig({ tier: "go" });
+
+      expect(result).toEqual(expect.objectContaining({ api_key: "sk-go", tier: "go" }));
+    });
+
     it("imports from valid source file with type api and saves with tier go", async () => {
       const sourcePath = join(tempDir, "source-auth.json");
       const sourceContent = {

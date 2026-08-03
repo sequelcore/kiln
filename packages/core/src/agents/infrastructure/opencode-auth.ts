@@ -18,16 +18,8 @@ export interface OpenCodeAuthOptions {
 const DEFAULT_TOKEN_PATH = join(homedir(), ".kiln", "auth", "opencode.json");
 
 function getDefaultOpenCodeSourcePath(): string {
-  const envConfigDir = process.env.OPENCODE_CONFIG_DIR;
-  if (envConfigDir) {
-    return join(envConfigDir, "auth.json");
-  }
-
-  if (process.platform === "win32") {
-    return join(homedir(), "AppData", "Local", "opencode", "auth.json");
-  }
-
-  return join(homedir(), ".local", "share", "opencode", "auth.json");
+  const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
+  return join(dataHome, "opencode", "auth.json");
 }
 
 export class OpenCodeAuth {

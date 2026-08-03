@@ -112,8 +112,11 @@ Kiln uses for its own provider calls stays governed by pool selection and
 routing config.
 
 `kiln auth opencode link` stores an OpenCode API key under
-`~/.kiln/auth/opencode/`. Without `--key`, Kiln first tries to import the key
-from the local OpenCode config and then falls back to an interactive paste.
+`~/.kiln/auth/opencode-api/`. Without `--key`, Kiln first tries to import the
+key from OpenCode's native data store at
+`${XDG_DATA_HOME:-~/.local/share}/opencode/auth.json` and then falls back to an
+interactive paste. `OPENCODE_CONFIG_DIR` changes OpenCode's configuration
+directory, not this credential data path.
 OpenCode Go and Zen credentials are stored as separate tiered entries. The
 default credential ids are `go-primary` and `zen-primary`; pass `--id` to manage
 multiple accounts or named workspaces. `status` and `logout` accept the same
