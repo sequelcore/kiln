@@ -141,26 +141,25 @@ See [Coordination Guide](../guides/coordination-intelligence.md) for lifecycle
 semantics and [Managed Invocation Routing Research](../research/21-managed-invocation-routing-2026.md)
 for the evidence and decision record behind this topology.
 
-## Reasoning Effort
+## Deliberation Policy
 
-The profile uses normalized, capability-gated effort:
+The profile declares provider-neutral intent resolved against each selected model:
 
 ```yaml
-reasoningPolicy:
-  default: medium
-  unsupported: omit
+deliberationPolicy:
+  default: { mode: fixed, preferredLevel: medium, onUnsupported: omit }
   byTask:
-    architecture-review: high
-    backend-coding: high
-    frontend-design: high
-    test-writing: high
-    research: high
-    mechanical-edit: low
+    architecture-review: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: deny }
+    backend-coding: { mode: fixed, preferredLevel: high, onUnsupported: deny }
+    frontend-design: { mode: fixed, preferredLevel: high, onUnsupported: deny }
+    test-writing: { mode: fixed, preferredLevel: high, onUnsupported: deny }
+    research: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: omit }
+    mechanical-edit: { mode: fixed, preferredLevel: low, onUnsupported: omit }
 ```
 
-Kiln sends an effort value only when the selected provider/model advertises
-support. Unsupported or unknown routes omit it instead of receiving an invented
-provider-specific value.
+Kiln admits a native override only when revisioned capability evidence preserves
+the intent. Unsupported behavior is explicit per rule; no silent downgrade or
+invented provider default is allowed.
 
 ## Permission Integrity
 

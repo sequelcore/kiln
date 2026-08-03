@@ -78,9 +78,7 @@ Useful flags:
 - `--model <name>` to select the model for providers that require model selection
 - `--output answer` to write only assistant content to stdout for exact-format evals
 - `--output json` to write a structured `kiln.run.output.v1` envelope
-- `--effort <minimal|low|medium|high|xhigh>` or
-  `--reasoning-effort <minimal|low|medium|high|xhigh>` to set reasoning effort
-  for providers/models that support it
+- `--deliberation-level <id>` to request one advertised model deliberation level
 - `--authority <auto|read_only|audited|destructive>` to request a bounded turn
   authority on direct providers
 - `--plan` to start in plan mode
@@ -121,11 +119,11 @@ Current transport behavior:
 - direct transport is available only with `KILN_TUI_TRANSPORT=direct`
 
 The default gateway path keeps TUI conversations on the runtime session
-pipeline so provider routing, continuity, approvals, reasoning effort, and
+pipeline so provider routing, continuity, approvals, deliberation, and
 sidebar route labels reflect the actual backend used for each turn.
 
-Inside the TUI, use `/provider` to change provider/model and `/effort` to cycle
-the active model's advertised reasoning effort options.
+Inside the TUI, use `/provider` to change provider/model and `/deliberation` to
+cycle provider default and the active model's advertised levels.
 
 ### `kiln gateway`
 
@@ -189,7 +187,7 @@ Inspect benchmark contracts and write local evidence artifacts:
 kiln benchmark profiles
 kiln benchmark readiness --baseline ./.kiln/benchmarks/tool.json
 kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
-kiln benchmark run-internal --profile kiln-tool-agent --provider codex --model gpt-5.5 --reasoning-effort-sweep low,medium,high --output ./.kiln/benchmarks/effort.json
+kiln benchmark run-internal --profile kiln-tool-agent --provider codex --model gpt-5.5 --deliberation-level-sweep low,medium,high --output ./.kiln/benchmarks/deliberation.json
 ```
 
 `run-internal` writes one benchmark JSON status document to stdout and stores
@@ -197,12 +195,11 @@ the full baseline artifact at `--output`. Per-item session output is routed
 through the non-human run-output contract so assistant deltas, tool notices, and
 provider fallback notices do not pollute stdout.
 
-Reasoning-effort runs require an explicit provider/model pair. Use
-`--reasoning-effort <level>` for one fixed level or
-`--reasoning-effort-sweep <comma-list>` for a paired comparison. Every member
-has a distinct reproducibility hash and capability-backed resolution evidence.
-Experimental `xhigh` additionally requires `--allow-experimental-xhigh`,
-`--effort-budget-usd`, and `--estimated-effort-cost-usd`.
+Deliberation comparisons require an explicit provider/model pair. Use
+`--deliberation-level <id>` for one fixed level or
+`--deliberation-level-sweep <comma-list>` for a paired comparison. Every member
+has a distinct reproducibility hash and capability-backed resolution evidence;
+no level name receives a provider-neutral experimental exception.
 
 Rust optimization is tracked in `docs/roadmap/00.0.1-rust-module-optimization.md`.
 The CLI no longer exposes a Rust readiness proof command; future Rust module

@@ -56,7 +56,7 @@ kiln config set --global skills.selection.mode auto
 | `hooks` | `Record<string, unknown>` | Global hook configuration shared across Kiln-managed workflows. |
 | `managedAgents` | `KilnManagedAgentsConfig` | Governed child-agent route configuration shared by GUI, TUI, and CLI runtime surfaces. |
 | `modelTaskSuitability` | `KilnModelTaskSuitabilityOverride[]` | Operator or project overrides for provider/model task suitability evidence. |
-| `reasoningPolicy` | `KilnReasoningPolicyConfig` | Optional task-aware reasoning effort policy. It is resolved after provider/model selection and only sent when the selected route advertises compatible effort support. |
+| `deliberationPolicy` | `KilnDeliberationPolicyConfig` | Provider-neutral default, task, and exact-route deliberation intents. Runtime resolves them against revisioned model capability evidence. |
 | `identity` | `KilnGlobalIdentity` | Global identity values used for personalization and prompt context. |
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
@@ -156,25 +156,29 @@ CLI run uses the same resolved suitability records to rank configured
 `taskAffinity` wins over prompt keyword inference, operator overrides win
 same-level ties over static profiles, and the original route order remains the
 fallback order for unknown tasks or equal scores.
-`reasoningPolicy` is intentionally separate from `modelTaskSuitability`.
-Suitability decides which healthy route should be tried first; reasoning policy
-decides the desired effort after that route has been selected. Automatic effort
-is capability-gated: if the active provider/model does not advertise
-`supportedReasoningEfforts`, Kiln omits the automatic effort instead of
-inventing a provider-specific default. Set `unsupported: fail` only when an
-operator wants unsupported or unadvertised automatic effort to fail closed.
+`deliberationPolicy` is intentionally separate from `modelTaskSuitability`.
+Suitability orders healthy routes; deliberation describes the authorized
+inference-work intent after selection. Runtime resolves the intent only against
+the selected model's revisioned capabilities. `deny` fails closed, `omit`
+executes without a native override, and `allow-clamp` records any admitted
+change explicitly.
 
 ```yaml
-reasoningPolicy:
-  default: medium
-  unsupported: omit
+deliberationPolicy:
+  default:
+    mode: fixed
+    preferredLevel: medium
+    onUnsupported: omit
   byTask:
-    architecture-review: xhigh
-    backend-coding: high
-    frontend-design: high
-    test-writing: high
-    research: high
-    mechanical-edit: low
+    architecture-review: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: deny }
+    backend-coding: { mode: fixed, preferredLevel: high, onUnsupported: deny }
+    mechanical-edit: { mode: fixed, preferredLevel: low, onUnsupported: omit }
+  byRoute:
+    - provider: codex-oauth
+      model: gpt-5.6-sol
+      mode: fixed
+      preferredLevel: xhigh
+      onUnsupported: deny
 ```
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from
@@ -312,12 +316,11 @@ routing:
   budgetAware: false
 models:
   codex: gpt-5.3-codex-spark
-reasoningPolicy:
-  default: medium
-  unsupported: omit
+deliberationPolicy:
+  default: { mode: fixed, preferredLevel: medium, onUnsupported: omit }
   byTask:
-    architecture-review: xhigh
-    mechanical-edit: low
+    architecture-review: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: deny }
+    mechanical-edit: { mode: fixed, preferredLevel: low, onUnsupported: omit }
 modelTaskSuitability:
   - provider: codex-oauth
     model: gpt-5.6-terra
@@ -420,16 +423,15 @@ routing:
     - provider: opencode
       model: opencode/minimax-m2.5-free
   budgetAware: false
-reasoningPolicy:
-  default: medium
-  unsupported: omit
+deliberationPolicy:
+  default: { mode: fixed, preferredLevel: medium, onUnsupported: omit }
   byTask:
-    architecture-review: xhigh
-    backend-coding: high
-    frontend-design: high
-    test-writing: high
-    research: high
-    mechanical-edit: low
+    architecture-review: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: deny }
+    backend-coding: { mode: fixed, preferredLevel: high, onUnsupported: deny }
+    frontend-design: { mode: fixed, preferredLevel: high, onUnsupported: deny }
+    test-writing: { mode: fixed, preferredLevel: high, onUnsupported: deny }
+    research: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: omit }
+    mechanical-edit: { mode: fixed, preferredLevel: low, onUnsupported: omit }
 modelTaskSuitability:
   - provider: opencode-go
     model: kimi-k2.7-code

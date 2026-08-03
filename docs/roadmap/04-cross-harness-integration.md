@@ -174,6 +174,15 @@ so uninstall restores the exact prior configuration. Prove CLI before App,
 including native turn, virtual turn, pre-existing session resume, gateway
 recovery, and exact uninstall.
 
+#### Provider-neutral deliberation policy
+
+Implemented by [ADR-011](../adr/ADR-011-provider-neutral-deliberation-policy.md)
+and delivery issue #46. Core owns intent, revisioned capabilities, and explicit
+resolution; Runtime admits only resolved decisions; managed economic dispatch
+binds the conservative intent envelope before provider execution. CLI, GUI,
+TUI, harness ingress v2, examples, and operator config use
+`deliberationPolicy`; the former normalized policy has no reader or alias.
+
 ### Slice 5 - Unified Status And Repair
 
 Status: Queued.

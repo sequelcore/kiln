@@ -187,8 +187,8 @@ Current capability fields include:
 - `supportsParallelToolCalls`
 - `contextWindow`
 - `supportsVision`
-- `defaultReasoningEffort`
-- `supportedReasoningEfforts`
+- `deliberation` with provider/model identity, ordered native levels,
+  provider default, adaptive support, and revisioned evidence
 - `taskSuitability`
 
 Tool-capability fields are intentionally split:
@@ -201,33 +201,34 @@ Tool-capability fields are intentionally split:
   provider-native shell or patch affordances advertised by the provider. They
   are diagnostics and UI metadata; disabled native provider tools do not, by
   themselves, disable Kiln runtime tools.
-- `supportsTools` remains a compatibility projection for existing consumers
-  that have not yet split UI display from execution eligibility.
+- `supportsTools` is the aggregate operator-display signal; execution admission
+  uses the specific capability fields above.
 
 Execution admission must use `supportsFunctionTools` and `supportsRuntimeTools`
 when present. It must not infer that Kiln tools are unavailable merely because
 a provider-native shell or patch tool is disabled.
 
-`supportedReasoningEfforts` uses Kiln's normalized effort enum:
-`minimal`, `low`, `medium`, `high`, and `xhigh`. Provider-native names are
-normalized at the discovery boundary. For Codex OAuth, the ChatGPT-backed model
-endpoint returns `supported_reasoning_levels` as records such as
-`{ effort, description }`; discovery must preserve the ordered `effort` values
-and ignore descriptive copy. Older string-array shapes remain accepted for
-providers that expose them that way.
+Deliberation level identifiers are provider-advertised portable strings, not a
+closed cross-provider enum. Their ordering and meaning are scoped to the exact
+provider/model capability record. Provider-native discovery fields such as
+Codex `supported_reasoning_levels` are translated at this boundary while their
+order and revision evidence are preserved.
 
-If a model does not advertise `supportedReasoningEfforts`, GUI and TUI must not
-render a reasoning selector for that model, and CLI requests should not invent a
-default. If a model does advertise supported efforts, the default is
-`defaultReasoningEffort` when present, otherwise the first advertised supported
-effort.
+If a model advertises no deliberation capabilities, surfaces render no level
+selector and Runtime follows the intent's explicit unsupported policy. GUI and
+TUI preserve provider default until the operator selects a level; they never
+turn the first advertised level into an implicit override.
 
-`reasoningPolicy` config may request automatic effort by coarse task, but that
-policy is resolved after provider/model selection and remains capability-gated.
-Explicit operator requests are authoritative. Automatic policy requests are
-sent only when the selected route advertises the requested normalized effort;
-otherwise Kiln omits the effort by default or fails closed when the policy sets
-`unsupported: fail`.
+`deliberationPolicy` may declare default, task, and exact-route intents. Runtime
+resolves the winning intent after route selection and records the capability
+revision and outcome. Explicit operator input has higher authority; no adapter
+accepts an unresolved raw level.
+
+Virtual model-gateway routes that expose native reasoning controls must declare
+`deliberation.levels`, optional `defaultLevel`, `supportsAdaptive`, and
+`evidenceRevision`. Enabling `reasoning-controls` without that exact-route
+evidence is invalid configuration, so an Anthropic-compatible `output_config`
+cannot manufacture capability evidence at ingress.
 
 ## Task Suitability
 
@@ -396,10 +397,10 @@ GUI and TUI expose provider refresh without restarting the process. Refresh
 re-runs runtime discovery, updates the selectable model catalog, and leaves the
 current operator session alive.
 
-Reasoning effort is shown next to provider/model selection when the active
-model advertises supported efforts. GUI renders it as a compact composer
-control; TUI renders the current effort in the provider sidebar and cycles it
-with `/effort`. Both surfaces send the selected effort on the next turn only.
+Deliberation is shown next to provider/model selection when the active model
+advertises ordered levels. GUI renders it as a compact composer control; TUI
+cycles provider default and explicit levels with `/deliberation`. Both surfaces
+send only an explicit selection on the next turn.
 
 ## Turn Records
 

@@ -453,11 +453,11 @@ transparent textarea, and a bottom action rail for command, file, approval,
 plan, route, and send affordances. Avoid large detached input cards, duplicate
 status headers, or controls that push the transcript out of view.
 
-Provider/model selection and reasoning effort live in the composer action rail
-because they shape the next submitted turn. The reasoning control appears only
-when the active discovered model advertises `supportedReasoningEfforts`; it
-defaults to the model's advertised `defaultReasoningEffort` when present. The
-selected effort is sent with the next message frame and is not a global GUI
+Provider/model selection and deliberation live in the composer action rail
+because they shape the next submitted turn. The deliberation control appears
+only when the active model advertises ordered deliberation levels. It remains at
+provider default until the operator explicitly selects a level; that selection
+is sent as a fixed intent with the next message and is not a global GUI
 preference.
 
 Turn authority in the composer has two parts: the operator request and the

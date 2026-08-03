@@ -22,3 +22,4 @@ Execution sequencing belongs in `docs/roadmap/`. Stable doctrine belongs in
 | [ADR-008](ADR-008-managed-invocation-caller-identity.md) | Managed invocation caller identity |
 | [ADR-009](ADR-009-canonical-mcp-ownership-and-execution.md) | Canonical MCP ownership, execution, and projection |
 | [ADR-010](ADR-010-native-credential-projection.md) | Native credential projection into harness credential stores |
+| [ADR-011](ADR-011-provider-neutral-deliberation-policy.md) | Provider-neutral deliberation policy and resolution authority |

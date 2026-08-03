@@ -134,7 +134,7 @@ Slash command discovery is not TUI-owned. The TUI projects
 `listOperatorCommands("tui")` from `@kilnai/gateway-contracts`, so commands
 shared with GUI or CLI must be added to
 `packages/gateway-contracts/src/operator-commands.ts` first. The current shared
-interactive commands include `/clear`, `/theme`, `/provider`, `/effort`,
+interactive commands include `/clear`, `/theme`, `/provider`, `/deliberation`,
 `/authority`, `/continue`, `/plan`, `/exec`, `/setup`, and `/goal`.
 
 - `Ctrl+C` exits immediately.
@@ -145,7 +145,7 @@ interactive commands include `/clear`, `/theme`, `/provider`, `/effort`,
 - `/clear` clears the active session.
 - `/plan` enables plan mode in the TUI state.
 - `/provider` opens the provider picker.
-- `/effort` cycles the active model's advertised reasoning effort options.
+- `/deliberation` cycles provider default and the active model's advertised levels.
 - `/theme` opens the theme picker.
 - `/continue` focuses the session browser in the sidebar.
 - `/goal` focuses the canonical goal/work projection in the sidebar. Lifecycle
@@ -189,11 +189,12 @@ Important distinction:
 
 That means the header shown above an assistant message reflects the provider/model that actually handled the turn, not just the provider that happened to be selected when the turn started.
 
-## Reasoning Effort
+## Deliberation
 
 The TUI consumes the same provider discovery result as the GUI. When the active
-provider/model advertises `supportedReasoningEfforts`, the sidebar appends the
-current effort next to the model label, for example `gpt-5.6-terra · medium`.
+provider/model advertises deliberation capabilities, the sidebar appends an
+explicitly selected level next to the model label, for example
+`gpt-5.6-terra · medium`.
 
 At startup, the TUI may display cached provider discovery as `stale`
 diagnostics. Stale entries are unavailable until background runtime discovery
@@ -201,14 +202,14 @@ refreshes them. Provider switching, prompt admission, model execution, and
 managed invocation execution must use fresh runtime discovery, not stale cache
 metadata.
 
-Use `/effort` to cycle through the advertised values. The initial value is the
-model's `defaultReasoningEffort` when present, otherwise the first advertised
-supported effort. If the active model does not advertise effort options,
-`/effort` reports that no reasoning effort options are available.
+Use `/deliberation` to cycle from provider default through the advertised
+values. Kiln does not turn an advertised default into an explicit override. If
+the active model advertises no levels, the command reports that deliberation
+controls are unavailable.
 
-The selected reasoning effort is sent with the next user turn through the
-gateway message frame. It is per-turn execution state, not a persisted TUI
-theme or provider preference.
+The selected level is sent as a fixed deliberation intent with the next user
+turn. It is per-turn execution state, not a persisted TUI theme or provider
+preference.
 
 ## Session Commands
 
