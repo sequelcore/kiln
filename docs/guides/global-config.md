@@ -184,8 +184,10 @@ route-level `max` also applies when that route is selected for a mechanical
 task. Prefer task rules unless one model has a durable route-wide requirement.
 Codex OAuth capabilities come from its authenticated model catalog. OpenCode
 Go and Zen currently remain provider-default: their model catalog advertises
-variants, but the direct gateway does not provide an executable, revisioned
-effort contract that Kiln can safely lower.
+variants, but the CLI does not lower the current OpenAI-compatible variant and
+the direct gateway does not provide a consistent, revisioned effort guarantee
+across eligible upstreams. `x-opencode-session` preserves session affinity; it
+does not authorize an effort level.
 
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from

@@ -53,7 +53,9 @@ revisioned capabilities. The result records `exact`, `clamped`, `defaulted`,
 `omitted`, or `denied`; unsupported behavior is never silent.
 Direct OpenCode routes remain at provider default. The OpenCode catalog can
 name variants, but Kiln does not treat catalog names as executable capability
-evidence while the direct gateway rejects the corresponding wire override.
+evidence while the CLI omits the override and the direct gateway's eligible
+upstreams do not implement it consistently. Kiln still sends OpenCode's session
+affinity header; affinity is transport correctness, not capability proof.
 
 | Model | Provider | Quality | Tools | Streaming | Vision | Context |
 |-------|----------|---------|-------|-----------|--------|---------|

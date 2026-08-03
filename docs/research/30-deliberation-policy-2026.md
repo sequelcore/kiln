@@ -59,27 +59,44 @@ model catalog. OpenCode Go and Zen `/models` responses prove availability but
 do not include effort metadata. `models.dev` names variants, but that alone is
 not executable evidence for Kiln's direct provider.
 
-The inspected OpenCode 1.18.6 checkout at `a85d8d23aa29` passes `--variant`
-into the session and merges
-the selected variant into provider options. For `@ai-sdk/openai-compatible`,
-the transform keys those options by provider id (`opencode-go`), while the
-OpenAI Chat lowering reads the `openai` namespace. A live
-`opencode run --variant high` completed but reported zero reasoning tokens;
-the equivalent direct gateway request with `reasoning_effort: high` repeatedly
-returned HTTP 500, while the same request without the override succeeded.
+The OpenCode checkout was fast-forwarded to current `dev` commit
+`3016830e2534` and version 1.18.11 on 2026-08-03. It passes `--variant` into
+the session and merges the selected variant into provider options. For
+`@ai-sdk/openai-compatible`, the transform keys those options by provider id
+(`opencode-go`), while the native OpenAI Chat lowering still reads the
+`openai` namespace. Preparing the request with the current source proves the
+result: `{ opencode-go: { reasoningEffort: "high" } }` omits
+`reasoning_effort`, while the same option under `openai` emits it. A live
+OpenCode CLI run accepted `--variant high` but reported zero reasoning tokens.
+
+The Go gateway itself parses `reasoningEffort`, `reasoning_effort`, or
+`reasoning.effort`, and its OpenAI-compatible path can preserve the wire field.
+That is necessary but not sufficient provider/model capability evidence. Live
+requests against the current service produced heterogeneous results for the
+same advertised model and level: five fixed-session
+`deepseek-v4-pro/high` probes returned two HTTP 200 responses with non-zero
+reasoning tokens and three HTTP 500 responses. `deepseek-v4-flash`, `glm-5.2`,
+and `kimi-k3` also returned HTTP 500 for their catalog-advertised levels.
+OpenCode selects upstreams using `x-opencode-session`; session affinity makes
+one session stable but cannot turn a partially supported upstream pool into a
+provider/model guarantee.
 
 Kiln therefore keeps `opencode-go` and `opencode-zen` deliberation transport at
 `none`. DeepSeek, GLM, Kimi, Qwen, and MiniMax routes use provider defaults until
-OpenCode publishes and serves a direct wire contract that passes a live proof.
-Silently accepting a CLI variant that does not reach the protocol is not
-support.
+OpenCode publishes and serves a direct, revisioned capability contract whose
+supported levels work across every eligible upstream for that route. Kiln does
+send the official `x-opencode-session` and `x-opencode-client` headers so
+ordinary calls retain provider affinity. Silently accepting a CLI variant that
+does not reach the protocol, or admitting a level that works only on part of a
+gateway pool, is not support.
 
 OpenCode's official model documentation describes variants as provider-
 specific request overlays and points to Models.dev for built-in metadata. Its
-Zen documentation exposes `/models` for model metadata, but neither document
-overrides the failed executable proof:
+Go documentation identifies the OpenAI-compatible endpoint and models, while
+the current `/models` response establishes availability without a revisioned
+effort guarantee. Those documents do not override the failed executable proof:
 https://opencode.ai/docs/models/
-https://opencode.ai/docs/zen/
+https://opencode.ai/docs/go/
 
 ## Limitations
 
