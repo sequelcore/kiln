@@ -103,6 +103,107 @@ describe("Codex provider usage adapter", () => {
     expect(JSON.stringify(snapshot)).not.toContain("operator@example.test");
   });
 
+  describe("reset-at plausibility", () => {
+    // Sentinel from issue #48: seven distinct credentials all reported
+    // `resets_at` of year 2099, labelled authoritative. That is ~73 years past
+    // observation and cannot be a real billing-window end.
+    const SENTINEL_RESET_SECONDS = 4_070_908_800; // 2099-01-01T00:00:00.000Z
+
+    it("does not label a far-future reset instant authoritative", () => {
+      const snapshot = parseCodexProviderUsage({
+        provider: "codex-oauth",
+        credentialId: "credential-opaque-sentinel",
+        observedAt: OBSERVED_AT,
+        validUntil: VALID_UNTIL,
+        body: {
+          plan_type: "plus",
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: { used_percent: 5, reset_at: SENTINEL_RESET_SECONDS },
+          },
+        },
+      });
+
+      expect(snapshot).toMatchObject({
+        source: "provider-endpoint",
+        confidence: "unknown",
+        availability: "available",
+        primary: {
+          bucketId: "primary",
+          usedPercent: 5,
+          resetsAt: "2099-01-01T00:00:00.000Z",
+        },
+      });
+    });
+
+    it("does not label a far-future header reset instant authoritative", () => {
+      const snapshot = parseCodexProviderUsage({
+        provider: "codex-oauth",
+        credentialId: "credential-opaque-sentinel-h",
+        observedAt: OBSERVED_AT,
+        validUntil: VALID_UNTIL,
+        headers: {
+          "x-codex-primary-used-percent": "5",
+          "x-codex-primary-reset-at": String(SENTINEL_RESET_SECONDS),
+        },
+      });
+
+      expect(snapshot).toMatchObject({
+        source: "provider-response-headers",
+        confidence: "unknown",
+        primary: { bucketId: "primary", usedPercent: 5, resetsAt: "2099-01-01T00:00:00.000Z" },
+      });
+    });
+
+    it("keeps a plausible reset instant authoritative", () => {
+      const snapshot = parseCodexProviderUsage({
+        provider: "codex-oauth",
+        credentialId: "credential-opaque-plausible",
+        observedAt: OBSERVED_AT,
+        validUntil: VALID_UNTIL,
+        body: {
+          plan_type: "plus",
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: { used_percent: 5, reset_at: 1784725200 },
+          },
+        },
+      });
+
+      expect(snapshot).toMatchObject({
+        source: "provider-endpoint",
+        confidence: "authoritative",
+        primary: { bucketId: "primary", usedPercent: 5, resetsAt: "2026-07-22T13:00:00.000Z" },
+      });
+    });
+
+    it("downgrades the whole snapshot when only the secondary reset is implausible", () => {
+      const snapshot = parseCodexProviderUsage({
+        provider: "codex-oauth",
+        credentialId: "credential-opaque-mixed",
+        observedAt: OBSERVED_AT,
+        validUntil: VALID_UNTIL,
+        body: {
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: { used_percent: 20, reset_at: 1784725200 },
+            secondary_window: { used_percent: 60, reset_at: SENTINEL_RESET_SECONDS },
+          },
+        },
+      });
+
+      expect(snapshot).toMatchObject({
+        source: "provider-endpoint",
+        confidence: "unknown",
+        primary: { usedPercent: 20, resetsAt: "2026-07-22T13:00:00.000Z" },
+        secondary: { usedPercent: 60, resetsAt: "2099-01-01T00:00:00.000Z" },
+      });
+    });
+  });
+
   describe("request outcome classification", () => {
     const credential = {
       credentialId: "credential-opaque-http",
