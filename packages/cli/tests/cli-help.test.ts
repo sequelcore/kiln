@@ -38,4 +38,18 @@ describe("CLI help", () => {
       "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",
     );
   });
+
+  it("shows sync help without dispatching the mutating command", async () => {
+    process.argv = ["bun", "kiln", "sync", "--help"];
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit:${code ?? 0}`);
+    }) as never);
+
+    await expect(createCli(APP_CONFIG)).rejects.toThrow("process.exit:0");
+
+    const helpOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(helpOutput).toContain("kiln sync (--all | --target <targets> | <target flags>)");
+    expect(helpOutput).toContain("--dry-run");
+  });
 });

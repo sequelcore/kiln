@@ -169,6 +169,57 @@ describe("repo-shim-projection", () => {
     expect(claude).toContain("Record missing harness/tool/route capability as a `capability` pause requirement");
   });
 
+  it("plans both shims, workflow snapshot, and manifest without mutating the fixture", async () => {
+    const result = await writeRepoShimProjections(PROJECT_PATH, { dryRun: true });
+
+    expect(existsSync(join(PROJECT_PATH, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(PROJECT_PATH, "CLAUDE.md"))).toBe(false);
+    expect(existsSync(join(PROJECT_PATH, ".kiln"))).toBe(false);
+    expect(result.outcomes.map((outcome) => outcome.targetId)).toEqual([
+      "repo-shim:agents",
+      "repo-shim:claude",
+      "workflow-snapshot",
+      "workflow-snapshot-manifest",
+    ]);
+    expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
+  });
+
+  it("keeps per-path outcomes when one repo shim cannot be read", async () => {
+    mkdirSync(join(PROJECT_PATH, "AGENTS.md"));
+
+    const result = await writeRepoShimProjections(PROJECT_PATH);
+
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "repo-shim:agents", path: join(PROJECT_PATH, "AGENTS.md"), status: "failed" }),
+      expect.objectContaining({ targetId: "repo-shim:claude", path: join(PROJECT_PATH, "CLAUDE.md"), status: "written" }),
+      expect.objectContaining({ targetId: "workflow-snapshot", status: "skipped" }),
+      expect.objectContaining({ targetId: "workflow-snapshot-manifest", status: "skipped" }),
+    ]));
+  });
+
+  it("reports workflow projection write failures by path", async () => {
+    mkdirSync(join(PROJECT_PATH, ".kiln"), { recursive: true });
+    writeFileSync(join(PROJECT_PATH, ".kiln", "projections"), "not a directory", "utf-8");
+
+    const result = await writeRepoShimProjections(PROJECT_PATH);
+
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "workflow-snapshot",
+        path: join(PROJECT_PATH, ".kiln", "projections", "workflow-snapshot.md"),
+        status: "failed",
+        reason: expect.any(String),
+      }),
+      expect.objectContaining({
+        targetId: "workflow-snapshot-manifest",
+        path: join(PROJECT_PATH, ".kiln", "projections", "workflow-snapshot-manifest.json"),
+        status: "failed",
+        reason: expect.any(String),
+      }),
+    ]));
+    expect(result.errors).toHaveLength(2);
+  });
+
   it("is idempotent when signed generated files are unchanged", async () => {
     const first = await writeRepoShimProjections(PROJECT_PATH);
     const firstManifest = readFileSync(join(PROJECT_PATH, ".kiln", "projections", "workflow-snapshot-manifest.json"), "utf-8");
@@ -229,6 +280,11 @@ describe("repo-shim-projection", () => {
     const result = await writeRepoShimProjections(PROJECT_PATH);
 
     expect(result.errors).toContain("CLAUDE.md: unmanaged guidance file exists; adopt or back up before generating repo shims");
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "repo-shim:claude", status: "blocked" }),
+      expect.objectContaining({ targetId: "workflow-snapshot", status: "skipped", reason: expect.stringContaining("unmanaged guidance file exists") }),
+      expect.objectContaining({ targetId: "workflow-snapshot-manifest", status: "skipped", reason: expect.stringContaining("unmanaged guidance file exists") }),
+    ]));
     expect(result.workflowSnapshotProjection).toBeUndefined();
     expect(result.workflowSnapshotManifest).toBeUndefined();
     expect(existsSync(join(PROJECT_PATH, ".kiln", "projections", "workflow-snapshot.md"))).toBe(false);

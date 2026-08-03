@@ -15,7 +15,9 @@ import {
 } from "./native-projection-state.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
+  describeProjectionDrift,
   isNativeProjectionHarnessDisabled,
+  type ProjectionOutcome,
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
 import { resolveNativeHarnessDir } from "./native-harness-home.js";
@@ -27,6 +29,7 @@ export interface NativeAgentProjectionResult {
   opencode: boolean;
   synced: number;
   errors: string[];
+  outcomes: readonly ProjectionOutcome[];
 }
 
 export interface NativeAgentProjectionOptions extends NativeProjectionSyncOptions {}
@@ -44,6 +47,7 @@ interface NativeAgentFileSyncResult {
   readonly snapshot?: NativeProjectionTargetState;
   readonly removedTargetId?: string;
   readonly error?: string;
+  readonly outcome: ProjectionOutcome;
 }
 
 function escapeTomlString(value: string): string {
@@ -187,6 +191,7 @@ export async function syncNativeAgentProjections(
   options: NativeAgentProjectionOptions = {},
 ): Promise<NativeAgentProjectionResult> {
   const errors: string[] = [];
+  const outcomes: ProjectionOutcome[] = [];
   let synced = 0;
   const kilnDir = join(projectPath, ".kiln");
   let installState = readNativeProjectionInstallState(kilnDir);
@@ -202,11 +207,17 @@ export async function syncNativeAgentProjections(
       opencode: false,
       synced: 0,
       errors: [`Agent load failed: ${message}`],
+      outcomes: [{
+        targetId: "native-agents",
+        path: join(projectPath, ".kiln", "agents"),
+        status: "failed",
+        reason: `Agent load failed: ${message}`,
+      }],
     };
   }
 
   if (agents.length === 0) {
-    return { claude: true, codex: true, opencode: true, synced: 0, errors: [] };
+    return { claude: true, codex: true, opencode: true, synced: 0, errors: [], outcomes };
   }
 
   const targets: NativeAgentProjectionTarget[] = [
@@ -249,16 +260,28 @@ export async function syncNativeAgentProjections(
     opencode = false;
   };
 
-  for (const target of targets.filter((target) => !isNativeProjectionHarnessDisabled(options, target.key))) {
+  for (const target of targets) {
+    if (isNativeProjectionHarnessDisabled(options, target.key)) {
+      outcomes.push(...agents.map((agent) => ({
+        targetId: `${target.key}-agent:${agent.name}`,
+        path: join(target.dir, `${agent.name}.${target.extension}`),
+        status: "skipped" as const,
+        reason: `${target.label} harness is disabled`,
+      })));
+      continue;
+    }
     try {
-      mkdirSync(target.dir, { recursive: true });
+      if (!options.dryRun) mkdirSync(target.dir, { recursive: true });
     } catch (error) {
       setTargetFailed(target.key);
-      errors.push(`${target.label} mkdir failed: ${error instanceof Error ? error.message : String(error)}`);
+      const reason = error instanceof Error ? error.message : String(error);
+      errors.push(`${target.label} mkdir failed: ${reason}`);
+      outcomes.push({ targetId: `${target.key}-agent-directory`, path: target.dir, status: "failed", reason });
     }
 
     for (const agent of agents) {
       const result = syncAgentFile(agent, target, kilnDir, installState, options);
+      outcomes.push(result.outcome);
       if (!result.ok) {
         setTargetFailed(target.key);
         errors.push(`${target.label} agent "${agent.name}" failed: ${result.error ?? "unknown error"}`);
@@ -274,9 +297,9 @@ export async function syncNativeAgentProjections(
     }
   }
 
-  writeNativeProjectionInstallState(kilnDir, installState);
+  if (!options.dryRun) writeNativeProjectionInstallState(kilnDir, installState);
 
-  return { claude, codex, opencode, synced, errors };
+  return { claude, codex, opencode, synced, errors, outcomes };
 }
 
 function syncAgentFile(
@@ -309,26 +332,38 @@ function syncAgentFile(
       if (drift && !options.force) {
         return {
           ok: false,
-          error: `managed file drift detected: ${drift.driftedFields.join(", ")}`,
+          error: `managed file drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+          outcome: {
+            targetId,
+            path: filePath,
+            status: "blocked",
+            reason: `managed drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+          },
         };
       }
     }
 
     const content = target.render(agent, decision.nativeModel);
+    const snapshot = createNativeProjectionFileSnapshot({ targetId, filePath, content });
+    if (options.dryRun) {
+      return {
+        ok: true,
+        outcome: { targetId, path: filePath, status: "planned", reason: "write projected agent file content" },
+      };
+    }
     backupNativeProjectionFile({ kilnDir, targetId, filePath });
     writeFileSync(filePath, content, "utf-8");
     return {
       ok: true,
-      snapshot: createNativeProjectionFileSnapshot({
-        targetId,
-        filePath,
-        content,
-      }),
+      snapshot,
+      outcome: { targetId, path: filePath, status: "written" },
     };
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: reason,
+      outcome: { targetId, path: filePath, status: "failed", reason },
     };
   }
 }
@@ -341,12 +376,19 @@ function removeOwnedOmittedAgentFile(input: {
   readonly targetId: string;
 }): NativeAgentFileSyncResult {
   if (!input.installState.targets[input.targetId]) {
-    return { ok: true };
+    return {
+      ok: true,
+      outcome: { targetId: input.targetId, path: input.filePath, status: "skipped", reason: "agent is not projected to this harness" },
+    };
   }
 
   try {
     if (!existsSync(input.filePath)) {
-      return { ok: true, removedTargetId: input.targetId };
+      return {
+        ok: true,
+        removedTargetId: input.targetId,
+        outcome: { targetId: input.targetId, path: input.filePath, status: input.options.dryRun ? "planned" : "removed", reason: "remove stale install-state entry" },
+      };
     }
 
     const drift = detectNativeProjectionFileDrift({
@@ -355,23 +397,41 @@ function removeOwnedOmittedAgentFile(input: {
       currentContent: readFileSync(input.filePath, "utf-8"),
     });
     if (drift && !input.options.force) {
+        return {
+          ok: false,
+          error: `managed file drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+          outcome: {
+            targetId: input.targetId,
+            path: input.filePath,
+            status: "blocked",
+            reason: `managed drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+          },
+        };
+      }
+
+    if (input.options.dryRun) {
       return {
-        ok: false,
-        error: `managed file drift detected: ${drift.driftedFields.join(", ")}`,
+        ok: true,
+        outcome: { targetId: input.targetId, path: input.filePath, status: "planned", reason: "remove managed agent file content" },
       };
     }
-
     backupNativeProjectionFile({
       kilnDir: input.kilnDir,
       targetId: input.targetId,
       filePath: input.filePath,
     });
     unlinkSync(input.filePath);
-    return { ok: true, removedTargetId: input.targetId };
+    return {
+      ok: true,
+      removedTargetId: input.targetId,
+      outcome: { targetId: input.targetId, path: input.filePath, status: "removed" },
+    };
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: reason,
+      outcome: { targetId: input.targetId, path: input.filePath, status: "failed", reason },
     };
   }
 }

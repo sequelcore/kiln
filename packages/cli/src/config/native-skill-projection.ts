@@ -14,7 +14,9 @@ import {
 } from "./native-projection-state.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
+  describeProjectionDrift,
   isNativeProjectionHarnessDisabled,
+  type ProjectionOutcome,
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
@@ -26,6 +28,7 @@ export interface NativeSkillProjectionResult {
   opencode: boolean;
   synced: number;
   errors: string[];
+  outcomes: readonly ProjectionOutcome[];
 }
 
 export interface NativeSkillProjectionOptions extends NativeProjectionSyncOptions {
@@ -133,6 +136,7 @@ interface SkillFileSyncResult {
   readonly ok: boolean;
   readonly snapshot?: NativeProjectionTargetState;
   readonly error?: string;
+  readonly outcome: ProjectionOutcome;
 }
 
 export async function syncNativeSkillProjections(
@@ -140,6 +144,7 @@ export async function syncNativeSkillProjections(
   options: NativeSkillProjectionOptions = {},
 ): Promise<NativeSkillProjectionResult> {
   const errors: string[] = [];
+  const outcomes: ProjectionOutcome[] = [];
   let synced = 0;
   const kilnDir = join(projectPath, ".kiln");
   let installState = readNativeProjectionInstallState(kilnDir);
@@ -149,7 +154,7 @@ export async function syncNativeSkillProjections(
   const hasManagedSkillProjection = Object.keys(installState.targets)
     .some((targetId) => targetId.includes("-skill:"));
   if (skillSources.size === 0 && !hasManagedSkillProjection) {
-    return { claude: true, codex: true, opencode: true, synced: 0, errors: [] };
+    return { claude: true, codex: true, opencode: true, synced: 0, errors: [], outcomes };
   }
 
   const targets = NATIVE_SKILL_TARGETS.map((target) => ({
@@ -174,12 +179,25 @@ export async function syncNativeSkillProjections(
     opencode = false;
   };
 
-  for (const target of targets.filter((target) => !isNativeProjectionHarnessDisabled(options, target.key))) {
+  for (const target of targets) {
+    if (isNativeProjectionHarnessDisabled(options, target.key)) {
+      const skippedSkills = [...skillSources.keys()];
+      outcomes.push(...(skippedSkills.length > 0 ? skippedSkills : ["managed-skills"]).map((skillName) => ({
+        targetId: `${target.key}-skill:${skillName}`,
+        path: skillName === "managed-skills" ? target.dir : join(target.dir, skillName),
+        status: "skipped" as const,
+        reason: `${target.name} harness is disabled`,
+      })));
+      continue;
+    }
     try {
-      mkdirSync(target.dir, { recursive: true });
+      if (!options.dryRun) mkdirSync(target.dir, { recursive: true });
     } catch (error) {
       setTargetFailed(target.key);
-      errors.push(`${target.name} skills mkdir failed: ${error instanceof Error ? error.message : String(error)}`);
+      const reason = error instanceof Error ? error.message : String(error);
+      errors.push(`${target.name} skills mkdir failed: ${reason}`);
+      outcomes.push({ targetId: `${target.key}-skill-directory`, path: target.dir, status: "failed", reason });
+      continue;
     }
 
     const pruneResult = pruneStaleSkillProjections({
@@ -190,6 +208,7 @@ export async function syncNativeSkillProjections(
       options,
     });
     installState = pruneResult.installState;
+    outcomes.push(...pruneResult.outcomes);
     if (pruneResult.errors.length > 0) {
       setTargetFailed(target.key);
       errors.push(...pruneResult.errors);
@@ -199,7 +218,7 @@ export async function syncNativeSkillProjections(
       const targetSkillDir = join(target.dir, skillName);
 
       try {
-        mkdirSync(targetSkillDir, { recursive: true });
+        if (!options.dryRun) mkdirSync(targetSkillDir, { recursive: true });
         const sourceFiles = source.files ?? readSkillSourceFiles(source.sourceDir);
         let skillFailed = false;
         for (const sourceFile of sourceFiles) {
@@ -214,6 +233,7 @@ export async function syncNativeSkillProjections(
             installState,
             options,
           });
+          outcomes.push(fileResult.outcome);
           if (!fileResult.ok) {
             skillFailed = true;
             setTargetFailed(target.key);
@@ -231,16 +251,23 @@ export async function syncNativeSkillProjections(
         }
       } catch (error) {
         setTargetFailed(target.key);
+        const reason = error instanceof Error ? error.message : String(error);
         errors.push(
-          `${target.name} skill "${skillName}" failed: ${error instanceof Error ? error.message : String(error)}`,
+          `${target.name} skill "${skillName}" failed: ${reason}`,
         );
+        outcomes.push({
+          targetId: `${target.key}-skill:${skillName}`,
+          path: targetSkillDir,
+          status: "failed",
+          reason,
+        });
       }
     }
   }
 
-  writeNativeProjectionInstallState(kilnDir, installState);
+  if (!options.dryRun) writeNativeProjectionInstallState(kilnDir, installState);
 
-  return { claude, codex, opencode, synced, errors };
+  return { claude, codex, opencode, synced, errors, outcomes };
 }
 
 function pruneStaleSkillProjections(input: {
@@ -253,9 +280,14 @@ function pruneStaleSkillProjections(input: {
   readonly kilnDir: string;
   readonly installState: NativeProjectionInstallState;
   readonly options: NativeSkillProjectionOptions;
-}): { readonly installState: NativeProjectionInstallState; readonly errors: readonly string[] } {
+}): {
+  readonly installState: NativeProjectionInstallState;
+  readonly errors: readonly string[];
+  readonly outcomes: readonly ProjectionOutcome[];
+} {
   const prefix = `${input.target.key}-skill:`;
   const errors: string[] = [];
+  const outcomes: ProjectionOutcome[] = [];
   const currentFilesBySkill = new Map<string, readonly string[]>();
   let installState = input.installState;
 
@@ -275,15 +307,23 @@ function pruneStaleSkillProjections(input: {
             .map((file) => file.fileName);
           currentFilesBySkill.set(skillName, currentFiles);
         } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
           errors.push(
-            `${input.target.name} skill "${skillName}" stale-file check failed: ${error instanceof Error ? error.message : String(error)}`,
+            `${input.target.name} skill "${skillName}" stale-file check failed: ${reason}`,
           );
+          outcomes.push({ targetId, path: state.filePath, status: "failed", reason });
           continue;
         }
       }
       if (currentFiles.includes(fileName)) continue;
       if (currentFiles.some((currentFile) => currentFile.toLowerCase() === fileName.toLowerCase())) {
-        installState = removeNativeProjectionTargetState(installState, targetId);
+        if (!input.options.dryRun) installState = removeNativeProjectionTargetState(installState, targetId);
+        outcomes.push({
+          targetId,
+          path: state.filePath,
+          status: input.options.dryRun ? "planned" : "removed",
+          reason: "remove stale case-only install-state entry",
+        });
         continue;
       }
     }
@@ -297,22 +337,39 @@ function pruneStaleSkillProjections(input: {
         });
         if (drift && !input.options.force) {
           errors.push(
-            `${input.target.name} stale skill "${skillName}" file "${fileName}" failed: managed file drift detected: ${drift.driftedFields.join(", ")}`,
+            `${input.target.name} stale skill "${skillName}" file "${fileName}" failed: managed file drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
           );
+          outcomes.push({
+            targetId,
+            path: state.filePath,
+            status: "blocked",
+            reason: `managed drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+          });
+          continue;
+        }
+        if (input.options.dryRun) {
+          outcomes.push({ targetId, path: state.filePath, status: "planned", reason: "remove stale managed skill file content" });
           continue;
         }
         backupNativeProjectionFile({ kilnDir: input.kilnDir, targetId, filePath: state.filePath });
         rmSync(state.filePath, { force: true });
       }
+      if (input.options.dryRun) {
+        outcomes.push({ targetId, path: state.filePath, status: "planned", reason: "remove stale install-state entry" });
+        continue;
+      }
       installState = removeNativeProjectionTargetState(installState, targetId);
+      outcomes.push({ targetId, path: state.filePath, status: "removed" });
     } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       errors.push(
-        `${input.target.name} stale skill "${skillName}" file "${fileName}" failed: ${error instanceof Error ? error.message : String(error)}`,
+        `${input.target.name} stale skill "${skillName}" file "${fileName}" failed: ${reason}`,
       );
+      outcomes.push({ targetId, path: state.filePath, status: "failed", reason });
     }
   }
 
-  return { installState, errors };
+  return { installState, errors, outcomes };
 }
 
 function readSkillSourceFiles(sourceDir: string | undefined): readonly {
@@ -370,11 +427,23 @@ function syncSkillFile(input: {
       if (drift && !input.options.force) {
         return {
           ok: false,
-          error: `managed file drift detected: ${drift.driftedFields.join(", ")}`,
+          error: `managed file drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+          outcome: {
+            targetId,
+            path: input.targetFile,
+            status: "blocked",
+            reason: `managed drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+          },
         };
       }
     }
 
+    if (input.options.dryRun) {
+      return {
+        ok: true,
+        outcome: { targetId, path: input.targetFile, status: "planned", reason: "write projected skill file content" },
+      };
+    }
     backupNativeProjectionFile({ kilnDir: input.kilnDir, targetId, filePath: input.targetFile });
     mkdirSync(dirname(input.targetFile), { recursive: true });
     if (typeof input.content === "string") {
@@ -389,11 +458,14 @@ function syncSkillFile(input: {
         filePath: input.targetFile,
         content: input.content,
       }),
+      outcome: { targetId, path: input.targetFile, status: "written" },
     };
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: reason,
+      outcome: { targetId, path: input.targetFile, status: "failed", reason },
     };
   }
 }

@@ -55,6 +55,7 @@ vi.mock("../../src/commands/uninstall.js", () => ({
 
 import {
   parseSyncFlags,
+  printSyncHelp,
   requiresForceSyncConfirmation,
   syncCommand,
 } from "../../src/commands/sync.js";
@@ -75,14 +76,25 @@ describe("syncCommand", () => {
     vi.clearAllMocks();
     syncMocks.loadKilnConfig.mockResolvedValue({ version: "1", domain: "typescript" });
     syncMocks.readGlobalConfig.mockReturnValue(null);
-    syncMocks.syncNativePermissionProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, errors: [] });
+    syncMocks.syncNativePermissionProjections.mockResolvedValue({
+      claude: true,
+      codex: true,
+      opencode: true,
+      outcomes: [
+        { targetId: "claude-permissions", path: "C:/project/.claude/settings.json", status: "written" },
+        { targetId: "codex-permissions", path: "C:/Users/test/.codex/config.toml", status: "written" },
+        { targetId: "opencode-permissions", path: "C:/Users/test/.config/opencode/opencode.json", status: "written" },
+      ],
+      errors: [],
+    });
     syncMocks.syncNativeHookProjections.mockResolvedValue({
       claudeHook: true,
       codexHook: true,
       skippedWindows: false,
+      outcomes: [],
       errors: [],
     });
-    syncMocks.syncNativeAgentProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, errors: [] });
+    syncMocks.syncNativeAgentProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, outcomes: [], errors: [] });
     syncMocks.resolveProjectRoot.mockReturnValue({
       rootPath: process.cwd(),
       source: "git",
@@ -96,6 +108,7 @@ describe("syncCommand", () => {
         { kind: "agents", path: "AGENTS.md", written: true, status: "written", errors: [] },
         { kind: "claude", path: "CLAUDE.md", written: true, status: "written", errors: [] },
       ],
+      outcomes: [],
       errors: [],
     });
     syncMocks.syncGlobalInstructionShimProjections.mockResolvedValue({
@@ -111,9 +124,14 @@ describe("syncCommand", () => {
           errors: [],
         },
       ],
+      outcomes: [{
+        targetId: "codex-global-instructions",
+        path: "C:/Users/test/.codex/AGENTS.md",
+        status: "written",
+      }],
       errors: [],
     });
-    syncMocks.syncNativeSkillProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, synced: 0, errors: [] });
+    syncMocks.syncNativeSkillProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, synced: 0, outcomes: [], errors: [] });
     syncMocks.uninstallNativeTargets.mockReturnValue({ removed: [], skipped: [], errors: [] });
   });
 
@@ -121,11 +139,16 @@ describe("syncCommand", () => {
     expect(typeof syncCommand).toBe("function");
   });
 
-  it("parses default sync as all surfaces without force", () => {
-    expect(parseSyncFlags([])).toEqual({
+  it("requires an explicit sync target or --all", () => {
+    expect(() => parseSyncFlags([])).toThrow("Select at least one sync target or pass --all");
+  });
+
+  it("parses --all as an explicit request for every surface", () => {
+    expect(parseSyncFlags(["--all"])).toEqual({
       targets: [],
       force: false,
       syncAll: true,
+      dryRun: false,
       projectPath: undefined,
     });
   });
@@ -135,6 +158,7 @@ describe("syncCommand", () => {
       targets: ["permissions"],
       force: true,
       syncAll: false,
+      dryRun: false,
       projectPath: undefined,
     });
   });
@@ -144,6 +168,7 @@ describe("syncCommand", () => {
       targets: ["permissions", "hooks", "repo-shims"],
       force: false,
       syncAll: false,
+      dryRun: false,
       projectPath: undefined,
     });
   });
@@ -153,6 +178,7 @@ describe("syncCommand", () => {
       targets: ["repo-shims"],
       force: false,
       syncAll: false,
+      dryRun: false,
       projectPath: "C:/work/project",
     });
   });
@@ -162,8 +188,27 @@ describe("syncCommand", () => {
       targets: ["permissions", "skills"],
       force: false,
       syncAll: false,
+      dryRun: false,
       projectPath: undefined,
     });
+  });
+
+  it("parses dry-run without widening the selected scope", () => {
+    expect(parseSyncFlags(["--skills", "--dry-run"])).toEqual({
+      targets: ["skills"],
+      force: false,
+      syncAll: false,
+      dryRun: true,
+      projectPath: undefined,
+    });
+  });
+
+  it("rejects unknown arguments instead of widening them to all targets", () => {
+    expect(() => parseSyncFlags(["--wat"])).toThrow('Unknown sync argument "--wat"');
+  });
+
+  it("rejects --all combined with target selection", () => {
+    expect(() => parseSyncFlags(["--all", "--skills"])).toThrow("--all cannot be combined with target selection");
   });
 
   it("rejects unknown explicit targets", () => {
@@ -187,7 +232,60 @@ describe("syncCommand", () => {
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--repo-shims", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--global-instructions", "--force"]))).toBe(true);
     expect(requiresForceSyncConfirmation(parseSyncFlags(["--skills", "--force"]))).toBe(true);
-    expect(requiresForceSyncConfirmation(parseSyncFlags(["--force"]))).toBe(true);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--all", "--force"]))).toBe(true);
+    expect(requiresForceSyncConfirmation(parseSyncFlags(["--all", "--force", "--dry-run"]))).toBe(false);
+  });
+
+  it("prints sync-specific usage", () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      printSyncHelp("kiln");
+      const output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(output).toContain("kiln sync (--all | --target <targets> | <target flags>)");
+      expect(output).toContain("--dry-run");
+      expect(output).toContain("Protected drift is reported as BLOCKED and does not fail the command");
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+  });
+
+  it("rejects invalid input before loading config or invoking projections", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(syncCommand(MOCK_APP_CONFIG, undefined, ["--wat"])).rejects.toThrow("process.exit:1");
+      expect(syncMocks.loadKilnConfig).not.toHaveBeenCalled();
+      expect(syncMocks.syncNativePermissionProjections).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Error: Unknown sync argument "--wat"');
+      expect(consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n")).toContain("kiln sync");
+    } finally {
+      exitSpy.mockRestore();
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it("propagates dry-run without requesting force confirmation", async () => {
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--permissions", "--force", "--dry-run"]);
+    } finally {
+      consoleLogSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledWith(
+      { version: "1", domain: "typescript" },
+      process.cwd(),
+      { force: true, dryRun: true, disabledHarnesses: [] },
+    );
   });
 
   it("exits non-zero when a selected sync target partially fails", async () => {
@@ -200,6 +298,12 @@ describe("syncCommand", () => {
       claude: true,
       codex: false,
       opencode: true,
+      outcomes: [{
+        targetId: "codex-permissions",
+        path: "C:/Users/test/.codex/config.toml",
+        status: "failed",
+        reason: "native configuration could not be written",
+      }],
       errors: ["Codex: managed field drift detected: sandbox_mode"],
     });
 
@@ -209,6 +313,52 @@ describe("syncCommand", () => {
       exitSpy.mockRestore();
       consoleLogSpy.mockRestore();
       consoleErrorSpy.mockRestore();
+    }
+  });
+
+  it("converts an unexpected projection exception into an inline failed outcome", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    syncMocks.syncNativePermissionProjections.mockRejectedValue(new Error("install-state is unreadable"));
+
+    try {
+      await expect(syncCommand(MOCK_APP_CONFIG, undefined, ["--permissions"])).rejects.toThrow("process.exit:1");
+      const output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(output).toContain(`${process.cwd()}: FAILED - install-state is unreadable`);
+    } finally {
+      exitSpy.mockRestore();
+      consoleLogSpy.mockRestore();
+    }
+  });
+
+  it("reports protected drift inline without failing the command", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit should not be called");
+    }) as never);
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    syncMocks.syncNativePermissionProjections.mockResolvedValue({
+      claude: true,
+      codex: false,
+      opencode: true,
+      outcomes: [{
+        targetId: "codex-permissions",
+        path: "C:/Users/test/.codex/config.toml",
+        status: "blocked",
+        reason: "managed field drift detected: sandbox_mode",
+      }],
+      errors: [],
+    });
+
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--permissions"]);
+      const output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+      expect(output).toContain("C:/Users/test/.codex/config.toml: BLOCKED - managed field drift detected: sandbox_mode");
+      expect(exitSpy).not.toHaveBeenCalled();
+    } finally {
+      exitSpy.mockRestore();
+      consoleLogSpy.mockRestore();
     }
   });
 
@@ -229,7 +379,7 @@ describe("syncCommand", () => {
     expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledWith(
       { version: "1", domain: "typescript" },
       process.cwd(),
-      { force: false, disabledHarnesses: [] },
+      { force: false, dryRun: false, disabledHarnesses: [] },
     );
   });
 
@@ -251,7 +401,7 @@ describe("syncCommand", () => {
 
     expect(syncMocks.resolveProjectRoot).toHaveBeenCalledWith({ explicitPath: "C:/resolved/project/packages/api" });
     expect(syncMocks.loadKilnConfig).toHaveBeenCalledWith("C:/resolved/project");
-    expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith("C:/resolved/project", { force: false });
+    expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith("C:/resolved/project", { force: false, dryRun: false });
   });
 
   it("syncs global instruction shims as a separate native instruction target", async () => {
@@ -274,11 +424,11 @@ describe("syncCommand", () => {
 
     expect(syncMocks.syncGlobalInstructionShimProjections).toHaveBeenCalledWith("C:/resolved/project", {
       force: false,
+      dryRun: false,
       disabledHarnesses: [],
     });
     expect(syncMocks.writeRepoShimProjections).not.toHaveBeenCalled();
-    expect(output).toContain("Global instruction shims: 3");
-    expect(output).toContain("C:/Users/test/.codex/AGENTS.md: OK (written)");
+    expect(output).toContain("C:/Users/test/.codex/AGENTS.md: WRITTEN");
   });
 
   it("fails repo-shim sync when no project root can be resolved", async () => {
@@ -306,30 +456,14 @@ describe("syncCommand", () => {
     expect(syncMocks.writeRepoShimProjections).not.toHaveBeenCalled();
   });
 
-  it("prints harness capability diagnostics from the canonical capability model", async () => {
-    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    let output = "";
-
-    try {
-      await syncCommand(MOCK_APP_CONFIG, undefined, ["--repo-shims"]);
-      output = consoleLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
-    } finally {
-      consoleLogSpy.mockRestore();
-    }
-
-    expect(output).toContain("Harness capabilities:");
-    expect(output).toContain("Claude Code: runtime injection: not proven; native projection: install-state; native import: unsupported; MCP: supported; hooks: supported");
-    expect(output).toContain("Codex: runtime injection: CODEX_HOME + CLI config overrides; native projection: install-state; native import: supported; MCP: supported; hooks: supported");
-    expect(output).toContain("OpenCode: runtime injection: OPENCODE_CONFIG_CONTENT; native projection: install-state; native import: supported; MCP: supported; hooks: supported");
-  });
-
-  it("labels the aggregate skill sync count as projections", async () => {
+  it("prints each skill projection outcome by path", async () => {
     const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     syncMocks.syncNativeSkillProjections.mockResolvedValue({
       claude: true,
       codex: true,
       opencode: true,
       synced: 120,
+      outcomes: [{ targetId: "codex-skill:planner/SKILL.md", path: "C:/Users/test/.codex/skills/planner/SKILL.md", status: "written" }],
       errors: [],
     });
     let output = "";
@@ -341,8 +475,7 @@ describe("syncCommand", () => {
       consoleLogSpy.mockRestore();
     }
 
-    expect(output).toContain("Skill projections:       120");
-    expect(output).not.toContain("(120 skills)");
+    expect(output).toContain("C:/Users/test/.codex/skills/planner/SKILL.md: WRITTEN");
   });
 
   it("accepts appConfig, subcommand, and args parameters", async () => {

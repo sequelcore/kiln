@@ -87,12 +87,13 @@ describe("native-agent-projection", () => {
 
     const result = await syncNativeAgentProjections("/workspace/project");
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       claude: true,
       codex: true,
       opencode: true,
       synced: 0,
       errors: [],
+      outcomes: [],
     });
     expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
@@ -218,7 +219,7 @@ describe("native-agent-projection", () => {
 
     const result = await syncNativeAgentProjections("/workspace/project");
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       claude: true,
       codex: true,
       opencode: true,
@@ -228,6 +229,25 @@ describe("native-agent-projection", () => {
     expect(fsMocks.files.get(join("/home/tester", ".codex", "agents", "reviewer.toml"))).toContain('model = "gpt-5.5"');
     expect(fsMocks.files.has(join("/home/tester", ".claude", "agents", "reviewer.md"))).toBe(false);
     expect(fsMocks.files.has(join("/home/tester", ".config", "opencode", "agents", "reviewer.md"))).toBe(false);
+  });
+
+  it("plans every agent target without creating directories, files, backups, or install state", async () => {
+    loadAgentDefinitionsMock.mockResolvedValue([{
+      name: "reviewer",
+      role: "Review specialist",
+      goal: "Review implementation quality",
+      tier: "reasoning",
+      instructions: "Review only.",
+      scope: "project",
+    }]);
+
+    const result = await syncNativeAgentProjections("/workspace/project", { dryRun: true });
+
+    expect(mkdirSyncMock).not.toHaveBeenCalled();
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+    expect(result.outcomes).toHaveLength(3);
+    expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
   });
 
   it("sync projects a strict OpenCode route only to compatible native OpenCode config", async () => {
@@ -379,7 +399,7 @@ describe("native-agent-projection", () => {
     expect(second.codex).toBe(false);
     expect(second.opencode).toBe(true);
     expect(second.errors).toEqual([
-      "Codex agent \"planner\" failed: managed file drift detected: $file",
+      "Codex agent \"planner\" failed: managed file drift detected: file content",
     ]);
     expect(fsMocks.files.get(codexAgentPath)).toBe("user drift\n");
 

@@ -18,6 +18,7 @@ import {
   buildWorkflowSnapshotExport,
   type WorkflowSnapshotExport,
 } from "./workflow-snapshot-export.js";
+import type { ProjectionOutcome } from "../config/native-projection-policy.js";
 
 const GENERATOR_VERSION = "repo-shims-v1";
 const SIGNATURE = "kiln:repo-shim:v1";
@@ -34,7 +35,7 @@ export interface RepoShimProjectionTargetResult {
   readonly kind: RepoShimKind;
   readonly path: string;
   readonly written: boolean;
-  readonly status: "written" | "blocked" | "unchanged";
+  readonly status: "planned" | "written" | "blocked" | "failed" | "unchanged";
   readonly errors: readonly string[];
 }
 
@@ -45,12 +46,13 @@ export interface RepoShimProjectionResult {
   readonly workflowSnapshotProjection?: WorkflowSnapshotProjectionResult;
   readonly workflowSnapshotManifest?: WorkflowSnapshotManifestResult;
   readonly errors: readonly string[];
+  readonly outcomes: readonly ProjectionOutcome[];
 }
 
 export interface WorkflowSnapshotWriteResult {
   readonly path: string;
   readonly written: boolean;
-  readonly status: "written" | "unchanged";
+  readonly status: "planned" | "written" | "failed" | "unchanged";
   readonly errors: readonly string[];
 }
 
@@ -73,6 +75,7 @@ export interface RepoShimProjectionStatus {
 
 export interface RepoShimProjectionOptions {
   readonly force?: boolean;
+  readonly dryRun?: boolean;
 }
 
 interface ProjectionMetadata {
@@ -115,20 +118,12 @@ export async function writeRepoShimProjections(
 ): Promise<RepoShimProjectionResult> {
   const results: RepoShimProjectionTargetResult[] = [];
   let context: RepoShimProjectionContext;
-  let workflowSnapshot: WorkflowSnapshotExport | undefined;
+  let workflowSnapshot: WorkflowSnapshotExport;
   let workflowSnapshotProjection: WorkflowSnapshotProjectionResult | undefined;
   let workflowSnapshotManifest: WorkflowSnapshotManifestResult | undefined;
 
   try {
     context = await loadRepoShimProjectionContext(projectPath);
-
-    for (const target of TARGETS) {
-      results.push(writeRepoShimTarget({
-        ...context,
-        target,
-        force: options.force ?? false,
-      }));
-    }
     workflowSnapshot = buildWorkflowSnapshot(context, new Date().toISOString());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -136,14 +131,70 @@ export async function writeRepoShimProjections(
       written: false,
       targets: [],
       errors: [message],
+      outcomes: [{ targetId: "repo-shims", path: projectPath, status: "failed", reason: message }],
     };
   }
 
-  const errors = results.flatMap((result) => [...result.errors]);
-  if (errors.length === 0 && workflowSnapshot) {
-    workflowSnapshotProjection = writeWorkflowSnapshotProjection(projectPath, workflowSnapshot);
-    workflowSnapshotManifest = writeWorkflowSnapshotManifest(projectPath, workflowSnapshot);
+  for (const target of TARGETS) {
+    try {
+      results.push(writeRepoShimTarget({
+        ...context,
+        target,
+        force: options.force ?? false,
+        dryRun: options.dryRun ?? false,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      results.push(repoShimTargetResult(target, join(projectPath, target.filename), "failed", [message]));
+    }
   }
+
+  const shimErrors = results.flatMap((result) => [...result.errors]);
+  if (shimErrors.length === 0) {
+    workflowSnapshotProjection = captureWorkflowSnapshotWrite(
+      workflowSnapshotMarkdownPath(projectPath),
+      () => writeWorkflowSnapshotProjection(projectPath, workflowSnapshot, options.dryRun ?? false),
+    );
+    workflowSnapshotManifest = captureWorkflowSnapshotWrite(
+      workflowSnapshotManifestPath(projectPath),
+      () => writeWorkflowSnapshotManifest(projectPath, workflowSnapshot, options.dryRun ?? false),
+    );
+  }
+  const errors = [
+    ...shimErrors,
+    ...(workflowSnapshotProjection?.errors ?? []),
+    ...(workflowSnapshotManifest?.errors ?? []),
+  ];
+  const outcomes: ProjectionOutcome[] = [
+    ...results.map((result) => ({
+      targetId: `repo-shim:${result.kind}`,
+      path: result.path,
+      status: result.status,
+      ...(result.errors[0] ? { reason: result.errors[0] } : {}),
+    })),
+    ...(workflowSnapshotProjection ? [{
+      targetId: "workflow-snapshot",
+      path: workflowSnapshotProjection.path,
+      status: workflowSnapshotProjection.status,
+      ...(workflowSnapshotProjection.errors[0] ? { reason: workflowSnapshotProjection.errors[0] } : {}),
+    } satisfies ProjectionOutcome] : [{
+      targetId: "workflow-snapshot",
+      path: workflowSnapshotMarkdownPath(projectPath),
+      status: "skipped",
+      reason: `repo shim projection did not complete: ${shimErrors[0]}`,
+    } satisfies ProjectionOutcome]),
+    ...(workflowSnapshotManifest ? [{
+      targetId: "workflow-snapshot-manifest",
+      path: workflowSnapshotManifest.path,
+      status: workflowSnapshotManifest.status,
+      ...(workflowSnapshotManifest.errors[0] ? { reason: workflowSnapshotManifest.errors[0] } : {}),
+    } satisfies ProjectionOutcome] : [{
+      targetId: "workflow-snapshot-manifest",
+      path: workflowSnapshotManifestPath(projectPath),
+      status: "skipped",
+      reason: `repo shim projection did not complete: ${shimErrors[0]}`,
+    } satisfies ProjectionOutcome]),
+  ];
   return {
     written: errors.length === 0 && (
       results.some((result) => result.written)
@@ -155,6 +206,7 @@ export async function writeRepoShimProjections(
     workflowSnapshotProjection,
     workflowSnapshotManifest,
     errors,
+    outcomes,
   };
 }
 
@@ -248,6 +300,7 @@ function writeRepoShimTarget(input: {
   readonly sourceProfiles: readonly string[];
   readonly projectRootId: string;
   readonly force: boolean;
+  readonly dryRun: boolean;
 }): RepoShimProjectionTargetResult {
   const targetPath = join(input.projectPath, input.target.filename);
   const content = renderSignedRepoShimProjection(input);
@@ -268,6 +321,10 @@ function writeRepoShimTarget(input: {
 
   if (existing === content) {
     return repoShimTargetResult(input.target, targetPath, "unchanged");
+  }
+
+  if (input.dryRun) {
+    return repoShimTargetResult(input.target, targetPath, "planned");
   }
 
   if (existing && input.force) {
@@ -584,6 +641,7 @@ function backupExistingShim(projectPath: string, filename: string, content: stri
 function writeWorkflowSnapshotManifest(
   projectPath: string,
   workflowSnapshot: WorkflowSnapshotExport,
+  dryRun: boolean,
 ): WorkflowSnapshotManifestResult {
   const manifestPath = workflowSnapshotManifestPath(projectPath);
   const existing = existsSync(manifestPath) ? readFileSync(manifestPath, "utf-8") : null;
@@ -592,6 +650,8 @@ function writeWorkflowSnapshotManifest(
   if (existingHash === workflowSnapshot.manifest.hash) {
     return workflowSnapshotResult(manifestPath, false);
   }
+
+  if (dryRun) return workflowSnapshotResult(manifestPath, false, true);
 
   ensureWorkflowProjectionDir(projectPath);
   writeFileSync(manifestPath, `${JSON.stringify(workflowSnapshot.manifest, null, 2)}\n`, "utf-8");
@@ -639,6 +699,7 @@ function workflowSnapshotGeneratedFiles(): readonly string[] {
 function writeWorkflowSnapshotProjection(
   projectPath: string,
   workflowSnapshot: WorkflowSnapshotExport,
+  dryRun: boolean,
 ): WorkflowSnapshotProjectionResult {
   const snapshotPath = workflowSnapshotMarkdownPath(projectPath);
   const content = renderWorkflowSnapshotMarkdown(workflowSnapshot);
@@ -647,6 +708,8 @@ function writeWorkflowSnapshotProjection(
   if (existing === content) {
     return workflowSnapshotResult(snapshotPath, false);
   }
+
+  if (dryRun) return workflowSnapshotResult(snapshotPath, false, true);
 
   ensureWorkflowProjectionDir(projectPath);
   writeFileSync(snapshotPath, content, "utf-8");
@@ -661,12 +724,28 @@ function ensureWorkflowProjectionDir(projectPath: string): void {
   mkdirSync(join(projectPath, ".kiln", "projections"), { recursive: true });
 }
 
-function workflowSnapshotResult(path: string, written: boolean): WorkflowSnapshotWriteResult {
+function captureWorkflowSnapshotWrite(
+  path: string,
+  operation: () => WorkflowSnapshotWriteResult,
+): WorkflowSnapshotWriteResult {
+  try {
+    return operation();
+  } catch (error) {
+    return workflowSnapshotResult(path, false, false, [error instanceof Error ? error.message : String(error)]);
+  }
+}
+
+function workflowSnapshotResult(
+  path: string,
+  written: boolean,
+  planned = false,
+  errors: readonly string[] = [],
+): WorkflowSnapshotWriteResult {
   return {
     path,
     written,
-    status: written ? "written" : "unchanged",
-    errors: [],
+    status: errors.length > 0 ? "failed" : planned ? "planned" : written ? "written" : "unchanged",
+    errors,
   };
 }
 

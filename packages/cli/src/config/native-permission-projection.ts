@@ -22,7 +22,9 @@ import {
 } from "./native-projection-state.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
+  describeProjectionDrift,
   isNativeProjectionHarnessDisabled,
+  type ProjectionOutcome,
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
 import { resolveNativeHarnessDir } from "./native-harness-home.js";
@@ -35,6 +37,7 @@ export interface NativePermissionProjectionResult {
   codex: boolean;
   opencode: boolean;
   errors: string[];
+  outcomes: readonly ProjectionOutcome[];
 }
 
 export interface NativePermissionProjectionOptions extends NativeProjectionSyncOptions {}
@@ -45,6 +48,7 @@ interface PermissionTargetResult {
   readonly removeTargetIds?: readonly string[];
   readonly error?: string;
   readonly rollback?: () => void;
+  readonly outcomes: readonly ProjectionOutcome[];
 }
 
 function ensureDir(dirPath: string): void {
@@ -57,6 +61,7 @@ export async function syncNativePermissionProjections(
   options: NativePermissionProjectionOptions = {},
 ): Promise<NativePermissionProjectionResult> {
   const errors: string[] = [];
+  const outcomes: ProjectionOutcome[] = [];
   const policy = kilnYaml.permissions ?? DEFAULT_POLICY;
   const kilnDir = join(projectPath, ".kiln");
   const modelGateway = readCanonicalModelGateway(kilnDir);
@@ -67,27 +72,30 @@ export async function syncNativePermissionProjections(
   const rollbacks: Array<() => void> = [];
   try {
     claudeResult = isNativeProjectionHarnessDisabled(options, "claude")
-      ? skippedPermissionTarget()
+      ? skippedPermissionTarget(PERMISSION_PROJECTION_TARGET_IDS.claude, join(projectPath, ".claude", "settings.json"))
       : await syncClaudePermissions(policy, projectPath, installState, options, modelGateway);
+    outcomes.push(...claudeResult.outcomes);
     if (claudeResult.rollback) rollbacks.push(claudeResult.rollback);
     if (claudeResult.snapshot) installState = upsertNativeProjectionTargetState(installState, claudeResult.snapshot);
     if (claudeResult.error) errors.push(`Claude Code: ${claudeResult.error}`);
 
     codexResult = isNativeProjectionHarnessDisabled(options, "codex")
-      ? skippedPermissionTarget()
+      ? skippedPermissionTarget(PERMISSION_PROJECTION_TARGET_IDS.codex, join(resolveNativeHarnessDir("codex", options.userHome), "config.toml"))
       : await syncCodexPermissions(kilnYaml, policy, kilnDir, installState, options, modelGateway);
+    outcomes.push(...codexResult.outcomes);
     if (codexResult.rollback) rollbacks.push(codexResult.rollback);
     if (codexResult.snapshot) installState = upsertNativeProjectionTargetState(installState, codexResult.snapshot);
     for (const targetId of codexResult.removeTargetIds ?? []) installState = removeNativeProjectionTargetState(installState, targetId);
     if (codexResult.error) errors.push(`Codex: ${codexResult.error}`);
 
     opencodeResult = isNativeProjectionHarnessDisabled(options, "opencode")
-      ? skippedPermissionTarget()
+      ? skippedPermissionTarget(PERMISSION_PROJECTION_TARGET_IDS.opencode, join(resolveNativeHarnessDir("opencode", options.userHome), "opencode.json"))
       : await syncOpenCodePermissions(kilnYaml, policy, kilnDir, installState, options, modelGateway);
+    outcomes.push(...opencodeResult.outcomes);
     if (opencodeResult.rollback) rollbacks.push(opencodeResult.rollback);
     if (opencodeResult.snapshot) installState = upsertNativeProjectionTargetState(installState, opencodeResult.snapshot);
     if (opencodeResult.error) errors.push(`OpenCode: ${opencodeResult.error}`);
-    writeNativeProjectionInstallState(kilnDir, installState);
+    if (!options.dryRun) writeNativeProjectionInstallState(kilnDir, installState);
   } catch (error) {
     rollbackNativeProjectionChanges(rollbacks, error);
   }
@@ -97,11 +105,12 @@ export async function syncNativePermissionProjections(
     codex: codexResult.ok,
     opencode: opencodeResult.ok,
     errors,
+    outcomes,
   };
 }
 
-function skippedPermissionTarget(): PermissionTargetResult {
-  return { ok: true };
+function skippedPermissionTarget(targetId = "permission-target", path = ""): PermissionTargetResult {
+  return { ok: true, outcomes: [{ targetId, path, status: "skipped", reason: "native harness is disabled" }] };
 }
 
 async function syncClaudePermissions(
@@ -119,7 +128,7 @@ async function syncClaudePermissions(
     try {
       existing = requireRecord(JSON.parse(originalContent!), "configuration root must be an object");
     } catch (error) {
-      return unreadablePermissionTarget(error);
+      return unreadablePermissionTarget(targetId, target, error);
     }
   }
   const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: existing });
@@ -127,6 +136,7 @@ async function syncClaudePermissions(
     return {
       ok: false,
       error: `managed field drift detected: ${drift.driftedFields.join(", ")}`,
+      outcomes: [{ targetId, path: target, status: "blocked", reason: `managed field drift detected: ${describeProjectionDrift(drift.driftedFields)}` }],
     };
   }
 
@@ -144,6 +154,9 @@ async function syncClaudePermissions(
     managedFields: projection.managedFields,
     permissionIntegrity: projection.integrity,
   });
+  if (options.dryRun) {
+    return { ok: true, outcomes: [{ targetId, path: target, status: "planned", reason: "write projected permission settings" }] };
+  }
   ensureDir(dirname(target));
   backupNativeProjectionFile({ kilnDir: join(projectPath, ".kiln"), targetId, filePath: target });
   const rollback = () => restoreFile(target, originalContent);
@@ -156,6 +169,7 @@ async function syncClaudePermissions(
     ok: true,
     snapshot,
     rollback,
+    outcomes: [{ targetId, path: target, status: "written" }],
   };
 }
 
@@ -175,7 +189,7 @@ async function syncCodexPermissions(
     try {
       doc = requireRecord(parseToml(originalConfigContent!), "configuration root must be an object");
     } catch (error) {
-      return unreadablePermissionTarget(error);
+      return unreadablePermissionTarget(targetId, target, error);
     }
   }
   const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: doc });
@@ -183,6 +197,7 @@ async function syncCodexPermissions(
     return {
       ok: false,
       error: `managed field drift detected: ${drift.driftedFields.join(", ")}`,
+      outcomes: [{ targetId, path: target, status: "blocked", reason: `managed field drift detected: ${describeProjectionDrift(drift.driftedFields)}` }],
     };
   }
 
@@ -215,6 +230,24 @@ async function syncCodexPermissions(
     permissionIntegrity: projection.integrity,
   });
   const removeTargetIds = catalogState ? [catalogTargetId] : [];
+  const catalogOutcome: ProjectionOutcome | undefined = catalogState ? {
+    targetId: catalogTargetId,
+    path: catalogPath,
+    status: options.dryRun ? "planned" : "removed",
+    reason: catalogDrift && !options.force
+      ? "detach install-state while preserving modified catalog file content"
+      : "remove legacy managed model catalog",
+  } : undefined;
+  if (options.dryRun) {
+    return {
+      ok: true,
+      removeTargetIds,
+      outcomes: [
+        { targetId, path: target, status: "planned", reason: "write projected permission settings" },
+        ...(catalogOutcome ? [catalogOutcome] : []),
+      ],
+    };
+  }
   ensureDir(dirname(target));
   backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
   const rollback = () => {
@@ -224,7 +257,14 @@ async function syncCodexPermissions(
   try {
     if (catalogState && (!catalogDrift || options.force)) rmSync(catalogPath, { force: true });
   } catch {
-    return { ok: false, error: "legacy managed model catalog could not be removed safely" };
+    return {
+      ok: false,
+      error: "legacy managed model catalog could not be removed safely",
+      outcomes: [
+        { targetId, path: target, status: "skipped", reason: "legacy model catalog removal failed" },
+        { targetId: catalogTargetId, path: catalogPath, status: "failed", reason: "legacy managed model catalog could not be removed safely" },
+      ],
+    };
   }
   try {
     writeFileAtomically(target, stringifyToml(projection.document));
@@ -236,6 +276,10 @@ async function syncCodexPermissions(
     snapshot,
     removeTargetIds,
     rollback,
+    outcomes: [
+      { targetId, path: target, status: "written" },
+      ...(catalogOutcome ? [catalogOutcome] : []),
+    ],
   };
 }
 
@@ -256,7 +300,7 @@ async function syncOpenCodePermissions(
       const stripped = stripJsonComments(originalContent!);
       existing = requireRecord(JSON.parse(stripped), "configuration root must be an object");
     } catch (error) {
-      return unreadablePermissionTarget(error);
+      return unreadablePermissionTarget(targetId, target, error);
     }
   }
   const drift = detectNativeProjectionDrift({ targetId, state: installState, currentDocument: existing });
@@ -264,6 +308,7 @@ async function syncOpenCodePermissions(
     return {
       ok: false,
       error: `managed field drift detected: ${drift.driftedFields.join(", ")}`,
+      outcomes: [{ targetId, path: target, status: "blocked", reason: `managed field drift detected: ${describeProjectionDrift(drift.driftedFields)}` }],
     };
   }
 
@@ -284,6 +329,9 @@ async function syncOpenCodePermissions(
     ...(gatewayProjection?.managedFields.includes("enabled_providers") ? { managedArrayItems: { enabled_providers: ["kiln"] } } : {}),
     permissionIntegrity: projection.integrity,
   });
+  if (options.dryRun) {
+    return { ok: true, outcomes: [{ targetId, path: target, status: "planned", reason: "write projected permission settings" }] };
+  }
   ensureDir(dirname(target));
   backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
   const rollback = () => restoreFile(target, originalContent);
@@ -296,6 +344,7 @@ async function syncOpenCodePermissions(
     ok: true,
     snapshot,
     rollback,
+    outcomes: [{ targetId, path: target, status: "written" }],
   };
 }
 
@@ -305,11 +354,12 @@ function readCanonicalModelGateway(kilnDir: string): ModelGatewayConfig | undefi
   return parseGatewayYaml(readFileSync(path, "utf8")).modelGateway;
 }
 
-function unreadablePermissionTarget(error: unknown): PermissionTargetResult {
+function unreadablePermissionTarget(targetId: string, path: string, error: unknown): PermissionTargetResult {
   const detail = error instanceof Error
     ? error.message.replace(/[\r\n]+/g, " ").slice(0, 240)
     : "unknown parse error";
-  return { ok: false, error: `native configuration is unreadable and was not modified: ${detail}` };
+  const reason = `native configuration is unreadable and was not modified: ${detail}`;
+  return { ok: false, error: reason, outcomes: [{ targetId, path, status: "failed", reason }] };
 }
 
 function requireRecord(value: unknown, message: string): Record<string, unknown> {

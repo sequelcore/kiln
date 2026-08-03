@@ -10,6 +10,7 @@ export type NativeProjectionHarness = HarnessIntegrationId;
 
 export interface NativeProjectionSyncOptions {
   readonly force?: boolean;
+  readonly dryRun?: boolean;
   readonly disabledHarnesses?: readonly NativeProjectionHarness[];
   /**
    * Explicit isolation root for tests/sandboxes. When set, every harness
@@ -18,6 +19,17 @@ export interface NativeProjectionSyncOptions {
    * `native-harness-home.ts` for full precedence.
    */
   readonly userHome?: string;
+}
+
+export interface ProjectionOutcome {
+  readonly targetId: string;
+  readonly path: string;
+  readonly status: "planned" | "written" | "unchanged" | "removed" | "blocked" | "failed" | "skipped";
+  readonly reason?: string;
+}
+
+export function describeProjectionDrift(fields: readonly string[]): string {
+  return fields.map((field) => field === "$file" ? "file content" : field).join(", ");
 }
 
 export function isNativeProjectionHarnessDisabled(

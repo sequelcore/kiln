@@ -122,11 +122,18 @@ or remove native drift.
 
 `kiln sync` projects the merged Kiln config into supported native harness files
 when native projection is the selected harness strategy. Projection is one-way.
+The command requires explicit target flags, `--target`, or `--all`; a bare sync
+does not infer permission to write every project and user-level target.
+
+`kiln sync --all --dry-run` runs the same target classification without creating
+directories, backups, projection files, or install-state. Preview output names
+every affected path, its planned status, and any refusal reason.
 
 Sync executes serially by projection surface and target. Successful writes remain
 committed if a later target fails; Kiln does not automatically roll native files
 back. It reports all observed target errors and exits non-zero on any target
-failure.
+operational failure. Protected managed drift is reported inline as `BLOCKED`
+and does not make the command fail because the refusal preserves operator state.
 
 Before overwriting an existing native projection file, Kiln writes an append-only
 backup under `.kiln/backups/<target-id>/`. New files are not backed up.

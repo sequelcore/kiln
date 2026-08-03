@@ -107,7 +107,8 @@ kiln config read projections
 After changing profiles, agents, skills, or projection-relevant config, run:
 
 ```bash
-kiln sync
+kiln sync --all --dry-run
+kiln sync --all
 ```
 
 The expected result is one source of truth:

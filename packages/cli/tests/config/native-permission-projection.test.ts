@@ -130,6 +130,22 @@ describe("syncNativePermissionProjections", () => {
     }
   });
 
+  it("plans all permission destinations without creating files, backups, or install state", async () => {
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath, {
+      dryRun: true,
+      userHome: paths.homePath,
+    });
+
+    expect(readdirSync(paths.projectPath)).toEqual([]);
+    expect(readdirSync(paths.homePath)).toEqual([]);
+    expect(result.outcomes.map((outcome) => outcome.targetId).sort()).toEqual([
+      "claude-settings",
+      "codex-config",
+      "opencode-config",
+    ]);
+    expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
+  });
+
   it("merges Claude settings and writes kiln.permissionSync metadata", { timeout: 10_000 }, async () => {
     const claudeSettingsPath = join(paths.projectPath, ".claude", "settings.json");
     mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
@@ -185,6 +201,7 @@ describe("syncNativePermissionProjections", () => {
     const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining(`${harness}: native configuration is unreadable`)]));
+    expect(result.outcomes).toContainEqual(expect.objectContaining({ path: target, status: "failed" }));
     expect(readFileSync(target, "utf8")).toBe(content);
   });
 

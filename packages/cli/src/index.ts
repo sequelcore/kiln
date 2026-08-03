@@ -86,7 +86,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
     cron: "Manage scheduled jobs (list, add, remove, run)",
-    sync: "Sync permissions and hooks to Claude Code, Codex, and OpenCode (--permissions, --hooks, --all)",
+    sync: "Preview or sync explicit native projection targets (--target, --all, --dry-run)",
     route: "Print the resolved worker route from global engine routing config",
     "import-native": "Import supported native engine config into Kiln global config (codex, opencode)",
     uninstall: "Remove Kiln-managed native projections without deleting unmanaged native settings",
@@ -356,7 +356,11 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   }
 
   if (command === "sync") {
-    const { syncCommand } = await import("./commands/sync.js");
+    const { printSyncHelp, syncCommand } = await import("./commands/sync.js");
+    if (args.includes("--help") || args.includes("-h")) {
+      printSyncHelp(APP_NAME);
+      process.exit(0);
+    }
     await syncCommand(config, undefined, args.slice(1));
     return;
   }

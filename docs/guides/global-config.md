@@ -1048,7 +1048,7 @@ the built-in profile; a project profile with the same `name` replaces both.
 Use this override path for personal display names, provider preferences, extra
 instruction profiles, and team-specific role doctrine.
 
-Run `kiln sync --agents` (or `kiln sync` with no flags) to push agent
+Run `kiln sync --agents` (or explicitly select every surface with `kiln sync --all`) to push agent
 definitions from `~/.kiln/agents/` and `.kiln/agents/` to enabled native CLIs:
 
 | Target | Location | Format |
@@ -1267,7 +1267,7 @@ OpenCode agent files, GUI prompts, and SDK consumers.
 
 ## Skills Sync
 
-Run `kiln sync --skills` (or `kiln sync` with no flags) to copy skill
+Run `kiln sync --skills` (or explicitly select every surface with `kiln sync --all`) to copy skill
 directories from `~/.kiln/skills/` and `.kiln/skills/` to enabled native CLIs.
 
 | Target | Location |

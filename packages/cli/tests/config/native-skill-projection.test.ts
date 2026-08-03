@@ -95,9 +95,39 @@ describe("native-skill-projection", () => {
       opencode: true,
       synced: 0,
       errors: [],
+      outcomes: [],
     });
     expect(mkdirSyncMock).not.toHaveBeenCalled();
     expect(writeFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed outcome when a harness skill directory cannot be created", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    const codexSkillsDir = join("/home/tester", ".codex", "skills");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
+      if (targetPath === projectDir) throw new Error("ENOENT");
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
+    mkdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === codexSkillsDir) throw new Error("access denied");
+    });
+
+    const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
+
+    expect(result.codex).toBe(false);
+    expect(result.outcomes).toContainEqual({
+      targetId: "codex-skill-directory",
+      path: codexSkillsDir,
+      status: "failed",
+      reason: "access denied",
+    });
+    expect([...fsMocks.files.keys()].some((path) => path.startsWith(codexSkillsDir))).toBe(false);
   });
 
   it("discoverSkillDirs() returns global skills when no project dir", () => {
@@ -226,6 +256,45 @@ describe("native-skill-projection", () => {
       expect.stringContaining("name: tdd-workflow"),
       "utf-8",
     );
+  });
+
+  it("plans every builtin skill file without creating directories, files, backups, or install state", async () => {
+    readdirSyncMock.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const result = await syncNativeSkillProjections("/workspace/project", {
+      dryRun: true,
+      skillConfig: { builtin: { include: ["tdd-workflow"] } },
+    });
+
+    expect(mkdirSyncMock).not.toHaveBeenCalled();
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
+    expect(result.outcomes).toHaveLength(3);
+    expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
+  });
+
+  it("reports disabled harness skill paths as skipped", async () => {
+    readdirSyncMock.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    const result = await syncNativeSkillProjections("/workspace/project", {
+      dryRun: true,
+      disabledHarnesses: ["codex"],
+      skillConfig: { builtin: { include: ["tdd-workflow"] } },
+    });
+
+    expect(result.outcomes).toContainEqual({
+      targetId: "codex-skill:tdd-workflow",
+      path: join("/home/tester", ".codex", "skills", "tdd-workflow"),
+      status: "skipped",
+      reason: "Codex harness is disabled",
+    });
+    expect(result.outcomes).not.toContainEqual(expect.objectContaining({
+      targetId: expect.stringMatching(/^codex-skill:/),
+      status: "planned",
+    }));
   });
 
   it("skill files are copied to all three target directories", async () => {
@@ -421,7 +490,7 @@ describe("native-skill-projection", () => {
     expect(second.codex).toBe(false);
     expect(second.opencode).toBe(true);
     expect(second.errors).toEqual([
-      "Codex skill \"planner\" file \"SKILL.md\" failed: managed file drift detected: $file",
+      "Codex skill \"planner\" file \"SKILL.md\" failed: managed file drift detected: file content",
     ]);
     expect(fsMocks.files.get(codexSkillPath)).toBe("user drift\n");
 

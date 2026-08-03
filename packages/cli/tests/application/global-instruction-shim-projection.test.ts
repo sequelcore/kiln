@@ -134,6 +134,20 @@ describe("global instruction shim projection", () => {
     ]);
   });
 
+  it("plans all global shims without writing targets, backups, or install state", async () => {
+    const result = await syncGlobalInstructionShimProjections(PROJECT_PATH, {
+      userHome: USER_HOME,
+      dryRun: true,
+      timestamp: FIXED_TIMESTAMP,
+    });
+
+    expect(result.outcomes).toHaveLength(3);
+    expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
+    expect(listGlobalInstructionShimTargets(USER_HOME).every((target) => !existsSync(target.filePath))).toBe(true);
+    expect(existsSync(join(PROJECT_PATH, ".kiln", "install-state.json"))).toBe(false);
+    expect(existsSync(join(PROJECT_PATH, ".kiln", "backups"))).toBe(false);
+  });
+
   it("is idempotent when managed global shims are unchanged", async () => {
     await syncGlobalInstructionShimProjections(PROJECT_PATH, {
       userHome: USER_HOME,

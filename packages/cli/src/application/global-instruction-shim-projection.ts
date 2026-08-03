@@ -21,6 +21,7 @@ import {
 } from "../config/native-projection-state.js";
 import {
   isNativeProjectionHarnessDisabled,
+  type ProjectionOutcome,
   type NativeProjectionHarness,
 } from "../config/native-projection-policy.js";
 
@@ -35,9 +36,11 @@ export type GlobalInstructionShimStatus =
   | "stale"
   | "drifted"
   | "unmanaged"
+  | "planned"
   | "written"
   | "unchanged"
   | "blocked"
+  | "failed"
   | "removed"
   | "disabled"
   | "disabled-unmanaged";
@@ -57,7 +60,7 @@ export interface GlobalInstructionShimSnapshot extends GlobalInstructionShimTarg
 export interface GlobalInstructionShimTargetResult extends GlobalInstructionShimTarget {
   readonly status: Extract<
     GlobalInstructionShimStatus,
-    "written" | "unchanged" | "blocked" | "removed" | "disabled" | "disabled-unmanaged"
+    "planned" | "written" | "unchanged" | "blocked" | "failed" | "removed" | "disabled" | "disabled-unmanaged"
   >;
   readonly written: boolean;
   readonly backupPath?: string;
@@ -70,12 +73,14 @@ export interface GlobalInstructionShimProjectionOptions {
   readonly adoptUnmanaged?: boolean;
   readonly disabledHarnesses?: readonly NativeProjectionHarness[];
   readonly timestamp?: string;
+  readonly dryRun?: boolean;
 }
 
 export interface GlobalInstructionShimProjectionResult {
   readonly synced: number;
   readonly targets: readonly GlobalInstructionShimTargetResult[];
   readonly errors: readonly string[];
+  readonly outcomes: readonly ProjectionOutcome[];
 }
 
 interface ProjectionContext {
@@ -123,21 +128,43 @@ export async function syncGlobalInstructionShimProjections(
   projectPath: string,
   options: GlobalInstructionShimProjectionOptions = {},
 ): Promise<GlobalInstructionShimProjectionResult> {
-  const context = await loadProjectionContext(projectPath, options.userHome);
+  let context: ProjectionContext;
+  try {
+    context = await loadProjectionContext(projectPath, options.userHome);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      synced: 0,
+      targets: [],
+      errors: [reason],
+      outcomes: [{ targetId: "global-instruction-shims", path: projectPath, status: "failed", reason }],
+    };
+  }
   let state = readNativeProjectionInstallState(context.kilnDir);
   const results: GlobalInstructionShimTargetResult[] = [];
 
   for (const target of listGlobalInstructionShimTargets(requireUserHome(options.userHome))) {
-    const result = syncTarget(context, state, target, options);
-    state = result.state;
-    results.push(result.targetResult);
+    try {
+      const targetSync = syncTarget(context, state, target, options);
+      state = targetSync.state;
+      results.push(targetSync.targetResult);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      results.push(result(target, "failed", undefined, [reason]));
+    }
   }
 
-  writeNativeProjectionInstallState(context.kilnDir, state);
+  if (!options.dryRun) writeNativeProjectionInstallState(context.kilnDir, state);
   return {
     synced: results.filter((target) => target.written).length,
     targets: results,
     errors: results.flatMap((target) => [...target.errors]),
+    outcomes: results.map((target): ProjectionOutcome => ({
+      targetId: target.targetId,
+      path: target.filePath,
+      status: target.status === "disabled" || target.status === "disabled-unmanaged" ? "skipped" : target.status,
+      ...(target.errors[0] ? { reason: target.errors[0] } : {}),
+    })),
   };
 }
 
@@ -151,7 +178,7 @@ function syncTarget(
   readonly targetResult: GlobalInstructionShimTargetResult;
 } {
   if (isNativeProjectionHarnessDisabled(options, target.harness)) {
-    return disableTarget(context, state, target);
+    return disableTarget(context, state, target, options.dryRun ?? false);
   }
 
   const snapshot = classifyTarget(context, state, target);
@@ -176,6 +203,13 @@ function syncTarget(
       targetResult: result(target, "blocked", undefined, [
         `${target.targetId}: managed global instruction drift detected; rerun with force after review`,
       ]),
+    };
+  }
+
+  if (options.dryRun) {
+    return {
+      state,
+      targetResult: result(target, "planned"),
     };
   }
 
@@ -211,6 +245,7 @@ function disableTarget(
   _context: ProjectionContext,
   state: NativeProjectionInstallState,
   target: GlobalInstructionShimTarget,
+  dryRun: boolean,
 ): {
   readonly state: NativeProjectionInstallState;
   readonly targetResult: GlobalInstructionShimTargetResult;
@@ -232,7 +267,19 @@ function disableTarget(
   }
 
   if (existsSync(target.filePath)) {
+    if (dryRun) {
+      return {
+        state,
+        targetResult: result(target, "planned"),
+      };
+    }
     rmSync(target.filePath);
+  }
+  if (dryRun) {
+    return {
+      state,
+      targetResult: result(target, "planned"),
+    };
   }
   return {
     state: removeNativeProjectionTargetState(state, target.targetId),

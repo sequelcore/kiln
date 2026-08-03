@@ -8,13 +8,13 @@ import { writeRepoShimProjections } from "../application/repo-shim-projection.js
 import { syncGlobalInstructionShimProjections } from "../application/global-instruction-shim-projection.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
-import { listHarnessIntegrationCapabilities } from "../config/harness-integration-capabilities.js";
+import type { ProjectionOutcome } from "../config/native-projection-policy.js";
 import type { KilnAppConfig } from "../config.js";
 
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "global-instructions", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
 
-const LEGACY_SYNC_FLAGS: Readonly<Record<string, SyncTargetId>> = {
+const SYNC_TARGET_FLAGS: Readonly<Record<string, SyncTargetId>> = {
   "--permissions": "permissions",
   "--hooks": "hooks",
   "--agents": "agents",
@@ -27,30 +27,86 @@ export interface SyncFlags {
   readonly targets: readonly SyncTargetId[];
   readonly force: boolean;
   readonly syncAll: boolean;
+  readonly dryRun: boolean;
   readonly projectPath?: string;
 }
 
 export function parseSyncFlags(args: readonly string[]): SyncFlags {
-  const explicitTargets = readFlagValues(args, "--target").flatMap((value) =>
-    value.split(",").map((target) => target.trim()).filter(Boolean)
-  );
-  const legacyFlagTargets = Object.entries(LEGACY_SYNC_FLAGS)
-    .filter(([flag]) => args.includes(flag))
-    .map(([, target]) => target);
+  const requestedTargets: SyncTargetId[] = [];
+  let force = false;
+  let dryRun = false;
+  let syncAll = false;
+  let projectPath: string | undefined;
 
-  const requestedTargets = [...explicitTargets, ...legacyFlagTargets].map(parseSyncTargetId);
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    const targetFlag = SYNC_TARGET_FLAGS[arg];
+    if (targetFlag) {
+      requestedTargets.push(targetFlag);
+      continue;
+    }
+    if (arg === "--all") {
+      syncAll = true;
+      continue;
+    }
+    if (arg === "--force") {
+      force = true;
+      continue;
+    }
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+    if (arg === "--target" || arg.startsWith("--target=")) {
+      const value = readInlineOrFollowingValue(args, index, "--target");
+      requestedTargets.push(...value.value.split(",").map((target) => target.trim()).filter(Boolean).map(parseSyncTargetId));
+      index += value.consumedNext ? 1 : 0;
+      continue;
+    }
+    if (arg === "--project" || arg.startsWith("--project=") || arg === "--cwd" || arg.startsWith("--cwd=")) {
+      if (projectPath !== undefined) throw new Error("--project or --cwd may be specified only once");
+      const flag = arg.startsWith("--cwd") ? "--cwd" : "--project";
+      const value = readInlineOrFollowingValue(args, index, flag);
+      projectPath = value.value;
+      index += value.consumedNext ? 1 : 0;
+      continue;
+    }
+    throw new Error(`Unknown sync argument "${arg}"`);
+  }
+
   const targets = [...new Set(requestedTargets)];
-  const syncAll = targets.length === 0;
+  if (syncAll && targets.length > 0) throw new Error("--all cannot be combined with target selection");
+  if (!syncAll && targets.length === 0) throw new Error("Select at least one sync target or pass --all");
   return {
     targets,
-    force: args.includes("--force"),
+    force,
     syncAll,
-    projectPath: readOptionalSingleFlagValue(args, ["--project", "--cwd"]),
+    dryRun,
+    projectPath,
   };
 }
 
+export function printSyncHelp(appName: string): void {
+  console.log(`${appName} sync (--all | --target <targets> | <target flags>) [options]`);
+  console.log("");
+  console.log("Targets:");
+  console.log(`  --all                    Sync every target: ${SYNC_TARGETS.join(", ")}`);
+  console.log("  --target <targets>       Sync a comma-separated target list; repeatable");
+  for (const [flag, target] of Object.entries(SYNC_TARGET_FLAGS)) {
+    console.log(`  ${flag.padEnd(24)}Sync ${target}`);
+  }
+  console.log("");
+  console.log("Options:");
+  console.log("  --project, --cwd <path>  Resolve project-aware targets from this path");
+  console.log("  --dry-run                Report paths, outcomes, and refusal reasons without writing");
+  console.log("  --force                  Overwrite reviewed managed drift after confirmation");
+  console.log("  --help, -h               Show this help");
+  console.log("");
+  console.log("Protected drift is reported as BLOCKED and does not fail the command; operational errors exit non-zero.");
+}
+
 export function requiresForceSyncConfirmation(flags: SyncFlags): boolean {
-  return flags.force && (
+  return flags.force && !flags.dryRun && (
     isSyncTargetSelected(flags, "permissions")
     || isSyncTargetSelected(flags, "hooks")
     || isSyncTargetSelected(flags, "agents")
@@ -75,30 +131,21 @@ function parseSyncTargetId(target: string): SyncTargetId {
   throw new Error(`Unknown sync target "${target}". Valid targets: ${SYNC_TARGETS.join(", ")}`);
 }
 
-function readFlagValues(args: readonly string[], flag: string): string[] {
-  const values: string[] = [];
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]!;
-    if (arg === flag) {
-      const value = args[index + 1];
-      if (value === undefined || value.startsWith("--")) {
-        throw new Error(`${flag} requires a value`);
-      }
-      values.push(value);
-      index += 1;
-    } else if (arg.startsWith(`${flag}=`)) {
-      values.push(arg.slice(flag.length + 1));
-    }
+function readInlineOrFollowingValue(
+  args: readonly string[],
+  index: number,
+  flag: string,
+): { readonly value: string; readonly consumedNext: boolean } {
+  const arg = args[index]!;
+  const inlinePrefix = `${flag}=`;
+  if (arg.startsWith(inlinePrefix)) {
+    const value = arg.slice(inlinePrefix.length).trim();
+    if (!value) throw new Error(`${flag} requires a value`);
+    return { value, consumedNext: false };
   }
-  return values;
-}
-
-function readOptionalSingleFlagValue(args: readonly string[], flags: readonly string[]): string | undefined {
-  const values = flags.flatMap((flag) => readFlagValues(args, flag));
-  if (values.length > 1) {
-    throw new Error(`${flags.join(" or ")} may be specified only once`);
-  }
-  return values[0];
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+  return { value, consumedNext: true };
 }
 
 async function confirmForceNativeProjectionSync(): Promise<boolean> {
@@ -136,6 +183,7 @@ export async function syncCommand(
     flags = parseSyncFlags(args);
   } catch (error) {
     console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    printSyncHelp("kiln");
     process.exit(1);
   }
   const forceNativeProjectionSync = requiresForceSyncConfirmation(flags);
@@ -171,31 +219,33 @@ export async function syncCommand(
   let repoShimResult: Awaited<ReturnType<typeof writeRepoShimProjections>> | null = null;
   let globalInstructionResult: Awaited<ReturnType<typeof syncGlobalInstructionShimProjections>> | null = null;
   let skillsResult: Awaited<ReturnType<typeof syncNativeSkillProjections>> | null = null;
-
-  const allErrors: string[] = [];
+  const unexpectedOutcomes: ProjectionOutcome[] = [];
 
   if (isSyncTargetSelected(flags, "permissions")) {
-    permResult = await syncNativePermissionProjections(kilnYaml, root, {
-      force: forcePermissionSync,
-      disabledHarnesses,
-    });
-    allErrors.push(...permResult.errors);
+    permResult = await captureProjectionFailure(unexpectedOutcomes, "permissions", root, () =>
+      syncNativePermissionProjections(kilnYaml, root, {
+        force: forcePermissionSync,
+        dryRun: flags.dryRun,
+        disabledHarnesses,
+      }));
   }
 
   if (isSyncTargetSelected(flags, "hooks")) {
-    hookResult = await syncNativeHookProjections(root, kilnDir, {
-      force: forceHookSync,
-      disabledHarnesses,
-    });
-    allErrors.push(...hookResult.errors);
+    hookResult = await captureProjectionFailure(unexpectedOutcomes, "hooks", root, () =>
+      syncNativeHookProjections(root, kilnDir, {
+        force: forceHookSync,
+        dryRun: flags.dryRun,
+        disabledHarnesses,
+      }));
   }
 
   if (isSyncTargetSelected(flags, "agents")) {
-    agentResult = await syncNativeAgentProjections(root, {
-      force: forceAgentSync,
-      disabledHarnesses,
-    });
-    allErrors.push(...agentResult.errors);
+    agentResult = await captureProjectionFailure(unexpectedOutcomes, "agents", root, () =>
+      syncNativeAgentProjections(root, {
+        force: forceAgentSync,
+        dryRun: flags.dryRun,
+        disabledHarnesses,
+      }));
   }
 
   if (isSyncTargetSelected(flags, "repo-shims")) {
@@ -203,112 +253,72 @@ export async function syncCommand(
       repoShimResult = {
         written: false,
         targets: [],
+        outcomes: [{
+          targetId: "repo-shims",
+          path: root,
+          status: "failed",
+          reason: `unable to resolve a Kiln project root from ${root}`,
+        }],
         errors: [`repo-shims: unable to resolve a Kiln project root from ${root}`],
       };
     } else {
-      repoShimResult = await writeRepoShimProjections(root, { force: forceRepoShimSync });
+      repoShimResult = await captureProjectionFailure(unexpectedOutcomes, "repo-shims", root, () =>
+        writeRepoShimProjections(root, { force: forceRepoShimSync, dryRun: flags.dryRun }));
     }
-    allErrors.push(...repoShimResult.errors);
   }
 
   if (isSyncTargetSelected(flags, "global-instructions")) {
-    globalInstructionResult = await syncGlobalInstructionShimProjections(root, {
-      force: forceGlobalInstructionSync,
-      disabledHarnesses,
-    });
-    allErrors.push(...globalInstructionResult.errors);
+    globalInstructionResult = await captureProjectionFailure(unexpectedOutcomes, "global-instructions", root, () =>
+      syncGlobalInstructionShimProjections(root, {
+        force: forceGlobalInstructionSync,
+        dryRun: flags.dryRun,
+        disabledHarnesses,
+      }));
   }
 
   if (isSyncTargetSelected(flags, "skills")) {
-    skillsResult = await syncNativeSkillProjections(root, {
-      force: forceSkillSync,
-      disabledHarnesses,
-      skillConfig: kilnYaml.skills,
-    });
-    allErrors.push(...skillsResult.errors);
+    skillsResult = await captureProjectionFailure(unexpectedOutcomes, "skills", root, () =>
+      syncNativeSkillProjections(root, {
+        force: forceSkillSync,
+        dryRun: flags.dryRun,
+        disabledHarnesses,
+        skillConfig: kilnYaml.skills,
+      }));
   }
 
-  const platformNote = process.platform === "win32"
-    ? " (Windows: Codex hooks skipped)"
-    : "";
-
-  if (permResult || hookResult || agentResult || repoShimResult || globalInstructionResult || skillsResult) {
-    console.log("\nSync Results:");
-    console.log("─".repeat(40));
-
-    if (permResult) {
-      console.log(`Claude Code permissions: ${permResult.claude ? "OK" : "FAIL"}`);
-      console.log(`Codex permissions:       ${permResult.codex ? "OK" : "FAIL"}`);
-      console.log(`OpenCode permissions:    ${permResult.opencode ? "OK" : "FAIL"}`);
-    }
-
-    if (hookResult) {
-      console.log(`Claude Code hook:       ${hookResult.claudeHook ? "OK" : "FAIL"}`);
-      if (hookResult.skippedWindows) {
-        console.log(`Codex hook:              SKIPPED (Windows)${platformNote}`);
-      } else {
-        console.log(`Codex hook:              ${hookResult.codexHook ? "OK" : "FAIL"}`);
-      }
-    }
-
-    if (agentResult) {
-      console.log(`Agent sync (Claude Code): ${agentResult.claude ? "OK" : "FAIL"}`);
-      console.log(`Agent sync (Codex):       ${agentResult.codex ? "OK" : "FAIL"}`);
-      console.log(`Agent sync (OpenCode):    ${agentResult.opencode ? "OK" : "FAIL"}`);
-    }
-
-    if (repoShimResult) {
-      if (repoShimResult.targets.length === 0) {
-        console.log(`Repo shims:            ${repoShimResult.written ? "OK" : "FAIL"}`);
-      }
-      for (const target of repoShimResult.targets) {
-        console.log(`${target.path}: ${target.status === "blocked" ? "FAIL" : "OK"} (${target.status})`);
-      }
-    }
-
-    if (globalInstructionResult) {
-      console.log(`Global instruction shims: ${globalInstructionResult.synced}`);
-      for (const target of globalInstructionResult.targets) {
-        console.log(`${target.filePath}: ${target.status === "blocked" ? "FAIL" : "OK"} (${target.status})`);
-      }
-    }
-
-    if (skillsResult) {
-      console.log(`Skills (Claude Code):   ${skillsResult.claude ? "OK" : "FAIL"}`);
-      console.log(`Skills (Codex):         ${skillsResult.codex ? "OK" : "FAIL"}`);
-      console.log(`Skills (OpenCode):      ${skillsResult.opencode ? "OK" : "FAIL"}`);
-      console.log(`Skill projections:       ${skillsResult.synced}`);
-    }
-
-    console.log("─".repeat(40));
+  const outcomes = [
+    ...unexpectedOutcomes,
+    ...[permResult, hookResult, agentResult, repoShimResult, globalInstructionResult, skillsResult]
+      .flatMap((result) => result?.outcomes ?? []),
+  ];
+  console.log(flags.dryRun ? "\nSync Preview:" : "\nSync Results:");
+  console.log("─".repeat(40));
+  for (const outcome of outcomes) {
+    const reason = outcome.reason ? ` - ${outcome.reason}` : "";
+    console.log(`${outcome.path}: ${outcome.status.toUpperCase()}${reason}`);
   }
+  console.log("─".repeat(40));
 
-  if (permResult || hookResult || agentResult || repoShimResult || globalInstructionResult || skillsResult) {
-    console.log("");
-    console.log("Harness capabilities:");
-    for (const capability of listHarnessIntegrationCapabilities()) {
-      const runtimeInjection = capability.runtimeConfigInjection.supported
-        ? `runtime injection: ${capability.runtimeConfigInjection.mechanism ?? "supported"}`
-        : "runtime injection: not proven";
-      const nativeProjection = capability.nativeProjection.supported
-        ? "native projection: install-state"
-        : "native projection: unsupported";
-      const nativeImport = capability.nativeConfigImport ? "native import: supported" : "native import: unsupported";
-      const mcp = capability.mcpRuntimeTools ? "MCP: supported" : "MCP: unsupported";
-      const hooks = capability.hooks ? "hooks: supported" : "hooks: unsupported";
-      console.log(`  ${capability.displayName}: ${runtimeInjection}; ${nativeProjection}; ${nativeImport}; ${mcp}; ${hooks}`);
-    }
-  }
-
-  if (allErrors.length > 0) {
-    console.log("\nErrors:");
-    for (const err of allErrors) {
-      console.log(`  - ${err}`);
-    }
-    console.log("");
-  }
-
-  if (allErrors.length > 0) {
+  if (outcomes.some((outcome) => outcome.status === "failed")) {
     process.exit(1);
+  }
+}
+
+async function captureProjectionFailure<T>(
+  outcomes: ProjectionOutcome[],
+  targetId: SyncTargetId,
+  path: string,
+  operation: () => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await operation();
+  } catch (error) {
+    outcomes.push({
+      targetId,
+      path,
+      status: "failed",
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return null;
   }
 }

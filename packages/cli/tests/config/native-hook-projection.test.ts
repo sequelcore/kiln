@@ -32,6 +32,19 @@ describe("syncNativeHookProjections", () => {
     expect(content).toContain("Kiln autoformat hook");
   });
 
+  it("plans source and destination files without mutating the filesystem", async () => {
+    const result = await syncNativeHookProjections(projectPath, kilnDir, { dryRun: true });
+
+    expect(existsSync(join(kilnDir, "hooks", "autoformat.sh"))).toBe(false);
+    expect(existsSync(join(projectPath, ".claude"))).toBe(false);
+    expect(existsSync(join(kilnDir, "install-state.json"))).toBe(false);
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "autoformat-hook-source", status: "planned" }),
+      expect.objectContaining({ targetId: "claude-autoformat-hook", status: "planned" }),
+      expect.objectContaining({ targetId: "claude-hook-settings", status: "planned" }),
+    ]));
+  });
+
   it("uses existing hook content", async () => {
     const customContent = "#!/bin/sh\necho 'custom hook'\n";
     const sourcePath = join(kilnDir, "hooks", "autoformat.sh");
@@ -90,8 +103,13 @@ describe("syncNativeHookProjections", () => {
 
       expect(second.claudeHook).toBe(false);
       expect(second.errors).toEqual([
-        "Claude Code: managed file drift detected: $file",
+        "Claude Code: managed file drift detected: file content",
       ]);
+      expect(second.outcomes).toContainEqual(expect.objectContaining({
+        targetId: "claude-autoformat-hook",
+        status: "blocked",
+        reason: "managed drift detected: file content",
+      }));
       expect(readFileSync(hookPath, "utf-8")).toContain("user drift");
 
       const settings = JSON.parse(
