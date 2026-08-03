@@ -47,8 +47,13 @@ export class CodexProviderUsageReader {
       return unavailable;
     }
 
+    // Only the exchange itself is guarded here. Interpreting the answer is
+    // guarded separately below, so a Kiln parsing defect or a provider contract
+    // change is never reported as an unreachable provider.
+    let response: Response;
+    let body: unknown;
     try {
-      const response = await (this.config.fetch ?? globalThis.fetch)("https://chatgpt.com/backend-api/wham/usage", {
+      response = await (this.config.fetch ?? globalThis.fetch)("https://chatgpt.com/backend-api/wham/usage", {
         method: "GET",
         headers: {
           authorization: `Bearer ${credential.accessToken}`,
@@ -56,10 +61,17 @@ export class CodexProviderUsageReader {
           accept: "application/json",
         },
       });
-      let body: unknown;
       if (response.ok) {
         try { body = await response.json(); } catch { body = undefined; }
       }
+    } catch {
+      // No response was received, so no status exists to report.
+      snapshot = this.unobserved(input, observedAt, validUntil, "provider-request-failed");
+      await this.config.store.put(snapshot);
+      return snapshot;
+    }
+
+    try {
       snapshot = parseCodexProviderUsage({
         provider: input.provider,
         credentialId: input.credentialId,
@@ -72,8 +84,13 @@ export class CodexProviderUsageReader {
         ...(response.ok ? {} : { failure: { httpStatus: response.status } }),
       });
     } catch {
-      // No response was received, so no status exists to report.
-      snapshot = this.unobserved(input, observedAt, validUntil, "provider-request-failed");
+      snapshot = this.unobserved(
+        input,
+        observedAt,
+        validUntil,
+        "provider-response-unusable",
+        response.status,
+      );
     }
     await this.config.store.put(snapshot);
     return snapshot;
@@ -84,7 +101,8 @@ export class CodexProviderUsageReader {
     input: ReadCodexProviderUsageInput,
     observedAt: Date,
     validUntil: Date,
-    source: "provider-request-failed" | "credential-unavailable",
+    source: "provider-request-failed" | "credential-unavailable" | "provider-response-unusable",
+    httpStatus?: number,
   ): ProviderUsageSnapshot {
     return createProviderUsageSnapshot({
       provider: input.provider,
@@ -95,6 +113,7 @@ export class CodexProviderUsageReader {
       validUntil: validUntil.toISOString(),
       source,
       confidence: "unknown",
+      ...(httpStatus === undefined ? {} : { httpStatus }),
     });
   }
 }

@@ -122,10 +122,12 @@ function parseCredits(value: unknown, provider: string): ProviderUsageCredits | 
     ? null
     : parseExactAmount(value.balance, "credit", provider);
   if (value.balance !== null && value.balance !== undefined && balance === null) return undefined;
-  return {
-    status: value.unlimited ? "unlimited" : value.has_credits ? "available" : "unavailable",
-    balance,
-  };
+  const status = value.unlimited ? "unlimited" : value.has_credits ? "available" : "unavailable";
+  // Codex reports a residual balance alongside `has_credits: false`. The
+  // availability flag is authoritative, and the sanitized contract requires no
+  // balance once credits are unavailable, so the residual figure is dropped
+  // rather than carried as contradictory evidence.
+  return { status, balance: status === "unavailable" ? null : balance };
 }
 
 function parseSpendControl(value: unknown): ProviderUsageSpendControl | undefined {

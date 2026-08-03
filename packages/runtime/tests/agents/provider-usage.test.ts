@@ -153,6 +153,36 @@ describe("Codex provider usage adapter", () => {
       expect(snapshot.httpStatus).toBeUndefined();
     });
 
+    it("reports an uninterpretable response as unusable, never as unreachable", async () => {
+      vi.resetModules();
+      vi.doMock("../../src/agents/provider-usage/codex-provider-usage.js", () => ({
+        parseCodexProviderUsage: () => { throw new TypeError("contract drift"); },
+      }));
+      const { CodexProviderUsageReader: Reader } = await import(
+        "../../src/agents/provider-usage/codex-provider-usage-reader.js"
+      );
+
+      const snapshot = await new Reader({
+        fetch: async () => new Response("{}", { status: 200 }),
+        store: new InMemoryProviderUsageStore(),
+        now: () => new Date(OBSERVED_AT),
+      }).read({
+        provider: "codex-oauth",
+        credentialId: credential.credentialId,
+        resolveCredential: async () => credential,
+      });
+
+      expect(snapshot).toMatchObject({
+        availability: "unknown",
+        source: "provider-response-unusable",
+        confidence: "unknown",
+        httpStatus: 200,
+      });
+      expect(JSON.stringify(snapshot)).not.toContain("contract drift");
+      vi.doUnmock("../../src/agents/provider-usage/codex-provider-usage.js");
+      vi.resetModules();
+    });
+
     it("separates an unusable credential from a failed request", async () => {
       const snapshot = await reader(async () => new Response("{}", { status: 200 })).read({
         provider: "codex-oauth",
@@ -186,6 +216,28 @@ describe("Codex provider usage adapter", () => {
       });
     });
 
+  });
+
+  it("keeps a depleted credit balance interpretable", () => {
+    // Codex reports a residual balance alongside `has_credits: false`. The
+    // sanitized contract forbids a balance once credits are unavailable, so
+    // constructing one made the whole snapshot unparseable.
+    const snapshot = parseCodexProviderUsage({
+      provider: "codex-oauth",
+      credentialId: "credential-opaque-depleted",
+      observedAt: OBSERVED_AT,
+      validUntil: VALID_UNTIL,
+      body: {
+        rate_limit: { allowed: true, limit_reached: false },
+        credits: { has_credits: false, unlimited: false, balance: "0" },
+      },
+    });
+
+    expect(snapshot).toMatchObject({
+      availability: "available",
+      source: "provider-endpoint",
+      credits: { status: "unavailable", balance: null },
+    });
   });
 
   it("preserves provider exhaustion classification without raw payload details", () => {

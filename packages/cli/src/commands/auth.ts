@@ -154,6 +154,9 @@ async function runCodexStatus(rest: string[]): Promise<void> {
 function describeUsageCause(usage: ProviderUsageSnapshot): string {
   if (usage.availability !== "unknown") return "";
   if (usage.source === "credential-unavailable") return " (credential unusable: re-authenticate)";
+  if (usage.source === "provider-response-unusable") {
+    return ` (provider response could not be interpreted${usage.httpStatus === undefined ? "" : `: HTTP ${usage.httpStatus}`})`;
+  }
   if (usage.source === "provider-request-failed") {
     return usage.httpStatus === undefined
       ? " (usage request failed: no response)"

@@ -9,16 +9,20 @@ import {
 export type ProviderUsageAvailability = "available" | "exhausted" | "unknown";
 /**
  * `unknown` means the provider answered without usable usage evidence.
- * `provider-request-failed` and `credential-unavailable` both mean Kiln never
- * obtained an answer, so absent usage must not be read as absent consumption.
- * They are distinct because they demand different operator action:
- * re-authenticate the credential, or investigate reachability.
+ * The remaining values all mean usage was not observed, which never means it
+ * was not consumed. They stay distinct because each demands different action:
+ * `credential-unavailable` asks the operator to re-authenticate,
+ * `provider-request-failed` to investigate reachability, and
+ * `provider-response-unusable` signals that the provider answered with data
+ * Kiln could not interpret, which is a Kiln defect or a provider contract
+ * change rather than anything the operator can resolve.
  */
 export type ProviderUsageSource =
   | "provider-endpoint"
   | "provider-response-headers"
   | "provider-request-failed"
   | "credential-unavailable"
+  | "provider-response-unusable"
   | "unknown";
 export type ProviderUsageConfidence = "authoritative" | "unknown";
 
@@ -62,6 +66,7 @@ const SOURCES: readonly ProviderUsageSource[] = [
   "provider-response-headers",
   "provider-request-failed",
   "credential-unavailable",
+  "provider-response-unusable",
   "unknown",
 ];
 const CONFIDENCES: readonly ProviderUsageConfidence[] = ["authoritative", "unknown"];
